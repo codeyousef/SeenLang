@@ -1113,6 +1113,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             // Track struct type names for field access
             if let IRType::Struct { name, .. } = &param.param_type {
                 self.var_struct_types.insert(param.name.clone(), name.clone());
+                if param.name == "this" || param.name == "self" {
+                    eprintln!("DEBUG: define_function '{}': param '{}' has struct type '{}'", func.name, param.name, name);
+                }
+            } else if param.name == "this" || param.name == "self" {
+                eprintln!("DEBUG: define_function '{}': param '{}' has NON-struct type {:?}", func.name, param.name, param.param_type);
             }
             // Also track struct types behind references/pointers
             if let IRType::Pointer(inner) | IRType::Reference(inner) = &param.param_type {

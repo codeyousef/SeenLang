@@ -645,7 +645,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         // Try to determine the struct type from the variable name or register
         let struct_type_name = match struct_val {
             IRValue::Variable(var_name) => {
-                self.var_struct_types.get(var_name).cloned()
+                let result = self.var_struct_types.get(var_name).cloned();
+                if result.is_none() && (var_name == "this" || var_name == "self") {
+                    eprintln!("DEBUG FieldSet: '{}' not found in var_struct_types (setting field '{}'). Available: {:?}", var_name, field, self.var_struct_types.keys().collect::<Vec<_>>());
+                    eprintln!("DEBUG FieldSet: var_slots available: {:?}", self.var_slots.keys().collect::<Vec<_>>());
+                }
+                result
             }
             IRValue::Register(reg_id) => {
                 self.reg_struct_types.get(reg_id).cloned()

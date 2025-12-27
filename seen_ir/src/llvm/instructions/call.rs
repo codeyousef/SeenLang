@@ -214,57 +214,424 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 "Option_unwrapOr" | "unwrapOr" => {
-                    // Option.unwrapOr(default) returns the value or the default
-                    // For now, just return the default value
-                    if let Some(default_arg) = args.get(1).or(args.get(0)) {
+                    // Option.unwrapOr(default) returns the value if Some, otherwise the default
+                    // In Seen, Option<T> is represented as { bool is_some, T value }
+                    // We need to return the inner value if is_some, else the default
+                    if args.len() >= 2 {
+                        let opt_val = self.eval_value(&args[0], fn_map)?;
+                        let default_val = self.eval_value(&args[1], fn_map)?;
+                        
+                        let result_val = if opt_val.is_struct_value() {
+                            let sv = opt_val.into_struct_value();
+                            let is_some = self.builder.build_extract_value(sv, 0, "is_some")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.bool_t.const_zero());
+                            
+                            // Extract inner value - ensure type matches default
+                            let inner_val = self.builder.build_extract_value(sv, 1, "inner_val")
+                                .ok();
+                            
+                            if let Some(inner) = inner_val {
+                                // Types must match for select - if they do, use select
+                                if inner.get_type() == default_val.get_type() {
+                                    self.builder.build_select(is_some, inner, default_val, "unwrap_or_result")?
+                                } else {
+                                    // Type mismatch - need to cast or use conditional blocks
+                                    // For now, if is_some use inner, else use default via phi
+                                    let current_fn = self.builder.get_insert_block()
+                                        .and_then(|b| b.get_parent())
+                                        .ok_or_else(|| anyhow!("No current function"))?;
+                                    
+                                    let then_block = self.ctx.append_basic_block(current_fn, "unwrap_some");
+                                    let else_block = self.ctx.append_basic_block(current_fn, "unwrap_none");
+                                    let merge_block = self.ctx.append_basic_block(current_fn, "unwrap_merge");
+                                    
+                                    self.builder.build_conditional_branch(is_some, then_block, else_block)?;
+                                    
+                                    // Then block - return inner as pointer (generic)
+                                    self.builder.position_at_end(then_block);
+                                    let inner_as_ptr = if inner.is_pointer_value() {
+                                        inner.into_pointer_value()
+                                    } else if inner.is_int_value() {
+                                        self.builder.build_int_to_ptr(inner.into_int_value(), self.i8_ptr_t, "inner_ptr")?
+                                    } else {
+                                        self.i8_ptr_t.const_null()
+                                    };
+                                    self.builder.build_unconditional_branch(merge_block)?;
+                                    let then_block_end = self.builder.get_insert_block().unwrap();
+                                    
+                                    // Else block - return default as pointer
+                                    self.builder.position_at_end(else_block);
+                                    let default_as_ptr = if default_val.is_pointer_value() {
+                                        default_val.into_pointer_value()
+                                    } else if default_val.is_int_value() {
+                                        self.builder.build_int_to_ptr(default_val.into_int_value(), self.i8_ptr_t, "default_ptr")?
+                                    } else {
+                                        self.i8_ptr_t.const_null()
+                                    };
+                                    self.builder.build_unconditional_branch(merge_block)?;
+                                    let else_block_end = self.builder.get_insert_block().unwrap();
+                                    
+                                    // Merge with phi
+                                    self.builder.position_at_end(merge_block);
+                                    let phi = self.builder.build_phi(self.i8_ptr_t, "unwrap_result")?;
+                                    phi.add_incoming(&[(&inner_as_ptr, then_block_end), (&default_as_ptr, else_block_end)]);
+                                    phi.as_basic_value()
+                                }
+                            } else {
+                                // Couldn't extract inner - return default
+                                default_val
+                            }
+                        } else if opt_val.is_pointer_value() {
+                            // Pointer to Option struct - load is_some field and branch
+                            let ptr = opt_val.into_pointer_value();
+                            let is_some = self.builder.build_load(self.bool_t, ptr, "is_some")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.bool_t.const_zero());
+                            
+                            // For pointer types, if is_some return the pointer (it contains value), else default
+                            if opt_val.get_type() == default_val.get_type() {
+                                self.builder.build_select(is_some, opt_val.as_basic_value_enum(), default_val, "unwrap_or_result")?
+                            } else {
+                                // Return default directly if types mismatch
+                                default_val
+                            }
+                        } else {
+                            // Unknown type - return default
+                            default_val
+                        };
+                        
+                        if let Some(r) = result {
+                            self.assign_value(r, result_val)?;
+                        }
+                    } else if let Some(default_arg) = args.get(0) {
+                        // Single argument - just return it as the default
                         let default_val = self.eval_value(default_arg, fn_map)?;
                         if let Some(r) = result {
                             self.assign_value(r, default_val)?;
                         }
                     } else if let Some(r) = result {
-                        self.assign_value(r, self.i8_ptr_t.const_null().as_basic_value_enum())?;
+                        self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
                     }
                     return Ok(());
                 }
                 // Handle Type_toString methods (enum/struct toString)
                 name if name.ends_with("_toString") => {
-                    // For enum/struct toString, convert the value to a string representation
+                    // Extract type name (e.g., "TokenType" from "TokenType_toString")
+                    let type_name = &name[..name.len() - "_toString".len()];
+                    
                     if let Some(arg) = args.get(0) {
                         let val = self.eval_value(arg, fn_map)?;
+                        
+                        // Check if this is a known enum type with variants
+                        if let Some(variants) = self.enum_types.get(type_name).cloned() {
+                            // Enum toString - build a switch on the tag to return variant name
+                            if val.is_int_value() {
+                                let tag = val.into_int_value();
+                                
+                                // Create string globals for each variant name
+                                let current_fn = self.builder.get_insert_block()
+                                    .and_then(|b| b.get_parent())
+                                    .ok_or_else(|| anyhow!("No current function"))?;
+                                
+                                let merge_block = self.ctx.append_basic_block(current_fn, "tostring_merge");
+                                
+                                // Build switch with variant name strings
+                                let mut cases = Vec::new();
+                                let mut variant_strings = Vec::new();
+                                
+                                for (i, variant) in variants.iter().enumerate() {
+                                    let variant_block = self.ctx.append_basic_block(current_fn, &format!("variant_{}", i));
+                                    cases.push((self.i64_t.const_int(i as u64, false), variant_block));
+                                    
+                                    // Create string for this variant
+                                    let variant_str = self.builder.build_global_string_ptr(variant, &format!("enum_str_{}", i))?;
+                                    variant_strings.push((variant_block, variant_str.as_pointer_value()));
+                                }
+                                
+                                // Default case returns the type name
+                                let default_block = self.ctx.append_basic_block(current_fn, "default_variant");
+                                let default_str = self.builder.build_global_string_ptr(type_name, "enum_default_str")?;
+                                
+                                self.builder.build_switch(tag, default_block, &cases)?;
+                                
+                                // Build each variant block to jump to merge
+                                for (block, _str_ptr) in &variant_strings {
+                                    self.builder.position_at_end(*block);
+                                    self.builder.build_unconditional_branch(merge_block)?;
+                                }
+                                
+                                // Default block
+                                self.builder.position_at_end(default_block);
+                                self.builder.build_unconditional_branch(merge_block)?;
+                                
+                                // Merge block with phi node
+                                self.builder.position_at_end(merge_block);
+                                let phi = self.builder.build_phi(self.i8_ptr_t, "variant_str")?;
+                                
+                                for (block, str_ptr) in &variant_strings {
+                                    phi.add_incoming(&[(str_ptr, *block)]);
+                                }
+                                phi.add_incoming(&[(&default_str.as_pointer_value(), default_block)]);
+                                
+                                if let Some(r) = result {
+                                    self.assign_value(r, phi.as_basic_value())?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                        
+                        // Fallback: convert value to string representation
                         let str_val = if val.is_int_value() {
-                            // Convert integer (enum tag) to string
+                            // Convert integer (enum tag) to string number
                             let func = self.ensure_int_to_string_fn();
-                            let call = self.builder.build_call(func, &[val.into()], "enum2s")?;
-                            call.try_as_basic_value().left().unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum())
+                            let call = self.builder.build_call(func, &[val.into()], "int2s")?;
+                            call.try_as_basic_value().left().unwrap_or_else(|| {
+                                // Return type name as fallback
+                                self.builder.build_global_string_ptr(type_name, "type_str")
+                                    .map(|g| g.as_pointer_value().as_basic_value_enum())
+                                    .unwrap_or_else(|_| self.i8_ptr_t.const_null().as_basic_value_enum())
+                            })
                         } else if val.is_pointer_value() {
-                            // Assume it's already a string or return type name
+                            // Assume it's already a string
                             val
+                        } else if val.is_struct_value() {
+                            // Struct toString - return type name
+                            self.builder.build_global_string_ptr(type_name, "struct_type_str")
+                                .map(|g| g.as_pointer_value().as_basic_value_enum())
+                                .unwrap_or_else(|_| self.i8_ptr_t.const_null().as_basic_value_enum())
                         } else {
-                            // Return empty string
-                            self.i8_ptr_t.const_null().as_basic_value_enum()
+                            // Return type name as fallback
+                            self.builder.build_global_string_ptr(type_name, "fallback_type_str")
+                                .map(|g| g.as_pointer_value().as_basic_value_enum())
+                                .unwrap_or_else(|_| self.i8_ptr_t.const_null().as_basic_value_enum())
                         };
                         
                         if let Some(r) = result {
                             self.assign_value(r, str_val)?;
                         }
                     } else if let Some(r) = result {
-                        self.assign_value(r, self.i8_ptr_t.const_null().as_basic_value_enum())?;
+                        // No argument - return type name
+                        let type_str = self.builder.build_global_string_ptr(type_name, "type_name_str")
+                            .map(|g| g.as_pointer_value().as_basic_value_enum())
+                            .unwrap_or_else(|_| self.i8_ptr_t.const_null().as_basic_value_enum());
+                        self.assign_value(r, type_str)?;
                     }
                     return Ok(());
                 }
-                // Handle super() calls - treat as no-op for now
+                // Handle super() calls - pass through the this pointer for simple inheritance
                 "super" => {
-                    // Base class constructor call - treat as no-op for simple bootstrap
-                    if let Some(r) = result {
-                        self.assign_value(r, self.i8_ptr_t.const_null().as_basic_value_enum())?;
+                    // Base class constructor call - in Seen's simple class model,
+                    // super() initializes base fields. Pass through 'this' if provided.
+                    if let Some(arg) = args.get(0) {
+                        let this_val = self.eval_value(arg, fn_map)?;
+                        if let Some(r) = result {
+                            self.assign_value(r, this_val)?;
+                        }
+                    } else if let Some(r) = result {
+                        // No this pointer - return zero (void/unit)
+                        self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
                     }
                     return Ok(());
                 }
-                // Handle T_* generic method calls
-                name if name.starts_with("T_") => {
-                    // Generic type parameter methods - return default value
+                // Handle T_* generic method calls by resolving to concrete File type
+                // In Seen, T is typically File when used with Result<T, E> in I/O operations
+                "T_readToString" => {
+                    // T.readToString() on a File - forward to File.readToString
+                    let file_methods = ["File.readToString", "File_readToString"];
+                    for method_name in &file_methods {
+                        if let Some(func) = fn_map.get(*method_name).copied()
+                            .or_else(|| self.module.get_function(method_name)) {
+                            let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
+                            for arg in args {
+                                let val = self.eval_value(arg, fn_map)?;
+                                call_args.push(val.into());
+                            }
+                            let call = self.builder.build_call(func, &call_args, "file_read")?;
+                            if let Some(r) = result {
+                                if let Some(val) = call.try_as_basic_value().left() {
+                                    self.assign_value(r, val)?;
+                                }
+                            }
+                            return Ok(());
+                        }
+                    }
+                    // Fallback: call __ReadFile runtime intrinsic directly
+                    if let Some(arg) = args.get(0) {
+                        let file_val = self.eval_value(arg, fn_map)?;
+                        // Extract fd from File struct (field 0)
+                        let fd = if file_val.is_struct_value() {
+                            self.builder.build_extract_value(file_val.into_struct_value(), 0, "fd")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.i64_t.const_zero())
+                        } else if file_val.is_int_value() {
+                            file_val.into_int_value()
+                        } else {
+                            // Pointer to File - load fd
+                            let ptr = if file_val.is_pointer_value() {
+                                file_val.into_pointer_value()
+                            } else {
+                                self.builder.build_int_to_ptr(file_val.into_int_value(), self.i8_ptr_t, "file_ptr")?
+                            };
+                            self.builder.build_load(self.i64_t, ptr, "fd")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.i64_t.const_zero())
+                        };
+                        // Call __ReadFile(fd)
+                        if let Some(read_fn) = self.module.get_function("__ReadFile") {
+                            let call = self.builder.build_call(read_fn, &[fd.into()], "content")?;
+                            // Wrap in Result<String, String>
+                            let content = call.try_as_basic_value().left()
+                                .unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum());
+                            let result_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i8_ptr_t.into()], false);
+                            let mut ok_result = result_ty.get_undef();
+                            ok_result = self.builder.build_insert_value(ok_result, self.bool_t.const_int(1, false), 0, "is_ok")?.into_struct_value();
+                            ok_result = self.builder.build_insert_value(ok_result, content, 1, "value")?.into_struct_value();
+                            if let Some(r) = result {
+                                self.assign_value(r, ok_result.as_basic_value_enum())?;
+                            }
+                            return Ok(());
+                        }
+                    }
+                    // Last resort: return error result
                     if let Some(r) = result {
-                        self.assign_value(r, self.i8_ptr_t.const_null().as_basic_value_enum())?;
+                        let result_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i8_ptr_t.into()], false);
+                        let mut err = result_ty.get_undef();
+                        err = self.builder.build_insert_value(err, self.bool_t.const_zero(), 0, "is_ok")?.into_struct_value();
+                        let msg = self.builder.build_global_string_ptr("File read failed", "err")?;
+                        err = self.builder.build_insert_value(err, msg.as_pointer_value(), 1, "msg")?.into_struct_value();
+                        self.assign_value(r, err.as_basic_value_enum())?;
+                    }
+                    return Ok(());
+                }
+                "T_write" => {
+                    // T.write(content) on a File - forward to __WriteFile
+                    if args.len() >= 2 {
+                        let file_val = self.eval_value(&args[0], fn_map)?;
+                        let content_val = self.eval_value(&args[1], fn_map)?;
+                        // Extract fd from File struct
+                        let fd = if file_val.is_struct_value() {
+                            self.builder.build_extract_value(file_val.into_struct_value(), 0, "fd")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.i64_t.const_zero())
+                        } else if file_val.is_int_value() {
+                            file_val.into_int_value()
+                        } else {
+                            let ptr = if file_val.is_pointer_value() {
+                                file_val.into_pointer_value()
+                            } else {
+                                self.builder.build_int_to_ptr(file_val.into_int_value(), self.i8_ptr_t, "file_ptr")?
+                            };
+                            self.builder.build_load(self.i64_t, ptr, "fd")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.i64_t.const_zero())
+                        };
+                        // Call __WriteFile(fd, content)
+                        if let Some(write_fn) = self.module.get_function("__WriteFile") {
+                            let call = self.builder.build_call(write_fn, &[fd.into(), content_val.into()], "written")?;
+                            let written = call.try_as_basic_value().left()
+                                .unwrap_or_else(|| self.i64_t.const_int(u64::MAX, true).as_basic_value_enum());
+                            // Wrap in Result<Int, String>
+                            let result_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i64_t.into()], false);
+                            let mut ok_result = result_ty.get_undef();
+                            ok_result = self.builder.build_insert_value(ok_result, self.bool_t.const_int(1, false), 0, "is_ok")?.into_struct_value();
+                            ok_result = self.builder.build_insert_value(ok_result, written, 1, "value")?.into_struct_value();
+                            if let Some(r) = result {
+                                self.assign_value(r, ok_result.as_basic_value_enum())?;
+                            }
+                            return Ok(());
+                        }
+                    }
+                    // Return error result
+                    if let Some(r) = result {
+                        let result_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i64_t.into()], false);
+                        let mut err = result_ty.get_undef();
+                        err = self.builder.build_insert_value(err, self.bool_t.const_zero(), 0, "is_ok")?.into_struct_value();
+                        err = self.builder.build_insert_value(err, self.i64_t.const_int(u64::MAX, true), 1, "val")?.into_struct_value();
+                        self.assign_value(r, err.as_basic_value_enum())?;
+                    }
+                    return Ok(());
+                }
+                "T_close" => {
+                    // T.close() on a File - forward to __CloseFile
+                    if let Some(arg) = args.get(0) {
+                        let file_val = self.eval_value(arg, fn_map)?;
+                        // Extract fd from File struct
+                        let fd = if file_val.is_struct_value() {
+                            self.builder.build_extract_value(file_val.into_struct_value(), 0, "fd")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.i64_t.const_zero())
+                        } else if file_val.is_int_value() {
+                            file_val.into_int_value()
+                        } else {
+                            let ptr = if file_val.is_pointer_value() {
+                                file_val.into_pointer_value()
+                            } else {
+                                self.builder.build_int_to_ptr(file_val.into_int_value(), self.i8_ptr_t, "file_ptr")?
+                            };
+                            self.builder.build_load(self.i64_t, ptr, "fd")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.i64_t.const_zero())
+                        };
+                        // Call __CloseFile(fd)
+                        if let Some(close_fn) = self.module.get_function("__CloseFile") {
+                            let call = self.builder.build_call(close_fn, &[fd.into()], "close_result")?;
+                            let close_result = call.try_as_basic_value().left()
+                                .unwrap_or_else(|| self.i64_t.const_zero().as_basic_value_enum());
+                            // Wrap in Result<Int, String>
+                            let result_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i64_t.into()], false);
+                            let mut ok_result = result_ty.get_undef();
+                            ok_result = self.builder.build_insert_value(ok_result, self.bool_t.const_int(1, false), 0, "is_ok")?.into_struct_value();
+                            ok_result = self.builder.build_insert_value(ok_result, close_result, 1, "value")?.into_struct_value();
+                            if let Some(r) = result {
+                                self.assign_value(r, ok_result.as_basic_value_enum())?;
+                            }
+                            return Ok(());
+                        }
+                    }
+                    // Return success (close is often optional)
+                    if let Some(r) = result {
+                        let result_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i64_t.into()], false);
+                        let mut ok = result_ty.get_undef();
+                        ok = self.builder.build_insert_value(ok, self.bool_t.const_int(1, false), 0, "is_ok")?.into_struct_value();
+                        ok = self.builder.build_insert_value(ok, self.i64_t.const_zero(), 1, "val")?.into_struct_value();
+                        self.assign_value(r, ok.as_basic_value_enum())?;
+                    }
+                    return Ok(());
+                }
+                // Handle any other T_* generic method calls
+                name if name.starts_with("T_") => {
+                    // Try to find a concrete implementation by checking common types
+                    let method_name = &name[2..]; // Strip "T_" prefix
+                    let concrete_types = ["File", "String", "Vec", "Map", "Result", "Option"];
+                    
+                    for concrete_type in concrete_types {
+                        let underscore_name = format!("{}_{}", concrete_type, method_name);
+                        let dot_name = format!("{}.{}", concrete_type, method_name);
+                        
+                        if let Some(func) = fn_map.get(&underscore_name).copied()
+                            .or_else(|| fn_map.get(&dot_name).copied())
+                            .or_else(|| self.module.get_function(&underscore_name))
+                            .or_else(|| self.module.get_function(&dot_name)) {
+                            let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
+                            for arg in args {
+                                let val = self.eval_value(arg, fn_map)?;
+                                call_args.push(val.into());
+                            }
+                            let call = self.builder.build_call(func, &call_args, "generic_call")?;
+                            if let Some(r) = result {
+                                if let Some(val) = call.try_as_basic_value().left() {
+                                    self.assign_value(r, val)?;
+                                }
+                            }
+                            return Ok(());
+                        }
+                    }
+                    
+                    // No concrete implementation found - return zero as fallback
+                    eprintln!("WARNING: No concrete implementation found for generic method '{}'", name);
+                    if let Some(r) = result {
+                        self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
                     }
                     return Ok(());
                 }

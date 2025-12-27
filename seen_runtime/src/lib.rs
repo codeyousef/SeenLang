@@ -12,7 +12,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Read, Write, stdout, stderr};
 use std::path::Path;
 
 const STATUS_RECEIVED: i64 = 0;
@@ -199,6 +199,14 @@ pub extern "C" fn __ReadFileFromPath(path: SeenString) -> SeenString {
 pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
     let path_str = path.to_str();
     let mode_str = mode.to_str();
+
+    // Fast-path standard streams without going through the FILE_MAP
+    match path_str {
+        "/dev/stdout" => return 1,
+        "/dev/stderr" => return 2,
+        "/dev/stdin" => return 0,
+        _ => {}
+    }
     
     let file_res = match mode_str {
         "r" => fs::File::open(path_str),
@@ -220,6 +228,11 @@ pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __CloseFile(fd: i64) -> i64 {
+    // Do not attempt to close standard streams
+    if fd >= 0 && fd < 3 {
+        return 0;
+    }
+
     if get_file_map().lock().unwrap().remove(&fd).is_some() {
         clear_file_error(fd);
         0
@@ -231,6 +244,26 @@ pub extern "C" fn __CloseFile(fd: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __WriteFile(fd: i64, content: SeenString) -> i64 {
+    // Handle standard streams directly
+    if fd == 1 || fd == 2 {
+        let bytes = unsafe { slice::from_raw_parts(content.data, content.len as usize) };
+        let io_res = if fd == 1 {
+            stdout().write_all(bytes)
+        } else {
+            stderr().write_all(bytes)
+        };
+        return match io_res {
+            Ok(_) => {
+                clear_file_error(fd);
+                content.len
+            }
+            Err(e) => {
+                set_file_error(fd, format!("write failed: {}", e));
+                -1
+            }
+        };
+    }
+
     let mut map = get_file_map().lock().unwrap();
     if let Some(file) = map.get_mut(&fd) {
         let bytes = unsafe { slice::from_raw_parts(content.data, content.len as usize) };

@@ -54,7 +54,9 @@ impl IRGenerator {
             "String" => IRType::String,
             "Char" => IRType::Char,
             "()" => IRType::Void,
-            "Array" => {
+            // Array and List are treated as dynamic arrays
+            // NOTE: Vec is NOT included here because Vec<T> is a custom class with fields
+            "Array" | "List" => {
                 if let Some(element_ast_type) = ast_type.generics.first() {
                     let element_type = self.convert_ast_type_to_ir(element_ast_type);
                     IRType::Array(Box::new(element_type))

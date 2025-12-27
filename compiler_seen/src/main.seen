@@ -11,16 +11,14 @@ import env.env.{args}
 import collections.list_utils.{push}
 
 
+// NOTE: Use println directly to avoid runtime file descriptor quirks on /dev/stdout.
 fun stdoutWrite(text: String) r: Void {
-    let wrote: Bool = writeText("/dev/stdout", text)
-    if not wrote {
-        abort("Failed to write to stdout")
-    }
+    println(text)
     return
 }
 
 fun stdoutLine(text: String) r: Void {
-    stdoutWrite(text + "\n")
+    println(text)
     return
 }
 
