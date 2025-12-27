@@ -171,6 +171,61 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
+                "Result_isOk" | "isOk" => {
+                    // Result.isOk() checks if the result is Ok (success)
+                    // Result struct layout: { bool is_ok, i8* ok_value, i8* err_value }
+                    if let Some(arg) = args.get(0) {
+                        let val = self.eval_value(arg, fn_map)?;
+                        
+                        // If it's a struct, extract the is_ok field (field 0)
+                        let is_ok = if val.is_struct_value() {
+                            let sv = val.into_struct_value();
+                            self.builder.build_extract_value(sv, 0, "is_ok")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.bool_t.const_zero())
+                        } else if val.is_int_value() {
+                            // Bool value directly
+                            val.into_int_value()
+                        } else if val.is_pointer_value() {
+                            // Pointer to Result struct - load is_ok field
+                            let ptr = val.into_pointer_value();
+                            let is_ok_ptr = self.builder.build_struct_gep(
+                                self.bool_t,
+                                ptr,
+                                0,
+                                "is_ok_ptr"
+                            ).unwrap_or(ptr);
+                            self.builder.build_load(self.bool_t, is_ok_ptr, "is_ok")
+                                .map(|v| v.into_int_value())
+                                .unwrap_or_else(|_| self.bool_t.const_zero())
+                        } else {
+                            self.bool_t.const_zero()
+                        };
+                        
+                        if let Some(r) = result {
+                            self.assign_value(r, is_ok.as_basic_value_enum())?;
+                        }
+                    } else {
+                        // No argument - return false
+                        if let Some(r) = result {
+                            self.assign_value(r, self.bool_t.const_zero().as_basic_value_enum())?;
+                        }
+                    }
+                    return Ok(());
+                }
+                "Option_unwrapOr" | "unwrapOr" => {
+                    // Option.unwrapOr(default) returns the value or the default
+                    // For now, just return the default value
+                    if let Some(default_arg) = args.get(1).or(args.get(0)) {
+                        let default_val = self.eval_value(default_arg, fn_map)?;
+                        if let Some(r) = result {
+                            self.assign_value(r, default_val)?;
+                        }
+                    } else if let Some(r) = result {
+                        self.assign_value(r, self.i8_ptr_t.const_null().as_basic_value_enum())?;
+                    }
+                    return Ok(());
+                }
                 "__default" => {
                     // Return 0 (i64) as default value
                     if let Some(r) = result {
@@ -1275,6 +1330,32 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
+                "toString" | "__toString" | "Int_toString" | "Float_toString" | "Bool_toString" => {
+                    // Convert value to String
+                    if let Some(arg) = args.get(0) {
+                        let val = self.eval_value(arg, fn_map)?;
+                        let str_ptr = if val.is_int_value() {
+                            let func = self.ensure_int_to_string_fn();
+                            let call = self.builder.build_call(func, &[val.into()], "i2s")?;
+                            call.try_as_basic_value().left().unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum())
+                        } else if val.is_float_value() {
+                            let func = self.ensure_float_to_string_fn();
+                            let call = self.builder.build_call(func, &[val.into()], "f2s")?;
+                            call.try_as_basic_value().left().unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum())
+                        } else if val.is_pointer_value() {
+                            // Assume it's already a string
+                            val
+                        } else {
+                            // Default: return empty string
+                            self.i8_ptr_t.const_null().as_basic_value_enum()
+                        };
+                        
+                        if let Some(r) = result {
+                            self.assign_value(r, str_ptr)?;
+                        }
+                    }
+                    return Ok(());
+                }
                 "__ReadFile" => {
                     // FILE* f = fopen(path, "rb"); if !f return ""
                     let fnty = self.i8_ptr_t; // FILE* opaque as i8*
@@ -1755,7 +1836,10 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             None => {
                 // Try to auto-declare external runtime functions starting with __
                 if let IRValue::Variable(name) = target {
-                    if name.starts_with("__") {
+                    // First check if function already exists in module
+                    if let Some(existing) = self.module.get_function(name) {
+                        existing
+                    } else if name.starts_with("__") {
                         let func = self.auto_declare_runtime_function(name, args.len())?;
                         func
                     } else if name.ends_with("_getMessage") || name.ends_with("_toString") {
