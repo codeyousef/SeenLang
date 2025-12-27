@@ -547,44 +547,9 @@ impl IRGenerator {
                     // Use underscore format for actual function lookup
                     let target_name = format!("{}_{}", name, member);
                     
-                    let mut final_args = Vec::new();
-                    
-                    // For constructors (Type.new), allocate object first and pass as 'this'
-                    if member == "new" {
-                        // Check if this is a class type - clone to avoid borrow issues
-                        let type_def_opt = self.context.type_definitions.get(name).cloned();
-                        if let Some(IRType::Struct { name: struct_name, fields: ir_fields }) = type_def_opt {
-                            // Allocate the object first
-                            let obj_reg = self.context.allocate_register();
-                            let obj_val = IRValue::Register(obj_reg);
-                            
-                            // Generate default field values as args for ConstructObject
-                            let mut ctor_arg_values = Vec::new();
-                            for (_f_name, f_type) in &ir_fields {
-                                let dummy = match f_type {
-                                    IRType::Integer => IRValue::Integer(0),
-                                    IRType::Float => IRValue::Float(0.0),
-                                    IRType::Boolean => IRValue::Boolean(false),
-                                    IRType::String => IRValue::String("".to_string()),
-                                    IRType::Char => IRValue::Char('\0'),
-                                    _ => IRValue::Null,
-                                };
-                                ctor_arg_values.push(dummy);
-                            }
-                            
-                            instructions.push(Instruction::ConstructObject {
-                                class_name: struct_name.clone(),
-                                args: ctor_arg_values,
-                                result: obj_val.clone(),
-                            });
-                            
-                            // Pass allocated object as first argument ('this')
-                            final_args.push(obj_val);
-                        }
-                    }
-                    
-                    // Add user-provided arguments
-                    final_args.extend(arg_values);
+                    // For static methods like Type.new(), just pass user arguments
+                    // The method itself handles any allocation internally
+                    let final_args = arg_values;
                     
                     let result_reg = self.context.allocate_register();
                     // Look up return type (try both formats)
@@ -668,15 +633,9 @@ impl IRGenerator {
 
             let result_reg = self.context.allocate_register();
             
-            // Determine the mangled function name (TypeName_methodName)
-            let mangled_name = if let Some(ref type_name) = obj_type_name {
-                format!("{}_{}", type_name, member)
-            } else {
-                member.clone()
-            };
-            
-            // Look up method return type if we know the receiver's type
-            if let Some(ref type_name) = obj_type_name {
+            // Determine the function name - check both underscore and dot naming conventions
+            // Functions defined as `Type.method()` need to be called by that name
+            let (mangled_name, _ret_type_found) = if let Some(ref type_name) = obj_type_name {
                 let underscore_name = format!("{}_{}", type_name, member);
                 let dot_name = format!("{}.{}", type_name, member);
                 if member == "getType" || member == "toString" {
@@ -685,14 +644,33 @@ impl IRGenerator {
                         self.context.function_return_types.contains_key(&underscore_name),
                         self.context.function_return_types.contains_key(&dot_name));
                 }
-                if let Some(ret_type) = self.context.function_return_types.get(&underscore_name).cloned()
-                    .or_else(|| self.context.function_return_types.get(&dot_name).cloned()) {
+                // Prefer underscore naming (class methods) over dot naming (standalone functions)
+                // but use whichever exists
+                if self.context.function_return_types.contains_key(&underscore_name) {
+                    let ret_type = self.context.function_return_types.get(&underscore_name).cloned();
                     if member == "getType" || member == "toString" {
                         eprintln!("DEBUG: method call '{}' ret_type = {:?}", member, ret_type);
                     }
-                    self.context.set_register_type(result_reg, ret_type);
+                    if let Some(ret_type) = ret_type {
+                        self.context.set_register_type(result_reg, ret_type);
+                    }
+                    (underscore_name, true)
+                } else if self.context.function_return_types.contains_key(&dot_name) {
+                    let ret_type = self.context.function_return_types.get(&dot_name).cloned();
+                    if member == "getType" || member == "toString" {
+                        eprintln!("DEBUG: method call '{}' ret_type = {:?}", member, ret_type);
+                    }
+                    if let Some(ret_type) = ret_type {
+                        self.context.set_register_type(result_reg, ret_type);
+                    }
+                    (dot_name, true)
+                } else {
+                    // Neither found, use underscore as default (will be looked up in fn_map later)
+                    (underscore_name, false)
                 }
-            }
+            } else {
+                (member.clone(), false)
+            };
             
             let result_value = IRValue::Register(result_reg);
             instructions.push(Instruction::Call {

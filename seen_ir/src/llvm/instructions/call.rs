@@ -2030,19 +2030,48 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 };
                 
                 if let Some(name) = func_name {
-                    if name.contains("getLocation") || name.contains("TypeError") {
-                        eprintln!("DEBUG: Call to '{}', fn_return_struct_types.get = {:?}, r = {:?}", 
-                            name, self.fn_return_struct_types.get(name), r);
+                    // Try both underscore and dot naming conventions
+                    // Calls use TypeName_method but definitions might use TypeName.method
+                    let alt_name = if name.contains('_') {
+                        // Convert underscore to dot: TypeName_method -> TypeName.method
+                        let parts: Vec<&str> = name.splitn(2, '_').collect();
+                        if parts.len() == 2 {
+                            Some(format!("{}.{}", parts[0], parts[1]))
+                        } else {
+                            None
+                        }
+                    } else if name.contains('.') {
+                        // Convert dot to underscore: TypeName.method -> TypeName_method
+                        let parts: Vec<&str> = name.splitn(2, '.').collect();
+                        if parts.len() == 2 {
+                            Some(format!("{}_{}", parts[0], parts[1]))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    
+                    // Try to find struct return type using both naming conventions
+                    let struct_name = self.fn_return_struct_types.get(name).cloned()
+                        .or_else(|| alt_name.as_ref().and_then(|alt| self.fn_return_struct_types.get(alt).cloned()));
+                    
+                    if name.contains("ImportSymbol") || name.contains("getLocation") || name.contains("TypeError") {
+                        eprintln!("DEBUG: Call to '{}', fn_return_struct_types.get = {:?}, alt_name = {:?}, r = {:?}", 
+                            name, self.fn_return_struct_types.get(name), alt_name.as_ref().and_then(|alt| self.fn_return_struct_types.get(alt)), r);
                     }
-                    if let Some(struct_name) = self.fn_return_struct_types.get(name) {
+                    
+                    if let Some(struct_name) = struct_name {
                         if let IRValue::Register(reg_id) = r {
                             eprintln!("DEBUG: Setting reg {} struct type to '{}' from call to '{}'", reg_id, struct_name, name);
                             self.reg_struct_types.insert(*reg_id, struct_name.clone());
                         }
                     }
                     
-                    // Propagate return array element struct type info
-                    if let Some(elem_struct) = self.fn_return_array_element_struct.get(name) {
+                    // Try to find array element struct return type using both naming conventions
+                    let elem_struct = self.fn_return_array_element_struct.get(name).cloned()
+                        .or_else(|| alt_name.as_ref().and_then(|alt| self.fn_return_array_element_struct.get(alt).cloned()));
+                    if let Some(elem_struct) = elem_struct {
                         if let IRValue::Register(reg_id) = r {
                             self.reg_array_element_struct.insert(*reg_id, elem_struct.clone());
                         }

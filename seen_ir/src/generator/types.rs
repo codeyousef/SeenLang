@@ -253,10 +253,18 @@ impl IRGenerator {
         self.context.current_type_definition = Some(name.to_string());
         
         for method in methods {
-            let is_constructor = method.is_static || method.name == "new";
+            let is_static = method.is_static;
+            // In Seen, 'new' methods are factory methods that allocate internally
+            // They should NOT receive a 'this' parameter - they create and return a new instance
+            let is_factory_constructor = method.name == "new";
             let mut effective_params: Vec<seen_parser::Parameter> = Vec::new();
             let mut receiver_name = "self".to_string();
-            if !is_constructor {
+            
+            if is_static || is_factory_constructor {
+                // Static methods and factory constructors: NO receiver parameter at all
+                // Just use the method's own parameters
+            } else {
+                // Instance methods: add receiver as first parameter
                 let recv_type = Type {
                     name: name.to_string(),
                     is_nullable: false,
@@ -274,36 +282,41 @@ impl IRGenerator {
                     memory_modifier: None,
                 };
                 effective_params.push(recv);
-            } else {
-                // For constructors, add 'this' as a hidden first parameter
-                // The caller will pass the newly allocated object
-                receiver_name = "this".to_string();
-                let recv_type = Type {
-                    name: name.to_string(),
-                    is_nullable: false,
-                    generics: vec![],
-                };
-                let recv = seen_parser::Parameter {
-                    name: receiver_name.clone(),
-                    type_annotation: Some(recv_type),
-                    default_value: None,
-                    memory_modifier: None,
-                };
-                effective_params.push(recv);
             }
             effective_params.extend(method.parameters.clone());
 
             // Set receiver name in context
             let old_receiver_name = self.context._current_receiver_name.clone();
-            self.context._current_receiver_name = Some(receiver_name);
+            self.context._current_receiver_name = Some(receiver_name.clone());
+            
+            // For factory constructors, set up 'this' as a local variable that will be allocated
+            // This allows constructors that use 'this.field = ...' syntax to work
+            if is_factory_constructor {
+                // Add 'this' to the context as a variable of the current type
+                let this_type = IRType::Struct {
+                    name: name.to_string(),
+                    fields: vec![], // Fields will be filled in elsewhere
+                };
+                self.context.set_variable_type("this".to_string(), this_type.clone());
+                self.context.set_variable_type("self".to_string(), this_type);
+            }
 
             let mangled_name = format!("{}_{}", name, method.name);
-            let function = self.generate_method_function(
+            let mut function = self.generate_method_function(
                 &mangled_name,
                 &effective_params,
                 &method.return_type,
                 &method.body,
             )?;
+            
+            // For factory constructors, add 'this' as a local variable
+            if is_factory_constructor {
+                let this_type = IRType::Struct {
+                    name: name.to_string(),
+                    fields: vec![], // Fields will be filled in by LLVM backend from type definitions
+                };
+                function.add_local(crate::function::LocalVariable::new("this", this_type));
+            }
 
             // Restore receiver name
             self.context._current_receiver_name = old_receiver_name;
