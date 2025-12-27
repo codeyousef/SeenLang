@@ -226,6 +226,48 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
+                // Handle Type_toString methods (enum/struct toString)
+                name if name.ends_with("_toString") => {
+                    // For enum/struct toString, convert the value to a string representation
+                    if let Some(arg) = args.get(0) {
+                        let val = self.eval_value(arg, fn_map)?;
+                        let str_val = if val.is_int_value() {
+                            // Convert integer (enum tag) to string
+                            let func = self.ensure_int_to_string_fn();
+                            let call = self.builder.build_call(func, &[val.into()], "enum2s")?;
+                            call.try_as_basic_value().left().unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum())
+                        } else if val.is_pointer_value() {
+                            // Assume it's already a string or return type name
+                            val
+                        } else {
+                            // Return empty string
+                            self.i8_ptr_t.const_null().as_basic_value_enum()
+                        };
+                        
+                        if let Some(r) = result {
+                            self.assign_value(r, str_val)?;
+                        }
+                    } else if let Some(r) = result {
+                        self.assign_value(r, self.i8_ptr_t.const_null().as_basic_value_enum())?;
+                    }
+                    return Ok(());
+                }
+                // Handle super() calls - treat as no-op for now
+                "super" => {
+                    // Base class constructor call - treat as no-op for simple bootstrap
+                    if let Some(r) = result {
+                        self.assign_value(r, self.i8_ptr_t.const_null().as_basic_value_enum())?;
+                    }
+                    return Ok(());
+                }
+                // Handle T_* generic method calls
+                name if name.starts_with("T_") => {
+                    // Generic type parameter methods - return default value
+                    if let Some(r) = result {
+                        self.assign_value(r, self.i8_ptr_t.const_null().as_basic_value_enum())?;
+                    }
+                    return Ok(());
+                }
                 "__default" => {
                     // Return 0 (i64) as default value
                     if let Some(r) = result {
