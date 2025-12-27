@@ -1693,11 +1693,62 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             return Ok(());
         }
 
-        // Normal call by name
-        let f_opt = match target {
-            IRValue::Variable(name) => fn_map.get(name).cloned(),
-            IRValue::Function { name, .. } => fn_map.get(name).cloned(),
-            _ => None,
+        // Normal call by name - try both underscore and dot naming conventions
+        let (f_opt, actual_name) = match target {
+            IRValue::Variable(name) => {
+                // First try exact name
+                if let Some(f) = fn_map.get(name).cloned() {
+                    (Some(f), name.clone())
+                } else {
+                    // Try alternate naming: Type_method <-> Type.method
+                    let alt_name = if name.contains('_') && !name.starts_with("__") {
+                        // Type_method -> Type.method
+                        if let Some(pos) = name.find('_') {
+                            let (type_part, method_part) = name.split_at(pos);
+                            format!("{}.{}", type_part, &method_part[1..])
+                        } else {
+                            name.clone()
+                        }
+                    } else if name.contains('.') {
+                        // Type.method -> Type_method
+                        name.replace('.', "_")
+                    } else {
+                        name.clone()
+                    };
+                    
+                    if let Some(f) = fn_map.get(&alt_name).cloned() {
+                        (Some(f), alt_name)
+                    } else {
+                        (None, name.clone())
+                    }
+                }
+            }
+            IRValue::Function { name, .. } => {
+                if let Some(f) = fn_map.get(name).cloned() {
+                    (Some(f), name.clone())
+                } else {
+                    // Try alternate naming
+                    let alt_name = if name.contains('_') && !name.starts_with("__") {
+                        if let Some(pos) = name.find('_') {
+                            let (type_part, method_part) = name.split_at(pos);
+                            format!("{}.{}", type_part, &method_part[1..])
+                        } else {
+                            name.clone()
+                        }
+                    } else if name.contains('.') {
+                        name.replace('.', "_")
+                    } else {
+                        name.clone()
+                    };
+                    
+                    if let Some(f) = fn_map.get(&alt_name).cloned() {
+                        (Some(f), alt_name)
+                    } else {
+                        (None, name.clone())
+                    }
+                }
+            }
+            _ => (None, String::new()),
         };
         let f = match f_opt {
             Some(func) => func,

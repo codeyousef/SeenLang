@@ -1,7 +1,7 @@
 //! IR generation from AST for the Seen programming language
 
 use crate::{
-    function::IRFunction,
+    function::{IRFunction, Parameter as IRParameter, CallingConvention},
     instruction::{Instruction, Label},
     module::IRModule,
     value::{IRType, IRValue},
@@ -186,8 +186,43 @@ impl IRGenerator {
                     return_type,
                     body,
                     receiver,
+                    is_external,
                     ..
                 } => {
+                    // Handle external function declarations
+                    if *is_external {
+                        // Create an extern function declaration (no body)
+                        let func_name = if let Some(recv) = receiver {
+                            format!("{}.{}", recv.type_name, name)
+                        } else {
+                            name.clone()
+                        };
+                        
+                        let ir_return_type = return_type
+                            .as_ref()
+                            .map(|t| self.convert_ast_type_to_ir(t))
+                            .unwrap_or(IRType::Void);
+                        
+                        let mut extern_func = IRFunction::new(&func_name, ir_return_type)
+                            .extern_function(CallingConvention::C);
+                        
+                        // Add parameters
+                        for param in params {
+                            let ir_param = IRParameter::new(
+                                param.name.clone(),
+                                param
+                                    .type_annotation
+                                    .as_ref()
+                                    .map(|t| self.convert_ast_type_to_ir(t))
+                                    .unwrap_or(IRType::Integer),
+                            );
+                            extern_func.add_parameter(ir_param);
+                        }
+                        
+                        module.add_function(extern_func);
+                        continue;
+                    }
+                    
                     if let Some(recv) = receiver {
                         let func_name = format!("{}.{}", recv.type_name, name);
                         let is_constructor = name == "new";
@@ -514,6 +549,44 @@ impl IRGenerator {
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let mut instructions = Vec::new();
         let mut arg_values = Vec::new();
+
+        // Handle Array<T>() constructor calls - these need to become __ArrayNew calls
+        if let Expression::Identifier { name, type_args, .. } = function {
+            if name == "Array" && arguments.is_empty() {
+                // Array<T>() constructor call - turn this into __ArrayNew(element_size, 0)
+                let result_reg = self.context.allocate_register();
+                
+                // Determine element size based on type_args
+                let element_size = if let Some(first_type) = type_args.first() {
+                    match first_type.name.as_str() {
+                        "Int" | "i64" => 8,
+                        "Float" | "f64" => 8,
+                        "Bool" => 1,
+                        "Char" => 4,
+                        "String" => 8, // pointer size
+                        _ => 8, // struct/pointer size default
+                    }
+                } else {
+                    8 // default element size
+                };
+                
+                let element_type = if let Some(first_type) = type_args.first() {
+                    self.convert_ast_type_to_ir(first_type)
+                } else {
+                    crate::value::IRType::Integer
+                };
+                
+                self.context.set_register_type(result_reg, crate::value::IRType::Array(Box::new(element_type)));
+                
+                let result_value = IRValue::Register(result_reg);
+                instructions.push(Instruction::Call {
+                    target: IRValue::Variable("__ArrayNew".to_string()),
+                    args: vec![IRValue::Integer(element_size), IRValue::Integer(0)],
+                    result: Some(result_value.clone()),
+                });
+                return Ok((result_value, instructions));
+            }
+        }
 
         // Generate IR for all arguments
         for arg in arguments {
