@@ -599,7 +599,7 @@ impl IRGenerator {
         if let Expression::MemberAccess { object, member, .. } = function {
             // Check for static method call (Type.method)
             // Heuristic: if object is an Identifier starting with Uppercase and NOT a known variable, treat as static call
-            if let Expression::Identifier { name, .. } = object.as_ref() {
+            if let Expression::Identifier { name, type_args, .. } = object.as_ref() {
                 let is_field = if let Some(recv_type) = &self.context._current_receiver_type {
                     if let crate::value::IRType::Struct { fields, .. } = recv_type {
                         fields.iter().any(|(f_name, _)| f_name == name)
@@ -630,6 +630,14 @@ impl IRGenerator {
                         .or_else(|| self.context.function_return_types.get(&format!("{}.{}", name, member)).cloned());
                     if let Some(ret_type) = return_type {
                         self.context.set_register_type(result_reg, ret_type);
+                    }
+                    
+                    // Track generic type arguments for container types (Vec<T>, Option<T>, Result<T,E>, etc.)
+                    // This allows us to know the element type when calling methods like toArray(), unwrap(), etc.
+                    if !type_args.is_empty() {
+                        let elem_type = self.convert_ast_type_to_ir(&type_args[0]);
+                        // Store the element type for this register so it can be used by toArray(), unwrap(), etc.
+                        self.context.container_element_types.insert(format!("reg_{}", result_reg), elem_type);
                     }
 
                     let result_value = IRValue::Register(result_reg);
@@ -673,24 +681,45 @@ impl IRGenerator {
             // Try to determine object's type for method return type lookup
             let obj_type_name = match &obj_val {
                 IRValue::Register(reg) => {
-                    match self.context.register_types.get(reg) {
+                    let result = match self.context.register_types.get(reg) {
                         Some(IRType::Struct { name, .. }) => Some(name.clone()),
                         Some(IRType::Enum { name, .. }) => Some(name.clone()),
                         Some(IRType::Array(_)) => Some("Vec".to_string()),
                         Some(IRType::String) => Some("String".to_string()),
                         Some(IRType::Optional(_)) => Some("Option".to_string()),
                         _ => None,
+                    };
+                    if member == "isNone" || member == "isSome" || member == "unwrap" {
+                        eprintln!("DEBUG: method call '{}' on Register({}), register_type={:?}, obj_type_name={:?}", 
+                            member, reg, self.context.register_types.get(reg), result);
                     }
+                    result
                 }
                 IRValue::Variable(var_name) => {
-                    match self.context.get_variable_type(var_name) {
+                    let result = match self.context.get_variable_type(var_name) {
                         Some(IRType::Struct { name, .. }) => Some(name.clone()),
                         Some(IRType::Enum { name, .. }) => Some(name.clone()),
                         Some(IRType::Array(_)) => Some("Vec".to_string()),
                         Some(IRType::String) => Some("String".to_string()),
                         Some(IRType::Optional(_)) => Some("Option".to_string()),
                         _ => None,
+                    };
+                    if member == "isNone" || member == "isSome" || member == "unwrap" {
+                        eprintln!("DEBUG: method call '{}' on Variable('{}'), var_type={:?}, obj_type_name={:?}", 
+                            member, var_name, self.context.get_variable_type(var_name), result);
                     }
+                    result
+                }
+                _ => None
+            };
+            
+            // Get container element type from the receiver variable/register
+            let receiver_element_type = match &obj_val {
+                IRValue::Variable(var_name) => {
+                    self.context.container_element_types.get(var_name).cloned()
+                }
+                IRValue::Register(reg_id) => {
+                    self.context.container_element_types.get(&format!("reg_{}", reg_id)).cloned()
                 }
                 _ => None
             };
@@ -701,10 +730,62 @@ impl IRGenerator {
 
             // Fallback: call a free function named after the member; first arg is receiver
             let mut final_args = Vec::with_capacity(1 + arg_values.len());
-            final_args.push(obj_val);
+            final_args.push(obj_val.clone());
             final_args.extend(arg_values.into_iter());
 
             let result_reg = self.context.allocate_register();
+            
+            // Track whether we set a specialized type for this call
+            let mut type_set_specially = false;
+            
+            // For methods that return the inner type of a generic container,
+            // propagate the element type to the result
+            if member == "toArray" {
+                // Vec<T>.toArray() returns Array<T>
+                if let Some(elem_type) = &receiver_element_type {
+                    // Set the register type to Array<elem_type>
+                    self.context.set_register_type(result_reg, IRType::Array(Box::new(elem_type.clone())));
+                    // Also track it as container element type for downstream array access
+                    self.context.container_element_types.insert(format!("reg_{}", result_reg), elem_type.clone());
+                    type_set_specially = true;
+                }
+            } else if member == "unwrap" || member == "Unwrap" {
+                // Option<T>.unwrap() returns T, Result<T,E>.unwrap() returns T
+                if let Some(elem_type) = &receiver_element_type {
+                    self.context.set_register_type(result_reg, elem_type.clone());
+                    type_set_specially = true;
+                    // If T is itself a struct, track it
+                    if let IRType::Struct { name, .. } = elem_type {
+                        self.context.container_element_types.insert(format!("reg_{}", result_reg), elem_type.clone());
+                    }
+                }
+            } else if member == "get" {
+                // Vec<T>.get() returns Option<T> - track both the Option type and the inner type T
+                // Array<T>.get() returns T directly
+                eprintln!("DEBUG IR: Vec.get() called on {:?}, receiver_element_type={:?}, obj_type_name={:?}", 
+                    obj_val, receiver_element_type, obj_type_name);
+                if let Some(elem_type) = &receiver_element_type {
+                    // Track the element type for container_element_types
+                    self.context.container_element_types.insert(format!("reg_{}", result_reg), elem_type.clone());
+                    
+                    // For Vec.get(), set the register type
+                    // If elem_type is already Optional, don't double-wrap
+                    // Otherwise, wrap in Option since Vec.get() returns Option<T>
+                    if obj_type_name.as_deref() == Some("Vec") {
+                        // Check if elem_type is already Optional
+                        let result_type = if matches!(elem_type, IRType::Optional(_)) {
+                            // Element type is already Optional - use as-is
+                            elem_type.clone()
+                        } else {
+                            // Wrap in Option since Vec.get() returns Option<T>
+                            IRType::Optional(Box::new(elem_type.clone()))
+                        };
+                        self.context.set_register_type(result_reg, result_type.clone());
+                        eprintln!("DEBUG: Vec.get() setting register {} type to {:?}", result_reg, result_type);
+                        type_set_specially = true;
+                    }
+                }
+            }
             
             // Determine the function name - check both underscore and dot naming conventions
             // Functions defined as `Type.method()` need to be called by that name
@@ -724,8 +805,11 @@ impl IRGenerator {
                     if member == "getType" || member == "toString" {
                         eprintln!("DEBUG: method call '{}' ret_type = {:?}", member, ret_type);
                     }
-                    if let Some(ret_type) = ret_type {
-                        self.context.set_register_type(result_reg, ret_type);
+                    // Only set register type from generic function if we didn't already set it specially
+                    if !type_set_specially {
+                        if let Some(ret_type) = ret_type {
+                            self.context.set_register_type(result_reg, ret_type);
+                        }
                     }
                     (underscore_name, true)
                 } else if self.context.function_return_types.contains_key(&dot_name) {
@@ -733,8 +817,11 @@ impl IRGenerator {
                     if member == "getType" || member == "toString" {
                         eprintln!("DEBUG: method call '{}' ret_type = {:?}", member, ret_type);
                     }
-                    if let Some(ret_type) = ret_type {
-                        self.context.set_register_type(result_reg, ret_type);
+                    // Only set register type from generic function if we didn't already set it specially
+                    if !type_set_specially {
+                        if let Some(ret_type) = ret_type {
+                            self.context.set_register_type(result_reg, ret_type);
+                        }
                     }
                     (dot_name, true)
                 } else {

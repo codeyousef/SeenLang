@@ -1,5 +1,5 @@
 
-fun main() -> Int {
+fun main() r: Int {
     let arr = Array<String>();
     arr.push("hello");
     let s = arr[0];

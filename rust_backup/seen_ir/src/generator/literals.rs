@@ -24,9 +24,13 @@ impl IRGenerator {
 
         // Check for implicit field access on 'self'
         let field_info = if let Some(recv_type) = &self.context._current_receiver_type {
-            if let crate::value::IRType::Struct { name: _struct_name, fields } = recv_type {
+            if let crate::value::IRType::Struct { name: struct_name, fields } = recv_type {
                 // Check if 'name' is a field
-                fields.iter().find(|(f_name, _)| f_name == name).map(|(_, f_type)| f_type.clone())
+                let result = fields.iter().find(|(f_name, _)| f_name == name).map(|(_, f_type)| f_type.clone());
+                if result.is_some() {
+                    eprintln!("DEBUG IR: Implicit field access lookup for '{}' in struct '{}' -> found", name, struct_name);
+                }
+                result
             } else {
                 None
             }
@@ -35,6 +39,7 @@ impl IRGenerator {
         };
 
         if let Some(field_type) = field_info {
+            eprintln!("DEBUG IR: Implicit field '{}' has type {:?}", name, field_type);
             // It is a field! Generate self.name
             let self_name = self.context._current_receiver_name.clone().unwrap_or_else(|| "self".to_string());
             let self_var = IRValue::Variable(self_name);
@@ -42,7 +47,28 @@ impl IRGenerator {
             let result_reg = self.context.allocate_register();
             let result_val = IRValue::Register(result_reg);
             
-            self.context.set_register_type(result_reg, field_type);
+            self.context.set_register_type(result_reg, field_type.clone());
+            
+            // Track container element types for Vec<T>, Option<T>, etc.
+            // This allows Vec.get() and Option.unwrap() to resolve inner types
+            match &field_type {
+                crate::value::IRType::Array(inner) => {
+                    // For Vec<T>, track the element type T
+                    self.context.container_element_types.insert(
+                        format!("reg_{}", result_reg),
+                        (**inner).clone()
+                    );
+                    eprintln!("DEBUG IR: Implicit field access {} - tracking Vec element type {:?}", name, inner);
+                }
+                crate::value::IRType::Optional(inner) => {
+                    // For Option<T>, track the inner type T
+                    self.context.container_element_types.insert(
+                        format!("reg_{}", result_reg),
+                        (**inner).clone()
+                    );
+                }
+                _ => {}
+            }
             
             let instructions = vec![Instruction::FieldAccess {
                 struct_val: self_var,

@@ -22,7 +22,7 @@ use inkwell::targets::{
     FileType, InitializationConfig, Target, TargetMachine, TargetTriple,
 };
 use inkwell::types::{
-    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType,
+    AsTypeRef, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType,
 };
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, GlobalValue, PointerValue,
@@ -320,6 +320,10 @@ pub struct LlvmBackend<'ctx> {
     pub(crate) reg_is_int_array: HashSet<u32>,
     // Variable name -> true if it's a Vec that stores floats
     pub(crate) var_is_float_vec: HashSet<String>,
+    // Variable name -> Option inner type (for unwrap)
+    pub(crate) var_option_inner_type: HashMap<String, String>,
+    // Register id -> Option inner type (for unwrap)
+    pub(crate) reg_option_inner_type: HashMap<u32, String>,
     // Register id -> true if it holds a float value (for proper storage)
     pub(crate) reg_is_float: HashSet<u32>,
     // Variable name -> true if it holds a float value (stored as i64 bits)
@@ -394,6 +398,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             reg_array_element_struct: HashMap::new(),
             reg_is_int_array: HashSet::new(),
             var_is_float_vec: HashSet::new(),
+            var_option_inner_type: HashMap::new(),
+            reg_option_inner_type: HashMap::new(),
             reg_is_float: HashSet::new(),
             var_is_float: HashSet::new(),
             array_element_types: HashMap::new(),
@@ -495,6 +501,34 @@ impl<'ctx> LlvmBackend<'ctx> {
         Ok(data_ptr)
     }
 
+    /// Safe wrapper around build_struct_gep that reports the struct name and index bounds.
+    fn build_struct_gep_checked(
+        &self,
+        struct_ty: StructType<'ctx>,
+        ptr: PointerValue<'ctx>,
+        idx: u32,
+        name: &str,
+    ) -> Result<PointerValue<'ctx>> {
+        let field_count = struct_ty.count_fields();
+        let struct_name = self
+            .struct_types
+            .iter()
+            .find_map(|(n, (ty, _))| if ty.as_type_ref() == struct_ty.as_type_ref() { Some(n.clone()) } else { None })
+            .unwrap_or_else(|| "<anonymous>".to_string());
+
+        if idx >= field_count {
+            return Err(anyhow!(
+                "LLVM struct_gep index {idx} out of range for struct {struct_name} with {field_count} fields ({name})"
+            ));
+        }
+
+        self.builder
+            .build_struct_gep(struct_ty, ptr, idx, name)
+            .with_context(|| format!(
+                "LLVM build_struct_gep failed for struct {struct_name} index {idx} ({name})"
+            ))
+    }
+
     /// Get or create a fallthrough block for the current function.
     /// Used when a block needs an unconditional continuation.
     fn get_or_create_fallthrough_block(&mut self) -> LlvmBasicBlock<'ctx> {
@@ -543,6 +577,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             .context("Lowering IR to LLVM failed")?;
 
         if let Err(e) = self.module.verify() {
+             // Dump the problematic module for inspection when verification fails.
+             let _ = self.module.print_to_file("failed.ll");
              eprintln!("LLVM Verify Error: {}", e.to_string());
              return Err(anyhow!("Module verification failed: {}", e.to_string()));
         }
@@ -1057,6 +1093,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.reg_struct_types.clear();
         self.var_array_element_struct.clear();
         self.reg_array_element_struct.clear();
+        self.var_option_inner_type.clear();
+        self.reg_option_inner_type.clear();
         self.var_is_string.clear();
         self.var_is_int_array.clear();
         self.blocks.clear();
@@ -1226,7 +1264,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                             if self.var_slots.contains_key(fname) {
                                 continue;
                             }
-                            let gep = self.builder.build_struct_gep(
+                            let gep = self.build_struct_gep_checked(
                                 llvm_struct_ty,
                                 receiver_slot,
                                 idx as u32,
@@ -1638,6 +1676,16 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             Instruction::ConstructObject { class_name, args, result } => {
                 if let Some((struct_ty, field_names)) = self.struct_types.get(class_name).cloned() {
+                    let expected_fields = field_names.len();
+                    if args.len() != expected_fields {
+                        return Err(anyhow!(
+                            "ConstructObject: class '{}' expects {} fields but IR provided {} args",
+                            class_name,
+                            expected_fields,
+                            args.len(),
+                        ));
+                    }
+
                     // Heap-allocate the struct and return a pointer (class-as-pointer semantics)
                     let struct_size = struct_ty.size_of().unwrap_or(self.i64_t.const_int(64, false));
                     let malloc_fn = self.get_malloc();
@@ -1656,8 +1704,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                     // Store field values via GEP
                     for (i, arg) in args.iter().enumerate() {
                         let arg_val = self.eval_value(arg, fn_map)?;
-                        let field_ptr = self.builder
-                            .build_struct_gep(struct_ty, typed_ptr, i as u32, &format!("field_{}_ptr", i))?;
+                        let field_ptr = self.build_struct_gep_checked(
+                            struct_ty,
+                            typed_ptr,
+                            i as u32,
+                            &format!("field_{}_ptr", i),
+                        )?;
                         self.builder.build_store(field_ptr, arg_val)?;
                     }
                     
@@ -1909,15 +1961,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let arr_ptr_typed = self.builder.build_pointer_cast(arr_ptr, self.ctx.ptr_type(AddressSpace::default()), "arr_ptr_typed")?;
                 
                 // Set len
-                let len_ptr = self.builder.build_struct_gep(struct_ty, arr_ptr_typed, 0, "len_ptr").unwrap();
+                let len_ptr = self.build_struct_gep_checked(struct_ty, arr_ptr_typed, 0, "len_ptr")?;
                 self.builder.build_store(len_ptr, self.i64_t.const_int(len, false))?;
                 
                 // Set cap
-                let cap_ptr = self.builder.build_struct_gep(struct_ty, arr_ptr_typed, 1, "cap_ptr").unwrap();
+                let cap_ptr = self.build_struct_gep_checked(struct_ty, arr_ptr_typed, 1, "cap_ptr")?;
                 self.builder.build_store(cap_ptr, self.i64_t.const_int(cap, false))?;
                 
                 // Set data
-                let data_field_ptr = self.builder.build_struct_gep(struct_ty, arr_ptr_typed, 2, "data_ptr").unwrap();
+                let data_field_ptr = self.build_struct_gep_checked(struct_ty, arr_ptr_typed, 2, "data_ptr")?;
                 self.builder.build_store(data_field_ptr, data_ptr)?;
                 
                 Ok(arr_ptr.as_basic_value_enum())
@@ -1974,11 +2026,11 @@ impl<'ctx> LlvmBackend<'ctx> {
                 for (idx, field_name) in field_order.iter().enumerate() {
                     if let Some(field_val) = fields.get(field_name) {
                         let val = self.eval_value(field_val, fn_map)?;
-                        let field_ptr = self.builder.build_struct_gep(
+                        let field_ptr = self.build_struct_gep_checked(
                             llvm_struct_ty,
                             heap_ptr,
                             idx as u32,
-                            &format!("{}_field_{}", type_name, field_name)
+                            &format!("{}_field_{}", type_name, field_name),
                         )?;
                         self.builder.build_store(field_ptr, val)?;
                     }
@@ -2864,11 +2916,17 @@ impl<'ctx> LlvmBackend<'ctx> {
         ).unwrap();
         
         // Store len = argc, cap = argc, data = data_ptr
-        let len_ptr = self.builder.build_struct_gep(array_ty, array_ptr_typed, 0, "len_ptr").unwrap();
+        let len_ptr = self
+            .build_struct_gep_checked(array_ty, array_ptr_typed, 0, "len_ptr")
+            .unwrap();
         self.builder.build_store(len_ptr, argc64).unwrap();
-        let cap_ptr = self.builder.build_struct_gep(array_ty, array_ptr_typed, 1, "cap_ptr").unwrap();
+        let cap_ptr = self
+            .build_struct_gep_checked(array_ty, array_ptr_typed, 1, "cap_ptr")
+            .unwrap();
         self.builder.build_store(cap_ptr, argc64).unwrap();
-        let data_ptr_ptr = self.builder.build_struct_gep(array_ty, array_ptr_typed, 2, "data_ptr_ptr").unwrap();
+        let data_ptr_ptr = self
+            .build_struct_gep_checked(array_ty, array_ptr_typed, 2, "data_ptr_ptr")
+            .unwrap();
         self.builder.build_store(data_ptr_ptr, data_ptr_typed).unwrap();
         
         // Allocate loop index

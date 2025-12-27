@@ -372,12 +372,15 @@ fun degrees(value: Float) r: Float {
 }
 
 fun normalizeAngle(value: Float) r: Float {
+    // Use local literals so we don't depend on module-level const resolution during bootstrap lowering.
+    let pi = 3.14159265358979323846
+    let tau = 6.28318530717958647692
     var angle = value
-    while angle > PI {
-        angle = angle - TAU
+    while angle > pi {
+        angle = angle - tau
     }
-    while angle < -PI {
-        angle = angle + TAU
+    while angle < -pi {
+        angle = angle + tau
     }
     return angle
 }

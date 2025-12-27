@@ -584,13 +584,14 @@ impl ProjectConfig {
 }
 
 fn manifest_modules_enabled() -> bool {
-    std::env::var("SEEN_ENABLE_MANIFEST_MODULES")
-        .ok()
-        .map(|value| {
+    match std::env::var("SEEN_ENABLE_MANIFEST_MODULES") {
+        Ok(value) => {
             let lowered = value.trim().to_ascii_lowercase();
-            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false)
+            !matches!(lowered.as_str(), "0" | "false" | "no" | "off")
+        }
+        // Default to enabled so project manifests automatically pull in listed modules
+        Err(_) => true,
+    }
 }
 
 fn manifest_module_roots(config: &ProjectConfig) -> SeenResult<Vec<PathBuf>> {
@@ -703,6 +704,11 @@ fn main() -> SeenResult<()> {
     let cli = Cli::parse();
 
     apply_profile(cli.profile)?;
+
+    // Default to enabling manifest-based module loading unless the user opts out
+    if std::env::var("SEEN_ENABLE_MANIFEST_MODULES").is_err() {
+        std::env::set_var("SEEN_ENABLE_MANIFEST_MODULES", "1");
+    }
 
     // Determine language from Seen.toml or CLI args
     let mut language = cli.language.clone();

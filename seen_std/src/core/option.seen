@@ -64,6 +64,27 @@ class Option<T> {
         this.hasValue = false
         this.value = __default<T>()
     }
+
+    // Lowercase aliases for compatibility
+    fun isSome() r: Bool {
+        return this.IsSome()
+    }
+
+    fun isNone() r: Bool {
+        return this.IsNone()
+    }
+
+    fun unwrap() r: T {
+        return this.Unwrap()
+    }
+
+    fun expect(message: String) r: T {
+        return this.Expect(message)
+    }
+
+    fun unwrapOr(defaultValue: T) r: T {
+        return this.UnwrapOr(defaultValue)
+    }
 }
 
 fun Some<T>(value: T) r: Option<T> {

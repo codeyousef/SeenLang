@@ -261,6 +261,32 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 return Ok(());
             }
             
+            // Check if we're accessing a string array (parts: [string])
+            if let Some(struct_type_name) = element_struct_type {
+                if struct_type_name == "String" {
+                    let llvm_struct_ty = self.ty_string();
+                    let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
+                    
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            llvm_struct_ty,
+                            data_struct_ptr,
+                            &[idx_iv],
+                            "struct_elem_ptr",
+                        )?
+                    };
+                    
+                    let struct_val = self.builder.build_load(llvm_struct_ty, elem_ptr, "struct_load")?;
+                    self.assign_value(result, struct_val)?;
+                    
+                    if let IRValue::Register(reg_id) = result {
+                        self.reg_struct_types.insert(*reg_id, "String".to_string());
+                    }
+                    return Ok(());
+                }
+            }
+            
             // Default: treat as f64 array
             let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
             let data_f64_ptr = self.builder.build_pointer_cast(data_ptr, f64_ptr_ty, "data_f64_ptr")?;
@@ -485,7 +511,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         let struct_type_name = match struct_val {
             IRValue::Variable(var_name) => {
                 let result = self.var_struct_types.get(var_name).cloned();
-                if var_name == "location" || var_name == "error" {
+                if var_name == "location" || var_name == "error" || var_name == "entry" {
                     eprintln!("DEBUG: FieldAccess lookup var_struct_types['{}'] = {:?}", var_name, result);
                 }
                 result
@@ -553,6 +579,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                             if let IRValue::Register(reg_id) = result {
                                 eprintln!("DEBUG: FieldAccess {}.{} result Register({}) -> struct type '{}'", type_name, field, reg_id, field_struct_name);
                                 self.reg_struct_types.insert(*reg_id, field_struct_name.clone());
+                                
+                                // Special handling for known container types with generic parameters
+                                // StringHashMap.entries is Vec<Option<HashEntry>> - element type is Option<HashEntry>
+                                if type_name == "StringHashMap" && field == "entries" {
+                                    eprintln!("DEBUG: FieldAccess StringHashMap.entries - tracking Option<HashEntry> element type");
+                                    self.reg_array_element_struct.insert(*reg_id, "Option".to_string());
+                                    self.reg_option_inner_type.insert(*reg_id, "HashEntry".to_string());
+                                }
                             }
                         }
                         

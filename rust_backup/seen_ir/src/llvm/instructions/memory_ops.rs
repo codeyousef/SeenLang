@@ -73,15 +73,41 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
             match value {
                 IRValue::Register(reg_id) => {
                     if let Some(struct_name) = self.reg_struct_types.get(reg_id) {
-                        if var_name == "location" {
-                            eprintln!("DEBUG: emit_store overwriting var_struct_types['location'] from {:?} to {:?} (from reg {})", 
-                                self.var_struct_types.get("location"), struct_name, reg_id);
+                        if var_name == "location" || var_name == "entry" {
+                            eprintln!("DEBUG: emit_store propagating struct type '{}' from reg {} to var '{}'", 
+                                struct_name, reg_id, var_name);
                         }
                         self.var_struct_types.insert(var_name.clone(), struct_name.clone());
                     }
                     // Propagate array element struct type info
                     if let Some(elem_struct) = self.reg_array_element_struct.get(reg_id) {
                         self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
+                    }
+                    // Propagate Option inner type info
+                    // This applies in two cases:
+                    // 1. The source reg IS an Option with an inner type
+                    // 2. The source reg is a Vec<Option<T>> and we're tracking T
+                    if let Some(inner_type) = self.reg_option_inner_type.get(reg_id) {
+                        let reg_is_option = self.reg_struct_types.get(reg_id)
+                            .map(|t| t == "Option")
+                            .unwrap_or(false);
+                        let reg_is_vec_of_option = self.reg_struct_types.get(reg_id)
+                            .map(|t| t == "Vec")
+                            .unwrap_or(false)
+                            && self.reg_array_element_struct.get(reg_id)
+                            .map(|t| t == "Option")
+                            .unwrap_or(false);
+                        
+                        eprintln!("DEBUG: emit_store reg {} has Option inner type '{}', reg_is_option={}, reg_is_vec_of_option={}, var_struct_types['{}']='{:?}'",
+                            reg_id, inner_type, reg_is_option, reg_is_vec_of_option, var_name, self.var_struct_types.get(var_name));
+                        if reg_is_option {
+                            eprintln!("DEBUG: emit_store propagating Option inner type '{}' to var '{}'", inner_type, var_name);
+                            self.var_option_inner_type.insert(var_name.clone(), inner_type.clone());
+                        } else if reg_is_vec_of_option {
+                            // For Vec<Option<T>>, propagate the inner type so Vec_get can use it
+                            eprintln!("DEBUG: emit_store propagating Vec<Option<{}>> inner type to var '{}'", inner_type, var_name);
+                            self.var_option_inner_type.insert(var_name.clone(), inner_type.clone());
+                        }
                     }
                 }
                 IRValue::Variable(src_name) => {
@@ -91,6 +117,18 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
                     // Propagate array element struct type info
                     if let Some(elem_struct) = self.var_array_element_struct.get(src_name) {
                         self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
+                    }
+                    // Propagate Option inner type info - only if the dest var is an Option type
+                    if let Some(inner_type) = self.var_option_inner_type.get(src_name) {
+                        let is_option = self.var_struct_types.get(var_name)
+                            .map(|t| t == "Option")
+                            .unwrap_or(false)
+                            || self.var_struct_types.get(src_name)
+                            .map(|t| t == "Option")
+                            .unwrap_or(false);
+                        if is_option {
+                            self.var_option_inner_type.insert(var_name.clone(), inner_type.clone());
+                        }
                     }
                 }
                 _ => {}

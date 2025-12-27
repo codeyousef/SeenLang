@@ -64,7 +64,32 @@ impl IRGenerator {
                     IRType::Array(Box::new(IRType::Integer))
                 }
             }
-            "Map" | "Vec" | "Result" | "Option" | "StringBuilder" => IRType::Struct {
+            // Vec<T> is a dynamic array - convert to Array(T) to preserve element type
+            "Vec" => {
+                if let Some(element_ast_type) = ast_type.generics.first() {
+                    let element_type = self.convert_ast_type_to_ir(element_ast_type);
+                    IRType::Array(Box::new(element_type))
+                } else {
+                    // Vec without type parameter - default to generic
+                    IRType::Struct {
+                        name: "Vec".to_string(),
+                        fields: Vec::new(),
+                    }
+                }
+            }
+            // Option<T> wraps T
+            "Option" => {
+                if let Some(inner_ast_type) = ast_type.generics.first() {
+                    let inner_type = self.convert_ast_type_to_ir(inner_ast_type);
+                    IRType::Optional(Box::new(inner_type))
+                } else {
+                    IRType::Struct {
+                        name: "Option".to_string(),
+                        fields: Vec::new(),
+                    }
+                }
+            }
+            "Map" | "Result" | "StringBuilder" => IRType::Struct {
                 name: ast_type.name.clone(),
                 fields: Vec::new(),
             },

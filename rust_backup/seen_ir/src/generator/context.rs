@@ -27,6 +27,7 @@ pub struct GenerationContext {
     pub(crate) _current_receiver_name: Option<String>, // Name of the receiver parameter (e.g., "self", "this")
     pub(crate) current_type_definition: Option<String>, // Name of type currently being defined
     pub(crate) result_inner_types: HashMap<String, IRType>, // Track inner type T for Result<T, E> variables
+    pub(crate) container_element_types: HashMap<String, IRType>, // Track element type T for Vec<T>, Option<T>, etc.
 }
 
 impl GenerationContext {
@@ -48,6 +49,7 @@ impl GenerationContext {
             _current_receiver_name: None,
             current_type_definition: None,
             result_inner_types: HashMap::new(),
+            container_element_types: HashMap::new(),
         }
     }
 
@@ -160,25 +162,37 @@ impl GenerationContext {
                     }
                 }
                 IRValue::Register(reg) => {
-                    if let Some(reg_type) = self.register_types.get(reg) {
-                        reg_type.clone()
-                    } else {
-                        IRType::Void
+                    let reg_type = self.register_types.get(reg).cloned();
+                    if name == "entryOpt" {
+                        eprintln!("DEBUG: define_variable('{}') from Register({}), register_type={:?}", name, reg, reg_type);
                     }
+                    reg_type.unwrap_or(IRType::Void)
                 }
                 IRValue::Struct { .. } | IRValue::Array(_) => value.get_type(),
                 _ => IRType::Void,
             }
         };
+        
+        if name == "entryOpt" {
+            eprintln!("DEBUG: define_variable('{}') final var_type={:?}", name, var_type);
+        }
 
         // Preserve explicit annotation but still record it in the map for downstream use
         if existing_type.is_none() {
             self.set_variable_type(name.to_string(), var_type.clone());
         }
 
+        // Propagate inner types from Result<T,E>
         if let IRValue::Register(reg) = &value {
             if let Some(inner_type) = self.result_inner_types.get(&format!("reg_{}", reg)).cloned() {
                 self.result_inner_types.insert(name.to_string(), inner_type);
+            }
+        }
+        
+        // Propagate container element types (Vec<T>, Option<T>, etc.)
+        if let IRValue::Register(reg) = &value {
+            if let Some(elem_type) = self.container_element_types.get(&format!("reg_{}", reg)).cloned() {
+                self.container_element_types.insert(name.to_string(), elem_type);
             }
         }
 

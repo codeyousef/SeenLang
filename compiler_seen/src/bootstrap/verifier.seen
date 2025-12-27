@@ -83,11 +83,11 @@ class BootstrapVerifier {
         let stage = CompilerInfo.new(compilerPath, name, CurrentStage)
         Stages.push(stage)
         CurrentStage = CurrentStage + 1
-        log("Added stage {CurrentStage}: {name} at {compilerPath}")
+        this.log("Added stage {CurrentStage}: {name} at {compilerPath}")
     }
     
     fun verify() r: Result<VerificationResult, String> {
-        log("\\n🚀 Starting 3-stage bootstrap verification...")
+        this.log("\\n🚀 Starting 3-stage bootstrap verification...")
         
         if Stages.length() < 3 {
             return Err("Need at least 3 stages for verification, got {Stages.length()}")
@@ -123,7 +123,7 @@ class BootstrapVerifier {
         let verificationResult = compareExecutables("stage2_compiler", "stage3_compiler")
         if verificationResult.isErr() {
             let error = verificationResult.unwrapErr()
-            log("❌ FAILURE: {error}")
+            this.log("❌ FAILURE: {error}")
             return Err(error)
         }
         let comparison: BinaryComparison = verificationResult.unwrap()
@@ -131,15 +131,15 @@ class BootstrapVerifier {
         result.HashMatch = comparison.hashesMatch()
         
         if comparison.isIdentical() {
-            log("✅ SUCCESS: Stage 2 and Stage 3 produce identical binaries!")
-            log("   Hash: {comparison.hashValue()}")
-            log("   Size: {comparison.sizeBytes()} bytes")
+            this.log("✅ SUCCESS: Stage 2 and Stage 3 produce identical binaries!")
+            this.log("   Hash: {comparison.hashValue()}")
+            this.log("   Size: {comparison.sizeBytes()} bytes")
             result.Message = "Bootstrap verification successful - self-hosting achieved!"
             return Ok(result)
         } else {
-            log("❌ FAILURE: Stage 2 and Stage 3 produce different binaries")
-            log("   Stage 2 hash: {comparison.stage2HashValue()}")
-            log("   Stage 3 hash: {comparison.stage3HashValue()}")
+            this.log("❌ FAILURE: Stage 2 and Stage 3 produce different binaries")
+            this.log("   Stage 2 hash: {comparison.stage2HashValue()}")
+            this.log("   Stage 3 hash: {comparison.stage3HashValue()}")
             result.Message = "Bootstrap verification failed - binaries differ"
             return Err(result.Message)
         }
@@ -147,38 +147,38 @@ class BootstrapVerifier {
     
     fun compileWithStage(stageIndex: Int, sourcePath: String, outputPath: String) r: Result<StageArtifact, String> {
         let compiler = Stages[stageIndex]
-        log("\\n📦 Compiling with {compiler.Name}...")
+        this.log("\\n📦 Compiling with {compiler.Name}...")
         
         let command = "{compiler.Path} compile {sourcePath} {outputPath}"
-        log("   Command: {command}")
+        this.log("   Command: {command}")
         
         let startTime = getCurrentTime()
         let result: CommandResult = execCommand(command)
         let endTime = getCurrentTime()
         let duration = endTime - startTime
         
-        log("   Duration: {duration}ms")
+        this.log("   Duration: {duration}ms")
         
         if commandWasSuccessful(result) {
             if FileExists(outputPath) {
                 let size = GetFileSize(outputPath)
                 let hash = GetFileHash(outputPath)
-                log("   ✅ Success: Generated {outputPath} ({size} bytes, hash: {hash})")
+                this.log("   ✅ Success: Generated {outputPath} ({size} bytes, hash: {hash})")
                 return Ok(StageArtifact.new(outputPath, hash, size, duration))
             } else {
-                log("   ❌ Error: Expected output file not found: {outputPath}")
+                this.log("   ❌ Error: Expected output file not found: {outputPath}")
                 return Err("Output file not created: {outputPath}")
             }
         } else {
-            log("   ❌ Error: Compilation failed")
+            this.log("   ❌ Error: Compilation failed")
             let output = commandOutput(result)
-            log("   Output: {output}")
+            this.log("   Output: {output}")
             return Err("Compilation failed: {output}")
         }
     }
     
     fun compareExecutables(path1: String, path2: String) r: Result<BinaryComparison, String> {
-        log("\\n🔍 Comparing binaries: {path1} vs {path2}")
+        this.log("\\n🔍 Comparing binaries: {path1} vs {path2}")
         
         if !FileExists(path1) or !FileExists(path2) {
             return Err("One or both files don't exist for comparison: {path1}, {path2}")
@@ -189,8 +189,8 @@ class BootstrapVerifier {
         let size1 = GetFileSize(path1)
         let size2 = GetFileSize(path2)
         
-        log("   {path1}: {size1} bytes, hash {hash1}")
-        log("   {path2}: {size2} bytes, hash {hash2}")
+        this.log("   {path1}: {size1} bytes, hash {hash1}")
+        this.log("   {path2}: {size2} bytes, hash {hash2}")
         
         let identical = hash1 == hash2 and size1 == size2
         

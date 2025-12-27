@@ -62,17 +62,48 @@ impl IRGenerator {
             }
             _ => None
         };
+        
+        eprintln!("DEBUG IR: generate_member_access obj_val={:?}, member={}, obj_type_name={:?}", 
+            obj_val, member, obj_type_name);
 
         // If we know the struct type, look up the field type and set it on the result register
         if let Some(type_name) = obj_type_name {
-            if let Some(type_def) = self.context.type_definitions.get(&type_name) {
+            // Clone what we need from type_definitions to avoid borrow conflicts
+            let field_type_opt = if let Some(type_def) = self.context.type_definitions.get(&type_name) {
                 if let IRType::Struct { fields, .. } = type_def {
-                    for (field_name, field_type) in fields {
-                        if field_name == member {
-                            self.context.set_register_type(result_reg, field_type.clone());
-                            break;
-                        }
+                    fields.iter()
+                        .find(|(field_name, _)| field_name == member)
+                        .map(|(_, field_type)| field_type.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            if let Some(field_type) = field_type_opt {
+                self.context.set_register_type(result_reg, field_type.clone());
+                
+                // Track container element types for Vec<T>, Option<T>, etc.
+                // This allows Vec.get() and Option.unwrap() to resolve inner types
+                match &field_type {
+                    IRType::Array(inner) => {
+                        // For Vec<T>, track the element type T
+                        self.context.container_element_types.insert(
+                            format!("reg_{}", result_reg),
+                            (**inner).clone()
+                        );
+                        eprintln!("DEBUG IR: Field access {}.{} - tracking Vec element type {:?}", 
+                            type_name, member, inner);
                     }
+                    IRType::Optional(inner) => {
+                        // For Option<T>, track the inner type T
+                        self.context.container_element_types.insert(
+                            format!("reg_{}", result_reg),
+                            (**inner).clone()
+                        );
+                    }
+                    _ => {}
                 }
             }
         }

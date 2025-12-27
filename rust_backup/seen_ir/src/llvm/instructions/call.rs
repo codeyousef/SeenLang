@@ -49,6 +49,16 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         result: &Option<IRValue>,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
+        // Debug: log Option_Unwrap calls
+        if let IRValue::Variable(name) = target {
+            if name == "Option_Unwrap" || name == "Option_unwrap" || name == "Unwrap" || name == "unwrap" {
+                eprintln!("DEBUG LLVM: emit_call for '{}' with args: {:?}, result: {:?}", name, args, result);
+            }
+            if name.contains("unwrap") || name.contains("Unwrap") {
+                eprintln!("DEBUG LLVM: emit_call checking function '{}' for unwrap handling", name);
+            }
+        }
+        
         // Handle Vec methods specially to convert float<->i64
         let func_name = match target {
             IRValue::Variable(name) => Some(name.clone()),
@@ -74,6 +84,45 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         self.var_is_float_vec.insert(vec_var.clone());
                     }
                 }
+                // Track String element type from push calls
+                let is_string_type = val.is_struct_value() && val.get_type() == self.ty_string().into();
+                eprintln!("DEBUG Vec_push: value_type={:?}, is_struct={}, is_string_type={}, vec_var={:?}", 
+                    val.get_type(), val.is_struct_value(), is_string_type, args.get(0));
+                if is_string_type {
+                    if let Some(IRValue::Variable(vec_var)) = args.get(0) {
+                        eprintln!("DEBUG: Vec_push tracking String element for vec '{}'", vec_var);
+                        self.var_array_element_struct.insert(vec_var.clone(), "String".to_string());
+                    }
+                }
+                // Track struct element type from push calls (for IRValue::Variable pointing to a struct)
+                if let IRValue::Variable(pushed_var) = v {
+                    if let Some(struct_name) = self.var_struct_types.get(pushed_var).cloned() {
+                        if let Some(IRValue::Variable(vec_var)) = args.get(0) {
+                            self.var_array_element_struct.insert(vec_var.clone(), struct_name.clone());
+                            
+                            // If pushing an Option to a Vec, track the Option's inner type for the Vec
+                            if struct_name == "Option" {
+                                if let Some(inner_type) = self.var_option_inner_type.get(pushed_var).cloned() {
+                                    eprintln!("DEBUG: Vec_push tracking Option inner type '{}' for vec '{}'", inner_type, vec_var);
+                                    self.var_option_inner_type.insert(vec_var.clone(), inner_type);
+                                }
+                            }
+                        }
+                    }
+                }
+                // Track Option inner types when pushing from a register (e.g., Some(value) result)
+                if let IRValue::Register(pushed_reg) = v {
+                    if let Some(struct_name) = self.reg_struct_types.get(pushed_reg).cloned() {
+                        if struct_name == "Option" {
+                            if let Some(inner_type) = self.reg_option_inner_type.get(pushed_reg).cloned() {
+                                if let Some(IRValue::Variable(vec_var)) = args.get(0) {
+                                    eprintln!("DEBUG: Vec_push tracking Option inner type '{}' for vec '{}' from reg {}", inner_type, vec_var, pushed_reg);
+                                    self.var_option_inner_type.insert(vec_var.clone(), inner_type);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         
@@ -90,9 +139,13 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         self.ensure_result_alias_shims()?;
 
         // Handle Result/File method aliases even when the call target is an IRValue::Function
+        // BUT NOT for Option_ prefixed functions - those should use Option_* directly
         if let Some(name) = func_name.as_ref() {
+            // Skip Result alias handling for Option methods - they have their own implementations
+            let is_option_method = name.starts_with("Option_");
             let base_normalized = normalize_method_name(name);
-            if let Some(method) = get_result_method_alias(base_normalized) {
+            if !is_option_method {
+                if let Some(method) = get_result_method_alias(base_normalized) {
                 let result_fn_name = format!("Result_{}", method);
                 let func_opt = fn_map.get(&result_fn_name).copied()
                     .or_else(|| self.module.get_function(&result_fn_name));
@@ -154,6 +207,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                 }
                 return Ok(());
+            }
             }
         }
 
@@ -2549,6 +2603,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     call_args.push(expected_ty.into_int_type().const_zero().into());
                 } else if expected_ty.is_float_type() {
                     call_args.push(expected_ty.into_float_type().const_zero().into());
+                } else if expected_ty.is_struct_type() {
+                    // For struct types (like String { i64, ptr }), create a zero-initialized struct
+                    let struct_ty = expected_ty.into_struct_type();
+                    let zero_struct = struct_ty.const_zero();
+                    call_args.push(zero_struct.into());
                 } else {
                     // Default to i64 zero
                     call_args.push(self.i64_t.const_zero().into());
@@ -2563,13 +2622,21 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             IRValue::Variable(name) | IRValue::Function { name, .. } => name.as_str(),
             _ => "unknown",
         };
+        if target_name.contains("unwrap") || target_name.contains("Unwrap") {
+            eprintln!("DEBUG: After build_call for '{}', f.get_type().get_return_type() = {:?}", 
+                target_name, f.get_type().get_return_type());
+        }
         if target_name == "SeenLexer_new" {
     //                     println!("DEBUG: Call to {} returned {:?}", target_name, call.try_as_basic_value().left().map(|v| v.get_type()));
     //                     println!("DEBUG:   Function f return type: {:?}", f.get_type().get_return_type());
     //                     println!("DEBUG:   result register: {:?}", result);
         }
         if let Some(r) = result {
-            if let Some(ret) = call.try_as_basic_value().left() {
+            let call_result = call.try_as_basic_value().left();
+            if target_name.contains("unwrap") || target_name.contains("Unwrap") {
+                eprintln!("DEBUG: {} call result = {:?}, ret type = {:?}", target_name, call_result.is_some(), f.get_type().get_return_type());
+            }
+            if let Some(ret) = call_result {
                 // For Vec_get from float Vec, DON'T bitcast here - keep as i64
                 // but mark the register as containing float bits
                 if is_vec_get && is_float_vec_call {
@@ -2577,14 +2644,64 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         self.reg_is_float.insert(*reg_id);
                     }
                 }
+                
+                // Special handling for Vec_get returning Option: propagate the Option's inner type
+                // If Vec stores Option<T> and we know T, propagate T as the Option's inner type
+                if is_vec_get {
+                    let vec_arg = args.get(0);
+                    let (elem_type, inner_type) = match vec_arg {
+                        Some(IRValue::Variable(vec_var)) => {
+                            let elem = self.var_array_element_struct.get(vec_var).cloned();
+                            let inner = self.var_option_inner_type.get(vec_var).cloned();
+                            (elem, inner)
+                        }
+                        Some(IRValue::Register(vec_reg)) => {
+                            let elem = self.reg_array_element_struct.get(vec_reg).cloned();
+                            let inner = self.reg_option_inner_type.get(vec_reg).cloned();
+                            (elem, inner)
+                        }
+                        _ => (None, None)
+                    };
+                    
+                    eprintln!("DEBUG: Vec_get on {:?}, elem_type={:?}, inner_type={:?}", vec_arg, elem_type, inner_type);
+                    
+                    if let Some(elem_type) = elem_type {
+                        // If element type is "Option", check for nested inner type
+                        if elem_type == "Option" {
+                            if let Some(inner_type) = inner_type {
+                                if let IRValue::Register(reg_id) = r {
+                                    eprintln!("DEBUG: Vec_get returning Option with inner type '{}' to reg {}", inner_type, reg_id);
+                                    self.reg_option_inner_type.insert(*reg_id, inner_type);
+                                    // Also set reg_struct_types to Option so store propagation works
+                                    self.reg_struct_types.insert(*reg_id, "Option".to_string());
+                                }
+                            }
+                        } else {
+                            // Element type is not "Option" but something else (like HashEntry)
+                            // If Vec_get returns Option<T>, the T is this elem_type
+                            // But we need to check if the return type is actually Option
+                            if let IRValue::Register(reg_id) = r {
+                                // The Vec stores non-Option elements, so get() returns the element directly
+                                // In this case, elem_type IS the Option's inner type
+                                // (This handles Vec<Option<HashEntry>> where elem_type tracked as HashEntry via push)
+                                eprintln!("DEBUG: Vec_get returning element type '{}' to reg {}", elem_type, reg_id);
+                                // Track this as the Option's inner type since get() wraps in Option
+                                self.reg_option_inner_type.insert(*reg_id, elem_type);
+                            }
+                        }
+                    }
+                }
+                
                 self.assign_value(r, ret)?;
 
                 // Propagate return struct type info
+                eprintln!("DEBUG: emit_call struct type propagation for target={:?}", target);
                 let func_name = match target {
                     IRValue::Variable(name) => Some(name),
                     IRValue::Function { name, .. } => Some(name),
                     _ => None,
                 };
+                eprintln!("DEBUG: emit_call func_name={:?}", func_name);
                 
                 if let Some(name) = func_name {
                     // Try both underscore and dot naming conventions
@@ -2620,8 +2737,15 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     
                     if let Some(struct_name) = struct_name {
                         if let IRValue::Register(reg_id) = r {
-                            eprintln!("DEBUG: Setting reg {} struct type to '{}' from call to '{}'", reg_id, struct_name, name);
-                            self.reg_struct_types.insert(*reg_id, struct_name.clone());
+                            // Don't overwrite a more specific type with a generic 'T'
+                            // If we already have a concrete type (like Option) from Vec_get handling, keep it
+                            let existing = self.reg_struct_types.get(reg_id).cloned();
+                            if existing.is_none() || (struct_name != "T" && struct_name != "V" && struct_name != "E") {
+                                eprintln!("DEBUG: Setting reg {} struct type to '{}' from call to '{}'", reg_id, struct_name, name);
+                                self.reg_struct_types.insert(*reg_id, struct_name.clone());
+                            } else {
+                                eprintln!("DEBUG: Keeping existing reg {} struct type '{}' (not overwriting with '{}')", reg_id, existing.as_ref().unwrap_or(&String::new()), struct_name);
+                            }
                         }
                     }
                     
@@ -2631,6 +2755,79 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     if let Some(elem_struct) = elem_struct {
                         if let IRValue::Register(reg_id) = r {
                             self.reg_array_element_struct.insert(*reg_id, elem_struct.clone());
+                        }
+                    }
+                    
+                    // Special handling for Vec_toArray: propagate element type from Vec to resulting Array
+                    if name == "Vec_toArray" {
+                        eprintln!("DEBUG: Vec_toArray call detected, args[0] = {:?}", args.get(0));
+                        if let Some(vec_arg) = args.get(0) {
+                            // Try to get element type from the Vec variable
+                            let elem_type = match vec_arg {
+                                IRValue::Variable(var_name) => {
+                                    eprintln!("DEBUG: Vec_toArray checking var_array_element_struct for '{}'", var_name);
+                                    self.var_array_element_struct.get(var_name).cloned()
+                                }
+                                IRValue::Register(reg_id) => {
+                                    self.reg_array_element_struct.get(reg_id).cloned()
+                                }
+                                _ => None,
+                            };
+                            eprintln!("DEBUG: Vec_toArray elem_type = {:?}", elem_type);
+                            if let Some(elem_type) = elem_type {
+                                if let IRValue::Register(reg_id) = r {
+                                    eprintln!("DEBUG: Vec_toArray propagating element type '{}' to reg {}", elem_type, reg_id);
+                                    self.reg_array_element_struct.insert(*reg_id, elem_type);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Special handling for Option/Result unwrap: propagate inner type
+                    if name == "Option_unwrap" || name == "Option_Unwrap" || name == "Result_unwrap" || name == "unwrap" || name == "Unwrap" {
+                        eprintln!("DEBUG: unwrap special handling triggered for '{}', args: {:?}", name, args);
+                        if let Some(container_arg) = args.get(0) {
+                            eprintln!("DEBUG: unwrap call to '{}' with arg {:?}", name, container_arg);
+                            // Try to get inner type from the Option tracking first, then fall back to array element struct
+                            let inner_type = match container_arg {
+                                IRValue::Variable(var_name) => {
+                                    eprintln!("DEBUG: unwrap checking var_option_inner_type for '{}', all keys: {:?}", 
+                                        var_name, self.var_option_inner_type.keys().collect::<Vec<_>>());
+                                    self.var_option_inner_type.get(var_name).cloned()
+                                        .or_else(|| self.var_array_element_struct.get(var_name).cloned())
+                                }
+                                IRValue::Register(reg_id) => {
+                                    eprintln!("DEBUG: unwrap checking reg_option_inner_type for reg {}", reg_id);
+                                    self.reg_option_inner_type.get(reg_id).cloned()
+                                        .or_else(|| self.reg_array_element_struct.get(reg_id).cloned())
+                                }
+                                _ => None,
+                            };
+                            eprintln!("DEBUG: unwrap inner_type = {:?}", inner_type);
+                            if let Some(inner_type) = inner_type {
+                                if let IRValue::Register(reg_id) = r {
+                                    eprintln!("DEBUG: unwrap propagating inner type '{}' to reg {}", inner_type, reg_id);
+                                    self.reg_struct_types.insert(*reg_id, inner_type);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Track Option inner types when Some() is called
+                    if name == "Some" {
+                        if let Some(value_arg) = args.get(0) {
+                            // Get the type of the value being wrapped in Some
+                            let inner_type = match value_arg {
+                                IRValue::Variable(var_name) => self.var_struct_types.get(var_name).cloned(),
+                                IRValue::Register(reg_id) => self.reg_struct_types.get(reg_id).cloned(),
+                                _ => None,
+                            };
+                            if let Some(inner_type) = inner_type.clone() {
+                                if let IRValue::Register(reg_id) = r {
+                                    eprintln!("DEBUG: Some() tracking inner type '{}' for result reg {}", inner_type, reg_id);
+                                    self.reg_option_inner_type.insert(*reg_id, inner_type);
+                                }
+                            }
                         }
                     }
                 }

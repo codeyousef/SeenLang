@@ -731,8 +731,15 @@ impl TypeChecker {
     /// Populate prelude scope with all top-level functions from the program
     /// This enables cross-module function visibility for manifest-bundled modules
     fn populate_prelude(&mut self, program: &Program) {
-        // Only populate prelude when manifest modules are enabled
-        if std::env::var("SEEN_ENABLE_MANIFEST_MODULES").is_ok() {
+        // Populate prelude when manifest modules are enabled (default on; opt-out via env)
+        let manifest_enabled = std::env::var("SEEN_ENABLE_MANIFEST_MODULES")
+            .map(|v| {
+                let lowered = v.trim().to_ascii_lowercase();
+                !matches!(lowered.as_str(), "0" | "false" | "no" | "off")
+            })
+            .unwrap_or(true);
+
+        if manifest_enabled {
             // First, copy all built-in functions from env to prelude
             // This ensures built-ins like exit(), throw(), super() are visible across modules
             for (name, sig) in &self.env.functions {
