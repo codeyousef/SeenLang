@@ -405,8 +405,14 @@ impl IRGenerator {
                 result_value = value;
             }
 
-            // Add return instruction
-            all_instructions.push(Instruction::Return(Some(result_value)));
+            // Only add a return instruction if the last instruction is NOT already a return.
+            // This prevents duplicate returns when the main function body ends with a return statement.
+            let ends_with_return = all_instructions.last().map_or(false, |inst| {
+                matches!(inst, Instruction::Return(_))
+            });
+            if !ends_with_return {
+                all_instructions.push(Instruction::Return(Some(result_value)));
+            }
 
             // Update function register count
             main_function.register_count = self.context.register_counter;
@@ -693,27 +699,49 @@ impl IRGenerator {
             instructions.extend(obj_instructions);
 
             // Handle zero-arg length/size on arrays and strings
-            if (member == "length" || member == "size") && arguments.is_empty() {
-                let result_reg = self.context.allocate_register();
-                let result_value = IRValue::Register(result_reg);
-                // Best-effort type check: identifier tracked in context
-                let is_string_ident = if let Expression::Identifier { name, .. } = object.as_ref() {
-                    matches!(self.context.get_variable_type(name), Some(IRType::String))
+            // Only apply ArrayLength/StringLength for actual Array<T> or String types,
+            // NOT for Vec<T> or other classes that define their own .len()/.length() methods
+            if (member == "length" || member == "size" || member == "len") && arguments.is_empty() {
+                // Check the object's type to see if it's an actual Array or String
+                // First try from Identifier, then fall back to register type lookup
+                let obj_type = if let Expression::Identifier { name, .. } = object.as_ref() {
+                    let t = self.context.get_variable_type(name).cloned();
+                    eprintln!("DEBUG: len/length call on identifier '{}', type = {:?}", name, t);
+                    t
                 } else {
-                    false
+                    // For MemberAccess and other expressions, the obj_val register has the type
+                    let t = match &obj_val {
+                        IRValue::Register(reg) => self.context.register_types.get(reg).cloned(),
+                        IRValue::Variable(var_name) => self.context.get_variable_type(var_name).cloned(),
+                        _ => None,
+                    };
+                    eprintln!("DEBUG: len/length call on non-identifier {:?}, obj_val = {}, type from register = {:?}", object, obj_val, t);
+                    t
                 };
-                if is_string_ident {
+                
+                let is_array_type = matches!(obj_type, Some(IRType::Array(_)));
+                let is_string_type = matches!(obj_type, Some(IRType::String));
+                
+                eprintln!("DEBUG: is_array_type={}, is_string_type={}", is_array_type, is_string_type);
+                
+                if is_string_type {
+                    let result_reg = self.context.allocate_register();
+                    let result_value = IRValue::Register(result_reg);
                     instructions.push(Instruction::StringLength {
                         string: obj_val.clone(),
                         result: result_value.clone(),
                     });
-                } else {
+                    return Ok((result_value, instructions));
+                } else if is_array_type {
+                    let result_reg = self.context.allocate_register();
+                    let result_value = IRValue::Register(result_reg);
                     instructions.push(Instruction::ArrayLength {
                         array: obj_val.clone(),
                         result: result_value.clone(),
                     });
+                    return Ok((result_value, instructions));
                 }
-                return Ok((result_value, instructions));
+                // For other types (like Vec<T>), fall through to regular method call
             }
 
             // Try to determine object's type for method return type lookup
@@ -722,7 +750,8 @@ impl IRGenerator {
                     let result = match self.context.register_types.get(reg) {
                         Some(IRType::Struct { name, .. }) => Some(name.clone()),
                         Some(IRType::Enum { name, .. }) => Some(name.clone()),
-                        Some(IRType::Array(_)) => Some("Vec".to_string()),
+                        // Use "Array" for builtin arrays - NOT "Vec" which is a different class
+                        Some(IRType::Array(_)) => Some("Array".to_string()),
                         Some(IRType::String) => Some("String".to_string()),
                         Some(IRType::Optional(_)) => Some("Option".to_string()),
                         _ => None,
@@ -737,7 +766,8 @@ impl IRGenerator {
                     let result = match self.context.get_variable_type(var_name) {
                         Some(IRType::Struct { name, .. }) => Some(name.clone()),
                         Some(IRType::Enum { name, .. }) => Some(name.clone()),
-                        Some(IRType::Array(_)) => Some("Vec".to_string()),
+                        // Use "Array" for builtin arrays - NOT "Vec" which is a different class
+                        Some(IRType::Array(_)) => Some("Array".to_string()),
                         Some(IRType::String) => Some("String".to_string()),
                         Some(IRType::Optional(_)) => Some("Option".to_string()),
                         _ => None,
@@ -871,6 +901,7 @@ impl IRGenerator {
             };
             
             let result_value = IRValue::Register(result_reg);
+            eprintln!("DEBUG IR: Generating Call to '{}' with args {:?}", mangled_name, final_args);
             instructions.push(Instruction::Call {
                 target: IRValue::Variable(mangled_name),
                 args: final_args,

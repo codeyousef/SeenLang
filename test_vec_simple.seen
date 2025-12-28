@@ -1,0 +1,13 @@
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() {
+    __Print("Creating Vec...\n")
+    var vec = Vec<Int>.new()
+    __Print("Vec created\n")
+    __Print("Capacity: ")
+    __PrintInt(vec.capacity())
+    __Print("\n")
+}

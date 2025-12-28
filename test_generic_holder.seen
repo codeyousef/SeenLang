@@ -1,0 +1,20 @@
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+class GenericHolder<T> {
+    var arr: Array<T>
+    var length: Int
+    
+    static fun new() r: GenericHolder<T> {
+        return GenericHolder{ arr: Array<T>(), length: 0 }
+    }
+}
+
+fun main() {
+    __Print("Creating GenericHolder<Int>...\n")
+    var h = GenericHolder<Int>.new()
+    __Print("GenericHolder created\n")
+    __Print("h.length = ")
+    __PrintInt(h.length)
+    __Print("\n")
+}

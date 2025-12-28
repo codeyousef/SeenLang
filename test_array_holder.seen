@@ -1,0 +1,20 @@
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+class ArrayHolder {
+    var arr: Array<Int>
+    var length: Int
+    
+    static fun new() r: ArrayHolder {
+        return ArrayHolder{ arr: Array<Int>(), length: 0 }
+    }
+}
+
+fun main() {
+    __Print("Creating ArrayHolder...\n")
+    var h = ArrayHolder.new()
+    __Print("ArrayHolder created\n")
+    __Print("h.length = ")
+    __PrintInt(h.length)
+    __Print("\n")
+}

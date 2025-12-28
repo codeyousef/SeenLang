@@ -875,8 +875,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             return; // Already registered
         }
         
-        // Debug TypeError registration
-        if name == "TypeError" || name == "Location" {
+        // Debug Vec and other container types
+        if name == "TypeError" || name == "Location" || name == "Vec" || name == "VecChunk" {
             eprintln!("DEBUG: register_struct_type '{}' with {} fields:", name, fields.len());
             for (fname, ftype) in fields {
                 eprintln!("DEBUG:   field '{}': {:?}", fname, ftype);
@@ -1428,7 +1428,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         inst: &Instruction,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
-        if let Instruction::Call { target, .. } = inst {
+        if let Instruction::ArrayLength { array, .. } = inst {
+            let cur_fn = self.current_fn.map(|f| f.get_name().to_string_lossy().into_owned()).unwrap_or_else(|| "unknown".to_string());
+            eprintln!("DEBUG LLVM emit_instruction: ArrayLength on {:?} in fn {}", array, cur_fn);
         }
         match inst {
             Instruction::Label(lbl) => {
@@ -2003,6 +2005,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                     names
                 };
                 
+                // Debug: show field order vs fields
+                if type_name == "Vec" {
+                    let fn_name = self.current_fn.map(|f| f.get_name().to_string_lossy().to_string()).unwrap_or("?".to_string());
+                    eprintln!("DEBUG eval_value Vec struct in {}: field_order={:?}, fields.keys={:?}", 
+                        fn_name, field_order, fields.keys().collect::<Vec<_>>());
+                }
+                
                 // Allocate struct on heap using malloc
                 let struct_size = llvm_struct_ty.size_of()
                     .ok_or_else(|| anyhow!("Cannot get size of struct {}", type_name))?;
@@ -2025,7 +2034,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 // Set each field
                 for (idx, field_name) in field_order.iter().enumerate() {
                     if let Some(field_val) = fields.get(field_name) {
+                        if type_name == "Vec" {
+                            let fn_name = self.current_fn.map(|f| f.get_name().to_string_lossy().to_string()).unwrap_or("?".to_string());
+                            let reg_values_keys: Vec<_> = self.reg_values.keys().collect();
+                            eprintln!("DEBUG Vec field: fn={}, idx={}, name={}, val={:?}, reg_values={:?}", fn_name, idx, field_name, field_val, reg_values_keys);
+                        }
                         let val = self.eval_value(field_val, fn_map)?;
+                        if type_name == "Vec" {
+                            eprintln!("DEBUG Vec field evaluated: idx={}, name={}, llvm_val={:?}", idx, field_name, val);
+                        }
                         let field_ptr = self.build_struct_gep_checked(
                             llvm_struct_ty,
                             heap_ptr,

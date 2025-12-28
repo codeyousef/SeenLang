@@ -1,0 +1,35 @@
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() {
+    __Print("Creating Vec...
+")
+    var vec = Vec<Int>.new()
+    __Print("Vec created
+")
+    __Print("Length: ")
+    __PrintInt(vec.len())
+    __Print("
+")
+    
+    __Print("Pushing values...
+")
+    vec.push(10)
+    vec.push(20)
+    vec.push(30)
+    
+    __Print("Length after push: ")
+    __PrintInt(vec.len())
+    __Print("
+")
+    
+    __Print("Capacity after push: ")
+    __PrintInt(vec.capacity())
+    __Print("
+")
+    
+    __Print("Done!
+")
+}

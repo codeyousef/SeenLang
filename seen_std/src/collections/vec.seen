@@ -3,6 +3,8 @@
 
 // Runtime-provided default initializer for generic T (handled as intrinsic in backend).
 extern fun __default<T>() r: T
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
 
 class VecChunk<T> {
     var values: Array<T>

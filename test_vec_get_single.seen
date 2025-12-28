@@ -1,0 +1,23 @@
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() {
+    var vec = Vec<Int>.new()
+    __Print("Pushing 10...
+")
+    vec.push(10)
+    __Print("Len after push: ")
+    __PrintInt(vec.len())
+    __Print("
+")
+    
+    __Print("Getting [0]...
+")
+    let v = vec.get(0)
+    __Print("Got: ")
+    __PrintInt(v)
+    __Print("
+")
+}

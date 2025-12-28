@@ -1,0 +1,37 @@
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+class MultiArrayHolder<T> {
+    var arr1: Array<T>
+    var arr2: Array<Int>
+    var arr3: Array<Int>
+    var length: Int
+    var totalCapacity: Int
+    var nextChunkSize: Int
+    
+    static fun new() r: MultiArrayHolder<T> {
+        return MultiArrayHolder{
+            arr1: Array<T>(),
+            arr2: Array<Int>(),
+            arr3: Array<Int>(),
+            length: 0,
+            totalCapacity: 0,
+            nextChunkSize: 8
+        }
+    }
+}
+
+fun main() {
+    __Print("Creating MultiArrayHolder<Int>...\n")
+    var h = MultiArrayHolder<Int>.new()
+    __Print("MultiArrayHolder created\n")
+    __Print("h.length = ")
+    __PrintInt(h.length)
+    __Print("\n")
+    __Print("h.totalCapacity = ")
+    __PrintInt(h.totalCapacity)
+    __Print("\n")
+    __Print("h.nextChunkSize = ")
+    __PrintInt(h.nextChunkSize)
+    __Print("\n")
+}

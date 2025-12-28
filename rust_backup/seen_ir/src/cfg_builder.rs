@@ -91,8 +91,24 @@ pub fn build_cfg_from_instructions(instructions: Vec<Instruction>) -> ControlFlo
     }
 
     // Finish any remaining block
-    if let Some(block) = current_block {
+    if let Some(mut block) = current_block {
+        // If the remaining block doesn't have a terminator, add an unreachable return.
+        // This happens when the last instruction is a label or regular instruction.
+        if !block.is_terminated() {
+            // Use a void return as a placeholder terminator for unreachable code
+            block.terminator = Some(Instruction::Return(None));
+        }
         cfg.add_block(block);
+    }
+    
+    // Ensure all blocks have terminators (sanity check)
+    // This handles edge cases like empty blocks created by label-only sequences
+    for label in cfg.block_order.clone() {
+        if let Some(block) = cfg.get_block_mut(&label) {
+            if !block.is_terminated() {
+                block.terminator = Some(Instruction::Return(None));
+            }
+        }
     }
 
     // If no entry block was set, use the first block

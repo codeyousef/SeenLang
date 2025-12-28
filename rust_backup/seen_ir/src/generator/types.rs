@@ -64,17 +64,15 @@ impl IRGenerator {
                     IRType::Array(Box::new(IRType::Integer))
                 }
             }
-            // Vec<T> is a dynamic array - convert to Array(T) to preserve element type
+            // Vec<T> is a class defined in seen_std, NOT a builtin array type.
+            // It must be treated as a Struct so that method calls work correctly.
             "Vec" => {
-                if let Some(element_ast_type) = ast_type.generics.first() {
-                    let element_type = self.convert_ast_type_to_ir(element_ast_type);
-                    IRType::Array(Box::new(element_type))
-                } else {
-                    // Vec without type parameter - default to generic
-                    IRType::Struct {
-                        name: "Vec".to_string(),
-                        fields: Vec::new(),
-                    }
+                let generic_types: Vec<IRType> = ast_type.generics.iter()
+                    .map(|g| self.convert_ast_type_to_ir(g))
+                    .collect();
+                IRType::Struct {
+                    name: "Vec".to_string(),
+                    fields: Vec::new(),  // Fields will be filled in by class definition
                 }
             }
             // Option<T> wraps T

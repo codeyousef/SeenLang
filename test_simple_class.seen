@@ -1,0 +1,23 @@
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+class Simple {
+    var x: Int
+    var y: Int
+    
+    static fun new() r: Simple {
+        return Simple{ x: 42, y: 100 }
+    }
+}
+
+fun main() {
+    __Print("Creating Simple...\n")
+    var s = Simple.new()
+    __Print("Simple created\n")
+    __Print("s.x = ")
+    __PrintInt(s.x)
+    __Print("\n")
+    __Print("s.y = ")
+    __PrintInt(s.y)
+    __Print("\n")
+}

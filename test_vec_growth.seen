@@ -1,0 +1,41 @@
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() {
+    var vec = Vec<Int>.new()
+    
+    __Print("Initial capacity: ")
+    __PrintInt(vec.capacity())
+    __Print("\n")
+    
+    // Push 20 items to trigger growth
+    var i = 0
+    while i < 20 {
+        vec.push(i * 10)
+        i = i + 1
+    }
+    
+    __Print("After 20 pushes:\n")
+    __Print("  Length: ")
+    __PrintInt(vec.len())
+    __Print("\n")
+    __Print("  Capacity: ")
+    __PrintInt(vec.capacity())
+    __Print("\n")
+    
+    // Read back all values
+    __Print("\nValues:\n")
+    i = 0
+    while i < vec.len() {
+        __Print("  vec[")
+        __PrintInt(i)
+        __Print("] = ")
+        __PrintInt(vec.get(i))
+        __Print("\n")
+        i = i + 1
+    }
+    
+    __Print("\nDone!\n")
+}

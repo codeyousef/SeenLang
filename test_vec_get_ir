@@ -1,0 +1,566 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Type definitions
+type Vec = struct Vec { chunks: [struct VecChunk { values: [struct T {  }] }], capacities: [i64], usage: [i64], length: i64, totalCapacity: i64, nextChunkSize: i64 }
+type VecChunk = struct VecChunk { values: [struct T {  }] }
+type VecSlot = struct VecSlot { chunk: i64, offset: i64 }
+
+; Functions
+fn Vec [public]() -> struct Vec { chunks: [struct VecChunk { values: [struct T {  }] }], capacities: [i64], usage: [i64], length: i64, totalCapacity: i64, nextChunkSize: i64 } {
+; Entry: entry
+entry:
+  new Vec(null, null, null, 0, 0, 0) -> %r2
+  ret %r2
+
+}
+
+fn VecChunk [public]() -> struct VecChunk { values: [struct T {  }] } {
+; Entry: entry
+entry:
+  new VecChunk(null) -> %r0
+  ret %r0
+
+}
+
+fn VecSlot [public]() -> struct VecSlot { chunk: i64, offset: i64 } {
+; Entry: entry
+entry:
+  new VecSlot(0, 0) -> %r1
+  ret %r1
+
+}
+
+fn Vec_capacity(this: struct Vec {  }) -> i64 {
+; Entry: entry
+entry:
+  field_get %this.totalCapacity -> %r0
+  ret %r0
+
+}
+
+fn Vec_clear(this: struct Vec {  }) -> struct Void {  } {
+; Entry: entry
+entry:
+  call %__ArrayNew (8, 0) -> %r0
+  field_set %this.chunks = %r0
+  call %__ArrayNew (8, 0) -> %r1
+  field_set %this.capacities = %r1
+  call %__ArrayNew (8, 0) -> %r2
+  field_set %this.usage = %r2
+  field_set %this.length = 0
+  field_set %this.totalCapacity = 0
+  field_set %this.nextChunkSize = 8
+  ret 8
+
+}
+
+fn Vec_ensureCapacity(this: struct Vec {  }, capacity: i64) -> struct Void {  } {
+; Entry: entry
+entry:
+  call %Vec_reserve (%this, %capacity) -> %r0
+  ret %r0
+
+}
+
+fn Vec_get(this: struct Vec {  }, index: i64) -> struct T {  } {
+  ; Local variables
+  chunkIndex: i64
+
+; Entry: entry
+entry:
+  lt %index 0 -> %r0
+  field_get %this.length -> %r1
+  ge %index %r1 -> %r2
+  or %r0 %r2 -> %r3
+  jif %r3 .then_12
+
+block_0:
+  jmp .else_13
+
+then_12:
+  call %abort ("Vec index out of bounds") -> %r4
+  mov %r4 -> %r5
+  jmp .if_end_14
+
+else_13:
+  mov void -> %r5
+  jmp .if_end_14
+
+if_end_14:
+  store %index -> %remaining
+  store 0 -> %chunkIndex
+  jmp .loop_start_15
+
+loop_start_15:
+  field_get %this.chunks -> %r6
+  arr_len %r6 -> %r7
+  lt %chunkIndex %r7 -> %r8
+  jnot %r8 .loop_end_17
+
+loop_body_16:
+  field_get %this.usage -> %r9
+  arr_get %r9[%chunkIndex] -> %r10
+  store %r10 -> %chunkUsage
+  lt %remaining %chunkUsage -> %r11
+  jif %r11 .then_18
+
+block_1:
+  jmp .else_19
+
+then_18:
+  field_get %this.chunks -> %r12
+  arr_get %r12[%chunkIndex] -> %r13
+  field_get %r13.values -> %r14
+  arr_get %r14[%remaining] -> %r15
+  ret %r15
+
+block_2:
+  mov %r15 -> %r16
+  jmp .if_end_20
+
+else_19:
+  mov void -> %r16
+  jmp .if_end_20
+
+if_end_20:
+  sub %remaining %chunkUsage -> %r17
+  store %r17 -> %remaining
+  add %chunkIndex 1 -> %r18
+  store %r18 -> %chunkIndex
+  jmp .loop_start_15
+
+loop_end_17:
+  call %abort ("Vec internal error") -> %r19
+  ret %r19
+
+}
+
+fn Vec_growChunk(this: struct Vec {  }) -> struct Void {  } {
+  ; Local variables
+  chunk: struct VecChunk { values: Unresolved }
+
+; Entry: entry
+entry:
+  call %__ArrayNew (8, 0) -> %r0
+  store struct VecChunk -> %chunk
+  field_get %this.chunks -> %r1
+  call %Array_push (%r1, %chunk) -> %r2
+  field_get %this.nextChunkSize -> %r3
+  field_get %this.capacities -> %r4
+  call %Array_push (%r4, %r3) -> %r5
+  field_get %this.usage -> %r6
+  call %Array_push (%r6, 0) -> %r7
+  field_get %this.totalCapacity -> %r8
+  field_get %this.nextChunkSize -> %r9
+  add %r8 %r9 -> %r10
+  field_set %this.totalCapacity = %r10
+  field_get %this.nextChunkSize -> %r11
+  mul %r11 2 -> %r12
+  field_set %this.nextChunkSize = %r12
+  ret %r12
+
+}
+
+fn Vec_isEmpty(this: struct Vec {  }) -> bool {
+; Entry: entry
+entry:
+  field_get %this.length -> %r0
+  eq %r0 0 -> %r1
+  ret %r1
+
+}
+
+fn Vec_len(this: struct Vec {  }) -> i64 {
+; Entry: entry
+entry:
+  field_get %this.length -> %r0
+  ret %r0
+
+}
+
+fn Vec_locateSlot(this: struct Vec {  }, index: i64) -> struct VecSlot { chunk: i64, offset: i64 } {
+  ; Local variables
+  chunkIndex: i64
+
+; Entry: entry
+entry:
+  lt %index 0 -> %r0
+  field_get %this.length -> %r1
+  ge %index %r1 -> %r2
+  or %r0 %r2 -> %r3
+  jif %r3 .then_39
+
+block_0:
+  jmp .else_40
+
+then_39:
+  call %abort ("Vec index out of bounds") -> %r4
+  mov %r4 -> %r5
+  jmp .if_end_41
+
+else_40:
+  mov void -> %r5
+  jmp .if_end_41
+
+if_end_41:
+  store %index -> %remaining
+  store 0 -> %chunkIndex
+  jmp .loop_start_42
+
+loop_start_42:
+  field_get %this.chunks -> %r6
+  arr_len %r6 -> %r7
+  lt %chunkIndex %r7 -> %r8
+  jnot %r8 .loop_end_44
+
+loop_body_43:
+  field_get %this.usage -> %r9
+  arr_get %r9[%chunkIndex] -> %r10
+  store %r10 -> %chunkUsage
+  lt %remaining %chunkUsage -> %r11
+  jif %r11 .then_45
+
+block_1:
+  jmp .else_46
+
+then_45:
+  ret struct VecSlot
+
+block_2:
+  mov struct VecSlot -> %r12
+  jmp .if_end_47
+
+else_46:
+  mov void -> %r12
+  jmp .if_end_47
+
+if_end_47:
+  sub %remaining %chunkUsage -> %r13
+  store %r13 -> %remaining
+  add %chunkIndex 1 -> %r14
+  store %r14 -> %chunkIndex
+  jmp .loop_start_42
+
+loop_end_44:
+  call %abort ("Vec index out of bounds") -> %r15
+  ret struct VecSlot
+
+}
+
+fn Vec_new() -> struct Vec {  } {
+  ; Local variables
+  this: struct Vec {  }
+
+; Entry: entry
+entry:
+  call %__ArrayNew (8, 0) -> %r0
+  call %__ArrayNew (8, 0) -> %r1
+  call %__ArrayNew (8, 0) -> %r2
+  ret struct Vec
+
+}
+
+fn Vec_pop(this: struct Vec {  }) -> struct T {  } {
+; Entry: entry
+entry:
+  field_get %this.length -> %r0
+  eq %r0 0 -> %r1
+  jif %r1 .then_3
+
+block_0:
+  jmp .else_4
+
+then_3:
+  call %abort ("Vec.pop() called on empty Vec") -> %r2
+  mov %r2 -> %r3
+  jmp .if_end_5
+
+else_4:
+  mov void -> %r3
+  jmp .if_end_5
+
+if_end_5:
+  field_get %this.chunks -> %r4
+  arr_len %r4 -> %r5
+  sub %r5 1 -> %r6
+  store %r6 -> %chunkIndex
+  jmp .loop_start_6
+
+loop_start_6:
+  ge %chunkIndex 0 -> %r7
+  field_get %this.usage -> %r8
+  arr_get %r8[%chunkIndex] -> %r9
+  eq %r9 0 -> %r10
+  and %r7 %r10 -> %r11
+  jnot %r11 .loop_end_8
+
+loop_body_7:
+  sub %chunkIndex 1 -> %r12
+  store %r12 -> %chunkIndex
+  jmp .loop_start_6
+
+loop_end_8:
+  lt %chunkIndex 0 -> %r13
+  jif %r13 .then_9
+
+block_1:
+  jmp .else_10
+
+then_9:
+  call %abort ("Vec internal state corrupted") -> %r14
+  mov %r14 -> %r15
+  jmp .if_end_11
+
+else_10:
+  mov void -> %r15
+  jmp .if_end_11
+
+if_end_11:
+  field_get %this.usage -> %r16
+  arr_get %r16[%chunkIndex] -> %r17
+  sub %r17 1 -> %r18
+  store %r18 -> %used
+  field_get %this.usage -> %r19
+  arr_set %r19[%chunkIndex] = %used
+  field_get %this.length -> %r20
+  sub %r20 1 -> %r21
+  field_set %this.length = %r21
+  field_get %this.chunks -> %r22
+  arr_get %r22[%chunkIndex] -> %r23
+  field_get %r23.values -> %r24
+  arr_get %r24[%used] -> %r25
+  ret %r25
+
+}
+
+fn Vec_push(this: struct Vec {  }, value: struct T {  }) -> struct Void {  } {
+; Entry: entry
+entry:
+  field_get %this.length -> %r0
+  field_get %this.totalCapacity -> %r1
+  ge %r0 %r1 -> %r2
+  jif %r2 .then_0
+
+block_0:
+  jmp .else_1
+
+then_0:
+  call %Vec_growChunk (%this) -> %r3
+  mov %r3 -> %r4
+  jmp .if_end_2
+
+else_1:
+  mov void -> %r4
+  jmp .if_end_2
+
+if_end_2:
+  field_get %this.chunks -> %r5
+  arr_len %r5 -> %r6
+  sub %r6 1 -> %r7
+  store %r7 -> %lastIndex
+  field_get %this.chunks -> %r8
+  arr_get %r8[%lastIndex] -> %r9
+  store %r9 -> %chunk
+  field_get %this.usage -> %r10
+  arr_get %r10[%lastIndex] -> %r11
+  store %r11 -> %used
+  field_get %chunk.values -> %r12
+  call %push (%r12, %value) -> %r13
+  add %used 1 -> %r14
+  field_get %this.usage -> %r15
+  arr_set %r15[%lastIndex] = %r14
+  field_get %this.length -> %r16
+  add %r16 1 -> %r17
+  field_set %this.length = %r17
+  ret %r17
+
+}
+
+fn Vec_reserve(this: struct Vec {  }, capacity: i64) -> struct Void {  } {
+; Entry: entry
+entry:
+  field_get %this.totalCapacity -> %r0
+  le %capacity %r0 -> %r1
+  jif %r1 .then_30
+
+block_0:
+  jmp .else_31
+
+then_30:
+  ret
+
+block_1:
+  mov void -> %r2
+  jmp .if_end_32
+
+else_31:
+  mov void -> %r2
+  jmp .if_end_32
+
+if_end_32:
+  jmp .loop_start_33
+
+loop_start_33:
+  field_get %this.totalCapacity -> %r3
+  lt %r3 %capacity -> %r4
+  jnot %r4 .loop_end_35
+
+loop_body_34:
+  call %Vec_growChunk (%this) -> %r5
+  jmp .loop_start_33
+
+loop_end_35:
+  ret void
+
+}
+
+fn Vec_set(this: struct Vec {  }, index: i64, value: struct T {  }) -> struct Void {  } {
+  ; Local variables
+  chunkIndex: i64
+
+; Entry: entry
+entry:
+  lt %index 0 -> %r0
+  field_get %this.length -> %r1
+  ge %index %r1 -> %r2
+  or %r0 %r2 -> %r3
+  jif %r3 .then_21
+
+block_0:
+  jmp .else_22
+
+then_21:
+  call %abort ("Vec index out of bounds") -> %r4
+  mov %r4 -> %r5
+  jmp .if_end_23
+
+else_22:
+  mov void -> %r5
+  jmp .if_end_23
+
+if_end_23:
+  store %index -> %remaining
+  store 0 -> %chunkIndex
+  jmp .loop_start_24
+
+loop_start_24:
+  field_get %this.chunks -> %r6
+  arr_len %r6 -> %r7
+  lt %chunkIndex %r7 -> %r8
+  jnot %r8 .loop_end_26
+
+loop_body_25:
+  field_get %this.usage -> %r9
+  arr_get %r9[%chunkIndex] -> %r10
+  store %r10 -> %chunkUsage
+  lt %remaining %chunkUsage -> %r11
+  jif %r11 .then_27
+
+block_1:
+  jmp .else_28
+
+then_27:
+  field_get %this.chunks -> %r12
+  arr_get %r12[%chunkIndex] -> %r13
+  field_get %r13.values -> %r14
+  arr_set %r14[%remaining] = %value
+  ret
+
+block_2:
+  mov void -> %r15
+  jmp .if_end_29
+
+else_28:
+  mov void -> %r15
+  jmp .if_end_29
+
+if_end_29:
+  sub %remaining %chunkUsage -> %r16
+  store %r16 -> %remaining
+  add %chunkIndex 1 -> %r17
+  store %r17 -> %chunkIndex
+  jmp .loop_start_24
+
+loop_end_26:
+  call %abort ("Vec internal error") -> %r18
+  ret %r18
+
+}
+
+fn Vec_toArray(this: struct Vec {  }) -> [struct T {  }] {
+  ; Local variables
+  arr: [struct T {  }]
+  i: i64
+
+; Entry: entry
+entry:
+  call %__ArrayNew (8, 0) -> %r0
+  store %r0 -> %arr
+  store 0 -> %i
+  jmp .loop_start_36
+
+loop_start_36:
+  field_get %this.length -> %r1
+  lt %i %r1 -> %r2
+  jnot %r2 .loop_end_38
+
+loop_body_37:
+  call %Vec_get (%this, %i) -> %r3
+  call %Array_push (%arr, %r3) -> %r4
+  add %i 1 -> %r5
+  store %r5 -> %i
+  jmp .loop_start_36
+
+loop_end_38:
+  ret %arr
+
+}
+
+fn Vec_withCapacity(capacity: i64) -> struct Vec {  } {
+  ; Local variables
+  vec: struct Vec {  }
+
+; Entry: entry
+entry:
+  call %Vec_new () -> %r0
+  store %r0 -> %vec
+  call %Vec_reserve (%vec, %capacity) -> %r1
+  ret %vec
+
+}
+
+fn __Print [extern](s: string) -> void {}
+
+fn __PrintInt [extern](n: i64) -> void {}
+
+fn __default [extern]() -> struct T {  } {}
+
+fn main() -> void {
+  ; Local variables
+  v: i64?
+  vec: struct Vec {  }
+
+; Entry: entry
+entry:
+  call %Vec_new () -> %r0
+  store %r0 -> %vec
+  call %__Print ("Pushing 10...\n") -> %r1
+  call %Vec_push (%vec, 10) -> %r2
+  call %__Print ("Len after push: ") -> %r3
+  call %Vec_len (%vec) -> %r4
+  call %__PrintInt (%r4) -> %r5
+  call %__Print ("\n") -> %r6
+  call %__Print ("Getting [0]...\n") -> %r7
+  call %Vec_get (%vec, 0) -> %r8
+  store %r8 -> %v
+  call %__Print ("Got: ") -> %r9
+  call %__PrintInt (%v) -> %r10
+  call %__Print ("\n") -> %r11
+  ret %r11
+
+}
+
+

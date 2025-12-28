@@ -575,7 +575,7 @@ impl From<&seen_parser::ast::Type> for Type {
                         ast_type.generics.iter().map(Type::from).collect();
 
                     match ast_type.name.as_str() {
-                        "Array" | "List" | "Vec" if !resolved_generics.is_empty() => {
+                        "Array" | "List" if !resolved_generics.is_empty() => {
                             Type::Array(Box::new(resolved_generics.remove(0)))
                         }
                         "Map" | "HashMap" if resolved_generics.len() >= 2 => Type::Map {

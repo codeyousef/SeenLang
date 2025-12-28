@@ -324,19 +324,19 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 }
             }
             
-            // Default: treat as f64 array
-            let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
-            let data_f64_ptr = self.builder.build_pointer_cast(data_ptr, f64_ptr_ty, "data_f64_ptr")?;
+            // Default: treat as i64 array (works for int, pointer-as-int, and generic values)
+            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+            let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
             
             let elem_ptr = unsafe {
                 self.builder.build_gep(
-                    self.ctx.f64_type(),
-                    data_f64_ptr,
+                    self.i64_t,
+                    data_i64_ptr,
                     &[idx_iv],
                     "elem_ptr",
                 )?
             };
-            let elem = self.builder.build_load(self.ctx.f64_type(), elem_ptr, "elem")?;
+            let elem = self.builder.build_load(self.i64_t, elem_ptr, "elem")?;
             self.assign_value(result, elem.as_basic_value_enum())?;
         } else {
             return Err(anyhow!("Unsupported array access value"));
@@ -527,6 +527,11 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         result: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
+        let cur_fn = self.current_fn.map(|f| f.get_name().to_string_lossy().into_owned()).unwrap_or_else(|| "unknown".to_string());
+        if field == "totalCapacity" || field == "capacity" {
+            eprintln!("DEBUG emit_field_access: fn={}, struct_val={:?}, field={}", cur_fn, struct_val, field);
+        }
+        
         // Check if this is an enum variant access (EnumName.VariantName)
         if let IRValue::Variable(enum_name) = struct_val {
             if let Some(variants) = self.enum_types.get(enum_name).cloned() {
@@ -556,6 +561,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         };
         
         // Check if we have a registered struct type
+        if field == "totalCapacity" {
+            eprintln!("DEBUG emit_field_access: struct_type_name={:?}, struct_types contains Vec = {}", 
+                struct_type_name, self.struct_types.contains_key("Vec"));
+        }
         if let Some(type_name) = &struct_type_name {
             if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(type_name).cloned() {
                 // Find field index
@@ -599,9 +608,13 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     "struct_ptr_cast"
                 ).map_err(|e| anyhow!("{e:?}"))?;
 
+                if field == "totalCapacity" || field == "capacity" {
+                    let cur_fn = self.current_fn.map(|f| f.get_name().to_string_lossy().into_owned()).unwrap_or_else(|| "unknown".to_string());
+                    eprintln!("DEBUG emit_field_access: fn={}, type={}, field_idx={}, struct_ptr={:?}", cur_fn, type_name, field_idx, struct_ptr);
+                }
+
                 let gep = self.builder.build_struct_gep(llvm_struct_ty, struct_ptr, field_idx as u32, &format!("field_{}", field))?;
                 let field_ty = llvm_struct_ty.get_field_types()[field_idx];
-                let loaded = self.builder.build_load(field_ty, gep, &format!("load_{}", field))?;
                 let loaded = self.builder.build_load(field_ty, gep, &format!("load_{}", field))?;
                 self.assign_value(result, loaded.as_basic_value_enum())?;
                 

@@ -121,8 +121,14 @@ impl IRGenerator {
         // Add entry label at the beginning
         instructions.insert(0, Instruction::Label(entry_label));
 
-        // Add return instruction at the end
-        instructions.push(Instruction::Return(Some(result_value)));
+        // Only add a return instruction if the last instruction is NOT already a return.
+        // This prevents duplicate returns when the function body ends with a return statement.
+        let ends_with_return = instructions.last().map_or(false, |inst| {
+            matches!(inst, Instruction::Return(_))
+        });
+        if !ends_with_return {
+            instructions.push(Instruction::Return(Some(result_value)));
+        }
 
         // Update function register count
         function.register_count = self.context.register_counter;
@@ -222,7 +228,15 @@ impl IRGenerator {
         // Prepare instructions for CFG builder
         let mut instructions = body_instructions;
         instructions.insert(0, crate::instruction::Instruction::Label(entry_label));
-        instructions.push(crate::instruction::Instruction::Return(Some(body_value)));
+        
+        // Only add a return instruction if the last instruction is NOT already a return.
+        // This prevents duplicate returns when the method body ends with a return statement.
+        let ends_with_return = instructions.last().map_or(false, |inst| {
+            matches!(inst, crate::instruction::Instruction::Return(_))
+        });
+        if !ends_with_return {
+            instructions.push(crate::instruction::Instruction::Return(Some(body_value)));
+        }
 
         // Build proper CFG from instruction list
         let cfg = crate::cfg_builder::build_cfg_from_instructions(instructions);

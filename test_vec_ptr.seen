@@ -1,0 +1,12 @@
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintPtr(p: Int)
+
+fun main() {
+    __Print("Creating Vec...\n")
+    var vec = Vec<Int>.new()
+    __Print("Vec created at: ")
+    // We need to see what vec actually is
+    __Print("\n")
+}

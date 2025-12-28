@@ -1,0 +1,31 @@
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() {
+    var vec = Vec<Int>.new()
+    
+    __Print("Pushing 10, 20, 30...\n")
+    vec.push(10)
+    vec.push(20)
+    vec.push(30)
+    
+    __Print("Len: ")
+    __PrintInt(vec.len())
+    __Print("\n")
+    
+    __Print("vec[0] = ")
+    __PrintInt(vec.get(0))
+    __Print("\n")
+    
+    __Print("vec[1] = ")
+    __PrintInt(vec.get(1))
+    __Print("\n")
+    
+    __Print("vec[2] = ")
+    __PrintInt(vec.get(2))
+    __Print("\n")
+    
+    __Print("Done!\n")
+}

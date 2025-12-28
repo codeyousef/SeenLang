@@ -130,6 +130,14 @@ impl<'ctx> ControlFlowOps<'ctx> for LlvmBackend<'ctx> {
             .ok_or_else(|| anyhow!("return outside of function"))?;
         let ret_ty_opt = current_fn.get_type().get_return_type();
         let fn_name = current_fn.get_name().to_str().unwrap_or("unknown");
+        
+        // Debug: Show what value we're trying to return
+        if fn_name.contains("Vec") || fn_name.contains("new") {
+            if let Some(v) = val_opt {
+                eprintln!("DEBUG emit_return: fn={}, val={:?}", fn_name, v);
+            }
+        }
+        
         match (val_opt, ret_ty_opt) {
             (Some(v), Some(ret_ty)) => {
                 if fn_name == "createLexer" {

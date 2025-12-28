@@ -102,10 +102,28 @@ impl<'ctx> TypeCastOps<'ctx> for LlvmBackend<'ctx> {
                     .map_err(|e| anyhow!("{e:?}"))
             }
         } else if v.is_pointer_value() {
-            // Handle pointer values by converting to int
-            self.builder
-                .build_ptr_to_int(v.into_pointer_value(), self.i64_t, "ptr2i")
-                .map_err(|e| anyhow!("{e:?}"))
+            // Handle pointer values - for generic returns (like Vec_get), this is a pointer 
+            // to the actual value, so we need to dereference
+            let ptr = v.into_pointer_value();
+            
+            // Try loading as i64 from the pointer - this handles generic return values
+            // which are autoboxed pointers to the actual value
+            let loaded = self.builder.build_load(self.i64_t, ptr, "deref_i64")?;
+            if loaded.is_int_value() {
+                let iv = loaded.into_int_value();
+                if iv.get_type() == self.i64_t {
+                    Ok(iv)
+                } else {
+                    self.builder
+                        .build_int_z_extend(iv, self.i64_t, "zext")
+                        .map_err(|e| anyhow!("{e:?}"))
+                }
+            } else {
+                // Fall back to ptr-to-int if dereference fails
+                self.builder
+                    .build_ptr_to_int(ptr, self.i64_t, "ptr2i")
+                    .map_err(|e| anyhow!("{e:?}"))
+            }
         } else if v.is_float_value() {
             // Handle float values by converting to int
             self.builder

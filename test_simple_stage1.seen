@@ -1,0 +1,1 @@
+fun main() { print "Hello from stage1!" }

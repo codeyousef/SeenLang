@@ -842,9 +842,14 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         }
                         return Ok(());
                 }
-                "push" | "Vec_push" | "List_push" | "Array_push" => {
+                // Note: Vec_push must NOT be handled here - Vec has a different layout
+                // than Array ({ chunks, capacities, usage, length, totalCapacity, nextChunkSize }
+                // vs { length, capacity, data }). Vec_push must call the actual Vec_push function.
+                // Check the ORIGINAL name to avoid catching "Vec_push" when it's normalized to "push".
+                "push" | "List_push" | "Array_push" if !name.starts_with("Vec_") => {
                     // push(array, value) - append value to dynamic array
                     if args.len() == 2 {
+                        eprintln!("DEBUG: Inline Array push handler for name='{}', normalized='{}'", name, base_normalized);
                         let arr_val = self.eval_value(&args[0], fn_map)?;
                         let value = self.eval_value(&args[1], fn_map)?;
                         
@@ -982,18 +987,27 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             };
                             self.builder.build_store(elem_ptr, val_to_store)?;
                         } else if value.is_pointer_value() {
-                            // Pointer value (struct pointer)
-                            let ptr_ptr_ty = self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16));
-                            let data_ptr_ptr = self.builder.build_pointer_cast(data_ptr, ptr_ptr_ty, "data_ptr_ptr")?;
+                            // Pointer value - could be:
+                            // 1. A pointer to a primitive (generic T where T=Int) - needs dereference
+                            // 2. An actual struct pointer - store as-is
+                            
+                            let ptr = value.into_pointer_value();
+                            
+                            // For generic values passed as pointers, dereference to get the actual value
+                            // This handles Vec<Int>.push(value) where value is passed as ptr to stack
+                            // Try loading as i64 first (works for int/ptr-as-int/struct-ptr-as-int)
+                            let int_val = self.builder.build_load(self.i64_t, ptr, "deref_int")?.into_int_value();
+                            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                            let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
                             let elem_ptr = unsafe {
                                 self.builder.build_gep(
-                                    self.i8_ptr_t,
-                                    data_ptr_ptr,
+                                    self.i64_t,
+                                    data_i64_ptr,
                                     &[len],
                                     "elem_ptr"
                                 )?
                             };
-                            self.builder.build_store(elem_ptr, value.into_pointer_value())?;
+                            self.builder.build_store(elem_ptr, int_val)?;
                         } else if value.is_struct_value() {
                             let sv = value.into_struct_value();
                             let st = sv.get_type();
@@ -1597,7 +1611,109 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 // Handle size/length/len as getting array length
+                // BUT only for actual Array types - for Vec<T>, call Vec_len instead
                 "size" | "length" | "len" if args.len() == 1 => {
+                    eprintln!("DEBUG LLVM: len/length/size call with arg {:?}", args[0]);
+                    // Check if Vec_len exists - if so, this might be a Vec, not an Array
+                    // For Vec types, we need to call Vec_len method, not read array header
+                    if let Some(vec_len_fn) = fn_map.get("Vec_len").copied()
+                        .or_else(|| self.module.get_function("Vec_len")) 
+                    {
+                        // Check if arg looks like a Vec (tracked in var_is_int_array would be false)
+                        let is_likely_vec = match &args[0] {
+                            IRValue::Variable(v) => {
+                                // If it's not tracked as an int array, it might be a Vec
+                                let result = !self.var_is_int_array.contains(v);
+                                eprintln!("DEBUG LLVM: Variable({}) is_likely_vec={}, var_is_int_array={:?}", v, result, self.var_is_int_array);
+                                result
+                            }
+                            IRValue::Register(r) => {
+                                // Check if register is tracked as array element type
+                                let result = self.reg_array_element_struct.get(r).is_none();
+                                eprintln!("DEBUG LLVM: Register({}) is_likely_vec={}, reg_array_element_struct={:?}", r, result, self.reg_array_element_struct.get(r));
+                                result
+                            }
+                            _ => {
+                                eprintln!("DEBUG LLVM: Other type, is_likely_vec=false");
+                                false
+                            }
+                        };
+                        
+                        eprintln!("DEBUG LLVM: is_likely_vec={}", is_likely_vec);
+                        
+                        if is_likely_vec {
+                            let cur_fn_name = self.current_fn.map(|f| f.get_name().to_string_lossy().into_owned()).unwrap_or_else(|| "none".to_string());
+                            eprintln!("DEBUG LLVM: Taking Vec_len path in fn {}", cur_fn_name);
+                            // Call Vec_len instead of inline array length
+                            let arr_val = self.eval_value(&args[0], fn_map)?;
+                            eprintln!("DEBUG LLVM: arr_val type = {:?}", arr_val);
+                            
+                            // Check if this is actually a String struct - if so, length is field 0
+                            if arr_val.is_struct_value() {
+                                let sv = arr_val.into_struct_value();
+                                let sv_type = sv.get_type();
+                                eprintln!("DEBUG LLVM: struct value with {} fields", sv_type.count_fields());
+                                // String is { i64 len, ptr data }
+                                if sv_type.count_fields() == 2 {
+                                    // Extract length from field 0
+                                    let len = self.builder.build_extract_value(sv, 0, "str_len")?;
+                                    if len.is_int_value() {
+                                        if let Some(r) = result {
+                                            self.assign_value(r, len)?;
+                                        }
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            
+                            let arr_ptr = if arr_val.is_pointer_value() {
+                                eprintln!("DEBUG LLVM: is_pointer_value");
+                                arr_val.into_pointer_value()
+                            } else if arr_val.is_int_value() {
+                                eprintln!("DEBUG LLVM: is_int_value");
+                                self.builder.build_int_to_ptr(
+                                    arr_val.into_int_value(), 
+                                    self.i8_ptr_t, 
+                                    "vec_ptr"
+                                )?
+                            } else {
+                                eprintln!("DEBUG LLVM: FALLTHROUGH - using inline arr_len");
+                                // Fall through to default for other types
+                                let arr_val = self.eval_value(&args[0], fn_map)?;
+                                let arr_ptr = if arr_val.is_pointer_value() {
+                                    arr_val.into_pointer_value()
+                                } else {
+                                    self.builder.build_int_to_ptr(
+                                        arr_val.into_int_value(),
+                                        self.i8_ptr_t,
+                                        "arr_ptr"
+                                    )?
+                                };
+                                let len_ptr = arr_ptr;
+                                let len = self.builder.build_load(self.i64_t, len_ptr, "arr_len")?;
+                                if let Some(r) = result {
+                                    self.assign_value(r, len)?;
+                                }
+                                return Ok(());
+                            };
+                            
+                            eprintln!("DEBUG LLVM: Calling Vec_len! builder_block={:?}", self.builder.get_insert_block().map(|b| b.get_name().to_string_lossy().into_owned()));
+                            let call_val = self.builder.build_call(
+                                vec_len_fn,
+                                &[arr_ptr.into()],
+                                "vec_len"
+                            )?;
+                            
+                            if let Some(r) = result {
+                                if let Some(ret) = call_val.try_as_basic_value().left() {
+                                    self.assign_value(r, ret)?;
+                                }
+                            }
+                            return Ok(());
+                        }
+                    }
+                    
+                    // For actual arrays, use inline length access
                     let arr_val = self.eval_value(&args[0], fn_map)?;
                     // For arrays/vecs, length is stored at offset 0
                     let arr_ptr = if arr_val.is_pointer_value() {
@@ -1626,7 +1742,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 // Handle push for List/Vec - forward to Vec_push
-                "push" | "List_push" if args.len() == 2 => {
+                // NOTE: Do NOT forward Vec_push to itself!
+                "push" | "List_push" if args.len() == 2 && !name.starts_with("Vec_") => {
+                    eprintln!("DEBUG: Forward-to-Vec_push handler for name='{}', normalized='{}'", name, base_normalized);
                     // Try to call Vec_push if it exists
                     if let Some(vec_push) = fn_map.get("Vec_push").copied()
                         .or_else(|| self.module.get_function("Vec_push")) {
@@ -1634,12 +1752,20 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         let item_val = self.eval_value(&args[1], fn_map)?;
                         
                         // Convert args to pointers if needed
+                        // CRITICAL: Vec ptr is stored as i64, must be converted to ptr for function call
                         let arr_ptr = if arr_val.is_pointer_value() {
                             arr_val
                         } else if arr_val.is_struct_value() {
                             let tmp = self.alloca_for_type(arr_val.get_type().as_basic_type_enum(), "push_arr")?;
                             self.builder.build_store(tmp, arr_val)?;
                             tmp.as_basic_value_enum()
+                        } else if arr_val.is_int_value() {
+                            // i64 -> ptr conversion for Vec pointer
+                            self.builder.build_int_to_ptr(
+                                arr_val.into_int_value(),
+                                self.i8_ptr_t,
+                                "vec_ptr"
+                            )?.as_basic_value_enum()
                         } else {
                             arr_val
                         };
@@ -2541,6 +2667,15 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             
             let v = self.eval_value(a, fn_map)?;
             
+            // Debug output for Vec_push call
+            if fn_name == "Vec_push" {
+                eprintln!("DEBUG Vec_push generic path: i={}, arg={:?}, v_type={:?}, params.len()={}", 
+                    i, a, v.get_type(), params.len());
+                if let Some(param) = params.get(i) {
+                    eprintln!("DEBUG Vec_push generic path: param[{}] type={:?}", i, param.get_type());
+                }
+            }
+            
             // General argument coercion logic
             // This handles:
             // 1. Passing structs as pointers (spilling) when function expects pointer (e.g. generic T)
@@ -2576,21 +2711,35 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // BUT, legacy code might expect Int cast to Ptr?
                         // Let's check if it's a collection method
                         let is_collection = fn_name.starts_with("Vec_") || fn_name.starts_with("Map_") || fn_name.starts_with("List_");
-                        if is_collection {
-                            // Spill Int to stack
+                        
+                        // CRITICAL: The first argument to collection methods is the 'this' pointer,
+                        // which is stored as i64 but represents a heap pointer. This should be cast
+                        // to ptr, NOT spilled to stack. Only subsequent arguments (generic T values)
+                        // should be spilled.
+                        let is_this_arg = i == 0 && is_collection;
+                        eprintln!("DEBUG: Vec arg i={}, is_collection={}, is_this_arg={}, v.is_int_value={}", i, is_collection, is_this_arg, v.is_int_value());
+                        
+                        if is_collection && !is_this_arg {
+                            // Spill Int to stack for generic T value arguments
+                            eprintln!("DEBUG: Collection arg {} spill to stack", i);
                             let iv = v.into_int_value();
                             let tmp = self.alloca_for_type(self.i64_t.into(), "int_spill")?;
                             self.builder.build_store(tmp, iv)?;
                             call_args.push(tmp.into());
                             pushed = true;
                         } else {
-                            // Standard Int -> Ptr cast (e.g. null check or address calculation)
+                            // Standard Int -> Ptr cast for 'this' pointer or non-collection functions
+                            eprintln!("DEBUG: Int to ptr cast for arg {}", i);
                             let ptr = self.builder.build_int_to_ptr(
                                 v.into_int_value(), 
                                 expected_ty.into_pointer_type(), 
                                 "arg_cast"
                             )?;
-                            call_args.push(ptr.into());
+                            eprintln!("DEBUG: Created arg_cast ptr {:?}", ptr);
+                            let ptr_meta: BasicMetadataValueEnum = ptr.into();
+                            eprintln!("DEBUG: ptr_meta = {:?}", ptr_meta);
+                            call_args.push(ptr_meta);
+                            eprintln!("DEBUG: call_args after push = {:?}", call_args.last());
                             pushed = true;
                         }
                     } else if v.is_float_value() {
@@ -2696,6 +2845,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             }
             
             if !pushed {
+                eprintln!("DEBUG: generic call fallback - pushing v={:?} as-is for fn {}", v.get_type(), fn_name);
                 call_args.push(v.into());
             }
 
@@ -2725,7 +2875,20 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             extra_args_needed -= 1;
         }
         
+        // Debug the final call_args
+        if fn_name == "Vec_push" {
+            eprintln!("DEBUG Vec_push final call_args before build_call:");
+            for (i, arg) in call_args.iter().enumerate() {
+                eprintln!("  arg[{}] = {:?}", i, arg);
+            }
+            eprintln!("DEBUG: Calling build_call with f={:?}, call_args len={}", f.get_name().to_str(), call_args.len());
+        }
+        
         let call = self.builder.build_call(f, &call_args, "call")?;
+        
+        if fn_name == "Vec_push" {
+            eprintln!("DEBUG Vec_push: call result = {:?}", call);
+        }
         // Debug: check the return type of the call
         let target_name = match target {
             IRValue::Variable(name) | IRValue::Function { name, .. } => name.as_str(),
