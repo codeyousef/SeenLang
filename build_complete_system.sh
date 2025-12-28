@@ -13,13 +13,16 @@ echo ""
 echo "📦 Phase 1: Bootstrap Rust Compiler"
 echo "   Building seen compiler components..."
 
-if [ -f "Cargo.toml" ]; then
+if [ -f "rust_backup/Cargo.toml" ]; then
     echo "   🔧 Building Rust bootstrap compiler (optimized release)"
     
     # Build with optimizations
-    CARGO_TARGET_DIR=target-wsl cargo build --release --quiet --features llvm
+    cd rust_backup
+    CARGO_TARGET_DIR=../target-wsl cargo build --release --quiet --features llvm
+    BUILD_RESULT=$?
+    cd ..
     
-    if [ $? -eq 0 ]; then
+    if [ $BUILD_RESULT -eq 0 ]; then
         echo "   ✅ Bootstrap compiler built successfully"
         # Create a symlink if it doesn't exist to match expected name
         if [ ! -f "target-wsl/release/seen" ]; then
@@ -31,7 +34,7 @@ if [ -f "Cargo.toml" ]; then
         exit 1
     fi
 else
-    echo "   ❌ Error: No Cargo.toml found. Are you in the seenlang root directory?"
+    echo "   ❌ Error: No Cargo.toml found in rust_backup. Are you in the seenlang root directory?"
     exit 1
 fi
 

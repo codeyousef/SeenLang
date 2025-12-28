@@ -179,27 +179,22 @@ impl<'ctx> TypeCastOps<'ctx> for LlvmBackend<'ctx> {
         }
         if v.is_struct_value() {
             let sv = v.into_struct_value();
-            // String struct wrapper - try both field positions since it could be {ptr, i64} or {i64, ptr}
-            // Try field 0 first (for {ptr, i64} structs)
+            // SeenString layout is ALWAYS { i64 len, ptr data }
+            // Field 0 = len (i64), Field 1 = data (ptr)
+            // The data pointer is at field 1 - try this first as it's the canonical layout
+            if let Ok(val) = self.builder.build_extract_value(sv, 1, "str_data_ptr") {
+                if val.is_pointer_value() {
+                    return Ok(val.into_pointer_value());
+                }
+            }
+            // Fallback: try field 0 in case of legacy {ptr, i64} layout (should not happen)
             if let Ok(val) = self.builder.build_extract_value(sv, 0, "str_ptr_f0") {
                 if val.is_pointer_value() {
                     return Ok(val.into_pointer_value());
                 }
             }
-            // Try field 1 (for {i64, ptr} or other structs)
-            if let Ok(val) = self.builder.build_extract_value(sv, 1, "str_ptr_f1") {
-                if val.is_pointer_value() {
-                    return Ok(val.into_pointer_value());
-                }
-            }
-            // Couldn't find pointer field - try returning first field as potential pointer
-            if let Ok(val) = self.builder.build_extract_value(sv, 0, "str_ptr_fallback") {
-                if val.is_int_value() {
-                    return self.builder
-                        .build_int_to_ptr(val.into_int_value(), self.i8_ptr_t, "i2ptr_struct")
-                        .map_err(|e| anyhow!("{e:?}"));
-                }
-            }
+            // If we get here with a struct, the ABI is wrong - don't silently convert int to ptr
+            return Err(anyhow!("SeenString struct has no pointer field - ABI mismatch? struct type: {:?}", sv.get_type()));
         }
         if v.is_int_value() {
             return self

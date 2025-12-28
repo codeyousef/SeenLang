@@ -35,7 +35,7 @@ echo "🔥 Phase 1: Seen Compilation"
 echo "   Using E-graph optimization + LLVM backend"
 
 # Run the Seen compiler
-if $SEEN_COMPILER compile "$SOURCE_FILE" "$OUTPUT_EXECUTABLE"; then
+if $SEEN_COMPILER build "$SOURCE_FILE" "$OUTPUT_EXECUTABLE"; then
     echo "   ✅ Compilation successful!"
 else
     echo "   ❌ Compilation failed!"

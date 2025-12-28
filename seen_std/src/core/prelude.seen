@@ -28,3 +28,11 @@ fun Result<T, E>.expect(message: String) r: T {
     }
     abort(message)
 }
+
+fun Int_min() r: Int {
+    return -9223372036854775807 - 1
+}
+
+fun Int_max() r: Int {
+    return 9223372036854775807
+}

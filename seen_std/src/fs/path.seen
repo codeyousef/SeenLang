@@ -74,11 +74,10 @@ fun normalize(path: String) r: String {
     if absolute {
         builder.append("/")
     }
-    let seq = stack.toArray()
     var index = 0
-    while index < seq.length() {
-        builder.append(seq[index])
-        if index != seq.length() - 1 {
+    while index < stack.len() {
+        builder.append(stack.get(index))
+        if index != stack.len() - 1 {
             builder.append("/")
         }
         index = index + 1

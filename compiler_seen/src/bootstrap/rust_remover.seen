@@ -1,4 +1,4 @@
-import str.string.{lines, trim, StringBuilder}
+import str.string.{lines, trim, StringBuilder, startsWith, endsWith}
 import io.file.{readText, writeText, createDirectory, deleteFile}
 import process.process.{execCommand as runCommand, shellQuote, CommandResult, commandWasSuccessful, commandOutput}
 
@@ -136,7 +136,7 @@ class RustRemover {
         }
         let builder = StringBuilder.new()
         builder.append(this.backupDir)
-        if not this.backupDir.endsWith("/") {
+        if not endsWith(this.backupDir, "/") {
             builder.append("/")
         }
         builder.append(relativePath)
@@ -144,7 +144,7 @@ class RustRemover {
     }
 
     fun absolutePath(relative: String) r: String {
-        if relative.startsWith("/") {
+        if startsWith(relative, "/") {
             return relative
         }
         if this.workingDir == "" or this.workingDir == "." {
@@ -152,7 +152,7 @@ class RustRemover {
         }
         let builder = StringBuilder.new()
         builder.append(this.workingDir)
-        if not this.workingDir.endsWith("/") {
+        if not endsWith(this.workingDir, "/") {
             builder.append("/")
         }
         builder.append(relative)
@@ -164,7 +164,7 @@ class RustRemover {
         if trimmed.length() == 0 {
             return ""
         }
-        if trimmed.startsWith("./") {
+        if startsWith(trimmed, "./") {
             return trimmed.substring(2, trimmed.length())
         }
         return trimmed

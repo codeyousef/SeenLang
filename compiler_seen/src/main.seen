@@ -22,11 +22,12 @@ fun stdoutLine(text: String) r: Void {
     return
 }
 
+extern fun __FileExists(path: String) r: Bool
+extern fun __OpenFile(path: String, mode: String) r: Int
+
 
 fun main() r: Int {
-    stdoutLine("[trace] enter main")
     let args = GetCommandLineArgs()
-    stdoutLine("[trace] args len=" + args.size().toString())
     if args.size() < 2 {
         printUsage()
         return 1
@@ -34,29 +35,13 @@ fun main() r: Int {
 
     var exit: Int = 0
     let command = args[1]
-    stdoutLine("[trace] command=" + command)
     if command == "build" {
-        stdoutLine("[trace] branch build")
-        let sourceResult = requireArg(args, 2, "Error: build command requires a source file")
-        if sourceResult.isErr() {
-            stdoutLine(sourceResult.unwrapErr())
-            stdoutLine("Usage: seen build <source.seen> [output]")
-            exit = 1
-        } else {
-            let sourceFile = sourceResult.unwrap()
-            let outputFile = getOptionalArg(args, 3).unwrapOr(getDefaultOutput(sourceFile))
-            exit = buildCommand(sourceFile, outputFile)
-        }
+        let sourceFile = requireArg(args, 2, "Error: build command requires a source file")
+        let outputFile = getOptionalArg(args, 3).unwrapOr(getDefaultOutput(sourceFile))
+        exit = buildCommand(sourceFile, outputFile)
     } else if command == "check" {
-        stdoutLine("[trace] branch check")
-        let sourceResult = requireArg(args, 2, "Error: check command requires a source file")
-        if sourceResult.isErr() {
-            stdoutLine(sourceResult.unwrapErr())
-            stdoutLine("Usage: seen check <source.seen>")
-            exit = 1
-        } else {
-            exit = checkCommand(sourceResult.unwrap())
-        }
+        let sourceFile = requireArg(args, 2, "Error: check command requires a source file")
+        exit = checkCommand(sourceFile)
     
     } else if command == "--version" or command == "-v" {
         stdoutLine("Seen Compiler v2.0.0 (Self-hosted)")
@@ -117,12 +102,13 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) r: Bool {
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) r: Int {
-    stdoutLine("[trace] enter buildCommand")
     stdoutLine("🚀 Building...")
+    stdoutLine("Source file: " + sourceFile)
     
     // Read source file
     let sourceCode = readText(sourceFile)
-    if sourceCode == "" {
+    let sourceLen = sourceCode.len()
+    if sourceLen == 0 {
         stdoutLine("Error: Could not read file '" + sourceFile + "'")
         return 1
     }
@@ -256,11 +242,14 @@ fun getOptionalArg(args: List<String>, index: Int) r: Option<String> {
     return None()
 }
 
-fun requireArg(args: List<String>, index: Int, message: String) r: Result<String, String> {
+fun requireArg(args: List<String>, index: Int, message: String) r: String {
     if args.size() > index {
-        return Ok(args[index])
+        let val = args[index]
+        return val
     }
-    return Err(message)
+    stdoutLine(message)
+    abort(message)
+    return ""
 }
 
 // System interface functions (would be implemented in runtime)

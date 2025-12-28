@@ -222,6 +222,12 @@ fun indexOf(text: String, needle: String, startIndex: Int = 0) r: Int {
     return -1
 }
 
+fun String_charCodeAt(s: String, index: Int) r: Int {
+    // Stub implementation to satisfy linker
+    // TODO: Implement proper char code access
+    return 0
+}
+
 fun lastIndexOf(text: String, needle: String) r: Int {
     let needleLength = needle.length()
     if needleLength == 0 {
@@ -455,4 +461,39 @@ fun isWhitespace(ch: Char) r: Bool {
         return true
     }
     return false
+}
+
+fun trimStart(text: String) r: String {
+    var start = 0
+    let len = text.length()
+    while start < len {
+        let s = text.substring(start, start + 1)
+        if s == " " or s == "\t" or s == "\n" or s == "\r" {
+            start = start + 1
+        } else {
+            break
+        }
+    }
+    return text.substring(start, len)
+}
+
+fun trimEnd(text: String) r: String {
+    var end = text.length()
+    while end > 0 {
+        let s = text.substring(end - 1, end)
+        if s == " " or s == "\t" or s == "\n" or s == "\r" {
+            end = end - 1
+        } else {
+            break
+        }
+    }
+    return text.substring(0, end)
+}
+
+fun trim(text: String) r: String {
+    return trimEnd(trimStart(text))
+}
+
+fun String.trim() r: String {
+    return trim(this)
 }

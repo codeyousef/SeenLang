@@ -204,7 +204,9 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             
             // Check if we're accessing a struct array
             if let Some(ref struct_type_name) = element_struct_type {
-                eprintln!("DEBUG: ArrayAccess taking struct array path for '{:?}', struct_type_name: {}, index={:?}, result={:?}", array, struct_type_name, index, result);
+                // Check if this is a class type (heap-allocated, stored as pointer)
+                let is_class = self.class_types.contains(struct_type_name);
+                
                 // Resolve the LLVM struct type, handling the built-in String explicitly
                 let llvm_struct_ty = if struct_type_name == "String" {
                     Some(self.ty_string())
@@ -213,7 +215,42 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 };
 
                 if let Some(llvm_struct_ty) = llvm_struct_ty {
-                    eprintln!("DEBUG: Using direct struct access (inline), generating data_struct_ptr");
+                    // For classes: elements are stored as i64 (pointer-as-int)
+                    // For structs: elements are stored inline
+                    if is_class {
+                        // Class arrays store pointers-as-i64
+                        let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                        let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+                        
+                        let elem_ptr = unsafe {
+                            self.builder.build_gep(
+                                self.i64_t,
+                                data_i64_ptr,
+                                &[idx_iv],
+                                "class_elem_ptr",
+                            )?
+                        };
+                        
+                        // Load the pointer-as-i64
+                        let ptr_as_int = self.builder.build_load(self.i64_t, elem_ptr, "class_ptr_int")?.into_int_value();
+                        
+                        // Convert to struct pointer
+                        let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                        let struct_ptr = self.builder.build_int_to_ptr(ptr_as_int, struct_ptr_ty, "class_struct_ptr")?;
+                        
+                        // Load the actual struct value from the pointer
+                        let struct_val = self.builder.build_load(llvm_struct_ty, struct_ptr, "class_struct_load")?;
+                        
+                        // Assign the struct value to result
+                        self.assign_value(result, struct_val)?;
+                        
+                        // Track struct type for subsequent field access
+                        if let IRValue::Register(reg_id) = result {
+                            self.reg_struct_types.insert(*reg_id, struct_type_name.clone());
+                        }
+                        return Ok(());
+                    }
+                    
                     // Struct arrays store structs directly (inline), not pointers
                     // Cast data_ptr to pointer-to-struct
                     let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
@@ -510,11 +547,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         // Try to determine the struct type from the variable name or register
         let struct_type_name = match struct_val {
             IRValue::Variable(var_name) => {
-                let result = self.var_struct_types.get(var_name).cloned();
-                if var_name == "location" || var_name == "error" || var_name == "entry" {
-                    eprintln!("DEBUG: FieldAccess lookup var_struct_types['{}'] = {:?}", var_name, result);
-                }
-                result
+                self.var_struct_types.get(var_name).cloned()
             }
             IRValue::Register(reg_id) => {
                 self.reg_struct_types.get(reg_id).cloned()
@@ -568,6 +601,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
 
                 let gep = self.builder.build_struct_gep(llvm_struct_ty, struct_ptr, field_idx as u32, &format!("field_{}", field))?;
                 let field_ty = llvm_struct_ty.get_field_types()[field_idx];
+                let loaded = self.builder.build_load(field_ty, gep, &format!("load_{}", field))?;
                 let loaded = self.builder.build_load(field_ty, gep, &format!("load_{}", field))?;
                 self.assign_value(result, loaded.as_basic_value_enum())?;
                 

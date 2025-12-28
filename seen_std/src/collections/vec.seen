@@ -57,11 +57,8 @@ class Vec<T> {
         let lastIndex = this.chunks.length() - 1
         let chunk = this.chunks[lastIndex]
         let used = this.usage[lastIndex]
-        if used < chunk.values.length() {
-            chunk.values[used] = value
-        } else {
-            chunk.values.push(value)
-        }
+        // Always push since we don't pre-fill chunks anymore
+        chunk.values.push(value)
         this.usage[lastIndex] = used + 1
         this.length = this.length + 1
     }
@@ -139,18 +136,29 @@ class Vec<T> {
         }
     }
 
+    fun ensureCapacity(capacity: Int) r: Void {
+        this.reserve(capacity)
+    }
+
     fun growChunk() r: Void {
+        // Create a new chunk with an empty array - we'll push values on demand
         var chunk = VecChunk<T>{ values: Array<T>() }
-        var i = 0
-        while i < this.nextChunkSize {
-            chunk.values.push(__default<T>())
-            i = i + 1
-        }
+        // Don't pre-fill with defaults - just track capacity
         this.chunks.push(chunk)
         this.capacities.push(this.nextChunkSize)
         this.usage.push(0)
         this.totalCapacity = this.totalCapacity + this.nextChunkSize
         this.nextChunkSize = this.nextChunkSize * 2
+    }
+
+    fun toArray() r: Array<T> {
+        let arr = Array<T>()
+        var i = 0
+        while i < this.length {
+            arr.push(this.get(i))
+            i = i + 1
+        }
+        return arr
     }
 
     fun locateSlot(index: Int) r: VecSlot {

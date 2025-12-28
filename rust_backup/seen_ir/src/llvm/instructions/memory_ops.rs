@@ -37,6 +37,13 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
         dest: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
+        // Track struct type info BEFORE eval/assign so we preserve the type name
+        if let IRValue::Struct { type_name, .. } = source {
+            if let IRValue::Variable(var_name) = dest {
+                self.var_struct_types.insert(var_name.clone(), type_name.clone());
+            }
+        }
+        
         let v = self.eval_value(source, fn_map)?;
         self.assign_value(dest, v)?;
         Ok(())

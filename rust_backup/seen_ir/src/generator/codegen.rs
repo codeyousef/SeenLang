@@ -550,6 +550,44 @@ impl IRGenerator {
         let mut instructions = Vec::new();
         let mut arg_values = Vec::new();
 
+        // Handle __default<T>() calls - encode type in function name
+        if let Expression::Identifier { name, type_args, .. } = function {
+            if name == "__default" && arguments.is_empty() {
+                let result_reg = self.context.allocate_register();
+                
+                // Get the type name from type_args
+                let type_name = if let Some(first_type) = type_args.first() {
+                    first_type.name.clone()
+                } else {
+                    // No type argument - use Int as default
+                    "Int".to_string()
+                };
+                
+                // Set the result register type based on type_name
+                let ir_type = match type_name.as_str() {
+                    "Int" | "i64" => crate::value::IRType::Integer,
+                    "Float" | "f64" => crate::value::IRType::Float,
+                    "Bool" => crate::value::IRType::Boolean,
+                    "String" => crate::value::IRType::String,
+                    _ => crate::value::IRType::Struct { 
+                        name: type_name.clone(), 
+                        fields: vec![] 
+                    },
+                };
+                self.context.set_register_type(result_reg, ir_type);
+                
+                let result_value = IRValue::Register(result_reg);
+                // Encode the type in the function name: __default_Int, __default_String, etc.
+                let mangled_name = format!("__default_{}", type_name);
+                instructions.push(Instruction::Call {
+                    target: IRValue::Variable(mangled_name),
+                    args: vec![],
+                    result: Some(result_value.clone()),
+                });
+                return Ok((result_value, instructions));
+            }
+        }
+
         // Handle Array<T>() constructor calls - these need to become __ArrayNew calls
         if let Expression::Identifier { name, type_args, .. } = function {
             if name == "Array" && arguments.is_empty() {

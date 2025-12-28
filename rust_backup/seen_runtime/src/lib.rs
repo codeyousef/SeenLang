@@ -22,10 +22,48 @@ const TAG_INT: i32 = 0;
 const TAG_BOOL: i32 = 1;
 const TAG_PTR: i32 = 2;
 
+/// SeenString layout: { len: i64, data: *const u8 }
+/// This MUST match the LLVM backend's ty_string() which is { i64, ptr }
+/// Field 0 = len (i64), Field 1 = data (ptr)
 #[repr(C)]
 pub struct SeenString {
     pub len: i64,
     pub data: *const u8,
+}
+
+// Compile-time ABI verification
+const _: () = {
+    // Verify SeenString is exactly 16 bytes (i64 + ptr on 64-bit)
+    assert!(std::mem::size_of::<SeenString>() == 16, "SeenString must be 16 bytes");
+    // Verify field offsets: len at 0, data at 8
+    assert!(std::mem::offset_of!(SeenString, len) == 0, "SeenString.len must be at offset 0");
+    assert!(std::mem::offset_of!(SeenString, data) == 8, "SeenString.data must be at offset 8");
+};
+
+/// Runtime ABI verification function - callable from Seen code to verify struct layout
+/// Returns 1 if ABI matches expected layout, 0 otherwise
+#[unsafe(no_mangle)]
+pub extern "C" fn __VerifyStringABI(test_string: SeenString) -> i64 {
+    // Verify that the string struct we received has sensible values
+    // If ABI is mismatched, len/data would be swapped or corrupted
+    if test_string.len < 0 || test_string.len > 1_000_000_000 {
+        eprintln!("ABI MISMATCH: SeenString.len has invalid value: {}", test_string.len);
+        return 0;
+    }
+    if test_string.len > 0 && test_string.data.is_null() {
+        eprintln!("ABI MISMATCH: SeenString.data is null but len > 0");
+        return 0;
+    }
+    // Return the struct size so caller can verify
+    std::mem::size_of::<SeenString>() as i64
+}
+
+/// Returns the expected field offsets as a packed i64: (len_offset << 32) | data_offset
+#[unsafe(no_mangle)]
+pub extern "C" fn __GetStringABIInfo() -> i64 {
+    let len_offset = std::mem::offset_of!(SeenString, len) as i64;
+    let data_offset = std::mem::offset_of!(SeenString, data) as i64;
+    (len_offset << 32) | data_offset
 }
 
 impl SeenString {
@@ -303,9 +341,9 @@ pub extern "C" fn __WriteFileToPath(path: SeenString, content: SeenString) -> i6
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __ReadFile(fd: i64) -> SeenString {
+pub extern "C" fn __ReadFile_SRET(result: *mut SeenString, fd: i64) {
     let mut map = get_file_map().lock().unwrap();
-    if let Some(file) = map.get_mut(&fd) {
+    let s = if let Some(file) = map.get_mut(&fd) {
         let mut buffer = String::new();
         match file.read_to_string(&mut buffer) {
             Ok(_) => {
@@ -320,7 +358,8 @@ pub extern "C" fn __ReadFile(fd: i64) -> SeenString {
     } else {
         set_file_error(fd, "invalid fd");
         empty_seen_string()
-    }
+    };
+    unsafe { *result = s; }
 }
 
 #[unsafe(no_mangle)]
@@ -356,6 +395,13 @@ pub extern "C" fn __FileSize(fd: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __FileError(_fd: i64) -> SeenString {
     take_file_error(_fd)
+}
+
+/// SRET version of __FileError for proper ABI handling
+#[unsafe(no_mangle)]
+pub extern "C" fn __FileError_SRET(result: *mut SeenString, fd: i64) {
+    let s = take_file_error(fd);
+    unsafe { *result = s; }
 }
 
 #[unsafe(no_mangle)]

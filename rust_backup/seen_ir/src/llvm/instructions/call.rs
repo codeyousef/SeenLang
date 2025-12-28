@@ -86,8 +86,8 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 }
                 // Track String element type from push calls
                 let is_string_type = val.is_struct_value() && val.get_type() == self.ty_string().into();
-                eprintln!("DEBUG Vec_push: value_type={:?}, is_struct={}, is_string_type={}, vec_var={:?}", 
-                    val.get_type(), val.is_struct_value(), is_string_type, args.get(0));
+                eprintln!("DEBUG Vec_push: value_type={:?}, is_struct={}, is_string_type={}, vec_var={:?}, value={:?}", 
+                    val.get_type(), val.is_struct_value(), is_string_type, args.get(0), v);
                 if is_string_type {
                     if let Some(IRValue::Variable(vec_var)) = args.get(0) {
                         eprintln!("DEBUG: Vec_push tracking String element for vec '{}'", vec_var);
@@ -703,9 +703,46 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 "__default" => {
-                    // Return 0 (i64) as default value
+                    // Return 0 (i64) as default value (legacy fallback)
                     if let Some(r) = result {
                         self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
+                    }
+                    return Ok(());
+                }
+                name if name.starts_with("__default_") => {
+                    // __default_TypeName - generate appropriate default value based on type
+                    let type_name = &name[10..]; // Skip "__default_"
+                    
+                    if let Some(r) = result {
+                        let default_val = match type_name {
+                            "Int" | "i64" | "Integer" => {
+                                self.i64_t.const_zero().as_basic_value_enum()
+                            }
+                            "Float" | "f64" => {
+                                self.ctx.f64_type().const_zero().as_basic_value_enum()
+                            }
+                            "Bool" | "Boolean" => {
+                                self.ctx.bool_type().const_zero().as_basic_value_enum()
+                            }
+                            "String" => {
+                                // Empty string: SeenString { len: 0, data: null }
+                                let string_ty = self.ty_string();
+                                let zero_len = self.i64_t.const_zero();
+                                let null_ptr = self.i8_ptr_t.const_null();
+                                string_ty.const_named_struct(&[zero_len.into(), null_ptr.into()]).as_basic_value_enum()
+                            }
+                            _ => {
+                                // For struct types, try to create a zeroed struct
+                                if let Some((struct_ty, _field_names)) = self.struct_types.get(type_name).cloned() {
+                                    // Create zeroed struct
+                                    struct_ty.const_zero().as_basic_value_enum()
+                                } else {
+                                    // Unknown type - return 0 as fallback
+                                    self.i64_t.const_zero().as_basic_value_enum()
+                                }
+                            }
+                        };
+                        self.assign_value(r, default_val)?;
                     }
                     return Ok(());
                 }
@@ -1832,7 +1869,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
-                "__ReadFile" => {
+                "__ReadFile_LEGACY" => {
                     // FILE* f = fopen(path, "rb"); if !f return ""
                     let fnty = self.i8_ptr_t; // FILE* opaque as i8*
                     let fopen = self.declare_c_fn(
@@ -2198,6 +2235,78 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 }
                 _ => {}
             }
+        }
+
+        // Handle __ReadFile specially (manual sret)
+        if func_name.as_deref() == Some("__ReadFile") {
+            // Ensure function is declared with correct signature: void(SeenString*, i64)
+            let f = if let Some(f) = self.module.get_function("__ReadFile_SRET") {
+                f
+            } else {
+                let ret_ty = self.ctx.void_type();
+                let param_types = &[self.i8_ptr_t.into(), self.i64_t.into()];
+                let fn_ty = ret_ty.fn_type(param_types, false);
+                self.module.add_function("__ReadFile_SRET", fn_ty, None)
+            };
+
+            let fd_arg = args.get(0).expect("missing fd arg");
+            let fd_val = self.eval_value(fd_arg, fn_map)?;
+            let fd_int = if fd_val.is_int_value() {
+                fd_val.into_int_value()
+            } else {
+                return Err(anyhow!("Invalid fd value type: {:?}", fd_val));
+            };
+
+            // Allocate result struct on stack
+            let result_ty = self.ty_string().as_basic_type_enum();
+            let result_ptr = self.alloca_for_type(result_ty, "read_result")?;
+
+            // Call: __ReadFile_SRET(result_ptr, fd)
+            self.builder.build_call(f, &[result_ptr.into(), fd_int.into()], "call_read")?;
+
+            // Load result from stack
+            let loaded = self.builder.build_load(result_ty, result_ptr, "loaded_result")?;
+
+            if let Some(r) = result {
+                self.assign_value(r, loaded)?;
+            }
+            return Ok(());
+        }
+
+        // Handle __FileError specially (manual sret) - returns String struct
+        if func_name.as_deref() == Some("__FileError") {
+            // Ensure function is declared with correct signature: void(SeenString*, i64)
+            let f = if let Some(f) = self.module.get_function("__FileError_SRET") {
+                f
+            } else {
+                let ret_ty = self.ctx.void_type();
+                let param_types = &[self.i8_ptr_t.into(), self.i64_t.into()];
+                let fn_ty = ret_ty.fn_type(param_types, false);
+                self.module.add_function("__FileError_SRET", fn_ty, None)
+            };
+
+            let fd_arg = args.get(0).expect("missing fd arg");
+            let fd_val = self.eval_value(fd_arg, fn_map)?;
+            let fd_int = if fd_val.is_int_value() {
+                fd_val.into_int_value()
+            } else {
+                return Err(anyhow!("Invalid fd value type: {:?}", fd_val));
+            };
+
+            // Allocate result struct on stack
+            let result_ty = self.ty_string().as_basic_type_enum();
+            let result_ptr = self.alloca_for_type(result_ty, "error_result")?;
+
+            // Call: __FileError_SRET(result_ptr, fd)
+            self.builder.build_call(f, &[result_ptr.into(), fd_int.into()], "call_error")?;
+
+            // Load result from stack
+            let loaded = self.builder.build_load(result_ty, result_ptr, "loaded_error")?;
+
+            if let Some(r) = result {
+                self.assign_value(r, loaded)?;
+            }
+            return Ok(());
         }
 
         // Handle __ExecuteCommand specially (manual sret)

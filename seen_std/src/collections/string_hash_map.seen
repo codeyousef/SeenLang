@@ -20,7 +20,7 @@ class StringHashMap<V> {
     var states: Vec<Int>
     var length: Int
 
-    static fun New() r: StringHashMap<V> {
+    static fun new() r: StringHashMap<V> {
         return StringHashMap.withCapacity(defaultCapacity())
     }
 
@@ -33,31 +33,31 @@ class StringHashMap<V> {
         }
     }
 
-    fun Len() r: Int {
+    fun len() r: Int {
         return length
     }
 
-    fun IsEmpty() r: Bool {
+    fun isEmpty() r: Bool {
         return length == 0
     }
 
-    fun Capacity() r: Int {
+    fun capacity() r: Int {
         return entries.len()
     }
 
-    fun Clear() r: Void {
-        let buckets = this.Capacity()
+    fun clear() r: Void {
+        let buckets = this.capacity()
         entries = initializeBuckets<V>(buckets)
         states = initializeStates(buckets)
         length = 0
     }
 
-    fun Insert(key: String, value: V) r: Void {
+    fun insert(key: String, value: V) r: Void {
         this.ensureCapacityFor(length + 1)
         this.insertInternal(key, value)
     }
 
-    fun Get(key: String) r: Option<V> {
+    fun get(key: String) r: Option<V> {
         let slot = this.findSlot(key)
         if slot < 0 {
             return None()
@@ -66,23 +66,23 @@ class StringHashMap<V> {
         if entryOpt.isNone() {
             return None()
         }
-        let entry = entryOpt.Unwrap()
+        let entry = entryOpt.unwrap()
         return Some(entry.value)
     }
 
-    fun GetOrDefault(key: String, defaultValue: V) r: V {
-        let opt = this.Get(key)
+    fun getOrDefault(key: String, defaultValue: V) r: V {
+        let opt = this.get(key)
         if opt.isSome() {
-            return opt.Unwrap()
+            return opt.unwrap()
         }
         return defaultValue
     }
 
-    fun Contains(key: String) r: Bool {
+    fun contains(key: String) r: Bool {
         return this.findSlot(key) >= 0
     }
 
-    fun Remove(key: String) r: Bool {
+    fun remove(key: String) r: Bool {
         let slot = this.findSlot(key)
         if slot < 0 {
             return false
@@ -93,7 +93,7 @@ class StringHashMap<V> {
         return true
     }
 
-    fun Keys() r: Array<String> {
+    fun keys() r: Array<String> {
         let items = Array<String>()
         var index = 0
         while index < entries.len() {
@@ -208,7 +208,7 @@ class StringHashMap<V> {
 
     fun probeIndex(key: String) r: Int {
         let hash = hashString(key)
-        let cap = this.Capacity()
+        let cap = this.capacity()
         if cap == 0 {
             return 0
         }

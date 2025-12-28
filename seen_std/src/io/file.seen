@@ -13,28 +13,29 @@ extern fun __WriteFileBytes(fd: Int, bytes: Array<Int>) r: Int
 extern fun __CloseFile(fd: Int) r: Int
 extern fun __FileSize(fd: Int) r: Int
 extern fun __FileError(fd: Int) r: String
+extern fun stdoutLine(s: String) r: Void
 
-class File {
+class FsFile {
     var fd: Int
     var path: String
     
-    static fun open(path: String) r: Result<File, String> {
+    static fun open(path: String) r: FsFileResult {
         let file_desc = __OpenFile(path, "r")
         if file_desc < 0 {
-            return Err<File, String>("Failed to open file: " + path)
+            return FsFileResult.err("Failed to open file: " + path)
         }
-        return Ok<File, String>(File { fd: file_desc, path: path })
+        return FsFileResult.ok(FsFile { fd: file_desc, path: path })
     }
     
-    static fun create(path: String) r: Result<File, String> {
+    static fun create(path: String) r: FsFileResult {
         let file_desc = __OpenFile(path, "w")
         if file_desc < 0 {
-            return Err<File, String>("Failed to create file: " + path)
+            return FsFileResult.err("Failed to create file: " + path)
         }
-        return Ok<File, String>(File { fd: file_desc, path: path })
+        return FsFileResult.ok(FsFile { fd: file_desc, path: path })
     }
     
-    fun readToString() r: Result<String, String> {
+    fun readContent() r: Result<String, String> {
         let content = __ReadFile(this.fd)
         if content == "" and __FileError(this.fd) != "" {
             return Err<String, String>("Failed to read file")
@@ -50,7 +51,7 @@ class File {
         Ok(bytes)
     }
     
-    fun write(content: String) r: Result<Int, String> {
+    fun writeContent(content: String) r: Result<Int, String> {
         let written = __WriteFile(this.fd, content)
         if written < 0 {
             return Err("Failed to write to file")
@@ -66,7 +67,7 @@ class File {
         Ok(written)
     }
     
-    fun close() r: Result<Unit, String> {
+    fun closeFile() r: Result<Unit, String> {
         let result = __CloseFile(this.fd)
         if result < 0 {
             return Err("Failed to close file")
@@ -83,43 +84,85 @@ class File {
     }
 }
 
+class FsFileResult {
+    var isOk: Bool
+    var file: FsFile
+    var error: String
+
+    static fun ok(f: FsFile) r: FsFileResult {
+        return FsFileResult { isOk: true, file: f, error: "" }
+    }
+
+    static fun err(e: String) r: FsFileResult {
+        return FsFileResult { isOk: false, file: FsFile{fd: -1, path: ""}, error: e }
+    }
+
+    fun unwrap() r: FsFile {
+        if not this.isOk {
+            // abort("unwrap on err")
+            return this.file
+        }
+        return this.file
+    }
+
+    fun unwrapErr() r: String {
+        return this.error
+    }
+}
+
 fun read_to_string(path: String) r: Result<String, String> {
-    let res = File.open(path)
-    if res.isOk() {
-        let f = res.unwrap()
-        let content = f.readToString()
-        let _ = f.close()
+    let res = FsFile.open(path)
+    if res.isOk {
+        let myFile: FsFile = res.unwrap()
+        let content = myFile.readContent()
+        let _ = myFile.closeFile()
         return content
     }
     return Err(res.unwrapErr())
 }
 
 fun write_string(path: String, content: String) r: Result<Unit, String> {
-    let res = File.create(path)
-    if res.isOk() {
-        let f = res.unwrap()
-        let writeRes = f.write(content)
-        if writeRes.isOk() {
-            let _ = f.close()
+    let res = FsFile.create(path)
+    if res.isOk {
+        let myFile: FsFile = res.unwrap()
+        let writeRes = myFile.writeContent(content)
+        if writeRes.isOkay() {
+            let _ = myFile.closeFile()
             return Ok(Unit{})
         }
-        let _ = f.close()
+        let _ = myFile.closeFile()
         return Err(writeRes.unwrapErr())
     }
     return Err(res.unwrapErr())
 }
 
 fun readText(path: String) r: String {
-    let res = read_to_string(path)
-    if res.isOk() {
-        return res.unwrap()
+    let fd = __OpenFile(path, "r")
+    if fd < 0 {
+        return ""
     }
-    return ""
+    
+    let content = __ReadFile(fd)
+    let err = __FileError(fd)
+    let _ = __CloseFile(fd)
+    
+    let contentLen = content.len()
+    let errLen = err.len()
+    if contentLen == 0 and errLen > 0 {
+         return ""
+    }
+    return content
 }
 
 fun writeText(path: String, content: String) r: Bool {
-    let res = write_string(path, content)
-    return res.isOk()
+    let res = FsFile.create(path)
+    if res.isOk {
+        let myFile: FsFile = res.unwrap()
+        let written = __WriteFile(myFile.fd, content)
+        let _ = myFile.closeFile()
+        return written >= 0
+    }
+    return false
 }
 
 fun exists(path: String) r: Bool {
