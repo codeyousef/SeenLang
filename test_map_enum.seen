@@ -1,0 +1,20 @@
+import collections.map.{Map}
+
+extern fun __Print(s: String)
+
+enum TestEnum {
+    One,
+    Two,
+    Three
+}
+
+fun main() {
+    __Print("Step 1\n")
+    let m = Map<String, TestEnum>()
+    __Print("Step 2\n")
+    m.put("one", TestEnum.One)
+    __Print("Step 3\n")
+    m.put("two", TestEnum.Two)
+    __Print("Step 4\n")
+    __Print("Done\n")
+}

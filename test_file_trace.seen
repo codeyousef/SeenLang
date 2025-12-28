@@ -1,0 +1,33 @@
+import io.file.{readText}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+extern fun __OpenFile(path: String, mode: String) r: Int
+extern fun __ReadFile(fd: Int) r: String
+extern fun __CloseFile(fd: Int) r: Int
+
+fun main() {
+    __Print("Step 1: about to open file\n")
+    let fd = __OpenFile("test_simple_stage1.seen", "r")
+    __Print("Step 2: fd = ")
+    __PrintInt(fd)
+    __Print("\n")
+    
+    if fd < 0 {
+        __Print("Failed to open file\n")
+        return
+    }
+    
+    __Print("Step 3: about to read file\n")
+    let content = __ReadFile(fd)
+    __Print("Step 4: read returned\n")
+    
+    __Print("Step 5: about to get len\n")
+    let contentLen = content.len()
+    __Print("Step 6: contentLen = ")
+    __PrintInt(contentLen)
+    __Print("\n")
+    
+    let _ = __CloseFile(fd)
+    __Print("Done!\n")
+}

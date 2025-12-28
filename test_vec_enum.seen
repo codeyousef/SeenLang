@@ -1,0 +1,30 @@
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+enum TestEnum {
+    One,
+    Two,
+    Three
+}
+
+fun main() {
+    __Print("Step 1: creating Vec\n")
+    let v = Vec<TestEnum>.new()
+    __Print("Step 2: Vec created\n")
+    
+    __Print("Step 3: pushing One\n")
+    v.push(TestEnum.One)
+    __Print("Step 4: One pushed\n")
+    
+    __Print("Step 5: pushing Two\n")
+    v.push(TestEnum.Two)
+    __Print("Step 6: Two pushed\n")
+    
+    __Print("Len: ")
+    __PrintInt(v.len())
+    __Print("\n")
+    
+    __Print("Done\n")
+}

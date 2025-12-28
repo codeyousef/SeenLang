@@ -17,7 +17,7 @@ class IRGenerator {
         this.builder = IRBuilder.new()
         this.module = IRModule.new("seen_program")
         this.currentFunction = null
-        this.variables = Map<String, IRValue>()
+        this.variables = Map<String, IRValue>.new()
         this.environment = Environment.new()
         
         // Initialize runtime functions

@@ -7,5 +7,5 @@ fun createParser(tokens: Array<Any>) r: Array<Any> {
 }
 
 fun parseString(source: String, language: String = "en") r: Map<String, String> {
-    return Map<String, String>()
+    return Map<String, String>.new()
 }

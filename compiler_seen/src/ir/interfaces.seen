@@ -100,7 +100,7 @@ class IRInstruction {
         this.opcode = opcode
         this.result = result
         this.operands = Array<IRValue>()
-        this.metadata = Map<String, String>()
+        this.metadata = Map<String, String>.new()
     }
     
     fun addOperand(operand: IRValue) r: Void {
@@ -251,9 +251,9 @@ class IRModule {
     
     fun new(name: String) r: IRModule {
         this.name = name
-        this.functions = Map<String, IRFunction>()
-        this.globalVariables = Map<String, IRValue>()
-        this.types = Map<String, IRType>()
+        this.functions = Map<String, IRFunction>.new()
+        this.globalVariables = Map<String, IRValue>.new()
+        this.types = Map<String, IRType>.new()
         this.stringConstants = Array<String>()
         this.errors = Array<IRError>()
         this.success = true

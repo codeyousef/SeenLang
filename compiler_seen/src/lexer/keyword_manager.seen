@@ -12,7 +12,7 @@ class KeywordManager {
     static fun new(language: String) r: KeywordManager {
         let km = KeywordManager {
             language: language,
-            keywords: Map<String, TokenType>(),
+            keywords: Map<String, TokenType>.new(),
             sources: Array<String>()
         }
         
@@ -308,7 +308,7 @@ class KeywordManager {
     
     fun getEnglishKeywordType(keyword: String) r: TokenType? {
         // Helper to get English keyword type for translation checking
-        let englishKeywords = Map<String, TokenType>()
+        let englishKeywords = Map<String, TokenType>.new()
         englishKeywords.put("fun", TokenType.KeywordFun)
         englishKeywords.put("let", TokenType.KeywordLet)
         englishKeywords.put("var", TokenType.KeywordVar)

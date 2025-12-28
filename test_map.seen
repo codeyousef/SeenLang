@@ -1,0 +1,28 @@
+import collections.map.{Map}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() {
+    __Print("Step 1: creating map\n")
+    var m = Map<String, Int>.new()
+    __Print("Step 2: map created\n")
+    
+    __Print("Step 3: putting key\n")
+    m.put("hello", 42)
+    __Print("Step 4: put done\n")
+    
+    __Print("Step 5: getting key\n")
+    let v = m.get("hello")
+    __Print("Step 6: get done\n")
+    
+    if v.isSome {
+        __Print("Got: ")
+        __PrintInt(v.unwrap())
+        __Print("\n")
+    } else {
+        __Print("Not found\n")
+    }
+    
+    __Print("Done!\n")
+}

@@ -849,7 +849,6 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 "push" | "List_push" | "Array_push" if !name.starts_with("Vec_") => {
                     // push(array, value) - append value to dynamic array
                     if args.len() == 2 {
-                        eprintln!("DEBUG: Inline Array push handler for name='{}', normalized='{}'", name, base_normalized);
                         let arr_val = self.eval_value(&args[0], fn_map)?;
                         let value = self.eval_value(&args[1], fn_map)?;
                         
@@ -1969,13 +1968,20 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
-                "toString" | "__toString" | "Int_toString" | "Float_toString" | "Bool_toString" => {
+                "toString" | "__toString" | "Int_toString" | "Float_toString" | "Bool_toString" | "Char_toString" => {
                     // Convert value to String
                     if let Some(arg) = args.get(0) {
                         let val = self.eval_value(arg, fn_map)?;
                         let str_ptr = if val.is_int_value() {
+                            let iv = val.into_int_value();
+                            // Check if it's an i8 (Char) - need to extend to i64 first
+                            let int_val = if iv.get_type().get_bit_width() < 64 {
+                                self.builder.build_int_s_extend(iv, self.i64_t, "char_ext")?
+                            } else {
+                                iv
+                            };
                             let func = self.ensure_int_to_string_fn();
-                            let call = self.builder.build_call(func, &[val.into()], "i2s")?;
+                            let call = self.builder.build_call(func, &[int_val.into()], "i2s")?;
                             call.try_as_basic_value().left().unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum())
                         } else if val.is_float_value() {
                             let func = self.ensure_float_to_string_fn();

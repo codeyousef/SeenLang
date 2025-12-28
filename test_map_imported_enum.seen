@@ -1,0 +1,16 @@
+// test_map_imported_enum.seen - Main file
+import test_types.{MyEnum}
+import collections.map.{Map}
+
+extern fun __Print(s: String)
+
+fun main() {
+    __Print("Step 1\n")
+    let m = Map<String, MyEnum>.new()
+    __Print("Step 2\n")
+    m.put("one", MyEnum.One)
+    __Print("Step 3\n")
+    m.put("two", MyEnum.Two)
+    __Print("Step 4\n")
+    __Print("Done\n")
+}

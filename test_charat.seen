@@ -1,0 +1,21 @@
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() {
+    let s = "hello"
+    __Print("Length: ")
+    __PrintInt(s.length())
+    __Print("\n")
+    
+    __Print("charAt(0): ")
+    let c = s.charAt(0)
+    __Print(c.toString())
+    __Print("\n")
+    
+    __Print("charAt(1): ")
+    let c2 = s.charAt(1)
+    __Print(c2.toString())
+    __Print("\n")
+    
+    __Print("Done\n")
+}

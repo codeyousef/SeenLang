@@ -7,9 +7,9 @@ class SeenTypeChecker {
 
     fun new() r: SeenTypeChecker {
         return SeenTypeChecker{
-            smartCastContext: Map<String, Type>(),
+            smartCastContext: Map<String, Type>.new(),
             strictMode: true,
-            environment: Map<String, Type>(),
+            environment: Map<String, Type>.new(),
             errors: Array<String>(),
             warnings: Array<String>()
         }

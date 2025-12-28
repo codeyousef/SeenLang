@@ -251,7 +251,7 @@ fun VerificationResult.new() r: VerificationResult {
         Message: "",
         BinaryIdentical: false,
         HashMatch: false,
-        StageArtifacts: Map<Int, StageArtifact>()
+        StageArtifacts: Map<Int, StageArtifact>.new()
     }
 }
 

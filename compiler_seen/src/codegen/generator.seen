@@ -14,7 +14,7 @@ class CodeGenerator {
     var optimizer: CodeOptimizer?
     
     fun new() r: CodeGenerator {
-        this.backends = Map<Target, Backend>()
+        this.backends = Map<Target, Backend>.new()
         this.optimizationLevel = OptLevel.O0
         this.debugInfo = false
         this.targetTriple = "x86_64-unknown-linux-gnu"
@@ -300,7 +300,7 @@ class CodeGenerator {
         // Real function inlining implementation
         let lines = code.split("\\n")
         let inlined = Array<String>()
-        let functionDefs = Map<String, FunctionDef>()
+        let functionDefs = Map<String, FunctionDef>.new()
         
         // First pass: identify small functions suitable for inlining
         let i = 0
@@ -684,7 +684,7 @@ class CBackend extends Backend {
     fun new() r: CBackend {
         super(Target.C, "C")
         this.includeHeaders = Array<String>()
-        this.customTypes = Map<String, String>()
+        this.customTypes = Map<String, String>.new()
         this.functionDeclarations = Array<String>()
         initializeHeaders()
         initializeTypes()

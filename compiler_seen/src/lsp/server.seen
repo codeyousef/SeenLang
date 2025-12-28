@@ -21,8 +21,8 @@ class SeenLspServer {
     let memoryOptimizer = MemoryOptimizer::new()
     let archOptimizer = ArchitectureOptimizer::new()
     
-    var documents = Map<String, Document>()
-    var diagnostics = Map<String, List<Diagnostic>>()
+    var documents = Map<String, Document>.new()
+    var diagnostics = Map<String, List<Diagnostic>>.new()
     
     fun new() -> SeenLspServer {
         println("🚀 Starting Seen LSP Server with revolutionary optimization support")

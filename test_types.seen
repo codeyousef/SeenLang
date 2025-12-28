@@ -1,0 +1,6 @@
+// test_types.seen - Defines the enum
+enum MyEnum {
+    One,
+    Two,
+    Three
+}

@@ -210,7 +210,7 @@ class CBackend extends Backend {
     fun new() r: CBackend {
         super(Target.C, "C")
         this.includeHeaders = Array<String>()
-        this.customTypes = Map<String, String>()
+        this.customTypes = Map<String, String>.new()
         initializeHeaders()
     }
     
