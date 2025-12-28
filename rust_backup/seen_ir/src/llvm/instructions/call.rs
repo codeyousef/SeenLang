@@ -288,21 +288,32 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         let opt_val = self.eval_value(&args[0], fn_map)?;
                         let default_val = self.eval_value(&args[1], fn_map)?;
                         
+                        eprintln!("DEBUG: unwrapOr opt_val type: {:?}", opt_val.get_type());
+                        
                         let result_val = if opt_val.is_struct_value() {
+                            eprintln!("DEBUG: unwrapOr path: struct value");
                             let sv = opt_val.into_struct_value();
                             let is_some = self.builder.build_extract_value(sv, 0, "is_some")
                                 .map(|v| v.into_int_value())
                                 .unwrap_or_else(|_| self.bool_t.const_zero());
+                            
+                            // Debug print is_some
+                            // We can't print runtime value easily without printf, but we can check if it's const
+                            // But it's likely not const.
                             
                             // Extract inner value - ensure type matches default
                             let inner_val = self.builder.build_extract_value(sv, 1, "inner_val")
                                 .ok();
                             
                             if let Some(inner) = inner_val {
+                                eprintln!("DEBUG: unwrapOr inner type: {:?}", inner.get_type());
+                                eprintln!("DEBUG: unwrapOr default type: {:?}", default_val.get_type());
+                                
                                 // Types must match for select - if they do, use select
                                 if inner.get_type() == default_val.get_type() {
                                     self.builder.build_select(is_some, inner, default_val, "unwrap_or_result")?
                                 } else {
+                                    eprintln!("DEBUG: unwrapOr type mismatch, using phi");
                                     // Type mismatch - need to cast or use conditional blocks
                                     // For now, if is_some use inner, else use default via phi
                                     let current_fn = self.builder.get_insert_block()
@@ -350,18 +361,86 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 default_val
                             }
                         } else if opt_val.is_pointer_value() {
-                            // Pointer to Option struct - load is_some field and branch
+                            // Pointer to Option struct
                             let ptr = opt_val.into_pointer_value();
-                            let is_some = self.builder.build_load(self.bool_t, ptr, "is_some")
+                            
+                            // Option layout is { bool, i64 } (generic slot)
+                            // This assumes all generics are boxed/cast to i64
+                            let option_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i64_t.into()], false);
+                            
+                            // Load is_some (index 0)
+                            let is_some_ptr = unsafe { 
+                                self.builder.build_struct_gep(option_ty, ptr, 0, "is_some_ptr")
+                                    .unwrap_or(ptr) 
+                            };
+                            let is_some = self.builder.build_load(self.bool_t, is_some_ptr, "is_some")
                                 .map(|v| v.into_int_value())
                                 .unwrap_or_else(|_| self.bool_t.const_zero());
                             
-                            // For pointer types, if is_some return the pointer (it contains value), else default
-                            if opt_val.get_type() == default_val.get_type() {
-                                self.builder.build_select(is_some, opt_val.as_basic_value_enum(), default_val, "unwrap_or_result")?
+                            // Load value slot (index 1, i64)
+                            let value_slot_ptr = unsafe { 
+                                self.builder.build_struct_gep(option_ty, ptr, 1, "value_slot_ptr")
+                                    .unwrap() 
+                            };
+                            let value_slot = self.builder.build_load(self.i64_t, value_slot_ptr, "value_slot")?
+                                .into_int_value();
+                            
+                            // Convert value_slot to T
+                            let inner_ty = default_val.get_type();
+                            
+                            if inner_ty.is_struct_type() {
+                                // Structs are boxed. value_slot is pointer to struct.
+                                // We must use control flow to avoid loading from invalid pointer if is_some is false.
+                                
+                                let current_fn = self.current_fn.unwrap();
+                                let entry_bb = self.builder.get_insert_block().unwrap();
+                                let then_bb = self.ctx.append_basic_block(current_fn, "unwrap_some");
+                                let merge_bb = self.ctx.append_basic_block(current_fn, "unwrap_merge");
+                                
+                                self.builder.build_conditional_branch(is_some, then_bb, merge_bb)?;
+                                
+                                // Then block: load struct
+                                self.builder.position_at_end(then_bb);
+                                let struct_ptr = self.builder.build_int_to_ptr(value_slot, self.i8_ptr_t, "struct_ptr")?;
+                                let inner_val = self.builder.build_load(inner_ty, struct_ptr, "inner_val")?;
+                                self.builder.build_unconditional_branch(merge_bb)?;
+                                let then_bb_end = self.builder.get_insert_block().unwrap();
+                                
+                                // Merge block: phi
+                                self.builder.position_at_end(merge_bb);
+                                let phi = self.builder.build_phi(inner_ty, "unwrap_result")?;
+                                phi.add_incoming(&[(&inner_val, then_bb_end), (&default_val, entry_bb)]);
+                                phi.as_basic_value()
                             } else {
-                                // Return default directly if types mismatch
-                                default_val
+                                // For non-struct types (Ptr, Int, Float), the value is stored directly in i64 slot (or cast).
+                                // It is safe to decode it unconditionally because we don't dereference it.
+                                
+                                let inner_val = if inner_ty.is_pointer_type() {
+                                    // Pointers are stored as i64
+                                    let ptr_val = self.builder.build_int_to_ptr(value_slot, inner_ty.into_pointer_type(), "inner_ptr")?;
+                                    ptr_val.as_basic_value_enum()
+                                } else if inner_ty.is_int_type() {
+                                    // Ints are stored as i64. Cast if needed
+                                    if inner_ty.into_int_type().get_bit_width() != 64 {
+                                         self.builder.build_int_cast(value_slot, inner_ty.into_int_type(), "int_cast")?.as_basic_value_enum()
+                                    } else {
+                                         value_slot.as_basic_value_enum()
+                                    }
+                                } else if inner_ty.is_float_type() {
+                                    // Floats are bitcast to i64
+                                    let val_cast = self.builder.build_bit_cast(value_slot, self.ctx.f64_type(), "float_cast")?;
+                                    val_cast.as_basic_value_enum()
+                                } else {
+                                    // Fallback
+                                    default_val
+                                };
+
+                                // Select
+                                if inner_val.get_type() == default_val.get_type() {
+                                    self.builder.build_select(is_some, inner_val, default_val, "unwrap_or_result")?
+                                } else {
+                                    default_val
+                                }
                             }
                         } else {
                             // Unknown type - return default
@@ -1216,20 +1295,56 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                 }
                 "charAt" => {
-                    // charAt(string, index) -> char (returned as single-char String)
+                    // charAt(string, index) -> single-character String
                     if args.len() == 2 {
                         let s_val = self.eval_value(&args[0], fn_map)?;
                         let s = self.as_cstr_ptr(s_val)?;
                         let idx_val = self.eval_value(&args[1], fn_map)?;
                         let idx = self.as_i64(idx_val)?;
+                        
+                        // Allocate a 16-byte buffer for the single char + null terminator (padded for safety)
+                        // Use our malloc with i64 size parameter for consistency
+                        let malloc = self.get_malloc();
+                        let size = self.i64_t.const_int(16, false);
+                        let buf = self.builder.build_call(malloc, &[size.into()], "char_buf")?
+                            .try_as_basic_value()
+                            .left()
+                            .ok_or_else(|| anyhow::anyhow!("malloc returned void"))?
+                            .into_pointer_value();
+                        
+                        // DEBUG: Print pointer
+                        let fmt = self.builder.build_global_string_ptr("DEBUG: charAt s: %p, idx: %lld, malloc buf: %p\n", "debug_fmt_charat")?;
+                        self.call_printf(&[fmt.as_pointer_value().into(), s.into(), idx.into(), buf.into()])?;
+                        
                         // Get pointer to character at index
                         let char_ptr = unsafe {
                             self.builder.build_gep(self.ctx.i8_type(), s, &[idx], "char_ptr")?
                         };
                         // Load the character as i8
-                        let char_val = self.builder.build_load(self.ctx.i8_type(), char_ptr, "char_val")?;
+                        let char_val = self.builder.build_load(self.ctx.i8_type(), char_ptr, "char_val")?.into_int_value();
+                        
+                        // Store the character in the buffer (build_store takes ptr, value)
+                        self.builder.build_store(buf, char_val)?;
+                        
+                        // Store null terminator at buf[1]
+                        let null_ptr = unsafe {
+                            self.builder.build_gep(self.ctx.i8_type(), buf, &[self.i64_t.const_int(1, false)], "null_ptr")?
+                        };
+                        self.builder.build_store(null_ptr, self.ctx.i8_type().const_zero())?;
+                        
+                        // Build SeenString struct {len=1, data=buf} using alloca + insert_value
+                        let string_ty = self.ty_string();
+                        let one = self.i64_t.const_int(1, false);
+                        
+                        // Start with an undef struct
+                        let undef = string_ty.get_undef();
+                        // Insert len at index 0
+                        let with_len = self.builder.build_insert_value(undef, one, 0, "str_len")?;
+                        // Insert data ptr at index 1
+                        let string_struct = self.builder.build_insert_value(with_len, buf, 1, "str_data")?;
+                        
                         if let Some(r) = result {
-                            self.assign_value(r, char_val)?;
+                            self.assign_value(r, string_struct.as_basic_value_enum())?;
                         }
                         return Ok(());
                     }
@@ -2611,6 +2726,39 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             .map(|_| self.i8_ptr_t.into())
                             .collect();
                         let func_ty = self.i8_ptr_t.fn_type(&param_types, false);
+                        let func = self.module.add_function(name, func_ty, None);
+                        func
+                    } else if name == "run_frontend" {
+                        // Special handling for run_frontend to ensure correct ABI (String structs by value)
+                        let string_ty = self.ty_string();
+                        let param_types = vec![
+                            string_ty.into(),
+                            string_ty.into(),
+                            string_ty.into(),
+                        ];
+                        
+                        // Try to find FrontendResult type
+                        let ret_ty = self.struct_types.get("FrontendResult")
+                            .map(|(st, _)| st.as_basic_type_enum())
+                            .or_else(|| self.struct_types.get("bootstrap_frontend_FrontendResult").map(|(st, _)| st.as_basic_type_enum()))
+                            .unwrap_or_else(|| self.i8_ptr_t.into());
+
+                        let func_ty = if ret_ty.is_struct_type() {
+                             ret_ty.fn_type(&param_types, false)
+                        } else {
+                             self.i8_ptr_t.fn_type(&param_types, false)
+                        };
+                        
+                        let func = self.module.add_function(name, func_ty, None);
+                        func
+                    } else if name == "CompileSeenProgram" {
+                        // Ensure correct ABI for CompileSeenProgram (String structs by value)
+                        let string_ty = self.ty_string();
+                        let param_types = vec![
+                            string_ty.into(),
+                            string_ty.into(),
+                        ];
+                        let func_ty = self.bool_t.fn_type(&param_types, false);
                         let func = self.module.add_function(name, func_ty, None);
                         func
                     } else if name.ends_with("String") || name.starts_with("read") || name.starts_with("get")

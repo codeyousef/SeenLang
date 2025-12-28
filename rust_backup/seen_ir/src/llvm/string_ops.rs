@@ -55,6 +55,10 @@ impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
         let (l_ptr, l_len) = self.get_string_ptr_len(left)?;
         let (r_ptr, r_len) = self.get_string_ptr_len(right)?;
 
+        // DEBUG: Print lengths
+        let fmt = self.builder.build_global_string_ptr("DEBUG: runtime_concat enter l_len: %lld, r_len: %lld\n", "debug_fmt_concat_enter")?;
+        self.call_printf(&[fmt.as_pointer_value().into(), l_len.into(), r_len.into()])?;
+
         let one = self.i64_t.const_int(1, false);
         let total_len = self.builder.build_int_add(l_len, r_len, "sum")?;
         let alloc_size = self.builder.build_int_add(total_len, one, "plus1")?;
@@ -69,6 +73,10 @@ impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
             .left()
             .unwrap()
             .into_pointer_value();
+
+        // DEBUG: Print pointers
+        let fmt = self.builder.build_global_string_ptr("DEBUG: runtime_concat dest: %p, l_ptr: %p, r_ptr: %p\n", "debug_fmt_concat")?;
+        self.call_printf(&[fmt.as_pointer_value().into(), dest.into(), l_ptr.into(), r_ptr.into()])?;
 
         // memcpy(dest, left, l_len)
         let memcpy = self.get_memcpy();
@@ -255,7 +263,6 @@ impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
                 .unwrap();
             
             if len.is_struct_value() {
-                 eprintln!("DEBUG: get_string_ptr_len: extracted struct instead of int! val type: {:?}, extracted type: {:?}", sv.get_type(), len.get_type());
                  // Try to extract from the inner struct if it's a wrapper
                  let inner = len.into_struct_value();
                  let inner_len = self.builder.build_extract_value(inner, 0, "inner_len").unwrap();

@@ -137,12 +137,17 @@ fun write_string(path: String, content: String) r: Result<Unit, String> {
 }
 
 fun readText(path: String) r: String {
+    stdoutLine("DEBUG: readText called with path: " + path)
     let fd = __OpenFile(path, "r")
+    stdoutLine("DEBUG: __OpenFile returned fd: " + fd.toString())
     if fd < 0 {
+        stdoutLine("DEBUG: fd < 0, returning empty string")
         return ""
     }
     
+    stdoutLine("DEBUG: calling __ReadFile")
     let content = __ReadFile(fd)
+    stdoutLine("DEBUG: __ReadFile returned content length: " + content.len().toString())
     let err = __FileError(fd)
     let _ = __CloseFile(fd)
     
@@ -163,6 +168,16 @@ fun writeText(path: String, content: String) r: Bool {
         return written >= 0
     }
     return false
+}
+
+fun appendText(path: String, content: String) r: Bool {
+    let fd = __OpenFile(path, "a")
+    if fd < 0 {
+        return false
+    }
+    let written = __WriteFile(fd, content)
+    let _ = __CloseFile(fd)
+    return written >= 0
 }
 
 fun exists(path: String) r: Bool {

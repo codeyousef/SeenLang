@@ -111,14 +111,16 @@ class Token {
     let length: Int
     let fileId: Int
     
-    fun new(tokenType: TokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) r: Token {
-        this.tokenType = tokenType
-        this.value = value
-        this.line = line
-        this.column = column
-        this.length = length
-        this.fileId = fileId
-        return this
+    static fun new(tokenType: TokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) r: Token {
+        println("[trace] Token.new: entered")
+        return Token {
+            tokenType: tokenType,
+            value: value,
+            line: line,
+            column: column,
+            length: length,
+            fileId: fileId
+        }
     }
     
     fun getType() r: TokenType {

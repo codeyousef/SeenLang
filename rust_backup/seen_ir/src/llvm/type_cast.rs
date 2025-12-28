@@ -8,6 +8,7 @@ use inkwell::types::BasicType;
 use inkwell::values::{BasicValue, BasicValueEnum, PointerValue};
 
 use crate::llvm_backend::LlvmBackend;
+use crate::llvm::c_library::CLibraryOps;
 
 /// Trait for type casting operations on the LLVM backend.
 pub trait TypeCastOps<'ctx> {
@@ -25,6 +26,9 @@ pub trait TypeCastOps<'ctx> {
     
     /// Convert a value to a C string pointer (i8*).
     fn as_cstr_ptr(&self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>>;
+    
+    /// Convert a char (i8) value to a null-terminated C string pointer.
+    fn char_to_cstr_ptr(&mut self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>>;
     
     /// Convert any value to an i8 pointer.
     fn to_i8_ptr(&mut self, value: BasicValueEnum<'ctx>, name: &str) -> Result<PointerValue<'ctx>>;
@@ -86,7 +90,6 @@ impl<'ctx> TypeCastOps<'ctx> for LlvmBackend<'ctx> {
                 .build_float_compare(inkwell::FloatPredicate::ONE, fv, zero, "float_tobool")
                 .map_err(|e| anyhow!("{e:?}"));
         }
-        eprintln!("DEBUG: as_bool failed! val type: {:?}", v.get_type());
         Err(anyhow!("Cannot convert value to bool"))
     }
 
@@ -232,6 +235,42 @@ impl<'ctx> TypeCastOps<'ctx> for LlvmBackend<'ctx> {
                 .map_err(|e| anyhow!("{e:?}"));
         }
         Err(anyhow!("Expected pointer to cstr, got {:?}", v))
+    }
+
+    fn char_to_cstr_ptr(&mut self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
+        // Convert a char (i8 value) to a null-terminated C string pointer
+        // Allocates a 2-byte buffer: [char, '\0']
+        let char_val = if v.is_int_value() {
+            let iv = v.into_int_value();
+            // Truncate to i8 if needed
+            if iv.get_type().get_bit_width() > 8 {
+                self.builder.build_int_truncate(iv, self.ctx.i8_type(), "char_trunc")?
+            } else {
+                iv
+            }
+        } else {
+            return Err(anyhow!("char_to_cstr_ptr: expected int value, got {:?}", v));
+        };
+        
+        // Allocate a 2-byte buffer using our malloc (with i64 size parameter)
+        let malloc = self.get_malloc();
+        let size = self.i64_t.const_int(2, false);
+        let buf = self.builder.build_call(malloc, &[size.into()], "char_str_buf")?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("malloc returned void"))?
+            .into_pointer_value();
+        
+        // Store the character at buf[0]
+        self.builder.build_store(buf, char_val)?;
+        
+        // Store null terminator at buf[1]
+        let null_ptr = unsafe {
+            self.builder.build_gep(self.ctx.i8_type(), buf, &[self.i64_t.const_int(1, false)], "null_ptr")?
+        };
+        self.builder.build_store(null_ptr, self.ctx.i8_type().const_zero())?;
+        
+        Ok(buf)
     }
 
     fn to_i8_ptr(&mut self, value: BasicValueEnum<'ctx>, name: &str) -> Result<PointerValue<'ctx>> {

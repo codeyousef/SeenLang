@@ -28,7 +28,6 @@ impl IRGenerator {
                 // Check if 'name' is a field
                 let result = fields.iter().find(|(f_name, _)| f_name == name).map(|(_, f_type)| f_type.clone());
                 if result.is_some() {
-                    eprintln!("DEBUG IR: Implicit field access lookup for '{}' in struct '{}' -> found", name, struct_name);
                 }
                 result
             } else {
@@ -39,7 +38,6 @@ impl IRGenerator {
         };
 
         if let Some(field_type) = field_info {
-            eprintln!("DEBUG IR: Implicit field '{}' has type {:?}", name, field_type);
             // It is a field! Generate self.name
             let self_name = self.context._current_receiver_name.clone().unwrap_or_else(|| "self".to_string());
             let self_var = IRValue::Variable(self_name);
@@ -58,7 +56,6 @@ impl IRGenerator {
                         format!("reg_{}", result_reg),
                         (**inner).clone()
                     );
-                    eprintln!("DEBUG IR: Implicit field access {} - tracking Vec element type {:?}", name, inner);
                 }
                 crate::value::IRType::Optional(inner) => {
                     // For Option<T>, track the inner type T

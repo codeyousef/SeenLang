@@ -119,6 +119,17 @@ impl IRGenerator {
 
         match target {
             Expression::Identifier { name, .. } => {
+                // Check if this identifier is actually a field of the current receiver (implicit field access)
+                let is_implicit_field = if let Some(recv_type) = &self.context._current_receiver_type {
+                    if let crate::value::IRType::Struct { fields, .. } = recv_type {
+                        fields.iter().any(|(f_name, _)| f_name == name)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                
                 let mut assigned_value = rhs_val.clone();
 
                 if !matches!(op, AssignmentOperator::Assign) {
@@ -134,9 +145,24 @@ impl IRGenerator {
                     let result_reg = self.context.allocate_register();
                     let result_val = IRValue::Register(result_reg);
 
+                    // For implicit fields, use field access to get the current value
+                    let left_val = if is_implicit_field {
+                        let self_name = self.context._current_receiver_name.clone().unwrap_or_else(|| "self".to_string());
+                        let field_reg = self.context.allocate_register();
+                        let field_val = IRValue::Register(field_reg);
+                        instructions.push(Instruction::FieldAccess {
+                            struct_val: IRValue::Variable(self_name),
+                            field: name.clone(),
+                            result: field_val.clone(),
+                        });
+                        field_val
+                    } else {
+                        IRValue::Variable(name.clone())
+                    };
+
                     instructions.push(Instruction::Binary {
                         op: ir_op,
-                        left: IRValue::Variable(name.clone()),
+                        left: left_val,
                         right: rhs_val,
                         result: result_val.clone(),
                     });
@@ -144,10 +170,20 @@ impl IRGenerator {
                     assigned_value = result_val;
                 }
 
-                instructions.push(Instruction::Store {
-                    value: assigned_value.clone(),
-                    dest: IRValue::Variable(name.clone()),
-                });
+                // Generate the appropriate store/field-set instruction
+                if is_implicit_field {
+                    let self_name = self.context._current_receiver_name.clone().unwrap_or_else(|| "self".to_string());
+                    instructions.push(Instruction::FieldSet {
+                        struct_val: IRValue::Variable(self_name),
+                        field: name.clone(),
+                        value: assigned_value.clone(),
+                    });
+                } else {
+                    instructions.push(Instruction::Store {
+                        value: assigned_value.clone(),
+                        dest: IRValue::Variable(name.clone()),
+                    });
+                }
 
                 Ok((assigned_value, instructions))
             }

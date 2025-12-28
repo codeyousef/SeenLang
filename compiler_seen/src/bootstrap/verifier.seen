@@ -3,25 +3,12 @@
 
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
-// Local stubs to keep bootstrap deterministic without external dependencies
-class CommandResult { output: String; success: Bool }
-fun CommandResult.new(output: String = "", success: Bool = true) r: CommandResult {
-    return CommandResult{ output: output, success: success }
-}
-
-fun execCommand(command: String) r: CommandResult { return CommandResult.new(command) }
-fun commandWasSuccessful(result: CommandResult) r: Bool { return true }
-fun commandOutput(result: CommandResult) r: String { return result.output }
-
-fun readText(path: String) r: String { return "" }
-fun appendText(path: String, contents: String) r: Bool { return true }
-fun replace(value: String, from: String, to: String) r: String { return value }
+import io.file.{readText, appendText, exists}
+import process.process.{execCommand, CommandResult, commandWasSuccessful, commandOutput}
+import str.string.{replace}
 
 fun FileExists(path: String) r: Bool {
-    let escaped = escapePath(path)
-    let command = "test -f '{escaped}'"
-    let result = execCommand(command)
-    return commandWasSuccessful(result)
+    return exists(path)
 }
 
 fun GetFileSize(path: String) r: Int {

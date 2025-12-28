@@ -164,7 +164,6 @@ impl GenerationContext {
                 IRValue::Register(reg) => {
                     let reg_type = self.register_types.get(reg).cloned();
                     if name == "entryOpt" {
-                        eprintln!("DEBUG: define_variable('{}') from Register({}), register_type={:?}", name, reg, reg_type);
                     }
                     reg_type.unwrap_or(IRType::Void)
                 }
@@ -174,7 +173,6 @@ impl GenerationContext {
         };
         
         if name == "entryOpt" {
-            eprintln!("DEBUG: define_variable('{}') final var_type={:?}", name, var_type);
         }
 
         // Preserve explicit annotation but still record it in the map for downstream use

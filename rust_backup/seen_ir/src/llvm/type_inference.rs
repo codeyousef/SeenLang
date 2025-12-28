@@ -116,7 +116,6 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
         for local in func.locals_iter() {
             // Debug: show all locals for normalize function
             if func.name == "normalize" {
-                eprintln!("DEBUG normalize local '{}': type = {:?}", local.name, local.var_type);
             }
             if let IRType::Struct { name, .. } = &local.var_type {
                 self.var_struct_types.insert(local.name.clone(), name.clone());
@@ -144,13 +143,11 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
                 }
             }
             if let IRType::Array(element_type) = &local.var_type {
-                eprintln!("DEBUG: local '{}' has Array type with element {:?}", local.name, element_type);
                 match element_type.as_ref() {
                     IRType::Struct { name, .. } => {
                         self.var_array_element_struct.insert(local.name.clone(), name.clone());
                     }
                     IRType::String => {
-                        eprintln!("DEBUG: Tracking String array element for local '{}'", local.name);
                         self.var_array_element_struct.insert(local.name.clone(), "String".to_string());
                     }
                     _ => {}
@@ -186,7 +183,6 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
                                         }
                                         // Handle Array(Optional(T)) - common pattern for Vec<Option<T>>
                                         if let IRType::Optional(opt_inner) = &**inner {
-                                            eprintln!("DEBUG: FieldAccess '{}' has Array(Optional({:?})), tracking for reg {}", field, opt_inner, reg_id);
                                             // Mark the register as Vec type (since Array = Vec in our type system)
                                             self.reg_struct_types.insert(*reg_id, "Vec".to_string());
                                             // Mark the element type as "Option"
@@ -194,7 +190,6 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
                                             // Also track the inner type of the Option
                                             if let IRType::Struct { name: inner_struct_name, .. } = &**opt_inner {
                                                 self.reg_option_inner_type.insert(*reg_id, inner_struct_name.clone());
-                                                eprintln!("DEBUG: Tracking Option inner type '{}' for reg {}", inner_struct_name, reg_id);
                                             } else if matches!(&**opt_inner, IRType::String) {
                                                 self.reg_option_inner_type.insert(*reg_id, "String".to_string());
                                             }

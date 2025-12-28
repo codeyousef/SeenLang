@@ -258,18 +258,19 @@ class SeenLexer {
             }
         }
         
+        if hasInterpolation {
+            this.handleInterpolatedString(startPos)
+            return
+        }
+
         if this.getCurrentChar() == '"' {
             this.advance() // Skip closing quote
         } else {
             throw LexerError.new("Unterminated string literal", this.getCurrentPosition(), "")
         }
         
-        if hasInterpolation {
-            this.handleInterpolatedString(startPos)
-        } else {
-            let length = position - startPos
-            this.emitToken(TokenType.StringLiteral, value, length)
-        }
+        let length = position - startPos
+        this.emitToken(TokenType.StringLiteral, value, length)
     }
     
     fun handleEscapeSequence(char: String) r: String {
@@ -455,18 +456,36 @@ class SeenLexer {
         this.advance()
         
         // Subsequent characters
-        while this.isAlphaNumeric(this.getCurrentChar()) or this.getCurrentChar() == '_' {
-            value += this.getCurrentChar()
+        while true {
+            var c = "\u{0000}"
+            if position < source.length() {
+                c = source.charAt(position)
+            }
+
+            // let isIdent = this.isAlphaNumeric(c) or c == '_'
+            let isIdent = false
+            if !isIdent { break }
+
+            println("[trace] handleIdentifierOrKeyword: appending char")
+            value = value + c
+            println("[trace] handleIdentifierOrKeyword: appended char")
             this.advance()
         }
         
         let length = position - startPos
         
+        println("[trace] handleIdentifierOrKeyword: checking keyword")
         // Check if it's a keyword
+        println("[trace] calling getKeywordType")
         let keywordType = keywordManager.getKeywordType(value)
+        println("[trace] called getKeywordType")
+        
+        println("[trace] checking if null")
         if keywordType != null {
+            println("[trace] not null")
             this.emitToken(keywordType, value, length)
         } else {
+            println("[trace] is null")
             this.emitToken(TokenType.Identifier, value, length)
         }
     }

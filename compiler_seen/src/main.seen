@@ -27,17 +27,24 @@ extern fun __OpenFile(path: String, mode: String) r: Int
 
 
 fun main() r: Int {
+    println("[trace] main: entry")
     let args = GetCommandLineArgs()
+    println("[trace] main: got args, size=" + args.size().toString())
     if args.size() < 2 {
         printUsage()
         return 1
     }
 
     var exit: Int = 0
+    println("[trace] main: getting command...")
     let command = args[1]
+    println("[trace] main: command=" + command)
     if command == "build" {
+        println("[trace] main: processing build command")
         let sourceFile = requireArg(args, 2, "Error: build command requires a source file")
+        println("[trace] main: sourceFile=" + sourceFile)
         let outputFile = getOptionalArg(args, 3).unwrapOr(getDefaultOutput(sourceFile))
+        println("[trace] main: outputFile=" + outputFile)
         exit = buildCommand(sourceFile, outputFile)
     } else if command == "check" {
         let sourceFile = requireArg(args, 2, "Error: check command requires a source file")
@@ -82,7 +89,12 @@ fun printUsage() r: Void {
 
 fun CompileSeenProgram(sourceCode: String, outputPath: String) r: Bool {
     // Run real frontend (lexer+parser+typechecker)
+    stdoutLine("[trace] CompileSeenProgram: calling run_frontend...")
+    stdoutLine("[trace] CompileSeenProgram: sourceCode len = " + sourceCode.len().toString())
+    stdoutLine("[trace] CompileSeenProgram: outputPath before = " + outputPath)
     let result = run_frontend(sourceCode, "<memory>", "en")
+    stdoutLine("[trace] run_frontend returned")
+    stdoutLine("[trace] CompileSeenProgram: outputPath after = " + outputPath)
     if not result.success {
         stdoutLine("Frontend errors detected")
         return false
@@ -106,15 +118,20 @@ fun buildCommand(sourceFile: String, outputFile: String) r: Int {
     stdoutLine("Source file: " + sourceFile)
     
     // Read source file
+    stdoutLine("[trace] calling readText...")
     let sourceCode = readText(sourceFile)
+    stdoutLine("[trace] readText returned")
     let sourceLen = sourceCode.len()
+    stdoutLine("[trace] sourceLen = " + sourceLen.toString())
     if sourceLen == 0 {
         stdoutLine("Error: Could not read file '" + sourceFile + "'")
         return 1
     }
 
     // Frontend validation is handled inside compiler for now
+    stdoutLine("[trace] buildCommand: calling CompileSeenProgram with output=" + outputFile)
     let success = CompileSeenProgram(sourceCode, outputFile)
+    stdoutLine("[trace] CompileSeenProgram returned")
     
     if success {
         stdoutLine("✅ Build successful")

@@ -25,7 +25,6 @@ impl IRGenerator {
         // Debug: show Binary IR generation for Subtract with Register
         if matches!(operator, BinaryOperator::Subtract) {
             if let IRValue::Register(r) = &left_val {
-                eprintln!("DEBUG IR generate_binary_expression: op=Subtract, left=Register({}), right={:?}, left_expr={:?}", r, right_val, left);
             }
         }
 

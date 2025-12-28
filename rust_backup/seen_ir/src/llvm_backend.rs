@@ -1146,8 +1146,19 @@ impl<'ctx> LlvmBackend<'ctx> {
         for param in &func.parameters {
             let ty = self.ir_type_to_llvm(&param.param_type);
             self.var_slot_types.insert(param.name.clone(), ty);
-            let slot = self.alloca_for_type(ty, &format!("param_slot_{}", param.name))?;
-            self.var_slots.insert(param.name.clone(), slot);
+            
+            // Special handling for 'this' if it's a struct passed by pointer (not a class)
+            let is_struct_this = (param.name == "this" || param.name == "self") 
+                && matches!(param.param_type, IRType::Struct { .. })
+                && if let IRType::Struct { name, .. } = &param.param_type { !self.class_types.contains(name) } else { false };
+
+            if is_struct_this {
+                // Don't allocate slot yet, will use arg pointer directly in second loop
+            } else {
+                let slot = self.alloca_for_type(ty, &format!("param_slot_{}", param.name))?;
+                self.var_slots.insert(param.name.clone(), slot);
+            }
+            
             // Track struct type names for field access
             if let IRType::Struct { name, .. } = &param.param_type {
                 self.var_struct_types.insert(param.name.clone(), name.clone());
@@ -1354,7 +1365,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                 if (i as usize) < func.parameters.len() {
                     let pname = func.parameters[i as usize].name.clone();
                     self.var_values.insert(pname.clone(), param_val.clone());
-                    if let Some(slot) = self.var_slots.get(&pname).copied() {
+                    
+                    // Special handling for 'this' struct pointer
+                    let is_struct_this = (pname == "this" || pname == "self") 
+                        && matches!(func.parameters[i as usize].param_type, IRType::Struct { .. })
+                        && if let IRType::Struct { name, .. } = &func.parameters[i as usize].param_type { !self.class_types.contains(name) } else { false };
+
+                    if is_struct_this {
+                        if param_val.is_pointer_value() {
+                            self.var_slots.insert(pname.clone(), param_val.into_pointer_value());
+                        }
+                        // Skip store, as we use the pointer directly
+                    } else if let Some(slot) = self.var_slots.get(&pname).copied() {
                         let elem_ty = *self
                             .var_slot_types
                             .get(&pname)
@@ -2644,7 +2666,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         };
 
         if let Some(ty) = ty_opt {
-             return ty == self.ty_string().into();
+            let str_ty = self.ty_string();
+            return ty == str_ty.into();
         }
         false
     }

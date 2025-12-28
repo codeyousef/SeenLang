@@ -35,13 +35,6 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
         let l = self.eval_value(left, fn_map)?;
         let r = self.eval_value(right, fn_map)?;
         
-        // Debug: print struct values
-        if l.is_struct_value() || r.is_struct_value() {
-            eprintln!("DEBUG emit_binary_op: op={:?}, left={:?}, right={:?}", op, left, right);
-            eprintln!("DEBUG emit_binary_op: l is_struct={}, r is_struct={}", l.is_struct_value(), r.is_struct_value());
-            eprintln!("DEBUG emit_binary_op: l_type={:?}, r_type={:?}", l.get_type(), r.get_type());
-        }
-        
         // Check if either operand is a float for arithmetic operations
         let is_float_op = l.is_float_value() || r.is_float_value();
         
@@ -122,13 +115,39 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                     BinaryOp::Equal => inkwell::IntPredicate::EQ,
                     _ => inkwell::IntPredicate::NE,
                 };
-                if self.is_string_value_ir(left) || self.is_string_value_ir(right) {
-                    let lp = self.as_cstr_ptr(l)?;
-                    let rp = self.as_cstr_ptr(r)?;
+                let left_is_str = self.is_string_value_ir(left);
+                let right_is_str = self.is_string_value_ir(right);
+                // Check both IR literal Char AND i8 LLVM values (from variables holding chars)
+                let left_is_char = matches!(left, IRValue::Char(_)) || 
+                    (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
+                let right_is_char = matches!(right, IRValue::Char(_)) ||
+                    (r.is_int_value() && r.into_int_value().get_type().get_bit_width() == 8);
+                if left_is_str || right_is_str || left_is_char || right_is_char {
+                    // Convert char values to string structs before comparison
+                    let lp = if left_is_char {
+                        self.char_to_cstr_ptr(l)?
+                    } else {
+                        self.as_cstr_ptr(l)?
+                    };
+                    let rp = if right_is_char {
+                        self.char_to_cstr_ptr(r)?
+                    } else {
+                        self.as_cstr_ptr(r)?
+                    };
                     let cmp = self.call_strcmp(lp, rp)?;
                     let zero = self.ctx.i32_type().const_zero();
                     Ok(self.builder
                         .build_int_compare(pred, cmp, zero, "strcmp")?
+                        .as_basic_value_enum())
+                } else if l.is_pointer_value() && r.is_pointer_value() {
+                    // Pointer comparison (reference equality)
+                    // This handles null checks (ptr != null) and class reference equality
+                    let lp = l.into_pointer_value();
+                    let rp = r.into_pointer_value();
+                    let li = self.builder.build_ptr_to_int(lp, self.i64_t, "l_ptr2i")?;
+                    let ri = self.builder.build_ptr_to_int(rp, self.i64_t, "r_ptr2i")?;
+                    Ok(self.builder
+                        .build_int_compare(pred, li, ri, "ptr_cmp")?
                         .as_basic_value_enum())
                 } else {
                     let li = self.as_i64(l)?;
@@ -139,32 +158,80 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 }
             }
             BinaryOp::LessThan => {
-                let li = self.as_i64(l)?;
-                let ri = self.as_i64(r)?;
-                Ok(self.builder
-                    .build_int_compare(inkwell::IntPredicate::SLT, li, ri, "lt")?
-                    .as_basic_value_enum())
+                let left_is_str = self.is_string_value_ir(left);
+                let right_is_str = self.is_string_value_ir(right);
+                let left_is_char = matches!(left, IRValue::Char(_)) || 
+                    (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
+                let right_is_char = matches!(right, IRValue::Char(_)) ||
+                    (r.is_int_value() && r.into_int_value().get_type().get_bit_width() == 8);
+                if left_is_str || right_is_str || left_is_char || right_is_char {
+                    let lp = if left_is_char { self.char_to_cstr_ptr(l)? } else { self.as_cstr_ptr(l)? };
+                    let rp = if right_is_char { self.char_to_cstr_ptr(r)? } else { self.as_cstr_ptr(r)? };
+                    let cmp = self.call_strcmp(lp, rp)?;
+                    let zero = self.ctx.i32_type().const_zero();
+                    Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLT, cmp, zero, "strcmp_lt")?.as_basic_value_enum())
+                } else {
+                    let li = self.as_i64(l)?;
+                    let ri = self.as_i64(r)?;
+                    Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLT, li, ri, "lt")?.as_basic_value_enum())
+                }
             }
             BinaryOp::LessEqual => {
-                let li = self.as_i64(l)?;
-                let ri = self.as_i64(r)?;
-                Ok(self.builder
-                    .build_int_compare(inkwell::IntPredicate::SLE, li, ri, "le")?
-                    .as_basic_value_enum())
+                let left_is_str = self.is_string_value_ir(left);
+                let right_is_str = self.is_string_value_ir(right);
+                let left_is_char = matches!(left, IRValue::Char(_)) || 
+                    (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
+                let right_is_char = matches!(right, IRValue::Char(_)) ||
+                    (r.is_int_value() && r.into_int_value().get_type().get_bit_width() == 8);
+                if left_is_str || right_is_str || left_is_char || right_is_char {
+                    let lp = if left_is_char { self.char_to_cstr_ptr(l)? } else { self.as_cstr_ptr(l)? };
+                    let rp = if right_is_char { self.char_to_cstr_ptr(r)? } else { self.as_cstr_ptr(r)? };
+                    let cmp = self.call_strcmp(lp, rp)?;
+                    let zero = self.ctx.i32_type().const_zero();
+                    Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLE, cmp, zero, "strcmp_le")?.as_basic_value_enum())
+                } else {
+                    let li = self.as_i64(l)?;
+                    let ri = self.as_i64(r)?;
+                    Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLE, li, ri, "le")?.as_basic_value_enum())
+                }
             }
             BinaryOp::GreaterThan => {
-                let li = self.as_i64(l)?;
-                let ri = self.as_i64(r)?;
-                Ok(self.builder
-                    .build_int_compare(inkwell::IntPredicate::SGT, li, ri, "gt")?
-                    .as_basic_value_enum())
+                let left_is_str = self.is_string_value_ir(left);
+                let right_is_str = self.is_string_value_ir(right);
+                let left_is_char = matches!(left, IRValue::Char(_)) || 
+                    (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
+                let right_is_char = matches!(right, IRValue::Char(_)) ||
+                    (r.is_int_value() && r.into_int_value().get_type().get_bit_width() == 8);
+                if left_is_str || right_is_str || left_is_char || right_is_char {
+                    let lp = if left_is_char { self.char_to_cstr_ptr(l)? } else { self.as_cstr_ptr(l)? };
+                    let rp = if right_is_char { self.char_to_cstr_ptr(r)? } else { self.as_cstr_ptr(r)? };
+                    let cmp = self.call_strcmp(lp, rp)?;
+                    let zero = self.ctx.i32_type().const_zero();
+                    Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGT, cmp, zero, "strcmp_gt")?.as_basic_value_enum())
+                } else {
+                    let li = self.as_i64(l)?;
+                    let ri = self.as_i64(r)?;
+                    Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGT, li, ri, "gt")?.as_basic_value_enum())
+                }
             }
             BinaryOp::GreaterEqual => {
-                let li = self.as_i64(l)?;
-                let ri = self.as_i64(r)?;
-                Ok(self.builder
-                    .build_int_compare(inkwell::IntPredicate::SGE, li, ri, "ge")?
-                    .as_basic_value_enum())
+                let left_is_str = self.is_string_value_ir(left);
+                let right_is_str = self.is_string_value_ir(right);
+                let left_is_char = matches!(left, IRValue::Char(_)) || 
+                    (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
+                let right_is_char = matches!(right, IRValue::Char(_)) ||
+                    (r.is_int_value() && r.into_int_value().get_type().get_bit_width() == 8);
+                if left_is_str || right_is_str || left_is_char || right_is_char {
+                    let lp = if left_is_char { self.char_to_cstr_ptr(l)? } else { self.as_cstr_ptr(l)? };
+                    let rp = if right_is_char { self.char_to_cstr_ptr(r)? } else { self.as_cstr_ptr(r)? };
+                    let cmp = self.call_strcmp(lp, rp)?;
+                    let zero = self.ctx.i32_type().const_zero();
+                    Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGE, cmp, zero, "strcmp_ge")?.as_basic_value_enum())
+                } else {
+                    let li = self.as_i64(l)?;
+                    let ri = self.as_i64(r)?;
+                    Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGE, li, ri, "ge")?.as_basic_value_enum())
+                }
             }
             BinaryOp::And => {
                 let li = self.as_bool(l)?;
