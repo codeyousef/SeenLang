@@ -47,12 +47,12 @@ class SeenLexer {
             }
             
             // Handle comments
-            if char == '/' and this.peekChar() == '/' {
+            if char == '/' and this.peekChar(1) == '/' {
                 this.handleSingleLineComment()
                 continue
             }
             
-            if char == '/' and this.peekChar() == '*' {
+            if char == '/' and this.peekChar(1) == '*' {
                 this.handleMultiLineComment()
                 continue
             }
@@ -223,7 +223,7 @@ class SeenLexer {
         this.advance() // Skip '*'
         
         while position < source.length() - 1 {
-            if this.getCurrentChar() == '*' and this.peekChar() == '/' {
+            if this.getCurrentChar() == '*' and this.peekChar(1) == '/' {
                 this.advance() // Skip '*'
                 this.advance() // Skip '/'
                 break
@@ -373,7 +373,7 @@ class SeenLexer {
         var isFloat = false
         
         // Handle different number formats
-        if this.getCurrentChar() == '0' and (this.peekChar() == 'x' or this.peekChar() == 'X') {
+        if this.getCurrentChar() == '0' and (this.peekChar(1) == 'x' or this.peekChar(1) == 'X') {
             // Hexadecimal
             this.advance() // Skip '0'
             this.advance() // Skip 'x'
@@ -383,7 +383,7 @@ class SeenLexer {
                 value += this.getCurrentChar()
                 this.advance()
             }
-        } else if this.getCurrentChar() == '0' and (this.peekChar() == 'b' or this.peekChar() == 'B') {
+        } else if this.getCurrentChar() == '0' and (this.peekChar(1) == 'b' or this.peekChar(1) == 'B') {
             // Binary
             this.advance() // Skip '0'
             this.advance() // Skip 'b'
@@ -403,7 +403,7 @@ class SeenLexer {
             }
             
             // Check for decimal point
-            if this.getCurrentChar() == '.' and this.isDigit(this.peekChar()) {
+            if this.getCurrentChar() == '.' and this.isDigit(this.peekChar(1)) {
                 isFloat = true
                 value += this.getCurrentChar()
                 this.advance()
@@ -492,7 +492,7 @@ class SeenLexer {
     
     fun handleOperator() r: Bool {
         let char = this.getCurrentChar()
-        let nextChar = this.peekChar()
+        let nextChar = this.peekChar(1)
         
         // Two-character operators
         let twoChar = char + nextChar

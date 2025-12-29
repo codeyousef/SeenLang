@@ -2219,6 +2219,23 @@ impl<'ctx> LlvmBackend<'ctx> {
                         self.var_slots.insert(name.clone(), new_slot);
                         self.var_slot_types.insert(name.clone(), value_ty);
                         (new_slot, value_ty)
+                    // Check for String struct-to-pointer type mismatch - if the value is a String struct 
+                    // but slot is a pointer (e.g., from Generic type), reallocate with String type
+                    } else if v.is_struct_value() && ty.is_pointer_type() {
+                        // Get struct type without consuming v - check if it's a String struct
+                        if let BasicValueEnum::StructValue(sv) = &v {
+                            if sv.get_type() == self.ty_string() {
+                                let string_ty = self.ty_string().as_basic_type_enum();
+                                let new_slot = self.alloca_for_type(string_ty, &format!("var_{}_string", name))?;
+                                self.var_slots.insert(name.clone(), new_slot);
+                                self.var_slot_types.insert(name.clone(), string_ty);
+                                (new_slot, string_ty)
+                            } else {
+                                (p, ty)
+                            }
+                        } else {
+                            (p, ty)
+                        }
                     } else {
                         (p, ty)
                     }
@@ -2226,6 +2243,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                     let value_ty = self
                         .basic_type_from_value(&v)
                         .ok_or_else(|| anyhow!("Cannot infer type for variable {}", name))?;
+                    eprintln!("DEBUG: assign_value creating new slot for '{}', value_ty={}", 
+                        name, value_ty.print_to_string().to_string());
                     let slot = self.alloca_for_type(value_ty, &format!("var_{}", name))?;
                     self.var_slots.insert(name.clone(), slot);
                     self.var_slot_types.insert(name.clone(), value_ty);
@@ -2299,6 +2318,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             .var_slot_types
             .get(name)
             .ok_or_else(|| anyhow!("Missing slot type for {}", name))?;
+        eprintln!("DEBUG: load_from_slot name='{}', slot={:?}, elem_ty={}", 
+            name, slot, elem_ty.print_to_string().to_string());
         let load_name = format!("load_{}", name);
         let loaded = match elem_ty {
             BasicTypeEnum::ArrayType(at) => self.builder.build_load(at, slot, &load_name),

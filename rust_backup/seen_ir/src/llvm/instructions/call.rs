@@ -782,9 +782,72 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 "__default" => {
-                    // Return 0 (i64) as default value (legacy fallback)
+                    // Legacy __default without type suffix - try to infer type from result register
                     if let Some(r) = result {
-                        self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
+                        // Check if we know the type of the result register
+                        let inferred_type = match r {
+                            IRValue::Register(reg_id) => {
+                                // Try reg_struct_types first
+                                if let Some(struct_name) = self.reg_struct_types.get(reg_id).cloned() {
+                                    Some(struct_name)
+                                } else if let Some(slot_ty) = self.reg_slot_types.get(reg_id) {
+                                    // Check LLVM type
+                                    if slot_ty.is_struct_type() {
+                                        let st = slot_ty.into_struct_type();
+                                        // Check if it's a String type (i64, ptr)
+                                        if st.count_fields() == 2 {
+                                            Some("String".to_string())
+                                        } else {
+                                            None
+                                        }
+                                    } else if slot_ty.is_float_type() {
+                                        Some("Float".to_string())
+                                    } else if slot_ty.is_int_type() {
+                                        let it = slot_ty.into_int_type();
+                                        if it.get_bit_width() == 1 {
+                                            Some("Bool".to_string())
+                                        } else {
+                                            Some("Int".to_string())
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+                        
+                        let default_val = match inferred_type.as_deref() {
+                            Some("String") => {
+                                // Empty string: SeenString { len: 0, data: null }
+                                let string_ty = self.ty_string();
+                                let zero_len = self.i64_t.const_zero();
+                                let null_ptr = self.i8_ptr_t.const_null();
+                                string_ty.const_named_struct(&[zero_len.into(), null_ptr.into()]).as_basic_value_enum()
+                            }
+                            Some("Float") => {
+                                self.ctx.f64_type().const_zero().as_basic_value_enum()
+                            }
+                            Some("Bool") => {
+                                self.ctx.bool_type().const_zero().as_basic_value_enum()
+                            }
+                            Some(struct_name) => {
+                                // For known struct types, create zeroed struct
+                                if let Some((struct_ty, _field_names)) = self.struct_types.get(struct_name).cloned() {
+                                    struct_ty.const_zero().as_basic_value_enum()
+                                } else {
+                                    // Unknown struct - return i64 zero as pointer
+                                    self.i64_t.const_zero().as_basic_value_enum()
+                                }
+                            }
+                            None => {
+                                // No type info - return 0 (i64) as fallback
+                                self.i64_t.const_zero().as_basic_value_enum()
+                            }
+                        };
+                        self.assign_value(r, default_val)?;
                     }
                     return Ok(());
                 }
@@ -1004,11 +1067,19 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         )?.into_int_value();
 
                         let elem_byte_size = if value.is_struct_value() {
-                            if value.into_struct_value().get_type() == self.ty_string() {
-                                16
-                            } else {
-                                16
-                            }
+                            // Get actual struct size from LLVM
+                            let struct_ty = value.into_struct_value().get_type();
+                            let size_of = struct_ty.size_of().map(|sv| {
+                                // Try to extract constant value
+                                if let Some(const_val) = sv.get_zero_extended_constant() {
+                                    const_val
+                                } else {
+                                    // If not constant, use a safe default for typical structs
+                                    // Token has ~56 bytes, String has 16 bytes
+                                    64
+                                }
+                            }).unwrap_or(64);
+                            size_of
                         } else {
                             8
                         };

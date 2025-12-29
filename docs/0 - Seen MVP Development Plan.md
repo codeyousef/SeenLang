@@ -1,6 +1,6 @@
 # Seen Language — Unified **MVP** Plan
 
-**Last Updated:** 2025-12-24  
+**Last Updated:** 2025-12-29  
 **Core Principle:** Safety by default, nondeterminism explicitly opt-in via annotation.  
 **Target Platforms:** Linux, Windows, RISC-V, UWW-Compatible WASM
 
@@ -13,10 +13,10 @@
 | Rust Compiler | ✅ Production Ready |
 | Self-Host Type-Check | ✅ 0 errors |
 | Self-Host IR Gen | ✅ Working |
-| Self-Host Native Codegen | 🔄 In Progress |
-| Stage1→Stage2→Stage3 | ⏳ Pending |
+| Self-Host Native Codegen | 🔄 In Progress (Stage1 lexer crash) |
+| Stage1→Stage2→Stage3 | ⏳ Blocked on Stage1 |
 
-**Blocking Issue:** None.
+**Blocking Issue:** Stage1 crashes during lexer tokenization when source files contain operator + string literal patterns (e.g., `="a"`, `+"a"`). See Task 1.2 for details.
 
 ---
 
@@ -399,58 +399,104 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 ---
 
 ### Task 1.2: Stage1 Native Binary Generation
-**Status:** ✅ Complete
-**Estimated:** 2-3 hours
+**Status:** 🔄 In Progress (Lexer Crash Bug)
+**Estimated:** 2-3 hours → Extended
 
-**Tasks:**
-- [x] Build Stage1 compiler from `compiler_seen/src/main_compiler.seen`
+**Completed:**
+- [x] Build Stage1 compiler from `compiler_seen/src/main.seen`
 - [x] Fix `ir_type_to_llvm` struct resolution (was returning i8*)
-- [x] Fix SIGSEGV in `ExecuteCommand` (likely string/struct ABI issue)
-- [x] Verify Stage1 binary executes correctly
-- [x] Test Stage1 can type-check simple programs
-- [x] Test Stage1 can generate IR
+- [x] Fix default parameter bug (`peekChar(1)` workaround applied via sed)
+- [x] Fix Array_push element size bug (was hardcoded to 16 bytes, now uses actual struct size)
+- [x] Stage1 binary runs successfully (`--version` works)
+- [x] Stage1 tokenizes files WITHOUT string literals successfully
 
-**Acceptance:** Stage1 binary runs and produces correct output.
+**Current Blocking Bug (as of 2025-12-29):**
+Stage1 SIGSEGV during lexer tokenization when source contains operator + string literal pattern.
+
+**Reproduction:**
+```bash
+cd /mnt/Storage/Projects/Rust/seenlang
+echo '+"a"' > test_crash.seen
+./stage1_bin build test_crash.seen  # SIGSEGV
+echo '"a"' > test_ok.seen
+./stage1_bin build test_ok.seen     # Works (tokenizes)
+echo 'a"b"' > test_ok2.seen
+./stage1_bin build test_ok2.seen    # Works (tokenizes)
+```
+
+**Crash Pattern Analysis:**
+- `"a"` alone → works
+- `a"b"` (identifier + string) → works
+- `+"a"` (operator + string) → CRASHES
+- `="a"` → CRASHES
+- `let x="a"` → CRASHES
+- Crash happens AFTER operator token is emitted, when returning to main tokenize loop
+- The 6th `charAt` call crashes (after emitToken pushes first token)
+- Debug output shows crash during printf inside charAt intrinsic
+- Suggests memory corruption after Token struct is pushed to array
+
+**Debugging State:**
+- Debug output added to `charAt`, `runtime_concat`, `load_from_slot`, `assign_value`
+- Stage1 rebuilt with debug output: `./stage1_bin`
+- Rust compiler source in `rust_backup/seen_ir/src/`
+- Key files:
+  - `rust_backup/seen_ir/src/llvm/instructions/call.rs` - Array_push, charAt
+  - `rust_backup/seen_ir/src/llvm_backend.rs` - assign_value, load_from_slot
+  - `compiler_seen/src/lexer/lexer.seen` - Seen lexer source
+
+**Hypothesis:**
+Memory corruption occurs when Token struct (56 bytes) is pushed to tokens array.
+The Token struct contains a String field (`value: String`) which is `{i64, ptr}`.
+After push, subsequent memory accesses (like `this.source` in `getCurrentChar`) become corrupted.
+
+**Next Steps:**
+- [ ] Add debug output before/after `emitToken` and `tokens.push`
+- [ ] Verify Token struct layout matches between IR and LLVM
+- [ ] Check if String field in Token is being stored/loaded correctly
+- [ ] Investigate if ConstructObject (Token.new) returns correct pointer
+- [ ] Check FieldSet for String fields in Token
+
+**Acceptance:** Stage1 binary tokenizes any valid Seen source file.
 
 ---
 
 ### Task 1.3: Stage2 Compilation
-**Status:** ✅ Complete  
+**Status:** ⏳ Blocked on Task 1.2
 **Estimated:** 2-3 hours
 
 **Tasks:**
-- [x] Use Stage1 to compile Stage2 from same sources (`stage2.out`)
-- [x] Compare Stage1 and Stage2 binaries (hashes differ)
-- [x] Debug any differences (ELF build-id differs between outputs; determinism still pending)
-- [x] Record Stage2 hash (sha256: `da03a271f80831b2971d414cf37c074862a6403542bdfb7e9de87def38c83454`; Stage1 sha256: `fa64e3a517e09c07eb0b719c0a317848718a41d7b81c17b843252ad030e58f27`)
+- [ ] Use Stage1 to compile Stage2 from same sources (`stage2.out`)
+- [ ] Compare Stage1 and Stage2 binaries (hashes differ)
+- [ ] Debug any differences
+- [ ] Record Stage2 hash
 
 **Acceptance:** Stage2 binary generated successfully.
 
 ---
 
 ### Task 1.4: Stage3 and Determinism Verification
-**Status:** ✅ Complete  
+**Status:** ⏳ Blocked on Task 1.3
 **Estimated:** 1-2 hours
 
 **Tasks:**
-- [x] Use Stage2 to compile Stage3 (`stage3.out`)
-- [x] Verify Stage2 == Stage3 (hash equality) — hashes identical (sha256: `dfd61c3dcb90fcfcaf6e0f2aa7e53c810c3bce8e06276de888707dce35e2fd0b` for stage1/stage2/stage3)
-- [x] Record hashes in documentation (stage1/stage2/stage3 sha256: `dfd61c3dcb90fcfcaf6e0f2aa7e53c810c3bce8e06276de888707dce35e2fd0b`; build-id not emitted under deterministic profile)
-- [x] Update `validate_d2_determinism.sh`
+- [ ] Use Stage2 to compile Stage3 (`stage3.out`)
+- [ ] Verify Stage2 == Stage3 (hash equality)
+- [ ] Record hashes in documentation
+- [ ] Update `validate_d2_determinism.sh`
 
 **Acceptance:** Stage2 and Stage3 are byte-identical.
 
 ---
 
 ### Task 1.5: Rust Removal Validation
-**Status:** ✅ Complete  
+**Status:** ⏳ Blocked on Task 1.4
 **Estimated:** 2-3 hours
 
 **Tasks:**
-- [x] Run `verify_rust_needed.sh` — prints "Rust NOT needed"
-- [x] Run `run_bootstrap_seen_only.sh` — 3-stage Seen-only bootstrap (stage2==stage3) and smoke tests
-- [x] Run full test suite with Stage1 compiler — smoke coverage via hello_cli and bootstrap_test
-- [x] Execute `r4_release_playbook.sh` dry-run — waived; replaced by Seen-only bootstrap + smoke tests for this milestone
+- [ ] Run `verify_rust_needed.sh` — should print "Rust NOT needed"
+- [ ] Run `run_bootstrap_seen_only.sh` — 3-stage Seen-only bootstrap (stage2==stage3) and smoke tests
+- [ ] Run full test suite with Stage1 compiler
+- [ ] Execute `r4_release_playbook.sh` dry-run
 
 **Acceptance:** All bootstrap scripts pass; Rust compiler not required.
 
