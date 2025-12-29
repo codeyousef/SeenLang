@@ -2448,6 +2448,7 @@ fn bundle_imports(
                     let mut loaded = false;
                     for cand in candidates {
                         if cand.exists() {
+                            println!("[trace] Loading module {} from: {:?}", module_path.join("."), cand);
                             let canonical = canonicalize_lossy(&cand);
                             if processed_files.contains(&canonical) {
                                 loaded = true;

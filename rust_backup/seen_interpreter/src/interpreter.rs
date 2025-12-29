@@ -468,6 +468,7 @@ impl Interpreter {
                 // This is a simplified handling for stdlib imports in tests
                 let module_str = module_path.join(".");
                 match module_str.as_str() {
+                    /*
                     "seen_std.io.file" => {
                         for symbol in symbols {
                             match symbol.name.as_str() {
@@ -491,6 +492,7 @@ impl Interpreter {
                             }
                         }
                     }
+                    */
                     "seen_std.env.env" => {
                         for symbol in symbols {
                             if symbol.name == "args" {

@@ -3,11 +3,19 @@
 // functions) so higher layers can start consuming deterministic data while the
 // full parser port continues.
 
-import lexer.interfaces.{Token}
+import lexer.interfaces.{Token, Position}
+import lexer.token_type.{SeenTokenType}
+import core.option.{Option}
+
+
 
 // Minimal AST scaffolding local to the parser
-data ProgramNode { items: Array<ItemNode> }
-fun ProgramNode.new() r: ProgramNode { return ProgramNode{ items: Array<ItemNode>() } }
+class ProgramNode {
+    var items: Array<ItemNode>
+    static fun new() r: ProgramNode {
+        return ProgramNode{ items: Array<ItemNode>() }
+    }
+}
 
 data ItemNode {
     itemType: String
@@ -58,8 +66,78 @@ fun ParamNode.new() r: ParamNode { return ParamNode{ name: "", paramType: TypeNo
 data TypeNode { typeName: String; isNullable: Bool }
 fun TypeNode.new() r: TypeNode { return TypeNode{ typeName: "Unknown", isNullable: false } }
 
-data BlockNode { statements: Array<String> }
-fun BlockNode.new() r: BlockNode { return BlockNode{ statements: Array<String>() } }
+data BlockNode { statements: Array<StatementNode> }
+fun BlockNode.new() r: BlockNode { return BlockNode{ statements: Array<StatementNode>() } }
+
+class StatementNode {
+    var kind: String
+    // Let
+    var variableName: String
+    var variableType: TypeNode
+    var initializer: ParserExpressionNode
+    // Return
+    var returnValue: ParserExpressionNode
+    // Expression
+    var expression: ParserExpressionNode
+    // If
+    var condition: ParserExpressionNode
+    var thenBranch: BlockNode
+    var elseBranch: BlockNode
+    // While
+    var loopCondition: ParserExpressionNode
+    var loopBody: BlockNode
+
+    fun new() r: StatementNode {
+        return StatementNode{
+            kind: "",
+            variableName: "",
+            variableType: TypeNode.new(),
+            initializer: ParserExpressionNode.new(),
+            returnValue: ParserExpressionNode.new(),
+            expression: ParserExpressionNode.new(),
+            condition: ParserExpressionNode.new(),
+            thenBranch: BlockNode.new(),
+            elseBranch: BlockNode.new(),
+            loopCondition: ParserExpressionNode.new(),
+            loopBody: BlockNode.new()
+        }
+    }
+}
+
+class ParserExpressionNode {
+    var kind: String
+    // Binary
+    var left: Option<ParserExpressionNode>
+    var operator: String
+    var right: Option<ParserExpressionNode>
+    // Unary
+    var operand: Option<ParserExpressionNode>
+    // Literal
+    var literalValue: String
+    var literalType: String
+    // Variable
+    var variableName: String
+    // Call
+    var callee: String
+    var arguments: Array<ParserExpressionNode>
+
+    static fun new() r: ParserExpressionNode {
+        // We can't return 'this' in a static-like new, but we can return a constructed object
+        // However, classes in Seen (based on FrontendDiagnostic) use explicit struct construction
+        return ParserExpressionNode{
+            kind: "None",
+            left: Option.New(),
+            operator: "",
+            right: Option.New(),
+            operand: Option.New(),
+            literalValue: "",
+            literalType: "",
+            variableName: "",
+            callee: "",
+            arguments: Array<ParserExpressionNode>()
+        }
+    }
+}
 
 data ClassNode { name: String }
 fun ClassNode.new() r: ClassNode { return ClassNode{ name: "" } }
@@ -70,7 +148,7 @@ class RealParser {
     var tokens: Array<Token>
     var current: Int
 
-    fun new(rawTokens: Array<Token>) r: RealParser {
+    static fun new(rawTokens: Array<Token>) r: RealParser {
         return RealParser{
             tokens: rawTokens,
             current: 0
@@ -80,33 +158,33 @@ class RealParser {
     fun parse() r: ProgramNode {
         let program = ProgramNode.new()
 
-        while not isAtEnd() {
-            if matchToken("KeywordImport") {
-                let importItem = parseImportItem()
+        while not this.isAtEnd() {
+            if this.matchTokenStr(SeenTokenType.KeywordImport) {
+                let importItem = this.parseImportItem()
                 if importItem.itemType != "" {
                     program.items.push(importItem)
                 }
                 continue
             }
 
-            if matchToken("KeywordUse") {
-                let importItem = parseImportItem()
+            if this.matchTokenStr(SeenTokenType.KeywordUse) {
+                let importItem = this.parseImportItem()
                 if importItem.itemType != "" {
                     program.items.push(importItem)
                 }
                 continue
             }
 
-            if matchToken("KeywordFun") {
-                let functionItem = parseFunctionItem()
+            if this.matchTokenStr(SeenTokenType.KeywordFun) {
+                let functionItem = this.parseFunctionItem()
                 if functionItem.itemType != "" {
                     program.items.push(functionItem)
                 }
                 continue
             }
 
-            if matchToken("KeywordClass") {
-                let classItem = parseClassItem()
+            if this.matchTokenStr(SeenTokenType.KeywordClass) {
+                let classItem = this.parseClassItem()
                 if classItem.itemType != "" {
                     program.items.push(classItem)
                 }
@@ -114,7 +192,7 @@ class RealParser {
             }
 
             // Skip tokens we do not understand yet (enums, specs, etc.).
-            advance()
+            this.advance()
         }
 
         return program
@@ -125,15 +203,22 @@ class RealParser {
             return ItemNode.new()
         }
 
-        let nameToken = consume("Identifier", "Expected function name")
+        let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         let func = FunctionNode.new()
         func.name = nameToken.getValue()
 
         parseParameterList(func)
         func.returnType = parseOptionalReturnType()
-        func.body = BlockNode.new()
-
-        skipOptionalFunctionBody()
+        
+        if matchTokenStr(SeenTokenType.LeftBrace) {
+            func.body = parseBlock()
+        } else {
+            // Abstract function or declaration
+            func.body = BlockNode.new()
+            if matchTokenStr(SeenTokenType.Semicolon) {
+                // Consumed
+            }
+        }
 
         let item = ItemNode.new()
         item.itemType = "Function"
@@ -149,7 +234,7 @@ class RealParser {
             return ItemNode.new()
         }
 
-        let nameToken = consume("Identifier", "Expected class name")
+        let nameToken = consume(SeenTokenType.Identifier, "Expected class name")
         let classNode = ClassNode.new()
         classNode.name = nameToken.getValue()
 
@@ -157,7 +242,7 @@ class RealParser {
         skipOptionalFunctionBody()
 
         let item = ItemNode.new()
-        item.itemType = "Class"
+        item.itemType = SeenTokenType.KeywordClass
         item.name = classNode.name
         item.visibility = inferVisibility(classNode.name)
         item.classNode = classNode
@@ -165,12 +250,27 @@ class RealParser {
         return item
     }
 
+    fun skipOptionalFunctionBody() r: Void {
+        if matchTokenStr(SeenTokenType.LeftBrace) {
+            var depth = 1
+            while depth > 0 and not isAtEnd() {
+                if matchTokenStr(SeenTokenType.LeftBrace) {
+                    depth = depth + 1
+                } else if matchTokenStr(SeenTokenType.RightBrace) {
+                    depth = depth - 1
+                } else {
+                    advance()
+                }
+            }
+        }
+    }
+
     fun parseParameterList(func: FunctionNode) r: Void {
-        if not matchToken("LeftParen") {
+        if not matchTokenStr(SeenTokenType.LeftParen) {
             return
         }
 
-        if checkToken("RightParen") {
+        if checkToken(SeenTokenType.RightParen) {
             advance()
             return
         }
@@ -181,17 +281,17 @@ class RealParser {
                 func.params.push(param)
             }
 
-            if matchToken("Comma") {
+            if matchTokenStr(SeenTokenType.Comma) {
                 continue
             }
 
-            consume("RightParen", "Expected ')' after parameters")
+            consume(SeenTokenType.RightParen, "Expected ')' after parameters")
             break
         }
     }
 
     fun parseParam() r: ParamNode {
-        if !checkToken("Identifier") {
+        if !checkToken(SeenTokenType.Identifier) {
             return ParamNode.new()
         }
         let nameToken = advance()
@@ -201,7 +301,7 @@ class RealParser {
         param.paramType = parseOptionalTypeAnnotation()
 
         // Skip default values.
-        if matchToken("Equal") {
+        if matchTokenStr(SeenTokenType.Equal) {
             skipExpression()
         }
 
@@ -209,7 +309,7 @@ class RealParser {
     }
 
     fun parseOptionalTypeAnnotation() r: TypeNode {
-        if !matchToken("Colon") {
+        if !matchTokenStr(SeenTokenType.Colon) {
             let fallback = TypeNode.new()
             fallback.typeName = "Unknown"
             return fallback
@@ -219,7 +319,7 @@ class RealParser {
     }
 
     fun parseOptionalReturnType() r: TypeNode {
-        if !matchToken("Arrow") {
+        if !matchTokenStr(SeenTokenType.Arrow) {
             return TypeNode.new()
         }
         return parseTypeNode()
@@ -228,21 +328,21 @@ class RealParser {
     fun parseTypeNode() r: TypeNode {
         let typeNode = TypeNode.new()
 
-        if checkToken("Identifier") {
+        if checkToken(SeenTokenType.Identifier) {
             let token = advance()
             var name = token.getValue()
             // Support qualified names
-            while matchToken("Dot") {
-                if checkToken("Identifier") {
+            while matchTokenStr(SeenTokenType.Dot) {
+                if checkToken(SeenTokenType.Identifier) {
                     name = name + "." + advance().getValue()
                 } else { break }
             }
             // Skip generic parameters <...>
-            if matchToken("LessThan") {
+            if matchTokenStr(SeenTokenType.LessThan) {
                 var depth = 1
                 while depth > 0 and not isAtEnd() {
-                    if matchToken("LessThan") { depth = depth + 1; continue }
-                    if matchToken("GreaterThan") { depth = depth - 1; continue }
+                    if matchTokenStr(SeenTokenType.LessThan) { depth = depth + 1; continue }
+                    if matchTokenStr(SeenTokenType.GreaterThan) { depth = depth - 1; continue }
                     advance()
                 }
             }
@@ -251,40 +351,196 @@ class RealParser {
             typeNode.typeName = "Unknown"
         }
 
-        if matchToken("Question") { typeNode.isNullable = true }
+        if matchTokenStr(SeenTokenType.Question) { typeNode.isNullable = true }
         return typeNode
     }
 
-    fun skipOptionalFunctionBody() r: Void {
-        if matchToken("LeftBrace") {
-            skipBlockBody()
-            return
-        }
-
-        // Support trailing semicolons (declarations)
-        if matchToken("Semicolon") {
-            // no-op
-        }
-    }
-
-    fun skipBlockBody() r: Void {
-        var depth = 1
-        while depth > 0 and not isAtEnd() {
-            let token = advance()
-            let kind = token.getType().toString()
-            if kind == "LeftBrace" {
-                depth = depth + 1
-            } else if kind == "RightBrace" {
-                depth = depth - 1
+    fun parseBlock() r: BlockNode {
+        let block = BlockNode.new()
+        while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+            let stmt = parseStatement()
+            if stmt.kind != "" {
+                block.statements.push(stmt)
             }
         }
+        consume(SeenTokenType.RightBrace, "Expected '}' after block")
+        return block
+    }
+
+    fun parseStatement() r: StatementNode {
+        if matchTokenStr(SeenTokenType.KeywordLet) { return parseLetStatement() }
+        if matchTokenStr(SeenTokenType.KeywordReturn) { return parseReturnStatement() }
+        if matchTokenStr(SeenTokenType.KeywordIf) { return parseIfStatement() }
+        if matchTokenStr(SeenTokenType.KeywordWhile) { return parseWhileStatement() }
+        
+        // Expression statement
+        return parseExpressionStatement()
+    }
+
+    fun parseLetStatement() r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = SeenTokenType.KeywordLet
+        let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        stmt.variableName = nameToken.getValue()
+        
+        if matchTokenStr(SeenTokenType.Colon) {
+            stmt.variableType = parseType()
+        }
+        
+        if matchTokenStr(SeenTokenType.Equal) {
+            stmt.initializer = parseExpression()
+        }
+        
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        return stmt
+    }
+
+    fun parseReturnStatement() r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = SeenTokenType.KeywordReturn
+        if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
+            stmt.returnValue = parseExpression()
+        }
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        return stmt
+    }
+
+    fun parseIfStatement() r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = SeenTokenType.KeywordIf
+        stmt.condition = parseExpression()
+        consume(SeenTokenType.LeftBrace, "Expected '{' after if condition")
+        stmt.thenBranch = parseBlock()
+        
+        if matchTokenStr(SeenTokenType.KeywordElse) {
+            if matchTokenStr(SeenTokenType.LeftBrace) {
+                stmt.elseBranch = parseBlock()
+            } else if matchTokenStr(SeenTokenType.KeywordIf) {
+                let elseBlock = BlockNode.new()
+                let ifStmt = parseIfStatement()
+                elseBlock.statements.push(ifStmt)
+                stmt.elseBranch = elseBlock
+            }
+        }
+        return stmt
+    }
+
+    fun parseWhileStatement() r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = SeenTokenType.KeywordWhile
+        stmt.loopCondition = parseExpression()
+        consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
+        stmt.loopBody = parseBlock()
+        return stmt
+    }
+
+    fun parseExpressionStatement() r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = "Expression"
+        stmt.expression = parseExpression()
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        return stmt
+    }
+
+    fun parseExpression() r: ParserExpressionNode {
+        return parseAssignment()
+    }
+
+    fun parseAssignment() r: ParserExpressionNode {
+        let expr = parseEquality()
+        if matchTokenStr(SeenTokenType.Equal) {
+            let equals = previous()
+            let value = parseAssignment()
+            
+            if expr.kind == "Variable" {
+                let assign = ParserExpressionNode.new()
+                assign.kind = "Assignment"
+                assign.variableName = expr.variableName
+                assign.right = Option.WithValue(value)
+                return assign
+            }
+        }
+        return expr
+    }
+
+    fun parseEquality() r: ParserExpressionNode {
+        var expr = parseComparison()
+        while matchTokenStr(SeenTokenType.EqualEqual) or matchTokenStr(SeenTokenType.BangEqual) {
+            let operator = previous().getValue()
+            let right = parseComparison()
+            let newExpr = ParserExpressionNode.new()
+            newExpr.kind = "Binary"
+            newExpr.left = Option.WithValue(expr)
+            newExpr.operator = operator
+            newExpr.right = Option.WithValue(right)
+            expr = newExpr
+        }
+        return expr
+    }
+
+    fun parseComparison() r: ParserExpressionNode {
+        var expr = parseTerm()
+        while matchTokenStr(SeenTokenType.Greater) or matchTokenStr(SeenTokenType.GreaterEqual) or matchTokenStr(SeenTokenType.Less) or matchTokenStr(SeenTokenType.LessEqual) {
+            let operator = previous().getValue()
+            let right = parseTerm()
+            let newExpr = ParserExpressionNode.new()
+            newExpr.kind = "Binary"
+            newExpr.left = Option.WithValue(expr)
+            newExpr.operator = operator
+            newExpr.right = Option.WithValue(right)
+            expr = newExpr
+        }
+        return expr
+    }
+
+    fun parseTerm() r: ParserExpressionNode {
+        var expr = parseFactor()
+        while matchTokenStr(SeenTokenType.Plus) or matchTokenStr(SeenTokenType.Minus) {
+            let operator = previous().getValue()
+            let right = parseFactor()
+            let newExpr = ParserExpressionNode.new()
+            newExpr.kind = "Binary"
+            newExpr.left = Option.WithValue(expr)
+            newExpr.operator = operator
+            newExpr.right = Option.WithValue(right)
+            expr = newExpr
+        }
+        return expr
+    }
+
+    fun parseFactor() r: ParserExpressionNode {
+        return parseUnary()
+    }
+    fun parseUnary() r: ParserExpressionNode {
+        return parseCall()
+    }
+    fun parseCall() r: ParserExpressionNode {
+        return parsePrimary()
+    }
+    fun parsePrimary() r: ParserExpressionNode {
+        
+        if matchTokenStr(SeenTokenType.LeftParen) {
+            let expr = parseExpression()
+            consume(SeenTokenType.RightParen, "Expected ')' after expression")
+            return expr
+        }
+        
+        return ParserExpressionNode.new()
+    }
+
+    fun makeLiteral(value: String, typeName: String) r: ParserExpressionNode {
+        let expr = ParserExpressionNode.new()
+        expr.kind = "Literal"
+        expr.literalValue = value
+        expr.literalType = typeName
+        return expr
     }
 
     fun parseImportItem() r: ItemNode {
         let pathInfo = parseImportPath()
         let importSymbols = parseImportSymbols(pathInfo)
 
-        matchToken("Semicolon")
+        matchTokenStr(SeenTokenType.Semicolon)
 
         let item = ItemNode.new()
         item.itemType = "Import"
@@ -298,28 +554,28 @@ class RealParser {
     fun parseImportPath() r: ImportPathInfo {
         let segments = Array<String>()
 
-        if checkToken("Identifier") {
+        if checkToken(SeenTokenType.Identifier) {
             segments.push(advance().getValue())
         }
 
         var text = joinSegments(segments, ".")
 
         while not isAtEnd() {
-            if matchToken("Dot") {
-                if checkToken("LeftBrace") or checkToken("KeywordAs") {
+            if matchTokenStr(SeenTokenType.Dot) {
+                if checkToken(SeenTokenType.LeftBrace) or checkToken(SeenTokenType.KeywordAs) {
                     break
                 }
-                let segment = consume("Identifier", "Expected identifier in import path")
+                let segment = consume(SeenTokenType.Identifier, "Expected identifier in import path")
                 segments.push(segment.getValue())
                 text = text + "." + segment.getValue()
                 continue
             }
 
-            if matchToken("Colon") and matchToken("Colon") {
-                if checkToken("LeftBrace") or checkToken("KeywordAs") {
+            if matchTokenStr(SeenTokenType.Colon) and matchTokenStr(SeenTokenType.Colon) {
+                if checkToken(SeenTokenType.LeftBrace) or checkToken(SeenTokenType.KeywordAs) {
                     break
                 }
-                let segment = consume("Identifier", "Expected identifier after '::'")
+                let segment = consume(SeenTokenType.Identifier, "Expected identifier after '::'")
                 segments.push(segment.getValue())
                 text = text + "::" + segment.getValue()
                 continue
@@ -337,14 +593,14 @@ class RealParser {
     fun parseImportSymbols(pathInfo: ImportPathInfo) r: Array<ImportSymbolNode> {
         let symbols = Array<ImportSymbolNode>()
 
-        if matchToken("KeywordAs") and pathInfo.segments.length() > 0 {
-            let alias = consume("Identifier", "Expected alias after 'as'")
+        if matchTokenStr(SeenTokenType.KeywordAs) and pathInfo.segments.length() > 0 {
+            let alias = consume(SeenTokenType.Identifier, "Expected alias after 'as'")
             let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
             symbols.push(makeImportSymbol(baseName, alias.getValue()))
             return symbols
         }
 
-        if !matchToken("LeftBrace") {
+        if !matchTokenStr(SeenTokenType.LeftBrace) {
             if pathInfo.segments.length() > 0 {
                 let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
                 symbols.push(makeImportSymbol(baseName, ""))
@@ -353,24 +609,24 @@ class RealParser {
         }
 
         while not isAtEnd() {
-            if matchToken("RightBrace") {
+            if matchTokenStr(SeenTokenType.RightBrace) {
                 break
             }
 
-            let symbolToken = consume("Identifier", "Expected symbol name")
+            let symbolToken = consume(SeenTokenType.Identifier, "Expected symbol name")
             var aliasValue = ""
-            if matchToken("KeywordAs") {
-                let aliasToken = consume("Identifier", "Expected alias name")
+            if matchTokenStr(SeenTokenType.KeywordAs) {
+                let aliasToken = consume(SeenTokenType.Identifier, "Expected alias name")
                 aliasValue = aliasToken.getValue()
             }
 
             symbols.push(makeImportSymbol(symbolToken.getValue(), aliasValue))
 
-            if matchToken("Comma") {
+            if matchTokenStr(SeenTokenType.Comma) {
                 continue
             }
 
-            consume("RightBrace", "Expected '}' after import list")
+            consume(SeenTokenType.RightBrace, "Expected '}' after import list")
             break
         }
 
@@ -398,8 +654,7 @@ class RealParser {
     fun skipExpression() r: Void {
         // Skip tokens until we reach a comma, semicolon, or closing paren.
         while not isAtEnd() {
-            let t = peek().getType().toString()
-            if t == "Comma" or t == "RightParen" or t == "Semicolon" {
+                        if t == SeenTokenType.Comma or t == SeenTokenType.RightParen or t == SeenTokenType.Semicolon {
                 break
             }
             advance()
@@ -419,30 +674,28 @@ class RealParser {
         return result
     }
 
-    fun matchToken(tokenType: String) r: Bool {
-        if checkToken(tokenType) {
-            advance()
+    fun matchTokenStr(tokenType: SeenTokenType) r: Bool {
+        if this.checkToken(tokenType) {
+            this.advance()
             return true
         }
         return false
     }
-
-    fun checkToken(tokenType: String) r: Bool {
-        if isAtEnd() {
+    fun checkToken(tokenType: SeenTokenType) r: Bool {
+        if this.isAtEnd() {
             return false
         }
-        return peek().getType().toString() == tokenType
+        return this.peek().getType() == tokenType
     }
-
     fun advance() r: Token {
-        if not isAtEnd() {
+        if not this.isAtEnd() {
             current = current + 1
         }
-        return previous()
+        return this.previous()
     }
 
     fun isAtEnd() r: Bool {
-        return current >= tokens.length() or peek().getType().toString() == "EndOfFile"
+        return current >= tokens.length() or this.peek().getType() == SeenTokenType.EndOfFile
     }
 
     fun peek() r: Token {
@@ -459,14 +712,13 @@ class RealParser {
         return tokens[current - 1]
     }
 
-    fun consume(tokenType: String, message: String) r: Token {
+    fun consume(tokenType: SeenTokenType, message: String) r: Token {
         if checkToken(tokenType) {
             return advance()
         }
         // Best-effort recovery: return current token.
         return peek()
     }
-
     fun toArray(raw: List<Token>) r: Array<Token> {
         let buffer = Array<Token>()
         for token in raw {

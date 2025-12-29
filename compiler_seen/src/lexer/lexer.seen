@@ -1,7 +1,8 @@
 // Real Lexer Implementation - Following TDD
 // Implements ONLY what the tests require - no more, no less
 
-import lexer.interfaces.{Token, TokenType, Position, LexerError}
+import lexer.interfaces.{Token, Position, LexerError}
+import lexer.token_type.{SeenTokenType}
 import lexer.keyword_manager.{KeywordManager}
 
 class SeenLexer {
@@ -90,12 +91,14 @@ class SeenLexer {
                 this.emitErrorToken(char)
                 this.advance()
             } else {
-                throw LexerError.new("Unexpected character: {char}", this.getCurrentPosition(), char)
+                println("Fatal Lexer Error: Unexpected character: " + char)
+                this.emitErrorToken(char)
+                return tokens
             }
         }
         
         // Add EOF token
-        this.emitToken(TokenType.EndOfFile, "", 0)
+        this.emitToken(SeenTokenType.EndOfFile, "", 0)
         
         return tokens
     }
@@ -134,17 +137,17 @@ class SeenLexer {
     
     // Helper methods for tokenization
     
-    fun getCurrentChar() r: String {
+    fun getCurrentChar() r: Char {
         if position >= source.length() {
-            return "\u{0000}"
+            return ' '
         }
         return source.charAt(position)
     }
     
-    fun peekChar(offset: Int = 1) r: String {
+    fun peekChar(offset: Int = 1) r: Char {
         let peekPos = position + offset
         if peekPos >= source.length() {
-            return "\u{0000}"
+            return ' '
         }
         return source.charAt(peekPos)
     }
@@ -165,34 +168,34 @@ class SeenLexer {
         return Position.new(line, column, fileId)
     }
     
-    fun emitToken(type: TokenType, value: String, length: Int) r: Void {
+    fun emitToken(type: SeenTokenType, value: String, length: Int) r: Void {
         let token = Token.new(type, value, line, column - length, length, fileId)
         tokens.push(token)
     }
     
-    fun emitErrorToken(char: String) r: Void {
-        emitToken(TokenType.Error, char, 1)
+    fun emitErrorToken(char: Char) r: Void {
+        this.emitToken(SeenTokenType.Error, char.toString(), 1)
     }
     
-    fun isWhitespace(char: String) r: Bool {
+    fun isWhitespace(char: Char) r: Bool {
         return char == ' ' or char == '\t' or char == '\r' or char == '\n'
     }
     
-    fun isDigit(char: String) r: Bool {
+    fun isDigit(char: Char) r: Bool {
         return char >= '0' and char <= '9'
     }
     
-    fun isAlpha(char: String) r: Bool {
+    fun isAlpha(char: Char) r: Bool {
         return (char >= 'a' and char <= 'z') or 
                (char >= 'A' and char <= 'Z') or
                this.isUnicodeAlpha(char)
     }
     
-    fun isAlphaNumeric(char: String) r: Bool {
+    fun isAlphaNumeric(char: Char) r: Bool {
         return this.isAlpha(char) or this.isDigit(char)
     }
     
-    fun isUnicodeAlpha(char: String) r: Bool {
+    fun isUnicodeAlpha(char: Char) r: Bool {
         // Support for Unicode identifier characters
         // This would need proper Unicode category detection
         // For now, simple check for common non-ASCII letters
@@ -207,7 +210,7 @@ class SeenLexer {
                (code >= 0x4E00 and code <= 0x9FFF)      // CJK Unified Ideographs
     }
     
-    fun handleWhitespace(char: String) r: Void {
+    fun handleWhitespace(char: Char) r: Void {
         this.advance()
     }
     
@@ -253,7 +256,7 @@ class SeenLexer {
                 hasInterpolation = true
                 break
             } else {
-                value += char
+                value += char.toString()
                 this.advance()
             }
         }
@@ -270,19 +273,17 @@ class SeenLexer {
         }
         
         let length = position - startPos
-        this.emitToken(TokenType.StringLiteral, value, length)
+        this.emitToken(SeenTokenType.StringLiteral, value, length)
     }
     
-    fun handleEscapeSequence(char: String) r: String {
-        return match char {
-            "n" -> "\n"
-            "t" -> "\t"
-            "r" -> "\r"
-            "\\" -> "\\"
-            "\"" -> "\""
-            "0" -> "\u{0000}"
-            _ -> char  // Unknown escape, return as-is
-        }
+    fun handleEscapeSequence(char: Char) r: String {
+        if char == 'n' { return "\n" }
+        if char == 't' { return "\t" }
+        if char == 'r' { return "\r" }
+        if char == '\\' { return "\\" }
+        if char == '"' { return "\"" }
+        if char == '0' { return "\u{0000}" }
+        return char.toString()
     }
     
     fun isInInterpolation() r: Bool {
@@ -299,7 +300,7 @@ class SeenLexer {
         position = startPos
         this.advance() // Skip opening quote
         
-        this.emitToken(TokenType.InterpolatedStringStart, "", 1)
+        this.emitToken(SeenTokenType.InterpolatedStringStart, "", 1)
         
         var currentPart = ""
         var inExpression = false
@@ -311,7 +312,7 @@ class SeenLexer {
             if char == '{' and !inExpression {
                 // Start of interpolation expression
                 if currentPart.length() > 0 {
-                    this.emitToken(TokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
+                    this.emitToken(SeenTokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
                     currentPart = ""
                 }
                 inExpression = true
@@ -330,20 +331,20 @@ class SeenLexer {
                 braceLevel += 1
                 this.advance()
             } else {
-                currentPart += char
+                currentPart += char.toString()
                 this.advance()
             }
         }
         
         if currentPart.length() > 0 {
-            this.emitToken(TokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
+            this.emitToken(SeenTokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
         }
         
         if this.getCurrentChar() == '"' {
             this.advance() // Skip closing quote
         }
         
-        this.emitToken(TokenType.InterpolatedStringEnd, "", 1)
+        this.emitToken(SeenTokenType.InterpolatedStringEnd, "", 1)
     }
     
     fun parseInterpolationExpression() r: Void {
@@ -380,7 +381,7 @@ class SeenLexer {
             value = "0x"
             
             while this.isHexDigit(this.getCurrentChar()) {
-                value += this.getCurrentChar()
+                value += this.getCurrentChar().toString()
                 this.advance()
             }
         } else if this.getCurrentChar() == '0' and (this.peekChar(1) == 'b' or this.peekChar(1) == 'B') {
@@ -390,14 +391,14 @@ class SeenLexer {
             value = "0b"
             
             while this.isBinaryDigit(this.getCurrentChar()) {
-                value += this.getCurrentChar()
+                value += this.getCurrentChar().toString()
                 this.advance()
             }
         } else {
             // Decimal (integer or float)
             while this.isDigit(this.getCurrentChar()) or this.getCurrentChar() == '_' {
                 if this.getCurrentChar() != '_' {
-                    value += this.getCurrentChar()
+                    value += this.getCurrentChar().toString()
                 }
                 this.advance()
             }
@@ -405,12 +406,12 @@ class SeenLexer {
             // Check for decimal point
             if this.getCurrentChar() == '.' and this.isDigit(this.peekChar(1)) {
                 isFloat = true
-                value += this.getCurrentChar()
+                value += this.getCurrentChar().toString()
                 this.advance()
                 
                 while this.isDigit(this.getCurrentChar()) or this.getCurrentChar() == '_' {
                     if this.getCurrentChar() != '_' {
-                        value += this.getCurrentChar()
+                        value += this.getCurrentChar().toString()
                     }
                     this.advance()
                 }
@@ -419,31 +420,31 @@ class SeenLexer {
             // Check for scientific notation
             if this.getCurrentChar() == 'e' or this.getCurrentChar() == 'E' {
                 isFloat = true
-                value += this.getCurrentChar()
+                value += this.getCurrentChar().toString()
                 this.advance()
                 
                 if this.getCurrentChar() == '+' or this.getCurrentChar() == '-' {
-                    value += this.getCurrentChar()
+                    value += this.getCurrentChar().toString()
                     this.advance()
                 }
                 
                 while this.isDigit(this.getCurrentChar()) {
-                    value += this.getCurrentChar()
+                    value += this.getCurrentChar().toString()
                     this.advance()
                 }
             }
         }
         
         let length = position - startPos
-        let tokenType = if isFloat { TokenType.FloatLiteral } else { TokenType.IntegerLiteral }
+        let tokenType = if isFloat { SeenTokenType.FloatLiteral } else { SeenTokenType.IntegerLiteral }
         this.emitToken(tokenType, value, length)
     }
     
-    fun isHexDigit(char: String) r: Bool {
+    fun isHexDigit(char: Char) r: Bool {
         return this.isDigit(char) or (char >= 'a' and char <= 'f') or (char >= 'A' and char <= 'F')
     }
     
-    fun isBinaryDigit(char: String) r: Bool {
+    fun isBinaryDigit(char: Char) r: Bool {
         return char == '0' or char == '1'
     }
     
@@ -452,41 +453,29 @@ class SeenLexer {
         var value = ""
         
         // First character (already validated as alpha or underscore)
-        value += this.getCurrentChar()
+        value += this.getCurrentChar().toString()
         this.advance()
         
         // Subsequent characters
-        while true {
-            var c = "\u{0000}"
-            if position < source.length() {
-                c = source.charAt(position)
+        while position < source.length() {
+            let c = this.getCurrentChar()
+            if this.isAlphaNumeric(c) or c == '_' {
+                value += c.toString()
+                this.advance()
+            } else {
+                break
             }
-
-            // let isIdent = this.isAlphaNumeric(c) or c == '_'
-            let isIdent = false
-            if !isIdent { break }
-
-            println("[trace] handleIdentifierOrKeyword: appending char")
-            value = value + c
-            println("[trace] handleIdentifierOrKeyword: appended char")
-            this.advance()
         }
         
         let length = position - startPos
         
-        println("[trace] handleIdentifierOrKeyword: checking keyword")
         // Check if it's a keyword
-        println("[trace] calling getKeywordType")
         let keywordType = keywordManager.getKeywordType(value)
-        println("[trace] called getKeywordType")
         
-        println("[trace] checking if null")
         if keywordType != null {
-            println("[trace] not null")
             this.emitToken(keywordType, value, length)
         } else {
-            println("[trace] is null")
-            this.emitToken(TokenType.Identifier, value, length)
+            this.emitToken(SeenTokenType.Identifier, value, length)
         }
     }
     
@@ -495,7 +484,7 @@ class SeenLexer {
         let nextChar = this.peekChar(1)
         
         // Two-character operators
-        let twoChar = char + nextChar
+        let twoChar = char.toString() + nextChar.toString()
         let twoCharType = this.getTwoCharOperatorType(twoChar)
         if twoCharType != null {
             this.advance()
@@ -508,71 +497,65 @@ class SeenLexer {
         let singleCharType = this.getSingleCharOperatorType(char)
         if singleCharType != null {
             this.advance()
-            this.emitToken(singleCharType, char, 1)
+            this.emitToken(singleCharType, char.toString(), 1)
             return true
         }
         
         return false
     }
     
-    fun getTwoCharOperatorType(op: String) r: TokenType? {
-        return match op {
-            "==" -> TokenType.EqualEqual
-            "!=" -> TokenType.NotEqual
-            "<=" -> TokenType.LessEqual
-            ">=" -> TokenType.GreaterEqual
-            "+=" -> TokenType.PlusEqual
-            "-=" -> TokenType.MinusEqual
-            "*=" -> TokenType.MultiplyEqual
-            "/=" -> TokenType.DivideEqual
-            "->" -> TokenType.Arrow
-            "?." -> TokenType.SafeNavigation
-            "?:" -> TokenType.Elvis
-            _ -> null
-        }
+    fun getTwoCharOperatorType(op: String) r: SeenTokenType? {
+        if op == "==" { return SeenTokenType.EqualEqual }
+        if op == "!=" { return SeenTokenType.NotEqual }
+        if op == "<=" { return SeenTokenType.LessEqual }
+        if op == ">=" { return SeenTokenType.GreaterEqual }
+        if op == "+=" { return SeenTokenType.PlusEqual }
+        if op == "-=" { return SeenTokenType.MinusEqual }
+        if op == "*=" { return SeenTokenType.MultiplyEqual }
+        if op == "/=" { return SeenTokenType.DivideEqual }
+        if op == "->" { return SeenTokenType.Arrow }
+        if op == "?." { return SeenTokenType.SafeNavigation }
+        if op == "?:" { return SeenTokenType.Elvis }
+        return null
     }
     
-    fun getSingleCharOperatorType(char: String) r: TokenType? {
-        return match char {
-            "+" -> TokenType.Plus
-            "-" -> TokenType.Minus
-            "*" -> TokenType.Multiply
-            "/" -> TokenType.Divide
-            "%" -> TokenType.Modulo
-            "=" -> TokenType.Equal
-            "<" -> TokenType.LessThan
-            ">" -> TokenType.GreaterThan
-            "?" -> TokenType.Question
-            _ -> null
-        }
+    fun getSingleCharOperatorType(char: Char) r: SeenTokenType? {
+        if char == '+' { return SeenTokenType.Plus }
+        if char == '-' { return SeenTokenType.Minus }
+        if char == '*' { return SeenTokenType.Multiply }
+        if char == '/' { return SeenTokenType.Divide }
+        if char == '%' { return SeenTokenType.Modulo }
+        if char == '=' { return SeenTokenType.Equal }
+        if char == '<' { return SeenTokenType.LessThan }
+        if char == '>' { return SeenTokenType.GreaterThan }
+        if char == '?' { return SeenTokenType.Question }
+        return null
     }
     
     fun handleSingleCharToken() r: Bool {
         let char = this.getCurrentChar()
-        let tokenType = this.getSingleCharTokenType(char)
+        let tokenType = this.getSingleCharSeenTokenType(char)
         
         if tokenType != null {
             this.advance()
-            this.emitToken(tokenType, char, 1)
+            this.emitToken(tokenType, char.toString(), 1)
             return true
         }
         
         return false
     }
     
-    fun getSingleCharTokenType(char: String) r: TokenType? {
-        return match char {
-            "(" -> TokenType.LeftParen
-            ")" -> TokenType.RightParen
-            "{" -> TokenType.LeftBrace
-            "}" -> TokenType.RightBrace
-            "[" -> TokenType.LeftBracket
-            "]" -> TokenType.RightBracket
-            "," -> TokenType.Comma
-            ";" -> TokenType.Semicolon
-            ":" -> TokenType.Colon
-            "." -> TokenType.Dot
-            _ -> null
-        }
+    fun getSingleCharSeenTokenType(char: Char) r: SeenTokenType? {
+        if char == '(' { return SeenTokenType.LeftParen }
+        if char == ')' { return SeenTokenType.RightParen }
+        if char == '{' { return SeenTokenType.LeftBrace }
+        if char == '}' { return SeenTokenType.RightBrace }
+        if char == '[' { return SeenTokenType.LeftBracket }
+        if char == ']' { return SeenTokenType.RightBracket }
+        if char == ',' { return SeenTokenType.Comma }
+        if char == ';' { return SeenTokenType.Semicolon }
+        if char == ':' { return SeenTokenType.Colon }
+        if char == '.' { return SeenTokenType.Dot }
+        return null
     }
 }

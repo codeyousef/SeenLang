@@ -53,6 +53,7 @@ impl BuiltinRegistry {
         registry.register_exact("len", builtin_len, 1);
         registry.register_exact("type_of", builtin_type_of, 1);
         registry.register_exact("to_string", builtin_to_string, 1);
+        registry.register_exact("toString", builtin_to_string, 1);
         registry.register_exact("parse_int", builtin_parse_int, 1);
         registry.register_exact("parse_float", builtin_parse_float, 1);
         registry.register_exact("abs", builtin_abs, 1);
@@ -625,9 +626,13 @@ fn builtin_file_size(args: &[Value], _position: Position) -> InterpreterResult<V
 fn builtin_file_error(args: &[Value], _position: Position) -> InterpreterResult<Value> {
     if let Value::Integer(handle) = args[0] {
         let registry = get_file_registry().lock().unwrap();
-        Ok(Value::Boolean(!registry.contains_key(&handle)))
+        if !registry.contains_key(&handle) {
+            Ok(Value::String("Invalid file handle".to_string()))
+        } else {
+            Ok(Value::String(String::new()))
+        }
     } else {
-        Ok(Value::Boolean(true))
+        Ok(Value::String("Invalid argument".to_string()))
     }
 }
 

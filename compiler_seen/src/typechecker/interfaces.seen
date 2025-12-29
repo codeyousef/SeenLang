@@ -15,11 +15,8 @@ class Type {
     var name: String
     var isNullable: Bool
 
-    fun new(name: String, isNullable: Bool = false) r: Type {
-        let t = Type()
-        t.name = name
-        t.isNullable = isNullable
-        return t
+    static fun new(name: String, isNullable: Bool = false) r: Type {
+        return Type{ name: name, isNullable: isNullable }
     }
 
     fun getName() r: String { return name }
@@ -115,10 +112,8 @@ class TypeError extends Error {
 class Environment {
     var parent: Environment?
 
-    fun new(parent: Environment? = null) r: Environment {
-        let env = Environment()
-        env.parent = parent
-        return env
+    static fun new(parent: Environment? = null) r: Environment {
+        return Environment{ parent: parent }
     }
 
     fun define(name: String, type: Type) r: Void { return }
@@ -136,14 +131,14 @@ class TypeInferenceResult {
     var warnings: Array<String>
     var environment: Environment
 
-    fun new(success: Bool, type: Type, environment: Environment) r: TypeInferenceResult {
-        let result = TypeInferenceResult()
-        result.success = success
-        result.type = type
-        result.errors = Array<TypeError>()
-        result.warnings = Array<String>()
-        result.environment = environment
-        return result
+    static fun new(success: Bool, type: Type, environment: Environment) r: TypeInferenceResult {
+        return TypeInferenceResult{
+            success: success,
+            type: type,
+            errors: Array<TypeError>(),
+            warnings: Array<String>(),
+            environment: environment
+        }
     }
 
     fun addError(error: TypeError) r: Void {
@@ -161,13 +156,13 @@ class TypeChecker {
     var warnings: Array<String>
     var strictMode: Bool
 
-    fun new() r: TypeChecker {
-        let checker = TypeChecker()
-        checker.environment = Environment.new()
-        checker.errors = Array<TypeError>()
-        checker.warnings = Array<String>()
-        checker.strictMode = true
-        return checker
+    static fun new() r: TypeChecker {
+        return TypeChecker{
+            environment: Environment.new(),
+            errors: Array<TypeError>(),
+            warnings: Array<String>(),
+            strictMode: true
+        }
     }
 
     fun check(ast: ProgramNode) r: TypeInferenceResult { return TypeInferenceResult.new(true, typeVoid(), environment) }

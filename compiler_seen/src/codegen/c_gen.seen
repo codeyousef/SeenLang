@@ -1,0 +1,97 @@
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, StatementNode, ExpressionNode, BlockNode, ParamNode, TypeNode}
+import str.string.{StringBuilder}
+
+class CGenerator {
+    var sb: StringBuilder
+
+    static fun new() r: CGenerator {
+        return CGenerator{ sb: StringBuilder.new() }
+    }
+
+    fun generate(program: ProgramNode) r: String {
+        sb.clear()
+        sb.appendLine("#include <stdio.h>")
+        sb.appendLine("#include <stdlib.h>")
+        sb.appendLine("#include <stdbool.h>")
+        sb.appendLine("")
+        
+        // Runtime helpers
+        sb.appendLine("void println(char* s) {")
+        sb.appendLine("    printf(\"%s\\n\", s);")
+        sb.appendLine("}")
+        sb.appendLine("")
+        
+        for item in program.items {
+            generateItem(item)
+        }
+        
+        return sb.toString()
+    }
+
+    fun generateItem(item: ItemNode) r: Void {
+        if item.itemType == "Function" {
+            generateFunction(item.function)
+        }
+    }
+
+    fun generateFunction(func: FunctionNode) r: Void {
+        let retType = mapType(func.returnType.typeName)
+        sb.append(retType + " " + func.name + "(")
+        
+        let i = 0
+        for param in func.params {
+            if i > 0 { sb.append(", "); }
+            sb.append(mapType(param.paramType.typeName) + " " + param.name)
+            i = i + 1
+        }
+        
+        sb.appendLine(") {")
+        generateBlock(func.body)
+        sb.appendLine("}")
+    }
+
+    fun generateBlock(block: BlockNode) r: Void {
+        for stmt in block.statements {
+            generateStatement(stmt)
+        }
+    }
+
+    fun generateStatement(stmt: StatementNode) r: Void {
+        if stmt.kind == "Return" {
+            sb.append("    return ")
+            generateExpression(stmt.returnValue)
+            sb.appendLine(";")
+        } else if stmt.kind == "Expression" {
+            sb.append("    ")
+            generateExpression(stmt.expression)
+            sb.appendLine(";")
+        }
+    }
+
+    fun generateExpression(expr: ExpressionNode) r: Void {
+        if expr.kind == "Literal" {
+            if expr.literalType == "String" {
+                sb.append("\"" + expr.literalValue + "\"")
+            } else {
+                sb.append(expr.literalValue)
+            }
+        } else if expr.kind == "Call" {
+            sb.append(expr.callee + "(")
+            let i = 0
+            for arg in expr.arguments {
+                if i > 0 { sb.append(", "); }
+                generateExpression(arg)
+                i = i + 1
+            }
+            sb.append(")")
+        }
+    }
+    
+    fun mapType(seenType: String) r: String {
+        if seenType == "Void" { return "void" }
+        if seenType == "Int" { return "int" }
+        if seenType == "Bool" { return "bool" }
+        if seenType == "String" { return "char*" }
+        return "void" // Default to void for Unknown/main
+    }
+}

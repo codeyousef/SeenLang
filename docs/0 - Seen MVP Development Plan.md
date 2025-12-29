@@ -11,13 +11,13 @@
 | Component | Status |
 |-----------|--------|
 | Rust Compiler | ✅ Production Ready |
-| Self-Host Type-Check | ✅ 0 errors |
-| Self-Host IR Gen | ✅ Working |
-| Self-Host Native Codegen | 🔄 In Progress (Vec_push runtime crash) |
+| Self-Host Type-Check | ❌ Failing (Parser Enum Resolution) |
+| Self-Host IR Gen | ⏸️ Paused (Fixing Parser) |
+| Self-Host Native Codegen | ⏸️ Paused |
 | Stage1→Stage2→Stage3 | ⏳ Blocked on Stage1 |
 | LLVM Tracing Infrastructure | ✅ Complete |
 
-**Blocking Issue:** Stage1 compiles successfully but crashes at runtime in `Vec_push` when `Map_put` tries to push to its internal Vec. The crash occurs during `KeywordManager_loadEnglishKeywords()` which populates a `Map<String, TokenType>`. Basic array push works (test_array_push.seen passes), but nested class→Vec→Array patterns fail. See Task 1.2 for full debugging context and trace commands.
+**Blocking Issue:** Compiling `compiler_seen/src/main.seen` fails with `Type mismatch: expected TokenType, found ??` in `real_parser.seen`. The self-hosted parser cannot resolve enum variants from `lexer` modules. We have attempted splitting the enum into `token_type.seen` and aliasing imports, but the issue persists. This blocks generating a functional Stage1 compiler.
 
 **Recent Progress (2025-12-29):**
 1. Implemented `LlvmTraceOptions` with `--trace-llvm` CLI flag for debugging
@@ -26,6 +26,8 @@
 4. `test_array_push.seen` now passes - basic Array field in struct works
 5. Stage1 `--help` and `--version` work correctly
 6. Narrowed crash to Vec_push accessing its internal Array fields when Vec is a class pointer stored in Map
+7. **[NEW]** Refactored `TokenType` into `SeenTokenType` in `lexer/token_type.seen` to attempt to fix circular dependency/resolution issues.
+8. **[NEW]** Cleaned up `lexer/interfaces.seen` and `keyword_manager.seen`.
 
 ---
 
@@ -408,7 +410,7 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 ---
 
 ### Task 1.2: Stage1 Native Binary Generation
-**Status:** 🔄 In Progress (Vec_push Runtime Crash)
+**Status:** 🔄 In Progress (Fixing Parser Compilation)
 **Estimated:** 2-3 hours → Extended
 **Last Updated:** 2025-12-29
 
@@ -422,6 +424,16 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 - [x] Fixed IRValue::Struct array field handling (load content from pointer)
 - [x] Fixed ConstructObject array field handling (same fix)
 - [x] test_array_push.seen now passes (basic array push works)
+- [x] Split `TokenType` enum into `lexer/token_type.seen`
+
+**Current Blocking Bug (as of 2025-12-29):**
+The self-hosted compiler source (`compiler_seen/src/parser/real_parser.seen`) fails to type-check.
+Error: `Type mismatch: expected TokenType, found ??`
+This indicates the compiler's type checker cannot resolve the Enum variants imported from another module.
+
+**Previous Blocking Bug (Runtime):**
+Stage1 SIGSEGV at **runtime** in `Vec_push` when `Map_put` tries to push to internal Vec.
+(This is currently paused until we can compile the parser again).
 
 **Tracing Infrastructure Added:**
 New `LlvmTraceOptions` struct in `rust_backup/seen_ir/src/llvm_backend.rs`:

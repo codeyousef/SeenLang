@@ -1,0 +1,15 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Functions
+fn main() -> void {
+; Entry: entry
+entry:
+  call %println ("Hello from interpreter") -> %r0
+  ret %r0
+
+}
+
+

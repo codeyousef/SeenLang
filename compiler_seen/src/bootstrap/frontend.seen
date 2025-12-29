@@ -2,7 +2,7 @@
 // This module runs the Seen lexer, parser, and type checker before delegating to backend codegen.
 
 import lexer.{SeenLexer, LexerError}
-import parser.real_parser.{RealParser}
+import parser.real_parser.{RealParser, ProgramNode}
 import typechecker.interfaces.{TypeChecker}
 import typechecker.interfaces.{TypeError}
 
@@ -27,14 +27,16 @@ class FrontendDiagnostic {
 class FrontendResult {
     var success: Bool
     var diagnostics: Array<FrontendDiagnostic>
+    var program: ProgramNode
 
     fun getDiagnostics() r: Array<FrontendDiagnostic> { return diagnostics }
     fun setSuccess(v: Bool) r: Void { success = v }
 
-    fun new() r: FrontendResult {
+    static fun new() r: FrontendResult {
         return FrontendResult{
             success: false,
-            diagnostics: Array<FrontendDiagnostic>()
+            diagnostics: Array<FrontendDiagnostic>(),
+            program: ProgramNode.new()
         }
     }
 
@@ -79,6 +81,7 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     let parser = RealParser.new(tokens)
     println("[trace] run_frontend: parsing...")
     let ast = parser.parse()
+    result.program = ast
     println("[trace] run_frontend: parsing done")
 
     println("[trace] run_frontend: creating TypeChecker...")

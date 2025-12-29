@@ -9,6 +9,8 @@ import io.file.{readText, writeText}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 import env.env.{args}
 import collections.list_utils.{push}
+import str.string.{StringBuilder}
+import codegen.c_gen.{CGenerator}
 
 
 // NOTE: Use println directly to avoid runtime file descriptor quirks on /dev/stdout.
@@ -24,7 +26,20 @@ fun stdoutLine(text: String) r: Void {
 
 extern fun __FileExists(path: String) r: Bool
 extern fun __OpenFile(path: String, mode: String) r: Int
+extern fun __VerifyStringABI(testString: String) r: Int
+extern fun __WriteFile(fd: Int, content: String) r: Int
+extern fun __CloseFile(fd: Int) r: Int
 
+fun myWriteText(path: String, content: String) r: Bool {
+    let fd = __OpenFile(path, "w")
+    if fd < 0 {
+        stdoutLine("Failed to open file: " + path)
+        return false
+    }
+    let written = __WriteFile(fd, content)
+    let _ = __CloseFile(fd)
+    return written >= 0
+}
 
 fun main() r: Int {
     println("[trace] main: entry")
@@ -45,6 +60,8 @@ fun main() r: Int {
         println("[trace] main: sourceFile=" + sourceFile)
         let outputFile = getOptionalArg(args, 3).unwrapOr(getDefaultOutput(sourceFile))
         println("[trace] main: outputFile=" + outputFile)
+        let outputAbi = __VerifyStringABI(outputFile)
+        println("[trace] main: outputFile ABI=" + outputAbi.toString())
         exit = buildCommand(sourceFile, outputFile)
     } else if command == "check" {
         let sourceFile = requireArg(args, 2, "Error: check command requires a source file")
@@ -90,52 +107,55 @@ fun printUsage() r: Void {
 fun CompileSeenProgram(sourceCode: String, outputPath: String) r: Bool {
     // Run real frontend (lexer+parser+typechecker)
     stdoutLine("[trace] CompileSeenProgram: calling run_frontend...")
-    stdoutLine("[trace] CompileSeenProgram: sourceCode len = " + sourceCode.len().toString())
-    stdoutLine("[trace] CompileSeenProgram: outputPath before = " + outputPath)
     let result = run_frontend(sourceCode, "<memory>", "en")
     stdoutLine("[trace] run_frontend returned")
-    stdoutLine("[trace] CompileSeenProgram: outputPath after = " + outputPath)
+    
     if not result.success {
         stdoutLine("Frontend errors detected")
         return false
     }
-    // Minimal C codegen and native compile
+    stdoutLine("[trace] Frontend success. Generating C code...")
+    
+    // Generate C code from AST
+    let generator = CGenerator.new()
+    let cCode = generator.generate(result.program)
+    
     let cFilePath = outputPath + ".c"
-    let cCode = "#include <stdio.h>\nint main(){return 0;}\n"
-    if not writeText(cFilePath, cCode) {
+    
+    if not myWriteText(cFilePath, cCode) {
         stdoutLine("Error: Failed to write intermediate file '" + cFilePath + "'")
         return false
     }
-    let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath
+    stdoutLine("[trace] C code written to " + cFilePath)
+    
+    let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath + " 2>&1"
+    stdoutLine("[trace] Running GCC: " + compileCommand)
+    
     // Fallback direct invocation while process module linking finalizes
     // Use standard process API
     let compileResult: CommandResult = runCommand(compileCommand)
+    stdoutLine("[trace] GCC finished. Success: " + compileResult.success.toString())
+    if not compileResult.success {
+        stdoutLine("GCC compilation failed:")
+        stdoutLine(compileResult.output)
+    }
     return commandWasSuccessful(compileResult)
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) r: Int {
     stdoutLine("🚀 Building...")
-    stdoutLine("[trace] buildCommand entry, outputFile len=" + outputFile.len().toString())
     stdoutLine("Source file: " + sourceFile)
     
     // Read source file
-    stdoutLine("[trace] calling readText...")
     let sourceCode = readText(sourceFile)
-    stdoutLine("[trace] readText returned, outputFile len=" + outputFile.len().toString())
+    // stdoutLine("[trace] sourceCode type: " + type_of(sourceCode))
     let sourceLen = sourceCode.len()
-    stdoutLine("[trace] sourceLen = " + sourceLen.toString())
-    stdoutLine("[trace] after sourceLen.toString(), outputFile len=" + outputFile.len().toString())
     if sourceLen == 0 {
         stdoutLine("Error: Could not read file '" + sourceFile + "'")
         return 1
     }
 
-    // Frontend validation is handled inside compiler for now
-    stdoutLine("[trace] buildCommand: about to concat with outputFile")
-    stdoutLine("[trace] outputFile len before concat=" + outputFile.len().toString())
-    stdoutLine("[trace] buildCommand: calling CompileSeenProgram with output=" + outputFile)
     let success = CompileSeenProgram(sourceCode, outputFile)
-    stdoutLine("[trace] CompileSeenProgram returned")
     
     if success {
         stdoutLine("✅ Build successful")
@@ -147,6 +167,7 @@ fun buildCommand(sourceFile: String, outputFile: String) r: Int {
 }
 
 fun checkCommand(sourceFile: String) r: Int {
+    stdoutLine("[trace] checkCommand: entry")
     stdoutLine("🔍 Checking " + sourceFile + "...")
     
     let sourceCode = readText(sourceFile)
@@ -288,3 +309,4 @@ fun GetCommandLineArgs() r: List<String> {
 }
 
 
+main()

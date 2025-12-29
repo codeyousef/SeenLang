@@ -53,16 +53,42 @@ class Vec<T> {
     }
 
     fun push(value: T) r: Void {
+        __Print("[VEC] push: length=")
+        __PrintInt(this.length)
+        __Print(" totalCapacity=")
+        __PrintInt(this.totalCapacity)
+        __Print("\n")
         if this.length >= this.totalCapacity {
+            __Print("[VEC] push: calling growChunk\n")
             this.growChunk()
+            __Print("[VEC] push: growChunk done\n")
         }
+        __Print("[VEC] push: getting lastIndex\n")
         let lastIndex = this.chunks.length() - 1
-        let chunk = this.chunks[lastIndex]
+        __Print("[VEC] push: lastIndex=")
+        __PrintInt(lastIndex)
+        __Print("\n")
+        __Print("[VEC] push: getting chunk\n")
+        var chunk = this.chunks[lastIndex]
+        __Print("[VEC] push: got chunk\n")
         let used = this.usage[lastIndex]
+        __Print("[VEC] push: used=")
+        __PrintInt(used)
+        __Print("\n")
         // Always push since we don't pre-fill chunks anymore
-        chunk.values.push(value)
+        // Use local var to ensure modification isn't lost
+        __Print("[VEC] push: getting valuesArr\n")
+        var valuesArr = chunk.values
+        __Print("[VEC] push: calling valuesArr.push\n")
+        valuesArr.push(value)
+        __Print("[VEC] push: setting chunk.values\n")
+        chunk.values = valuesArr
+        __Print("[VEC] push: setting this.chunks[lastIndex]\n")
+        this.chunks[lastIndex] = chunk
+        __Print("[VEC] push: updating usage\n")
         this.usage[lastIndex] = used + 1
         this.length = this.length + 1
+        __Print("[VEC] push: done\n")
     }
 
     fun pop() r: T {
@@ -146,9 +172,19 @@ class Vec<T> {
         // Create a new chunk with an empty array - we'll push values on demand
         var chunk = VecChunk<T>{ values: Array<T>() }
         // Don't pre-fill with defaults - just track capacity
-        this.chunks.push(chunk)
-        this.capacities.push(this.nextChunkSize)
-        this.usage.push(0)
+        // Use local vars to ensure modifications aren't lost
+        var chunksArr = this.chunks
+        chunksArr.push(chunk)
+        this.chunks = chunksArr
+        
+        var capsArr = this.capacities
+        capsArr.push(this.nextChunkSize)
+        this.capacities = capsArr
+        
+        var usageArr = this.usage
+        usageArr.push(0)
+        this.usage = usageArr
+        
         this.totalCapacity = this.totalCapacity + this.nextChunkSize
         this.nextChunkSize = this.nextChunkSize * 2
     }

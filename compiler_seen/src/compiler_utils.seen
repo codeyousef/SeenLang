@@ -11,7 +11,10 @@ fun readText(path: String) r: String {
 }
 
 fun writeText(path: String, contents: String) r: Bool {
-    return stdWriteText(path, contents)
+    println("[trace] compiler_utils.writeText: path=" + path)
+    let res = stdWriteText(path, contents)
+    println("[trace] compiler_utils.writeText: res=" + res.toString())
+    return res
 }
 
 fun appendText(path: String, contents: String) r: Bool {
