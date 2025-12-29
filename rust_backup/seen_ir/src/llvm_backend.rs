@@ -869,19 +869,31 @@ impl<'ctx> LlvmBackend<'ctx> {
         // Register struct/class types from all modules
         let mut modules: Vec<&IRModule> = prog.modules.iter().collect();
         modules.sort_by(|a, b| a.name.cmp(&b.name));
+        
+        // FIRST PASS: Collect class types BEFORE registering struct types
+        // This is critical so that when we register struct types that contain
+        // class fields (like Map containing Vec), we know Vec is a class type
+        // and should be represented as i64 (pointer-to-int) instead of ptr.
         for module in &modules {
             for type_def in module.types.iter() {
-                if let IRType::Struct { name, fields, .. } = &type_def.type_def {
-                    self.register_struct_type(name.as_str(), fields);
-                    // Track class types (heap-allocated, represented as pointers)
+                if let IRType::Struct { name, .. } = &type_def.type_def {
                     if type_def.is_class {
                         self.class_types.insert(name.clone());
                     }
                 }
-                // Register enum types
+                // Register enum types (order doesn't matter)
                 if let IRType::Enum { name, variants } = &type_def.type_def {
                     let variant_names: Vec<String> = variants.iter().map(|(name, _)| name.clone()).collect();
                     self.enum_types.insert(name.clone(), variant_names);
+                }
+            }
+        }
+        
+        // SECOND PASS: Now register struct types with proper class field handling
+        for module in &modules {
+            for type_def in module.types.iter() {
+                if let IRType::Struct { name, fields, .. } = &type_def.type_def {
+                    self.register_struct_type(name.as_str(), fields);
                 }
             }
         }
@@ -1039,7 +1051,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
         
         // Trace type registration
-        if self.trace_options.trace_types {
+        if self.trace_options.trace_types || name == "VecChunk" || name == "Map" {
             eprintln!("[LLVM TRACE] register_struct_type '{}' with {} fields:", name, fields.len());
             for (fname, ftype) in fields {
                 eprintln!("[LLVM TRACE]   field '{}': {:?}", fname, ftype);
@@ -1052,17 +1064,21 @@ impl<'ctx> LlvmBackend<'ctx> {
         // Build LLVM struct type from fields
         let field_types: Vec<BasicTypeEnum<'ctx>> = fields
             .iter()
-            .map(|(_, ty)| self.ir_type_to_llvm(ty))
+            .map(|(fname, ty)| {
+                let llvm_ty = self.ir_type_to_llvm(ty);
+                if name == "Map" {
+                    eprintln!("[LLVM DEBUG] Map field {} type {:?} -> LLVM {:?}", fname, ty, llvm_ty);
+                }
+                llvm_ty
+            })
             .collect();
         let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
 
         let llvm_struct_ty = self.ctx.struct_type(&field_types, false);
         
         // Debug for SeenLexer
-        if name == "SeenLexer" {
-            //             println!("DEBUG: register_struct_type {} with {} fields", name, field_types.len());
-            //             println!("DEBUG:   field_types: {:?}", field_types);
-            //             println!("DEBUG:   llvm_struct_ty: {:?}", llvm_struct_ty);
+        if name == "SeenLexer" || name == "Map" {
+            eprintln!("[LLVM DEBUG] register_struct_type {} with {} fields, llvm_struct_ty: {:?}", name, field_types.len(), llvm_struct_ty);
         }
         
         self.struct_types.insert(name.to_string(), (llvm_struct_ty, field_names));
@@ -1079,6 +1095,13 @@ impl<'ctx> LlvmBackend<'ctx> {
         let mut field_names: Vec<String> = fields.keys().cloned().collect();
         field_names.sort();
 
+        // Debug: show what fields we're creating for Map
+        if type_name == "Map" || type_name == "Vec" {
+            eprintln!("DEBUG get_or_create_struct_type {}: fields={:?}", type_name, fields);
+            eprintln!("  reg_struct_types={:?}", self.reg_struct_types);
+            eprintln!("  class_types={:?}", self.class_types);
+        }
+
         let field_types: Vec<BasicTypeEnum<'ctx>> = field_names
             .iter()
             .map(|name| {
@@ -1089,6 +1112,25 @@ impl<'ctx> LlvmBackend<'ctx> {
                     IRValue::Boolean(_) => self.bool_t.into(),
                     IRValue::String(_) => self.ty_string().into(), // Use proper String struct type
                     IRValue::Char(_) => self.ctx.i8_type().into(),
+                    IRValue::Register(r) => {
+                        // Check if this register holds a class type (pointer-to-int)
+                        if let Some(struct_name) = self.reg_struct_types.get(r) {
+                            eprintln!("  DEBUG field {}: reg %r{} -> struct_name={}, is_class={}", 
+                                name, r, struct_name, self.class_types.contains(struct_name));
+                            if self.class_types.contains(struct_name) {
+                                // Class types are stored as i64 (pointer-to-int)
+                                return self.i64_t.into();
+                            }
+                            // Check if it's a struct type we know about
+                            if let Some((struct_ty, _)) = self.struct_types.get(struct_name).cloned() {
+                                return struct_ty.into();
+                            }
+                        } else {
+                            eprintln!("  DEBUG field {}: reg %r{} NOT FOUND in reg_struct_types", name, r);
+                        }
+                        // Default to pointer for unknowns
+                        self.i8_ptr_t.into()
+                    }
                     _ => self.i8_ptr_t.into(), // Default to pointer for unknowns
                 }
             })
@@ -1748,11 +1790,31 @@ impl<'ctx> LlvmBackend<'ctx> {
                 array,
                 index,
                 result,
-                ..
+                element_type,
             } => {
+                // Pass element_type to help with struct array access
+                if let Some(ref et) = element_type {
+                    // Propagate element type to emit_array_access
+                    if let IRType::Struct { name, .. } = et {
+                        // Store element type info for this access
+                        if let IRValue::Register(reg_id) = array {
+                            self.reg_array_element_struct.insert(*reg_id, name.clone());
+                        }
+                    }
+                }
                 self.emit_array_access(array, index, result, fn_map)?;
             }
-            Instruction::ArraySet { array, index, value, .. } => {
+            Instruction::ArraySet { array, index, value, element_type } => {
+                // Pass element_type to help with struct array set
+                if let Some(ref et) = element_type {
+                    // Propagate element type to emit_array_set
+                    if let IRType::Struct { name, .. } = et {
+                        // Store element type info for this set
+                        if let IRValue::Register(reg_id) = array {
+                            self.reg_array_element_struct.insert(*reg_id, name.clone());
+                        }
+                    }
+                }
                 self.emit_array_set(array, index, value, fn_map)?;
             }
             Instruction::Call {
@@ -1950,9 +2012,26 @@ impl<'ctx> LlvmBackend<'ctx> {
                         
                         if is_array_field && arg_val.is_pointer_value() {
                             // arg_val is a pointer to an array struct - load the struct and store it
-                            let arr_struct_ty = field_ty.into_struct_type();
-                            let loaded_arr = self.builder.build_load(arr_struct_ty, arg_val.into_pointer_value(), "load_arr")?;
-                            self.builder.build_store(field_ptr, loaded_arr)?;
+                            // BUT: check for null first (happens when default constructor has null for array fields)
+                            let ptr_val = arg_val.into_pointer_value();
+                            let is_null_ptr = ptr_val.is_null();
+                            
+                            if is_null_ptr {
+                                // Create an empty array struct { i64 len=0, i64 cap=0, ptr data=null }
+                                let arr_struct_ty = field_ty.into_struct_type();
+                                let zero = self.i64_t.const_int(0, false);
+                                let null_ptr = self.i8_ptr_t.const_null();
+                                let empty_arr = arr_struct_ty.const_named_struct(&[
+                                    zero.into(),
+                                    zero.into(),
+                                    null_ptr.into(),
+                                ]);
+                                self.builder.build_store(field_ptr, empty_arr)?;
+                            } else {
+                                let arr_struct_ty = field_ty.into_struct_type();
+                                let loaded_arr = self.builder.build_load(arr_struct_ty, ptr_val, "load_arr")?;
+                                self.builder.build_store(field_ptr, loaded_arr)?;
+                            }
                         } else {
                             self.builder.build_store(field_ptr, arg_val)?;
                         }
@@ -2498,7 +2577,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 // Update immediate map
                 self.var_values.insert(name.clone(), v.clone());
                 // Persist to slot (create lazily if needed)
-                let (slot, slot_ty) = if let Some(p) = self.var_slots.get(name).copied() {
+                let (mut slot, mut slot_ty) = if let Some(p) = self.var_slots.get(name).copied() {
                     let ty = *self
                         .var_slot_types
                         .get(name)
@@ -2545,6 +2624,47 @@ impl<'ctx> LlvmBackend<'ctx> {
                     self.var_slot_types.insert(name.clone(), value_ty);
                     (slot, value_ty)
                 };
+
+                // If the slot type looks like an Array struct {len, cap, data} but the incoming
+                // value is a pointer/int (e.g., the raw header pointer from __ArrayNew), load the
+                // struct from that pointer rather than degrading the slot to i64.
+                if let BasicTypeEnum::StructType(st) = slot_ty {
+                    let f = st.get_field_types();
+                    let looks_like_array = f.len() == 3
+                        && matches!(f[0], BasicTypeEnum::IntType(_))
+                        && matches!(f[1], BasicTypeEnum::IntType(_))
+                        && matches!(f[2], BasicTypeEnum::PointerType(_));
+
+                    if looks_like_array && (v.is_pointer_value() || v.is_int_value()) {
+                        let raw_ptr = if v.is_pointer_value() {
+                            v.into_pointer_value()
+                        } else {
+                            // The header pointer was materialized as an integer; reinterpret it.
+                            self.builder
+                                .build_int_to_ptr(v.into_int_value(), self.i8_ptr_t, "arr_header_ptr")
+                                .map_err(|e| anyhow!("{e:?}"))?
+                        };
+
+                        let typed_ptr = self
+                            .builder
+                            .build_pointer_cast(
+                                raw_ptr,
+                                st.ptr_type(AddressSpace::default()),
+                                "arr_header_cast",
+                            )
+                            .map_err(|e| anyhow!("{e:?}"))?;
+
+                        let loaded = self
+                            .builder
+                            .build_load(st, typed_ptr, "arr_header_load")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                            .as_basic_value_enum();
+
+                        self.var_values.insert(name.clone(), loaded);
+                        self.builder.build_store(slot, loaded).map_err(|e| anyhow!("{e:?}"))?;
+                        return Ok(());
+                    }
+                }
                 // For float variables (e.g., from Vec<Float>.get), use bitcast to preserve bits
                 let stored = if self.var_is_float.contains(name) && v.is_float_value() && slot_ty.is_int_type() {
                     self.builder.build_bit_cast(

@@ -235,8 +235,11 @@ pub extern "C" fn __ReadFileFromPath(path: SeenString) -> SeenString {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
+    eprintln!("DEBUG: __OpenFile path.len={} path.data={:?}", path.len, path.data);
+    eprintln!("DEBUG: __OpenFile mode.len={} mode.data={:?}", mode.len, mode.data);
     let path_str = path.to_str();
     let mode_str = mode.to_str();
+    eprintln!("DEBUG: __OpenFile path='{}' mode='{}'", path_str, mode_str);
 
     // Fast-path standard streams without going through the FILE_MAP
     match path_str {
@@ -250,8 +253,12 @@ pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
         "r" => fs::File::open(path_str),
         "w" => fs::File::create(path_str),
         "a" => fs::OpenOptions::new().append(true).create(true).open(path_str),
-        _ => return -1,
+        _ => {
+            eprintln!("DEBUG: __OpenFile unknown mode '{}'", mode_str);
+            return -1;
+        }
     };
+    eprintln!("DEBUG: __OpenFile file_res={:?}", file_res);
     
     match file_res {
         Ok(file) => {
@@ -341,9 +348,9 @@ pub extern "C" fn __WriteFileToPath(path: SeenString, content: SeenString) -> i6
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __ReadFile_SRET(result: *mut SeenString, fd: i64) {
+pub extern "C" fn __ReadFile(fd: i64) -> SeenString {
     let mut map = get_file_map().lock().unwrap();
-    let s = if let Some(file) = map.get_mut(&fd) {
+    if let Some(file) = map.get_mut(&fd) {
         let mut buffer = String::new();
         match file.read_to_string(&mut buffer) {
             Ok(_) => {
@@ -358,7 +365,12 @@ pub extern "C" fn __ReadFile_SRET(result: *mut SeenString, fd: i64) {
     } else {
         set_file_error(fd, "invalid fd");
         empty_seen_string()
-    };
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __ReadFile_SRET(result: *mut SeenString, fd: i64) {
+    let s = __ReadFile(fd);
     unsafe { *result = s; }
 }
 

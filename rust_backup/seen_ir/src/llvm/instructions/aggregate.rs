@@ -202,6 +202,9 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             let len = self.get_array_len(arr_ptr)?;
             self.build_bounds_check(idx_iv, len)?;
             
+            // Debug: track what element_struct_type was found
+            eprintln!("DEBUG ArrayAccess: array={:?}, element_struct_type={:?}", array, element_struct_type);
+            
             // Check if we're accessing a struct array
             if let Some(ref struct_type_name) = element_struct_type {
                 eprintln!("DEBUG ArrayAccess struct array: element_struct_type={}", struct_type_name);
@@ -226,7 +229,8 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
 
                 if let Some(llvm_struct_ty) = llvm_struct_ty {
                     // For classes: elements are stored as i64 (pointer-as-int)
-                    // For structs: elements are stored inline
+                    // Return the POINTER so field access goes through the pointer
+                    // This enables in-place modification of the class object
                     // For generic params (T), assume struct storage (safer default)
                     if is_class && !is_generic_param {
                         // Class arrays store pointers-as-i64
@@ -242,18 +246,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                             )?
                         };
                         
-                        // Load the pointer-as-i64
-                        let ptr_as_int = self.builder.build_load(self.i64_t, elem_ptr, "class_ptr_int")?.into_int_value();
+                        // Load the pointer-as-i64 and return it directly
+                        // This way, field access will dereference the pointer
+                        let ptr_as_int = self.builder.build_load(self.i64_t, elem_ptr, "class_ptr_int")?;
                         
-                        // Convert to struct pointer
-                        let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
-                        let struct_ptr = self.builder.build_int_to_ptr(ptr_as_int, struct_ptr_ty, "class_struct_ptr")?;
-                        
-                        // Load the actual struct value from the pointer
-                        let struct_val = self.builder.build_load(llvm_struct_ty, struct_ptr, "class_struct_load")?;
-                        
-                        // Assign the struct value to result
-                        self.assign_value(result, struct_val)?;
+                        // Assign the pointer-as-int to result (NOT the dereferenced struct)
+                        self.assign_value(result, ptr_as_int)?;
                         
                         // Track struct type for subsequent field access
                         if let IRValue::Register(reg_id) = result {
@@ -354,6 +352,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             // Handle struct value - this is an array struct loaded by value { len, cap, data }
             // Extract the data pointer from the struct (field 2)
             // Note: in opaque pointer mode, field 2 is a ptr type, not i64
+            eprintln!("DEBUG ArrayAccess struct_value path: array={:?}, element_struct_type={:?}", array, element_struct_type);
             let arr_struct = arr_v.into_struct_value();
             let data_ptr = self.builder.build_extract_value(arr_struct, 2, "data_ptr")?
                 .into_pointer_value();
@@ -363,6 +362,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             
             // Check if this is a struct array  
             if let Some(ref struct_type_name) = element_struct_type {
+                // Check if this is a class type (heap-allocated, stored as pointer)
+                let is_class = self.class_types.contains(struct_type_name);
+                eprintln!("DEBUG ArrayAccess struct_value: struct_type={}, is_class={}", struct_type_name, is_class);
+                
                 let llvm_struct_ty = if struct_type_name == "String" {
                     Some(self.ty_string())
                 } else {
@@ -370,6 +373,38 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 };
                 
                 if let Some(llvm_struct_ty) = llvm_struct_ty {
+                    // For classes: elements are stored as i64 (pointer-as-int)
+                    // Return the POINTER (as i64) so field access goes through the pointer
+                    // This enables in-place modification of the class object
+                    if is_class {
+                        // Class arrays store pointers-as-i64
+                        let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                        let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+                        
+                        let elem_ptr = unsafe {
+                            self.builder.build_gep(
+                                self.i64_t,
+                                data_i64_ptr,
+                                &[idx_iv],
+                                "class_elem_ptr_sv",
+                            )?
+                        };
+                        
+                        // Load the pointer-as-i64 and return it directly
+                        // This way, field access will dereference the pointer
+                        let ptr_as_int = self.builder.build_load(self.i64_t, elem_ptr, "class_ptr_int_sv")?;
+                        
+                        // Assign the pointer-as-int to result (NOT the dereferenced struct)
+                        self.assign_value(result, ptr_as_int)?;
+                        
+                        // Track struct type for subsequent field access
+                        if let IRValue::Register(reg_id) = result {
+                            self.reg_struct_types.insert(*reg_id, struct_type_name.clone());
+                        }
+                        return Ok(());
+                    }
+                    
+                    // Struct arrays store structs directly (inline)
                     let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
                     let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
                     
@@ -433,10 +468,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         };
         
         // Check if this is a struct array
-        let element_struct_type = if let IRValue::Variable(var_name) = array {
-            self.var_array_element_struct.get(var_name).cloned()
-        } else {
-            None
+        let element_struct_type = match array {
+            IRValue::Variable(var_name) => self.var_array_element_struct.get(var_name).cloned(),
+            IRValue::Register(reg_id) => self.reg_array_element_struct.get(reg_id).cloned(),
+            _ => None,
         };
         
         // Get data pointer and array length - handle struct value (array loaded by value) or pointer/int
@@ -490,6 +525,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         
         // Check if we're setting a struct array element
         if let Some(ref struct_type_name) = element_struct_type {
+            // Check if this is a class type (heap-allocated, stored as pointer)
+            let is_class = self.class_types.contains(struct_type_name);
+            eprintln!("DEBUG ArraySet: struct_type={}, is_class={}", struct_type_name, is_class);
+            
             let llvm_struct_ty = if struct_type_name == "String" {
                 Some(self.ty_string())
             } else {
@@ -497,6 +536,41 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             };
 
             if let Some(llvm_struct_ty) = llvm_struct_ty {
+                // For classes: store pointer-as-i64 (the value should already be a pointer)
+                if is_class {
+                    let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+                    
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            self.i64_t,
+                            data_i64_ptr,
+                            &[idx_iv],
+                            "class_set_elem_ptr",
+                        )?
+                    };
+                    
+                    // The value should be stored as pointer (which is passed as i64)
+                    // But we may receive a struct value that needs to be allocated
+                    let ptr_value = if val_v.is_int_value() {
+                        // Already pointer-as-int
+                        val_v.into_int_value()
+                    } else if val_v.is_pointer_value() {
+                        self.builder.build_ptr_to_int(val_v.into_pointer_value(), self.i64_t, "ptr_to_int")?
+                    } else if val_v.is_struct_value() {
+                        // Need to allocate on heap and store pointer
+                        let struct_val = val_v.into_struct_value();
+                        let malloc_ptr = self.builder.build_malloc(llvm_struct_ty, "class_set_malloc")?;
+                        self.builder.build_store(malloc_ptr, struct_val)?;
+                        self.builder.build_ptr_to_int(malloc_ptr, self.i64_t, "class_set_ptr_int")?
+                    } else {
+                        return Err(anyhow!("ArraySet class: unexpected value type"));
+                    };
+                    
+                    self.builder.build_store(elem_ptr, ptr_value)?;
+                    return Ok(());
+                }
+                
                 // Struct arrays store structs directly (inline)
                 let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
                 let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
@@ -953,7 +1027,13 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     } else {
                         val
                     }
+                } else if field_ty.is_struct_type() && val.is_pointer_value() {
+                    // If field is a struct type and value is a pointer, load the struct value
+                    // This handles cases like storing Array<T>() where we have a pointer to the array struct
+                    eprintln!("DEBUG FieldSet: field '{}' is struct type, val is pointer -> loading struct", field);
+                    self.builder.build_load(field_ty.into_struct_type(), val.into_pointer_value(), "load_arr_struct")?.as_basic_value_enum()
                 } else {
+                    eprintln!("DEBUG FieldSet: field '{}' type check - is_struct={}, val_is_ptr={}", field, field_ty.is_struct_type(), val.is_pointer_value());
                     val
                 };
                 

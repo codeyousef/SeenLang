@@ -994,6 +994,12 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     // of the array variable, NOT a loaded copy of the array value.
                     if args.len() == 2 {
                         let value = self.eval_value(&args[1], fn_map)?;
+                        eprintln!("DEBUG Array_push: args[0]={:?}, value_type={}", args[0], 
+                            if value.is_struct_value() { "struct" } 
+                            else if value.is_int_value() { "int" }
+                            else if value.is_pointer_value() { "pointer" }
+                            else if value.is_float_value() { "float" }
+                            else { "unknown" });
                         
                         // Try to get the slot pointer for the array variable directly
                         // This is necessary because push needs to modify the array in-place
@@ -1001,6 +1007,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             IRValue::Variable(var_name) => {
                                 // Use the variable's slot pointer directly
                                 if let Some(slot) = self.var_slots.get(var_name).copied() {
+                                    eprintln!("DEBUG Array_push: using var_slot for {}", var_name);
                                     slot
                                 } else {
                                     // Fallback to eval_value if no slot (shouldn't happen for local arrays)
@@ -2262,194 +2269,10 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 "__ReadFile_LEGACY" => {
-                    // FILE* f = fopen(path, "rb"); if !f return ""
-                    let fnty = self.i8_ptr_t; // FILE* opaque as i8*
-                    let fopen = self.declare_c_fn(
-                        "fopen",
-                        fnty.into(),
-                        &[self.i8_ptr_t.into(), self.i8_ptr_t.into()],
-                        false,
-                    );
-                    let fseek = self.declare_c_fn(
-                        "fseek",
-                        self.ctx.i32_type().into(),
-                        &[fnty.into(), self.i64_t.into(), self.ctx.i32_type().into()],
-                        false,
-                    );
-                    let ftell = self.declare_c_fn(
-                        "ftell",
-                        self.i64_t.into(),
-                        &[fnty.into()],
-                        false,
-                    );
-                    let rewindf = self.declare_c_void_fn("rewind", &[fnty.into()], false);
-                    let fread = self.declare_c_fn(
-                        "fread",
-                        self.i64_t.into(),
-                        &[
-                            self.i8_ptr_t.into(),
-                            self.i64_t.into(),
-                            self.i64_t.into(),
-                            fnty.into(),
-                        ],
-                        false,
-                    );
-                    let fclose = self.declare_c_fn(
-                        "fclose",
-                        self.ctx.i32_type().into(),
-                        &[fnty.into()],
-                        false,
-                    );
-                    let path_v = self.eval_value(&args[0], fn_map)?;
-                    let path = self.as_cstr_ptr(path_v)?;
-                    let mode = self.builder.build_global_string_ptr("rb", "rb")?;
-                    let f = self.builder.build_call(
-                        fopen,
-                        &[path.into(), mode.as_pointer_value().into()],
-                        "fopen",
-                    )?;
-                    let fval = f.try_as_basic_value().left().unwrap();
-                    let is_null = self
-                        .builder
-                        .build_is_null(fval.into_pointer_value(), "isnull")?;
-                    let fnv = self.current_fn.unwrap();
-                    let then_bb = self.ctx.append_basic_block(fnv, "rf_null");
-                    let cont_bb = self.ctx.append_basic_block(fnv, "rf_cont");
-                    let done_bb = self.ctx.append_basic_block(fnv, "rf_done");
-                    self.builder
-                        .build_conditional_branch(is_null, then_bb, cont_bb)?;
-                    let mut rf_then_val: Option<(
-                        BasicValueEnum<'ctx>,
-                        LlvmBasicBlock<'ctx>,
-                    )> = None;
-                    let mut rf_cont_val: Option<(
-                        BasicValueEnum<'ctx>,
-                        LlvmBasicBlock<'ctx>,
-                    )> = None;
-                    self.builder.position_at_end(then_bb);
-                    let empty = self.builder.build_global_string_ptr("", "empty")?;
-                    let empty_ptr = empty.as_pointer_value();
-                    let empty_len = self.i64_t.const_zero();
-                    let mut empty_str = self.ty_string().get_undef();
-                    empty_str = self.builder.build_insert_value(empty_str, empty_len, 0, "empty_len")?.into_struct_value();
-                    empty_str = self.builder.build_insert_value(empty_str, empty_ptr, 1, "empty_ptr")?.into_struct_value();
-                    rf_then_val = Some((empty_str.as_basic_value_enum(), then_bb));
-                    self.builder.build_unconditional_branch(done_bb)?;
-                    self.builder.position_at_end(cont_bb);
-                    // size
-                    let seek_end = self.ctx.i32_type().const_int(2, false);
-                    self.builder.build_call(
-                        fseek,
-                        &[fval.into(), self.i64_t.const_zero().into(), seek_end.into()],
-                        "fseek_end",
-                    )?;
-                    let sz = self.builder.build_call(ftell, &[fval.into()], "ftell")?;
-                    let szv = sz.try_as_basic_value().left().unwrap().into_int_value();
-                    let _ = self.builder.build_call(rewindf, &[fval.into()], "rewind")?;
-                    let malloc = self.get_malloc();
-                    let one = self.i64_t.const_int(1, false);
-                    let total = self.builder.build_int_add(szv, one, "tot")?;
-                    let buf =
-                        self.builder
-                            .build_call(malloc, &[total.into()], "malloc_rf")?;
-                    let bufp = buf
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap()
-                        .into_pointer_value();
-                    let _rd = self.builder.build_call(
-                        fread,
-                        &[bufp.into(), one.into(), szv.into(), fval.into()],
-                        "fread",
-                    )?;
-                    let endp = unsafe {
-                        self.builder
-                            .build_gep(self.ctx.i8_type(), bufp, &[szv], "end")?
-                    };
-                    self.builder
-                        .build_store(endp, self.ctx.i8_type().const_zero())?;
-                    let _ = self.builder.build_call(fclose, &[fval.into()], "fclose")?;
-                    
-                    let mut str_val = self.ty_string().get_undef();
-                    str_val = self.builder.build_insert_value(str_val, szv, 0, "str_len")?.into_struct_value();
-                    str_val = self.builder.build_insert_value(str_val, bufp, 1, "str_ptr")?.into_struct_value();
-                    
-                    rf_cont_val = Some((str_val.as_basic_value_enum(), cont_bb));
-                    self.builder.build_unconditional_branch(done_bb)?;
-                    self.builder.position_at_end(done_bb);
-                    if let Some(r) = result {
-                        let phi = self.builder.build_phi(self.ty_string(), "rf_value")?;
-                        if let Some((val, bb)) = rf_then_val {
-                            phi.add_incoming(&[(&val, bb)]);
-                        }
-                        if let Some((val, bb)) = rf_cont_val {
-                            phi.add_incoming(&[(&val, bb)]);
-                        }
-                        self.assign_value(r, phi.as_basic_value())?;
-                    }
+                    // Removed legacy implementation
                     return Ok(());
                 }
-                "__WriteFile" => {
-                    let fnty = self.i8_ptr_t;
-                    let fopen = self.declare_c_fn(
-                        "fopen",
-                        fnty.into(),
-                        &[self.i8_ptr_t.into(), self.i8_ptr_t.into()],
-                        false,
-                    );
-                    let fwrite = self.declare_c_fn(
-                        "fwrite",
-                        self.i64_t.into(),
-                        &[
-                            self.i8_ptr_t.into(),
-                            self.i64_t.into(),
-                            self.i64_t.into(),
-                            fnty.into(),
-                        ],
-                        false,
-                    );
-                    let fclose = self.declare_c_fn(
-                        "fclose",
-                        self.ctx.i32_type().into(),
-                        &[fnty.into()],
-                        false,
-                    );
-                    let strlen = self.get_strlen();
-                    let path_v = self.eval_value(&args[0], fn_map)?;
-                    let path = self.as_cstr_ptr(path_v)?;
-                    let content_v = self.eval_value(&args[1], fn_map)?;
-                    let content = self.as_cstr_ptr(content_v)?;
-                    let mode = self.builder.build_global_string_ptr("wb", "wb")?;
-                    let f = self.builder.build_call(
-                        fopen,
-                        &[path.into(), mode.as_pointer_value().into()],
-                        "fopen_w",
-                    )?;
-                    let fval = f.try_as_basic_value().left().unwrap();
-                    let is_null = self
-                        .builder
-                        .build_is_null(fval.into_pointer_value(), "isnullw")?;
-                    let len =
-                        self.builder
-                            .build_call(strlen, &[content.into()], "strlen")?;
-                    let lenv = len.try_as_basic_value().left().unwrap().into_int_value();
-                    let one = self.i64_t.const_int(1, false);
-                    let _wr = self.builder.build_call(
-                        fwrite,
-                        &[content.into(), one.into(), lenv.into(), fval.into()],
-                        "fwrite",
-                    )?;
-                    let _ = self
-                        .builder
-                        .build_call(fclose, &[fval.into()], "fclose_w")?;
-                    if let Some(r) = result {
-                        self.assign_value(
-                            r,
-                            self.bool_t.const_int(1, false).as_basic_value_enum(),
-                        )?;
-                    }
-                    return Ok(());
-                }
+
                 "__CreateDirectory" => {
                     let mkdir = self.declare_c_fn(
                         "mkdir",

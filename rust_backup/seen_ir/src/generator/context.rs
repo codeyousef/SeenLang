@@ -167,7 +167,26 @@ impl GenerationContext {
                     }
                     reg_type.unwrap_or(IRType::Void)
                 }
-                IRValue::Struct { .. } | IRValue::Array(_) => value.get_type(),
+                IRValue::Struct { type_name, fields } => {
+                    // Reconstruct struct type, resolving register types from context
+                    let field_types: Vec<(String, IRType)> = fields
+                        .iter()
+                        .map(|(field_name, field_value)| {
+                            let field_type = match field_value {
+                                IRValue::Register(reg) => {
+                                    self.register_types.get(reg).cloned().unwrap_or_else(|| field_value.get_type())
+                                }
+                                _ => field_value.get_type()
+                            };
+                            (field_name.clone(), field_type)
+                        })
+                        .collect();
+                    IRType::Struct {
+                        name: type_name.clone(),
+                        fields: field_types,
+                    }
+                }
+                IRValue::Array(_) => value.get_type(),
                 _ => IRType::Void,
             }
         };

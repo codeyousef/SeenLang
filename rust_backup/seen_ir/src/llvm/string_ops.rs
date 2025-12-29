@@ -228,6 +228,11 @@ impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
             // println!("DEBUG: get_string_ptr_len val type: {:?}", sv.get_type());
             
             let field_count = sv.get_type().count_fields();
+            let fmt_fields = self
+                .builder
+                .build_global_string_ptr("DEBUG: get_string_ptr_len fields=%d\n", "debug_fmt_gspl_fields")?;
+            let field_count_i32 = self.ctx.i32_type().const_int(field_count as u64, false);
+            self.call_printf(&[fmt_fields.as_pointer_value().into(), field_count_i32.into()])?;
             
             // Handle { ptr, ptr, ptr, i64 } layout (likely Vec-based String or similar)
             if field_count == 4 {
@@ -236,6 +241,10 @@ impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
                  if f0.is_pointer_type() && f3.is_int_type() {
                      let ptr = self.builder.build_extract_value(sv, 0, "vec_ptr").unwrap().into_pointer_value();
                      let len = self.builder.build_extract_value(sv, 3, "vec_len").unwrap().into_int_value();
+                     let fmt = self
+                        .builder
+                        .build_global_string_ptr("DEBUG: get_string_ptr_len vec path len=%lld ptr=%p\n", "debug_fmt_gspl_vec")?;
+                     self.call_printf(&[fmt.as_pointer_value().into(), len.into(), ptr.into()])?;
                      return Ok((ptr, len));
                  }
             }
@@ -247,12 +256,20 @@ impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
                     // Single pointer field - treat as C string pointer
                     let ptr = self.builder.build_extract_value(sv, 0, "cstr_ptr").unwrap().into_pointer_value();
                     let len = self.call_strlen(ptr)?;
+                    let fmt = self
+                        .builder
+                        .build_global_string_ptr("DEBUG: get_string_ptr_len single-ptr len=%lld ptr=%p\n", "debug_fmt_gspl_ptr")?;
+                    self.call_printf(&[fmt.as_pointer_value().into(), len.into(), ptr.into()])?;
                     return Ok((ptr, len));
                 } else if f0.is_int_type() {
                     // Single int field - might be class pointer as i64
                     let ptr_int = self.builder.build_extract_value(sv, 0, "ptr_int").unwrap().into_int_value();
                     let ptr = self.builder.build_int_to_ptr(ptr_int, self.i8_ptr_t, "i64_to_ptr")?;
                     let len = self.call_strlen(ptr)?;
+                    let fmt = self
+                        .builder
+                        .build_global_string_ptr("DEBUG: get_string_ptr_len single-int len=%lld ptr=%p\n", "debug_fmt_gspl_int")?;
+                    self.call_printf(&[fmt.as_pointer_value().into(), len.into(), ptr.into()])?;
                     return Ok((ptr, len));
                 }
             }
@@ -278,10 +295,18 @@ impl<'ctx> RuntimeStringOps<'ctx> for LlvmBackend<'ctx> {
                 .build_extract_value(sv, 1, "str_ptr")
                 .unwrap()
                 .into_pointer_value();
+            let fmt = self
+                .builder
+                .build_global_string_ptr("DEBUG: get_string_ptr_len string len=%lld ptr=%p\n", "debug_fmt_gspl_string")?;
+            self.call_printf(&[fmt.as_pointer_value().into(), len.into(), ptr.into()])?;
             Ok((ptr, len))
         } else if val.is_pointer_value() {
             let ptr = val.into_pointer_value();
             let len = self.call_strlen(ptr)?;
+            let fmt = self
+                .builder
+                .build_global_string_ptr("DEBUG: get_string_ptr_len raw-ptr len=%lld ptr=%p\n", "debug_fmt_gspl_rawptr")?;
+            self.call_printf(&[fmt.as_pointer_value().into(), len.into(), ptr.into()])?;
             Ok((ptr, len))
         } else {
             anyhow::bail!("get_string_ptr_len: expected struct or pointer, got {:?}", val)
