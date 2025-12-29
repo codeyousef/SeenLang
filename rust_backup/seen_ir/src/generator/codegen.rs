@@ -705,24 +705,18 @@ impl IRGenerator {
                 // Check the object's type to see if it's an actual Array or String
                 // First try from Identifier, then fall back to register type lookup
                 let obj_type = if let Expression::Identifier { name, .. } = object.as_ref() {
-                    let t = self.context.get_variable_type(name).cloned();
-                    eprintln!("DEBUG: len/length call on identifier '{}', type = {:?}", name, t);
-                    t
+                    self.context.get_variable_type(name).cloned()
                 } else {
                     // For MemberAccess and other expressions, the obj_val register has the type
-                    let t = match &obj_val {
+                    match &obj_val {
                         IRValue::Register(reg) => self.context.register_types.get(reg).cloned(),
                         IRValue::Variable(var_name) => self.context.get_variable_type(var_name).cloned(),
                         _ => None,
-                    };
-                    eprintln!("DEBUG: len/length call on non-identifier {:?}, obj_val = {}, type from register = {:?}", object, obj_val, t);
-                    t
+                    }
                 };
                 
                 let is_array_type = matches!(obj_type, Some(IRType::Array(_)));
                 let is_string_type = matches!(obj_type, Some(IRType::String));
-                
-                eprintln!("DEBUG: is_array_type={}, is_string_type={}", is_array_type, is_string_type);
                 
                 if is_string_type {
                     let result_reg = self.context.allocate_register();
@@ -756,10 +750,6 @@ impl IRGenerator {
                         Some(IRType::Optional(_)) => Some("Option".to_string()),
                         _ => None,
                     };
-                    if member == "isNone" || member == "isSome" || member == "unwrap" {
-                        eprintln!("DEBUG: method call '{}' on Register({}), register_type={:?}, obj_type_name={:?}", 
-                            member, reg, self.context.register_types.get(reg), result);
-                    }
                     result
                 }
                 IRValue::Variable(var_name) => {
@@ -772,10 +762,6 @@ impl IRGenerator {
                         Some(IRType::Optional(_)) => Some("Option".to_string()),
                         _ => None,
                     };
-                    if member == "isNone" || member == "isSome" || member == "unwrap" {
-                        eprintln!("DEBUG: method call '{}' on Variable('{}'), var_type={:?}, obj_type_name={:?}", 
-                            member, var_name, self.context.get_variable_type(var_name), result);
-                    }
                     result
                 }
                 _ => None
@@ -792,9 +778,6 @@ impl IRGenerator {
                 _ => None
             };
             
-            if member == "getType" || member == "toString" {
-                eprintln!("DEBUG: method call '{}' on obj_val {:?}, obj_type_name = {:?}", member, obj_val, obj_type_name);
-            }
 
             // Fallback: call a free function named after the member; first arg is receiver
             let mut final_args = Vec::with_capacity(1 + arg_values.len());
@@ -830,8 +813,6 @@ impl IRGenerator {
             } else if member == "get" {
                 // Vec<T>.get() returns Option<T> - track both the Option type and the inner type T
                 // Array<T>.get() returns T directly
-                eprintln!("DEBUG IR: Vec.get() called on {:?}, receiver_element_type={:?}, obj_type_name={:?}", 
-                    obj_val, receiver_element_type, obj_type_name);
                 if let Some(elem_type) = &receiver_element_type {
                     // Track the element type for container_element_types
                     self.context.container_element_types.insert(format!("reg_{}", result_reg), elem_type.clone());
@@ -849,7 +830,6 @@ impl IRGenerator {
                             IRType::Optional(Box::new(elem_type.clone()))
                         };
                         self.context.set_register_type(result_reg, result_type.clone());
-                        eprintln!("DEBUG: Vec.get() setting register {} type to {:?}", result_reg, result_type);
                         type_set_specially = true;
                     }
                 }
@@ -860,19 +840,10 @@ impl IRGenerator {
             let (mangled_name, _ret_type_found) = if let Some(ref type_name) = obj_type_name {
                 let underscore_name = format!("{}_{}", type_name, member);
                 let dot_name = format!("{}.{}", type_name, member);
-                if member == "getType" || member == "toString" {
-                    eprintln!("DEBUG: method call '{}' looking for '{}' or '{}'", member, underscore_name, dot_name);
-                    eprintln!("DEBUG:   found: {} / {}", 
-                        self.context.function_return_types.contains_key(&underscore_name),
-                        self.context.function_return_types.contains_key(&dot_name));
-                }
                 // Prefer underscore naming (class methods) over dot naming (standalone functions)
                 // but use whichever exists
                 if self.context.function_return_types.contains_key(&underscore_name) {
                     let ret_type = self.context.function_return_types.get(&underscore_name).cloned();
-                    if member == "getType" || member == "toString" {
-                        eprintln!("DEBUG: method call '{}' ret_type = {:?}", member, ret_type);
-                    }
                     // Only set register type from generic function if we didn't already set it specially
                     if !type_set_specially {
                         if let Some(ret_type) = ret_type {
@@ -882,9 +853,6 @@ impl IRGenerator {
                     (underscore_name, true)
                 } else if self.context.function_return_types.contains_key(&dot_name) {
                     let ret_type = self.context.function_return_types.get(&dot_name).cloned();
-                    if member == "getType" || member == "toString" {
-                        eprintln!("DEBUG: method call '{}' ret_type = {:?}", member, ret_type);
-                    }
                     // Only set register type from generic function if we didn't already set it specially
                     if !type_set_specially {
                         if let Some(ret_type) = ret_type {
@@ -901,7 +869,6 @@ impl IRGenerator {
             };
             
             let result_value = IRValue::Register(result_reg);
-            eprintln!("DEBUG IR: Generating Call to '{}' with args {:?}", mangled_name, final_args);
             instructions.push(Instruction::Call {
                 target: IRValue::Variable(mangled_name),
                 args: final_args,
@@ -926,13 +893,6 @@ impl IRGenerator {
                  // Inside a class - check if this is a method call on the same class
                  let dot_name = format!("{}.{}", class_name, func_name);
                  let underscore_name = format!("{}_{}", class_name, func_name);
-                 
-                 if func_name == "peek" || func_name == "getType" || func_name == "toString" {
-                     eprintln!("DEBUG: bare call '{}' in class '{}', looking for '{}' or '{}'", func_name, class_name, dot_name, underscore_name);
-                     eprintln!("DEBUG:   function_return_types has dot: {}, underscore: {}", 
-                         self.context.function_return_types.contains_key(&dot_name),
-                         self.context.function_return_types.contains_key(&underscore_name));
-                 }
                  
                  if let Some(ret_type) = self.context.function_return_types.get(&dot_name).cloned()
                      .or_else(|| self.context.function_return_types.get(&underscore_name).cloned()) {

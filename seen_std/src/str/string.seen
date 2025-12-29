@@ -51,7 +51,7 @@ class StringBuilder {
     }
 
     fun length() r: Int {
-        return totalLength
+        return this.totalLength
     }
 
     fun buildAndClear() r: String {
@@ -61,15 +61,15 @@ class StringBuilder {
     }
 
     fun toString() r: String {
-        if parts.length() == 0 {
+        if this.parts.length() == 0 {
             return ""
         }
-        if parts.length() == 1 {
-            return parts[0]
+        if this.parts.length() == 1 {
+            return this.parts[0]
         }
-        var flattened = copyParts(parts)
+        var flattened = this.copyParts(this.parts)
         while flattened.length() > 1 {
-            flattened = mergeAdjacent(flattened)
+            flattened = this.mergeAdjacent(flattened)
         }
         return flattened[0]
     }

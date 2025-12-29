@@ -115,20 +115,24 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) r: Bool {
 
 fun buildCommand(sourceFile: String, outputFile: String) r: Int {
     stdoutLine("🚀 Building...")
+    stdoutLine("[trace] buildCommand entry, outputFile len=" + outputFile.len().toString())
     stdoutLine("Source file: " + sourceFile)
     
     // Read source file
     stdoutLine("[trace] calling readText...")
     let sourceCode = readText(sourceFile)
-    stdoutLine("[trace] readText returned")
+    stdoutLine("[trace] readText returned, outputFile len=" + outputFile.len().toString())
     let sourceLen = sourceCode.len()
     stdoutLine("[trace] sourceLen = " + sourceLen.toString())
+    stdoutLine("[trace] after sourceLen.toString(), outputFile len=" + outputFile.len().toString())
     if sourceLen == 0 {
         stdoutLine("Error: Could not read file '" + sourceFile + "'")
         return 1
     }
 
     // Frontend validation is handled inside compiler for now
+    stdoutLine("[trace] buildCommand: about to concat with outputFile")
+    stdoutLine("[trace] outputFile len before concat=" + outputFile.len().toString())
     stdoutLine("[trace] buildCommand: calling CompileSeenProgram with output=" + outputFile)
     let success = CompileSeenProgram(sourceCode, outputFile)
     stdoutLine("[trace] CompileSeenProgram returned")

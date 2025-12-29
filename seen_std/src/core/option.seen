@@ -1,5 +1,5 @@
 // seen_std.core.option
-// Deterministic Option<T> container backed by an inline slot (no Array intrinsics).
+// Deterministic Option<T> container backed by an inline slot.
 
 // Runtime-provided default initializer for generic T (handled as intrinsic in backend).
 extern fun __default<T>() r: T
@@ -12,6 +12,13 @@ class Option<T> {
         return Option{
             hasValue: false,
             value: __default<T>()
+        }
+    }
+
+    static fun WithValue(v: T) r: Option<T> {
+        return Option{
+            hasValue: true,
+            value: v
         }
     }
 
@@ -62,7 +69,7 @@ class Option<T> {
 
     fun Clear() r: Void {
         this.hasValue = false
-        this.value = __default<T>()
+        // value is now garbage but won't be accessed since hasValue=false
     }
 
     // Lowercase aliases for compatibility
