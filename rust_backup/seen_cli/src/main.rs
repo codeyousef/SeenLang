@@ -228,6 +228,11 @@ enum Commands {
         /// Skip IR validation (faster builds, but may produce invalid code)
         #[arg(long = "no-validate")]
         no_validate: bool,
+        
+        /// Enable LLVM backend tracing for debugging (prints instructions, values, types)
+        /// Also enabled via SEEN_TRACE_LLVM=1 environment variable
+        #[arg(long = "trace-llvm")]
+        trace_llvm: bool,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -805,6 +810,7 @@ fn main() -> SeenResult<()> {
             memory_topology,
             simd_report,
             no_validate,
+            trace_llvm,
         }) => {
             if matches!(cli.profile, Profile::Deterministic) {
                 if memory_topology != MemoryTopologyArg::Default {
@@ -873,6 +879,7 @@ fn main() -> SeenResult<()> {
                         simd_report.as_ref(),
                         cli.profile,
                         no_validate,
+                        trace_llvm,
                     )?;
                 }
                 Backend::Ir => {
@@ -1801,6 +1808,7 @@ fn compile_file_llvm(
     simd_report: Option<&PathBuf>,
     profile: Profile,
     skip_validation: bool,
+    trace_llvm: bool,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -1998,9 +2006,16 @@ fn compile_file_llvm(
     // LLVM codegen
     #[cfg(feature = "llvm")]
     {
-        use seen_core::{LinkOutput, LlvmBackend, TargetOptions};
+        use seen_core::{LinkOutput, LlvmBackend, LlvmTraceOptions, TargetOptions};
         let mut backend = LlvmBackend::new();
         backend.set_cli_mode(true);
+        
+        // Enable tracing if --trace-llvm flag is set
+        if trace_llvm {
+            backend.set_trace_options(LlvmTraceOptions::all());
+            eprintln!("[LLVM TRACE] Tracing enabled via --trace-llvm flag");
+        }
+        
         let default_target = if emit_ll {
             PathBuf::from("a.ll")
         } else {
@@ -3912,6 +3927,7 @@ fn run_file_llvm(
         None,
         profile,
         false, // always validate for run command
+        false, // no tracing for run command
     )?;
     let mut cmd = Command::new(&artifact);
     if let Some(parent) = input.parent() {

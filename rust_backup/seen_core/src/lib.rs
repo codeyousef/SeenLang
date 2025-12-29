@@ -42,8 +42,8 @@ pub use seen_lsp::*;
 // Optional LLVM backend re-export.
 #[cfg(feature = "llvm")]
 pub use seen_ir::llvm_backend::{
-    Avx10Width, CpuFeature, LinkOutput, LlvmBackend, LlvmOptLevel, MemoryTopologyHint, SveVectorLength,
-    TargetOptions,
+    Avx10Width, CpuFeature, LinkOutput, LlvmBackend, LlvmOptLevel, LlvmTraceOptions,
+    MemoryTopologyHint, SveVectorLength, TargetOptions,
 };
 
 // Convenience module re-exports for consumers that still prefer module-level

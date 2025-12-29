@@ -55,6 +55,50 @@ use crate::llvm::c_library::CLibraryOps;
 use crate::llvm::linking::LinkingOps;
 use crate::llvm::type_builders::TypeBuilders;
 
+/// Trace options for debugging LLVM backend code generation.
+/// Enable via CLI `--trace-llvm` or environment variable `SEEN_TRACE_LLVM=1`.
+#[derive(Debug, Clone, Default)]
+pub struct LlvmTraceOptions {
+    /// Print each IR instruction as it's being emitted
+    pub trace_instructions: bool,
+    /// Print IRValue → LLVM value conversions (very verbose)
+    pub trace_values: bool,
+    /// Print struct/enum type registration
+    pub trace_types: bool,
+    /// Dump LLVM IR to debug_ir.ll before verification
+    pub dump_ir: bool,
+}
+
+impl LlvmTraceOptions {
+    /// Create trace options with all tracing enabled
+    pub fn all() -> Self {
+        Self {
+            trace_instructions: true,
+            trace_values: true,
+            trace_types: true,
+            dump_ir: true,
+        }
+    }
+    
+    /// Create trace options from environment variable SEEN_TRACE_LLVM
+    /// Values: "1" or "all" enables all, "inst" for instructions only, etc.
+    pub fn from_env() -> Self {
+        match std::env::var("SEEN_TRACE_LLVM").as_deref() {
+            Ok("1") | Ok("all") => Self::all(),
+            Ok("inst") | Ok("instructions") => Self { trace_instructions: true, ..Default::default() },
+            Ok("values") => Self { trace_values: true, ..Default::default() },
+            Ok("types") => Self { trace_types: true, ..Default::default() },
+            Ok("ir") | Ok("dump") => Self { dump_ir: true, ..Default::default() },
+            _ => Self::default(),
+        }
+    }
+    
+    /// Returns true if any tracing is enabled
+    pub fn any_enabled(&self) -> bool {
+        self.trace_instructions || self.trace_values || self.trace_types || self.dump_ir
+    }
+}
+
 fn block_sort_key(name: &str) -> (i64, String, String) {
     if let Some(idx) = name.rfind('_') {
         if let Ok(num) = name[idx + 1..].parse::<i64>() {
@@ -344,12 +388,67 @@ pub struct LlvmBackend<'ctx> {
     pub(crate) reg_array_element_types: HashMap<u32, BasicTypeEnum<'ctx>>,
     // Class type names (heap-allocated, passed by pointer)
     pub(crate) class_types: HashSet<String>,
+    // Register id -> (struct_ptr, field_index) for field access results
+    // Used by Array_push to get the field pointer instead of a copy
+    pub(crate) reg_field_access_info: HashMap<u32, (PointerValue<'ctx>, u32, StructType<'ctx>)>,
+    
+    // Trace options for debugging
+    pub trace_options: LlvmTraceOptions,
+    // Current instruction index for tracing
+    pub(crate) current_inst_idx: usize,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
     pub fn ty_string(&self) -> inkwell::types::StructType<'ctx> {
         self.ctx.struct_type(&[self.i64_t.into(), self.i8_ptr_t.into()], false)
     }
+    
+    /// Format an instruction for trace output (compact summary)
+    fn format_instruction_summary(inst: &Instruction) -> String {
+        match inst {
+            Instruction::Label(lbl) => format!("Label({})", lbl.0),
+            Instruction::Jump(target) => format!("Jump({})", target.0),
+            Instruction::JumpIf { condition, target } => {
+                format!("JumpIf({:?} -> {})", condition, target.0)
+            }
+            Instruction::JumpIfNot { condition, target } => {
+                format!("JumpIfNot({:?} -> {})", condition, target.0)
+            }
+            Instruction::Return(val) => format!("Return({:?})", val),
+            Instruction::Move { source, dest } => format!("Move({:?} -> {:?})", source, dest),
+            Instruction::Store { value, dest } => format!("Store({:?} -> {:?})", value, dest),
+            Instruction::Load { source, dest } => format!("Load({:?} -> {:?})", source, dest),
+            Instruction::Unary { op, operand, result } => {
+                format!("Unary({:?} {:?} -> {:?})", op, operand, result)
+            }
+            Instruction::Binary { op, left, right, result } => {
+                format!("Binary({:?} {:?} {:?} -> {:?})", left, op, right, result)
+            }
+            Instruction::Call { target, args, result, .. } => {
+                format!("Call({:?}({} args) -> {:?})", target, args.len(), result)
+            }
+            Instruction::FieldAccess { struct_val, field, result, .. } => {
+                format!("FieldAccess({:?}.{} -> {:?})", struct_val, field, result)
+            }
+            Instruction::FieldSet { struct_val, field, value, .. } => {
+                format!("FieldSet({:?}.{} = {:?})", struct_val, field, value)
+            }
+            Instruction::ArrayAccess { array, index, result, .. } => {
+                format!("ArrayAccess({:?}[{:?}] -> {:?})", array, index, result)
+            }
+            Instruction::ArraySet { array, index, value, .. } => {
+                format!("ArraySet({:?}[{:?}] = {:?})", array, index, value)
+            }
+            Instruction::ArrayLength { array, result } => {
+                format!("ArrayLength({:?} -> {:?})", array, result)
+            }
+            Instruction::ConstructObject { class_name, args, result, .. } => {
+                format!("ConstructObject({}({} args) -> {:?})", class_name, args.len(), result)
+            }
+            _ => format!("{:?}", inst), // Fallback for other instructions
+        }
+    }
+    
     pub fn new() -> Self {
         // Initialize all LLVM targets up front so cross compilation works out of the box.
         Target::initialize_all(&InitializationConfig::default());
@@ -415,7 +514,20 @@ impl<'ctx> LlvmBackend<'ctx> {
             array_element_types: HashMap::new(),
             reg_array_element_types: HashMap::new(),
             class_types: HashSet::new(),
+            reg_field_access_info: HashMap::new(),
+            trace_options: LlvmTraceOptions::from_env(),
+            current_inst_idx: 0,
         }
+    }
+    
+    /// Set trace options for debugging
+    pub fn set_trace_options(&mut self, options: LlvmTraceOptions) {
+        self.trace_options = options;
+    }
+    
+    /// Enable all tracing
+    pub fn enable_tracing(&mut self) {
+        self.trace_options = LlvmTraceOptions::all();
     }
 
     // ========================================================================
@@ -622,6 +734,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.hardware_profile = prog.hardware_profile.clone();
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
+
+        // Debug: Dump IR before verification
+        let _ = self.module.print_to_file("debug_ir.ll");
 
         if let Err(e) = self.module.verify() {
              // Dump the problematic module for inspection when verification fails.
@@ -923,11 +1038,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             return; // Already registered
         }
         
-        // Debug Vec and other container types
-        if name == "TypeError" || name == "Location" || name == "Vec" || name == "VecChunk" {
-            eprintln!("DEBUG: register_struct_type '{}' with {} fields:", name, fields.len());
+        // Trace type registration
+        if self.trace_options.trace_types {
+            eprintln!("[LLVM TRACE] register_struct_type '{}' with {} fields:", name, fields.len());
             for (fname, ftype) in fields {
-                eprintln!("DEBUG:   field '{}': {:?}", fname, ftype);
+                eprintln!("[LLVM TRACE]   field '{}': {:?}", fname, ftype);
             }
         }
         
@@ -1148,6 +1263,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.blocks.clear();
         self.reg_slots.clear();
         self.reg_slot_types.clear();
+        self.reg_field_access_info.clear();
 
         // Create all basic blocks first
         let block_names: Vec<_> = if !func.cfg.block_order.is_empty() {
@@ -1498,10 +1614,20 @@ impl<'ctx> LlvmBackend<'ctx> {
         inst: &Instruction,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
-        if let Instruction::ArrayLength { array, .. } = inst {
-            let cur_fn = self.current_fn.map(|f| f.get_name().to_string_lossy().into_owned()).unwrap_or_else(|| "unknown".to_string());
-            eprintln!("DEBUG LLVM emit_instruction: ArrayLength on {:?} in fn {}", array, cur_fn);
+        // Trace instruction if enabled
+        if self.trace_options.trace_instructions {
+            let fn_name = self.current_fn
+                .map(|f| f.get_name().to_string_lossy().into_owned())
+                .unwrap_or_else(|| "<unknown>".to_string());
+            eprintln!(
+                "[LLVM TRACE] fn {} inst #{}: {}",
+                fn_name,
+                self.current_inst_idx,
+                Self::format_instruction_summary(inst)
+            );
         }
+        self.current_inst_idx += 1;
+        
         match inst {
             Instruction::Label(lbl) => {
                 self.emit_label(lbl)?;
@@ -1765,9 +1891,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                     // Heap-allocate the struct and return a pointer (class-as-pointer semantics)
                     let struct_size = struct_ty.size_of().unwrap_or(self.i64_t.const_int(64, false));
                     
-                    // DEBUG: Print allocation info
-                    eprintln!("DEBUG ConstructObject: class={}, struct_size={:?}, fields={}", 
-                        class_name, struct_size, field_names.len());
+                    // Trace ConstructObject
+                    if self.trace_options.trace_instructions {
+                        eprintln!(
+                            "[LLVM TRACE]   ConstructObject details: class={}, struct_size={:?}, fields={:?}",
+                            class_name, struct_size, field_names
+                        );
+                    }
                     
                     let malloc_fn = self.get_malloc();
                     let heap_ptr = self.builder
@@ -1791,7 +1921,41 @@ impl<'ctx> LlvmBackend<'ctx> {
                             i as u32,
                             &format!("field_{}_ptr", i),
                         )?;
-                        self.builder.build_store(field_ptr, arg_val)?;
+                        
+                        // Check if the field is an Array type (struct { i64, i64, ptr }) and arg is a pointer
+                        // If so, we need to load the array content from the pointer and store it
+                        let field_ty = struct_ty.get_field_types()[i];
+                        let is_array_field = if let BasicTypeEnum::StructType(ft) = field_ty {
+                            let types = ft.get_field_types();
+                            types.len() == 3 
+                                && matches!(types[0], BasicTypeEnum::IntType(_))
+                                && matches!(types[1], BasicTypeEnum::IntType(_))
+                                && matches!(types[2], BasicTypeEnum::PointerType(_))
+                        } else {
+                            false
+                        };
+                        
+                        // Trace field storage
+                        if self.trace_options.trace_values {
+                            eprintln!(
+                                "[LLVM TRACE]   field[{}] '{}': arg={:?}, val_type={}, is_array_field={}, is_ptr={}",
+                                i,
+                                field_names.get(i).unwrap_or(&"?".to_string()),
+                                arg,
+                                Self::format_llvm_type(arg_val.get_type()),
+                                is_array_field,
+                                arg_val.is_pointer_value()
+                            );
+                        }
+                        
+                        if is_array_field && arg_val.is_pointer_value() {
+                            // arg_val is a pointer to an array struct - load the struct and store it
+                            let arr_struct_ty = field_ty.into_struct_type();
+                            let loaded_arr = self.builder.build_load(arr_struct_ty, arg_val.into_pointer_value(), "load_arr")?;
+                            self.builder.build_store(field_ptr, loaded_arr)?;
+                        } else {
+                            self.builder.build_store(field_ptr, arg_val)?;
+                        }
                     }
                     
                     // Return the pointer as i64 for ABI compatibility
@@ -1898,6 +2062,56 @@ impl<'ctx> LlvmBackend<'ctx> {
     }
 
     pub(crate) fn eval_value(
+        &mut self,
+        v: &IRValue,
+        fn_map: &HashMap<String, FunctionValue<'ctx>>,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        let result = self.eval_value_inner(v, fn_map);
+        
+        // Trace value evaluation if enabled
+        if self.trace_options.trace_values {
+            match &result {
+                Ok(val) => {
+                    let ty_str = Self::format_llvm_type(val.get_type());
+                    let is_ptr = val.is_pointer_value();
+                    eprintln!(
+                        "[LLVM TRACE]   eval {:?} => {} (is_ptr: {})",
+                        v, ty_str, is_ptr
+                    );
+                }
+                Err(e) => {
+                    eprintln!("[LLVM TRACE]   eval {:?} => ERROR: {}", v, e);
+                }
+            }
+        }
+        
+        result
+    }
+    
+    /// Format LLVM type for trace output
+    fn format_llvm_type(ty: BasicTypeEnum<'_>) -> String {
+        match ty {
+            BasicTypeEnum::IntType(t) => format!("i{}", t.get_bit_width()),
+            BasicTypeEnum::FloatType(_) => "float".to_string(),
+            BasicTypeEnum::PointerType(_) => "ptr".to_string(),
+            BasicTypeEnum::StructType(s) => {
+                let fields: Vec<String> = s.get_field_types()
+                    .iter()
+                    .map(|f| Self::format_llvm_type(*f))
+                    .collect();
+                format!("{{ {} }}", fields.join(", "))
+            }
+            BasicTypeEnum::ArrayType(a) => {
+                format!("[{} x {}]", a.len(), Self::format_llvm_type(a.get_element_type()))
+            }
+            BasicTypeEnum::VectorType(v) => {
+                format!("<{} x ?>", v.get_size())
+            }
+            BasicTypeEnum::ScalableVectorType(_) => "<scalable vector>".to_string(),
+        }
+    }
+    
+    fn eval_value_inner(
         &mut self,
         v: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
@@ -2128,7 +2342,31 @@ impl<'ctx> LlvmBackend<'ctx> {
                             idx as u32,
                             &format!("{}_field_{}", type_name, field_name),
                         )?;
-                        self.builder.build_store(field_ptr, val)?;
+                        
+                        // Check if the field is an Array type and val is a pointer
+                        // If so, load the array struct content from the pointer
+                        let field_llvm_ty = llvm_struct_ty.get_field_types()[idx];
+                        let is_array_field = if let BasicTypeEnum::StructType(ft) = field_llvm_ty {
+                            let types = ft.get_field_types();
+                            types.len() == 3 
+                                && matches!(types[0], BasicTypeEnum::IntType(_))
+                                && matches!(types[1], BasicTypeEnum::IntType(_))
+                                && matches!(types[2], BasicTypeEnum::PointerType(_))
+                        } else {
+                            false
+                        };
+                        
+                        if is_array_field && val.is_pointer_value() {
+                            // val is a pointer to an array struct - load the struct and store it
+                            if self.trace_options.trace_values {
+                                eprintln!("[LLVM TRACE]   IRValue::Struct field '{}': loading array struct from ptr", field_name);
+                            }
+                            let arr_struct_ty = field_llvm_ty.into_struct_type();
+                            let loaded_arr = self.builder.build_load(arr_struct_ty, val.into_pointer_value(), "load_arr_struct")?;
+                            self.builder.build_store(field_ptr, loaded_arr)?;
+                        } else {
+                            self.builder.build_store(field_ptr, val)?;
+                        }
                     }
                 }
                 

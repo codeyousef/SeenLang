@@ -13,10 +13,19 @@
 | Rust Compiler | ✅ Production Ready |
 | Self-Host Type-Check | ✅ 0 errors |
 | Self-Host IR Gen | ✅ Working |
-| Self-Host Native Codegen | 🔄 In Progress (Stage1 lexer crash) |
+| Self-Host Native Codegen | 🔄 In Progress (Vec_push runtime crash) |
 | Stage1→Stage2→Stage3 | ⏳ Blocked on Stage1 |
+| LLVM Tracing Infrastructure | ✅ Complete |
 
-**Blocking Issue:** Stage1 crashes during lexer tokenization when source files contain operator + string literal patterns (e.g., `="a"`, `+"a"`). See Task 1.2 for details.
+**Blocking Issue:** Stage1 compiles successfully but crashes at runtime in `Vec_push` when `Map_put` tries to push to its internal Vec. The crash occurs during `KeywordManager_loadEnglishKeywords()` which populates a `Map<String, TokenType>`. Basic array push works (test_array_push.seen passes), but nested class→Vec→Array patterns fail. See Task 1.2 for full debugging context and trace commands.
+
+**Recent Progress (2025-12-29):**
+1. Implemented `LlvmTraceOptions` with `--trace-llvm` CLI flag for debugging
+2. Fixed `IRValue::Struct` array field handling (load content from pointer, not store pointer)
+3. Fixed `ConstructObject` array field handling (same fix)
+4. `test_array_push.seen` now passes - basic Array field in struct works
+5. Stage1 `--help` and `--version` work correctly
+6. Narrowed crash to Vec_push accessing its internal Array fields when Vec is a class pointer stored in Map
 
 ---
 
@@ -399,64 +408,137 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 ---
 
 ### Task 1.2: Stage1 Native Binary Generation
-**Status:** 🔄 In Progress (Lexer Crash Bug)
+**Status:** 🔄 In Progress (Vec_push Runtime Crash)
 **Estimated:** 2-3 hours → Extended
+**Last Updated:** 2025-12-29
 
 **Completed:**
 - [x] Build Stage1 compiler from `compiler_seen/src/main.seen`
 - [x] Fix `ir_type_to_llvm` struct resolution (was returning i8*)
 - [x] Fix default parameter bug (`peekChar(1)` workaround applied via sed)
 - [x] Fix Array_push element size bug (was hardcoded to 16 bytes, now uses actual struct size)
-- [x] Stage1 binary runs successfully (`--version` works)
-- [x] Stage1 tokenizes files WITHOUT string literals successfully
+- [x] Stage1 binary runs successfully (`--version` works, `--help` works)
+- [x] Implemented comprehensive LLVM tracing infrastructure (see below)
+- [x] Fixed IRValue::Struct array field handling (load content from pointer)
+- [x] Fixed ConstructObject array field handling (same fix)
+- [x] test_array_push.seen now passes (basic array push works)
+
+**Tracing Infrastructure Added:**
+New `LlvmTraceOptions` struct in `rust_backup/seen_ir/src/llvm_backend.rs`:
+```rust
+pub struct LlvmTraceOptions {
+    pub trace_instructions: bool,  // Show each IR instruction being compiled
+    pub trace_values: bool,        // Show IRValue -> LLVM type conversions
+    pub trace_types: bool,         // Show type resolutions
+    pub dump_ir: bool,             // Dump full LLVM IR at end
+}
+```
+
+**How to use tracing:**
+```bash
+# Via CLI flag:
+./target/release/seen_cli build file.seen --backend llvm -o out --trace-llvm
+
+# Via environment variable:
+SEEN_TRACE_LLVM=1 ./target/release/seen_cli build file.seen --backend llvm -o out
+
+# Filter trace output for specific functions:
+./target/release/seen_cli build file.seen --backend llvm -o out --trace-llvm 2>&1 | grep -A 30 "fn Vec_push inst"
+```
+
+**Trace output format:**
+```
+[LLVM TRACE] fn FunctionName inst #N: InstructionSummary
+[LLVM TRACE]   eval IRValue => LLVM_type (is_ptr: bool)
+[LLVM TRACE]   IRValue::Struct field 'fieldname': loading array struct from ptr
+```
 
 **Current Blocking Bug (as of 2025-12-29):**
-Stage1 SIGSEGV during lexer tokenization when source contains operator + string literal pattern.
+Stage1 SIGSEGV at **runtime** in `Vec_push` when `Map_put` tries to push to internal Vec.
 
 **Reproduction:**
 ```bash
-cd /mnt/Storage/Projects/Rust/seenlang
-echo '+"a"' > test_crash.seen
-./stage1_bin build test_crash.seen  # SIGSEGV
-echo '"a"' > test_ok.seen
-./stage1_bin build test_ok.seen     # Works (tokenizes)
-echo 'a"b"' > test_ok2.seen
-./stage1_bin build test_ok2.seen    # Works (tokenizes)
+cd /home/yousef/Projects/rust/SeenLang
+./target/release/seen_cli build compiler_seen/src/main.seen --backend llvm -o stage1_test
+./stage1_test build test_hello_simple.seen -o test_hello_stage1
+# Crashes with SIGSEGV in Vec_push
 ```
 
-**Crash Pattern Analysis:**
-- `"a"` alone → works100
-- `a"b"` (identifier + string) → works
-- `+"a"` (operator + string) → CRASHES
-- `="a"` → CRASHES
-- `let x="a"` → CRASHES
-- Crash happens AFTER operator token is emitted, when returning to main tokenize loop
-- The 6th `charAt` call crashes (after emitToken pushes first token)
-- Debug output shows crash during printf inside charAt intrinsic
-- Suggests memory corruption after Token struct is pushed to array
+**GDB Stack Trace:**
+```
+#0  Vec_push ()
+#1  Map_put ()
+#2  KeywordManager_loadEnglishKeywords ()
+#3  KeywordManager_loadFromToml ()
+#4  KeywordManager_new ()
+#5  SeenLexer_new ()
+#6  run_frontend ()
+```
 
-**Debugging State:**
-- Debug output added to `charAt`, `runtime_concat`, `load_from_slot`, `assign_value`
-- Stage1 rebuilt with debug output: `./stage1_bin`
-- Rust compiler source in `rust_backup/seen_ir/src/`
-- Key files:
-  - `rust_backup/seen_ir/src/llvm/instructions/call.rs` - Array_push, charAt
-  - `rust_backup/seen_ir/src/llvm_backend.rs` - assign_value, load_from_slot
-  - `compiler_seen/src/lexer/lexer.seen` - Seen lexer source
+**Root Cause Analysis:**
+1. **KeywordManager** has a `keywords: Map<String, TokenType>` field
+2. **Map** has `keys: Vec<K>`, `values: Vec<V>`, `hashes: Vec<Int>` fields (class pointers)
+3. **Vec** has `chunks: Array<VecChunk<T>>`, `capacities: Array<Int>`, `usage: Array<Int>` fields (inline arrays)
+4. When `Map.put(key, value)` is called, it does:
+   ```seen
+   var keysVec = this.keys   // Load Vec pointer from Map
+   keysVec.push(key)         // Call Vec_push on that pointer
+   this.keys = keysVec       // Store back (unnecessary but works around type checker)
+   ```
+5. Inside `Vec_push`, accessing `this.chunks` (an Array field) crashes
+
+**What's Working:**
+- `KeywordManager.sources` (Array<String> field) - push works correctly
+- The trace shows `IRValue::Struct field 'sources': loading array struct from ptr`
+- `test_array_push.seen` passes - basic Array field push works
+
+**What's NOT Working:**
+- `Vec_push` accessing its internal Array fields when Vec is stored as a class pointer in Map
+- Vec is a **class** (heap-allocated, stored as i64 pointer)
+- Vec's Array fields should be stored **inline** in the Vec allocation
+- When `Vec_new()` returns a struct literal, the array fields ARE being loaded correctly
+
+**Key Files Modified:**
+- `rust_backup/seen_ir/src/llvm_backend.rs`:
+  - Added `LlvmTraceOptions` struct with `from_env()`, `all()` methods
+  - Added `trace_options` and `current_inst_idx` fields to LlvmBackend
+  - Added `format_instruction_summary()` and `format_llvm_type()` helpers
+  - Modified `emit_instruction()` to trace each instruction
+  - Split `eval_value()` into wrapper + `eval_value_inner()` for tracing
+  - Added array field detection in `IRValue::Struct` handling (lines ~2347-2370)
+  - Added array field detection in `ConstructObject` handling (lines ~1922-1955)
+- `rust_backup/seen_cli/src/main.rs`:
+  - Added `--trace-llvm` flag to Build command
+  - Added `trace_llvm` parameter to `compile_file_llvm()`
+- `rust_backup/seen_core/src/lib.rs`:
+  - Re-exported `LlvmTraceOptions`
+
+**Debugging Commands:**
+```bash
+# Trace Vec_new to see how arrays are initialized:
+./target/release/seen_cli build compiler_seen/src/main.seen --backend llvm -o stage1_test --trace-llvm 2>&1 | grep -A 40 "fn Vec_new inst"
+
+# Trace Vec_push to see array field access:
+./target/release/seen_cli build compiler_seen/src/main.seen --backend llvm -o stage1_test --trace-llvm 2>&1 | grep -A 30 "fn Vec_push inst"
+
+# Trace Map_put to see keysVec handling:
+./target/release/seen_cli build compiler_seen/src/main.seen --backend llvm -o stage1_test --trace-llvm 2>&1 | grep -A 60 "fn Map_put inst"
+```
 
 **Hypothesis:**
-Memory corruption occurs when Token struct (56 bytes) is pushed to tokens array.
-The Token struct contains a String field (`value: String`) which is `{i64, ptr}`.
-After push, subsequent memory accesses (like `this.source` in `getCurrentChar`) become corrupted.
+The issue is in how Vec's internal Array fields are accessed at runtime. Vec_new correctly creates the arrays inline, but when Vec_push tries to access `this.chunks`, the memory layout may be incorrect. Possible causes:
+1. Vec struct layout mismatch between IR and LLVM
+2. Array field GEP offset calculation wrong for nested class→array pattern
+3. The `this` pointer in Vec_push may not be pointing to valid memory
 
 **Next Steps:**
-- [ ] Add debug output before/after `emitToken` and `tokens.push`
-- [ ] Verify Token struct layout matches between IR and LLVM
-- [ ] Check if String field in Token is being stored/loaded correctly
-- [ ] Investigate if ConstructObject (Token.new) returns correct pointer
-- [ ] Check FieldSet for String fields in Token
+- [ ] Add runtime debug prints in Vec_push to show `this` pointer value
+- [ ] Verify Vec struct field order matches between IR definition and LLVM struct type
+- [ ] Check if `this.chunks` GEP is using correct field index
+- [ ] Compare Vec_new's heap allocation size with actual struct size
+- [ ] Investigate if Map's Vec field storage corrupts the Vec pointer
 
-**Acceptance:** Stage1 binary tokenizes any valid Seen source file.
+**Acceptance:** Stage1 binary compiles any valid Seen source file.
 
 ---
 

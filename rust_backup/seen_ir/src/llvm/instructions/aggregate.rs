@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use inkwell::values::BasicValue;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use inkwell::AddressSpace;
-use inkwell::types::BasicType;
+use inkwell::types::{BasicType, BasicTypeEnum};
 use indexmap::IndexMap;
 
 use crate::value::{IRType, IRValue};
@@ -700,6 +700,29 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 let field_ty = llvm_struct_ty.get_field_types()[field_idx];
                 let loaded = self.builder.build_load(field_ty, gep, &format!("load_{}", field))?;
                 self.assign_value(result, loaded.as_basic_value_enum())?;
+                
+                // For Array fields, store the field pointer info so Array_push can use it
+                // This enables in-place modification of arrays stored in struct fields
+                if let IRValue::Register(reg_id) = result {
+                    // Check if this field is an Array type by looking at the struct definition
+                    let is_array_field = if let Some(fields) = self.struct_definitions.get(type_name) {
+                        fields.iter().any(|(n, t)| n == field && matches!(t, IRType::Array(_)))
+                    } else {
+                        // Fallback: check LLVM type structure (Array is { i64, i64, ptr })
+                        if let BasicTypeEnum::StructType(st) = field_ty {
+                            let field_types = st.get_field_types();
+                            field_types.len() == 3 
+                                && matches!(field_types[0], BasicTypeEnum::IntType(_))
+                                && matches!(field_types[1], BasicTypeEnum::IntType(_))
+                                && matches!(field_types[2], BasicTypeEnum::PointerType(_))
+                        } else {
+                            false
+                        }
+                    };
+                    if is_array_field {
+                        self.reg_field_access_info.insert(*reg_id, (struct_ptr, field_idx as u32, llvm_struct_ty));
+                    }
+                }
                 
                 // Check if the field is an array of structs and record it for the result register
                 if let Some(fields) = self.struct_definitions.get(type_name) {

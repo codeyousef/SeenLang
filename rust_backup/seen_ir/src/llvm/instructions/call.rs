@@ -1023,6 +1023,35 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                     }
                                 }
                             }
+                            IRValue::Register(reg_id) => {
+                                // Check if this register came from a FieldAccess on an Array field
+                                // If so, use the field pointer directly to enable in-place modification
+                                if let Some((struct_ptr, field_idx, struct_ty)) = self.reg_field_access_info.get(reg_id).copied() {
+                                    eprintln!("DEBUG: Array_push using field pointer for Register({}) - struct_ptr={:?}, field_idx={}", reg_id, struct_ptr, field_idx);
+                                    // Get a pointer to the array field in the struct
+                                    self.builder.build_struct_gep(struct_ty, struct_ptr, field_idx, "arr_field_ptr")?
+                                } else {
+                                    eprintln!("DEBUG: Array_push fallback for Register({}) - no field access info", reg_id);
+                                    // Not from a field access - evaluate normally
+                                    let arr_val = self.eval_value(&args[0], fn_map)?;
+                                    if arr_val.is_pointer_value() {
+                                        arr_val.into_pointer_value()
+                                    } else if arr_val.is_struct_value() {
+                                        // This path LOSES the modification!
+                                        eprintln!("WARNING: Array_push on Register struct value - modification may be lost! reg={}", reg_id);
+                                        let sv = arr_val.into_struct_value();
+                                        let spill = self.builder.build_alloca(sv.get_type(), "vec_spill")?;
+                                        self.builder.build_store(spill, sv)?;
+                                        spill
+                                    } else {
+                                        self.builder.build_int_to_ptr(
+                                            arr_val.into_int_value(),
+                                            self.i8_ptr_t,
+                                            "arr_ptr"
+                                        )?
+                                    }
+                                }
+                            }
                             _ => {
                                 // Not a variable - evaluate normally
                                 let arr_val = self.eval_value(&args[0], fn_map)?;

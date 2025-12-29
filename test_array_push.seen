@@ -1,0 +1,18 @@
+class TestClass {
+    var items: Array<String>
+    
+    static fun new() r: TestClass {
+        return TestClass {
+            items: Array<String>()
+        }
+    }
+    
+    fun addItem(item: String) r: Void {
+        this.items.push(item)
+    }
+}
+
+fun main() {
+    let tc = TestClass.new()
+    tc.addItem("hello")
+}
