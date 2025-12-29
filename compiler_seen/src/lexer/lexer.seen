@@ -486,7 +486,7 @@ class SeenLexer {
         // Two-character operators
         let twoChar = char.toString() + nextChar.toString()
         let twoCharType = this.getTwoCharOperatorType(twoChar)
-        if twoCharType != null {
+        if twoCharType != SeenTokenType.None {
             this.advance()
             this.advance()
             this.emitToken(twoCharType, twoChar, 2)
@@ -495,7 +495,7 @@ class SeenLexer {
         
         // Single-character operators
         let singleCharType = this.getSingleCharOperatorType(char)
-        if singleCharType != null {
+        if singleCharType != SeenTokenType.None {
             this.advance()
             this.emitToken(singleCharType, char.toString(), 1)
             return true
@@ -504,7 +504,7 @@ class SeenLexer {
         return false
     }
     
-    fun getTwoCharOperatorType(op: String) r: SeenTokenType? {
+    fun getTwoCharOperatorType(op: String) r: SeenTokenType {
         if op == "==" { return SeenTokenType.EqualEqual }
         if op == "!=" { return SeenTokenType.NotEqual }
         if op == "<=" { return SeenTokenType.LessEqual }
@@ -516,10 +516,10 @@ class SeenLexer {
         if op == "->" { return SeenTokenType.Arrow }
         if op == "?." { return SeenTokenType.SafeNavigation }
         if op == "?:" { return SeenTokenType.Elvis }
-        return null
+        return SeenTokenType.None
     }
     
-    fun getSingleCharOperatorType(char: Char) r: SeenTokenType? {
+    fun getSingleCharOperatorType(char: Char) r: SeenTokenType {
         if char == '+' { return SeenTokenType.Plus }
         if char == '-' { return SeenTokenType.Minus }
         if char == '*' { return SeenTokenType.Multiply }
@@ -529,14 +529,14 @@ class SeenLexer {
         if char == '<' { return SeenTokenType.LessThan }
         if char == '>' { return SeenTokenType.GreaterThan }
         if char == '?' { return SeenTokenType.Question }
-        return null
+        return SeenTokenType.None
     }
     
     fun handleSingleCharToken() r: Bool {
         let char = this.getCurrentChar()
         let tokenType = this.getSingleCharSeenTokenType(char)
         
-        if tokenType != null {
+        if tokenType != SeenTokenType.None {
             this.advance()
             this.emitToken(tokenType, char.toString(), 1)
             return true
@@ -545,7 +545,7 @@ class SeenLexer {
         return false
     }
     
-    fun getSingleCharSeenTokenType(char: Char) r: SeenTokenType? {
+    fun getSingleCharSeenTokenType(char: Char) r: SeenTokenType {
         if char == '(' { return SeenTokenType.LeftParen }
         if char == ')' { return SeenTokenType.RightParen }
         if char == '{' { return SeenTokenType.LeftBrace }
@@ -556,6 +556,6 @@ class SeenLexer {
         if char == ';' { return SeenTokenType.Semicolon }
         if char == ':' { return SeenTokenType.Colon }
         if char == '.' { return SeenTokenType.Dot }
-        return null
+        return SeenTokenType.None
     }
 }

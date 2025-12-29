@@ -1,4 +1,3 @@
-
 enum SeenTokenType {
     IntegerLiteral,
     FloatLiteral,
@@ -31,6 +30,7 @@ enum SeenTokenType {
     KeywordFinally,
     KeywordThrow,
     KeywordImport,
+    KeywordUse,
     KeywordExport,
     KeywordAs,
     KeywordIs,
@@ -81,4 +81,49 @@ enum SeenTokenType {
     Comment,
     Error,
     EndOfFile,
+    None
+}
+
+fun getLeftParenType() r: SeenTokenType {
+    return SeenTokenType.LeftParen
+}
+
+fun getRightParenType() r: SeenTokenType {
+    return SeenTokenType.RightParen
+}
+
+fun getSemicolonType() r: SeenTokenType {
+    return SeenTokenType.Semicolon
+}
+
+fun getDotType() r: SeenTokenType {
+    return SeenTokenType.Dot
+}
+
+fun getLeftBraceType() r: SeenTokenType {
+    return SeenTokenType.LeftBrace
+}
+
+fun getKeywordAsType() r: SeenTokenType {
+    return SeenTokenType.KeywordAs
+}
+
+fun getIdentifierType() r: SeenTokenType {
+    return SeenTokenType.Identifier
+}
+
+fun getColonType() r: SeenTokenType {
+    return SeenTokenType.Colon
+}
+
+fun getRightBraceType() r: SeenTokenType {
+    return SeenTokenType.RightBrace
+}
+
+fun getCommaType() r: SeenTokenType {
+    return SeenTokenType.Comma
+}
+
+fun getEndOfFileType() r: SeenTokenType {
+    return SeenTokenType.EndOfFile
 }

@@ -4,7 +4,7 @@
 // full parser port continues.
 
 import lexer.interfaces.{Token, Position}
-import lexer.token_type.{SeenTokenType}
+import lexer.token_type.{SeenTokenType, SeenTokenType2, TestEnum, getA, getLeftParenType, getLeftParenType2, getRightParenType, getSemicolonType, getDotType, getLeftBraceType, getKeywordAsType, getIdentifierType, getColonType, getRightBraceType, getCommaType, getEndOfFileType}
 import core.option.{Option}
 
 
@@ -480,7 +480,7 @@ class RealParser {
 
     fun parseComparison() r: ParserExpressionNode {
         var expr = parseTerm()
-        while matchTokenStr(SeenTokenType.Greater) or matchTokenStr(SeenTokenType.GreaterEqual) or matchTokenStr(SeenTokenType.Less) or matchTokenStr(SeenTokenType.LessEqual) {
+        while matchTokenStr(SeenTokenType.GreaterThan) or matchTokenStr(SeenTokenType.GreaterEqual) or matchTokenStr(SeenTokenType.LessThan) or matchTokenStr(SeenTokenType.LessEqual) {
             let operator = previous().getValue()
             let right = parseTerm()
             let newExpr = ParserExpressionNode.new()
@@ -519,9 +519,11 @@ class RealParser {
     }
     fun parsePrimary() r: ParserExpressionNode {
         
-        if matchTokenStr(SeenTokenType.LeftParen) {
+        // Manual expansion of matchTokenStr to debug type error
+        if checkToken(getLeftParenType()) {
+            advance()
             let expr = parseExpression()
-            consume(SeenTokenType.RightParen, "Expected ')' after expression")
+            consume(getRightParenType(), "Expected ')' after expression")
             return expr
         }
         
@@ -540,7 +542,7 @@ class RealParser {
         let pathInfo = parseImportPath()
         let importSymbols = parseImportSymbols(pathInfo)
 
-        matchTokenStr(SeenTokenType.Semicolon)
+        matchTokenStr(getSemicolonType())
 
         let item = ItemNode.new()
         item.itemType = "Import"
@@ -554,28 +556,28 @@ class RealParser {
     fun parseImportPath() r: ImportPathInfo {
         let segments = Array<String>()
 
-        if checkToken(SeenTokenType.Identifier) {
+        if checkToken(getIdentifierType()) {
             segments.push(advance().getValue())
         }
 
         var text = joinSegments(segments, ".")
 
         while not isAtEnd() {
-            if matchTokenStr(SeenTokenType.Dot) {
-                if checkToken(SeenTokenType.LeftBrace) or checkToken(SeenTokenType.KeywordAs) {
+            if matchTokenStr(getDotType()) {
+                if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
                     break
                 }
-                let segment = consume(SeenTokenType.Identifier, "Expected identifier in import path")
+                let segment = consume(getIdentifierType(), "Expected identifier in import path")
                 segments.push(segment.getValue())
                 text = text + "." + segment.getValue()
                 continue
             }
 
-            if matchTokenStr(SeenTokenType.Colon) and matchTokenStr(SeenTokenType.Colon) {
-                if checkToken(SeenTokenType.LeftBrace) or checkToken(SeenTokenType.KeywordAs) {
+            if matchTokenStr(getColonType()) and matchTokenStr(getColonType()) {
+                if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
                     break
                 }
-                let segment = consume(SeenTokenType.Identifier, "Expected identifier after '::'")
+                let segment = consume(getIdentifierType(), "Expected identifier after '::'")
                 segments.push(segment.getValue())
                 text = text + "::" + segment.getValue()
                 continue
@@ -593,14 +595,14 @@ class RealParser {
     fun parseImportSymbols(pathInfo: ImportPathInfo) r: Array<ImportSymbolNode> {
         let symbols = Array<ImportSymbolNode>()
 
-        if matchTokenStr(SeenTokenType.KeywordAs) and pathInfo.segments.length() > 0 {
-            let alias = consume(SeenTokenType.Identifier, "Expected alias after 'as'")
+        if matchTokenStr(getKeywordAsType()) and pathInfo.segments.length() > 0 {
+            let alias = consume(getIdentifierType(), "Expected alias after 'as'")
             let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
             symbols.push(makeImportSymbol(baseName, alias.getValue()))
             return symbols
         }
 
-        if !matchTokenStr(SeenTokenType.LeftBrace) {
+        if !matchTokenStr(getLeftBraceType()) {
             if pathInfo.segments.length() > 0 {
                 let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
                 symbols.push(makeImportSymbol(baseName, ""))
@@ -609,24 +611,24 @@ class RealParser {
         }
 
         while not isAtEnd() {
-            if matchTokenStr(SeenTokenType.RightBrace) {
+            if matchTokenStr(getRightBraceType()) {
                 break
             }
 
-            let symbolToken = consume(SeenTokenType.Identifier, "Expected symbol name")
+            let symbolToken = consume(getIdentifierType(), "Expected symbol name")
             var aliasValue = ""
-            if matchTokenStr(SeenTokenType.KeywordAs) {
-                let aliasToken = consume(SeenTokenType.Identifier, "Expected alias name")
+            if matchTokenStr(getKeywordAsType()) {
+                let aliasToken = consume(getIdentifierType(), "Expected alias name")
                 aliasValue = aliasToken.getValue()
             }
 
             symbols.push(makeImportSymbol(symbolToken.getValue(), aliasValue))
 
-            if matchTokenStr(SeenTokenType.Comma) {
+            if matchTokenStr(getCommaType()) {
                 continue
             }
 
-            consume(SeenTokenType.RightBrace, "Expected '}' after import list")
+            consume(getRightBraceType(), "Expected '}' after import list")
             break
         }
 
@@ -654,7 +656,8 @@ class RealParser {
     fun skipExpression() r: Void {
         // Skip tokens until we reach a comma, semicolon, or closing paren.
         while not isAtEnd() {
-                        if t == SeenTokenType.Comma or t == SeenTokenType.RightParen or t == SeenTokenType.Semicolon {
+            let t = peek().getType()
+            if t == getCommaType() or t == getRightParenType() or t == getSemicolonType() {
                 break
             }
             advance()
@@ -695,7 +698,7 @@ class RealParser {
     }
 
     fun isAtEnd() r: Bool {
-        return current >= tokens.length() or this.peek().getType() == SeenTokenType.EndOfFile
+        return current >= tokens.length() or this.peek().getType() == getEndOfFileType()
     }
 
     fun peek() r: Token {

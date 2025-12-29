@@ -1,4 +1,4 @@
-import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, StatementNode, ExpressionNode, BlockNode, ParamNode, TypeNode}
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode}
 import str.string.{StringBuilder}
 
 class CGenerator {
@@ -68,7 +68,7 @@ class CGenerator {
         }
     }
 
-    fun generateExpression(expr: ExpressionNode) r: Void {
+    fun generateExpression(expr: ParserExpressionNode) r: Void {
         if expr.kind == "Literal" {
             if expr.literalType == "String" {
                 sb.append("\"" + expr.literalValue + "\"")

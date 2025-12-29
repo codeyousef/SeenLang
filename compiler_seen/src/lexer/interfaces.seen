@@ -46,7 +46,7 @@ class Token {
     }
 }
 
-fun getType(token: Token) r: TokenType {
+fun getType(token: Token) r: SeenTokenType {
     return token.getType()
 }
 

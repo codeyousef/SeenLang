@@ -17,17 +17,24 @@
 | Stage1→Stage2→Stage3 | ⏳ Blocked on Stage1 |
 | LLVM Tracing Infrastructure | ✅ Complete |
 
-**Blocking Issue:** Compiling `compiler_seen/src/main.seen` fails with `Type mismatch: expected TokenType, found ??` in `real_parser.seen`. The self-hosted parser cannot resolve enum variants from `lexer` modules. We have attempted splitting the enum into `token_type.seen` and aliasing imports, but the issue persists. This blocks generating a functional Stage1 compiler.
+**Blocking Issue:** Compiling `compiler_seen/src/main.seen` fails with `Unknown enum variant 'BangEqual' in enum 'SeenTokenType'` during IR lowering. The self-hosted parser's enum variants don't all match the `SeenTokenType` definition. Build progresses past type-checking but fails in LLVM IR generation.
 
-**Recent Progress (2025-12-29):**
+**Recent Progress (2025-12-30):**
 1. Implemented `LlvmTraceOptions` with `--trace-llvm` CLI flag for debugging
 2. Fixed `IRValue::Struct` array field handling (load content from pointer, not store pointer)
 3. Fixed `ConstructObject` array field handling (same fix)
 4. `test_array_push.seen` now passes - basic Array field in struct works
 5. Stage1 `--help` and `--version` work correctly
 6. Narrowed crash to Vec_push accessing its internal Array fields when Vec is a class pointer stored in Map
-7. **[NEW]** Refactored `TokenType` into `SeenTokenType` in `lexer/token_type.seen` to attempt to fix circular dependency/resolution issues.
-8. **[NEW]** Cleaned up `lexer/interfaces.seen` and `keyword_manager.seen`.
+7. Refactored `TokenType` into `SeenTokenType` in `lexer/token_type.seen`
+8. **[FIXED]** Resolved `Type mismatch: expected SeenTokenType, found ??` by removing nullable enum returns
+9. **[NEW]** Added `None` variant to `SeenTokenType` enum as workaround for nullable enum issues
+10. **[NEW]** Changed lexer helper functions (`getTwoCharOperatorType`, `getSingleCharOperatorType`, `getSingleCharSeenTokenType`) to return `SeenTokenType` instead of `SeenTokenType?`, returning `SeenTokenType.None` instead of `null`
+11. **[NEW]** Fixed `c_gen.seen` to import `ParserExpressionNode` instead of `ExpressionNode`
+12. **[NEW]** Fixed `real_parser.seen` enum variants: `Greater` → `GreaterThan`, `Less` → `LessThan`
+13. **[NEW]** Added helper functions to `token_type.seen` (e.g., `getLeftParenType()`) to work around enum resolution
+14. **[NEW]** Added `KeywordUse` variant to `SeenTokenType` enum
+15. **[REMAINING]** Need to add `BangEqual` variant or fix parser to use `NotEqual`
 
 ---
 
