@@ -22,16 +22,39 @@ impl IRGenerator {
 
         let result_reg = self.context.allocate_register();
         let result_value = IRValue::Register(result_reg);
+        
+        // Try to determine the element type from the array's type
+        let element_type = self.get_array_element_type(&obj_val);
 
         let access_instruction = Instruction::ArrayAccess {
             array: obj_val,
             index: idx_val,
             result: result_value.clone(),
+            element_type,
         };
 
         obj_instructions.push(access_instruction);
 
         Ok((result_value, obj_instructions))
+    }
+    
+    /// Get the element type of an array value
+    fn get_array_element_type(&self, array_val: &IRValue) -> Option<IRType> {
+        match array_val {
+            IRValue::Register(reg) => {
+                match self.context.register_types.get(reg) {
+                    Some(IRType::Array(inner)) => Some((**inner).clone()),
+                    _ => None,
+                }
+            }
+            IRValue::Variable(var_name) => {
+                match self.context.get_variable_type(var_name) {
+                    Some(IRType::Array(inner)) => Some((**inner).clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Generate IR for member access
@@ -81,7 +104,7 @@ impl IRGenerator {
                 None
             };
             
-            if let Some(field_type) = field_type_opt {
+            if let Some(field_type) = field_type_opt.clone() {
                 self.context.set_register_type(result_reg, field_type.clone());
                 
                 // Track container element types for Vec<T>, Option<T>, etc.
@@ -106,12 +129,27 @@ impl IRGenerator {
                     _ => {}
                 }
             }
+            
+            // Create instruction with resolved types
+            let access_instruction = Instruction::FieldAccess {
+                struct_val: obj_val,
+                field: member.to_string(),
+                result: result_value.clone(),
+                struct_type: Some(type_name),
+                field_type: field_type_opt,
+            };
+
+            obj_instructions.push(access_instruction);
+            return Ok((result_value, obj_instructions));
         }
 
+        // Fall back to instruction without type info
         let access_instruction = Instruction::FieldAccess {
             struct_val: obj_val,
             field: member.to_string(),
             result: result_value.clone(),
+            struct_type: None,
+            field_type: None,
         };
 
         obj_instructions.push(access_instruction);

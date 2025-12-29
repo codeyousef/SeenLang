@@ -1,0 +1,60 @@
+// Test that mirrors the lexer's token handling
+
+class Token {
+    let tokenType: Int
+    let value: String
+    let line: Int
+    let column: Int
+    
+    static fun new(tokenType: Int, value: String, line: Int, column: Int) r: Token {
+        println("[Token.new] creating token")
+        return Token {
+            tokenType: tokenType,
+            value: value,
+            line: line,
+            column: column
+        }
+    }
+}
+
+class Lexer {
+    let source: String
+    var position: Int
+    var tokens: Array<Token>
+    
+    static fun new(source: String) r: Lexer {
+        println("[Lexer.new] creating lexer with source: " + source)
+        return Lexer {
+            source: source,
+            position: 0,
+            tokens: Array<Token>()
+        }
+    }
+    
+    fun tokenize() r: Array<Token> {
+        println("[tokenize] starting, source = " + source)
+        
+        while position < source.length() {
+            let char = source.charAt(position)
+            println("[tokenize] position=" + position.toString() + " char=" + char)
+            
+            // Emit a token for each character
+            let token = Token.new(1, char, 1, position)
+            println("[tokenize] after Token.new, source = " + source)
+            tokens.push(token)
+            println("[tokenize] after push, source = " + source)
+            
+            position = position + 1
+        }
+        
+        println("[tokenize] done, returning " + tokens.length().toString() + " tokens")
+        return tokens
+    }
+}
+
+fun main() r: Int {
+    let lexer = Lexer.new("abc")
+    let tokens = lexer.tokenize()
+    println("Got " + tokens.length().toString() + " tokens")
+    return 0
+}

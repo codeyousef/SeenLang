@@ -19,6 +19,8 @@ impl IRGenerator {
             target: IRValue::GlobalVariable(function_name.to_string()),
             args,
             result: Some(result.clone()),
+            arg_types: None,
+            return_type: None,
         };
         (result, call)
     }

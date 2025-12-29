@@ -990,24 +990,59 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 // Check the ORIGINAL name to avoid catching "Vec_push" when it's normalized to "push".
                 "push" | "List_push" | "Array_push" if !name.starts_with("Vec_") => {
                     // push(array, value) - append value to dynamic array
+                    // CRITICAL: For push to modify the original array, we need the SLOT POINTER
+                    // of the array variable, NOT a loaded copy of the array value.
                     if args.len() == 2 {
-                        let arr_val = self.eval_value(&args[0], fn_map)?;
                         let value = self.eval_value(&args[1], fn_map)?;
                         
-                        let arr_ptr = if arr_val.is_pointer_value() {
-                            arr_val.into_pointer_value()
-                        } else if arr_val.is_struct_value() {
-                            // Vec struct value - spill to stack and use pointer
-                            let sv = arr_val.into_struct_value();
-                            let spill = self.builder.build_alloca(sv.get_type(), "vec_spill")?;
-                            self.builder.build_store(spill, sv)?;
-                            spill
-                        } else {
-                            self.builder.build_int_to_ptr(
-                                arr_val.into_int_value(),
-                                self.i8_ptr_t,
-                                "arr_ptr"
-                            )?
+                        // Try to get the slot pointer for the array variable directly
+                        // This is necessary because push needs to modify the array in-place
+                        let arr_ptr = match &args[0] {
+                            IRValue::Variable(var_name) => {
+                                // Use the variable's slot pointer directly
+                                if let Some(slot) = self.var_slots.get(var_name).copied() {
+                                    slot
+                                } else {
+                                    // Fallback to eval_value if no slot (shouldn't happen for local arrays)
+                                    let arr_val = self.eval_value(&args[0], fn_map)?;
+                                    if arr_val.is_pointer_value() {
+                                        arr_val.into_pointer_value()
+                                    } else if arr_val.is_struct_value() {
+                                        // This path LOSES the modification!
+                                        eprintln!("WARNING: Array_push on struct value - modification may be lost!");
+                                        let sv = arr_val.into_struct_value();
+                                        let spill = self.builder.build_alloca(sv.get_type(), "vec_spill")?;
+                                        self.builder.build_store(spill, sv)?;
+                                        spill
+                                    } else {
+                                        self.builder.build_int_to_ptr(
+                                            arr_val.into_int_value(),
+                                            self.i8_ptr_t,
+                                            "arr_ptr"
+                                        )?
+                                    }
+                                }
+                            }
+                            _ => {
+                                // Not a variable - evaluate normally
+                                let arr_val = self.eval_value(&args[0], fn_map)?;
+                                if arr_val.is_pointer_value() {
+                                    arr_val.into_pointer_value()
+                                } else if arr_val.is_struct_value() {
+                                    // This path LOSES the modification!
+                                    eprintln!("WARNING: Array_push on non-variable struct - modification may be lost!");
+                                    let sv = arr_val.into_struct_value();
+                                    let spill = self.builder.build_alloca(sv.get_type(), "vec_spill")?;
+                                    self.builder.build_store(spill, sv)?;
+                                    spill
+                                } else {
+                                    self.builder.build_int_to_ptr(
+                                        arr_val.into_int_value(),
+                                        self.i8_ptr_t,
+                                        "arr_ptr"
+                                    )?
+                                }
+                            }
                         };
                         
                         // Load current length
@@ -1136,16 +1171,12 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             };
                             self.builder.build_store(elem_ptr, val_to_store)?;
                         } else if value.is_pointer_value() {
-                            // Pointer value - could be:
-                            // 1. A pointer to a primitive (generic T where T=Int) - needs dereference
-                            // 2. An actual struct pointer - store as-is
-                            
+                            // Pointer value - this IS the value for reference types (class instances)
+                            // Store the pointer as i64 (reference semantics)
                             let ptr = value.into_pointer_value();
                             
-                            // For generic values passed as pointers, dereference to get the actual value
-                            // This handles Vec<Int>.push(value) where value is passed as ptr to stack
-                            // Try loading as i64 first (works for int/ptr-as-int/struct-ptr-as-int)
-                            let int_val = self.builder.build_load(self.i64_t, ptr, "deref_int")?.into_int_value();
+                            // Convert pointer to i64 and store it
+                            let ptr_as_int = self.builder.build_ptr_to_int(ptr, self.i64_t, "ptr_to_int")?;
                             let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
                             let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
                             let elem_ptr = unsafe {
@@ -1156,7 +1187,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                     "elem_ptr"
                                 )?
                             };
-                            self.builder.build_store(elem_ptr, int_val)?;
+                            self.builder.build_store(elem_ptr, ptr_as_int)?;
                         } else if value.is_struct_value() {
                             let sv = value.into_struct_value();
                             let st = sv.get_type();
@@ -1384,15 +1415,25 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             .into_pointer_value();
                         
                         // DEBUG: Print pointer
-                        let fmt = self.builder.build_global_string_ptr("DEBUG: charAt s: %p, idx: %lld, malloc buf: %p\n", "debug_fmt_charat")?;
-                        self.call_printf(&[fmt.as_pointer_value().into(), s.into(), idx.into(), buf.into()])?;
+                        let fmt = self.builder.build_global_string_ptr("DEBUG: charAt BEFORE GEP s: %p, idx: %lld\n", "debug_fmt_charat1")?;
+                        self.call_printf(&[fmt.as_pointer_value().into(), s.into(), idx.into()])?;
                         
                         // Get pointer to character at index
                         let char_ptr = unsafe {
                             self.builder.build_gep(self.ctx.i8_type(), s, &[idx], "char_ptr")?
                         };
+                        
+                        // DEBUG: Print char_ptr
+                        let fmt2 = self.builder.build_global_string_ptr("DEBUG: charAt AFTER GEP char_ptr: %p\n", "debug_fmt_charat2")?;
+                        self.call_printf(&[fmt2.as_pointer_value().into(), char_ptr.into()])?;
+                        
                         // Load the character as i8
                         let char_val = self.builder.build_load(self.ctx.i8_type(), char_ptr, "char_val")?.into_int_value();
+                        
+                        // DEBUG: Print char value
+                        let fmt3 = self.builder.build_global_string_ptr("DEBUG: charAt LOADED char: %d\n", "debug_fmt_charat3")?;
+                        let char_ext = self.builder.build_int_z_extend(char_val, self.ctx.i32_type(), "char_ext")?;
+                        self.call_printf(&[fmt3.as_pointer_value().into(), char_ext.into()])?;
                         
                         // Store the character in the buffer (build_store takes ptr, value)
                         self.builder.build_store(buf, char_val)?;
@@ -1613,7 +1654,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         );
                         
                         if let Some(r) = result {
-                            self.assign_value(r, bufp.as_basic_value_enum())?;
+                            // Convert C string to Seen String struct { i64 len, i8* ptr }
+                            let str_struct = self.cstr_to_string_struct(bufp)?;
+                            self.assign_value(r, str_struct)?;
                         }
                     }
                     return Ok(());
@@ -1662,7 +1705,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         );
                         
                         if let Some(r) = result {
-                            self.assign_value(r, bufp.as_basic_value_enum())?;
+                            // Convert C string to Seen String struct { i64 len, i8* ptr }
+                            let str_struct = self.cstr_to_string_struct(bufp)?;
+                            self.assign_value(r, str_struct)?;
                         }
                     }
                     return Ok(());

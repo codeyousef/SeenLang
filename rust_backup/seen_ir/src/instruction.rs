@@ -1,6 +1,7 @@
 //! IR instruction system for the Seen programming language
 
 use crate::arena::{Arena, ArenaIndex};
+use crate::diagnostics::SourceSpan;
 use crate::value::{IRType, IRValue};
 use seen_parser::Expression as AstExpression;
 use serde::{Deserialize, Serialize};
@@ -132,6 +133,10 @@ pub enum Instruction {
         target: IRValue,
         args: Vec<IRValue>,
         result: Option<IRValue>,
+        /// Fully resolved argument types (from monomorphization)
+        arg_types: Option<Vec<IRType>>,
+        /// Fully resolved return type (from monomorphization)
+        return_type: Option<IRType>,
     },
     Return(Option<IRValue>),
 
@@ -176,11 +181,15 @@ pub enum Instruction {
         array: IRValue,
         index: IRValue,
         result: IRValue,
+        /// The type of elements in this array (enables validation without hashmaps)
+        element_type: Option<IRType>,
     },
     ArraySet {
         array: IRValue,
         index: IRValue,
         value: IRValue,
+        /// The type of elements in this array (enables validation without hashmaps)
+        element_type: Option<IRType>,
     },
     ArrayLength {
         array: IRValue,
@@ -192,11 +201,19 @@ pub enum Instruction {
         struct_val: IRValue,
         field: String,
         result: IRValue,
+        /// The struct type being accessed (enables validation)
+        struct_type: Option<String>,
+        /// The type of the field being accessed
+        field_type: Option<IRType>,
     },
     FieldSet {
         struct_val: IRValue,
         field: String,
         value: IRValue,
+        /// The struct type being modified (enables validation)
+        struct_type: Option<String>,
+        /// The type of the field being set
+        field_type: Option<IRType>,
     },
 
     // Enum operations
@@ -256,12 +273,22 @@ pub enum Instruction {
         method_name: String,
         args: Vec<IRValue>,
         result: Option<IRValue>,
+        /// Receiver type for validation
+        receiver_type: Option<IRType>,
+        /// Resolved argument types
+        arg_types: Option<Vec<IRType>>,
+        /// Resolved return type
+        return_type: Option<IRType>,
     },
     StaticCall {
         class_name: String,
         method_name: String,
         args: Vec<IRValue>,
         result: Option<IRValue>,
+        /// Resolved argument types
+        arg_types: Option<Vec<IRType>>,
+        /// Resolved return type
+        return_type: Option<IRType>,
     },
 
     // Object-oriented operations
@@ -269,12 +296,16 @@ pub enum Instruction {
         class_name: String,
         args: Vec<IRValue>,
         result: IRValue,
+        /// Resolved constructor argument types (after monomorphization)
+        arg_types: Option<Vec<IRType>>,
     },
     ConstructEnum {
         enum_name: String,
         variant_name: String,
         fields: Vec<IRValue>,
         result: IRValue,
+        /// Resolved field types for this variant
+        field_types: Option<Vec<IRType>>,
     },
 
     // Debug and intrinsics
@@ -321,6 +352,8 @@ impl fmt::Display for Instruction {
                 target,
                 args,
                 result,
+                arg_types,
+                return_type,
             } => {
                 write!(f, "  call {} (", target)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -328,10 +361,18 @@ impl fmt::Display for Instruction {
                         write!(f, ", ")?;
                     }
                     write!(f, "{}", arg)?;
+                    if let Some(types) = arg_types {
+                        if let Some(ty) = types.get(i) {
+                            write!(f, ": {}", ty)?;
+                        }
+                    }
                 }
                 write!(f, ")")?;
                 if let Some(res) = result {
                     write!(f, " -> {}", res)?;
+                    if let Some(rt) = return_type {
+                        write!(f, ": {}", rt)?;
+                    }
                 }
                 Ok(())
             }
@@ -376,15 +417,25 @@ impl fmt::Display for Instruction {
                 array,
                 index,
                 result,
+                element_type,
             } => {
-                write!(f, "  arr_get {}[{}] -> {}", array, index, result)
+                write!(f, "  arr_get {}[{}] -> {}", array, index, result)?;
+                if let Some(ty) = element_type {
+                    write!(f, " : {}", ty)?;
+                }
+                Ok(())
             }
             Instruction::ArraySet {
                 array,
                 index,
                 value,
+                element_type,
             } => {
-                write!(f, "  arr_set {}[{}] = {}", array, index, value)
+                write!(f, "  arr_set {}[{}] = {}", array, index, value)?;
+                if let Some(ty) = element_type {
+                    write!(f, " : {}", ty)?;
+                }
+                Ok(())
             }
             Instruction::ArrayLength { array, result } => {
                 write!(f, "  arr_len {} -> {}", array, result)
@@ -393,15 +444,35 @@ impl fmt::Display for Instruction {
                 struct_val,
                 field,
                 result,
+                struct_type,
+                field_type,
             } => {
-                write!(f, "  field_get {}.{} -> {}", struct_val, field, result)
+                write!(f, "  field_get {}.{} -> {}", struct_val, field, result)?;
+                if let Some(st) = struct_type {
+                    write!(f, " ({}", st)?;
+                    if let Some(ft) = field_type {
+                        write!(f, ".{}", ft)?;
+                    }
+                    write!(f, ")")?;
+                }
+                Ok(())
             }
             Instruction::FieldSet {
                 struct_val,
                 field,
                 value,
+                struct_type,
+                field_type,
             } => {
-                write!(f, "  field_set {}.{} = {}", struct_val, field, value)
+                write!(f, "  field_set {}.{} = {}", struct_val, field, value)?;
+                if let Some(st) = struct_type {
+                    write!(f, " ({}", st)?;
+                    if let Some(ft) = field_type {
+                        write!(f, ".{}", ft)?;
+                    }
+                    write!(f, ")")?;
+                }
+                Ok(())
             }
             Instruction::GetEnumTag { enum_value, result } => {
                 write!(f, "  enum_tag {} -> {}", enum_value, result)
@@ -471,17 +542,31 @@ impl fmt::Display for Instruction {
                 method_name,
                 args,
                 result,
+                receiver_type,
+                arg_types,
+                return_type,
             } => {
                 write!(f, "  vcall {}.{}(", receiver, method_name)?;
+                if let Some(rt) = receiver_type {
+                    write!(f, " /* recv: {} */ ", rt)?;
+                }
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
                     write!(f, "{}", arg)?;
+                    if let Some(types) = arg_types {
+                        if let Some(ty) = types.get(i) {
+                            write!(f, ": {}", ty)?;
+                        }
+                    }
                 }
                 write!(f, ")")?;
                 if let Some(res) = result {
                     write!(f, " -> {}", res)?;
+                    if let Some(ret) = return_type {
+                        write!(f, ": {}", ret)?;
+                    }
                 }
                 Ok(())
             }
@@ -490,6 +575,8 @@ impl fmt::Display for Instruction {
                 method_name,
                 args,
                 result,
+                arg_types,
+                return_type,
             } => {
                 write!(f, "  scall {}::{} (", class_name, method_name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -497,10 +584,18 @@ impl fmt::Display for Instruction {
                         write!(f, ", ")?;
                     }
                     write!(f, "{}", arg)?;
+                    if let Some(types) = arg_types {
+                        if let Some(ty) = types.get(i) {
+                            write!(f, ": {}", ty)?;
+                        }
+                    }
                 }
                 write!(f, ")")?;
                 if let Some(res) = result {
                     write!(f, " -> {}", res)?;
+                    if let Some(ret) = return_type {
+                        write!(f, ": {}", ret)?;
+                    }
                 }
                 Ok(())
             }
@@ -508,6 +603,7 @@ impl fmt::Display for Instruction {
                 class_name,
                 args,
                 result,
+                arg_types,
             } => {
                 write!(f, "  new {}(", class_name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -515,6 +611,11 @@ impl fmt::Display for Instruction {
                         write!(f, ", ")?;
                     }
                     write!(f, "{}", arg)?;
+                    if let Some(types) = arg_types {
+                        if let Some(ty) = types.get(i) {
+                            write!(f, ": {}", ty)?;
+                        }
+                    }
                 }
                 write!(f, ") -> {}", result)
             }
@@ -523,6 +624,7 @@ impl fmt::Display for Instruction {
                 variant_name,
                 fields,
                 result,
+                field_types,
             } => {
                 write!(f, "  enum {}::{}(", enum_name, variant_name)?;
                 for (i, field) in fields.iter().enumerate() {
@@ -530,6 +632,11 @@ impl fmt::Display for Instruction {
                         write!(f, ", ")?;
                     }
                     write!(f, "{}", field)?;
+                    if let Some(types) = field_types {
+                        if let Some(ty) = types.get(i) {
+                            write!(f, ": {}", ty)?;
+                        }
+                    }
                 }
                 write!(f, ") -> {}", result)
             }
@@ -578,7 +685,14 @@ impl fmt::Display for Instruction {
 pub struct BasicBlock {
     pub label: Label,
     pub instructions: Vec<Instruction>,
-    pub terminator: Option<Instruction>, // Jump, Return, etc.
+    /// Source spans for each instruction (parallel to `instructions` vector).
+    /// If present, `instruction_spans[i]` corresponds to `instructions[i]`.
+    #[serde(default)]
+    pub instruction_spans: Vec<SourceSpan>,
+    pub terminator: Option<Instruction>,
+    /// Source span for the terminator instruction
+    #[serde(default)]
+    pub terminator_span: Option<SourceSpan>,
 }
 
 impl BasicBlock {
@@ -586,11 +700,18 @@ impl BasicBlock {
         Self {
             label,
             instructions: Vec::new(),
+            instruction_spans: Vec::new(),
             terminator: None,
+            terminator_span: None,
         }
     }
 
     pub fn add_instruction(&mut self, instruction: Instruction) {
+        self.add_instruction_with_span(instruction, SourceSpan::unknown());
+    }
+    
+    /// Add an instruction with its source location
+    pub fn add_instruction_with_span(&mut self, instruction: Instruction, span: SourceSpan) {
         // Check if this is a terminator instruction
         match instruction {
             Instruction::Jump(_)
@@ -598,11 +719,18 @@ impl BasicBlock {
             | Instruction::JumpIfNot { .. }
             | Instruction::Return(_) => {
                 self.terminator = Some(instruction);
+                self.terminator_span = Some(span);
             }
             _ => {
                 self.instructions.push(instruction);
+                self.instruction_spans.push(span);
             }
         }
+    }
+    
+    /// Get the span for instruction at index, if available
+    pub fn get_instruction_span(&self, index: usize) -> Option<&SourceSpan> {
+        self.instruction_spans.get(index).filter(|s| s.is_known())
     }
 
     pub fn is_terminated(&self) -> bool {

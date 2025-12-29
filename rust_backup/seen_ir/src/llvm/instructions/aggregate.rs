@@ -204,11 +204,21 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             
             // Check if we're accessing a struct array
             if let Some(ref struct_type_name) = element_struct_type {
+                eprintln!("DEBUG ArrayAccess struct array: element_struct_type={}", struct_type_name);
                 // Check if this is a class type (heap-allocated, stored as pointer)
                 let is_class = self.class_types.contains(struct_type_name);
                 
+                // Handle generic type parameters (T, E, K, V, etc.)
+                // These are unresolved at codegen time, so we need to use a fallback strategy
+                let is_generic_param = struct_type_name.len() == 1 && struct_type_name.chars().next().map_or(false, |c| c.is_uppercase());
+                
                 // Resolve the LLVM struct type, handling the built-in String explicitly
                 let llvm_struct_ty = if struct_type_name == "String" {
+                    Some(self.ty_string())
+                } else if is_generic_param {
+                    // For generic type parameters, try String first as it's the most common case
+                    // that breaks when loaded as i64 (since String is 16 bytes)
+                    // Note: This is a heuristic - ideally we'd track the actual instantiated type
                     Some(self.ty_string())
                 } else {
                     self.struct_types.get(struct_type_name).map(|(ty, _)| *ty)
@@ -217,7 +227,8 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 if let Some(llvm_struct_ty) = llvm_struct_ty {
                     // For classes: elements are stored as i64 (pointer-as-int)
                     // For structs: elements are stored inline
-                    if is_class {
+                    // For generic params (T), assume struct storage (safer default)
+                    if is_class && !is_generic_param {
                         // Class arrays store pointers-as-i64
                         let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
                         let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
@@ -325,6 +336,63 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             }
             
             // Default: treat as i64 array (works for int, pointer-as-int, and generic values)
+            eprintln!("DEBUG ArrayAccess DEFAULT: array={:?}", array);
+            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+            let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+            
+            let elem_ptr = unsafe {
+                self.builder.build_gep(
+                    self.i64_t,
+                    data_i64_ptr,
+                    &[idx_iv],
+                    "elem_ptr",
+                )?
+            };
+            let elem = self.builder.build_load(self.i64_t, elem_ptr, "elem")?;
+            self.assign_value(result, elem.as_basic_value_enum())?;
+        } else if arr_v.is_struct_value() {
+            // Handle struct value - this is an array struct loaded by value { len, cap, data }
+            // Extract the data pointer from the struct (field 2)
+            // Note: in opaque pointer mode, field 2 is a ptr type, not i64
+            let arr_struct = arr_v.into_struct_value();
+            let data_ptr = self.builder.build_extract_value(arr_struct, 2, "data_ptr")?
+                .into_pointer_value();
+            
+            let idx_bv = self.eval_value(index, fn_map)?;
+            let idx_iv = self.as_i64(idx_bv)?;
+            
+            // Check if this is a struct array  
+            if let Some(ref struct_type_name) = element_struct_type {
+                let llvm_struct_ty = if struct_type_name == "String" {
+                    Some(self.ty_string())
+                } else {
+                    self.struct_types.get(struct_type_name).map(|(ty, _)| *ty)
+                };
+                
+                if let Some(llvm_struct_ty) = llvm_struct_ty {
+                    let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
+                    
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            llvm_struct_ty,
+                            data_struct_ptr,
+                            &[idx_iv],
+                            "struct_elem_ptr",
+                        )?
+                    };
+                    
+                    let struct_val = self.builder.build_load(llvm_struct_ty, elem_ptr, "struct_load")?;
+                    self.assign_value(result, struct_val)?;
+                    
+                    if let IRValue::Register(reg_id) = result {
+                        self.reg_struct_types.insert(*reg_id, struct_type_name.clone());
+                    }
+                    return Ok(());
+                }
+            }
+            
+            // Default: treat as i64 array
             let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
             let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
             
@@ -339,6 +407,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             let elem = self.builder.build_load(self.i64_t, elem_ptr, "elem")?;
             self.assign_value(result, elem.as_basic_value_enum())?;
         } else {
+            eprintln!("ERROR ArrayAccess: array={:?}, arr_v type={:?}", array, arr_v.get_type());
             return Err(anyhow!("Unsupported array access value"));
         }
         Ok(())
@@ -370,39 +439,53 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             None
         };
         
-        let arr_ptr = if arr_v.is_pointer_value() {
-            arr_v.into_pointer_value()
+        // Get data pointer and array length - handle struct value (array loaded by value) or pointer/int
+        let (data_ptr, len) = if arr_v.is_struct_value() {
+            // Array struct loaded by value { len, cap, data_ptr }
+            let arr_struct = arr_v.into_struct_value();
+            let len_val = self.builder.build_extract_value(arr_struct, 0, "len")?
+                .into_int_value();
+            let data_ptr = self.builder.build_extract_value(arr_struct, 2, "data_ptr")?
+                .into_pointer_value();
+            (data_ptr, len_val)
         } else {
-            self.builder
-                .build_int_to_ptr(
-                    arr_v.into_int_value(),
-                    self.i8_ptr_t,
-                    "arr_set_ptr",
-                )
-                .map_err(|e| anyhow!("{e:?}"))?
+            let arr_ptr = if arr_v.is_pointer_value() {
+                arr_v.into_pointer_value()
+            } else {
+                self.builder
+                    .build_int_to_ptr(
+                        arr_v.into_int_value(),
+                        self.i8_ptr_t,
+                        "arr_set_ptr",
+                    )
+                    .map_err(|e| anyhow!("{e:?}"))?
+            };
+            
+            // Get length from array pointer
+            let len = self.get_array_len(arr_ptr)?;
+            
+            // Get pointer to data section (offset 16)
+            let data_ptr_ptr = unsafe {
+                self.builder.build_gep(
+                    self.i64_t,
+                    self.builder.build_pointer_cast(arr_ptr, self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
+                    &[self.i64_t.const_int(2, false)],
+                    "data_ptr_ptr"
+                )?
+            };
+            let data_ptr_ptr_casted = self.builder.build_pointer_cast(
+                data_ptr_ptr,
+                self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                "data_ptr_ptr_casted"
+            )?;
+            let data_ptr = self.builder.build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?.into_pointer_value();
+            (data_ptr, len)
         };
-        
-        // Get pointer to data section (offset 16)
-        let data_ptr_ptr = unsafe {
-            self.builder.build_gep(
-                self.i64_t,
-                self.builder.build_pointer_cast(arr_ptr, self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
-                &[self.i64_t.const_int(2, false)],
-                "data_ptr_ptr"
-            )?
-        };
-        let data_ptr_ptr_casted = self.builder.build_pointer_cast(
-            data_ptr_ptr,
-            self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
-            "data_ptr_ptr_casted"
-        )?;
-        let data_ptr = self.builder.build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?.into_pointer_value();
         
         let idx_bv = self.eval_value(index, fn_map)?;
         let idx_iv = self.as_i64(idx_bv)?;
 
         // BOUNDS CHECK (using DRY helper)
-        let len = self.get_array_len(arr_ptr)?;
         self.build_bounds_check(idx_iv, len)?;
         
         // Check if we're setting a struct array element
@@ -641,6 +724,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                             if let IRType::Struct { name: inner_struct_name, .. } = &**inner {
                                 if let IRValue::Register(reg_id) = result {
                                     self.reg_array_element_struct.insert(*reg_id, inner_struct_name.clone());
+                                }
+                            }
+                            // Track String arrays explicitly
+                            if matches!(inner.as_ref(), IRType::String) {
+                                if let IRValue::Register(reg_id) = result {
+                                    self.reg_array_element_struct.insert(*reg_id, "String".to_string());
                                 }
                             }
                             // Track integer and char arrays for proper array access

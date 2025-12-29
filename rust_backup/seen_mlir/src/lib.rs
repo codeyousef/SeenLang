@@ -305,6 +305,7 @@ fn instruction_to_mlir(
             target,
             args,
             result,
+            ..
         } => render_call(target, args, result.as_ref(), ctx),
         Instruction::Return(Some(value)) => {
             let operand = value_operand(value, ctx);
@@ -383,6 +384,7 @@ fn instruction_to_mlir(
             array,
             index,
             result,
+            ..
         } => {
             let res = value_result(result);
             let arr = value_operand(array, ctx);
@@ -399,6 +401,7 @@ fn instruction_to_mlir(
             array,
             index,
             value,
+            ..
         } => {
             let arr = value_operand(array, ctx);
             let idx = value_operand(index, ctx);
@@ -425,6 +428,7 @@ fn instruction_to_mlir(
             struct_val,
             field,
             result,
+            ..
         } => {
             let res = value_result(result);
             let obj = value_operand(struct_val, ctx);
@@ -443,6 +447,7 @@ fn instruction_to_mlir(
             struct_val,
             field,
             value,
+            ..
         } => {
             let obj = value_operand(struct_val, ctx);
             let val = value_operand(value, ctx);
@@ -584,6 +589,7 @@ fn instruction_to_mlir(
             method_name,
             args,
             result,
+            ..
         } => render_dispatch_call(
             "seen.virtual_call",
             Some(receiver),
@@ -597,11 +603,13 @@ fn instruction_to_mlir(
             method_name,
             args,
             result,
+            ..
         } => render_static_call(class_name, method_name, args, result.as_ref(), ctx),
         Instruction::ConstructObject {
             class_name,
             args,
             result,
+            ..
         } => {
             let res = value_result(result);
             let operands: Vec<String> = args.iter().map(|a| value_operand(a, ctx)).collect();
@@ -621,6 +629,7 @@ fn instruction_to_mlir(
             variant_name,
             fields,
             result,
+            ..
         } => {
             let res = value_result(result);
             let operands: Vec<String> = fields.iter().map(|f| value_operand(f, ctx)).collect();
@@ -1061,6 +1070,8 @@ mod tests {
             },
             args: vec![IRValue::Variable("input".into())],
             result: Some(call_result.clone()),
+            arg_types: None,
+            return_type: None,
         });
         then_block.terminator = Some(Instruction::Return(Some(call_result)));
         func.cfg.add_block(then_block);

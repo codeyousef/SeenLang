@@ -591,6 +591,7 @@ impl IRModule {
                         target,
                         args,
                         result,
+                        ..
                     } = instruction
                     {
                         if let crate::IRValue::GlobalVariable(callee_name) = target {

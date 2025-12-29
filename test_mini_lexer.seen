@@ -1,0 +1,133 @@
+// Minimal reproduction of lexer crash
+// This file reproduces the exact sequence of operations
+
+enum TokenType {
+    Plus,
+    StringLiteral,
+    EndOfFile
+}
+
+class Token {
+    tokenType: TokenType
+    value: String
+    line: Int
+    column: Int
+    length: Int
+    fileId: Int
+    
+    static fun new(tokenType: TokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) r: Token {
+        return Token {
+            tokenType: tokenType,
+            value: value,
+            line: line,
+            column: column,
+            length: length,
+            fileId: fileId
+        }
+    }
+}
+
+class MiniLexer {
+    source: String
+    fileId: Int
+    position: Int
+    line: Int
+    column: Int
+    tokens: Array<Token>
+    
+    static fun new(source: String, fileId: Int) r: MiniLexer {
+        return MiniLexer {
+            source: source,
+            fileId: fileId,
+            position: 0,
+            line: 1,
+            column: 1,
+            tokens: Array<Token>()
+        }
+    }
+    
+    fun getCurrentChar() r: String {
+        if position >= source.length() {
+            return ""
+        }
+        return source.charAt(position)
+    }
+    
+    fun peekChar(offset: Int) r: String {
+        let peekPos = position + offset
+        if peekPos >= source.length() {
+            return ""
+        }
+        return source.charAt(peekPos)
+    }
+    
+    fun advance() r: Void {
+        position += 1
+        column += 1
+    }
+    
+    fun emitToken(tokenType: TokenType, value: String, length: Int) r: Void {
+        println("[emit] Creating token with value: " + value)
+        let token = Token.new(tokenType, value, line, column - length, length, fileId)
+        tokens.push(token)
+        println("[emit] Token pushed, total tokens: " + tokens.length().toString())
+    }
+    
+    fun handleOperator() r: Bool {
+        println("[op] handleOperator entered")
+        let char = this.getCurrentChar()
+        println("[op] char = " + char)
+        
+        let nextChar = this.peekChar(1)
+        println("[op] nextChar = " + nextChar)
+        
+        // This is the critical operation that crashes
+        println("[op] About to concat char + nextChar...")
+        let twoChar = char + nextChar
+        println("[op] twoChar = " + twoChar)
+        
+        // Single-character operators
+        if char == "+" {
+            this.advance()
+            this.emitToken(TokenType.Plus, char, 1)
+            return true
+        }
+        
+        return false
+    }
+    
+    fun tokenize() r: Array<Token> {
+        position = 0
+        line = 1
+        column = 1
+        tokens = Array<Token>()
+        
+        println("[tok] Starting tokenize, source length: " + source.length().toString())
+        
+        while position < source.length() {
+            let char = this.getCurrentChar()
+            println("[tok] Loop iteration, char = " + char)
+            
+            if char == "+" {
+                this.handleOperator()
+                continue
+            }
+            
+            // Skip other chars
+            this.advance()
+        }
+        
+        this.emitToken(TokenType.EndOfFile, "", 0)
+        
+        return tokens
+    }
+}
+
+fun main() r: Int {
+    println("Creating MiniLexer...")
+    let lexer = MiniLexer.new("+\"a\"", 0)
+    println("Calling tokenize...")
+    let tokens = lexer.tokenize()
+    println("Tokenization complete, token count: " + tokens.length().toString())
+    return 0
+}

@@ -1,0 +1,5 @@
+fun main() {
+    println("Testing arithmetic in IR interpreter")
+    let result = 5 + 10 + 15
+    println("Done!")
+}

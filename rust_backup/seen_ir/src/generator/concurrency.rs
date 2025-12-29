@@ -26,6 +26,8 @@ impl IRGenerator {
             },
             args,
             result: None,
+            arg_types: None,
+            return_type: None,
         }
     }
 
@@ -40,6 +42,8 @@ impl IRGenerator {
             },
             args,
             result: Some(result_value.clone()),
+            arg_types: None,
+            return_type: None,
         };
         (result_value, call)
     }
@@ -101,6 +105,8 @@ impl IRGenerator {
                 },
                 args: vec![channel],
                 result: None,
+                arg_types: None,
+                return_type: None,
             });
             let (_, handler_expr) = lowered_cases.into_iter().next().unwrap();
             let (handler_value, handler_instrs) = self.generate_expression(&handler_expr)?;

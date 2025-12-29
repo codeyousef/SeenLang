@@ -1,0 +1,11 @@
+// Simple string concat test
+fun main() r: Int {
+    let s = "hello"
+    let a = s.charAt(0)
+    let b = s.charAt(1)
+    println("a = " + a)
+    println("b = " + b)
+    let c = a + b  // This is the problematic operation
+    println("c = " + c)
+    return 0
+}

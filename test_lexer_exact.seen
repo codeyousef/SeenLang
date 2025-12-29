@@ -1,0 +1,59 @@
+// Test exact same pattern as lexer
+// Multiple calls to charAt on same string followed by concat
+
+class TestLexer {
+    source: String
+    position: Int
+    
+    static fun new(src: String) r: TestLexer {
+        // Allocate some heap memory before storing source
+        let dummy1 = "allocation1"
+        let dummy2 = "allocation2"
+        let dummy3 = "allocation3"
+        let dummy4 = "allocation4"
+        let dummy5 = "allocation5"
+        println("dummy strings created")
+        
+        return TestLexer{
+            source: src,
+            position: 0
+        }
+    }
+    
+    fun test() r: Void {
+        println("Starting test...")
+        println("source length: " + source.length().toString())
+        
+        // Call charAt multiple times like lexer does
+        let c1 = source.charAt(0)
+        println("c1 = " + c1)
+        
+        let c2 = source.charAt(1)
+        println("c2 = " + c2)
+        
+        let c3 = source.charAt(1)
+        println("c3 = " + c3)
+        
+        let c4 = source.charAt(0)
+        println("c4 = " + c4)
+        
+        // This is the critical 5th call
+        let c5 = source.charAt(1)
+        println("c5 = " + c5)
+        
+        println("All charAt calls succeeded!")
+        
+        // Now try concat
+        let combined = c1 + c2
+        println("combined = " + combined)
+    }
+}
+
+fun main() r: Int {
+    println("Creating test lexer...")
+    let lexer = TestLexer.new("+\"a\"")
+    println("Calling test...")
+    lexer.test()
+    println("Done!")
+    return 0
+}

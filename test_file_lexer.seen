@@ -1,0 +1,76 @@
+// Test reading from file then using charAt
+
+extern fun __OpenFile(path: String) r: Int
+extern fun __ReadFile(fd: Int) r: String
+extern fun __CloseFile(fd: Int) r: Void
+
+fun readFileContents(path: String) r: String {
+    println("readFileContents: opening " + path)
+    let fd = __OpenFile(path)
+    println("readFileContents: fd = " + fd.toString())
+    if fd < 0 {
+        println("readFileContents: fd < 0, returning empty")
+        return ""
+    }
+    println("readFileContents: calling __ReadFile")
+    let content = __ReadFile(fd)
+    println("readFileContents: content len = " + content.length().toString())
+    __CloseFile(fd)
+    println("readFileContents: file closed")
+    return content
+}
+
+class TestLexer {
+    source: String
+    position: Int
+    
+    static fun new(src: String) r: TestLexer {
+        println("TestLexer.new called with source len: " + src.length().toString())
+        return TestLexer{
+            source: src,
+            position: 0
+        }
+    }
+    
+    fun test() r: Void {
+        println("Starting test...")
+        println("source length: " + source.length().toString())
+        
+        // Call charAt multiple times
+        let c1 = source.charAt(0)
+        println("c1 = " + c1)
+        
+        let c2 = source.charAt(1)
+        println("c2 = " + c2)
+        
+        let c3 = source.charAt(1)
+        println("c3 = " + c3)
+        
+        let c4 = source.charAt(0)
+        println("c4 = " + c4)
+        
+        // 5th call
+        let c5 = source.charAt(1)
+        println("c5 = " + c5)
+        
+        println("All charAt calls succeeded!")
+    }
+}
+
+fun main() r: Int {
+    println("Reading file...")
+    let source = readFileContents("/tmp/test.seen")
+    println("File content length: " + source.length().toString())
+    
+    if source.length() == 0 {
+        println("Error: could not read file")
+        return 1
+    }
+    
+    println("Creating test lexer...")
+    let lexer = TestLexer.new(source)
+    println("Calling test...")
+    lexer.test()
+    println("Done!")
+    return 0
+}

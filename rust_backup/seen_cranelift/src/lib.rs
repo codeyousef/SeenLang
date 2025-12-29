@@ -226,6 +226,7 @@ fn instruction_to_clif(inst: &Instruction) -> String {
             target,
             args,
             result,
+            ..
         } => {
             let callee = value_operand(target);
             let arg_list: Vec<String> = args.iter().map(value_operand).collect();

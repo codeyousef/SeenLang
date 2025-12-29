@@ -154,6 +154,8 @@ impl IRGenerator {
                             struct_val: IRValue::Variable(self_name),
                             field: name.clone(),
                             result: field_val.clone(),
+                            struct_type: None,
+                            field_type: None,
                         });
                         field_val
                     } else {
@@ -177,6 +179,8 @@ impl IRGenerator {
                         struct_val: IRValue::Variable(self_name),
                         field: name.clone(),
                         value: assigned_value.clone(),
+                        struct_type: None,
+                        field_type: None,
                     });
                 } else {
                     instructions.push(Instruction::Store {
@@ -204,6 +208,7 @@ impl IRGenerator {
                     array: obj_val,
                     index: idx_val,
                     value: rhs_val.clone(),
+                    element_type: None,
                 });
 
                 Ok((rhs_val, instructions))
@@ -222,6 +227,8 @@ impl IRGenerator {
                     struct_val: obj_val,
                     field: member.clone(),
                     value: rhs_val.clone(),
+                    struct_type: None,
+                    field_type: None,
                 });
 
                 Ok((rhs_val, instructions))

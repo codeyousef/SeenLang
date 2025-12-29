@@ -1,0 +1,104 @@
+// Test with struct layout similar to the real lexer
+
+class Token {
+    let tokenType: Int
+    let value: String
+    let line: Int
+    let column: Int
+    let length: Int
+    let fileId: Int
+    
+    static fun new(tokenType: Int, value: String, line: Int, column: Int, length: Int, fileId: Int) r: Token {
+        return Token {
+            tokenType: tokenType,
+            value: value,
+            line: line,
+            column: column,
+            length: length,
+            fileId: fileId
+        }
+    }
+}
+
+class KeywordManager {
+    var count: Int
+    
+    static fun new() r: KeywordManager {
+        return KeywordManager { count: 0 }
+    }
+}
+
+class SeenLexer {
+    let source: String
+    let fileId: Int
+    let language: String
+    var errorRecoveryMode: Bool
+    var keywordManager: KeywordManager
+    var position: Int
+    var line: Int
+    var column: Int
+    var tokens: Array<Token>
+    
+    static fun new(source: String, fileId: Int, language: String) r: SeenLexer {
+        println("[SeenLexer.new] creating")
+        return SeenLexer {
+            source: source,
+            fileId: fileId,
+            language: language,
+            errorRecoveryMode: false,
+            keywordManager: KeywordManager.new(),
+            position: 0,
+            line: 1,
+            column: 1,
+            tokens: Array<Token>()
+        }
+    }
+    
+    fun getCurrentChar() r: String {
+        if position >= source.length() {
+            return "X"
+        }
+        return source.charAt(position)
+    }
+    
+    fun advance() r: Void {
+        position = position + 1
+    }
+    
+    fun emitToken(tokenType: Int, value: String, length: Int) r: Void {
+        println("[emitToken] creating token for: " + value)
+        let token = Token.new(tokenType, value, line, column, length, fileId)
+        println("[emitToken] pushing token, source before: " + source)
+        tokens.push(token)
+        println("[emitToken] pushed, source after: " + source)
+    }
+    
+    fun tokenize() r: Array<Token> {
+        println("[tokenize] starting with source: " + source)
+        
+        while position < source.length() {
+            println("[tokenize] position=" + position.toString() + " getting char...")
+            let char = this.getCurrentChar()
+            println("[tokenize] got char: " + char)
+            
+            this.emitToken(1, char, 1)
+            
+            println("[tokenize] after emit, checking source...")
+            println("[tokenize] source is: " + source)
+            
+            this.advance()
+        }
+        
+        println("[tokenize] done")
+        return tokens
+    }
+}
+
+fun main() r: Int {
+    println("[main] creating lexer")
+    let lexer = SeenLexer.new("ab", 1, "en")
+    println("[main] calling tokenize")
+    let tokens = lexer.tokenize()
+    println("[main] got " + tokens.length().toString() + " tokens")
+    return 0
+}

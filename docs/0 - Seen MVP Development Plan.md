@@ -425,7 +425,7 @@ echo 'a"b"' > test_ok2.seen
 ```
 
 **Crash Pattern Analysis:**
-- `"a"` alone → works
+- `"a"` alone → works100
 - `a"b"` (identifier + string) → works
 - `+"a"` (operator + string) → CRASHES
 - `="a"` → CRASHES

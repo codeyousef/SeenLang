@@ -137,6 +137,7 @@ impl IRGenerator {
                             class_name: name.clone(),
                             args: arg_values,
                             result: result_val.clone(),
+                            arg_types: None,
                         });
                         instructions.push(Instruction::Return(Some(result_val)));
                         
@@ -589,6 +590,8 @@ impl IRGenerator {
                     target: IRValue::Variable(mangled_name),
                     args: vec![],
                     result: Some(result_value.clone()),
+                    arg_types: None,
+                    return_type: None,
                 });
                 return Ok((result_value, instructions));
             }
@@ -627,6 +630,8 @@ impl IRGenerator {
                     target: IRValue::Variable("__ArrayNew".to_string()),
                     args: vec![IRValue::Integer(element_size), IRValue::Integer(0)],
                     result: Some(result_value.clone()),
+                    arg_types: None,
+                    return_type: None,
                 });
                 return Ok((result_value, instructions));
             }
@@ -689,6 +694,8 @@ impl IRGenerator {
                         target: IRValue::Variable(target_name),
                         args: final_args,
                         result: Some(result_value.clone()),
+                        arg_types: None,
+                        return_type: None,
                     });
                     return Ok((result_value, instructions));
                 }
@@ -873,6 +880,8 @@ impl IRGenerator {
                 target: IRValue::Variable(mangled_name),
                 args: final_args,
                 result: Some(result_value.clone()),
+                arg_types: None,
+                return_type: None,
             });
             return Ok((result_value, instructions));
         }
@@ -921,6 +930,8 @@ impl IRGenerator {
             target: final_target,
             args: final_args,
             result: Some(result_value.clone()),
+            arg_types: None,
+            return_type: None,
         });
 
         Ok((result_value, instructions))

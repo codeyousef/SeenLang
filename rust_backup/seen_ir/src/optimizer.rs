@@ -726,6 +726,7 @@ impl IROptimizer {
                 array,
                 index,
                 value,
+                ..
             } => {
                 Self::accumulate_read_registers(array, counts);
                 Self::accumulate_read_registers(index, counts);
@@ -866,6 +867,7 @@ impl IROptimizer {
                 target,
                 args,
                 result,
+                ..
             } => {
                 Self::remap_read_value(target, allocator, mapping, remaining);
                 for arg in args {
@@ -892,6 +894,7 @@ impl IROptimizer {
                 array,
                 index,
                 result,
+                ..
             } => {
                 Self::remap_read_value(array, allocator, mapping, remaining);
                 Self::remap_read_value(index, allocator, mapping, remaining);
@@ -901,6 +904,7 @@ impl IROptimizer {
                 array,
                 index,
                 value,
+                ..
             } => {
                 Self::remap_read_value(array, allocator, mapping, remaining);
                 Self::remap_read_value(index, allocator, mapping, remaining);
@@ -1501,7 +1505,7 @@ impl IROptimizer {
                 self.mark_value_used(array, used_values);
                 self.mark_value_used(index, used_values);
             }
-            Instruction::ArraySet { array, index, value } => {
+            Instruction::ArraySet { array, index, value, .. } => {
                 self.mark_value_used(array, used_values);
                 self.mark_value_used(index, used_values);
                 self.mark_value_used(value, used_values);
@@ -1517,6 +1521,11 @@ impl IROptimizer {
             // Cast operations
             Instruction::Cast { value, .. } => {
                 self.mark_value_used(value, used_values);
+            }
+            // String operations
+            Instruction::StringConcat { left, right, .. } => {
+                self.mark_value_used(left, used_values);
+                self.mark_value_used(right, used_values);
             }
             // Allocate and other operations
             Instruction::Allocate { size, .. } => {

@@ -161,7 +161,7 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
         // Pre-pass to track array element struct types for FieldAccess results
         for block in func.cfg.blocks_iter() {
             for inst in &block.instructions {
-                if let Instruction::FieldAccess { struct_val: _, field, result } = inst {
+                if let Instruction::FieldAccess { struct_val: _, field, result, .. } = inst {
                     if let IRValue::Register(reg_id) = result {
                         for (_, def_fields) in self.struct_definitions.iter() {
                             for (field_name, field_ty) in def_fields.iter() {
@@ -433,6 +433,7 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
                 struct_val,
                 field,
                 result,
+                ..
             } => {
                 let reg_id = if let IRValue::Register(id) = result {
                     *id as usize
@@ -586,7 +587,7 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
                 }
                 Some((reg_id, self.i64_t.into()))
             }
-            Instruction::FieldAccess { result, field, struct_val } => {
+            Instruction::FieldAccess { result, field, struct_val, .. } => {
                 let reg_id = if let IRValue::Register(id) = result { *id as usize } else { return None; };
                 if let Some(ty) = field_type_index.get(field) {
                     return Some((reg_id, *ty));

@@ -15,22 +15,35 @@ use std::fmt;
 // IR system modules
 pub mod arena;
 pub mod cfg_builder;
+pub mod diagnostics;
 pub mod function;
 pub mod generator;
 pub mod instruction;
+pub mod interpreter;
 #[cfg(feature = "llvm")]
 pub mod llvm_backend;
 #[cfg(feature = "llvm")]
 pub mod llvm;
 pub mod module;
+pub mod monomorphize;
 pub mod optimizer;
 pub mod value;
 
 // Re-export main types
+pub use diagnostics::{SourceSpan, CompilerError, CompilerPhase, CompilerResult, Diagnostics, DiagnosticSeverity};
 pub use function::{IRFunction, Parameter, SimdDecisionReason, SimdMetadata, SimdMode};
 pub use generator::IRGenerator;
 pub use instruction::{BasicBlock, Instruction, Label};
+pub use interpreter::{
+    Interpreter as IRInterpreter, 
+    InterpreterConfig as IRInterpreterConfig,
+    InterpreterValue, 
+    InterpreterError,
+    IRValidator,
+    ValidationResult,
+};
 pub use module::IRModule;
+pub use monomorphize::MonomorphizationPass;
 pub use optimizer::{IROptimizer, OptimizationLevel};
 pub use value::{IRType, IRValue};
 

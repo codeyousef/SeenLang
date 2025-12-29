@@ -71,6 +71,8 @@ impl IRGenerator {
                 struct_val: self_var,
                 field: name.to_string(),
                 result: result_val.clone(),
+                struct_type: None,
+                field_type: None,
             }];
             
             return Ok((result_val, instructions));
@@ -142,6 +144,7 @@ impl IRGenerator {
             variant_name: variant_name.to_string(),
             fields: field_values,
             result: result_value.clone(),
+            field_types: None,
         });
 
         Ok((result_value, instructions))

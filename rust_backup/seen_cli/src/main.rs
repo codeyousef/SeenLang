@@ -4,6 +4,7 @@
 
 mod crash;
 use clap::{Parser, Subcommand, ValueEnum};
+use colored::Colorize;
 use seen_core::ir::SimdDecisionReason;
 use seen_core::parser::{Attribute, AttributeArgument, AttributeValue};
 use seen_core::{
@@ -17,6 +18,8 @@ use seen_core::{
 use seen_cranelift::program_to_clif;
 #[cfg(feature = "llvm")]
 use seen_ir::llvm_backend::{Avx10Width, CpuFeature, MemoryTopologyHint, SveVectorLength};
+// IR Interpreter for debugging
+use seen_ir::{IRInterpreter, IRInterpreterConfig, IRValidator, InterpreterError as IRInterpreterError};
 use seen_mlir::program_to_mlir;
 use seen_shaders::{
     ShaderCompileOptions, ShaderCompiler, ShaderEntryPoint, ShaderError, ShaderTarget,
@@ -221,6 +224,10 @@ enum Commands {
         /// Path to write a JSON SIMD report (applies to all backends)
         #[arg(long = "simd-report")]
         simd_report: Option<PathBuf>,
+
+        /// Skip IR validation (faster builds, but may produce invalid code)
+        #[arg(long = "no-validate")]
+        no_validate: bool,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -293,6 +300,37 @@ enum Commands {
         /// Optimization level
         #[arg(short = 'O', long, default_value = "0")]
         opt_level: u8,
+    },
+
+    /// Execute IR through the reference interpreter (for debugging)
+    InterpretIr {
+        /// Input file to interpret
+        #[arg(value_name = "FILE")]
+        input: PathBuf,
+
+        /// Optimization level
+        #[arg(short = 'O', long, default_value = "0")]
+        opt_level: u8,
+
+        /// Enable memory safety checks (bounds, use-after-free)
+        #[arg(long, default_value_t = true)]
+        memory_checks: bool,
+
+        /// Enable type checking at runtime
+        #[arg(long, default_value_t = true)]
+        type_checks: bool,
+
+        /// Enable detailed execution trace
+        #[arg(long)]
+        trace: bool,
+
+        /// Validate IR before execution
+        #[arg(long, default_value_t = true)]
+        validate: bool,
+
+        /// Maximum instructions to execute (infinite loop protection)
+        #[arg(long, default_value_t = 10_000_000)]
+        max_instructions: u64,
     },
 
     /// Inspect IR or capture/replay runtime traces
@@ -766,6 +804,7 @@ fn main() -> SeenResult<()> {
             cpu_features,
             memory_topology,
             simd_report,
+            no_validate,
         }) => {
             if matches!(cli.profile, Profile::Deterministic) {
                 if memory_topology != MemoryTopologyArg::Default {
@@ -833,6 +872,7 @@ fn main() -> SeenResult<()> {
                         target_cpu.as_deref(),
                         simd_report.as_ref(),
                         cli.profile,
+                        no_validate,
                     )?;
                 }
                 Backend::Ir => {
@@ -1065,6 +1105,28 @@ fn main() -> SeenResult<()> {
         Some(Commands::Ir { input, opt_level }) => {
             generate_ir(&input, opt_level, keyword_manager)?;
         }
+
+        Some(Commands::InterpretIr {
+            input,
+            opt_level,
+            memory_checks,
+            type_checks,
+            trace,
+            validate,
+            max_instructions,
+        }) => {
+            interpret_ir(
+                &input,
+                opt_level,
+                memory_checks,
+                type_checks,
+                trace,
+                validate,
+                max_instructions,
+                keyword_manager,
+            )?;
+        }
+
         Some(Commands::Trace {
             input,
             opt_level,
@@ -1738,6 +1800,7 @@ fn compile_file_llvm(
     target_cpu: Option<&str>,
     simd_report: Option<&PathBuf>,
     profile: Profile,
+    skip_validation: bool,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -1896,6 +1959,41 @@ fn compile_file_llvm(
         .optimize_program(&mut optimized_ir)
         .map_err(SeenError::from)?;
     maybe_emit_simd_report(simd_report, &optimized_ir, simd_policy)?;
+
+    // Validate IR before LLVM codegen (catches type errors early)
+    if !skip_validation {
+        let mut validator = IRValidator::new();
+        let validation_result = validator.validate_program(&optimized_ir);
+        
+        if !validation_result.is_valid() {
+            eprintln!("{}", "IR Validation failed (before LLVM codegen):".red().bold());
+            for error in &validation_result.errors {
+                eprintln!("  {} {}", "ERROR:".red(), error.message);
+                if let Some(loc) = &error.location {
+                    eprintln!("    in function: {}", loc.function_name);
+                    if let Some(block) = &loc.block_name {
+                        eprintln!("    in block: {}", block);
+                    }
+                    if let Some(idx) = &loc.instruction_index {
+                        eprintln!("    instruction index: {}", idx);
+                    }
+                }
+            }
+            return Err(SeenError::new(
+                SeenErrorKind::Ir,
+                format!(
+                    "IR validation failed with {} errors. Use --no-validate to skip (not recommended).",
+                    validation_result.errors.len()
+                ),
+            ));
+        }
+        
+        if !validation_result.warnings.is_empty() {
+            for warning in &validation_result.warnings {
+                eprintln!("  {} {}", "WARN:".yellow(), warning.message);
+            }
+        }
+    }
 
     // LLVM codegen
     #[cfg(feature = "llvm")]
@@ -3813,6 +3911,7 @@ fn run_file_llvm(
         target_cpu,
         None,
         profile,
+        false, // always validate for run command
     )?;
     let mut cmd = Command::new(&artifact);
     if let Some(parent) = input.parent() {
@@ -3959,6 +4058,167 @@ fn generate_ir(
 
         println!("\n=== Optimized IR (level {}) ===", opt_level);
         println!("{}", optimized_ir);
+    }
+
+    Ok(())
+}
+
+/// Execute IR through the reference interpreter
+fn interpret_ir(
+    input: &Path,
+    opt_level: u8,
+    memory_checks: bool,
+    type_checks: bool,
+    trace: bool,
+    validate: bool,
+    max_instructions: u64,
+    keyword_manager: Arc<KeywordManager>,
+) -> SeenResult<()> {
+    use colored::Colorize;
+
+    println!("{}", "IR Reference Interpreter".bold().cyan());
+    println!("Input: {}", input.display());
+
+    // Read source file
+    let source = fs::read_to_string(input).map_err(|err| {
+        SeenError::new(
+            SeenErrorKind::Io,
+            format!("Failed to read source file {}: {}", input.display(), err),
+        )
+    })?;
+
+    // Lex and parse
+    let (_project_config, lexer_config) = project_context_for(input)?;
+    let visibility_policy = lexer_config.visibility_policy;
+    let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
+    let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
+    let mut ast = parser.parse_program().map_err(SeenError::from)?;
+
+    // Type check
+    let mut type_checker = TypeChecker::new();
+    let type_result = type_checker.check_program(&mut ast);
+    if !type_result.errors.is_empty() {
+        for error in &type_result.errors {
+            eprintln!("{} {}", "Type error:".red(), error);
+        }
+        if let Some(primary) = type_result.errors.first().cloned() {
+            return Err(SeenError::from(primary));
+        }
+        return Err(SeenError::new(
+            SeenErrorKind::TypeChecker,
+            format!(
+                "Type checking failed with {} errors",
+                type_result.errors.len()
+            ),
+        ));
+    }
+
+    // Generate IR using seen_ir module (not seen_core)
+    let mut ir_generator = seen_ir::IRGenerator::new();
+    let ir_program = ir_generator.generate(&ast).map_err(SeenError::from)?;
+
+    // Optimize IR if requested
+    let ir_program = if opt_level > 0 {
+        let optimization_level = seen_ir::OptimizationLevel::from_level(opt_level);
+        let mut optimizer = seen_ir::IROptimizer::new(optimization_level);
+        let mut optimized_ir = ir_program;
+        optimizer
+            .optimize_program(&mut optimized_ir)
+            .map_err(SeenError::from)?;
+        println!("{} {}", "Optimization level:".cyan(), opt_level);
+        optimized_ir
+    } else {
+        ir_program
+    };
+
+    // Validate IR if requested
+    if validate {
+        println!("{}", "Validating IR...".cyan());
+        let mut validator = IRValidator::new();
+        let validation_result = validator.validate_program(&ir_program);
+        
+        if !validation_result.is_valid() {
+            eprintln!("{}", "IR Validation failed:".red().bold());
+            for error in &validation_result.errors {
+                eprintln!("  {} {}", "ERROR:".red(), error.message);
+            }
+            return Err(SeenError::new(
+                SeenErrorKind::Ir,
+                format!(
+                    "IR validation failed with {} errors",
+                    validation_result.errors.len()
+                ),
+            ));
+        }
+        
+        if !validation_result.warnings.is_empty() {
+            eprintln!("{}", "IR Validation warnings:".yellow());
+            for warning in &validation_result.warnings {
+                eprintln!("  {} {}", "WARN:".yellow(), warning.message);
+            }
+        }
+        println!("{}", "IR validation passed".green());
+    }
+
+    // Configure interpreter
+    let config = IRInterpreterConfig {
+        memory_checks,
+        type_checks,
+        max_stack_depth: 1024,
+        max_instructions: Some(max_instructions),
+        trace_execution: trace,
+        trace_memory: trace,
+    };
+
+    println!("{}", "Configuration:".cyan());
+    println!("  Memory checks: {}", if memory_checks { "enabled".green() } else { "disabled".yellow() });
+    println!("  Type checks: {}", if type_checks { "enabled".green() } else { "disabled".yellow() });
+    println!("  Trace: {}", if trace { "enabled".green() } else { "disabled".dimmed() });
+    println!("  Max instructions: {}", max_instructions);
+
+    // Create interpreter
+    let mut interpreter = IRInterpreter::with_config(config);
+    if trace {
+        interpreter.enable_trace();
+    }
+
+    println!("\n{}", "Executing...".bold().cyan());
+    println!("{}", "─".repeat(40).dimmed());
+
+    // Execute the program
+    let start_time = std::time::Instant::now();
+    let result = interpreter.execute_program(&ir_program, vec![]);
+    let elapsed = start_time.elapsed();
+
+    println!("{}", "─".repeat(40).dimmed());
+
+    // Report results
+    match result {
+        Ok(return_value) => {
+            println!("\n{}", "Execution successful".green().bold());
+            println!("Return value: {:?}", return_value);
+            
+            let state = interpreter.get_state();
+            println!("\n{}", "Execution statistics:".cyan());
+            println!("  Instructions executed: {}", state.instructions_executed);
+            println!("  Peak memory usage: {} bytes", state.memory_stats.peak_usage);
+            println!("  Active allocations: {}", state.memory_stats.active_allocations);
+            println!("  Elapsed time: {:?}", elapsed);
+        }
+        Err(err) => {
+            eprintln!("\n{}", "Execution failed".red().bold());
+            eprintln!("{}", format!("{}", err).red());
+            
+            let state = interpreter.get_state();
+            eprintln!("\n{}", "State at error:".yellow());
+            eprintln!("  Instructions executed: {}", state.instructions_executed);
+            eprintln!("  Call stack depth: {}", state.call_stack_depth);
+            
+            return Err(SeenError::new(
+                SeenErrorKind::Interpreter,
+                format!("IR interpreter error: {}", err),
+            ));
+        }
     }
 
     Ok(())

@@ -273,6 +273,16 @@ pub struct LlvmBackend<'ctx> {
     pub(crate) free: Option<FunctionValue<'ctx>>,
     pub(crate) memcpy: Option<FunctionValue<'ctx>>,
     pub(crate) box_int_fn: Option<FunctionValue<'ctx>>,
+    
+    // NOTE: Many of these hashmaps track type info that could now be retrieved from
+    // instruction-level type annotations (e.g., element_type, field_type, return_type).
+    // Future work: consolidate these using the TypeInference trait and instruction types.
+    // Maps that could be reduced/eliminated with instruction types:
+    // - var_struct_types / reg_struct_types: Use struct_type on FieldAccess/FieldSet
+    // - var_array_element_struct / reg_array_element_struct: Use element_type on ArrayAccess
+    // - var_is_string / var_is_int_array / reg_is_int_array: Infer from element_type
+    // - var_option_inner_type / reg_option_inner_type: Use instruction type annotations
+    // - var_is_float / reg_is_float: Infer from instruction result types
     pub(crate) box_bool_fn: Option<FunctionValue<'ctx>>,
     pub(crate) box_ptr_fn: Option<FunctionValue<'ctx>>,
     pub(crate) use_channel_runtime_stubs: bool,
@@ -546,6 +556,43 @@ impl<'ctx> LlvmBackend<'ctx> {
     pub fn set_cli_mode(&mut self, enabled: bool) {
         self.cli_mode = enabled;
     }
+    
+    /// Get struct type name from an instruction's type annotation.
+    /// This is the preferred way vs using var_struct_types/reg_struct_types hashmaps.
+    pub fn get_struct_type_from_instruction(&self, inst: &Instruction) -> Option<String> {
+        match inst {
+            Instruction::FieldAccess { struct_type, .. } => struct_type.clone(),
+            Instruction::FieldSet { struct_type, .. } => struct_type.clone(),
+            _ => None,
+        }
+    }
+    
+    /// Get element type from an instruction's type annotation.
+    /// This is the preferred way vs using var_array_element_struct hashmaps.
+    pub fn get_element_type_from_instruction(&self, inst: &Instruction) -> Option<IRType> {
+        match inst {
+            Instruction::ArrayAccess { element_type, .. } => element_type.clone(),
+            Instruction::ArraySet { element_type, .. } => element_type.clone(),
+            _ => None,
+        }
+    }
+    
+    /// Get field type from an instruction's type annotation.
+    pub fn get_field_type_from_instruction(&self, inst: &Instruction) -> Option<IRType> {
+        match inst {
+            Instruction::FieldAccess { field_type, .. } => field_type.clone(),
+            Instruction::FieldSet { field_type, .. } => field_type.clone(),
+            _ => None,
+        }
+    }
+    
+    /// Get return type from a Call instruction's type annotation.
+    pub fn get_return_type_from_call(&self, inst: &Instruction) -> Option<IRType> {
+        match inst {
+            Instruction::Call { return_type, .. } => return_type.clone(),
+            _ => None,
+        }
+    }
 
     pub fn emit_llvm_ir(
         &mut self,
@@ -818,9 +865,10 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRType::Boolean => self.bool_t.into(),
             IRType::Char => self.ctx.i8_type().into(),
             IRType::String => self.ty_string().into(),
-            IRType::Array(_) => {
-                // Represent arrays as opaque pointer to match runtime ABI
-                self.i8_ptr_t.into()
+            IRType::Array(elem_ty) => {
+                // Array is a struct { i64 len, i64 cap, ptr data }
+                // This is 24 bytes, not just a pointer!
+                self.ty_array(self.ir_type_to_llvm(elem_ty)).into()
             }
             IRType::Function {
                 parameters,
@@ -1574,16 +1622,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                 array,
                 index,
                 result,
+                ..
             } => {
                 self.emit_array_access(array, index, result, fn_map)?;
             }
-            Instruction::ArraySet { array, index, value } => {
+            Instruction::ArraySet { array, index, value, .. } => {
                 self.emit_array_set(array, index, value, fn_map)?;
             }
             Instruction::Call {
                 target,
                 args,
                 result,
+                ..
             } => {
                 self.emit_call(target, args, result, fn_map)?;
             }
@@ -1596,6 +1646,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 struct_val,
                 field,
                 result,
+                ..
             } => {
                 self.emit_field_access(struct_val, field, result, fn_map)?;
             }
@@ -1603,6 +1654,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 struct_val,
                 field,
                 value,
+                ..
             } => {
                 self.emit_field_set(struct_val, field, value, fn_map)?;
             }
@@ -1698,7 +1750,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 
                 self.assign_value(result, casted)?;
             }
-            Instruction::ConstructObject { class_name, args, result } => {
+            Instruction::ConstructObject { class_name, args, result, .. } => {
                 if let Some((struct_ty, field_names)) = self.struct_types.get(class_name).cloned() {
                     let expected_fields = field_names.len();
                     if args.len() != expected_fields {
@@ -1712,6 +1764,11 @@ impl<'ctx> LlvmBackend<'ctx> {
 
                     // Heap-allocate the struct and return a pointer (class-as-pointer semantics)
                     let struct_size = struct_ty.size_of().unwrap_or(self.i64_t.const_int(64, false));
+                    
+                    // DEBUG: Print allocation info
+                    eprintln!("DEBUG ConstructObject: class={}, struct_size={:?}, fields={}", 
+                        class_name, struct_size, field_names.len());
+                    
                     let malloc_fn = self.get_malloc();
                     let heap_ptr = self.builder
                         .build_call(malloc_fn, &[struct_size.into()], "alloc_obj")?

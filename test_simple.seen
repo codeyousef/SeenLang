@@ -1,1 +1,1 @@
-fn main():Int{return 0;}
+fun test() r: Void { }

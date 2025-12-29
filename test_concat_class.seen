@@ -1,0 +1,39 @@
+// Test charAt + charAt in class method context
+class SimpleLexer {
+    source: String
+    position: Int
+    
+    fun init(src: String) r: SimpleLexer {
+        this.source = src
+        this.position = 0
+        return this
+    }
+    
+    fun getCurrentChar() r: String {
+        return this.source.charAt(this.position)
+    }
+    
+    fun getNextChar() r: String {
+        return this.source.charAt(this.position + 1)
+    }
+    
+    fun testConcat() r: String {
+        let char = this.getCurrentChar()
+        let next = this.getNextChar()
+        println("char = " + char)
+        println("next = " + next)
+        let result = char + next
+        println("result = " + result)
+        return result
+    }
+}
+
+fun main() r: Int {
+    println("Creating lexer...")
+    let lexer = SimpleLexer{source: "+\"hello\"", position: 0}
+    lexer = lexer.init("+\"hello\"")
+    println("Testing concat...")
+    let result = lexer.testConcat()
+    println("Final: " + result)
+    return 0
+}
