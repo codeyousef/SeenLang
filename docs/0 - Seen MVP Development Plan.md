@@ -1,6 +1,6 @@
 # Seen Language — Unified **MVP** Plan
 
-**Last Updated:** 2025-12-29  
+**Last Updated:** 2025-12-30  
 **Core Principle:** Safety by default, nondeterminism explicitly opt-in via annotation.  
 **Target Platforms:** Linux, Windows, RISC-V, UWW-Compatible WASM
 
@@ -28,6 +28,166 @@
 6. Narrowed crash to Vec_push accessing its internal Array fields when Vec is a class pointer stored in Map
 7. **[NEW]** Refactored `TokenType` into `SeenTokenType` in `lexer/token_type.seen` to attempt to fix circular dependency/resolution issues.
 8. **[NEW]** Cleaned up `lexer/interfaces.seen` and `keyword_manager.seen`.
+
+---
+
+# NEXT IMMEDIATE STEPS: Debug Struct Layout Mismatch & Invalid Pointer Access
+
+**Objective:** Instrument the compiler and runtime to detect **Struct Layout Mismatches** and **Invalid Pointer Access** during the `Vec_push` call within `Map`.
+
+---
+
+## Step 1: Runtime Instrumentation (Standard Library)
+
+**Target File:** `seen_std/src/collections/vec.seen`  
+**Goal:** Verify the `this` pointer passed to `Vec.push` is valid and not null/misaligned.
+
+**Instructions:**
+
+1. Locate the `push(value: T)` method in the `Vec` class (around line 52).
+2. Insert the following intrinsic calls at the **very first line** of the function body:
+```seen
+__Print("[DEBUG] Vec_push called. 'this' address: ")
+__PrintInt(__PtrToInt(this))
+__Println("")
+```
+
+3. **Constraint:** Do NOT access any fields of `this` (like `this.length` or `this.chunks`) in these print statements, as that may trigger the crash immediately if the pointer is invalid.
+
+4. **Note:** If `__PtrToInt` intrinsic doesn't exist, create it in the runtime. It should convert a pointer to an Int for diagnostic printing.
+
+---
+
+## Step 2: Compiler Instrumentation (Rust Backend)
+
+**Target File:** `rust_backup/seen_ir/src/llvm_backend.rs`  
+**Goal:** Expose the compiler's internal field index mapping vs. LLVM's generated struct layout.
+
+### Task A: Implement `dump_layouts` Flag
+
+1. **Update Config:** Add `dump_layouts: bool` to `LlvmTraceOptions` (around line 396).
+
+2. **Update Parsing:** In the trace options parsing logic, add support for `SEEN_TRACE_LLVM=layouts` or extend the existing flag.
+
+3. **Instrumentation Point:** Locate `register_struct_type` function (around line 1048).
+
+4. **Implementation:** When defining a struct body, iterate through fields and print to `stderr`:
+```text
+[LAYOUT] Struct Name: {struct_name}
+[LAYOUT]   Field 0: {field_name} (Type: {ir_type})
+[LAYOUT]   Field 1: {field_name} (Type: {ir_type})
+...
+```
+
+*This confirms the order of fields in the compiler's memory.*
+
+### Task B: Enhanced GEP Tracing
+
+1. **Instrumentation Point:** Locate `emit_field_get` function (around line 700) and `emit_field_set` (around line 902).
+
+2. **Implementation:** Before the `build_struct_gep` call, if `trace_options.trace_instructions` or `trace_options.dump_layouts` is true, print:
+```text
+[GEP TRACE] accessing member '{member_name}' of struct '{struct_name}'
+[GEP TRACE]   - Base Pointer Type: {llvm_type_of_base}
+[GEP TRACE]   - Calculated Field Index: {index}
+```
+
+*This confirms the compiler is calculating the correct index (e.g., 0 for `keys`) at the call site.*
+
+---
+
+## Step 3: Isolation Test Case (Reproduction)
+
+**Target File:** `repro_crash.seen` (Create new file in project root)  
+**Goal:** Isolate the crash to "Class-nested-in-Class" without `Map` logic overhead.
+
+**Content:**
+```seen
+class Inner {
+    data: Array<Int>
+    
+    fun init() r: Void {
+        this.data = __ArrayNew(Int, 4)
+    }
+    
+    fun touch() r: Void {
+        __ArraySet(this.data, 0, 99) // Access array field
+    }
+}
+
+class Outer {
+    inner: Inner
+    
+    fun init() r: Void {
+        this.inner = Inner.new() // Heap allocation
+    }
+}
+
+fun main() r: Int {
+    var o = Outer.new()
+    __Print("Outer created. Inner address: ")
+    __PrintInt(__PtrToInt(o.inner))
+    __Println("")
+    
+    // Trigger the potential crash
+    o.inner.touch()
+    __Println("Touch successful.")
+    return 0
+}
+```
+
+---
+
+## Step 4: Execution & Validation Workflow
+
+**Instructions for validation:**
+
+1. **Rebuild Compiler:**
+```bash
+cargo build --release
+```
+
+2. **Compile Repro with Tracing:**
+```bash
+SEEN_TRACE_LLVM=layouts ./target/release/seen_cli build repro_crash.seen --backend llvm -o repro_test --trace-llvm 2>&1 | tee repro_trace.log
+```
+
+3. **Analyze Output:**
+   - **Check Layout:** Does `[LAYOUT]` show `inner` at Index 0 for `Outer`? Does `data` appear at Index 0 for `Inner`?
+   - **Check GEP:** Does `[GEP TRACE]` in `main` show accessing Index 0 of `Outer` when getting `o.inner`?
+
+4. **Run Repro:**
+```bash
+./repro_test
+```
+
+5. **Interpret Results:**
+   - If `Inner address` prints `0`, the initialization in `Outer.init()` failed (Constructor injection bug).
+   - If `Inner address` is valid (non-zero) but it crashes on `touch()`, the memory layout of `Inner` is mismatched.
+   - If it prints "Touch successful.", the isolated case works and the bug is specific to `Map`→`Vec` interaction.
+
+---
+
+## Step 5: Apply Findings to Vec/Map
+
+Based on Step 4 results:
+
+- **If isolated test passes:** The bug is in `Map`'s storage of `Vec` pointers. Add same debug prints to `Map.put()` to trace `keysVec` and `valuesVec` addresses.
+
+- **If isolated test fails:** The bug is in nested-class field access generally. Compare `[LAYOUT]` output with actual LLVM IR struct definitions using:
+```bash
+SEEN_TRACE_LLVM=dump ./target/release/seen_cli build repro_crash.seen --backend llvm -o repro_test 2>&1 | grep -A 20 "define.*Inner\|define.*Outer"
+```
+
+---
+
+## Acceptance Criteria
+
+- [ ] `Vec.push` prints `this` pointer address before any field access
+- [ ] `--trace-llvm` with `layouts` mode prints `[LAYOUT]` for all struct types
+- [ ] GEP operations print field index being accessed
+- [ ] `repro_crash.seen` test case created and runnable
+- [ ] Root cause of Vec_push crash identified (pointer corruption vs layout mismatch)
 
 ---
 
