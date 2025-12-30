@@ -66,6 +66,13 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             _ => None,
         };
         
+        // Debug all function calls
+        if let Some(ref fn_name) = func_name {
+            if fn_name.contains("toString") || fn_name.contains("ToString") {
+                eprintln!("DEBUG LLVM emit_call: func_name={}", fn_name);
+            }
+        }
+        
         let is_vec_push = func_name.as_deref() == Some("Vec_push");
         let is_vec_get = func_name.as_deref() == Some("Vec_get");
         let is_vec_set = func_name.as_deref() == Some("Vec_set");
@@ -2276,19 +2283,31 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 "toString" | "__toString" | "Int_toString" | "Float_toString" | "Bool_toString" | "Char_toString" => {
+                    eprintln!("DEBUG toString handler: name={}", name);
                     // Convert value to String
                     if let Some(arg) = args.get(0) {
                         let val = self.eval_value(arg, fn_map)?;
                         let str_ptr = if val.is_int_value() {
                             let iv = val.into_int_value();
-                            // Check if it's an i8 (Char) - need to extend to i64 first
-                            let int_val = if iv.get_type().get_bit_width() < 64 {
+                            // Check if it's an i8 (Char) - use CharToString for single chars
+                            let is_char = iv.get_type().get_bit_width() < 64;
+                            let use_char_fn = is_char || name == "Char_toString";
+                            eprintln!("DEBUG toString: name={}, is_int=true, bit_width={}, is_char={}, use_char_fn={}", name, iv.get_type().get_bit_width(), is_char, use_char_fn);
+                            let int_val = if is_char {
                                 self.builder.build_int_s_extend(iv, self.i64_t, "char_ext")?
                             } else {
                                 iv
                             };
-                            let func = self.ensure_int_to_string_fn();
-                            let call = self.builder.build_call(func, &[int_val.into()], "i2s")?;
+                            // Use CharToString for chars (converts code to single-char string)
+                            // Use IntToString for ints (converts number to decimal string)
+                            let func = if use_char_fn {
+                                eprintln!("DEBUG toString: using CharToString");
+                                self.ensure_char_to_string_fn()
+                            } else {
+                                eprintln!("DEBUG toString: using IntToString");
+                                self.ensure_int_to_string_fn()
+                            };
+                            let call = self.builder.build_call(func, &[int_val.into()], if is_char { "c2s" } else { "i2s" })?;
                             call.try_as_basic_value().left().unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum())
                         } else if val.is_float_value() {
                             let func = self.ensure_float_to_string_fn();
@@ -3381,7 +3400,8 @@ pub fn normalize_method_name(name: &str) -> &str {
         // Check if it's a known type prefix
         let prefix = &name[..idx];
         match prefix {
-            "String" | "Array" | "Vec" | "List" | "Map" | "Result" | "Option" | "File" => {
+            "String" | "Array" | "Vec" | "List" | "Map" | "Result" | "Option" | "File" 
+            | "Int" | "Char" | "Float" | "Bool" => {
                 &name[idx + 1..]
             }
             _ => name,

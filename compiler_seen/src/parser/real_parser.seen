@@ -687,10 +687,17 @@ class RealParser {
         return false
     }
     fun checkToken(tokenType: SeenTokenType) r: Bool {
+        println("[trace] checkToken: entry")
         if this.isAtEnd() {
+            println("[trace] checkToken: at end, return false")
             return false
         }
-        return this.peek().getType() == tokenType
+        println("[trace] checkToken: calling peek...")
+        let tok: Token = this.peek()
+        println("[trace] checkToken: got tok, calling getType...")
+        let tokType: SeenTokenType = tok.getType()
+        println("[trace] checkToken: got tokType, comparing...")
+        return tokType == tokenType
     }
     fun advance() r: Token {
         if not this.isAtEnd() {

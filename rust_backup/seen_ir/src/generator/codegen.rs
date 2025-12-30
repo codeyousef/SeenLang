@@ -748,25 +748,43 @@ impl IRGenerator {
             // Try to determine object's type for method return type lookup
             let obj_type_name = match &obj_val {
                 IRValue::Register(reg) => {
-                    let result = match self.context.register_types.get(reg) {
+                    let reg_type = self.context.register_types.get(reg);
+                    if member == "toString" {
+                        eprintln!("DEBUG codegen: toString on Register({}), reg_type={:?}", reg, reg_type);
+                    }
+                    let result = match reg_type {
                         Some(IRType::Struct { name, .. }) => Some(name.clone()),
                         Some(IRType::Enum { name, .. }) => Some(name.clone()),
                         // Use "Array" for builtin arrays - NOT "Vec" which is a different class
                         Some(IRType::Array(_)) => Some("Array".to_string()),
                         Some(IRType::String) => Some("String".to_string()),
                         Some(IRType::Optional(_)) => Some("Option".to_string()),
+                        // Primitive types for method calls like Int.toString(), Char.toString()
+                        Some(IRType::Integer) => Some("Int".to_string()),
+                        Some(IRType::Char) => Some("Char".to_string()),
+                        Some(IRType::Float) => Some("Float".to_string()),
+                        Some(IRType::Boolean) => Some("Bool".to_string()),
                         _ => None,
                     };
                     result
                 }
                 IRValue::Variable(var_name) => {
-                    let result = match self.context.get_variable_type(var_name) {
+                    let var_type = self.context.get_variable_type(var_name);
+                    if member == "toString" {
+                        eprintln!("DEBUG codegen: toString on Variable({}), var_type={:?}", var_name, var_type);
+                    }
+                    let result = match var_type {
                         Some(IRType::Struct { name, .. }) => Some(name.clone()),
                         Some(IRType::Enum { name, .. }) => Some(name.clone()),
                         // Use "Array" for builtin arrays - NOT "Vec" which is a different class
                         Some(IRType::Array(_)) => Some("Array".to_string()),
                         Some(IRType::String) => Some("String".to_string()),
                         Some(IRType::Optional(_)) => Some("Option".to_string()),
+                        // Primitive types for method calls like Int.toString(), Char.toString()
+                        Some(IRType::Integer) => Some("Int".to_string()),
+                        Some(IRType::Char) => Some("Char".to_string()),
+                        Some(IRType::Float) => Some("Float".to_string()),
+                        Some(IRType::Boolean) => Some("Bool".to_string()),
                         _ => None,
                     };
                     result
@@ -847,6 +865,9 @@ impl IRGenerator {
             let (mangled_name, _ret_type_found) = if let Some(ref type_name) = obj_type_name {
                 let underscore_name = format!("{}_{}", type_name, member);
                 let dot_name = format!("{}.{}", type_name, member);
+                if member == "toString" {
+                    eprintln!("DEBUG codegen mangled: obj_type_name={}, underscore={}, dot={}", type_name, underscore_name, dot_name);
+                }
                 // Prefer underscore naming (class methods) over dot naming (standalone functions)
                 // but use whichever exists
                 if self.context.function_return_types.contains_key(&underscore_name) {
@@ -876,8 +897,11 @@ impl IRGenerator {
             };
             
             let result_value = IRValue::Register(result_reg);
+            if member == "toString" {
+                eprintln!("DEBUG codegen EMIT: Call to mangled_name={} (member={})", mangled_name, member);
+            }
             instructions.push(Instruction::Call {
-                target: IRValue::Variable(mangled_name),
+                target: IRValue::Variable(mangled_name.clone()),
                 args: final_args,
                 result: Some(result_value.clone()),
                 arg_types: None,

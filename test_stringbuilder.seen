@@ -1,0 +1,21 @@
+import str.string.{StringBuilder}
+
+fun main() r: Int {
+    println("Creating StringBuilder...")
+    let sb = StringBuilder.new()
+    println("Initial length: " + sb.length().toString())
+    
+    println("Appending 'Hello'...")
+    sb.append("Hello")
+    println("After append: " + sb.length().toString())
+    
+    println("Appending ' World'...")
+    sb.append(" World")
+    println("After 2nd append: " + sb.length().toString())
+    
+    let result = sb.toString()
+    println("Result: " + result)
+    println("Result length: " + result.length().toString())
+    
+    return 0
+}

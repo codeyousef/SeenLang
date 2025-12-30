@@ -9,23 +9,32 @@ class CGenerator {
     }
 
     fun generate(program: ProgramNode) r: String {
+        println("[trace] CGenerator.generate: entry, program.items.length()=" + program.items.length().toString())
         sb.clear()
+        println("[trace] CGenerator.generate: after clear, sb.length()=" + sb.length().toString())
         sb.appendLine("#include <stdio.h>")
+        println("[trace] CGenerator.generate: after 1st append, sb.length()=" + sb.length().toString())
         sb.appendLine("#include <stdlib.h>")
         sb.appendLine("#include <stdbool.h>")
         sb.appendLine("")
+        println("[trace] CGenerator.generate: after includes, sb.length()=" + sb.length().toString())
         
         // Runtime helpers
         sb.appendLine("void println(char* s) {")
         sb.appendLine("    printf(\"%s\\n\", s);")
         sb.appendLine("}")
         sb.appendLine("")
+        println("[trace] CGenerator.generate: after helpers, sb.length()=" + sb.length().toString())
         
         for item in program.items {
+            println("[trace] CGenerator.generate: processing item")
             generateItem(item)
         }
         
-        return sb.toString()
+        println("[trace] CGenerator.generate: about to toString(), sb.length()=" + sb.length().toString())
+        let result: String = sb.toString()
+        println("[trace] CGenerator.generate: got result, len=" + result.length().toString())
+        return result
     }
 
     fun generateItem(item: ItemNode) r: Void {

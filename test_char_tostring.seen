@@ -1,0 +1,6 @@
+fun main() r: Int {
+    let myChar: Char = 'a'
+    let str: String = myChar.toString()
+    println(str)
+    return 0
+}

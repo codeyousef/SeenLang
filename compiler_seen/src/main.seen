@@ -31,12 +31,16 @@ extern fun __WriteFile(fd: Int, content: String) r: Int
 extern fun __CloseFile(fd: Int) r: Int
 
 fun myWriteText(path: String, content: String) r: Bool {
+    println("[trace] myWriteText: path=" + path)
+    println("[trace] myWriteText: content len=" + content.length().toString())
     let fd = __OpenFile(path, "w")
+    println("[trace] myWriteText: fd=" + fd.toString())
     if fd < 0 {
         stdoutLine("Failed to open file: " + path)
         return false
     }
     let written = __WriteFile(fd, content)
+    println("[trace] myWriteText: written=" + written.toString())
     let _ = __CloseFile(fd)
     return written >= 0
 }

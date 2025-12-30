@@ -133,7 +133,8 @@ impl IRGenerator {
                 self.context
                     .type_definitions
                     .insert("StringBuilder".to_string(), sb_type.clone());
-                let type_def = TypeDefinition::new("StringBuilder", sb_type);
+                // StringBuilder is a class (heap-allocated), not a value type
+                let type_def = TypeDefinition::new("StringBuilder", sb_type).as_class();
                 module.add_type(type_def);
             }
             "seen_std.collections.string_hash_map" => {

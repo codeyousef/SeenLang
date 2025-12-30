@@ -940,6 +940,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             for type_def in module.types.iter() {
                 if let IRType::Struct { name, .. } = &type_def.type_def {
                     if type_def.is_class {
+                        eprintln!("[LLVM TRACE] Registering class type: '{}'", name);
                         self.class_types.insert(name.clone());
                     }
                 }

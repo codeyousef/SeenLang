@@ -936,8 +936,11 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     })?;
                 
                 let ptr = if let IRValue::Variable(name) = struct_val {
+                     eprintln!("DEBUG FieldSet: var_name='{}', field='{}', type_name='{}'", name, field, type_name);
                      if let Some(slot) = self.var_slots.get(name).copied() {
                          let slot_ty = self.var_slot_types.get(name).unwrap();
+                         eprintln!("DEBUG FieldSet: slot found, slot_ty={:?}, is_struct={}, is_pointer={}, is_int={}", 
+                             slot_ty, slot_ty.is_struct_type(), slot_ty.is_pointer_type(), slot_ty.is_int_type());
                          if slot_ty.is_struct_type() {
                              slot
                          } else if slot_ty.is_pointer_type() {
@@ -945,6 +948,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                          } else if slot_ty.is_int_type() {
                              // Class type stored as i64 (pointer-to-int) - load and convert
                              let ptr_int = self.builder.build_load(self.i64_t, slot, "load_class_ptr")?.into_int_value();
+                             eprintln!("DEBUG FieldSet: loaded ptr_int from slot");
                              self.builder.build_int_to_ptr(ptr_int, llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)), "class_ptr")?
                          } else {
                              return Err(anyhow!("Variable {} has unexpected type for FieldSet", name));
