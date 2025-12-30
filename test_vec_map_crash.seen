@@ -1,0 +1,202 @@
+// Minimal reproduction for Vec_push crash when Vec is stored in Map class field
+// This isolates the Map -> Vec -> Array pattern that causes SIGSEGV
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+// Simplified VecChunk
+class VecChunk<T> {
+    var values: Array<T>
+}
+
+// Simplified Vec class - same structure as stdlib
+class Vec<T> {
+    var chunks: Array<VecChunk<T>>
+    var capacities: Array<Int>
+    var usage: Array<Int>
+    var length: Int
+    var totalCapacity: Int
+    var nextChunkSize: Int
+
+    static fun new() r: Vec<T> {
+        __Print("[Vec.new] Creating Vec...\n")
+        let v = Vec{
+            chunks: Array<VecChunk<T>>(),
+            capacities: Array<Int>(),
+            usage: Array<Int>(),
+            length: 0,
+            totalCapacity: 0,
+            nextChunkSize: 8
+        }
+        __Print("[Vec.new] Vec created, returning\n")
+        return v
+    }
+
+    fun push(value: T) r: Void {
+        __Print("[Vec.push] START: this ptr exists\n")
+        __Print("[Vec.push] Accessing this.length...\n")
+        let len = this.length
+        __Print("[Vec.push] length = ")
+        __PrintInt(len)
+        __Print("\n")
+        
+        __Print("[Vec.push] Accessing this.totalCapacity...\n")
+        let cap = this.totalCapacity
+        __Print("[Vec.push] totalCapacity = ")
+        __PrintInt(cap)
+        __Print("\n")
+        
+        __Print("[Vec.push] Accessing this.chunks...\n")
+        let chunksArr = this.chunks
+        __Print("[Vec.push] chunks.length() = ")
+        __PrintInt(chunksArr.length())
+        __Print("\n")
+        
+        if len >= cap {
+            __Print("[Vec.push] Need to grow chunk\n")
+            this.growChunk()
+        }
+        
+        let lastIndex = this.chunks.length() - 1
+        __Print("[Vec.push] lastIndex = ")
+        __PrintInt(lastIndex)
+        __Print("\n")
+        
+        var chunk = this.chunks[lastIndex]
+        let used = this.usage[lastIndex]
+        
+        __Print("[Vec.push] Pushing to chunk.values\n")
+        var valuesArr = chunk.values
+        valuesArr.push(value)
+        chunk.values = valuesArr
+        this.chunks[lastIndex] = chunk
+        this.usage[lastIndex] = used + 1
+        this.length = len + 1
+        __Print("[Vec.push] DONE\n")
+    }
+    
+    fun growChunk() r: Void {
+        __Print("[Vec.growChunk] Creating new chunk\n")
+        var chunk = VecChunk<T>{ values: Array<T>() }
+        
+        __Print("[Vec.growChunk] Pushing to chunks array\n")
+        var chunksArr = this.chunks
+        chunksArr.push(chunk)
+        this.chunks = chunksArr
+        
+        __Print("[Vec.growChunk] Updating capacities\n")
+        var capsArr = this.capacities
+        capsArr.push(this.nextChunkSize)
+        this.capacities = capsArr
+        
+        __Print("[Vec.growChunk] Updating usage\n")
+        var usageArr = this.usage
+        usageArr.push(0)
+        this.usage = usageArr
+        
+        this.totalCapacity = this.totalCapacity + this.nextChunkSize
+        this.nextChunkSize = this.nextChunkSize * 2
+        __Print("[Vec.growChunk] DONE\n")
+    }
+}
+
+// Simplified Map class - same structure as stdlib
+class Map<K, V> {
+    var keys: Vec<K>
+    var values: Vec<V>
+    var length: Int
+
+    static fun new() r: Map<K, V> {
+        __Print("[Map.new] Creating Map...\n")
+        __Print("[Map.new] Creating keys Vec...\n")
+        let k = Vec<K>.new()
+        __Print("[Map.new] Creating values Vec...\n")
+        let v = Vec<V>.new()
+        __Print("[Map.new] Assembling Map struct...\n")
+        let m = Map{
+            keys: k,
+            values: v,
+            length: 0
+        }
+        __Print("[Map.new] Map created, returning\n")
+        return m
+    }
+
+    fun put(key: K, value: V) r: Void {
+        __Print("[Map.put] START\n")
+        __Print("[Map.put] Getting keys Vec from this...\n")
+        var keysVec = this.keys
+        __Print("[Map.put] Got keysVec, calling push...\n")
+        keysVec.push(key)
+        __Print("[Map.put] keysVec.push done, storing back...\n")
+        this.keys = keysVec
+
+        __Print("[Map.put] Getting values Vec...\n")
+        var valuesVec = this.values
+        __Print("[Map.put] Calling valuesVec.push...\n")
+        valuesVec.push(value)
+        __Print("[Map.put] valuesVec.push done, storing back...\n")
+        this.values = valuesVec
+
+        this.length = this.length + 1
+        __Print("[Map.put] DONE\n")
+    }
+}
+
+// Test with a holder class like KeywordManager
+class KeywordHolder {
+    var keywords: Map<String, Int>
+    var sources: Array<String>
+    
+    static fun new() r: KeywordHolder {
+        __Print("[KeywordHolder.new] Creating holder...\n")
+        let m = Map<String, Int>.new()
+        __Print("[KeywordHolder.new] Map created, creating holder struct...\n")
+        let kh = KeywordHolder {
+            keywords: m,
+            sources: Array<String>()
+        }
+        __Print("[KeywordHolder.new] Holder created, returning\n")
+        return kh
+    }
+    
+    fun addKeyword(key: String, value: Int) r: Void {
+        __Print("[KeywordHolder.addKeyword] START\n")
+        __Print("[KeywordHolder.addKeyword] Getting keywords Map...\n")
+        var kw = this.keywords
+        __Print("[KeywordHolder.addKeyword] Calling put...\n")
+        kw.put(key, value)
+        __Print("[KeywordHolder.addKeyword] Put done, storing back...\n")
+        this.keywords = kw
+        __Print("[KeywordHolder.addKeyword] DONE\n")
+    }
+}
+
+fun main() r: Int {
+    __Print("=== Test 1: Direct Vec push ===\n")
+    var vec = Vec<String>.new()
+    __Print("Vec created, pushing...\n")
+    vec.push("hello")
+    __Print("First push done\n")
+    vec.push("world")
+    __Print("Second push done\n")
+    
+    __Print("\n=== Test 2: Direct Map put ===\n")
+    var map = Map<String, Int>.new()
+    __Print("Map created, putting...\n")
+    map.put("key1", 1)
+    __Print("First put done\n")
+    map.put("key2", 2)
+    __Print("Second put done\n")
+    
+    __Print("\n=== Test 3: KeywordHolder (like KeywordManager) ===\n")
+    var holder = KeywordHolder.new()
+    __Print("Holder created, adding keyword...\n")
+    holder.addKeyword("fun", 1)
+    __Print("First keyword added\n")
+    holder.addKeyword("let", 2)
+    __Print("Second keyword added\n")
+    
+    __Print("\n=== All tests passed! ===\n")
+    return 0
+}

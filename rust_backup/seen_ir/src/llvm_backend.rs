@@ -396,6 +396,8 @@ pub struct LlvmBackend<'ctx> {
     pub trace_options: LlvmTraceOptions,
     // Current instruction index for tracing
     pub(crate) current_inst_idx: usize,
+    // Flag to dump struct layouts after lower_program()
+    pub dump_struct_layouts_flag: bool,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -517,6 +519,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             reg_field_access_info: HashMap::new(),
             trace_options: LlvmTraceOptions::from_env(),
             current_inst_idx: 0,
+            dump_struct_layouts_flag: false,
         }
     }
     
@@ -525,9 +528,57 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.trace_options = options;
     }
     
+    /// Enable struct layout dumping
+    pub fn set_dump_struct_layouts(&mut self, enabled: bool) {
+        self.dump_struct_layouts_flag = enabled;
+    }
+    
     /// Enable all tracing
     pub fn enable_tracing(&mut self) {
         self.trace_options = LlvmTraceOptions::all();
+    }
+    
+    /// Dump struct layout information for debugging memory issues.
+    /// Call this after lower_program() to see all registered struct types.
+    pub fn dump_struct_layouts(&self) {
+        eprintln!("\n=== STRUCT LAYOUT DEBUG INFO ===");
+        eprintln!("Class types (heap-allocated, stored as i64): {:?}", self.class_types);
+        eprintln!("\nRegistered struct types ({} total):", self.struct_types.len());
+        
+        // Sort by name for consistent output
+        let mut names: Vec<&String> = self.struct_types.keys().collect();
+        names.sort();
+        
+        for name in names {
+            if let Some((llvm_ty, field_names)) = self.struct_types.get(name) {
+                let is_class = self.class_types.contains(name);
+                let field_count = llvm_ty.count_fields();
+                eprintln!("\n  {} ({})", name, if is_class { "CLASS - ptr/i64" } else { "STRUCT - inline" });
+                eprintln!("    LLVM type: {:?}", llvm_ty);
+                eprintln!("    Field count: {}", field_count);
+                
+                // Get field info from struct definition
+                if let Some(fields) = self.struct_definitions.get(name) {
+                    for (i, (fname, ftype)) in fields.iter().enumerate() {
+                        let llvm_field_ty = if i < field_count as usize {
+                            format!("{:?}", llvm_ty.get_field_type_at_index(i as u32))
+                        } else {
+                            "OUT OF BOUNDS".to_string()
+                        };
+                        let is_field_class = if let IRType::Struct { name: ref inner_name, .. } = ftype {
+                            self.class_types.contains(inner_name)
+                        } else {
+                            false
+                        };
+                        eprintln!("    [{}] {} : {:?} -> {} {}",
+                            i, fname, ftype, llvm_field_ty,
+                            if is_field_class { "(CLASS FIELD - stored as i64)" } else { "" }
+                        );
+                    }
+                }
+            }
+        }
+        eprintln!("\n=== END STRUCT LAYOUT DEBUG INFO ===\n");
     }
 
     // ========================================================================
@@ -718,6 +769,12 @@ impl<'ctx> LlvmBackend<'ctx> {
 
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
+        
+        // Dump struct layouts if requested (useful for debugging memory layout issues)
+        if self.dump_struct_layouts_flag {
+            self.dump_struct_layouts();
+        }
+        
         self.module
             .print_to_file(out_path)
             .map_err(|e| anyhow!("Failed to write .ll: {e:?}"))
@@ -734,6 +791,11 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.hardware_profile = prog.hardware_profile.clone();
         self.lower_program(prog)
             .context("Lowering IR to LLVM failed")?;
+        
+        // Dump struct layouts if requested (useful for debugging memory layout issues)
+        if self.dump_struct_layouts_flag {
+            self.dump_struct_layouts();
+        }
 
         // Debug: Dump IR before verification
         let _ = self.module.print_to_file("debug_ir.ll");

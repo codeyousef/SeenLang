@@ -233,6 +233,10 @@ enum Commands {
         /// Also enabled via SEEN_TRACE_LLVM=1 environment variable
         #[arg(long = "trace-llvm")]
         trace_llvm: bool,
+        
+        /// Dump struct layout information for debugging memory issues
+        #[arg(long = "dump-struct-layouts")]
+        dump_struct_layouts: bool,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -811,6 +815,7 @@ fn main() -> SeenResult<()> {
             simd_report,
             no_validate,
             trace_llvm,
+            dump_struct_layouts,
         }) => {
             if matches!(cli.profile, Profile::Deterministic) {
                 if memory_topology != MemoryTopologyArg::Default {
@@ -880,6 +885,7 @@ fn main() -> SeenResult<()> {
                         cli.profile,
                         no_validate,
                         trace_llvm,
+                        dump_struct_layouts,
                     )?;
                 }
                 Backend::Ir => {
@@ -1809,6 +1815,7 @@ fn compile_file_llvm(
     profile: Profile,
     skip_validation: bool,
     trace_llvm: bool,
+    dump_struct_layouts: bool,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -2014,6 +2021,11 @@ fn compile_file_llvm(
         if trace_llvm {
             backend.set_trace_options(LlvmTraceOptions::all());
             eprintln!("[LLVM TRACE] Tracing enabled via --trace-llvm flag");
+        }
+        
+        // Enable struct layout dumping if --dump-struct-layouts flag is set
+        if dump_struct_layouts {
+            backend.set_dump_struct_layouts(true);
         }
         
         let default_target = if emit_ll {
@@ -3929,6 +3941,7 @@ fn run_file_llvm(
         profile,
         false, // always validate for run command
         false, // no tracing for run command
+        false, // no struct layout dump for run command
     )?;
     let mut cmd = Command::new(&artifact);
     if let Some(parent) = input.parent() {

@@ -39,6 +39,29 @@ impl IRGenerator {
                     .get_variable_type(name)
                     .map(|t| matches!(t, IRType::String))
                     .unwrap_or(false),
+                // Handle method calls like .toString() which return String
+                // Method calls are represented as Call { callee: MemberAccess { member: "toString", .. }, .. }
+                Expression::Call { callee, .. } => {
+                    if let Expression::MemberAccess { member, .. } = callee.as_ref() {
+                        member == "toString" || member == "to_string"
+                    } else {
+                        false
+                    }
+                }
+                // Handle binary expressions that result in String (e.g., str + str)
+                Expression::BinaryOp { op, left, right, .. } => {
+                    if matches!(op, BinaryOperator::Add) {
+                        // Recursive check for string operands
+                        let is_string_inner = |e: &Expression| -> bool {
+                            matches!(e, Expression::StringLiteral { .. } | Expression::InterpolatedString { .. })
+                            || matches!(e, Expression::Call { callee, .. } if matches!(callee.as_ref(), Expression::MemberAccess { member, .. } if member == "toString" || member == "to_string"))
+                            || matches!(e, Expression::Identifier { name, .. } if self.context.get_variable_type(name).map(|t| matches!(t, IRType::String)).unwrap_or(false))
+                        };
+                        is_string_inner(left) || is_string_inner(right)
+                    } else {
+                        false
+                    }
+                }
                 _ => false,
             }
         };
@@ -48,6 +71,8 @@ impl IRGenerator {
             && (is_string_expr(left) || is_string_expr(right))
         {
             let result_reg = self.context.allocate_register();
+            // StringConcat returns a String type - track this for proper LLVM codegen
+            self.context.set_register_type(result_reg, IRType::String);
             let result_value = IRValue::Register(result_reg);
             left_instructions.push(Instruction::StringConcat {
                 left: left_val,

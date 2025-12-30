@@ -1,7 +1,7 @@
 # Seen Language Implementation Status
 
-**Last Updated:** 2025-12-23
-**Session:** Self-Host Progress + MVP Plan Update
+**Last Updated:** 2025-12-30
+**Session:** Self-Host Progress - Stage1 Build Success
 
 ## Executive Summary
 
@@ -85,14 +85,48 @@
     - ⏳ Seen implementations: 2/10 complete (binary_trees, fasta)
     - ⏳ Performance comparison: pending implementations
 
-3. **Self-Hosting (MVP Critical)**
+3. **Self-Hosting (MVP Critical) - MAJOR PROGRESS 2025-12-30**
     - ✅ Bootstrap infrastructure complete
     - ✅ Manifest module system with prelude
     - ✅ Frontend (lexer/parser/typechecker) in Seen
     - ✅ Compiler passes type check (`seen_cli check` passes with 0 errors)
     - ✅ IR generation works (`seen_cli build --backend ir` succeeds)
-    - ✅ Native codegen: LLVM backend generates binary (`stage1_seen`)
-    - ⏳ Stage1→Stage2→Stage3: pending verification of stage1 binary
+    - ✅ Native codegen: LLVM backend generates binary (`stage1_test`)
+    - ✅ **Stage1 binary runs!** (`./stage1_test --help` works)
+    - ⏳ Stage1 compilation of programs: crashes with memory corruption in Vec
+    - ⏳ Stage2/Stage3: pending Stage1 stability fixes
+
+### 🔧 Recent Fixes (2025-12-30)
+
+1. **StringConcat Register Type Tracking**
+   - Fixed: StringConcat operations now properly set `IRType::String` on result registers
+   - This allows variables assigned from string concatenation to have correct types
+   - Files: `seen_ir/src/generator/operations.rs`, `seen_ir/src/generator/collections.rs`
+
+2. **String Expression Detection for Concatenation**
+   - Fixed: `is_string_expr` helper now recognizes:
+     - Method calls like `.toString()` (via `Call { callee: MemberAccess { member: "toString" } }`)
+     - Nested binary operations with string operands
+   - This ensures `char.toString() + nextChar.toString()` is properly detected as string concat
+
+3. **Missing stdlib Method Aliases**
+   - Added: `String_startsWith`, `String_endsWith` wrappers in `seen_std/src/str/string.seen`
+   - These allow method-style calls like `str.startsWith(prefix)` to resolve correctly
+
+4. **Parser Function Name Fix**
+   - Fixed: `parseType()` → `this.parseTypeNode()` in `real_parser.seen`
+
+### ❌ Known Issues (Blocking Full Bootstrap)
+
+1. **Vec Memory Corruption**
+   - Error: `realloc(): invalid next size` during Vec.push operations
+   - Impact: Stage1 compiler crashes when trying to compile programs
+   - Status: Under investigation
+
+2. **TOML File Path Resolution**
+   - Error: Language keyword TOML files not found with relative paths
+   - Impact: Lexer keyword manager fails to load configuration
+   - Workaround needed: Use absolute paths or fix working directory
 
 ### ❌ Not Implemented (Post-Self-Host)
 

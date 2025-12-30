@@ -384,7 +384,7 @@ class RealParser {
         stmt.variableName = nameToken.getValue()
         
         if matchTokenStr(SeenTokenType.Colon) {
-            stmt.variableType = parseType()
+            stmt.variableType = this.parseTypeNode()
         }
         
         if matchTokenStr(SeenTokenType.Equal) {
@@ -465,7 +465,7 @@ class RealParser {
 
     fun parseEquality() r: ParserExpressionNode {
         var expr = parseComparison()
-        while matchTokenStr(SeenTokenType.EqualEqual) or matchTokenStr(SeenTokenType.BangEqual) {
+        while matchTokenStr(SeenTokenType.EqualEqual) or matchTokenStr(SeenTokenType.NotEqual) {
             let operator = previous().getValue()
             let right = parseComparison()
             let newExpr = ParserExpressionNode.new()

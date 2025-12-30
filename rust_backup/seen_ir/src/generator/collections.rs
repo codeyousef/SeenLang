@@ -207,6 +207,8 @@ impl IRGenerator {
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let mut instructions = Vec::new();
         let result_reg = self.context.allocate_register();
+        // Track String type for the initial result register
+        self.context.set_register_type(result_reg, IRType::String);
         let mut result_value = IRValue::Register(result_reg);
 
         // Initialize with empty string
@@ -220,6 +222,8 @@ impl IRGenerator {
                 seen_parser::InterpolationKind::Text(text) => {
                     let text_value = IRValue::String(text.clone());
                     let new_reg = self.context.allocate_register();
+                    // StringConcat returns String - track the type
+                    self.context.set_register_type(new_reg, IRType::String);
                     let new_result = IRValue::Register(new_reg);
 
                     instructions.push(Instruction::StringConcat {
@@ -235,6 +239,8 @@ impl IRGenerator {
                     instructions.extend(expr_instructions);
 
                     let new_reg = self.context.allocate_register();
+                    // StringConcat returns String - track the type
+                    self.context.set_register_type(new_reg, IRType::String);
                     let new_result = IRValue::Register(new_reg);
 
                     instructions.push(Instruction::StringConcat {

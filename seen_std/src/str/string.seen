@@ -497,3 +497,12 @@ fun trim(text: String) r: String {
 fun String.trim() r: String {
     return trim(this)
 }
+
+// Extension methods for method-style calls on String
+fun String_startsWith(text: String, prefix: String) r: Bool {
+    return startsWith(text, prefix)
+}
+
+fun String_endsWith(text: String, suffix: String) r: Bool {
+    return endsWith(text, suffix)
+}
