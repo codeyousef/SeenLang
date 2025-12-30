@@ -1,0 +1,53 @@
+// Simple test of class array storage/retrieval
+
+class SimpleToken {
+    let value: String
+    let id: Int
+
+    static fun new(value: String, id: Int) r: SimpleToken {
+        return SimpleToken {
+            value: value,
+            id: id
+        }
+    }
+
+    fun getValue() r: String {
+        return value
+    }
+
+    fun getId() r: Int {
+        return id
+    }
+}
+
+fun main() r: Int {
+    println("Creating token array...")
+    
+    let tokens = Array<SimpleToken>()
+    
+    println("Creating token 1...")
+    let t1 = SimpleToken.new("hello", 1)
+    
+    println("Pushing token 1...")
+    tokens.push(t1)
+    
+    println("Array length after push: ")
+    let len = tokens.length()
+    println(len.toString())
+    
+    println("Getting token back...")
+    let retrieved = tokens[0]
+    
+    println("Token retrieved, calling getValue...")
+    let val = retrieved.getValue()
+    
+    println("Token value: ")
+    println(val)
+    
+    println("Token id: ")
+    let id = retrieved.getId()
+    println(id.toString())
+    
+    println("Done!")
+    return 0
+}

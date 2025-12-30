@@ -161,13 +161,16 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
         // Pre-pass to track array element struct types for FieldAccess results
         for block in func.cfg.blocks_iter() {
             for inst in &block.instructions {
-                if let Instruction::FieldAccess { struct_val: _, field, result, .. } = inst {
+                if let Instruction::FieldAccess { struct_val, field, result, .. } = inst {
+                    eprintln!("DEBUG type_inference: FieldAccess struct_val={:?}, field={}, result={:?}", struct_val, field, result);
                     if let IRValue::Register(reg_id) = result {
-                        for (_, def_fields) in self.struct_definitions.iter() {
+                        for (struct_name, def_fields) in self.struct_definitions.iter() {
                             for (field_name, field_ty) in def_fields.iter() {
                                 if field_name == field {
+                                    eprintln!("DEBUG type_inference: Found field '{}' in struct '{}' with type {:?}", field, struct_name, field_ty);
                                     if let IRType::Array(inner) = field_ty {
                                         if let IRType::Struct { name: inner_struct_name, .. } = &**inner {
+                                            eprintln!("DEBUG type_inference: Setting reg {} to array element type '{}'", reg_id, inner_struct_name);
                                             self.reg_array_element_struct.insert(*reg_id, inner_struct_name.clone());
                                         }
                                         if matches!(inner.as_ref(), IRType::String) {

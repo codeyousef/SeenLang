@@ -1,0 +1,30 @@
+import lexer.interfaces.{Token}
+import lexer.token_type.{SeenTokenType, getEndOfFileType}
+
+fun main() r: Int {
+    println("Creating token array...")
+    
+    let tokens = Array<Token>()
+    
+    println("Creating token 1...")
+    let t1 = Token.new(getEndOfFileType(), "hello", 1, 0, 5, 0)
+    
+    println("Pushing token 1...")
+    tokens.push(t1)
+    
+    println("Array length after push: ")
+    let len = tokens.length()
+    println(len.toString())
+    
+    println("Getting token back...")
+    let retrieved = tokens[0]
+    
+    println("Token retrieved, calling getValue...")
+    let val = retrieved.getValue()
+    
+    println("Token value: ")
+    println(val)
+    
+    println("Done!")
+    return 0
+}

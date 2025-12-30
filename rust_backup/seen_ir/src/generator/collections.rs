@@ -25,6 +25,11 @@ impl IRGenerator {
         
         // Try to determine the element type from the array's type
         let element_type = self.get_array_element_type(&obj_val);
+        
+        // Set the register type to the element type so method calls can resolve correctly
+        if let Some(ref elem_ty) = element_type {
+            self.context.set_register_type(result_reg, elem_ty.clone());
+        }
 
         let access_instruction = Instruction::ArrayAccess {
             array: obj_val,

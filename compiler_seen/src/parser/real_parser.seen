@@ -156,7 +156,9 @@ class RealParser {
     }
 
     fun parse() r: ProgramNode {
+        println("[trace] RealParser.parse: entry")
         let program = ProgramNode.new()
+        println("[trace] RealParser.parse: checking isAtEnd...")
 
         while not this.isAtEnd() {
             if this.matchTokenStr(SeenTokenType.KeywordImport) {
@@ -698,13 +700,29 @@ class RealParser {
     }
 
     fun isAtEnd() r: Bool {
-        return current >= tokens.length() or this.peek().getType() == getEndOfFileType()
+        println("[trace] RealParser.isAtEnd: entry, current=")
+        println(current.toString())
+        let len = tokens.length()
+        println("[trace] RealParser.isAtEnd: tokens.length()=")
+        println(len.toString())
+        if current >= len {
+            return true
+        }
+        println("[trace] RealParser.isAtEnd: calling peek...")
+        let tok = this.peek()
+        println("[trace] RealParser.isAtEnd: calling getType...")
+        let tt = tok.getType()
+        println("[trace] RealParser.isAtEnd: got type")
+        return tt == getEndOfFileType()
     }
 
     fun peek() r: Token {
+        println("[trace] RealParser.peek: entry")
         if current >= tokens.length() {
+            println("[trace] RealParser.peek: returning last token")
             return tokens[tokens.length() - 1]
         }
+        println("[trace] RealParser.peek: returning tokens[current]")
         return tokens[current]
     }
 

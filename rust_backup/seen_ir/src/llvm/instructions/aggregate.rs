@@ -207,9 +207,9 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             
             // Check if we're accessing a struct array
             if let Some(ref struct_type_name) = element_struct_type {
-                eprintln!("DEBUG ArrayAccess struct array: element_struct_type={}", struct_type_name);
                 // Check if this is a class type (heap-allocated, stored as pointer)
                 let is_class = self.class_types.contains(struct_type_name);
+                eprintln!("DEBUG ArrayAccess struct array: element_struct_type={}, is_class={}", struct_type_name, is_class);
                 
                 // Handle generic type parameters (T, E, K, V, etc.)
                 // These are unresolved at codegen time, so we need to use a fallback strategy
