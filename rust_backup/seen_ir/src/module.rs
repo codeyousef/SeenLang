@@ -327,7 +327,13 @@ impl IRModule {
     pub fn add_type(&mut self, type_def: TypeDefinition) {
         if let Some(index) = self.type_lookup.get(&type_def.name).copied() {
             if let Some(slot) = self.types.get_mut(index) {
+                // Preserve is_class flag if the existing type was a class
+                // This prevents later non-class registrations from overwriting class types
+                let preserve_class = slot.is_class;
                 *slot = type_def;
+                if preserve_class {
+                    slot.is_class = true;
+                }
             }
             return;
         }

@@ -363,6 +363,7 @@ impl IRGenerator {
                 } => {
                     // Class definitions are handled at the module level for type registration
                     // Add the class type to the module and generate methods
+                    eprintln!("[DEBUG IR] Processing ClassDefinition: '{}'", name);
                     self.register_class_type(&mut module, name, fields, methods)?;
                     self.generate_class_methods(&mut module, name, methods)?;
                 }
@@ -608,9 +609,9 @@ impl IRGenerator {
                     match first_type.name.as_str() {
                         "Int" | "i64" => 8,
                         "Float" | "f64" => 8,
-                        "Bool" => 1,
-                        "Char" => 4,
-                        "String" => 8, // pointer size
+                        "Bool" => 8, // aligned to 8 bytes
+                        "Char" => 8, // aligned to 8 bytes
+                        "String" => 16, // struct { i64, i8* }
                         _ => 8, // struct/pointer size default
                     }
                 } else {

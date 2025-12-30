@@ -1127,13 +1127,15 @@ pub extern "C" fn __FloatToString(value: f64) -> SeenString {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __BoolToString(value: i32) -> SeenString {
+#[unsafe(no_mangle)]
+pub extern "C" fn __BoolToString(value: i64) -> SeenString {
     let s = if value != 0 { "true" } else { "false" }.to_string();
     string_to_seen_string(s)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __CharToString(value: i64) -> SeenString {
+    eprintln!("DEBUG: __CharToString value={}", value);
     let ch = std::char::from_u32(value as u32).unwrap_or('\u{FFFD}');
     string_to_seen_string(ch.to_string())
 }

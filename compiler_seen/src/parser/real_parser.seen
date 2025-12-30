@@ -697,7 +697,13 @@ class RealParser {
         println("[trace] checkToken: got tok, calling getType...")
         let tokType: SeenTokenType = tok.getType()
         println("[trace] checkToken: got tokType, comparing...")
-        return tokType == tokenType
+        // println("tokType: " + tokType.toString() + " expected: " + tokenType.toString())
+        if tokType == tokenType {
+             println("MATCH!")
+             return true
+        }
+        println("NO MATCH")
+        return false
     }
     fun advance() r: Token {
         if not this.isAtEnd() {

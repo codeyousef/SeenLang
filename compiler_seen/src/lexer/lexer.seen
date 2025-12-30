@@ -37,9 +37,12 @@ class SeenLexer {
         column = 1
         tokens = Array<Token>()
         
+        // println("[trace tokenize] source.length()=" + source.length().toString())
+        
         // Main tokenization loop
         while position < source.length() {
             let char = this.getCurrentChar()
+            // println("[trace loop] pos=" + position.toString() + " char code=" + char.toInt().toString())
             
             // Skip whitespace (except newlines for position tracking)
             if this.isWhitespace(char) {
@@ -484,7 +487,9 @@ class SeenLexer {
         let nextChar = this.peekChar(1)
         
         // Two-character operators
-        let twoChar = char.toString() + nextChar.toString()
+        let s1 = char.toString()
+        let s2 = nextChar.toString()
+        let twoChar: String = s1 + s2
         let twoCharType = this.getTwoCharOperatorType(twoChar)
         if twoCharType != SeenTokenType.None {
             this.advance()

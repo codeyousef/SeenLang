@@ -944,7 +944,12 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             .into_pointer_value();
                         
                         // Allocate data buffer
-                        let elem_size = self.i64_t.const_int(8, false);
+                        let elem_size = if args.len() >= 2 {
+                            let sz_val = self.eval_value(&args[0], fn_map)?;
+                            self.as_i64(sz_val)?
+                        } else {
+                            self.i64_t.const_int(8, false)
+                        };
                         let data_size = self.builder.build_int_mul(alloc_cap, elem_size, "data_size")?;
                         let data_ptr = self.builder.build_call(malloc, &[data_size.into()], "arr_data_alloc")?
                             .try_as_basic_value().left()
@@ -1443,73 +1448,39 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                 }
                 "charAt" => {
-                    // charAt(string, index) -> single-character String
+                    // charAt(string, index) -> Char (i8)
                     if args.len() == 2 {
                         let s_val = self.eval_value(&args[0], fn_map)?;
                         let s = self.as_cstr_ptr(s_val)?;
                         let idx_val = self.eval_value(&args[1], fn_map)?;
                         let idx = self.as_i64(idx_val)?;
                         
-                        // Allocate a 16-byte buffer for the single char + null terminator (padded for safety)
-                        // Use our malloc with i64 size parameter for consistency
-                        let malloc = self.get_malloc();
-                        let size = self.i64_t.const_int(16, false);
-                        let buf = self.builder.build_call(malloc, &[size.into()], "char_buf")?
-                            .try_as_basic_value()
-                            .left()
-                            .ok_or_else(|| anyhow::anyhow!("malloc returned void"))?
-                            .into_pointer_value();
-                        
-                        // DEBUG: Print pointer
-                        let fmt = self.builder.build_global_string_ptr("DEBUG: charAt BEFORE GEP s: %p, idx: %lld\n", "debug_fmt_charat1")?;
-                        self.call_printf(&[fmt.as_pointer_value().into(), s.into(), idx.into()])?;
-                        
                         // Get pointer to character at index
                         let char_ptr = unsafe {
                             self.builder.build_gep(self.ctx.i8_type(), s, &[idx], "char_ptr")?
                         };
                         
-                        // DEBUG: Print char_ptr
-                        let fmt2 = self.builder.build_global_string_ptr("DEBUG: charAt AFTER GEP char_ptr: %p\n", "debug_fmt_charat2")?;
-                        self.call_printf(&[fmt2.as_pointer_value().into(), char_ptr.into()])?;
-                        
                         // Load the character as i8
                         let char_val = self.builder.build_load(self.ctx.i8_type(), char_ptr, "char_val")?.into_int_value();
                         
-                        // DEBUG: Print char value
-                        let fmt3 = self.builder.build_global_string_ptr("DEBUG: charAt LOADED char: %d\n", "debug_fmt_charat3")?;
-                        let char_ext = self.builder.build_int_z_extend(char_val, self.ctx.i32_type(), "char_ext")?;
-                        self.call_printf(&[fmt3.as_pointer_value().into(), char_ext.into()])?;
-                        
-                        // Store the character in the buffer (build_store takes ptr, value)
-                        self.builder.build_store(buf, char_val)?;
-                        
-                        // Store null terminator at buf[1]
-                        let null_ptr = unsafe {
-                            self.builder.build_gep(self.ctx.i8_type(), buf, &[self.i64_t.const_int(1, false)], "null_ptr")?
-                        };
-                        self.builder.build_store(null_ptr, self.ctx.i8_type().const_zero())?;
-                        
-                        // Build SeenString struct {len=1, data=buf} using alloca + insert_value
-                        let string_ty = self.ty_string();
-                        let one = self.i64_t.const_int(1, false);
-                        
-                        // Start with an undef struct
-                        let undef = string_ty.get_undef();
-                        // Insert len at index 0
-                        let with_len = self.builder.build_insert_value(undef, one, 0, "str_len")?;
-                        // Insert data ptr at index 1
-                        let string_struct = self.builder.build_insert_value(with_len, buf, 1, "str_data")?;
-                        
                         if let Some(r) = result {
-                            self.assign_value(r, string_struct.as_basic_value_enum())?;
+                            self.assign_value(r, char_val.as_basic_value_enum())?;
                         }
-                        return Ok(());
                     }
+                    return Ok(());
                 }
                 "toInt" => {
                     // toInt(char) -> int - convert Char (i8) to Int (i64)
                     if args.len() == 1 {
+                        let char_val = self.eval_value(&args[0], fn_map)?;
+                        eprintln!("DEBUG toInt: char_val is_int={}, type={:?}", char_val.is_int_value(), char_val.get_type());
+                        if char_val.is_int_value() {
+                            let iv = char_val.into_int_value();
+                            eprintln!("DEBUG toInt: int value bit_width={}, is_const={}, const_val={:?}", 
+                                iv.get_type().get_bit_width(),
+                                iv.is_const(),
+                                if iv.is_const() { Some(iv.get_zero_extended_constant()) } else { None });
+                        }
                         let char_val = self.eval_value(&args[0], fn_map)?;
                         let char_i8 = if char_val.is_int_value() {
                             char_val.into_int_value()
@@ -2289,26 +2260,30 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         let val = self.eval_value(arg, fn_map)?;
                         let str_ptr = if val.is_int_value() {
                             let iv = val.into_int_value();
-                            // Check if it's an i8 (Char) - use CharToString for single chars
-                            let is_char = iv.get_type().get_bit_width() < 64;
-                            let use_char_fn = is_char || name == "Char_toString";
-                            eprintln!("DEBUG toString: name={}, is_int=true, bit_width={}, is_char={}, use_char_fn={}", name, iv.get_type().get_bit_width(), is_char, use_char_fn);
-                            let int_val = if is_char {
-                                self.builder.build_int_s_extend(iv, self.i64_t, "char_ext")?
-                            } else {
-                                iv
-                            };
-                            // Use CharToString for chars (converts code to single-char string)
-                            // Use IntToString for ints (converts number to decimal string)
-                            let func = if use_char_fn {
+                            let bit_width = iv.get_type().get_bit_width();
+                            eprintln!("DEBUG toString: name={}, is_int=true, bit_width={}", name, bit_width);
+
+                            let call_site = if name == "Bool_toString" || bit_width == 1 {
+                                eprintln!("DEBUG toString: using BoolToString");
+                                let func = self.ensure_bool_to_string_fn();
+                                let int_val = self.builder.build_int_z_extend(iv, self.i64_t, "bool_ext")?;
+                                self.builder.build_call(func, &[int_val.into()], "bool_str")?
+                            } else if name == "Char_toString" || bit_width == 8 {
                                 eprintln!("DEBUG toString: using CharToString");
-                                self.ensure_char_to_string_fn()
+                                let func = self.ensure_char_to_string_fn();
+                                let int_val = self.builder.build_int_z_extend(iv, self.i64_t, "char_ext")?;
+                                self.builder.build_call(func, &[int_val.into()], "char_str")?
                             } else {
                                 eprintln!("DEBUG toString: using IntToString");
-                                self.ensure_int_to_string_fn()
+                                let func = self.ensure_int_to_string_fn();
+                                let int_val = if bit_width < 64 {
+                                    self.builder.build_int_s_extend(iv, self.i64_t, "int_ext")?
+                                } else {
+                                    iv
+                                };
+                                self.builder.build_call(func, &[int_val.into()], "int_str")?
                             };
-                            let call = self.builder.build_call(func, &[int_val.into()], if is_char { "c2s" } else { "i2s" })?;
-                            call.try_as_basic_value().left().unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum())
+                            call_site.try_as_basic_value().left().unwrap_or_else(|| self.i8_ptr_t.const_null().as_basic_value_enum())
                         } else if val.is_float_value() {
                             let func = self.ensure_float_to_string_fn();
                             let call = self.builder.build_call(func, &[val.into()], "f2s")?;
@@ -3145,7 +3120,12 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                 }
                 
-                self.assign_value(r, ret)?;
+                self.assign_value(r, ret.clone())?;
+                
+                // Debug: trace char return values
+                if ret.is_int_value() && ret.into_int_value().get_type().get_bit_width() == 8 {
+                    eprintln!("DEBUG: Assigning i8 return value to {:?}, ret_type={:?}", r, ret.get_type());
+                }
 
                 // Propagate return struct type info
                 eprintln!("DEBUG: emit_call struct type propagation for target={:?}", target);

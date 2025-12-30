@@ -61,17 +61,25 @@ class StringBuilder {
     }
 
     fun toString() r: String {
-        if this.parts.length() == 0 {
-            return ""
+        return this.toStringDebug()
+    }
+
+    fun toStringDebug() r: String {
+        println("SB_TOSTRING_DEBUG_ENTER")
+        let myParts = this.parts
+        println("[DEBUG] StringBuilder.toStringDebug: parts.len=" + myParts.length().toString())
+        
+        let result = ""
+        let i = 0
+        while i < myParts.length() {
+            let p = myParts[i]
+            println("[DEBUG] Loop i=" + i.toString() + " p.len=" + p.length().toString())
+            result = result + p
+            println("[DEBUG] Loop i=" + i.toString() + " result.len=" + result.length().toString())
+            i = i + 1
         }
-        if this.parts.length() == 1 {
-            return this.parts[0]
-        }
-        var flattened = this.copyParts(this.parts)
-        while flattened.length() > 1 {
-            flattened = this.mergeAdjacent(flattened)
-        }
-        return flattened[0]
+        println("[DEBUG] StringBuilder.toStringDebug: result len=" + result.length().toString())
+        return result
     }
 
     fun copyParts(source: Array<String>) r: Array<String> {
@@ -87,7 +95,9 @@ class StringBuilder {
         var index = 0
         while index < values.length() {
             if index + 1 < values.length() {
-                merged.push(values[index] + values[index + 1])
+                let s = values[index] + values[index + 1]
+                println("[DEBUG] mergeAdjacent: pushing len=" + s.length().toString())
+                merged.push(s)
                 index = index + 2
             } else {
                 merged.push(values[index])

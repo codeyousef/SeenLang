@@ -21,6 +21,7 @@ impl IRGenerator {
     /// Register a class type in both the context and the module.
     /// Classes are heap-allocated and represented as pointers (i64) at runtime.
     fn register_class_type_def(&mut self, module: &mut IRModule, name: &str, ir_type: IRType) {
+        eprintln!("[DEBUG IR] register_class_type_def: '{}' as class", name);
         self.context
             .type_definitions
             .insert(name.to_string(), ir_type.clone());

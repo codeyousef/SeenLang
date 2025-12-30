@@ -73,6 +73,12 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
         }
         
         let v = self.eval_value(value, fn_map)?;
+        
+        // Debug: trace char stores
+        if v.is_int_value() && v.into_int_value().get_type().get_bit_width() == 8 {
+            eprintln!("DEBUG: emit_store storing i8 value to {:?}, val={:?}", dest, v);
+        }
+        
         self.assign_value(dest, v)?;
 
         // Propagate struct type info

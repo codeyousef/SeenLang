@@ -1,5 +1,0 @@
-import lexer.interfaces.{TokenType}
-
-fun main() {
-    let t = TokenType.KeywordFalse
-}

@@ -942,6 +942,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                     if type_def.is_class {
                         eprintln!("[LLVM TRACE] Registering class type: '{}'", name);
                         self.class_types.insert(name.clone());
+                    } else {
+                        eprintln!("[LLVM TRACE] Type '{}' NOT marked as class (is_class=false)", name);
                     }
                 }
                 // Register enum types (order doesn't matter)
@@ -2673,6 +2675,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                         } else {
                             (p, ty)
                         }
+                    } else if v.is_int_value() && ty.is_int_type() && v.into_int_value().get_type().get_bit_width() != ty.into_int_type().get_bit_width() {
+                        // Int width mismatch (e.g. i8 vs i64) - reallocate if needed, or just extend/truncate
+                        // If the slot is i64 but value is i8, we can extend.
+                        // But if we want to store i8 in i8 slot, we need to make sure slot is i8.
+                        // If slot is i64 (default), we should probably keep it i64 and extend.
+                        (p, ty)
                     } else {
                         (p, ty)
                     }
@@ -2836,10 +2844,19 @@ impl<'ctx> LlvmBackend<'ctx> {
                 if iv.get_type() == it {
                     Ok(iv.as_basic_value_enum())
                 } else if iv.get_type().get_bit_width() < it.get_bit_width() {
-                    let ext = self
-                        .builder
-                        .build_int_s_extend(iv, it, "sext_store")
-                        .map_err(|e| anyhow!("{e:?}"))?;
+                    // Special case: if we are extending i8 to i64, use zero extension for chars
+                    // This avoids sign extension issues with high-bit chars (like 0x80-0xFF)
+                    // which would become negative numbers if sign-extended.
+                    let is_char = iv.get_type().get_bit_width() == 8;
+                    let ext = if is_char {
+                        self.builder
+                            .build_int_z_extend(iv, it, "zext_char")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                    } else {
+                        self.builder
+                            .build_int_s_extend(iv, it, "sext_store")
+                            .map_err(|e| anyhow!("{e:?}"))?
+                    };
                     Ok(ext.as_basic_value_enum())
                 } else {
                     let trunc = self

@@ -31,8 +31,8 @@ class CGenerator {
             generateItem(item)
         }
         
-        println("[trace] CGenerator.generate: about to toString(), sb.length()=" + sb.length().toString())
-        let result: String = sb.toString()
+        println("[trace] CGenerator.generate: about to toString() CHECK, sb.length()=" + sb.length().toString())
+        let result: String = sb.toStringDebug()
         println("[trace] CGenerator.generate: got result, len=" + result.length().toString())
         return result
     }

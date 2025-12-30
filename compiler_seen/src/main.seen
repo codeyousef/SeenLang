@@ -46,7 +46,7 @@ fun myWriteText(path: String, content: String) r: Bool {
 }
 
 fun main() r: Int {
-    println("[trace] main: entry")
+    println("[trace] main: entry - DEBUG BUILD")
     let args = GetCommandLineArgs()
     println("[trace] main: got args, size=" + args.size().toString())
     if args.size() < 2 {
@@ -154,6 +154,14 @@ fun buildCommand(sourceFile: String, outputFile: String) r: Int {
     let sourceCode = readText(sourceFile)
     // stdoutLine("[trace] sourceCode type: " + type_of(sourceCode))
     let sourceLen = sourceCode.len()
+    stdoutLine("[DEBUG] sourceCode len=" + sourceLen.toString())
+    if sourceLen > 0 {
+        stdoutLine("[DEBUG] source[0] = '" + sourceCode.charAt(0).toString() + "'")
+    }
+    if sourceLen > 1 {
+        stdoutLine("[DEBUG] source[1] = '" + sourceCode.charAt(1).toString() + "'")
+    }
+    
     if sourceLen == 0 {
         stdoutLine("Error: Could not read file '" + sourceFile + "'")
         return 1
