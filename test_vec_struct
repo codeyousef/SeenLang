@@ -1,0 +1,114 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Type definitions
+type Nested = struct Nested { p: struct Point { x: i64, y: i64, z: i64 }, name: string, count: i64 }
+type Point = struct Point { x: i64, y: i64, z: i64 }
+
+; Functions
+fn __Print [extern](s: string) -> struct Void {  } {}
+
+fn __PrintInt [extern](i: i64) -> struct Void {  } {}
+
+fn main() -> i64 {
+  ; Local variables
+  i: i64
+  n: struct Nested { p: struct Point { x: Unresolved, y: Unresolved, z: Unresolved }, name: string, count: Unresolved }
+  nested: [struct Nested { p: struct Point { x: i64, y: i64, z: i64 }, name: string, count: i64 }]
+  p: struct Point { x: Unresolved, y: Unresolved, z: Unresolved }
+  points: [struct Point { x: i64, y: i64, z: i64 }]
+
+; Entry: entry
+entry:
+  call %__Print ("Testing Vec with Point struct\n") -> %r0
+  call %__ArrayNew (8, 0) -> %r1
+  store %r1 -> %points
+  store 0 -> %i
+  jmp .loop_start_0
+
+loop_start_0:
+  lt %i 50 -> %r2
+  jnot %r2 .loop_end_2
+
+loop_body_1:
+  mul %i 2 -> %r3
+  mul %i 3 -> %r4
+  store struct Point -> %p
+  call %Array_push (%points, %p) -> %r5
+  mod %i 10 -> %r6
+  eq %r6 0 -> %r7
+  jif %r7 .then_3
+
+block_0:
+  jmp .else_4
+
+then_3:
+  call %__Print ("Pushed ") -> %r8
+  call %__PrintInt (%i) -> %r9
+  call %__Print (" points\n") -> %r10
+  mov %r10 -> %r11
+  jmp .if_end_5
+
+else_4:
+  mov void -> %r11
+  jmp .if_end_5
+
+if_end_5:
+  add %i 1 -> %r12
+  store %r12 -> %i
+  jmp .loop_start_0
+
+loop_end_2:
+  call %__Print ("Points array length: ") -> %r13
+  arr_len %points -> %r14
+  call %__PrintInt (%r14) -> %r15
+  call %__Print ("\n") -> %r16
+  call %__Print ("Testing Vec with Nested struct\n") -> %r17
+  call %__ArrayNew (8, 0) -> %r18
+  store %r18 -> %nested
+  store 0 -> %i
+  jmp .loop_start_6
+
+loop_start_6:
+  lt %i 30 -> %r19
+  jnot %r19 .loop_end_8
+
+loop_body_7:
+  store struct Nested -> %n
+  call %Array_push (%nested, %n) -> %r20
+  mod %i 5 -> %r21
+  eq %r21 0 -> %r22
+  jif %r22 .then_9
+
+block_1:
+  jmp .else_10
+
+then_9:
+  call %__Print ("Pushed ") -> %r23
+  call %__PrintInt (%i) -> %r24
+  call %__Print (" nested\n") -> %r25
+  mov %r25 -> %r26
+  jmp .if_end_11
+
+else_10:
+  mov void -> %r26
+  jmp .if_end_11
+
+if_end_11:
+  add %i 1 -> %r27
+  store %r27 -> %i
+  jmp .loop_start_6
+
+loop_end_8:
+  call %__Print ("Nested array length: ") -> %r28
+  arr_len %nested -> %r29
+  call %__PrintInt (%r29) -> %r30
+  call %__Print ("\n") -> %r31
+  call %__Print ("Done!\n") -> %r32
+  ret 0
+
+}
+
+

@@ -1,0 +1,38 @@
+extern fun __Print(s: String) r: Void
+extern fun __PrintInt(i: Int) r: Void
+
+import collections.vec.{Vec}
+import collections.map.{Map}
+
+fun main() r: Int {
+    __Print("Creating Vec<String>...\n")
+    var strings = Vec<String>.new()
+    
+    __Print("Pushing 10 strings...\n")
+    var i = 0
+    while i < 10 {
+        strings.push("test")
+        i = i + 1
+    }
+    
+    __Print("Vec length: ")
+    __PrintInt(strings.len())
+    __Print("\n")
+    
+    __Print("Creating Map<String, Int>...\n")
+    var mapTest = Map<String, Int>.new()
+    
+    __Print("Putting 5 entries...\n")
+    mapTest.put("a", 1)
+    mapTest.put("b", 2)
+    mapTest.put("c", 3)
+    mapTest.put("d", 4)
+    mapTest.put("e", 5)
+    
+    __Print("Map size: ")
+    __PrintInt(mapTest.size())
+    __Print("\n")
+    
+    __Print("Done!\n")
+    return 0
+}

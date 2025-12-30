@@ -1881,8 +1881,45 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 }
                 // Handle size/length/len as getting array length
                 // BUT only for actual Array types - for Vec<T>, call Vec_len instead
+                // IMPORTANT: First check if the original function (e.g. Map_size) exists
                 "size" | "length" | "len" if args.len() == 1 => {
-                    eprintln!("DEBUG LLVM: len/length/size call with arg {:?}", args[0]);
+                    eprintln!("DEBUG LLVM: len/length/size call with arg {:?}, original name={}", args[0], name);
+                    
+                    // First, try to call the original function if it exists (e.g., Map_size)
+                    if let Some(original_fn) = fn_map.get(name).copied()
+                        .or_else(|| self.module.get_function(name))
+                    {
+                        eprintln!("DEBUG LLVM: Found original function '{}', calling it directly", name);
+                        let this_val = self.eval_value(&args[0], fn_map)?;
+                        let this_ptr = if this_val.is_pointer_value() {
+                            this_val.into_pointer_value()
+                        } else if this_val.is_int_value() {
+                            self.builder.build_int_to_ptr(
+                                this_val.into_int_value(),
+                                self.i8_ptr_t,
+                                "method_this"
+                            )?
+                        } else {
+                            // Spill to stack
+                            let tmp = self.alloca_for_type(this_val.get_type().as_basic_type_enum(), "method_this_spill")?;
+                            self.builder.build_store(tmp, this_val)?;
+                            tmp
+                        };
+                        
+                        let call_val = self.builder.build_call(
+                            original_fn,
+                            &[this_ptr.into()],
+                            "method_result"
+                        )?;
+                        
+                        if let Some(r) = result {
+                            if let Some(ret) = call_val.try_as_basic_value().left() {
+                                self.assign_value(r, ret)?;
+                            }
+                        }
+                        return Ok(());
+                    }
+                    
                     // Check if Vec_len exists - if so, this might be a Vec, not an Array
                     // For Vec types, we need to call Vec_len method, not read array header
                     if let Some(vec_len_fn) = fn_map.get("Vec_len").copied()

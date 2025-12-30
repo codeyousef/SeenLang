@@ -1,0 +1,56 @@
+extern fun __Print(s: String) r: Void
+extern fun __PrintInt(i: Int) r: Void
+
+data Point { x: Int, y: Int, z: Int }
+
+data Nested { p: Point, name: String, count: Int }
+
+fun main() r: Int {
+    __Print("Testing Vec with Point struct\n")
+    
+    // Create Vec-like behavior with Array<Point>
+    var points = Array<Point>()
+    
+    var i = 0
+    while i < 50 {
+        let p = Point{ x: i, y: i * 2, z: i * 3 }
+        points.push(p)
+        if i % 10 == 0 {
+            __Print("Pushed ")
+            __PrintInt(i)
+            __Print(" points\n")
+        }
+        i = i + 1
+    }
+    
+    __Print("Points array length: ")
+    __PrintInt(points.length())
+    __Print("\n")
+    
+    __Print("Testing Vec with Nested struct\n")
+    
+    var nested = Array<Nested>()
+    
+    i = 0
+    while i < 30 {
+        let n = Nested{ 
+            p: Point{ x: i, y: i, z: i },
+            name: "test",
+            count: i
+        }
+        nested.push(n)
+        if i % 5 == 0 {
+            __Print("Pushed ")
+            __PrintInt(i)
+            __Print(" nested\n")
+        }
+        i = i + 1
+    }
+    
+    __Print("Nested array length: ")
+    __PrintInt(nested.length())
+    __Print("\n")
+    
+    __Print("Done!\n")
+    return 0
+}
