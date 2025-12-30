@@ -1,0 +1,7 @@
+extern fun __Print(s: String) r: Void
+extern fun __PrintInt(i: Int) r: Void
+
+fun main() r: Int {
+    __Print("Hello")
+    return 0
+}

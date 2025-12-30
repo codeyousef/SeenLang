@@ -27,34 +27,9 @@ class KeywordManager {
         println("[trace] KeywordManager.new: loading keywords...")
         
         if language == "en" {
-             // Try loading from TOMLs first
-             // We assume the compiler is run from a location where ../languages is accessible
-             // This is brittle but matches the current setup
-             let loaded = false
-             // TODO: Check if files exist before loading?
-             // For now, we will try to load one file, if it works, we assume TOML loading works.
-             // Actually, let's just call loadFromToml for the main files.
-             
-             // Note: We are hardcoding paths relative to the workspace root or CWD.
-             // The CWD is usually where we run 'cargo run' from.
-             
-             // Let's try to load a few key files.
-             km.loadFromToml("../languages/en/en-keywords-vars.toml")
-             km.loadFromToml("../languages/en/en-keywords-control.toml")
-             km.loadFromToml("../languages/en/en-keywords-types.toml")
-             km.loadFromToml("../languages/en/en-keywords-misc.toml")
-             km.loadFromToml("../languages/en/en-keywords-module.toml")
-             km.loadFromToml("../languages/en/en-keywords-async.toml")
-             km.loadFromToml("../languages/en/en-keywords-literals.toml")
-             km.loadFromToml("../languages/en/en-keywords-memory.toml")
-             km.loadFromToml("../languages/en/en-keywords-meta.toml")
-             km.loadFromToml("../languages/en/en-keywords-modifiers.toml")
-             km.loadFromToml("../languages/en/en-operators.toml")
-             
-             if km.getKeywordCount() == 0 {
-                 println("[warn] KeywordManager: Failed to load from TOMLs, falling back to hardcoded defaults")
-                 km.loadEnglishKeywords()
-             }
+             // Skip TOML loading for now - go directly to hardcoded keywords
+             // The TOML loading seems to trigger memory corruption with nested struct operations
+             km.loadEnglishKeywords()
         } else {
              km.loadEnglishKeywords()
         }
