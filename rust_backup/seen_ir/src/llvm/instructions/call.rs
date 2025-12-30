@@ -1137,22 +1137,25 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             "new_cap"
                         )?.into_int_value();
 
-                        let elem_byte_size = if value.is_struct_value() {
-                            // Get actual struct size from LLVM
-                            let struct_ty = value.into_struct_value().get_type();
-                            let size_of = struct_ty.size_of().map(|sv| {
-                                // Try to extract constant value
-                                if let Some(const_val) = sv.get_zero_extended_constant() {
-                                    const_val
-                                } else {
-                                    // If not constant, use a safe default for typical structs
-                                    // Token has ~56 bytes, String has 16 bytes
-                                    64
-                                }
-                            }).unwrap_or(64);
-                            size_of
-                        } else {
-                            8
+                        // Get element size without consuming the value
+                        let elem_byte_size = match &value {
+                            BasicValueEnum::StructValue(sv) => {
+                                // Get actual struct size from LLVM
+                                let struct_ty = sv.get_type();
+                                let size_of = struct_ty.size_of().map(|sz| {
+                                    // Try to extract constant value
+                                    if let Some(const_val) = sz.get_zero_extended_constant() {
+                                        const_val
+                                    } else {
+                                        // If not constant, use a safe default for typical structs
+                                        // Token has ~56 bytes, String has 16 bytes
+                                        64
+                                    }
+                                }).unwrap_or(64);
+                                size_of
+                            }
+                            BasicValueEnum::FloatValue(_) => 8,
+                            _ => 8,  // Default to 8 bytes for i64/pointers
                         };
                         let elem_size = self.i64_t.const_int(elem_byte_size, false);
                         let new_size = self.builder.build_int_mul(new_cap, elem_size, "new_size")?;
