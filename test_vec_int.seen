@@ -1,0 +1,18 @@
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() {
+    __Print("Testing Vec<Int>...\n")
+    var v = Vec<Int>.new()
+    var i = 0
+    while i < 100 {
+        v.push(i)
+        i = i + 1
+    }
+    __Print("Vec length: ")
+    __PrintInt(v.length())
+    __Print("\n")
+    __Print("Done!\n")
+}
