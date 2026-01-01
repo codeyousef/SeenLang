@@ -269,7 +269,16 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         let ptr = self.builder.build_int_to_ptr(ptr_as_int, self.i8_ptr_t, "class_ptr")?;
                         
                         // Assign the pointer to result (NOT the dereferenced struct)
-                        self.assign_value(result, ptr.as_basic_value_enum())?;
+                        if struct_type_name == "String" {
+                            // String is stored as pointer in Vec/Array<String> (when treated as class/generic)
+                            // But the value type is the struct itself.
+                            // So we must dereference the pointer to get the String struct.
+                            let struct_ptr = self.builder.build_pointer_cast(ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "str_ptr")?;
+                            let struct_val = self.builder.build_load(self.ty_string(), struct_ptr, "str_load")?;
+                            self.assign_value(result, struct_val)?;
+                        } else {
+                            self.assign_value(result, ptr.as_basic_value_enum())?;
+                        }
                         
                         // Track struct type for subsequent field access
                         if let IRValue::Register(reg_id) = result {

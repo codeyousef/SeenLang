@@ -40,39 +40,39 @@ fn Map_containsKey(this: struct Map {  }, key: struct K {  }) -> bool {
 ; Entry: entry
 entry:
   store 0 -> %i
-  jmp .loop_start_72
+  jmp .loop_start_75
 
-loop_start_72:
+loop_start_75:
   field_get %this.length -> %r0 (Map.i64)
   lt %i %r0 -> %r1
-  jnot %r1 .loop_end_74
+  jnot %r1 .loop_end_77
 
-loop_body_73:
+loop_body_76:
   field_get %this.keys -> %r2 (Map.struct Vec {  })
   call %Vec_get (%r2, %i) -> %r3
   eq %r3 %key -> %r4
-  jif %r4 .then_75
+  jif %r4 .then_78
 
 block_0:
-  jmp .else_76
+  jmp .else_79
 
-then_75:
+then_78:
   ret true
 
 block_1:
   mov true -> %r5
-  jmp .if_end_77
+  jmp .if_end_80
 
-else_76:
+else_79:
   mov void -> %r5
-  jmp .if_end_77
+  jmp .if_end_80
 
-if_end_77:
+if_end_80:
   add %i 1 -> %r6
   store %r6 -> %i
-  jmp .loop_start_72
+  jmp .loop_start_75
 
-loop_end_74:
+loop_end_77:
   ret false
 
 }
@@ -84,39 +84,39 @@ fn Map_containsValue(this: struct Map {  }, value: struct V {  }) -> bool {
 ; Entry: entry
 entry:
   store 0 -> %i
-  jmp .loop_start_78
+  jmp .loop_start_81
 
-loop_start_78:
+loop_start_81:
   field_get %this.length -> %r0 (Map.i64)
   lt %i %r0 -> %r1
-  jnot %r1 .loop_end_80
+  jnot %r1 .loop_end_83
 
-loop_body_79:
+loop_body_82:
   field_get %this.values -> %r2 (Map.struct Vec {  })
   call %Vec_get (%r2, %i) -> %r3
   eq %r3 %value -> %r4
-  jif %r4 .then_81
+  jif %r4 .then_84
 
 block_0:
-  jmp .else_82
+  jmp .else_85
 
-then_81:
+then_84:
   ret true
 
 block_1:
   mov true -> %r5
-  jmp .if_end_83
+  jmp .if_end_86
 
-else_82:
+else_85:
   mov void -> %r5
-  jmp .if_end_83
+  jmp .if_end_86
 
-if_end_83:
+if_end_86:
   add %i 1 -> %r6
   store %r6 -> %i
-  jmp .loop_start_78
+  jmp .loop_start_81
 
-loop_end_80:
+loop_end_83:
   ret false
 
 }
@@ -124,31 +124,31 @@ loop_end_80:
 fn Map_get(this: struct Map {  }, key: struct K {  }) -> struct V {  }? {
   ; Local variables
   i: i64
-  k: struct T {  }
+  k: struct VecChunk { values: [struct T {  }] }?
 
 ; Entry: entry
 entry:
   store 0 -> %i
-  jmp .loop_start_66
+  jmp .loop_start_69
 
-loop_start_66:
+loop_start_69:
   field_get %this.length -> %r0 (Map.i64)
   lt %i %r0 -> %r1
-  jnot %r1 .loop_end_68
+  jnot %r1 .loop_end_71
 
-loop_body_67:
+loop_body_70:
   field_get %this.keys -> %r2 (Map.struct Vec {  })
   call %Vec_get (%r2, %i) -> %r3
   store %r3 -> %k
   call %__Print ("Map.get checking index:") -> %r4
   call %__PrintInt (%i) -> %r5
   eq %k %key -> %r6
-  jif %r6 .then_69
+  jif %r6 .then_72
 
 block_0:
-  jmp .else_70
+  jmp .else_73
 
-then_69:
+then_72:
   call %__Print ("Match found!") -> %r7
   field_get %this.values -> %r8 (Map.struct Vec {  })
   call %Vec_get (%r8, %i) -> %r9
@@ -157,19 +157,19 @@ then_69:
 
 block_1:
   mov %r10 -> %r11
-  jmp .if_end_71
+  jmp .if_end_74
 
-else_70:
+else_73:
   call %__Print ("No match") -> %r12
   mov %r12 -> %r11
-  jmp .if_end_71
+  jmp .if_end_74
 
-if_end_71:
+if_end_74:
   add %i 1 -> %r13
   store %r13 -> %i
-  jmp .loop_start_66
+  jmp .loop_start_69
 
-loop_end_68:
+loop_end_71:
   call %None () -> %r14
   ret %r14
 
@@ -194,22 +194,22 @@ entry:
   call %Vec_new () -> %r0
   store %r0 -> %result
   store 0 -> %i
-  jmp .loop_start_84
+  jmp .loop_start_87
 
-loop_start_84:
+loop_start_87:
   field_get %this.length -> %r1 (Map.i64)
   lt %i %r1 -> %r2
-  jnot %r2 .loop_end_86
+  jnot %r2 .loop_end_89
 
-loop_body_85:
+loop_body_88:
   field_get %this.keys -> %r3 (Map.struct Vec {  })
   call %Vec_get (%r3, %i) -> %r4
   call %Vec_push (%result, %r4) -> %r5
   add %i 1 -> %r6
   store %r6 -> %i
-  jmp .loop_start_84
+  jmp .loop_start_87
 
-loop_end_86:
+loop_end_89:
   ret %result
 
 }
@@ -237,41 +237,41 @@ fn Map_put(this: struct Map {  }, key: struct K {  }, value: struct V {  }) -> s
 ; Entry: entry
 entry:
   store 0 -> %i
-  jmp .loop_start_60
+  jmp .loop_start_63
 
-loop_start_60:
+loop_start_63:
   field_get %this.length -> %r0 (Map.i64)
   lt %i %r0 -> %r1
-  jnot %r1 .loop_end_62
+  jnot %r1 .loop_end_65
 
-loop_body_61:
+loop_body_64:
   field_get %this.keys -> %r2 (Map.struct Vec {  })
   call %Vec_get (%r2, %i) -> %r3
   eq %r3 %key -> %r4
-  jif %r4 .then_63
+  jif %r4 .then_66
 
 block_0:
-  jmp .else_64
+  jmp .else_67
 
-then_63:
+then_66:
   field_get %this.values -> %r5 (Map.struct Vec {  })
   call %Vec_set (%r5, %i, %value) -> %r6
   ret
 
 block_1:
   mov void -> %r7
-  jmp .if_end_65
+  jmp .if_end_68
 
-else_64:
+else_67:
   mov void -> %r7
-  jmp .if_end_65
+  jmp .if_end_68
 
-if_end_65:
+if_end_68:
   add %i 1 -> %r8
   store %r8 -> %i
-  jmp .loop_start_60
+  jmp .loop_start_63
 
-loop_end_62:
+loop_end_65:
   field_get %this.keys -> %r9 (Map.struct Vec {  })
   store %r9 -> %keysVec
   call %Vec_push (%keysVec, %key) -> %r10
@@ -302,23 +302,23 @@ fn Map_remove(this: struct Map {  }, key: struct K {  }) -> struct V {  }? {
 ; Entry: entry
 entry:
   store 0 -> %i
-  jmp .loop_start_90
+  jmp .loop_start_93
 
-loop_start_90:
+loop_start_93:
   field_get %this.length -> %r0 (Map.i64)
   lt %i %r0 -> %r1
-  jnot %r1 .loop_end_92
+  jnot %r1 .loop_end_95
 
-loop_body_91:
+loop_body_94:
   field_get %this.keys -> %r2 (Map.struct Vec {  })
   call %Vec_get (%r2, %i) -> %r3
   eq %r3 %key -> %r4
-  jif %r4 .then_93
+  jif %r4 .then_96
 
 block_0:
-  jmp .else_94
+  jmp .else_97
 
-then_93:
+then_96:
   field_get %this.values -> %r5 (Map.struct Vec {  })
   call %Vec_get (%r5, %i) -> %r6
   store %r6 -> %value
@@ -326,12 +326,12 @@ then_93:
   sub %r7 1 -> %r8
   store %r8 -> %lastIdx
   ne %i %lastIdx -> %r9
-  jif %r9 .then_96
+  jif %r9 .then_99
 
 block_1:
-  jmp .else_97
+  jmp .else_100
 
-then_96:
+then_99:
   field_get %this.keys -> %r10 (Map.struct Vec {  })
   call %Vec_get (%r10, %lastIdx) -> %r11
   field_get %this.keys -> %r12 (Map.struct Vec {  })
@@ -345,13 +345,13 @@ then_96:
   field_get %this.hashes -> %r20 (Map.struct Vec {  })
   call %Vec_set (%r20, %i, %r19) -> %r21
   mov %r21 -> %r22
-  jmp .if_end_98
+  jmp .if_end_101
 
-else_97:
+else_100:
   mov void -> %r22
-  jmp .if_end_98
+  jmp .if_end_101
 
-if_end_98:
+if_end_101:
   field_get %this.keys -> %r23 (Map.struct Vec {  })
   store %r23 -> %keysVec
   call %Vec_pop (%keysVec) -> %r24
@@ -372,18 +372,18 @@ if_end_98:
 
 block_2:
   mov %r31 -> %r32
-  jmp .if_end_95
+  jmp .if_end_98
 
-else_94:
+else_97:
   mov void -> %r32
-  jmp .if_end_95
+  jmp .if_end_98
 
-if_end_95:
+if_end_98:
   add %i 1 -> %r33
   store %r33 -> %i
-  jmp .loop_start_90
+  jmp .loop_start_93
 
-loop_end_92:
+loop_end_95:
   call %None () -> %r34
   ret %r34
 
@@ -407,22 +407,22 @@ entry:
   call %Vec_new () -> %r0
   store %r0 -> %result
   store 0 -> %i
-  jmp .loop_start_87
+  jmp .loop_start_90
 
-loop_start_87:
+loop_start_90:
   field_get %this.length -> %r1 (Map.i64)
   lt %i %r1 -> %r2
-  jnot %r2 .loop_end_89
+  jnot %r2 .loop_end_92
 
-loop_body_88:
+loop_body_91:
   field_get %this.values -> %r3 (Map.struct Vec {  })
   call %Vec_get (%r3, %i) -> %r4
   call %Vec_push (%result, %r4) -> %r5
   add %i 1 -> %r6
   store %r6 -> %i
-  jmp .loop_start_87
+  jmp .loop_start_90
 
-loop_end_89:
+loop_end_92:
   ret %result
 
 }
@@ -717,6 +717,7 @@ entry:
 
 fn Vec_get(this: struct Vec {  }, index: i64) -> struct T {  } {
   ; Local variables
+  chunk: struct VecChunk { values: [struct T {  }] }
   chunkIndex: i64
   chunkUsage: i64
 
@@ -726,68 +727,75 @@ entry:
   field_get %this.length -> %r1 (Vec.i64)
   ge %index %r1 -> %r2
   or %r0 %r2 -> %r3
-  jif %r3 .then_24
+  jif %r3 .then_27
 
 block_0:
-  jmp .else_25
+  jmp .else_28
 
-then_24:
+then_27:
   call %abort ("Vec index out of bounds") -> %r4
   mov %r4 -> %r5
-  jmp .if_end_26
+  jmp .if_end_29
 
-else_25:
+else_28:
   mov void -> %r5
-  jmp .if_end_26
+  jmp .if_end_29
 
-if_end_26:
+if_end_29:
   call %__Print ("Vec.get index:") -> %r6
   call %__PrintInt (%index) -> %r7
   store %index -> %remaining
   store 0 -> %chunkIndex
-  jmp .loop_start_27
+  jmp .loop_start_30
 
-loop_start_27:
+loop_start_30:
   field_get %this.chunks -> %r8 (Vec.[struct VecChunk { values: [struct T {  }] }])
   arr_len %r8 -> %r9
   lt %chunkIndex %r9 -> %r10
-  jnot %r10 .loop_end_29
+  jnot %r10 .loop_end_32
 
-loop_body_28:
-  field_get %this.usage -> %r11 (Vec.[i64])
-  arr_get %r11[%chunkIndex] -> %r12 : i64
-  store %r12 -> %chunkUsage
-  lt %remaining %chunkUsage -> %r13
-  jif %r13 .then_30
+loop_body_31:
+  call %__Print ("Checking chunk:") -> %r11
+  call %__PrintInt (%chunkIndex) -> %r12
+  field_get %this.usage -> %r13 (Vec.[i64])
+  arr_get %r13[%chunkIndex] -> %r14 : i64
+  store %r14 -> %chunkUsage
+  call %__Print ("Chunk usage:") -> %r15
+  call %__PrintInt (%chunkUsage) -> %r16
+  lt %remaining %chunkUsage -> %r17
+  jif %r17 .then_33
 
 block_1:
-  jmp .else_31
+  jmp .else_34
 
-then_30:
-  field_get %this.chunks -> %r14 (Vec.[struct VecChunk { values: [struct T {  }] }])
-  arr_get %r14[%chunkIndex] -> %r15 : struct VecChunk { values: [struct T {  }] }
-  field_get %r15.values -> %r16 (VecChunk.[struct T {  }])
-  arr_get %r16[%remaining] -> %r17 : struct T {  }
-  ret %r17
+then_33:
+  call %__Print ("Found in chunk") -> %r18
+  field_get %this.chunks -> %r19 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_get %r19[%chunkIndex] -> %r20 : struct VecChunk { values: [struct T {  }] }
+  store %r20 -> %chunk
+  call %__Print ("Accessing values") -> %r21
+  field_get %chunk.values -> %r22 (VecChunk.[struct T {  }])
+  arr_get %r22[%remaining] -> %r23 : struct T {  }
+  ret %r23
 
 block_2:
-  mov %r17 -> %r18
-  jmp .if_end_32
+  mov %r23 -> %r24
+  jmp .if_end_35
 
-else_31:
-  mov void -> %r18
-  jmp .if_end_32
+else_34:
+  mov void -> %r24
+  jmp .if_end_35
 
-if_end_32:
-  sub %remaining %chunkUsage -> %r19
-  store %r19 -> %remaining
-  add %chunkIndex 1 -> %r20
-  store %r20 -> %chunkIndex
-  jmp .loop_start_27
+if_end_35:
+  sub %remaining %chunkUsage -> %r25
+  store %r25 -> %remaining
+  add %chunkIndex 1 -> %r26
+  store %r26 -> %chunkIndex
+  jmp .loop_start_30
 
-loop_end_29:
-  call %abort ("Vec internal error") -> %r21
-  ret %r21
+loop_end_32:
+  call %abort ("Vec internal error") -> %r27
+  ret %r27
 
 }
 
@@ -800,29 +808,30 @@ fn Vec_growChunk(this: struct Vec {  }) -> struct Void {  } {
 
 ; Entry: entry
 entry:
-  call %__ArrayNew (sizeof(Struct { name: "T", fields: [] }), 0) -> %r0
+  field_get %this.nextChunkSize -> %r1 (Vec.i64)
+  call %__ArrayNew (sizeof(Struct { name: "T", fields: [] }), %r1) -> %r0
   store struct VecChunk -> %chunk
-  field_get %this.chunks -> %r1 (Vec.[struct VecChunk { values: [struct T {  }] }])
-  store %r1 -> %chunksArr
-  call %Array_push (%chunksArr, %chunk) -> %r2
+  field_get %this.chunks -> %r2 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  store %r2 -> %chunksArr
+  call %Array_push (%chunksArr, %chunk) -> %r3
   field_set %this.chunks = %chunksArr
-  field_get %this.capacities -> %r3 (Vec.[i64])
-  store %r3 -> %capsArr
-  field_get %this.nextChunkSize -> %r4 (Vec.i64)
-  call %Array_push (%capsArr, %r4) -> %r5
+  field_get %this.capacities -> %r4 (Vec.[i64])
+  store %r4 -> %capsArr
+  field_get %this.nextChunkSize -> %r5 (Vec.i64)
+  call %Array_push (%capsArr, %r5) -> %r6
   field_set %this.capacities = %capsArr
-  field_get %this.usage -> %r6 (Vec.[i64])
-  store %r6 -> %usageArr
-  call %Array_push (%usageArr, 0) -> %r7
+  field_get %this.usage -> %r7 (Vec.[i64])
+  store %r7 -> %usageArr
+  call %Array_push (%usageArr, 0) -> %r8
   field_set %this.usage = %usageArr
-  field_get %this.totalCapacity -> %r8 (Vec.i64)
-  field_get %this.nextChunkSize -> %r9 (Vec.i64)
-  add %r8 %r9 -> %r10
-  field_set %this.totalCapacity = %r10
-  field_get %this.nextChunkSize -> %r11 (Vec.i64)
-  mul %r11 2 -> %r12
-  field_set %this.nextChunkSize = %r12
-  ret %r12
+  field_get %this.totalCapacity -> %r9 (Vec.i64)
+  field_get %this.nextChunkSize -> %r10 (Vec.i64)
+  add %r9 %r10 -> %r11
+  field_set %this.totalCapacity = %r11
+  field_get %this.nextChunkSize -> %r12 (Vec.i64)
+  mul %r12 2 -> %r13
+  field_set %this.nextChunkSize = %r13
+  ret %r13
 
 }
 
@@ -854,60 +863,60 @@ entry:
   field_get %this.length -> %r1 (Vec.i64)
   ge %index %r1 -> %r2
   or %r0 %r2 -> %r3
-  jif %r3 .then_51
+  jif %r3 .then_54
 
 block_0:
-  jmp .else_52
+  jmp .else_55
 
-then_51:
+then_54:
   call %abort ("Vec index out of bounds") -> %r4
   mov %r4 -> %r5
-  jmp .if_end_53
+  jmp .if_end_56
 
-else_52:
+else_55:
   mov void -> %r5
-  jmp .if_end_53
+  jmp .if_end_56
 
-if_end_53:
+if_end_56:
   store %index -> %remaining
   store 0 -> %chunkIndex
-  jmp .loop_start_54
+  jmp .loop_start_57
 
-loop_start_54:
+loop_start_57:
   field_get %this.chunks -> %r6 (Vec.[struct VecChunk { values: [struct T {  }] }])
   arr_len %r6 -> %r7
   lt %chunkIndex %r7 -> %r8
-  jnot %r8 .loop_end_56
+  jnot %r8 .loop_end_59
 
-loop_body_55:
+loop_body_58:
   field_get %this.usage -> %r9 (Vec.[i64])
   arr_get %r9[%chunkIndex] -> %r10 : i64
   store %r10 -> %chunkUsage
   lt %remaining %chunkUsage -> %r11
-  jif %r11 .then_57
+  jif %r11 .then_60
 
 block_1:
-  jmp .else_58
+  jmp .else_61
 
-then_57:
+then_60:
   ret struct VecSlot
 
 block_2:
   mov struct VecSlot -> %r12
-  jmp .if_end_59
+  jmp .if_end_62
 
-else_58:
+else_61:
   mov void -> %r12
-  jmp .if_end_59
+  jmp .if_end_62
 
-if_end_59:
+if_end_62:
   sub %remaining %chunkUsage -> %r13
   store %r13 -> %remaining
   add %chunkIndex 1 -> %r14
   store %r14 -> %chunkIndex
-  jmp .loop_start_54
+  jmp .loop_start_57
 
-loop_end_56:
+loop_end_59:
   call %abort ("Vec index out of bounds") -> %r15
   ret struct VecSlot
 
@@ -931,57 +940,57 @@ fn Vec_pop(this: struct Vec {  }) -> struct T {  } {
 entry:
   field_get %this.length -> %r0 (Vec.i64)
   eq %r0 0 -> %r1
-  jif %r1 .then_15
+  jif %r1 .then_18
 
 block_0:
-  jmp .else_16
+  jmp .else_19
 
-then_15:
+then_18:
   call %abort ("Vec.pop() called on empty Vec") -> %r2
   mov %r2 -> %r3
-  jmp .if_end_17
+  jmp .if_end_20
 
-else_16:
+else_19:
   mov void -> %r3
-  jmp .if_end_17
+  jmp .if_end_20
 
-if_end_17:
+if_end_20:
   field_get %this.chunks -> %r4 (Vec.[struct VecChunk { values: [struct T {  }] }])
   arr_len %r4 -> %r5
   sub %r5 1 -> %r6
   store %r6 -> %chunkIndex
-  jmp .loop_start_18
+  jmp .loop_start_21
 
-loop_start_18:
+loop_start_21:
   ge %chunkIndex 0 -> %r7
   field_get %this.usage -> %r8 (Vec.[i64])
   arr_get %r8[%chunkIndex] -> %r9 : i64
   eq %r9 0 -> %r10
   and %r7 %r10 -> %r11
-  jnot %r11 .loop_end_20
+  jnot %r11 .loop_end_23
 
-loop_body_19:
+loop_body_22:
   sub %chunkIndex 1 -> %r12
   store %r12 -> %chunkIndex
-  jmp .loop_start_18
+  jmp .loop_start_21
 
-loop_end_20:
+loop_end_23:
   lt %chunkIndex 0 -> %r13
-  jif %r13 .then_21
+  jif %r13 .then_24
 
 block_1:
-  jmp .else_22
+  jmp .else_25
 
-then_21:
+then_24:
   call %abort ("Vec internal state corrupted") -> %r14
   mov %r14 -> %r15
-  jmp .if_end_23
+  jmp .if_end_26
 
-else_22:
+else_25:
   mov void -> %r15
-  jmp .if_end_23
+  jmp .if_end_26
 
-if_end_23:
+if_end_26:
   field_get %this.usage -> %r16 (Vec.[i64])
   arr_get %r16[%chunkIndex] -> %r17 : i64
   sub %r17 1 -> %r18
@@ -1035,12 +1044,26 @@ if_end_14:
   field_get %this.usage -> %r10 (Vec.[i64])
   arr_get %r10[%lastIndex] -> %r11 : i64
   store %r11 -> %used
-  call %__Print ("Vec.push len:") -> %r12
-  field_get %this.length -> %r13 (Vec.i64)
-  call %__PrintInt (%r13) -> %r14
-  field_get %chunk.values -> %r15 (VecChunk.[struct T {  }])
-  store %r15 -> %valuesArr
+  field_get %chunk.values -> %r12 (VecChunk.[struct T {  }])
+  store %r12 -> %valuesArr
+  arr_len %valuesArr -> %r13
+  lt %used %r13 -> %r14
+  jif %r14 .then_15
+
+block_1:
+  jmp .else_16
+
+then_15:
+  arr_set %valuesArr[%used] = %value
+  mov %value -> %r15
+  jmp .if_end_17
+
+else_16:
   call %Array_push (%valuesArr, %value) -> %r16
+  mov %r16 -> %r15
+  jmp .if_end_17
+
+if_end_17:
   field_set %chunk.values = %valuesArr
   field_get %this.chunks -> %r17 (Vec.[struct VecChunk { values: [struct T {  }] }])
   arr_set %r17[%lastIndex] = %chunk
@@ -1059,35 +1082,35 @@ fn Vec_reserve(this: struct Vec {  }, capacity: i64) -> struct Void {  } {
 entry:
   field_get %this.totalCapacity -> %r0 (Vec.i64)
   le %capacity %r0 -> %r1
-  jif %r1 .then_42
+  jif %r1 .then_45
 
 block_0:
-  jmp .else_43
+  jmp .else_46
 
-then_42:
+then_45:
   ret
 
 block_1:
   mov void -> %r2
-  jmp .if_end_44
+  jmp .if_end_47
 
-else_43:
+else_46:
   mov void -> %r2
-  jmp .if_end_44
+  jmp .if_end_47
 
-if_end_44:
-  jmp .loop_start_45
+if_end_47:
+  jmp .loop_start_48
 
-loop_start_45:
+loop_start_48:
   field_get %this.totalCapacity -> %r3 (Vec.i64)
   lt %r3 %capacity -> %r4
-  jnot %r4 .loop_end_47
+  jnot %r4 .loop_end_50
 
-loop_body_46:
+loop_body_49:
   call %Vec_growChunk (%this) -> %r5
-  jmp .loop_start_45
+  jmp .loop_start_48
 
-loop_end_47:
+loop_end_50:
   ret void
 
 }
@@ -1103,42 +1126,42 @@ entry:
   field_get %this.length -> %r1 (Vec.i64)
   ge %index %r1 -> %r2
   or %r0 %r2 -> %r3
-  jif %r3 .then_33
+  jif %r3 .then_36
 
 block_0:
-  jmp .else_34
+  jmp .else_37
 
-then_33:
+then_36:
   call %abort ("Vec index out of bounds") -> %r4
   mov %r4 -> %r5
-  jmp .if_end_35
+  jmp .if_end_38
 
-else_34:
+else_37:
   mov void -> %r5
-  jmp .if_end_35
+  jmp .if_end_38
 
-if_end_35:
+if_end_38:
   store %index -> %remaining
   store 0 -> %chunkIndex
-  jmp .loop_start_36
+  jmp .loop_start_39
 
-loop_start_36:
+loop_start_39:
   field_get %this.chunks -> %r6 (Vec.[struct VecChunk { values: [struct T {  }] }])
   arr_len %r6 -> %r7
   lt %chunkIndex %r7 -> %r8
-  jnot %r8 .loop_end_38
+  jnot %r8 .loop_end_41
 
-loop_body_37:
+loop_body_40:
   field_get %this.usage -> %r9 (Vec.[i64])
   arr_get %r9[%chunkIndex] -> %r10 : i64
   store %r10 -> %chunkUsage
   lt %remaining %chunkUsage -> %r11
-  jif %r11 .then_39
+  jif %r11 .then_42
 
 block_1:
-  jmp .else_40
+  jmp .else_43
 
-then_39:
+then_42:
   field_get %this.chunks -> %r12 (Vec.[struct VecChunk { values: [struct T {  }] }])
   arr_get %r12[%chunkIndex] -> %r13 : struct VecChunk { values: [struct T {  }] }
   field_get %r13.values -> %r14 (VecChunk.[struct T {  }])
@@ -1147,20 +1170,20 @@ then_39:
 
 block_2:
   mov void -> %r15
-  jmp .if_end_41
+  jmp .if_end_44
 
-else_40:
+else_43:
   mov void -> %r15
-  jmp .if_end_41
+  jmp .if_end_44
 
-if_end_41:
+if_end_44:
   sub %remaining %chunkUsage -> %r16
   store %r16 -> %remaining
   add %chunkIndex 1 -> %r17
   store %r17 -> %chunkIndex
-  jmp .loop_start_36
+  jmp .loop_start_39
 
-loop_end_38:
+loop_end_41:
   call %abort ("Vec internal error") -> %r18
   ret %r18
 
@@ -1176,21 +1199,21 @@ entry:
   call %__ArrayNew (sizeof(Struct { name: "T", fields: [] }), 0) -> %r0
   store %r0 -> %arr
   store 0 -> %i
-  jmp .loop_start_48
+  jmp .loop_start_51
 
-loop_start_48:
+loop_start_51:
   field_get %this.length -> %r1 (Vec.i64)
   lt %i %r1 -> %r2
-  jnot %r2 .loop_end_50
+  jnot %r2 .loop_end_53
 
-loop_body_49:
+loop_body_52:
   call %Vec_get (%this, %i) -> %r3
   call %Array_push (%arr, %r3) -> %r4
   add %i 1 -> %r5
   store %r5 -> %i
-  jmp .loop_start_48
+  jmp .loop_start_51
 
-loop_end_50:
+loop_end_53:
   ret %arr
 
 }
@@ -1230,97 +1253,98 @@ entry:
   str_concat "he" "llo" -> %r0
   store %r0 -> %s2
   eq %s1 %s2 -> %r1
-  jif %r1 .then_99
+  jif %r1 .then_102
 
 block_0:
-  jmp .else_100
-
-then_99:
-  call %__Print ("String equality works") -> %r2
-  mov %r2 -> %r3
-  jmp .if_end_101
-
-else_100:
-  call %__Print ("String equality FAILS") -> %r4
-  mov %r4 -> %r3
-  jmp .if_end_101
-
-if_end_101:
-  call %Vec_new () -> %r5
-  store %r5 -> %v
-  call %Vec_push (%v, "test_vec") -> %r6
-  call %__Print ("Vec pushed") -> %r7
-  call %Vec_get (%v, 0) -> %r8
-  store %r8 -> %got
-  str_concat "Vec got: " %got -> %r9
-  call %__Print (%r9) -> %r10
-  eq %got "test_vec" -> %r11
-  jif %r11 .then_102
-
-block_1:
   jmp .else_103
 
 then_102:
-  call %__Print ("Vec equality works") -> %r12
-  mov %r12 -> %r13
+  call %__Print ("String equality works") -> %r2
+  mov %r2 -> %r3
   jmp .if_end_104
 
 else_103:
-  call %__Print ("Vec equality FAILS") -> %r14
-  mov %r14 -> %r13
+  call %__Print ("String equality FAILS") -> %r4
+  mov %r4 -> %r3
   jmp .if_end_104
 
 if_end_104:
-  call %Map_new () -> %r15
-  store %r15 -> %m
-  call %__Print ("Map created") -> %r16
-  call %Map_put (%m, "hello", "world") -> %r17
-  call %__Print ("Put hello") -> %r18
-  call %Map_get (%m, "hello") -> %r19
-  store %r19 -> %val
-  call %Option_isSome (%val) -> %r20
-  jif %r20 .then_105
+  call %Vec_new () -> %r5
+  store %r5 -> %v
+  call %Vec_push (%v, "Hello") -> %r6
+  call %__Print ("Vec pushed") -> %r7
+  call %Vec_get (%v, 0) -> %r8
+  store %r8 -> %got
+  call %__Print ("DEBUG: got is:") -> %r9
+  call %__Print (%got) -> %r10
+  call %__Print ("DEBUG: done printing got") -> %r11
+  eq %got "Hello" -> %r12
+  jif %r12 .then_105
 
-block_2:
+block_1:
   jmp .else_106
 
 then_105:
-  call %Option_unwrap (%val) -> %r21
-  str_concat "Got: " %r21 -> %r22
-  call %__Print (%r22) -> %r23
-  mov %r23 -> %r24
+  call %__Print ("Vec equality works") -> %r13
+  mov %r13 -> %r14
   jmp .if_end_107
 
 else_106:
-  call %__Print ("Failed to get hello") -> %r25
-  mov %r25 -> %r24
+  call %__Print ("Vec equality FAILS") -> %r15
+  mov %r15 -> %r14
   jmp .if_end_107
 
 if_end_107:
-  call %Map_put (%m, "world", "seen") -> %r26
-  call %__Print ("Put world") -> %r27
-  call %Map_get (%m, "world") -> %r28
-  store %r28 -> %val2
-  call %Option_isSome (%val2) -> %r29
-  jif %r29 .then_108
+  call %Map_new () -> %r16
+  store %r16 -> %m
+  call %__Print ("Map created") -> %r17
+  call %Map_put (%m, "hello", "world") -> %r18
+  call %__Print ("Put hello") -> %r19
+  call %Map_get (%m, "hello") -> %r20
+  store %r20 -> %val
+  call %Option_isSome (%val) -> %r21
+  jif %r21 .then_108
 
-block_3:
+block_2:
   jmp .else_109
 
 then_108:
-  call %Option_unwrap (%val2) -> %r30
-  str_concat "Got: " %r30 -> %r31
-  call %__Print (%r31) -> %r32
-  mov %r32 -> %r33
+  call %Option_unwrap (%val) -> %r22
+  str_concat "Got: " %r22 -> %r23
+  call %__Print (%r23) -> %r24
+  mov %r24 -> %r25
   jmp .if_end_110
 
 else_109:
-  call %__Print ("Failed to get world") -> %r34
-  mov %r34 -> %r33
+  call %__Print ("Failed to get hello") -> %r26
+  mov %r26 -> %r25
   jmp .if_end_110
 
 if_end_110:
-  ret %r33
+  call %Map_put (%m, "world", "seen") -> %r27
+  call %__Print ("Put world") -> %r28
+  call %Map_get (%m, "world") -> %r29
+  store %r29 -> %val2
+  call %Option_isSome (%val2) -> %r30
+  jif %r30 .then_111
+
+block_3:
+  jmp .else_112
+
+then_111:
+  call %Option_unwrap (%val2) -> %r31
+  str_concat "Got: " %r31 -> %r32
+  call %__Print (%r32) -> %r33
+  mov %r33 -> %r34
+  jmp .if_end_113
+
+else_112:
+  call %__Print ("Failed to get world") -> %r35
+  mov %r35 -> %r34
+  jmp .if_end_113
+
+if_end_113:
+  ret %r34
 
 }
 
