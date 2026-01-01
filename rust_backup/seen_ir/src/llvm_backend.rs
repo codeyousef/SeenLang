@@ -398,6 +398,8 @@ pub struct LlvmBackend<'ctx> {
     pub(crate) current_inst_idx: usize,
     // Flag to dump struct layouts after lower_program()
     pub dump_struct_layouts_flag: bool,
+    // Flag to enable runtime debugging (function entry/exit tracing, signal handlers)
+    pub runtime_debug_flag: bool,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -520,6 +522,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             trace_options: LlvmTraceOptions::from_env(),
             current_inst_idx: 0,
             dump_struct_layouts_flag: false,
+            runtime_debug_flag: false,
         }
     }
     
@@ -531,6 +534,11 @@ impl<'ctx> LlvmBackend<'ctx> {
     /// Enable struct layout dumping
     pub fn set_dump_struct_layouts(&mut self, enabled: bool) {
         self.dump_struct_layouts_flag = enabled;
+    }
+    
+    /// Enable runtime debugging (function entry/exit tracing, signal handlers)
+    pub fn set_runtime_debug(&mut self, enabled: bool) {
+        self.runtime_debug_flag = enabled;
     }
     
     /// Enable all tracing
@@ -1421,6 +1429,19 @@ impl<'ctx> LlvmBackend<'ctx> {
             let bb = self.ctx.append_basic_block(f, "entry");
             self.blocks.insert("entry".to_string(), bb);
             self.builder.position_at_end(bb);
+        }
+
+        // Runtime debug: push frame at function entry
+        if self.runtime_debug_flag {
+            let i8_ptr_t = self.i8_ptr_t;
+            let push_frame_ty = self.ctx.void_type().fn_type(&[i8_ptr_t.into()], false);
+            let push_frame_fn = if let Some(f) = self.module.get_function("__seen_push_frame") {
+                f
+            } else {
+                self.module.add_function("__seen_push_frame", push_frame_ty, None)
+            };
+            let func_name_str = self.builder.build_global_string_ptr(&func.name, &format!("func_name_{}", func.name)).unwrap();
+            self.builder.build_call(push_frame_fn, &[func_name_str.as_pointer_value().into()], "push_frame").unwrap();
         }
 
         // DEBUG: Print start of main
@@ -3344,6 +3365,17 @@ impl<'ctx> LlvmBackend<'ctx> {
         
         let fmt = self.builder.build_global_string_ptr("DEBUG: main wrapper start", "debug_main_start").unwrap();
         self.builder.build_call(puts, &[fmt.as_pointer_value().into()], "debug_puts").unwrap();
+
+        // If runtime debugging is enabled, call __seen_debug_init() first
+        if self.runtime_debug_flag {
+            let debug_init_ty = self.ctx.void_type().fn_type(&[], false);
+            let debug_init_fn = if let Some(f) = self.module.get_function("__seen_debug_init") {
+                f
+            } else {
+                self.module.add_function("__seen_debug_init", debug_init_ty, None)
+            };
+            self.builder.build_call(debug_init_fn, &[], "debug_init").unwrap();
+        }
 
         // Initialize argc/argv globals
         let (g_argc, g_argv) = self.ensure_arg_globals();

@@ -7,13 +7,236 @@ use std::collections::{VecDeque, HashMap};
 use std::ptr;
 use std::slice;
 use std::sync::{
-    atomic::{AtomicI32, AtomicI64, Ordering}, Arc, Condvar,
+    atomic::{AtomicI32, AtomicI64, AtomicBool, Ordering}, Arc, Condvar,
     Mutex, Once,
 };
 use std::time::{Duration, Instant};
 use std::fs;
 use std::io::{Read, Write, stdout, stderr};
 use std::path::Path;
+
+// =============================================================================
+// RUNTIME STACK TRACE AND DEBUG INFRASTRUCTURE
+// =============================================================================
+
+/// Maximum depth of the call stack trace
+const MAX_STACK_DEPTH: usize = 256;
+/// Maximum length of a single function name
+const MAX_FUNC_NAME_LEN: usize = 128;
+
+/// Thread-local call stack for runtime debugging
+thread_local! {
+    static CALL_STACK: RefCell<Vec<String>> = RefCell::new(Vec::with_capacity(64));
+    static LAST_SEEN_VALUES: RefCell<VecDeque<String>> = RefCell::new(VecDeque::with_capacity(32));
+}
+
+/// Global flag indicating if debug mode is enabled
+static DEBUG_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
+static SIGNAL_HANDLERS_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+/// Initialize runtime debugging. Called once at program start if --runtime-debug is enabled.
+#[unsafe(no_mangle)]
+pub extern "C" fn __seen_debug_init() {
+    DEBUG_MODE_ENABLED.store(true, Ordering::SeqCst);
+    install_signal_handlers();
+    eprintln!("[SEEN DEBUG] Runtime debugging initialized");
+}
+
+/// Push a function onto the call stack trace
+#[unsafe(no_mangle)]
+pub extern "C" fn __seen_push_frame(func_name: *const i8) {
+    if !DEBUG_MODE_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    
+    let name = if func_name.is_null() {
+        "<unknown>".to_string()
+    } else {
+        unsafe {
+            let c_str = std::ffi::CStr::from_ptr(func_name);
+            c_str.to_string_lossy().into_owned()
+        }
+    };
+    
+    CALL_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if stack.len() < MAX_STACK_DEPTH {
+            eprintln!("[SEEN TRACE] -> {}", name);
+            stack.push(name);
+        }
+    });
+}
+
+/// Pop a function from the call stack trace
+#[unsafe(no_mangle)]
+pub extern "C" fn __seen_pop_frame() {
+    if !DEBUG_MODE_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    
+    CALL_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if let Some(name) = stack.pop() {
+            eprintln!("[SEEN TRACE] <- {}", name);
+        }
+    });
+}
+
+/// Record a debug value (for crash diagnostics)
+#[unsafe(no_mangle)]
+pub extern "C" fn __seen_debug_value(label: *const i8, value: i64) {
+    if !DEBUG_MODE_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    
+    let label_str = if label.is_null() {
+        "?"
+    } else {
+        unsafe {
+            std::ffi::CStr::from_ptr(label).to_str().unwrap_or("?")
+        }
+    };
+    
+    let entry = format!("{} = {}", label_str, value);
+    eprintln!("[SEEN DEBUG] {}", entry);
+    
+    LAST_SEEN_VALUES.with(|vals| {
+        let mut vals = vals.borrow_mut();
+        if vals.len() >= 32 {
+            vals.pop_front();
+        }
+        vals.push_back(entry);
+    });
+}
+
+/// Record a debug string value
+#[unsafe(no_mangle)]
+pub extern "C" fn __seen_debug_string(label: *const i8, value: *const SeenString) {
+    if !DEBUG_MODE_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    
+    let label_str = if label.is_null() {
+        "?"
+    } else {
+        unsafe {
+            std::ffi::CStr::from_ptr(label).to_str().unwrap_or("?")
+        }
+    };
+    
+    let value_str = if value.is_null() {
+        "<null>".to_string()
+    } else {
+        unsafe { (*value).to_str().to_string() }
+    };
+    
+    let entry = format!("{} = \"{}\"", label_str, value_str);
+    eprintln!("[SEEN DEBUG] {}", entry);
+    
+    LAST_SEEN_VALUES.with(|vals| {
+        let mut vals = vals.borrow_mut();
+        if vals.len() >= 32 {
+            vals.pop_front();
+        }
+        vals.push_back(entry);
+    });
+}
+
+/// Print the current call stack (for debugging or crash reports)
+#[unsafe(no_mangle)]
+pub extern "C" fn __seen_print_stack_trace() {
+    CALL_STACK.with(|stack| {
+        let stack = stack.borrow();
+        if stack.is_empty() {
+            eprintln!("[SEEN STACK] <empty stack>");
+            return;
+        }
+        eprintln!("\n╔═══════════════════════════════════════════════════════════════╗");
+        eprintln!("║                     SEEN STACK TRACE                          ║");
+        eprintln!("╠═══════════════════════════════════════════════════════════════╣");
+        for (i, frame) in stack.iter().rev().enumerate() {
+            eprintln!("║ {:>3}: {:<57} ║", i, truncate_str(frame, 57));
+        }
+        eprintln!("╚═══════════════════════════════════════════════════════════════╝");
+    });
+    
+    // Also print last seen debug values
+    LAST_SEEN_VALUES.with(|vals| {
+        let vals = vals.borrow();
+        if !vals.is_empty() {
+            eprintln!("\n[SEEN DEBUG] Last {} debug values:", vals.len());
+            for val in vals.iter() {
+                eprintln!("  {}", val);
+            }
+        }
+    });
+}
+
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        format!("{:<width$}", s, width = max_len)
+    } else {
+        format!("{}...", &s[..max_len - 3])
+    }
+}
+
+/// Install signal handlers for SIGSEGV, SIGABRT, etc.
+fn install_signal_handlers() {
+    if SIGNAL_HANDLERS_INSTALLED.swap(true, Ordering::SeqCst) {
+        return; // Already installed
+    }
+    
+    #[cfg(unix)]
+    {
+        use std::ffi::c_int;
+        
+        extern "C" fn signal_handler(sig: c_int) {
+            let sig_name = match sig {
+                11 => "SIGSEGV (Segmentation fault)",
+                6 => "SIGABRT (Aborted)",
+                4 => "SIGILL (Illegal instruction)",
+                8 => "SIGFPE (Floating point exception)",
+                7 => "SIGBUS (Bus error)",
+                _ => "Unknown signal",
+            };
+            
+            eprintln!("\n");
+            eprintln!("╔═══════════════════════════════════════════════════════════════╗");
+            eprintln!("║                    SEEN RUNTIME CRASH                         ║");
+            eprintln!("╠═══════════════════════════════════════════════════════════════╣");
+            eprintln!("║ Signal: {:<53} ║", sig_name);
+            eprintln!("╚═══════════════════════════════════════════════════════════════╝");
+            
+            // Print stack trace
+            __seen_print_stack_trace();
+            
+            eprintln!("\n[SEEN DEBUG] Tip: Run with `--debug` to get more information.");
+            eprintln!("[SEEN DEBUG] Tip: Use GDB/LLDB with the compiled binary for native debugging.");
+            
+            // Re-raise the signal with default handler
+            unsafe {
+                libc::signal(sig, libc::SIG_DFL);
+                libc::raise(sig);
+            }
+        }
+        
+        unsafe {
+            // Install handlers for common crash signals
+            libc::signal(libc::SIGSEGV, signal_handler as usize);
+            libc::signal(libc::SIGABRT, signal_handler as usize);
+            libc::signal(libc::SIGBUS, signal_handler as usize);
+            libc::signal(libc::SIGFPE, signal_handler as usize);
+            libc::signal(libc::SIGILL, signal_handler as usize);
+        }
+        
+        eprintln!("[SEEN DEBUG] Signal handlers installed (SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL)");
+    }
+    
+    #[cfg(not(unix))]
+    {
+        eprintln!("[SEEN DEBUG] Signal handlers not available on this platform");
+    }
+}
 
 const STATUS_RECEIVED: i64 = 0;
 const STATUS_ALL_CLOSED: i64 = 3;
