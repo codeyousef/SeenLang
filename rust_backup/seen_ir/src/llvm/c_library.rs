@@ -192,13 +192,13 @@ pub fn get_clock_gettime<'ctx>(
     }
     // int clock_gettime(clockid_t clk_id, struct timespec *tp);
     // timespec is { i64 tv_sec, i64 tv_nsec }
-    let timespec_ty = ctx.struct_type(&[
+    let _timespec_ty = ctx.struct_type(&[
         i64_t.into(),
         i64_t.into(),
     ], false);
     let ty = ctx.i32_type().fn_type(&[
         ctx.i32_type().into(),
-        timespec_ty.ptr_type(AddressSpace::from(0u16)).into(),
+        ctx.ptr_type(AddressSpace::from(0u16)).into(),
     ], false);
     module.add_function("clock_gettime", ty, None)
 }
@@ -273,7 +273,6 @@ pub fn call_strcmp<'ctx>(
 // ============================================================================
 
 use crate::llvm_backend::LlvmBackend;
-use inkwell::values::BasicValue;
 
 /// Trait for cached C library function access on the LLVM backend.
 /// These methods use the backend's cached function pointers for efficiency.
@@ -354,6 +353,11 @@ impl<'ctx> CLibraryOps<'ctx> for LlvmBackend<'ctx> {
         if let Some(f) = self.malloc {
             return f;
         }
+        if let Some(f) = self.module.get_function("malloc") {
+            eprintln!("DEBUG: Found existing malloc: {:?}", f.get_type());
+            return f;
+        }
+        eprintln!("DEBUG: Declaring malloc with i64");
         let f = get_malloc(&self.module, self.i64_t, self.i8_ptr_t);
         self.malloc = Some(f);
         f

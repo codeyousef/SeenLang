@@ -328,7 +328,7 @@ impl MonomorphizationPass {
     /// Substitute types within an instruction
     fn substitute_in_instruction(&self, inst: &mut Instruction, subs: &IndexMap<String, IRType>) {
         match inst {
-            Instruction::Call { arg_types, return_type, .. } => {
+            Instruction::Call { arg_types, return_type, args, .. } => {
                 if let Some(ref mut types) = arg_types {
                     for ty in types.iter_mut() {
                         *ty = self.substitute_type(ty, subs);
@@ -336,6 +336,12 @@ impl MonomorphizationPass {
                 }
                 if let Some(ref mut ret_ty) = return_type {
                     *ret_ty = self.substitute_type(ret_ty, subs);
+                }
+                // Substitute types in SizeOf arguments
+                for arg in args.iter_mut() {
+                    if let IRValue::SizeOf(ref mut ty) = arg {
+                        *ty = self.substitute_type(ty, subs);
+                    }
                 }
             }
             Instruction::ArrayAccess { element_type, .. } => {

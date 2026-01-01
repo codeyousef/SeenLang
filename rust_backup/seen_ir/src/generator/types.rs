@@ -68,7 +68,7 @@ impl IRGenerator {
             // Vec<T> is a class defined in seen_std, NOT a builtin array type.
             // It must be treated as a Struct so that method calls work correctly.
             "Vec" => {
-                let generic_types: Vec<IRType> = ast_type.generics.iter()
+                let _generic_types: Vec<IRType> = ast_type.generics.iter()
                     .map(|g| self.convert_ast_type_to_ir(g))
                     .collect();
                 IRType::Struct {

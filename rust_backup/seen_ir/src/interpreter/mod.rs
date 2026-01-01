@@ -26,10 +26,7 @@ pub use executor::{Executor, ExecutionResult, StepResult};
 pub use error::{InterpreterError, InterpreterErrorKind};
 pub use validation::{IRValidator, ValidationResult, ValidationError, ValidationWarning};
 
-use crate::instruction::Instruction;
 use crate::module::IRModule;
-use crate::function::IRFunction;
-use crate::value::{IRValue, IRType};
 use crate::IRProgram;
 
 /// Main entry point for interpreting IR modules

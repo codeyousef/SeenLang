@@ -7,7 +7,7 @@
 //! - Invalid control flow (unreachable code, missing returns)
 //! - Invalid array/struct accesses
 
-use crate::instruction::{Instruction, BinaryOp, UnaryOp, BasicBlock};
+use crate::instruction::Instruction;
 use crate::function::IRFunction;
 use crate::module::IRModule;
 use crate::value::{IRValue, IRType};

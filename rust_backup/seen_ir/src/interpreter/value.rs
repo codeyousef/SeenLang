@@ -297,6 +297,7 @@ impl InterpreterValue {
             }
             IRValue::Label(_) => InterpreterValue::Void,
             IRValue::AddressOf(_) => InterpreterValue::Null, // Needs runtime resolution
+            IRValue::SizeOf(ty) => InterpreterValue::Integer(ty.size_bytes() as i64),
             IRValue::StringConstant(_) => InterpreterValue::Undefined, // Needs string table
             IRValue::ByteArray(bytes) => {
                 let elements: Vec<InterpreterValue> = bytes
@@ -356,7 +357,7 @@ impl ValueType {
                 ValueType::Enum { name: name.clone(), variants: variant_types }
             }
             IRType::Generic(name) => ValueType::Generic(name.clone()),
-            IRType::Vector { lanes, lane_type } => {
+            IRType::Vector { lanes: _, lane_type } => {
                 // Represent as array for now
                 ValueType::Array(Box::new(ValueType::from_ir_type(lane_type)))
             }

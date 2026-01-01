@@ -58,7 +58,7 @@ impl<'ctx> TypeBuilders<'ctx> for LlvmBackend<'ctx> {
         self.ctx.struct_type(
             &[
                 self.i64_t.into(),
-                self.i8_ptr_t
+                self.ctx
                     .ptr_type(AddressSpace::default())
                     .into(),
             ],

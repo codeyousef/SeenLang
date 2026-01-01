@@ -24,7 +24,7 @@ type HashMap<K, V> = IndexMap<K, V>;
 
 /// Allocate stack space for a given type, placing the alloca in the entry block.
 pub fn alloca_for_type<'ctx>(
-    ctx: &'ctx LlvmContext,
+    _ctx: &'ctx LlvmContext,
     builder: &Builder<'ctx>,
     current_fn: Option<FunctionValue<'ctx>>,
     ty: BasicTypeEnum<'ctx>,
@@ -143,7 +143,7 @@ pub fn get_array_len<'ctx>(
 ) -> Result<inkwell::values::IntValue<'ctx>> {
     let len_ptr = builder.build_pointer_cast(
         arr_ptr,
-        i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+        i64_t.get_context().ptr_type(inkwell::AddressSpace::from(0u16)),
         "len_ptr",
     )?;
     let len = builder
@@ -174,7 +174,7 @@ pub fn get_array_data_ptr<'ctx>(
     };
     let data_ptr_ptr_casted = builder.build_pointer_cast(
         data_ptr_ptr,
-        i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+        ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
         "data_ptr_ptr_casted",
     )?;
     let data_ptr = builder

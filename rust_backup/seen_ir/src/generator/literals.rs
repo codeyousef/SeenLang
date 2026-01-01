@@ -24,7 +24,7 @@ impl IRGenerator {
 
         // Check for implicit field access on 'self'
         let field_info = if let Some(recv_type) = &self.context._current_receiver_type {
-            if let crate::value::IRType::Struct { name: struct_name, fields } = recv_type {
+            if let crate::value::IRType::Struct { name: _struct_name, fields } = recv_type {
                 // Check if 'name' is a field
                 let result = fields.iter().find(|(f_name, _)| f_name == name).map(|(_, f_type)| f_type.clone());
                 if result.is_some() {

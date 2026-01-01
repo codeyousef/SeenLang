@@ -4,7 +4,7 @@
 //! static libraries, and WebAssembly modules.
 
 use std::path::{Path, PathBuf};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 use crate::llvm_backend::LlvmBackend;
 use crate::llvm::target;

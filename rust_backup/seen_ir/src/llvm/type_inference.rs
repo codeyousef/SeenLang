@@ -6,7 +6,6 @@
 use anyhow::{anyhow, Result};
 use indexmap::IndexMap;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::FunctionValue;
 
 use crate::function::IRFunction;
 use crate::instruction::{BinaryOp, Instruction, UnaryOp};
@@ -55,7 +54,7 @@ impl<'ctx> TypeInference<'ctx> for LlvmBackend<'ctx> {
     fn scan_and_allocate_registers(&mut self, func: &IRFunction) -> Result<()> {
         let mut reg_types: HashMap<usize, BasicTypeEnum<'ctx>> = HashMap::new();
         
-        let is_target_fn = func.name == "createLexer" || func.name == "lastSlashIndex" || func.name.contains("LexerError_getPosition");
+        let _is_target_fn = func.name == "createLexer" || func.name == "lastSlashIndex" || func.name.contains("LexerError_getPosition");
         
         // Initialize with parameters
         for (i, param) in func.parameters.iter().enumerate() {

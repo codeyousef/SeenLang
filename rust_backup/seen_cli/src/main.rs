@@ -4118,11 +4118,24 @@ fn interpret_ir(
     })?;
 
     // Lex and parse
-    let (_project_config, lexer_config) = project_context_for(input)?;
+    let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
+    let manifest_modules = manifest_module_roots(&project_config)?;
+    let dependency_roots = project_config.dependency_roots();
+
+    let lexer = Lexer::with_config(source, keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let mut ast = parser.parse_program().map_err(SeenError::from)?;
+    let ast_parsed = parser.parse_program().map_err(SeenError::from)?;
+
+    let mut ast = bundle_imports(
+        ast_parsed,
+        input,
+        keyword_manager,
+        visibility_policy,
+        &project_config.root_dir,
+        &dependency_roots,
+        &manifest_modules,
+    )?;
 
     // Type check
     let mut type_checker = TypeChecker::new();

@@ -144,7 +144,7 @@ impl GenerationContext {
         // Check if we already have an explicit type for this variable (from type annotation)
         // Only infer type from value if we don't have one already
         let existing_type = self.variable_types.get(name).cloned();
-        let has_explicit_type = existing_type.is_some();
+        let _has_explicit_type = existing_type.is_some();
 
         let var_type = if let Some(explicit) = existing_type.clone() {
             explicit
