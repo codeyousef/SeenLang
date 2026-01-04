@@ -2121,6 +2121,20 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 return Err(anyhow!("Array_push: variable '{}' is not a pointer", var_name));
                             }
                         }
+                    } else if let IRValue::Register(reg_id) = &args[0] {
+                        if let Some((struct_ptr, field_idx, struct_ty)) = self.reg_field_access_info.get(reg_id).copied() {
+                            // Re-calculate GEP to get the pointer to the field
+                            self.builder.build_struct_gep(struct_ty, struct_ptr, field_idx, "arr_field_ptr")?
+                        } else {
+                            let arr_val = self.eval_value(&args[0], fn_map)?;
+                            if arr_val.is_pointer_value() {
+                                arr_val.into_pointer_value()
+                            } else if arr_val.is_int_value() {
+                                self.builder.build_int_to_ptr(arr_val.into_int_value(), self.i8_ptr_t, "arr_ptr")?
+                            } else {
+                                 return Err(anyhow!("Array_push: invalid array argument (register {})", reg_id));
+                            }
+                        }
                     } else {
                         let arr_val = self.eval_value(&args[0], fn_map)?;
                         if arr_val.is_pointer_value() {

@@ -493,10 +493,13 @@ Class types (heap-allocated, stored as i64): {"VecChunk", "Vec", "Map", "Keyword
 
 **Current Blocking Bugs (as of 2025-12-30):**
 
-1. **Vec<String> Data Corruption:**
-   - `Vec<String>.get()` returns garbage data (invalid pointer/length).
-   - This causes `Map` lookups to fail because keys retrieved from the internal `Vec` do not match the search key.
-   - Root cause likely in `Array<T>` access logic in LLVM backend when `T` is a struct type.
+1. **Self-Host Compilation Errors:**
+   - `compiler_seen/src/main.seen` builds successfully but runtime behavior is incorrect (empty output).
+   - Parser seems to fail to match tokens.
+
+**Resolved Bugs:**
+- [x] **Vec<String> Data Corruption:** Fixed by ensuring pointers are stored as `i64` in generic arrays in LLVM backend.
+- [x] **Array_push Invalid Argument:** Fixed by handling `IRValue::Register` in `Array_push` handler in `call.rs`.
 
 2. **Parameter Type Mismatch (LLVM Verification Error):**
    ```
