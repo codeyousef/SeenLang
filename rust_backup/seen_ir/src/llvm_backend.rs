@@ -877,31 +877,27 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.module.add_function("push", ty, None);
         }
 
-        // __ReadFile: (i64) -> SeenString*
+        // __ReadFile: (i64) -> SeenString
         if self.module.get_function("__ReadFile").is_none() {
-            let str_ptr = self.ctx.ptr_type(AddressSpace::default());
-            let ty = str_ptr.fn_type(&[self.i64_t.into()], false);
+            let ty = self.ty_string().fn_type(&[self.i64_t.into()], false);
             self.module.add_function("__ReadFile", ty, None);
         }
 
-        // __ReadFileFromPath: (SeenString*) -> SeenString*
+        // __ReadFileFromPath: (SeenString) -> SeenString
         if self.module.get_function("__ReadFileFromPath").is_none() {
-            let str_ptr = self.ctx.ptr_type(AddressSpace::default());
-            let ty = str_ptr.fn_type(&[str_ptr.into()], false);
+            let ty = self.ty_string().fn_type(&[self.ty_string().into()], false);
             self.module.add_function("__ReadFileFromPath", ty, None);
         }
 
-        // __WriteFile: (i64, SeenString*) -> i64
+        // __WriteFile: (i64, SeenString) -> i64
         if self.module.get_function("__WriteFile").is_none() {
-            let str_ptr = self.ctx.ptr_type(AddressSpace::default());
-            let ty = self.i64_t.fn_type(&[self.i64_t.into(), str_ptr.into()], false);
+            let ty = self.i64_t.fn_type(&[self.i64_t.into(), self.ty_string().into()], false);
             self.module.add_function("__WriteFile", ty, None);
         }
 
-        // __WriteFileToPath: (SeenString*, SeenString*) -> i64
+        // __WriteFileToPath: (SeenString, SeenString) -> i64
         if self.module.get_function("__WriteFileToPath").is_none() {
-            let str_ptr = self.ctx.ptr_type(AddressSpace::default());
-            let ty = self.i64_t.fn_type(&[str_ptr.into(), str_ptr.into()], false);
+            let ty = self.i64_t.fn_type(&[self.ty_string().into(), self.ty_string().into()], false);
             self.module.add_function("__WriteFileToPath", ty, None);
         }
         
@@ -927,10 +923,9 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.module.add_function("__GetCommandLineArgsHelper", ty, None);
         }
 
-        // __CreateDirectory: (SeenString*) -> i64
+        // __CreateDirectory: (SeenString) -> i64
         if self.module.get_function("__CreateDirectory").is_none() {
-            let str_ptr = self.ctx.ptr_type(AddressSpace::default());
-            let ty = self.i64_t.fn_type(&[str_ptr.into()], false);
+            let ty = self.i64_t.fn_type(&[self.ty_string().into()], false);
             self.module.add_function("__CreateDirectory", ty, None);
         }
 
@@ -940,10 +935,9 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.module.add_function("__GetTimestamp", ty, None);
         }
         
-        // __CommandOutput: (SeenString*) -> SeenString*
+        // __CommandOutput: (SeenString) -> SeenString
         if self.module.get_function("__CommandOutput").is_none() {
-            let str_ptr = self.ctx.ptr_type(AddressSpace::default());
-            let ty = str_ptr.fn_type(&[str_ptr.into()], false);
+            let ty = self.ty_string().fn_type(&[self.ty_string().into()], false);
             self.module.add_function("__CommandOutput", ty, None);
         }
     }
@@ -1840,7 +1834,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let r_str = self.ensure_string(rval, right)?;
                 
                 let out = self.runtime_concat(l_str, r_str)?;
-                self.assign_value(result, out.as_basic_value_enum())?;
+                
+                // runtime_concat returns a pointer to the new String struct
+                // We need to load it to get the String struct value, otherwise assign_value
+                // might misinterpret the pointer as a C-string (char*) and try to strlen it,
+                // leading to corruption (reading the struct length as the first char).
+                let out_ptr = out.into_pointer_value();
+                let out_struct = self.builder.build_load(self.ty_string(), out_ptr, "concat_res")
+                    .map_err(|e| anyhow!("Failed to load string struct: {:?}", e))?;
+                
+                self.assign_value(result, out_struct.as_basic_value_enum())?;
             }
             Instruction::SimdSplat {
                 scalar,

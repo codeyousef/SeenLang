@@ -172,6 +172,8 @@ class SeenLexer {
     }
     
     fun emitToken(type: SeenTokenType, value: String, length: Int) r: Void {
+        println("emitToken value:")
+        println(value)
         let token = Token.new(type, value, line, column - length, length, fileId)
         tokens.push(token)
     }
@@ -456,19 +458,25 @@ class SeenLexer {
         var value = ""
         
         // First character (already validated as alpha or underscore)
-        value += this.getCurrentChar().toString()
+        let c1 = this.getCurrentChar()
+        let s1 = c1.toString()
+        println("c1: " + s1)
+        value = value + s1
+        println("value after c1: " + value)
         this.advance()
         
         // Subsequent characters
         while position < source.length() {
             let c = this.getCurrentChar()
             if this.isAlphaNumeric(c) or c == '_' {
-                value += c.toString()
+                let s = c.toString()
+                value = value + s
                 this.advance()
             } else {
                 break
             }
         }
+        println("Final value: " + value)
         
         let length = position - startPos
         

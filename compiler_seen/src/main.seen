@@ -31,41 +31,34 @@ extern fun __WriteFile(fd: Int, content: String) r: Int
 extern fun __CloseFile(fd: Int) r: Int
 
 fun myWriteText(path: String, content: String) r: Bool {
-    println("[trace] myWriteText: path=" + path)
-    println("[trace] myWriteText: content len=" + content.length().toString())
+    let abi = __VerifyStringABI(content)
+    if abi == 0 {
+        stdoutLine("String ABI mismatch or corruption detected in myWriteText!")
+        return false
+    }
     let fd = __OpenFile(path, "w")
-    println("[trace] myWriteText: fd=" + fd.toString())
     if fd < 0 {
         stdoutLine("Failed to open file: " + path)
         return false
     }
     let written = __WriteFile(fd, content)
-    println("[trace] myWriteText: written=" + written.toString())
     let _ = __CloseFile(fd)
     return written >= 0
 }
 
 fun main() r: Int {
-    println("[trace] main: entry - DEBUG BUILD")
     let args = GetCommandLineArgs()
-    println("[trace] main: got args, size=" + args.size().toString())
     if args.size() < 2 {
         printUsage()
         return 1
     }
 
     var exit: Int = 0
-    println("[trace] main: getting command...")
     let command = args[1]
-    println("[trace] main: command=" + command)
     if command == "build" {
-        println("[trace] main: processing build command")
         let sourceFile = requireArg(args, 2, "Error: build command requires a source file")
-        println("[trace] main: sourceFile=" + sourceFile)
         let outputFile = getOptionalArg(args, 3).unwrapOr(getDefaultOutput(sourceFile))
-        println("[trace] main: outputFile=" + outputFile)
         let outputAbi = __VerifyStringABI(outputFile)
-        println("[trace] main: outputFile ABI=" + outputAbi.toString())
         exit = buildCommand(sourceFile, outputFile)
     } else if command == "check" {
         let sourceFile = requireArg(args, 2, "Error: check command requires a source file")

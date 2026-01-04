@@ -452,8 +452,25 @@ impl<'ctx> CodeGenerator<'ctx> {
                         }
                     }
                     ast::LiteralExpression::String(str_lit) => {
-                        let string_value = self.builder.build_global_string_ptr(&str_lit.value, ".str")?;
-                        Ok(string_value.as_pointer_value().into())
+                        // Create global string data
+                        let string_data = self.builder.build_global_string_ptr(&str_lit.value, ".str_data")?;
+                        
+                        // Create String struct { i64, i8* }
+                        let i64_type = self.context.i64_type();
+                        let i8_ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
+                        let string_struct_type = self.context.struct_type(&[i64_type.into(), i8_ptr_type.into()], false);
+                        
+                        // Create global variable for the struct
+                        let global_struct = self.module.add_global(string_struct_type, Some(inkwell::AddressSpace::default()), ".str_struct");
+                        global_struct.set_constant(true);
+                        global_struct.set_linkage(inkwell::module::Linkage::Internal);
+                        
+                        // Initialize the struct
+                        let len_val = i64_type.const_int(str_lit.value.len() as u64, false);
+                        let struct_val = self.context.const_struct(&[len_val.into(), string_data.as_pointer_value().into()], false);
+                        global_struct.set_initializer(&struct_val);
+                        
+                        Ok(global_struct.as_pointer_value().into())
                     }
                     ast::LiteralExpression::Boolean(bool_lit) => {
                         Ok(self.context.bool_type().const_int(bool_lit.value as u64, false).into())

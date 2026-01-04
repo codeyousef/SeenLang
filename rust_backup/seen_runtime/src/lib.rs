@@ -463,6 +463,9 @@ pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
     let path_str = path.to_str();
     let mode_str = mode.to_str();
     eprintln!("DEBUG: __OpenFile path='{}' mode='{}'", path_str, mode_str);
+    if let Ok(cwd) = std::env::current_dir() {
+        eprintln!("DEBUG: CWD={:?}", cwd);
+    }
 
     // Fast-path standard streams without going through the FILE_MAP
     match path_str {
