@@ -1,0 +1,5 @@
+error: unrecognized subcommand 'repro_map_bug.seen'
+
+Usage: seen_cli [OPTIONS] [COMMAND]
+
+For more information, try '--help'.

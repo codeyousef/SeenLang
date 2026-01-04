@@ -1077,7 +1077,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRType::Float => self.ctx.f64_type().into(),
             IRType::Boolean => self.bool_t.into(),
             IRType::Char => self.ctx.i8_type().into(),
-            IRType::String => self.ctx.ptr_type(AddressSpace::default()).into(),
+            IRType::String => self.ty_string().into(),
             IRType::Array(elem_ty) => {
                 // Array is a struct { i64 len, i64 cap, ptr data }
                 // This is 24 bytes, not just a pointer!

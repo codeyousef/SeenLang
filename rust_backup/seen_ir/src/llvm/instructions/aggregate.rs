@@ -226,10 +226,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 let llvm_struct_ty = if struct_type_name == "String" {
                     Some(self.ty_string())
                 } else if is_generic_param {
-                    // For generic type parameters, try String first as it's the most common case
-                    // that breaks when loaded as i64 (since String is 16 bytes)
-                    // Note: This is a heuristic - ideally we'd track the actual instantiated type
-                    Some(self.ty_string())
+                    // For generic type parameters, treat as i64 (pointer) by default.
+                    // The previous heuristic of treating as String breaks Vec<String> because
+                    // Vec stores pointers, but this would treat it as inline structs.
+                    None
                 } else {
                     self.struct_types.get(struct_type_name).map(|(ty, _)| *ty)
                 };
@@ -462,6 +462,28 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     if let IRValue::Register(reg_id) = result {
                         self.reg_struct_types.insert(*reg_id, struct_type_name.clone());
                     }
+                    return Ok(());
+                } else {
+                    // Unknown struct type (likely generic T)
+                    // Treat as pointer stored as i64
+                    eprintln!("DEBUG ArrayAccess: unknown struct type '{}', treating as i64/ptr", struct_type_name);
+                    
+                    let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+                    
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            self.i64_t,
+                            data_i64_ptr,
+                            &[idx_iv],
+                            "generic_elem_ptr",
+                        )?
+                    };
+                    
+                    let i64_val = self.builder.build_load(self.i64_t, elem_ptr, "generic_load")?.into_int_value();
+                    let ptr_val = self.builder.build_int_to_ptr(i64_val, self.i8_ptr_t, "i64_to_ptr")?;
+                    
+                    self.assign_value(result, ptr_val.as_basic_value_enum())?;
                     return Ok(());
                 }
             }
@@ -713,6 +735,29 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             return Ok(());
         }
         
+        // Check if we're setting a pointer array element (e.g. Vec<String> backing array)
+        if val_v.is_pointer_value() {
+            let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
+            let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+            
+            let elem_ptr = unsafe {
+                self.builder.build_gep(
+                    self.i64_t,
+                    data_i64_ptr,
+                    &[idx_iv],
+                    "ptr_elem_ptr",
+                )?
+            };
+            
+            let int_val = self.builder.build_ptr_to_int(
+                val_v.into_pointer_value(),
+                self.i64_t,
+                "ptr2i"
+            )?;
+            self.builder.build_store(elem_ptr, int_val)?;
+            return Ok(());
+        }
+
         // Default: treat as f64 array
         let f64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
         let data_f64_ptr = self.builder.build_pointer_cast(data_ptr, f64_ptr_ty, "data_f64_ptr")?;

@@ -22,6 +22,7 @@ use crate::llvm::runtime_fns::RuntimeFunctions;
 use crate::llvm::concurrency::ConcurrencyOps;
 use crate::llvm::c_library::CLibraryOps;
 use crate::llvm::type_builders::TypeBuilders;
+use crate::llvm::types_ir::ir_type_to_llvm;
 
 type HashMap<K, V> = IndexMap<K, V>;
 
@@ -2955,9 +2956,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     if v.is_struct_value() {
                         // Struct -> Pointer (Spill)
                         let sv = v.into_struct_value();
-                        let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "arg_spill")?;
-                        self.builder.build_store(tmp, sv)?;
-                        call_args.push(tmp.into());
+                        // Use malloc instead of alloca to ensure value survives if stored (e.g. in Vec)
+                        // This effectively boxes the struct on the heap
+                        let malloc_ptr = self.builder.build_malloc(sv.get_type(), "arg_box")?;
+                        self.builder.build_store(malloc_ptr, sv)?;
+                        call_args.push(malloc_ptr.into());
                         pushed = true;
                     } else if v.is_int_value() {
                         // Int -> Pointer
@@ -3012,6 +3015,60 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         self.builder.build_store(tmp, fv)?;
                         call_args.push(tmp.into());
                         pushed = true;
+                    } else if v.is_pointer_value() {
+                        // Pointer -> Pointer
+                        // If we are passing a pointer to a generic function (which expects ptr),
+                        // and the argument is a Struct or String, we must ensure it's on the heap.
+                        // If it's a stack pointer (e.g. to a local struct), storing it in a collection is unsafe.
+                        // We "box" it by allocating heap memory and copying the struct there.
+                        
+                        let arg_type = a.get_type();
+                        eprintln!("DEBUG: Checking if should box. arg_type={:?}", arg_type);
+                        
+                        let mut should_box = matches!(arg_type, crate::value::IRType::Struct { .. } | crate::value::IRType::String);
+                        let mut target_type = arg_type.clone();
+                        
+                        if !should_box {
+                            if let IRValue::Variable(name) = a {
+                                if self.var_is_string.contains(name) {
+                                    should_box = true;
+                                    target_type = crate::value::IRType::String;
+                                    eprintln!("DEBUG: Variable {} is string, boxing", name);
+                                } else if let Some(ty_name) = self.var_struct_types.get(name) {
+                                    if let Some(fields) = self.struct_definitions.get(ty_name) {
+                                        should_box = true;
+                                        target_type = crate::value::IRType::Struct {
+                                            name: ty_name.clone(),
+                                            fields: fields.clone(),
+                                        };
+                                        eprintln!("DEBUG: Variable {} is struct {}, boxing", name, ty_name);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if should_box {
+                            eprintln!("DEBUG: Boxing pointer argument for generic call. Type: {:?}", target_type);
+                            let llvm_ty = ir_type_to_llvm(
+                                self.ctx, 
+                                &target_type, 
+                                self.i64_t, 
+                                self.bool_t, 
+                                self.i8_ptr_t, 
+                                &self.struct_types
+                            );
+                            
+                            let ptr_val = v.into_pointer_value();
+                            // Load the struct from the current pointer
+                            let loaded = self.builder.build_load(llvm_ty, ptr_val, "box_load")?;
+                            // Allocate new heap memory
+                            let malloc_ptr = self.builder.build_malloc(llvm_ty, "box_malloc")?;
+                            // Store the struct to the new heap memory
+                            self.builder.build_store(malloc_ptr, loaded)?;
+                            
+                            call_args.push(malloc_ptr.into());
+                            pushed = true;
+                        }
                     }
                 }
                 // Case 2: Function expects Struct (e.g. String)
@@ -3053,9 +3110,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         }
                         if !pushed {
                             // Fallback: spill and cast pointer to int
-                            let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "elem_spill")?;
-                            self.builder.build_store(tmp, sv)?;
-                            let as_i64 = self.builder.build_ptr_to_int(tmp, self.i64_t, "elem_ptr_i64")?;
+                            // Use malloc instead of alloca to ensure value survives if stored
+                            let struct_ty = sv.get_type();
+                            let malloc_ptr = self.builder.build_malloc(struct_ty, "elem_box")?;
+                            self.builder.build_store(malloc_ptr, sv)?;
+                            let as_i64 = self.builder.build_ptr_to_int(malloc_ptr, self.i64_t, "elem_ptr_i64")?;
                             // Truncate if needed
                             if expected_bits < 64 {
                                 let truncated = self.builder.build_int_truncate(as_i64, expected_int_ty, "ptr_trunc")?;

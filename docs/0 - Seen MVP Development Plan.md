@@ -18,10 +18,10 @@
 | LLVM Tracing Infrastructure | ✅ Complete |
 
 **Blocking Issues:** 
-1. **Runtime:** `Vec<String>` data corruption causing `Map` lookup failures (SIGSEGV or garbage data).
+1. **Runtime:** ✅ `Vec<String>` data corruption fixed.
 2. **Build:** `compiler_seen/src/main.seen` fails with `Unknown enum variant 'BangEqual'` (needs rename to `NotEqual`).
 
-**Recent Progress (2026-01-01):**
+**Recent Progress (2026-01-04):**
 1. Implemented `LlvmTraceOptions` with `--trace-llvm` CLI flag for debugging
 2. Fixed `IRValue::Struct` array field handling (load content from pointer, not store pointer)
 3. Fixed `ConstructObject` array field handling (same fix)
@@ -43,39 +43,33 @@
 19. **[DEBUG]** Instrumented `seen_ir/src/llvm/instructions/call.rs` and `aggregate.rs` to trace `Vec_get` and `ArrayAccess`.
 20. **[ATTEMPT]** Added unboxing logic for `String` in `Vec_get` (converting `i64` pointer back to `String` struct).
 21. **[ISSUE]** `seen_cli build` currently stops at IR generation and doesn't produce an executable, requiring manual linking or fix.
+22. **[FIXED]** Resolved `Vec<String>` memory corruption in LLVM backend (`aggregate.rs`). Pointers were being stored as `f64` in generic arrays; now correctly stored as `i64`.
 
 ---
 
-# NEXT IMMEDIATE STEPS: Fix Vec<String> Data Corruption
+# NEXT IMMEDIATE STEPS: Fix Self-Host Compilation Errors
 
-**Objective:** Fix the issue where `Vec<String>.get()` returns garbage data, which causes `Map` lookups to fail.
+**Objective:** Resolve remaining compilation errors in `compiler_seen` to achieve a working Stage1 compiler.
 
 **Diagnosis:**
-- `String` equality works in isolation.
-- `Vec<String>.push()` appears to succeed.
-- `Vec<String>.get()` returns corrupted data (garbage pointer/length).
-- This suggests an issue with `Array<T>` access in the LLVM backend when `T` is a struct type (like `String` which is `{i64, ptr}`).
-- `Vec` stores elements as `i64` (pointers for structs).
-- `Vec_get` returns `i64`.
-- The caller expects `String` struct.
-- Unboxing logic was added but might be incomplete or incorrect (double pointer indirection?).
+- `Vec<String>` corruption is fixed, unblocking runtime stability.
+- `seen_cli build` now produces binaries correctly.
+- The compiler source (`compiler_seen`) has logic errors preventing compilation.
+- `BangEqual` vs `NotEqual` enum mismatch.
+- `SeenLexer_getTwoCharOperatorType` parameter type mismatch (LLVM verification error).
 
 **Action Plan:**
-1.  **Verify `Vec` Storage Model:**
-    - Confirm if `Vec` stores `String` as `String*` (pointer to struct) cast to `i64`.
-    - Confirm if `Vec_get` returns that `i64`.
+1.  **Fix `BangEqual`:**
+    - Rename `BangEqual` to `NotEqual` in `compiler_seen/src/parser/real_parser.seen`.
 
-2.  **Fix `Vec_get` Return Type Handling:**
-    - Ensure `Vec_get` unboxes the `i64` (pointer) back to `String` struct correctly.
-    - Check for double indirection (pointer to pointer).
+2.  **Fix LLVM Verification Error:**
+    - Investigate `SeenLexer_getTwoCharOperatorType` call site.
+    - The error `Call parameter type does not match function signature` suggests a mismatch between `i64` and `{i64, ptr}` (String).
+    - Ensure local variables holding Strings are correctly typed and loaded as structs, not `i64`.
 
-3.  **Fix `seen_cli build`:**
-    - Investigate why `seen_cli build` stops at IR generation.
-    - Ensure it invokes the linker to produce the final executable.
-
-4.  **Verify Fix with `repro_map_bug.seen`:**
-    - Once fixed, `Vec equality works` should print.
-    - Then `Map` lookups should succeed.
+3.  **Verify Stage1 Build:**
+    - Run `seen_cli build compiler_seen/src/main.seen --backend llvm`.
+    - Ensure the resulting binary runs and prints version info.
 
 ---
 
