@@ -47,7 +47,34 @@
 
 ---
 
-# NEXT IMMEDIATE STEPS: Fix Self-Host Compilation Errors
+# NEXT IMMEDIATE STEPS: Enhance Debugging & Tracing Infrastructure
+
+**Objective:** Upgrade the compiler's tracing infrastructure to provide granular, logic-aware visibility into the compilation process, eliminating the need for manual code grepping during debugging.
+
+**Action Plan:**
+
+1.  **Upgrade `LlvmTraceOptions`:**
+    -   Modify `seen_ir/src/llvm_backend.rs` to add a `trace_filter` field (string).
+    -   This will allow tracing only specific functions (e.g., "main") to reduce noise.
+
+2.  **Implement Unified Trace Helper:**
+    -   Add a `trace(&self, category: &str, msg: &str)` method to `LlvmBackend`.
+    -   This method should check flags and filters before printing.
+
+3.  **Instrument Core Modules:**
+    -   **`type_cast.rs`**: Add traces to `as_cstr_ptr`, `as_i64`, etc., logging input types, decision branches (e.g., "struct -> field 1"), and results.
+    -   **`binary.rs`**: Add traces to `emit_binary_op` to log operand types and the chosen lowering strategy (e.g., "String equality detected -> strcmp").
+    -   **`call.rs`**: Enhance `emit_call` traces to show resolved function names and argument types, especially for dynamic dispatches.
+
+4.  **Update CLI:**
+    -   Modify `seen_cli` to accept a `--trace-filter <name>` argument.
+    -   Pass this argument to the backend configuration.
+
+5.  **Validation:**
+    -   Rebuild `seen_cli`.
+    -   Run `seen_cli build test_hello.seen --trace-llvm --trace-filter main` and verify the output contains detailed, filtered logs.
+
+# PENDING STEPS: Fix Self-Host Compilation Errors
 
 **Objective:** Resolve remaining compilation errors in `compiler_seen` to achieve a working Stage1 compiler.
 
