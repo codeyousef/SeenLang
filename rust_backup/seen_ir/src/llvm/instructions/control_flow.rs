@@ -138,6 +138,17 @@ impl<'ctx> ControlFlowOps<'ctx> for LlvmBackend<'ctx> {
             }
         }
         
+        // Runtime debug: pop frame before returning
+        if self.runtime_debug_flag {
+            let pop_frame_ty = self.ctx.void_type().fn_type(&[], false);
+            let pop_frame_fn = if let Some(f) = self.module.get_function("__seen_pop_frame") {
+                f
+            } else {
+                self.module.add_function("__seen_pop_frame", pop_frame_ty, None)
+            };
+            self.builder.build_call(pop_frame_fn, &[], "pop_frame")?;
+        }
+        
         match (val_opt, ret_ty_opt) {
             (Some(v), Some(ret_ty)) => {
                 if fn_name == "createLexer" {

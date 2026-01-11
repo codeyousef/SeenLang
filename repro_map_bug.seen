@@ -1,6 +1,48 @@
+import collections.map.{Map}
+import collections.vec.{Vec}
+
 fun main() {
-    // println(Map) // This might fail if Map is not an expression
-    let m: Map<String, Int> = Map<String, Int>();
-    println("Map created")
+    let s1 = "hello"
+    let s2 = "he" + "llo"
+    if s1 == s2 {
+        __Print("String equality works")
+    } else {
+        __Print("String equality FAILS")
+    }
+
+    let v = Vec.new<String>()
+    v.push("Hello")
+    __Print("Vec pushed")
+    let got = v.get(0)
+    __Print("DEBUG: got is:")
+    __Print(got)
+    __Print("DEBUG: done printing got")
+    if got == "Hello" {
+        __Print("Vec equality works")
+    } else {
+        __Print("Vec equality FAILS")
+    }
+
+    let m = Map.new<String, String>()
+    __Print("Map created")
+    
+    m.put("hello", "world")
+    __Print("Put hello")
+    
+    let val = m.get("hello")
+    if val.isSome() {
+        __Print("Got: " + val.unwrap())
+    } else {
+        __Print("Failed to get hello")
+    }
+
+    m.put("world", "seen")
+    __Print("Put world")
+
+    let val2 = m.get("world")
+    if val2.isSome() {
+        __Print("Got: " + val2.unwrap())
+    } else {
+        __Print("Failed to get world")
+    }
 }
-main();

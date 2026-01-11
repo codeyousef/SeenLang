@@ -65,10 +65,14 @@ class Vec<T> {
         let lastIndex = this.chunks.length() - 1
         var chunk = this.chunks[lastIndex]
         let used = this.usage[lastIndex]
-        // Always push since we don't pre-fill chunks anymore
+        
         // Use local var to ensure modification isn't lost
         var valuesArr = chunk.values
-        valuesArr.push(value)
+        if used < valuesArr.length() {
+            valuesArr[used] = value
+        } else {
+            valuesArr.push(value)
+        }
         chunk.values = valuesArr
         this.chunks[lastIndex] = chunk
         this.usage[lastIndex] = used + 1
@@ -97,12 +101,25 @@ class Vec<T> {
         if index < 0 or index >= this.length {
             abort("Vec index out of bounds")
         }
+
+        __Print("Vec.get index:")
+        __PrintInt(index)
+
         var remaining = index
         var chunkIndex = 0
         while chunkIndex < this.chunks.length() {
+            __Print("Checking chunk:")
+            __PrintInt(chunkIndex)
+
             let chunkUsage = this.usage[chunkIndex]
+            __Print("Chunk usage:")
+            __PrintInt(chunkUsage)
+
             if remaining < chunkUsage {
-                return this.chunks[chunkIndex].values[remaining]
+                __Print("Found in chunk")
+                let chunk = this.chunks[chunkIndex]
+                __Print("Accessing values")
+                return chunk.values[remaining]
             }
             remaining = remaining - chunkUsage
             chunkIndex = chunkIndex + 1
@@ -153,8 +170,8 @@ class Vec<T> {
     }
 
     fun growChunk() r: Void {
-        // Create a new chunk with an empty array - we'll push values on demand
-        var chunk = VecChunk<T>{ values: Array<T>() }
+        // Create a new chunk with capacity - we'll push values on demand
+        var chunk = VecChunk<T>{ values: Array<T>(this.nextChunkSize) }
         // Don't pre-fill with defaults - just track capacity
         // Use local vars to ensure modifications aren't lost
         var chunksArr = this.chunks

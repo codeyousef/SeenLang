@@ -235,6 +235,7 @@ pub enum IRValue {
     GlobalVariable(String),
     Label(String),
     AddressOf(Box<IRValue>), // Address-of operator for references
+    SizeOf(IRType),          // Size of a type in bytes (resolved at codegen/monomorphization)
     Null,
     Undefined, // For uninitialized values
 }
@@ -298,6 +299,7 @@ impl IRValue {
             }
             IRValue::Label(_) => IRType::Void,
             IRValue::AddressOf(value) => IRType::Pointer(Box::new(value.get_type())),
+            IRValue::SizeOf(_) => IRType::Integer,
             IRValue::Null => IRType::Optional(Box::new(IRType::Void)),
             IRValue::Undefined => IRType::Void,
         }
@@ -314,6 +316,7 @@ impl IRValue {
                 | IRValue::String(_)
                 | IRValue::StringConstant(_)
                 | IRValue::ByteArray(_)
+                | IRValue::SizeOf(_)
                 | IRValue::Null
         )
     }
@@ -379,6 +382,7 @@ impl IRValue {
             IRValue::GlobalVariable(name) => format!("@{}", name),
             IRValue::Label(name) => format!(".{}", name),
             IRValue::AddressOf(value) => format!("&{}", value.to_code_string()),
+            IRValue::SizeOf(ty) => format!("sizeof({:?})", ty),
             IRValue::Null => "null".to_string(),
             IRValue::Undefined => "undef".to_string(),
         }

@@ -68,8 +68,18 @@ class Map<K, V> {
     fun get(key: K) r: Option<V> {
         var i = 0
         while i < this.length {
-            if this.keys.get(i) == key {
+            let k = this.keys.get(i)
+            __Print("Map.get checking index:")
+            __PrintInt(i)
+            // Try to print keys if they are strings (this might fail compilation for non-string maps)
+            // __Print("Key in map: " + k) 
+            // __Print("Target key: " + key)
+            
+            if k == key {
+                __Print("Match found!")
                 return Some(this.values.get(i))
+            } else {
+                __Print("No match")
             }
             i = i + 1
         }

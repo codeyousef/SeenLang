@@ -1,6 +1,6 @@
 # Seen Language — Unified **MVP** Plan
 
-**Last Updated:** 2025-12-30  
+**Last Updated:** 2026-01-01  
 **Core Principle:** Safety by default, nondeterminism explicitly opt-in via annotation.  
 **Target Platforms:** Linux, Windows, RISC-V, UWW-Compatible WASM
 
@@ -11,28 +11,18 @@
 | Component | Status |
 |-----------|--------|
 | Rust Compiler | ✅ Production Ready |
-| Stage1 Compilation | ✅ **COMPILES & RUNS!** |
-| Stage1 Type-Check | ✅ Passes |
-| Stage1 C Code Gen | ✅ Works |
-| Stage1 Arg Parsing | ⚠️ Minor bug with `-o` flag |
-| Stage1→Stage2→Stage3 | ⏳ Ready for testing |
+| Self-Host Type-Check | ❌ Failing (Parser Enum Resolution) |
+| Self-Host IR Gen | ⏸️ Paused (Fixing Parser) |
+| Self-Host Native Codegen | ⚠️ Debugging Runtime |
+| Stage1→Stage2→Stage3 | ⏳ Blocked on Stage1 |
 | LLVM Tracing Infrastructure | ✅ Complete |
 | __PtrToInt Intrinsic | ✅ Implemented |
 
-**Previous Blocking Issue (RESOLVED):** The Vec/Map crash has been resolved. Stage1 compiler now compiles and runs successfully.
+**Blocking Issues:** 
+1. **Runtime:** ✅ `Vec<String>` data corruption fixed.
+2. **Build:** `compiler_seen/src/main.seen` fails with `Unknown enum variant 'BangEqual'` (needs rename to `NotEqual`).
 
-**Current Blocking Issue:** Enum values stored in class fields crash when compared. The `Token.getType()` method returns an enum, but the returned value cannot be used for comparison (SIGSEGV).
-
-**Root Cause Identified (2025-12-30):**
-- Enums are being passed as **pointers** (`ptr`) instead of **integers** (`i64`)
-- In `Token.new()`: `param_slot_tokenType = alloca ptr, align 8` (WRONG - should be `i64`)
-- Basic enum comparison works (`Color.Red == Color.Red`)
-- Cross-module enum comparison works (using helper functions)
-- Enum stored in class field and returned via method causes SIGSEGV
-
-**Fix Required:** The LLVM backend needs to treat enum parameters and return values as `i64` integers, not as pointers.
-
-**Recent Progress (2025-12-30):**
+**Recent Progress (2026-01-04):**
 1. Implemented `LlvmTraceOptions` with `--trace-llvm` CLI flag for debugging
 2. Fixed `IRValue::Struct` array field handling (load content from pointer, not store pointer)
 3. Fixed `ConstructObject` array field handling (same fix)
@@ -48,171 +38,66 @@
 13. **[NEW]** Added helper functions to `token_type.seen` (e.g., `getLeftParenType()`) to work around enum resolution
 14. **[NEW]** Added `KeywordUse` variant to `SeenTokenType` enum
 15. **[REMAINING]** Need to add `BangEqual` variant or fix parser to use `NotEqual`
-16. **[FIXED]** `__Println` ABI mismatch - now uses `puts()` for correct string handling
-17. **[VALIDATED]** `repro_crash.seen` nested class test passes - isolated class-in-class field access works
-18. **[IMPLEMENTED]** `__PtrToInt<T>` intrinsic for pointer address debugging
-19. **[VALIDATED]** `Map<Int, Int>` and `Map<String, Int>` tests pass
-20. **[SUCCESS]** **Stage1 compiler compiles and runs!** `--help` and `--version` work, C code generation works
+16. **[DEBUG]** `repro_map_bug.seen` confirms `Vec<String>` retrieval returns garbage data, causing `Map` lookup failures. `String` equality works in isolation.
+17. **[MAINTENANCE]** Cleaned up ~95 compilation warnings in `seen_ir` crate (deprecated LLVM pointer types).
+18. **[REFACTOR]** Updated LLVM backend to fully support opaque pointers (LLVM 15+).
+19. **[DEBUG]** Instrumented `seen_ir/src/llvm/instructions/call.rs` and `aggregate.rs` to trace `Vec_get` and `ArrayAccess`.
+20. **[ATTEMPT]** Added unboxing logic for `String` in `Vec_get` (converting `i64` pointer back to `String` struct).
+21. **[ISSUE]** `seen_cli build` currently stops at IR generation and doesn't produce an executable, requiring manual linking or fix.
+22. **[FIXED]** Resolved `Vec<String>` memory corruption in LLVM backend (`aggregate.rs`). Pointers were being stored as `f64` in generic arrays; now correctly stored as `i64`.
 
 ---
 
-# NEXT IMMEDIATE STEPS: Debug Struct Layout Mismatch & Invalid Pointer Access
+# NEXT IMMEDIATE STEPS: Enhance Debugging & Tracing Infrastructure
 
-**Objective:** Instrument the compiler and runtime to detect **Struct Layout Mismatches** and **Invalid Pointer Access** during the `Vec_push` call within `Map`.
+**Objective:** Upgrade the compiler's tracing infrastructure to provide granular, logic-aware visibility into the compilation process, eliminating the need for manual code grepping during debugging.
 
----
+**Action Plan:**
 
-## Step 1: Runtime Instrumentation (Standard Library)
+1.  **Upgrade `LlvmTraceOptions`:**
+    -   Modify `seen_ir/src/llvm_backend.rs` to add a `trace_filter` field (string).
+    -   This will allow tracing only specific functions (e.g., "main") to reduce noise.
 
-**Target File:** `seen_std/src/collections/vec.seen`  
-**Goal:** Verify the `this` pointer passed to `Vec.push` is valid and not null/misaligned.
+2.  **Implement Unified Trace Helper:**
+    -   Add a `trace(&self, category: &str, msg: &str)` method to `LlvmBackend`.
+    -   This method should check flags and filters before printing.
 
-**Instructions:**
+3.  **Instrument Core Modules:**
+    -   **`type_cast.rs`**: Add traces to `as_cstr_ptr`, `as_i64`, etc., logging input types, decision branches (e.g., "struct -> field 1"), and results.
+    -   **`binary.rs`**: Add traces to `emit_binary_op` to log operand types and the chosen lowering strategy (e.g., "String equality detected -> strcmp").
+    -   **`call.rs`**: Enhance `emit_call` traces to show resolved function names and argument types, especially for dynamic dispatches.
 
-1. Locate the `push(value: T)` method in the `Vec` class (around line 52).
-2. Insert the following intrinsic calls at the **very first line** of the function body:
-```seen
-__Print("[DEBUG] Vec_push called. 'this' address: ")
-__PrintInt(__PtrToInt(this))
-__Println("")
-```
+4.  **Update CLI:**
+    -   Modify `seen_cli` to accept a `--trace-filter <name>` argument.
+    -   Pass this argument to the backend configuration.
 
-3. **Constraint:** Do NOT access any fields of `this` (like `this.length` or `this.chunks`) in these print statements, as that may trigger the crash immediately if the pointer is invalid.
+5.  **Validation:**
+    -   Rebuild `seen_cli`.
+    -   Run `seen_cli build test_hello.seen --trace-llvm --trace-filter main` and verify the output contains detailed, filtered logs.
 
-4. **Note:** If `__PtrToInt` intrinsic doesn't exist, create it in the runtime. It should convert a pointer to an Int for diagnostic printing.
+# PENDING STEPS: Fix Self-Host Compilation Errors
 
----
+**Objective:** Resolve remaining compilation errors in `compiler_seen` to achieve a working Stage1 compiler.
 
-## Step 2: Compiler Instrumentation (Rust Backend)
+**Diagnosis:**
+- `Vec<String>` corruption is fixed, unblocking runtime stability.
+- `seen_cli build` now produces binaries correctly.
+- The compiler source (`compiler_seen`) has logic errors preventing compilation.
+- `BangEqual` vs `NotEqual` enum mismatch.
+- `SeenLexer_getTwoCharOperatorType` parameter type mismatch (LLVM verification error).
 
-**Target File:** `rust_backup/seen_ir/src/llvm_backend.rs`  
-**Goal:** Expose the compiler's internal field index mapping vs. LLVM's generated struct layout.
+**Action Plan:**
+1.  **Fix `BangEqual`:**
+    - Rename `BangEqual` to `NotEqual` in `compiler_seen/src/parser/real_parser.seen`.
 
-### Task A: Implement `dump_layouts` Flag
+2.  **Fix LLVM Verification Error:**
+    - Investigate `SeenLexer_getTwoCharOperatorType` call site.
+    - The error `Call parameter type does not match function signature` suggests a mismatch between `i64` and `{i64, ptr}` (String).
+    - Ensure local variables holding Strings are correctly typed and loaded as structs, not `i64`.
 
-1. **Update Config:** Add `dump_layouts: bool` to `LlvmTraceOptions` (around line 396).
-
-2. **Update Parsing:** In the trace options parsing logic, add support for `SEEN_TRACE_LLVM=layouts` or extend the existing flag.
-
-3. **Instrumentation Point:** Locate `register_struct_type` function (around line 1048).
-
-4. **Implementation:** When defining a struct body, iterate through fields and print to `stderr`:
-```text
-[LAYOUT] Struct Name: {struct_name}
-[LAYOUT]   Field 0: {field_name} (Type: {ir_type})
-[LAYOUT]   Field 1: {field_name} (Type: {ir_type})
-...
-```
-
-*This confirms the order of fields in the compiler's memory.*
-
-### Task B: Enhanced GEP Tracing
-
-1. **Instrumentation Point:** Locate `emit_field_get` function (around line 700) and `emit_field_set` (around line 902).
-
-2. **Implementation:** Before the `build_struct_gep` call, if `trace_options.trace_instructions` or `trace_options.dump_layouts` is true, print:
-```text
-[GEP TRACE] accessing member '{member_name}' of struct '{struct_name}'
-[GEP TRACE]   - Base Pointer Type: {llvm_type_of_base}
-[GEP TRACE]   - Calculated Field Index: {index}
-```
-
-*This confirms the compiler is calculating the correct index (e.g., 0 for `keys`) at the call site.*
-
----
-
-## Step 3: Isolation Test Case (Reproduction)
-
-**Target File:** `repro_crash.seen` (Create new file in project root)  
-**Goal:** Isolate the crash to "Class-nested-in-Class" without `Map` logic overhead.
-
-**Content:**
-```seen
-class Inner {
-    data: Array<Int>
-    
-    fun init() r: Void {
-        this.data = __ArrayNew(Int, 4)
-    }
-    
-    fun touch() r: Void {
-        __ArraySet(this.data, 0, 99) // Access array field
-    }
-}
-
-class Outer {
-    inner: Inner
-    
-    fun init() r: Void {
-        this.inner = Inner.new() // Heap allocation
-    }
-}
-
-fun main() r: Int {
-    var o = Outer.new()
-    __Print("Outer created. Inner address: ")
-    __PrintInt(__PtrToInt(o.inner))
-    __Println("")
-    
-    // Trigger the potential crash
-    o.inner.touch()
-    __Println("Touch successful.")
-    return 0
-}
-```
-
----
-
-## Step 4: Execution & Validation Workflow
-
-**Instructions for validation:**
-
-1. **Rebuild Compiler:**
-```bash
-cargo build --release
-```
-
-2. **Compile Repro with Tracing:**
-```bash
-SEEN_TRACE_LLVM=layouts ./target/release/seen_cli build repro_crash.seen --backend llvm -o repro_test --trace-llvm 2>&1 | tee repro_trace.log
-```
-
-3. **Analyze Output:**
-   - **Check Layout:** Does `[LAYOUT]` show `inner` at Index 0 for `Outer`? Does `data` appear at Index 0 for `Inner`?
-   - **Check GEP:** Does `[GEP TRACE]` in `main` show accessing Index 0 of `Outer` when getting `o.inner`?
-
-4. **Run Repro:**
-```bash
-./repro_test
-```
-
-5. **Interpret Results:**
-   - If `Inner address` prints `0`, the initialization in `Outer.init()` failed (Constructor injection bug).
-   - If `Inner address` is valid (non-zero) but it crashes on `touch()`, the memory layout of `Inner` is mismatched.
-   - If it prints "Touch successful.", the isolated case works and the bug is specific to `Map`→`Vec` interaction.
-
----
-
-## Step 5: Apply Findings to Vec/Map
-
-Based on Step 4 results:
-
-- **If isolated test passes:** The bug is in `Map`'s storage of `Vec` pointers. Add same debug prints to `Map.put()` to trace `keysVec` and `valuesVec` addresses.
-
-- **If isolated test fails:** The bug is in nested-class field access generally. Compare `[LAYOUT]` output with actual LLVM IR struct definitions using:
-```bash
-SEEN_TRACE_LLVM=dump ./target/release/seen_cli build repro_crash.seen --backend llvm -o repro_test 2>&1 | grep -A 20 "define.*Inner\|define.*Outer"
-```
-
----
-
-## Acceptance Criteria
-
-- [x] `Vec.push` prints `this` pointer address before any field access *(Already implemented)*
-- [x] `--trace-llvm` with `layouts` mode prints `[LAYOUT]` for all struct types *(Implemented 2025-12-30)*
-- [x] GEP operations print field index being accessed *(Implemented 2025-12-30)*
-- [x] `repro_crash.seen` test case created and runnable *(Created & **PASSES** 2025-12-30)*
-- [ ] Root cause of Vec_push crash identified (pointer corruption vs layout mismatch)
+3.  **Verify Stage1 Build:**
+    - Run `seen_cli build compiler_seen/src/main.seen --backend llvm`.
+    - Ensure the resulting binary runs and prints version info.
 
 ### Discovery During Debugging (2025-12-30)
 - **Fixed:** `__Println` ABI mismatch - runtime expected `*const u8` but LLVM was passing `{ i64, ptr }`. Fixed by special-casing `__Println` in call.rs to use `puts()`.
@@ -640,7 +525,15 @@ Class types (heap-allocated, stored as i64): {"VecChunk", "Vec", "Map", "Keyword
 
 **Current Blocking Bugs (as of 2025-12-30):**
 
-1. **Parameter Type Mismatch (LLVM Verification Error):**
+1. **Self-Host Compilation Errors:**
+   - `compiler_seen/src/main.seen` builds successfully but runtime behavior is incorrect (empty output).
+   - Parser seems to fail to match tokens.
+
+**Resolved Bugs:**
+- [x] **Vec<String> Data Corruption:** Fixed by ensuring pointers are stored as `i64` in generic arrays in LLVM backend.
+- [x] **Array_push Invalid Argument:** Fixed by handling `IRValue::Register` in `Array_push` handler in `call.rs`.
+
+2. **Parameter Type Mismatch (LLVM Verification Error):**
    ```
    Call parameter type does not match function signature!
      %load_twoChar = load i64, ptr %var_twoChar, align 4
@@ -648,18 +541,13 @@ Class types (heap-allocated, stored as i64): {"VecChunk", "Vec", "Map", "Keyword
    ```
    The lexer's `twoChar` variable (String type = `{i64, ptr}`) is being loaded as i64 instead of the proper String struct.
 
-2. **Root Cause:** Type inference is not properly tracking String types for local variables. When a String is assigned to a local variable, the LLVM backend emits i64 loads instead of struct loads.
+3. **Root Cause:** Type inference is not properly tracking String types for local variables. When a String is assigned to a local variable, the LLVM backend emits i64 loads instead of struct loads.
 
 **Vec/Map Runtime Crash - Status Update:**
-The minimal reproduction test (`test_vec_map_crash.seen`) **passes successfully**, demonstrating:
-- Direct `Vec<String>.push()` works
-- Direct `Map<String, Int>.put()` works  
-- `KeywordHolder` pattern (class with Map field) works
-
-This suggests the original crash may be specific to:
-1. The actual KeywordManager implementation's complexity
-2. Generic monomorphization with complex nested types
-3. A type mismatch that only manifests in certain call patterns
+The minimal reproduction test (`repro_map_bug.seen`) **fails**, demonstrating:
+- `Vec<String>.push()` works (length increases).
+- `Vec<String>.get()` returns garbage.
+- `Map` lookups fail due to key corruption.
 
 **Tracing Infrastructure:**
 New `LlvmTraceOptions` struct in `rust_backup/seen_ir/src/llvm_backend.rs`:

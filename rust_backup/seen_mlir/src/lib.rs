@@ -742,6 +742,7 @@ fn value_operand(value: &seen_ir::IRValue, ctx: &mut MlirContext) -> String {
         IRValue::Boolean(b) => format!("#seen.bool<{}>", if *b { "true" } else { "false" }),
         IRValue::Char(c) => format!("#seen.char<'{}'>", escape_char_literal(*c)),
         IRValue::StringConstant(idx) => format!("#seen.strref<{}>", idx),
+        IRValue::SizeOf(ty) => format!("#seen.sizeof<{:?}>", ty),
         IRValue::Null => "#seen.null".to_string(),
         IRValue::Undefined => "#seen.undef".to_string(),
         IRValue::Void => "#seen.void".to_string(),

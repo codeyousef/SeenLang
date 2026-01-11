@@ -48,6 +48,30 @@ debug.log
 *.bin
 *.dll
 *.so
+
+# Temporary test and reproduction files
+repro_*.seen
+test_*.seen
+clean_test.seen
+hello.seen
+
+# Temporary binaries and build artifacts
+repro_bug*
+repro_test
+test_array_string
+compiler_seen/stage1_v*
+compiler_seen/*.c
+compiler_seen/*.o
+
+# Debug logs
+trace_log*.txt
+trace_output.txt
+
+# More temporary files
+repro_map_bug
+repro_*.c
+compiler_seen/src/repro.seen
+benchmarks/seen_simple/arithmetic_benchmark.c
 *.dylib
 
 # Cargo targets (both workspace-local and shared)

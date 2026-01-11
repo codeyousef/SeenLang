@@ -237,6 +237,17 @@ enum Commands {
         /// Dump struct layout information for debugging memory issues
         #[arg(long = "dump-struct-layouts")]
         dump_struct_layouts: bool,
+
+        /// Enable comprehensive debug mode: LLVM tracing, runtime stack traces,
+        /// struct layout dumps, and signal handlers for crash diagnostics.
+        /// Equivalent to: --trace-llvm --dump-struct-layouts --runtime-debug
+        #[arg(long = "debug")]
+        debug_mode: bool,
+
+        /// Enable runtime debugging: function entry/exit tracing and crash stack traces.
+        /// This injects __seen_push_frame/__seen_pop_frame calls and installs signal handlers.
+        #[arg(long = "runtime-debug")]
+        runtime_debug: bool,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -816,7 +827,21 @@ fn main() -> SeenResult<()> {
             no_validate,
             trace_llvm,
             dump_struct_layouts,
+            debug_mode,
+            runtime_debug,
         }) => {
+            // --debug implies all debug flags
+            let trace_llvm = trace_llvm || debug_mode;
+            let dump_struct_layouts = dump_struct_layouts || debug_mode;
+            let runtime_debug = runtime_debug || debug_mode;
+            
+            if debug_mode {
+                eprintln!("{}", "[DEBUG MODE] Comprehensive debugging enabled:".yellow().bold());
+                eprintln!("  - LLVM tracing: ON");
+                eprintln!("  - Struct layout dumps: ON");
+                eprintln!("  - Runtime stack traces: ON");
+                eprintln!("  - Signal handlers: ON");
+            }
             if matches!(cli.profile, Profile::Deterministic) {
                 if memory_topology != MemoryTopologyArg::Default {
                     return Err(SeenError::new(
@@ -886,6 +911,7 @@ fn main() -> SeenResult<()> {
                         no_validate,
                         trace_llvm,
                         dump_struct_layouts,
+                        runtime_debug,
                     )?;
                 }
                 Backend::Ir => {
@@ -1816,6 +1842,7 @@ fn compile_file_llvm(
     skip_validation: bool,
     trace_llvm: bool,
     dump_struct_layouts: bool,
+    runtime_debug: bool,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -2026,6 +2053,12 @@ fn compile_file_llvm(
         // Enable struct layout dumping if --dump-struct-layouts flag is set
         if dump_struct_layouts {
             backend.set_dump_struct_layouts(true);
+        }
+        
+        // Enable runtime debugging if --runtime-debug or --debug flag is set
+        if runtime_debug {
+            backend.set_runtime_debug(true);
+            eprintln!("[RUNTIME DEBUG] Function call tracing and signal handlers enabled");
         }
         
         let default_target = if emit_ll {
@@ -3942,6 +3975,7 @@ fn run_file_llvm(
         false, // always validate for run command
         false, // no tracing for run command
         false, // no struct layout dump for run command
+        false, // no runtime debug for run command (use --debug to enable)
     )?;
     let mut cmd = Command::new(&artifact);
     if let Some(parent) = input.parent() {
@@ -4118,11 +4152,24 @@ fn interpret_ir(
     })?;
 
     // Lex and parse
-    let (_project_config, lexer_config) = project_context_for(input)?;
+    let (project_config, lexer_config) = project_context_for(input)?;
     let visibility_policy = lexer_config.visibility_policy;
-    let lexer = Lexer::with_config(source, keyword_manager, lexer_config);
+    let manifest_modules = manifest_module_roots(&project_config)?;
+    let dependency_roots = project_config.dependency_roots();
+
+    let lexer = Lexer::with_config(source, keyword_manager.clone(), lexer_config);
     let mut parser = SeenParser::new_with_visibility(lexer, visibility_policy);
-    let mut ast = parser.parse_program().map_err(SeenError::from)?;
+    let ast_parsed = parser.parse_program().map_err(SeenError::from)?;
+
+    let mut ast = bundle_imports(
+        ast_parsed,
+        input,
+        keyword_manager,
+        visibility_policy,
+        &project_config.root_dir,
+        &dependency_roots,
+        &manifest_modules,
+    )?;
 
     // Type check
     let mut type_checker = TypeChecker::new();

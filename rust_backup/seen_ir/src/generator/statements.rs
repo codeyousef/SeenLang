@@ -73,7 +73,7 @@ impl IRGenerator {
             self.context.set_variable_type(name.to_string(), ir_type.clone());
             
             // Also register the struct type name for field access tracking
-            if let crate::value::IRType::Struct { name: struct_name, .. } = &ir_type {
+            if let crate::value::IRType::Struct { name: _struct_name, .. } = &ir_type {
                 // Track this in local_variables for the LLVM backend
                 if !self.context.local_variables.iter().any(|lv| lv.name == name) {
                     let local = crate::function::LocalVariable::new(name, ir_type);

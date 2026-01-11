@@ -10,14 +10,11 @@
 
 use anyhow::{anyhow, Result};
 use indexmap::IndexMap;
-use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, InstructionValue, PointerValue, BasicMetadataValueEnum};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, BasicMetadataValueEnum};
 use inkwell::AddressSpace;
-use inkwell::types::{BasicType, BasicTypeEnum, BasicMetadataTypeEnum};
-use inkwell::IntPredicate;
-use inkwell::basic_block::BasicBlock as LlvmBasicBlock;
+use inkwell::types::{BasicType, BasicMetadataTypeEnum};
 
-use crate::instruction::Instruction;
-use crate::value::{IRValue, IRType};
+use crate::value::IRValue;
 use crate::llvm_backend::LlvmBackend;
 use crate::llvm::string_ops::RuntimeStringOps;
 use crate::llvm::type_cast::TypeCastOps;
@@ -25,6 +22,7 @@ use crate::llvm::runtime_fns::RuntimeFunctions;
 use crate::llvm::concurrency::ConcurrencyOps;
 use crate::llvm::c_library::CLibraryOps;
 use crate::llvm::type_builders::TypeBuilders;
+use crate::llvm::types_ir::ir_type_to_llvm;
 
 type HashMap<K, V> = IndexMap<K, V>;
 
@@ -49,6 +47,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         result: &Option<IRValue>,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
+        eprintln!("DEBUG: emit_call target={:?}", target);
         // Debug: log Option_Unwrap calls
         if let IRValue::Variable(name) = target {
             if name == "Option_Unwrap" || name == "Option_unwrap" || name == "Unwrap" || name == "unwrap" {
@@ -92,10 +91,21 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                 }
                 // Track String element type from push calls
-                let is_string_type = val.is_struct_value() && val.get_type() == self.ty_string().into();
-                eprintln!("DEBUG Vec_push: value_type={:?}, is_struct={}, is_string_type={}, vec_var={:?}, value={:?}", 
-                    val.get_type(), val.is_struct_value(), is_string_type, args.get(0), v);
-                if is_string_type {
+                let is_string_type = val.get_type() == self.ctx.ptr_type(AddressSpace::default()).into();
+                let is_string_struct = if val.is_struct_value() {
+                    let st = val.into_struct_value().get_type();
+                    // Check if it matches String struct layout {i64, i8*}
+                    st.count_fields() == 2 && 
+                    st.get_field_type_at_index(0).map_or(false, |t| t.is_int_type()) &&
+                    st.get_field_type_at_index(1).map_or(false, |t| t.is_pointer_type())
+                } else {
+                    false
+                };
+
+                eprintln!("DEBUG Vec_push: value_type={:?}, is_struct={}, is_string_type={}, is_string_struct={}, vec_var={:?}, value={:?}", 
+                    val.get_type(), val.is_struct_value(), is_string_type, is_string_struct, args.get(0), v);
+                
+                if is_string_type || is_string_struct {
                     if let Some(IRValue::Variable(vec_var)) = args.get(0) {
                         eprintln!("DEBUG: Vec_push tracking String element for vec '{}'", vec_var);
                         self.var_array_element_struct.insert(vec_var.clone(), "String".to_string());
@@ -188,9 +198,44 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             if val.is_pointer_value() {
                                 val
                             } else if val.is_struct_value() {
-                                let tmp = self.alloca_for_type(val.get_type().as_basic_type_enum(), "result_arg")?;
-                                self.builder.build_store(tmp, val)?;
-                                tmp.as_basic_value_enum()
+                                // Check if we need to heap allocate this struct (for collections)
+                                let needs_heap_alloc = if let Some(name) = func_name.as_deref() {
+                                    match name {
+                                        "Vec_push" => i == 1,
+                                        "Vec_set" => i == 2,
+                                        "Map_set" | "Map_insert" => i == 1 || i == 2,
+                                        _ => false
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if needs_heap_alloc {
+                                    // Allocate on heap to ensure lifetime persists beyond this call
+                                    let ty = val.get_type().as_basic_type_enum();
+                                    let size = ty.size_of().unwrap();
+                                    let malloc = self.get_malloc();
+                                    let ptr = self.builder.build_call(malloc, &[size.into()], "struct_heap_alloc")?
+                                        .try_as_basic_value().left()
+                                        .ok_or_else(|| anyhow!("malloc returned void"))?
+                                        .into_pointer_value();
+                                    
+                                    // Cast pointer to correct type and store
+                                    let typed_ptr = self.builder.build_pointer_cast(
+                                        ptr,
+                                        self.ctx.ptr_type(AddressSpace::default()),
+                                        "struct_ptr_cast"
+                                    )?;
+                                    self.builder.build_store(typed_ptr, val)?;
+                                    
+                                    // Return the pointer (cast to expected type if needed, usually i8*)
+                                    typed_ptr.as_basic_value_enum()
+                                } else {
+                                    // Stack allocation for temporary reference
+                                    let tmp = self.alloca_for_type(val.get_type().as_basic_type_enum(), "result_arg")?;
+                                    self.builder.build_store(tmp, val)?;
+                                    tmp.as_basic_value_enum()
+                                }
                             } else if val.is_int_value() {
                                 let iv = val.into_int_value();
                                 let ptr = self.builder.build_int_to_ptr(iv, self.i8_ptr_t, "int_to_ptr")?;
@@ -199,7 +244,29 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 val
                             }
                         } else {
-                            val
+                            // Expected is not pointer (likely int)
+                            if val.is_struct_value() {
+                                // If function expects int but we have struct, box it and pass pointer as int
+                                // This handles generic functions (taking i64) receiving structs
+                                
+                                // Heap allocate
+                                let ty = val.get_type().as_basic_type_enum();
+                                let size = ty.size_of().unwrap();
+                                let malloc = self.get_malloc();
+                                let ptr = self.builder.build_call(malloc, &[size.into()], "struct_box_alloc")?
+                                    .try_as_basic_value().left()
+                                    .ok_or_else(|| anyhow!("malloc returned void"))?
+                                    .into_pointer_value();
+                                
+                                let typed_ptr = self.builder.build_pointer_cast(ptr, self.ctx.ptr_type(AddressSpace::default()), "box_ptr_cast")?;
+                                self.builder.build_store(typed_ptr, val)?;
+                                
+                                // Convert pointer to int
+                                let ptr_int = self.builder.build_ptr_to_int(ptr, self.i64_t, "box_ptr_int")?;
+                                ptr_int.as_basic_value_enum()
+                            } else {
+                                val
+                            }
                         }
                     } else {
                         val
@@ -236,8 +303,19 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 self.ctx.f64_type(),
                                 "toFloat"
                             )?
+                        } else if val.is_pointer_value() {
+                            let int_val = self.builder.build_ptr_to_int(
+                                val.into_pointer_value(),
+                                self.i64_t,
+                                "ptr2i_toFloat",
+                            )?;
+                            self.builder.build_signed_int_to_float(
+                                int_val,
+                                self.ctx.f64_type(),
+                                "i2f_toFloat",
+                            )?
                         } else {
-                            self.ctx.f64_type().const_zero()
+                            return Err(anyhow!("toFloat requires a numeric argument"));
                         };
                         if let Some(r) = result {
                             self.assign_value(r, float_val.as_basic_value_enum())?;
@@ -376,19 +454,17 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             let option_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i64_t.into()], false);
                             
                             // Load is_some (index 0)
-                            let is_some_ptr = unsafe { 
+                            let is_some_ptr = 
                                 self.builder.build_struct_gep(option_ty, ptr, 0, "is_some_ptr")
-                                    .unwrap_or(ptr) 
-                            };
+                                    .unwrap_or(ptr);
                             let is_some = self.builder.build_load(self.bool_t, is_some_ptr, "is_some")
                                 .map(|v| v.into_int_value())
                                 .unwrap_or_else(|_| self.bool_t.const_zero());
                             
                             // Load value slot (index 1, i64)
-                            let value_slot_ptr = unsafe { 
+                            let value_slot_ptr = 
                                 self.builder.build_struct_gep(option_ty, ptr, 1, "value_slot_ptr")
-                                    .unwrap() 
-                            };
+                                    .unwrap();
                             let value_slot = self.builder.build_load(self.i64_t, value_slot_ptr, "value_slot")?
                                 .into_int_value();
                             
@@ -959,7 +1035,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // Store length = 0
                         let len_ptr = self.builder.build_pointer_cast(
                             header_ptr,
-                            self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                             "len_ptr"
                         )?;
                         self.builder.build_store(len_ptr, self.i64_t.const_zero())?;
@@ -986,7 +1062,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         };
                         let data_ptr_ptr_casted = self.builder.build_pointer_cast(
                             data_ptr_ptr,
-                            self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                             "data_ptr_ptr_casted"
                         )?;
                         self.builder.build_store(data_ptr_ptr_casted, data_ptr)?;
@@ -1000,7 +1076,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 // than Array ({ chunks, capacities, usage, length, totalCapacity, nextChunkSize }
                 // vs { length, capacity, data }). Vec_push must call the actual Vec_push function.
                 // Check the ORIGINAL name to avoid catching "Vec_push" when it's normalized to "push".
-                "push" | "List_push" | "Array_push" if !name.starts_with("Vec_") => {
+                "List_push" if !name.starts_with("Vec_") => {
                     // push(array, value) - append value to dynamic array
                     // CRITICAL: For push to modify the original array, we need the SLOT POINTER
                     // of the array variable, NOT a loaded copy of the array value.
@@ -1096,7 +1172,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // Load current length
                         let len_ptr = self.builder.build_pointer_cast(
                             arr_ptr,
-                            self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                             "len_ptr"
                         )?;
                         let len = self.builder.build_load(self.i64_t, len_ptr, "len")?.into_int_value();
@@ -1123,7 +1199,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         };
                         let data_ptr_ptr_casted = self.builder.build_pointer_cast(
                             data_ptr_ptr,
-                            self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                             "data_ptr_ptr_casted"
                         )?;
                         let mut data_ptr = self.builder.build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?.into_pointer_value();
@@ -1191,7 +1267,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // Handle different value types
                         if value.is_float_value() {
                             // Float array
-                            let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
+                            let f64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                             let data_f64_ptr = self.builder.build_pointer_cast(data_ptr, f64_ptr_ty, "data_f64_ptr")?;
                             let elem_ptr = unsafe {
                                 self.builder.build_gep(
@@ -1205,7 +1281,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         } else if value.is_int_value() {
                             // Could be integer or pointer-as-int (struct pointer)
                             // Treat as pointer array (for struct arrays)
-                            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                            let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                             let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
                             let elem_ptr = unsafe {
                                 self.builder.build_gep(
@@ -1228,7 +1304,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             
                             // Convert pointer to i64 and store it
                             let ptr_as_int = self.builder.build_ptr_to_int(ptr, self.i64_t, "ptr_to_int")?;
-                            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                            let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                             let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
                             let elem_ptr = unsafe {
                                 self.builder.build_gep(
@@ -1242,7 +1318,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         } else if value.is_struct_value() {
                             let sv = value.into_struct_value();
                             let st = sv.get_type();
-                            let ptr_ty = st.ptr_type(inkwell::AddressSpace::from(0u16));
+                            let ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                             let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, ptr_ty, "data_struct_ptr")?;
                             let elem_ptr = unsafe {
                                 self.builder.build_gep(
@@ -1275,6 +1351,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // Use printf with %s format
                         let fmt = self.builder.build_global_string_ptr("%s", "fmt_str")?;
                         self.call_printf(&[fmt.as_pointer_value().into(), s.into()])?;
+                        self.call_fflush()?;
                         if let Some(r) = result {
                             self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
                         }
@@ -1306,8 +1383,12 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     if let Some(arg0) = args.get(0) {
                         let val = self.eval_value(arg0, fn_map)?;
                         let int_val = self.as_i64(val)?;
-                        let fmt = self.builder.build_global_string_ptr("%ld", "fmt_int")?;
+                        let fmt = self.builder.build_global_string_ptr("%ld\n", "fmt_int")?;
                         self.call_printf(&[fmt.as_pointer_value().into(), int_val.into()])?;
+                        
+                        // Flush stdout to ensure output is visible immediately
+                        self.call_fflush()?;
+
                         if let Some(r) = result {
                             self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
                         }
@@ -1573,7 +1654,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     
                     let (_g_argc, _g_argv) = self.ensure_arg_globals();
                     let argv = self.builder.build_load(
-                        self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                        self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                         self.g_argv.unwrap().as_pointer_value(),
                         "argv",
                     )?;
@@ -1616,7 +1697,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         "argc",
                     )?;
                     let argv = self.builder.build_load(
-                        self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                        self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                         self.g_argv.unwrap().as_pointer_value(),
                         "argv",
                     )?;
@@ -1624,7 +1705,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     let helper = self.declare_c_fn(
                         "__GetCommandLineArgsHelper",
                         self.i8_ptr_t.into(),
-                        &[self.ctx.i32_type().into(), self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)).into()],
+                        &[self.ctx.i32_type().into(), self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)).into()],
                         false
                     );
                     
@@ -2067,9 +2148,82 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
+                "Array_push" | "push" if name != "Vec_push" => {
+                    eprintln!("DEBUG: Array_push handler for name='{}'", name);
+                    
+                    // Get array pointer - handle Variables specially to get their address
+                    let arr_ptr = if let IRValue::Variable(var_name) = &args[0] {
+                        if let Some(slot) = self.var_slots.get(var_name).copied() {
+                            slot
+                        } else {
+                            let val = self.eval_value(&args[0], fn_map)?;
+                            if val.is_pointer_value() {
+                                val.into_pointer_value()
+                            } else {
+                                return Err(anyhow!("Array_push: variable '{}' is not a pointer", var_name));
+                            }
+                        }
+                    } else if let IRValue::Register(reg_id) = &args[0] {
+                        if let Some((struct_ptr, field_idx, struct_ty)) = self.reg_field_access_info.get(reg_id).copied() {
+                            // Re-calculate GEP to get the pointer to the field
+                            self.builder.build_struct_gep(struct_ty, struct_ptr, field_idx, "arr_field_ptr")?
+                        } else {
+                            let arr_val = self.eval_value(&args[0], fn_map)?;
+                            if arr_val.is_pointer_value() {
+                                arr_val.into_pointer_value()
+                            } else if arr_val.is_int_value() {
+                                self.builder.build_int_to_ptr(arr_val.into_int_value(), self.i8_ptr_t, "arr_ptr")?
+                            } else {
+                                 return Err(anyhow!("Array_push: invalid array argument (register {})", reg_id));
+                            }
+                        }
+                    } else {
+                        let arr_val = self.eval_value(&args[0], fn_map)?;
+                        if arr_val.is_pointer_value() {
+                            arr_val.into_pointer_value()
+                        } else if arr_val.is_int_value() {
+                            self.builder.build_int_to_ptr(arr_val.into_int_value(), self.i8_ptr_t, "arr_ptr")?
+                        } else {
+                             return Err(anyhow!("Array_push: invalid array argument"));
+                        }
+                    };
+
+                    let item_val = self.eval_value(&args[1], fn_map)?;
+
+                    // Get item pointer and size
+                    let (item_ptr, item_size_val) = if item_val.is_struct_value() {
+                         let size = item_val.get_type().size_of().unwrap();
+                         let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
+                         self.builder.build_store(tmp, item_val)?;
+                         (tmp, size)
+                    } else {
+                         // Int/Float/Bool/Pointer
+                         let size = self.i64_t.const_int(8, false);
+                         let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
+                         self.builder.build_store(tmp, item_val)?;
+                         (tmp, size)
+                    };
+                    
+                    // Cast item_ptr to i8*
+                    let item_ptr_i8 = self.builder.build_pointer_cast(item_ptr, self.i8_ptr_t, "item_ptr_i8")?;
+                    
+                    // Declare __ArrayPush if needed
+                    let array_push_fn = self.module.get_function("__ArrayPush").unwrap_or_else(|| {
+                        let fn_type = self.ctx.i32_type().fn_type(&[
+                            self.i8_ptr_t.into(), // arr_ptr
+                            self.i8_ptr_t.into(), // element_ptr
+                            self.i64_t.into()     // element_size
+                        ], false);
+                        self.module.add_function("__ArrayPush", fn_type, None)
+                    });
+                    
+                    self.builder.build_call(array_push_fn, &[arr_ptr.into(), item_ptr_i8.into(), item_size_val.into()], "push_res")?;
+                    
+                    return Ok(());
+                }
                 // Handle push for List/Vec - forward to Vec_push
                 // NOTE: Do NOT forward Vec_push to itself!
-                "push" | "List_push" if args.len() == 2 && !name.starts_with("Vec_") => {
+                "push" | "List_push" if args.len() == 2 && !name.starts_with("Vec_") && !name.starts_with("Array_") => {
                     eprintln!("DEBUG: Forward-to-Vec_push handler for name='{}', normalized='{}'", name, base_normalized);
                     // Try to call Vec_push if it exists
                     if let Some(vec_push) = fn_map.get("Vec_push").copied()
@@ -2262,39 +2416,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
-                "toFloat" | "__toFloat" => {
-                    // Convert Int to Float
-                    if let Some(arg) = args.get(0) {
-                        let val = self.eval_value(arg, fn_map)?;
-                        let f64_val = if val.is_float_value() {
-                            val.into_float_value()
-                        } else if val.is_int_value() {
-                            self.builder.build_signed_int_to_float(
-                                val.into_int_value(),
-                                self.ctx.f64_type(),
-                                "i2f_toFloat",
-                            )?
-                        } else if val.is_pointer_value() {
-                            let int_val = self.builder.build_ptr_to_int(
-                                val.into_pointer_value(),
-                                self.i64_t,
-                                "ptr2i_toFloat",
-                            )?;
-                            self.builder.build_signed_int_to_float(
-                                int_val,
-                                self.ctx.f64_type(),
-                                "i2f_toFloat",
-                            )?
-                        } else {
-                            return Err(anyhow!("toFloat requires a numeric argument"));
-                        };
-                        
-                        if let Some(r) = result {
-                            self.assign_value(r, f64_val.as_basic_value_enum())?;
-                        }
-                    }
-                    return Ok(());
-                }
+
                 "toString" | "__toString" | "Int_toString" | "Float_toString" | "Bool_toString" | "Char_toString" => {
                     eprintln!("DEBUG toString handler: name={}", name);
                     // Convert value to String
@@ -2651,7 +2773,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         }
 
         // Normal call by name - try both underscore and dot naming conventions
-        let (f_opt, actual_name) = match target {
+        let (f_opt, _actual_name) = match target {
             IRValue::Variable(name) => {
                 // First try exact name
                 if let Some(f) = fn_map.get(name).cloned() {
@@ -2890,9 +3012,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     if v.is_struct_value() {
                         // Struct -> Pointer (Spill)
                         let sv = v.into_struct_value();
-                        let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "arg_spill")?;
-                        self.builder.build_store(tmp, sv)?;
-                        call_args.push(tmp.into());
+                        // Use malloc instead of alloca to ensure value survives if stored (e.g. in Vec)
+                        // This effectively boxes the struct on the heap
+                        let malloc_ptr = self.builder.build_malloc(sv.get_type(), "arg_box")?;
+                        self.builder.build_store(malloc_ptr, sv)?;
+                        call_args.push(malloc_ptr.into());
                         pushed = true;
                     } else if v.is_int_value() {
                         // Int -> Pointer
@@ -2947,6 +3071,60 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         self.builder.build_store(tmp, fv)?;
                         call_args.push(tmp.into());
                         pushed = true;
+                    } else if v.is_pointer_value() {
+                        // Pointer -> Pointer
+                        // If we are passing a pointer to a generic function (which expects ptr),
+                        // and the argument is a Struct or String, we must ensure it's on the heap.
+                        // If it's a stack pointer (e.g. to a local struct), storing it in a collection is unsafe.
+                        // We "box" it by allocating heap memory and copying the struct there.
+                        
+                        let arg_type = a.get_type();
+                        eprintln!("DEBUG: Checking if should box. arg_type={:?}", arg_type);
+                        
+                        let mut should_box = matches!(arg_type, crate::value::IRType::Struct { .. } | crate::value::IRType::String);
+                        let mut target_type = arg_type.clone();
+                        
+                        if !should_box {
+                            if let IRValue::Variable(name) = a {
+                                if self.var_is_string.contains(name) {
+                                    should_box = true;
+                                    target_type = crate::value::IRType::String;
+                                    eprintln!("DEBUG: Variable {} is string, boxing", name);
+                                } else if let Some(ty_name) = self.var_struct_types.get(name) {
+                                    if let Some(fields) = self.struct_definitions.get(ty_name) {
+                                        should_box = true;
+                                        target_type = crate::value::IRType::Struct {
+                                            name: ty_name.clone(),
+                                            fields: fields.clone(),
+                                        };
+                                        eprintln!("DEBUG: Variable {} is struct {}, boxing", name, ty_name);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if should_box {
+                            eprintln!("DEBUG: Boxing pointer argument for generic call. Type: {:?}", target_type);
+                            let llvm_ty = ir_type_to_llvm(
+                                self.ctx, 
+                                &target_type, 
+                                self.i64_t, 
+                                self.bool_t, 
+                                self.i8_ptr_t, 
+                                &self.struct_types
+                            );
+                            
+                            let ptr_val = v.into_pointer_value();
+                            // Load the struct from the current pointer
+                            let loaded = self.builder.build_load(llvm_ty, ptr_val, "box_load")?;
+                            // Allocate new heap memory
+                            let malloc_ptr = self.builder.build_malloc(llvm_ty, "box_malloc")?;
+                            // Store the struct to the new heap memory
+                            self.builder.build_store(malloc_ptr, loaded)?;
+                            
+                            call_args.push(malloc_ptr.into());
+                            pushed = true;
+                        }
                     }
                 }
                 // Case 2: Function expects Struct (e.g. String)
@@ -2988,9 +3166,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         }
                         if !pushed {
                             // Fallback: spill and cast pointer to int
-                            let tmp = self.alloca_for_type(sv.get_type().as_basic_type_enum(), "elem_spill")?;
-                            self.builder.build_store(tmp, sv)?;
-                            let as_i64 = self.builder.build_ptr_to_int(tmp, self.i64_t, "elem_ptr_i64")?;
+                            // Use malloc instead of alloca to ensure value survives if stored
+                            let struct_ty = sv.get_type();
+                            let malloc_ptr = self.builder.build_malloc(struct_ty, "elem_box")?;
+                            self.builder.build_store(malloc_ptr, sv)?;
+                            let as_i64 = self.builder.build_ptr_to_int(malloc_ptr, self.i64_t, "elem_ptr_i64")?;
                             // Truncate if needed
                             if expected_bits < 64 {
                                 let truncated = self.builder.build_int_truncate(as_i64, expected_int_ty, "ptr_trunc")?;
@@ -3136,6 +3316,26 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     eprintln!("DEBUG: Vec_get on {:?}, elem_type={:?}, inner_type={:?}", vec_arg, elem_type, inner_type);
                     
                     if let Some(elem_type) = elem_type {
+                        // If element type is "String", unbox the pointer
+                        if elem_type == "String" {
+                             let ptr = if ret.is_pointer_value() {
+                                 Some(ret.into_pointer_value())
+                             } else if ret.is_int_value() {
+                                 // Cast i64 to pointer
+                                 Some(self.builder.build_int_to_ptr(ret.into_int_value(), self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "i64_to_ptr")?)
+                             } else {
+                                 None
+                             };
+
+                             if let Some(ptr) = ptr {
+                                 eprintln!("DEBUG: Vec_get unboxing String from ptr {:?}", ptr);
+                                 let struct_ptr = self.builder.build_pointer_cast(ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "str_ptr")?;
+                                 let struct_val = self.builder.build_load(self.ty_string(), struct_ptr, "str_load")?;
+                                 self.assign_value(r, struct_val)?;
+                                 return Ok(());
+                             }
+                        }
+
                         // If element type is "Option", check for nested inner type
                         if elem_type == "Option" {
                             if let Some(inner_type) = inner_type {

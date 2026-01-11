@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
 use inkwell::values::BasicValue;
-use inkwell::values::{BasicValueEnum, FunctionValue};
-use inkwell::AddressSpace;
+use inkwell::values::FunctionValue;
 use inkwell::types::{BasicType, BasicTypeEnum};
 use indexmap::IndexMap;
 
@@ -9,6 +8,7 @@ use crate::value::{IRType, IRValue};
 use crate::llvm_backend::LlvmBackend;
 use crate::llvm::type_cast::TypeCastOps;
 use crate::llvm::type_builders::TypeBuilders;
+use crate::llvm::c_library::CLibraryOps;
 
 type HashMap<K, V> = IndexMap<K, V>;
 
@@ -78,7 +78,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 self.builder
                     .build_int_to_ptr(
                         arr_v.into_int_value(),
-                        self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                        self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                         "arr_len_ptr",
                     )
                     .map_err(|e| anyhow!("{e:?}"))?
@@ -86,7 +86,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             // Cast to i64* and load the first i64 (length)
             let len_ptr = self.builder.build_pointer_cast(
                 arr_ptr,
-                self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                 "len_ptr"
             )?;
             let len = self.builder.build_load(self.i64_t, len_ptr, "len")?;
@@ -169,6 +169,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             // Data pointer is at offset 16
             let arr_ptr = if arr_v.is_pointer_value() {
                 arr_v.into_pointer_value()
+            } else if arr_v.is_struct_value() {
+                let sv = arr_v.into_struct_value();
+                let ty = sv.get_type();
+                let ptr = self.builder.build_alloca(ty, "arr_tmp")?;
+                self.builder.build_store(ptr, sv)?;
+                ptr
             } else {
                 self.builder
                     .build_int_to_ptr(
@@ -183,14 +189,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             let data_ptr_ptr = unsafe {
                 self.builder.build_gep(
                     self.i64_t,
-                    self.builder.build_pointer_cast(arr_ptr, self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
+                    self.builder.build_pointer_cast(arr_ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
                     &[self.i64_t.const_int(2, false)],
                     "data_ptr_ptr"
                 )?
             };
             let data_ptr_ptr_casted = self.builder.build_pointer_cast(
                 data_ptr_ptr,
-                self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                 "data_ptr_ptr_casted"
             )?;
             let data_ptr = self.builder.build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?.into_pointer_value();
@@ -208,7 +214,8 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             // Check if we're accessing a struct array
             if let Some(ref struct_type_name) = element_struct_type {
                 // Check if this is a class type (heap-allocated, stored as pointer)
-                let is_class = self.class_types.contains(struct_type_name);
+                // Treat String as class (pointer) to match Vec<T> behavior where T=Generic=ptr
+                let is_class = self.class_types.contains(struct_type_name) || struct_type_name == "String";
                 eprintln!("DEBUG ArrayAccess struct array: element_struct_type={}, is_class={}", struct_type_name, is_class);
                 
                 // Handle generic type parameters (T, E, K, V, etc.)
@@ -219,22 +226,30 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 let llvm_struct_ty = if struct_type_name == "String" {
                     Some(self.ty_string())
                 } else if is_generic_param {
-                    // For generic type parameters, try String first as it's the most common case
-                    // that breaks when loaded as i64 (since String is 16 bytes)
-                    // Note: This is a heuristic - ideally we'd track the actual instantiated type
-                    Some(self.ty_string())
+                    // For generic type parameters, treat as i64 (pointer) by default.
+                    // The previous heuristic of treating as String breaks Vec<String> because
+                    // Vec stores pointers, but this would treat it as inline structs.
+                    None
                 } else {
                     self.struct_types.get(struct_type_name).map(|(ty, _)| *ty)
                 };
 
-                if let Some(llvm_struct_ty) = llvm_struct_ty {
-                    // For classes: elements are stored as i64 (pointer-as-int)
-                    // Return the POINTER so field access goes through the pointer
-                    // This enables in-place modification of the class object
-                    // For generic params (T), assume struct storage (safer default)
-                    if is_class && !is_generic_param {
+                            if let Some(llvm_struct_ty) = llvm_struct_ty {
+                // Trace struct array access details
+                if self.trace_options.trace_values {
+                    eprintln!(
+                        "[LLVM TRACE] ArrayAccess struct: type={}, is_class={}, is_generic={}, llvm_ty={:?}",
+                        struct_type_name, is_class, is_generic_param, llvm_struct_ty
+                    );
+                }
+                
+                // For classes: elements are stored as i64 (pointer-as-int)
+                // Return the POINTER so field access goes through the pointer
+                // This enables in-place modification of the class object
+                // For generic params (T), assume struct storage (safer default)
+                if is_class && !is_generic_param {
                         // Class arrays store pointers-as-i64
-                        let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                        let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                         let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
                         
                         let elem_ptr = unsafe {
@@ -248,10 +263,22 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         
                         // Load the pointer-as-i64 and return it directly
                         // This way, field access will dereference the pointer
-                        let ptr_as_int = self.builder.build_load(self.i64_t, elem_ptr, "class_ptr_int")?;
+                        let ptr_as_int = self.builder.build_load(self.i64_t, elem_ptr, "class_ptr_int")?.into_int_value();
                         
-                        // Assign the pointer-as-int to result (NOT the dereferenced struct)
-                        self.assign_value(result, ptr_as_int)?;
+                        // Cast back to pointer for consistency with Generic types
+                        let ptr = self.builder.build_int_to_ptr(ptr_as_int, self.i8_ptr_t, "class_ptr")?;
+                        
+                        // Assign the pointer to result (NOT the dereferenced struct)
+                        if struct_type_name == "String" {
+                            // String is stored as pointer in Vec/Array<String> (when treated as class/generic)
+                            // But the value type is the struct itself.
+                            // So we must dereference the pointer to get the String struct.
+                            let struct_ptr = self.builder.build_pointer_cast(ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "str_ptr")?;
+                            let struct_val = self.builder.build_load(self.ty_string(), struct_ptr, "str_load")?;
+                            self.assign_value(result, struct_val)?;
+                        } else {
+                            self.assign_value(result, ptr.as_basic_value_enum())?;
+                        }
                         
                         // Track struct type for subsequent field access
                         if let IRValue::Register(reg_id) = result {
@@ -262,7 +289,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     
                     // Struct arrays store structs directly (inline), not pointers
                     // Cast data_ptr to pointer-to-struct
-                    let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let struct_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                     let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
                     
                     // GEP to the element (struct at index i)
@@ -278,6 +305,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     // Load the actual struct value directly
                     let struct_val = self.builder.build_load(llvm_struct_ty, elem_ptr, "struct_load")?;
                     
+                    // Trace loaded struct value
+                    if self.trace_options.trace_values {
+                        eprintln!(
+                            "[LLVM TRACE] ArrayAccess loaded struct: elem_ptr={:?}, loaded_type={:?}",
+                            elem_ptr, struct_val.get_type()
+                        );
+                    }
+                    
                     // Assign the struct value to result
                     self.assign_value(result, struct_val)?;
                     
@@ -291,7 +326,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             
             // Check if we're accessing an integer array
             if is_int_array {
-                let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                 let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
                 
                 let elem_ptr = unsafe {
@@ -311,7 +346,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             if let Some(struct_type_name) = element_struct_type {
                 if struct_type_name == "String" {
                     let llvm_struct_ty = self.ty_string();
-                    let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let struct_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                     let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
                     
                     let elem_ptr = unsafe {
@@ -335,7 +370,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             
             // Default: treat as i64 array (works for int, pointer-as-int, and generic values)
             eprintln!("DEBUG ArrayAccess DEFAULT: array={:?}", array);
-            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+            let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
             let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
             
             let elem_ptr = unsafe {
@@ -356,6 +391,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             let arr_struct = arr_v.into_struct_value();
             let data_ptr = self.builder.build_extract_value(arr_struct, 2, "data_ptr")?
                 .into_pointer_value();
+            
+            // DEBUG: Print data_ptr
+            let fmt = self.builder.build_global_string_ptr("DEBUG: data_ptr = %p\n", "fmt_p")?;
+            self.call_printf(&[fmt.as_pointer_value().into(), data_ptr.into()])?;
             
             let idx_bv = self.eval_value(index, fn_map)?;
             let idx_iv = self.as_i64(idx_bv)?;
@@ -378,7 +417,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     // This enables in-place modification of the class object
                     if is_class {
                         // Class arrays store pointers-as-i64
-                        let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                        let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                         let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
                         
                         let elem_ptr = unsafe {
@@ -405,7 +444,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     
                     // Struct arrays store structs directly (inline)
-                    let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let struct_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                     let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
                     
                     let elem_ptr = unsafe {
@@ -424,11 +463,33 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         self.reg_struct_types.insert(*reg_id, struct_type_name.clone());
                     }
                     return Ok(());
+                } else {
+                    // Unknown struct type (likely generic T)
+                    // Treat as pointer stored as i64
+                    eprintln!("DEBUG ArrayAccess: unknown struct type '{}', treating as i64/ptr", struct_type_name);
+                    
+                    let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+                    
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            self.i64_t,
+                            data_i64_ptr,
+                            &[idx_iv],
+                            "generic_elem_ptr",
+                        )?
+                    };
+                    
+                    let i64_val = self.builder.build_load(self.i64_t, elem_ptr, "generic_load")?.into_int_value();
+                    let ptr_val = self.builder.build_int_to_ptr(i64_val, self.i8_ptr_t, "i64_to_ptr")?;
+                    
+                    self.assign_value(result, ptr_val.as_basic_value_enum())?;
+                    return Ok(());
                 }
             }
             
             // Default: treat as i64 array
-            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+            let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
             let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
             
             let elem_ptr = unsafe {
@@ -503,14 +564,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             let data_ptr_ptr = unsafe {
                 self.builder.build_gep(
                     self.i64_t,
-                    self.builder.build_pointer_cast(arr_ptr, self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
+                    self.builder.build_pointer_cast(arr_ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
                     &[self.i64_t.const_int(2, false)],
                     "data_ptr_ptr"
                 )?
             };
             let data_ptr_ptr_casted = self.builder.build_pointer_cast(
                 data_ptr_ptr,
-                self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)),
+                self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                 "data_ptr_ptr_casted"
             )?;
             let data_ptr = self.builder.build_load(self.i8_ptr_t, data_ptr_ptr_casted, "data_ptr")?.into_pointer_value();
@@ -526,8 +587,9 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         // Check if we're setting a struct array element
         if let Some(ref struct_type_name) = element_struct_type {
             // Check if this is a class type (heap-allocated, stored as pointer)
-            let is_class = self.class_types.contains(struct_type_name);
-            eprintln!("DEBUG ArraySet: struct_type={}, is_class={}", struct_type_name, is_class);
+            // Treat String as class (pointer) to match Vec<T> behavior where T=Generic=ptr
+            let is_class = self.class_types.contains(struct_type_name) || struct_type_name == "String";
+            eprintln!("DEBUG ArraySet: struct_type={}, is_class={}, val_v={:?}", struct_type_name, is_class, val_v);
             
             let llvm_struct_ty = if struct_type_name == "String" {
                 Some(self.ty_string())
@@ -538,7 +600,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             if let Some(llvm_struct_ty) = llvm_struct_ty {
                 // For classes: store pointer-as-i64 (the value should already be a pointer)
                 if is_class {
-                    let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+                    let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                     let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
                     
                     let elem_ptr = unsafe {
@@ -556,7 +618,19 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         // Already pointer-as-int
                         val_v.into_int_value()
                     } else if val_v.is_pointer_value() {
-                        self.builder.build_ptr_to_int(val_v.into_pointer_value(), self.i64_t, "ptr_to_int")?
+                        if struct_type_name == "String" {
+                             // Special handling for String: copy to new heap allocation to ensure lifetime
+                             // Load struct from pointer
+                             let struct_val = self.builder.build_load(llvm_struct_ty, val_v.into_pointer_value(), "load_string_copy")?;
+                             // Allocate new heap slot
+                             let malloc_ptr = self.builder.build_malloc(llvm_struct_ty, "string_copy_malloc")?;
+                             // Store struct to new heap slot
+                             self.builder.build_store(malloc_ptr, struct_val)?;
+                             // Store new pointer to array
+                             self.builder.build_ptr_to_int(malloc_ptr, self.i64_t, "string_copy_ptr_int")?
+                        } else {
+                            self.builder.build_ptr_to_int(val_v.into_pointer_value(), self.i64_t, "ptr_to_int")?
+                        }
                     } else if val_v.is_struct_value() {
                         // Need to allocate on heap and store pointer
                         let struct_val = val_v.into_struct_value();
@@ -572,7 +646,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 }
                 
                 // Struct arrays store structs directly (inline)
-                let struct_ptr_ty = llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16));
+                let struct_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                 let data_struct_ptr = self.builder.build_pointer_cast(data_ptr, struct_ptr_ty, "data_struct_ptr")?;
                 
                 // GEP to the element (struct at index i)
@@ -598,12 +672,36 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 // Store struct directly
                 self.builder.build_store(elem_ptr, struct_to_store)?;
                 return Ok(());
+            } else {
+                 // Handle unknown/generic struct type
+                 eprintln!("DEBUG ArraySet: unknown struct type '{}', treating as i64/ptr", struct_type_name);
+                 let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
+                 let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+                 
+                 let elem_ptr = unsafe {
+                     self.builder.build_gep(
+                         self.i64_t,
+                         data_i64_ptr,
+                         &[idx_iv],
+                         "generic_elem_ptr",
+                     )?
+                 };
+                 
+                 let i64_val = if val_v.is_pointer_value() {
+                     self.builder.build_ptr_to_int(val_v.into_pointer_value(), self.i64_t, "ptr2i")?
+                 } else if val_v.is_int_value() {
+                     val_v.into_int_value()
+                 } else {
+                     return Err(anyhow!("ArraySet generic: unsupported value type {:?}", val_v));
+                 };
+                 self.builder.build_store(elem_ptr, i64_val)?;
+                 return Ok(());
             }
         }
         
         // Check if we're setting an integer array element
         if is_int_array {
-            let i64_ptr_ty = self.i64_t.ptr_type(inkwell::AddressSpace::from(0u16));
+            let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
             let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
             
             let elem_ptr = unsafe {
@@ -637,8 +735,31 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             return Ok(());
         }
         
+        // Check if we're setting a pointer array element (e.g. Vec<String> backing array)
+        if val_v.is_pointer_value() {
+            let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
+            let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
+            
+            let elem_ptr = unsafe {
+                self.builder.build_gep(
+                    self.i64_t,
+                    data_i64_ptr,
+                    &[idx_iv],
+                    "ptr_elem_ptr",
+                )?
+            };
+            
+            let int_val = self.builder.build_ptr_to_int(
+                val_v.into_pointer_value(),
+                self.i64_t,
+                "ptr2i"
+            )?;
+            self.builder.build_store(elem_ptr, int_val)?;
+            return Ok(());
+        }
+
         // Default: treat as f64 array
-        let f64_ptr_ty = self.ctx.f64_type().ptr_type(inkwell::AddressSpace::from(0u16));
+        let f64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
         let data_f64_ptr = self.builder.build_pointer_cast(data_ptr, f64_ptr_ty, "data_f64_ptr")?;
         
         let elem_ptr = unsafe {
@@ -750,7 +871,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     self.builder
                         .build_int_to_ptr(
                             sv.into_int_value(),
-                            llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                            self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                             "struct_field_ptr",
                         )
                         .map_err(|e| anyhow!("{e:?}"))?
@@ -768,7 +889,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 // Cast to struct pointer to ensure GEP works correctly
                 let struct_ptr = self.builder.build_pointer_cast(
                     ptr,
-                    llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                    self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                     "struct_ptr_cast"
                 ).map_err(|e| anyhow!("{e:?}"))?;
 
@@ -868,7 +989,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             self.builder
                 .build_int_to_ptr(
                     sv.into_int_value(),
-                    ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                    self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                     "cmd_field_ptr",
                 )
                 .map_err(|e| anyhow!("{e:?}"))?
@@ -881,7 +1002,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             self.builder
                 .build_pointer_cast(
                     tmp,
-                    ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                    self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                     "cmd_field_ptr_stack",
                 )
                 .map_err(|e| anyhow!("{e:?}"))?
@@ -958,12 +1079,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                          if slot_ty.is_struct_type() {
                              slot
                          } else if slot_ty.is_pointer_type() {
-                             self.builder.build_load(self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
+                             self.builder.build_load(self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
                          } else if slot_ty.is_int_type() {
                              // Class type stored as i64 (pointer-to-int) - load and convert
                              let ptr_int = self.builder.build_load(self.i64_t, slot, "load_class_ptr")?.into_int_value();
                              eprintln!("DEBUG FieldSet: loaded ptr_int from slot");
-                             self.builder.build_int_to_ptr(ptr_int, llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)), "class_ptr")?
+                             self.builder.build_int_to_ptr(ptr_int, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "class_ptr")?
                          } else {
                              return Err(anyhow!("Variable {} has unexpected type for FieldSet", name));
                          }
@@ -980,11 +1101,11 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                          if slot_ty.is_struct_type() {
                              slot
                          } else if slot_ty.is_pointer_type() {
-                             self.builder.build_load(self.i8_ptr_t.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
+                             self.builder.build_load(self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), slot, "load_ptr")?.into_pointer_value()
                          } else if slot_ty.is_int_type() {
                              // Class type stored as i64 (pointer-to-int) - load and convert
                              let ptr_int = self.builder.build_load(self.i64_t, slot, "load_class_ptr")?.into_int_value();
-                             self.builder.build_int_to_ptr(ptr_int, llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)), "class_ptr")?
+                             self.builder.build_int_to_ptr(ptr_int, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "class_ptr")?
                          } else {
                              return Err(anyhow!("Register {} has unexpected type for FieldSet", id));
                          }
@@ -1002,7 +1123,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         self.builder
                             .build_int_to_ptr(
                                 sv.into_int_value(),
-                                llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                                self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                                 "struct_field_set_ptr",
                             )
                             .map_err(|e| anyhow!("{e:?}"))?

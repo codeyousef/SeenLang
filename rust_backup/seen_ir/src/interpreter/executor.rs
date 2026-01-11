@@ -3,13 +3,12 @@
 //! This module contains the main execution loop and handlers for each
 //! IR instruction type.
 
-use super::error::{InterpreterError, InterpreterResult, ErrorLocation, StackFrame};
-use super::memory::Address;
-use super::runtime::{Runtime, RuntimeConfig, CallFrame};
+use super::error::InterpreterError;
+use super::runtime::{Runtime, CallFrame};
 use super::value::{InterpreterValue, ValueType};
 use super::{InterpreterConfig, MemoryStats};
 
-use crate::instruction::{Instruction, BinaryOp, UnaryOp, Label, BasicBlock};
+use crate::instruction::{Instruction, BinaryOp, UnaryOp};
 use crate::module::IRModule;
 use crate::function::IRFunction;
 use crate::value::{IRValue, IRType};
@@ -383,7 +382,7 @@ impl<'a> Executor<'a> {
                 Ok(InstructionResult::Continue)
             }
             
-            Instruction::FieldSet { struct_val, field, value, .. } => {
+            Instruction::FieldSet { struct_val, field: _, value, .. } => {
                 // Note: This would need mutable access to the struct
                 // For now, we'll handle this through pointers
                 let _val = self.resolve_value(value)?;
@@ -465,7 +464,7 @@ impl<'a> Executor<'a> {
                 self.execute_call(target, args, result.as_ref())
             }
             
-            Instruction::VirtualCall { receiver, method_name, args, result, .. } => {
+            Instruction::VirtualCall { receiver, method_name, args: _, result, .. } => {
                 // For now, treat as a regular call
                 // TODO: Implement proper virtual dispatch
                 let _ = self.resolve_value(receiver)?;
@@ -476,7 +475,7 @@ impl<'a> Executor<'a> {
                 Ok(InstructionResult::Continue)
             }
             
-            Instruction::StaticCall { class_name, method_name, args, result, .. } => {
+            Instruction::StaticCall { class_name, method_name, args: _, result, .. } => {
                 // Look up the static method
                 let full_name = format!("{}::{}", class_name, method_name);
                 self.runtime.println(&format!("[WARN] StaticCall not fully implemented: {}", full_name));
@@ -487,7 +486,7 @@ impl<'a> Executor<'a> {
             }
 
             // Object construction
-            Instruction::ConstructObject { class_name, args, result, .. } => {
+            Instruction::ConstructObject { class_name, args: _, result, .. } => {
                 // Allocate space and call constructor
                 // For now, create an empty struct
                 let fields = HashMap::new();
@@ -650,6 +649,10 @@ impl<'a> Executor<'a> {
                     .map(|s| InterpreterValue::string(s))
                     .ok_or_else(|| InterpreterError::internal("Invalid string constant index"))
             }
+
+            IRValue::SizeOf(ty) => {
+                Ok(InterpreterValue::Integer(ty.size_bytes() as i64))
+            }
             
             IRValue::Array(elements) => {
                 let values: Vec<InterpreterValue> = elements
@@ -680,12 +683,12 @@ impl<'a> Executor<'a> {
                 })
             }
             
-            IRValue::Label(name) => {
+            IRValue::Label(_name) => {
                 // Labels shouldn't be resolved as values
                 Ok(InterpreterValue::Void)
             }
             
-            IRValue::AddressOf(inner) => {
+            IRValue::AddressOf(_inner) => {
                 // Would need to get actual memory address
                 // For now, return a placeholder
                 Ok(InterpreterValue::Null)
@@ -935,7 +938,7 @@ impl<'a> Executor<'a> {
             
             UnaryOp::Dereference => {
                 match operand {
-                    InterpreterValue::Pointer { address, .. } => {
+                    InterpreterValue::Pointer { address: _, .. } => {
                         // Would need to read from memory
                         Ok(InterpreterValue::Void)
                     }
@@ -1061,7 +1064,7 @@ impl<'a> Executor<'a> {
     }
 
     /// Step through one instruction (for debugging)
-    pub fn step(&mut self, module: &IRModule) -> Result<StepResult, InterpreterError> {
+    pub fn step(&mut self, _module: &IRModule) -> Result<StepResult, InterpreterError> {
         // Would need to track execution state
         // This is a simplified implementation
         Ok(StepResult::Done)

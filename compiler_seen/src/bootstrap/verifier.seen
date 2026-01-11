@@ -67,10 +67,10 @@ class BootstrapVerifier {
     }
     
     fun addStage(compilerPath: String, name: String) r: Void {
-        let stage = CompilerInfo.new(compilerPath, name, CurrentStage)
-        Stages.push(stage)
-        CurrentStage = CurrentStage + 1
-        this.log("Added stage {CurrentStage}: {name} at {compilerPath}")
+        let stage = CompilerInfo.new(compilerPath, name, this.CurrentStage)
+        this.Stages.push(stage)
+        this.CurrentStage = this.CurrentStage + 1
+        this.log("Added stage {this.CurrentStage}: {name} at {compilerPath}")
     }
     
     fun verify() r: Result<VerificationResult, String> {

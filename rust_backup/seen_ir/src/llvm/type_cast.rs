@@ -5,7 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use inkwell::types::BasicType;
-use inkwell::values::{BasicValue, BasicValueEnum, PointerValue};
+use inkwell::values::{BasicValueEnum, PointerValue};
 
 use crate::llvm_backend::LlvmBackend;
 use crate::llvm::c_library::CLibraryOps;
@@ -196,7 +196,28 @@ impl<'ctx> TypeCastOps<'ctx> for LlvmBackend<'ctx> {
 
     fn as_cstr_ptr(&self, v: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>> {
         if v.is_pointer_value() {
-            return Ok(v.into_pointer_value());
+            let ptr = v.into_pointer_value();
+            
+            // Try to load as String struct {len, data}
+            // This is necessary because String is now a reference type (pointer to struct)
+            let str_ty = self.ty_string();
+            if let Ok(loaded) = self.builder.build_load(str_ty, ptr, "try_load_str") {
+                if loaded.is_struct_value() {
+                    let sv = loaded.into_struct_value();
+                    // Check if it matches {i64, ptr} layout
+                    if sv.get_type().count_fields() == 2 {
+                        // Extract data pointer (field 1)
+                        if let Ok(data) = self.builder.build_extract_value(sv, 1, "str_data") {
+                            if data.is_pointer_value() {
+                                return Ok(data.into_pointer_value());
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Fallback: assume it's already a char* (C string)
+            return Ok(ptr);
         }
         if v.is_struct_value() {
             let sv = v.into_struct_value();

@@ -7,7 +7,6 @@ use crate::{
     value::{IRType, IRValue},
     IRError, IRProgram, IRResult,
 };
-use indexmap::IndexMap;
 use super::context::GenerationContext;
 use seen_parser::{Expression, Parameter, Program, Type};
 
@@ -600,41 +599,62 @@ impl IRGenerator {
 
         // Handle Array<T>() constructor calls - these need to become __ArrayNew calls
         if let Expression::Identifier { name, type_args, .. } = function {
-            if name == "Array" && arguments.is_empty() {
-                // Array<T>() constructor call - turn this into __ArrayNew(element_size, 0)
-                let result_reg = self.context.allocate_register();
-                
-                // Determine element size based on type_args
-                let element_size = if let Some(first_type) = type_args.first() {
-                    match first_type.name.as_str() {
-                        "Int" | "i64" => 8,
-                        "Float" | "f64" => 8,
-                        "Bool" => 8, // aligned to 8 bytes
-                        "Char" => 8, // aligned to 8 bytes
-                        "String" => 16, // struct { i64, i8* }
-                        _ => 8, // struct/pointer size default
-                    }
-                } else {
-                    8 // default element size
-                };
-                
-                let element_type = if let Some(first_type) = type_args.first() {
-                    self.convert_ast_type_to_ir(first_type)
-                } else {
-                    crate::value::IRType::Integer
-                };
-                
-                self.context.set_register_type(result_reg, crate::value::IRType::Array(Box::new(element_type)));
-                
-                let result_value = IRValue::Register(result_reg);
-                instructions.push(Instruction::Call {
-                    target: IRValue::Variable("__ArrayNew".to_string()),
-                    args: vec![IRValue::Integer(element_size), IRValue::Integer(0)],
-                    result: Some(result_value.clone()),
-                    arg_types: None,
-                    return_type: None,
-                });
-                return Ok((result_value, instructions));
+            if name == "Array" {
+                if arguments.is_empty() {
+                    // Array<T>() constructor call - turn this into __ArrayNew(sizeof(T), 0)
+                    let result_reg = self.context.allocate_register();
+                    
+                    let element_type = if let Some(first_type) = type_args.first() {
+                        self.convert_ast_type_to_ir(first_type)
+                    } else {
+                        crate::value::IRType::Integer
+                    };
+                    
+                    // Use SizeOf(T) instead of hardcoded size
+                    // This allows monomorphization to substitute the correct size later
+                    let element_size_val = IRValue::SizeOf(element_type.clone());
+                    
+                    self.context.set_register_type(result_reg, crate::value::IRType::Array(Box::new(element_type)));
+                    
+                    let result_value = IRValue::Register(result_reg);
+                    instructions.push(Instruction::Call {
+                        target: IRValue::Variable("__ArrayNew".to_string()),
+                        args: vec![element_size_val, IRValue::Integer(0)],
+                        result: Some(result_value.clone()),
+                        arg_types: None,
+                        return_type: None,
+                    });
+                    return Ok((result_value, instructions));
+                } else if arguments.len() == 1 {
+                    // Array<T>(capacity) constructor call - turn this into __ArrayNew(sizeof(T), capacity)
+                    let result_reg = self.context.allocate_register();
+                    
+                    let element_type = if let Some(first_type) = type_args.first() {
+                        self.convert_ast_type_to_ir(first_type)
+                    } else {
+                        crate::value::IRType::Integer
+                    };
+                    
+                    // Use SizeOf(T) instead of hardcoded size
+                    let element_size_val = IRValue::SizeOf(element_type.clone());
+                    
+                    self.context.set_register_type(result_reg, crate::value::IRType::Array(Box::new(element_type)));
+                    
+                    let result_value = IRValue::Register(result_reg);
+                    
+                    // Evaluate capacity argument
+                    let (cap_val, cap_insts) = self.generate_expression(&arguments[0])?;
+                    instructions.extend(cap_insts);
+                    
+                    instructions.push(Instruction::Call {
+                        target: IRValue::Variable("__ArrayNew".to_string()),
+                        args: vec![element_size_val, cap_val],
+                        result: Some(result_value.clone()),
+                        arg_types: None,
+                        return_type: None,
+                    });
+                    return Ok((result_value, instructions));
+                }
             }
         }
 
@@ -832,7 +852,7 @@ impl IRGenerator {
                     self.context.set_register_type(result_reg, elem_type.clone());
                     type_set_specially = true;
                     // If T is itself a struct, track it
-                    if let IRType::Struct { name, .. } = elem_type {
+                    if let IRType::Struct { name: _, .. } = elem_type {
                         self.context.container_element_types.insert(format!("reg_{}", result_reg), elem_type.clone());
                     }
                 }

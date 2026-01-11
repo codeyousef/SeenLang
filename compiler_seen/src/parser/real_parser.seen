@@ -710,9 +710,16 @@ class RealParser {
         let tok: Token = this.peek()
         println("[trace] checkToken: got tok, value=" + tok.getValue())
         let tokType: SeenTokenType = tok.getType()
-        println("[trace] checkToken: got tokType, about to compare...")
-        let result = tokType == tokenType
-        if result {
+        println("[trace] checkToken: got tokType, comparing...")
+        
+        println("Token Value:")
+        println(tok.value)
+        
+        // Try to print enum values as integers if possible, or just rely on value
+        // __PrintInt(tokType) 
+        // __PrintInt(tokenType)
+
+        if tokType == tokenType {
              println("MATCH!")
              return true
         }

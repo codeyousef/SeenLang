@@ -3,7 +3,7 @@
 //! Manages memory, call stack, global variables, and execution state.
 
 use super::memory::{Memory, MemoryConfig, MemoryStats, Address};
-use super::value::{InterpreterValue, ValueType};
+use super::value::InterpreterValue;
 use super::error::{InterpreterError, InterpreterErrorKind, StackFrame, ErrorLocation};
 use std::collections::HashMap;
 
@@ -287,7 +287,7 @@ impl Runtime {
     }
 
     /// Convert memory error string to InterpreterError
-    fn memory_error_to_interpreter_error(&self, error: String, address: Address) -> InterpreterError {
+    fn memory_error_to_interpreter_error(&self, error: String, _address: Address) -> InterpreterError {
         let kind = if error.contains("Null pointer") {
             InterpreterErrorKind::NullPointerDereference
         } else if error.contains("Use-after-free") {
