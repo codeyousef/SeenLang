@@ -4,6 +4,7 @@
 
 use anyhow::{anyhow, Result};
 use inkwell::values::{BasicValue, BasicValueEnum};
+use inkwell::types::BasicTypeEnum;
 
 use crate::instruction::{BinaryOp, UnaryOp};
 use crate::llvm_backend::LlvmBackend;
@@ -11,6 +12,41 @@ use crate::llvm::string_ops::RuntimeStringOps;
 use crate::llvm::type_cast::TypeCastOps;
 use crate::llvm::c_library::CLibraryOps;
 use crate::value::IRValue;
+
+/// Check if an LLVM value is a string struct type `{i64, ptr}` or a pointer to one
+fn is_llvm_string_struct<'ctx>(backend: &LlvmBackend<'ctx>, val: BasicValueEnum<'ctx>, trace: bool) -> bool {
+    if val.is_struct_value() {
+        let str_ty = backend.ty_string();
+        let val_ty = val.into_struct_value().get_type();
+        let is_match = val_ty == str_ty;
+        if trace {
+            eprintln!("[TRACE binary] is_llvm_string_struct: struct_value, str_ty={:?}, val_ty={:?}, match={}", str_ty, val_ty, is_match);
+        }
+        return is_match;
+    }
+    false
+}
+
+/// Try to load a string struct from a pointer value
+/// Returns Some(string_struct) if the pointer points to a string struct, None otherwise
+fn try_load_string_from_ptr<'ctx>(backend: &mut LlvmBackend<'ctx>, val: BasicValueEnum<'ctx>, trace: bool) -> Option<BasicValueEnum<'ctx>> {
+    if !val.is_pointer_value() {
+        return None;
+    }
+    let ptr = val.into_pointer_value();
+    let str_ty = backend.ty_string();
+    
+    // Try to load as string struct
+    match backend.builder.build_load(str_ty, ptr, "maybe_str_load") {
+        Ok(loaded) => {
+            if trace {
+                eprintln!("[TRACE binary] try_load_string_from_ptr: loaded {:?} from ptr", loaded.get_type());
+            }
+            Some(loaded)
+        }
+        Err(_) => None
+    }
+}
 
 /// Trait for binary operation emission.
 pub trait BinaryOps<'ctx> {
@@ -34,13 +70,17 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
     ) -> Result<BasicValueEnum<'ctx>> {
         let l = self.eval_value(left, fn_map)?;
         let r = self.eval_value(right, fn_map)?;
+        let trace = self.trace_options.trace_values;
         
         // Check if either operand is a float for arithmetic operations
         let is_float_op = l.is_float_value() || r.is_float_value();
         
         match op {
             BinaryOp::Add => {
-                if self.is_string_value_ir(left) || self.is_string_value_ir(right) {
+                // Check both IR-level string info AND LLVM-level struct type for generics
+                let l_is_str = self.is_string_value_ir(left) || is_llvm_string_struct(self, l.clone(), trace);
+                let r_is_str = self.is_string_value_ir(right) || is_llvm_string_struct(self, r.clone(), trace);
+                if l_is_str || r_is_str {
                     let l_str = self.ensure_string(l.clone(), left)?;
                     let r_str = self.ensure_string(r.clone(), right)?;
                     self.runtime_concat(l_str, r_str)
@@ -115,8 +155,59 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                     BinaryOp::Equal => inkwell::IntPredicate::EQ,
                     _ => inkwell::IntPredicate::NE,
                 };
-                let left_is_str = self.is_string_value_ir(left);
-                let right_is_str = self.is_string_value_ir(right);
+                
+                // Check IR-level string detection
+                let l_is_ir_str = self.is_string_value_ir(left);
+                let r_is_ir_str = self.is_string_value_ir(right);
+                
+                // Check LLVM-level string struct types for generics
+                let l_is_llvm_str = is_llvm_string_struct(self, l.clone(), trace);
+                let r_is_llvm_str = is_llvm_string_struct(self, r.clone(), trace);
+                
+                // For pointer values that might point to string structs (boxed generics),
+                // try to load and check if they're strings
+                let (l_final, l_loaded_str) = if !l_is_ir_str && !l_is_llvm_str && l.is_pointer_value() {
+                    if let Some(loaded) = try_load_string_from_ptr(self, l.clone(), trace) {
+                        if is_llvm_string_struct(self, loaded.clone(), trace) {
+                            (loaded, true)
+                        } else {
+                            (l.clone(), false)
+                        }
+                    } else {
+                        (l.clone(), false)
+                    }
+                } else {
+                    (l.clone(), false)
+                };
+                
+                let (r_final, r_loaded_str) = if !r_is_ir_str && !r_is_llvm_str && r.is_pointer_value() {
+                    if let Some(loaded) = try_load_string_from_ptr(self, r.clone(), trace) {
+                        if is_llvm_string_struct(self, loaded.clone(), trace) {
+                            (loaded, true)
+                        } else {
+                            (r.clone(), false)
+                        }
+                    } else {
+                        (r.clone(), false)
+                    }
+                } else {
+                    (r.clone(), false)
+                };
+                
+                let left_is_str = l_is_ir_str || l_is_llvm_str || l_loaded_str;
+                let right_is_str = r_is_ir_str || r_is_llvm_str || r_loaded_str;
+                
+                if trace {
+                    eprintln!("[TRACE binary] Equal/NotEqual: left={:?} l_type={:?} l_is_llvm_str={} l_loaded_str={} left_is_str={}", 
+                             left, l.get_type(), l_is_llvm_str, l_loaded_str, left_is_str);
+                    eprintln!("[TRACE binary] Equal/NotEqual: right={:?} r_type={:?} r_is_llvm_str={} r_loaded_str={} right_is_str={}", 
+                             right, r.get_type(), r_is_llvm_str, r_loaded_str, right_is_str);
+                }
+                
+                // Use the potentially-loaded values for comparison
+                let l = l_final;
+                let r = r_final;
+                
                 // Check both IR literal Char AND i8 LLVM values (from variables holding chars)
                 let left_is_char = matches!(left, IRValue::Char(_)) || 
                     (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
@@ -158,8 +249,9 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 }
             }
             BinaryOp::LessThan => {
-                let left_is_str = self.is_string_value_ir(left);
-                let right_is_str = self.is_string_value_ir(right);
+                // Check IR-level AND LLVM-level string struct types for generics
+                let left_is_str = self.is_string_value_ir(left) || is_llvm_string_struct(self, l.clone(), trace);
+                let right_is_str = self.is_string_value_ir(right) || is_llvm_string_struct(self, r.clone(), trace);
                 let left_is_char = matches!(left, IRValue::Char(_)) || 
                     (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
                 let right_is_char = matches!(right, IRValue::Char(_)) ||
@@ -177,8 +269,9 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 }
             }
             BinaryOp::LessEqual => {
-                let left_is_str = self.is_string_value_ir(left);
-                let right_is_str = self.is_string_value_ir(right);
+                // Check IR-level AND LLVM-level string struct types for generics
+                let left_is_str = self.is_string_value_ir(left) || is_llvm_string_struct(self, l.clone(), trace);
+                let right_is_str = self.is_string_value_ir(right) || is_llvm_string_struct(self, r.clone(), trace);
                 let left_is_char = matches!(left, IRValue::Char(_)) || 
                     (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
                 let right_is_char = matches!(right, IRValue::Char(_)) ||
@@ -196,8 +289,9 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 }
             }
             BinaryOp::GreaterThan => {
-                let left_is_str = self.is_string_value_ir(left);
-                let right_is_str = self.is_string_value_ir(right);
+                // Check IR-level AND LLVM-level string struct types for generics
+                let left_is_str = self.is_string_value_ir(left) || is_llvm_string_struct(self, l.clone(), trace);
+                let right_is_str = self.is_string_value_ir(right) || is_llvm_string_struct(self, r.clone(), trace);
                 let left_is_char = matches!(left, IRValue::Char(_)) || 
                     (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
                 let right_is_char = matches!(right, IRValue::Char(_)) ||
@@ -215,8 +309,9 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 }
             }
             BinaryOp::GreaterEqual => {
-                let left_is_str = self.is_string_value_ir(left);
-                let right_is_str = self.is_string_value_ir(right);
+                // Check IR-level AND LLVM-level string struct types for generics
+                let left_is_str = self.is_string_value_ir(left) || is_llvm_string_struct(self, l.clone(), trace);
+                let right_is_str = self.is_string_value_ir(right) || is_llvm_string_struct(self, r.clone(), trace);
                 let left_is_char = matches!(left, IRValue::Char(_)) || 
                     (l.is_int_value() && l.into_int_value().get_type().get_bit_width() == 8);
                 let right_is_char = matches!(right, IRValue::Char(_)) ||
