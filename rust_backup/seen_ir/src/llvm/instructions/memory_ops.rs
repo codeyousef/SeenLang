@@ -75,8 +75,8 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
         let v = self.eval_value(value, fn_map)?;
         
         // Debug: trace char stores
-        if v.is_int_value() && v.into_int_value().get_type().get_bit_width() == 8 {
-            eprintln!("DEBUG: emit_store storing i8 value to {:?}, val={:?}", dest, v);
+        if self.trace_options.trace_boxing && v.is_int_value() && v.into_int_value().get_type().get_bit_width() == 8 {
+            eprintln!("[BOXING] emit_store storing i8 value to {:?}, val={:?}", dest, v);
         }
         
         self.assign_value(dest, v)?;
@@ -85,15 +85,22 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
         if let IRValue::Variable(var_name) = dest {
             match value {
                 IRValue::Register(reg_id) => {
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] emit_store reg {} -> var '{}', reg_struct_types={:?}, reg_array_element_struct={:?}",
+                            reg_id, var_name, self.reg_struct_types.get(reg_id), self.reg_array_element_struct.get(reg_id));
+                    }
                     if let Some(struct_name) = self.reg_struct_types.get(reg_id) {
-                        if var_name == "location" || var_name == "entry" {
-                            eprintln!("DEBUG: emit_store propagating struct type '{}' from reg {} to var '{}'", 
+                        if self.trace_options.trace_boxing && (var_name == "location" || var_name == "entry") {
+                            eprintln!("[BOXING] emit_store propagating struct type '{}' from reg {} to var '{}'",
                                 struct_name, reg_id, var_name);
                         }
                         self.var_struct_types.insert(var_name.clone(), struct_name.clone());
                     }
                     // Propagate array element struct type info
                     if let Some(elem_struct) = self.reg_array_element_struct.get(reg_id) {
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] emit_store propagating array element type '{}' from reg {} to var '{}'", elem_struct, reg_id, var_name);
+                        }
                         self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
                     }
                     // Propagate Option inner type info
@@ -110,15 +117,21 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
                             && self.reg_array_element_struct.get(reg_id)
                             .map(|t| t == "Option")
                             .unwrap_or(false);
-                        
-                        eprintln!("DEBUG: emit_store reg {} has Option inner type '{}', reg_is_option={}, reg_is_vec_of_option={}, var_struct_types['{}']='{:?}'",
-                            reg_id, inner_type, reg_is_option, reg_is_vec_of_option, var_name, self.var_struct_types.get(var_name));
+
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] emit_store reg {} has Option inner type '{}', reg_is_option={}, reg_is_vec_of_option={}, var_struct_types['{}']='{:?}'",
+                                reg_id, inner_type, reg_is_option, reg_is_vec_of_option, var_name, self.var_struct_types.get(var_name));
+                        }
                         if reg_is_option {
-                            eprintln!("DEBUG: emit_store propagating Option inner type '{}' to var '{}'", inner_type, var_name);
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] emit_store propagating Option inner type '{}' to var '{}'", inner_type, var_name);
+                            }
                             self.var_option_inner_type.insert(var_name.clone(), inner_type.clone());
                         } else if reg_is_vec_of_option {
                             // For Vec<Option<T>>, propagate the inner type so Vec_get can use it
-                            eprintln!("DEBUG: emit_store propagating Vec<Option<{}>> inner type to var '{}'", inner_type, var_name);
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] emit_store propagating Vec<Option<{}>> inner type to var '{}'", inner_type, var_name);
+                            }
                             self.var_option_inner_type.insert(var_name.clone(), inner_type.clone());
                         }
                     }

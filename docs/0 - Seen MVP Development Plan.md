@@ -1,8 +1,25 @@
 # Seen Language — Unified **MVP** Plan
 
-**Last Updated:** 2026-01-01  
+**Last Updated:** 2026-01-11  
 **Core Principle:** Safety by default, nondeterminism explicitly opt-in via annotation.  
 **Target Platforms:** Linux, Windows, RISC-V, UWW-Compatible WASM
+
+---
+
+## High Priority Remaining Work (Generic Boxing Fixes)
+
+We are finalizing the fix for generic boxing/unboxing to ensure `Option<Int>`, `Vec<Int>` and other generic containers work correctly with primitive types.
+
+1.  **Fix Primitive Return from Generic Functions**:
+    *   **Issue**: `Option.unwrap()` returns a `T`. For `Option<Int>`, `T` is treated as a boxed integer (pointer). `PrintInt` expects a value. `unwrap()` returns the pointer address instead of the value.
+    *   **Solution**: In `emit_call`, when a function returns a generic `T` and the caller knows `T` is a primitive type (Int/Bool/Char), we must check if the value is a pointer (boxed) and dereference it automatically.
+    *   This pairs with the logic we added for *passing* primitives to generic functions (re-boxing).
+
+2.  **Verify Array/Vec consistency**:
+    *   Ensure `Vec.get()` also correctly dereferences the pointer if it returns a boxed `Int`. (Currently it might be working by accident or partially implemented).
+
+3.  **Clean up Debugging**:
+    *   Remove `is_ptr_as_int`, `Re-boxing`, and `should_box` debug prints from `call.rs`, `llvm_backend.rs`, and `memory_ops.rs` once verified.
 
 ---
 

@@ -26,6 +26,12 @@ use crate::llvm::types_ir::ir_type_to_llvm;
 
 type HashMap<K, V> = IndexMap<K, V>;
 
+/// Check if a type name represents a primitive type that should be unboxed
+/// when returned from generic functions like Option.unwrap()
+fn is_primitive_type(type_name: &str) -> bool {
+    matches!(type_name, "Int" | "Bool" | "Char" | "Float" | "Integer" | "Boolean" | "i64" | "i1" | "i8" | "f64")
+}
+
 /// Operations for handling function calls
 pub trait CallOps<'ctx> {
     fn emit_call(
@@ -47,14 +53,16 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         result: &Option<IRValue>,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
-        eprintln!("DEBUG: emit_call target={:?}", target);
-        // Debug: log Option_Unwrap calls
-        if let IRValue::Variable(name) = target {
-            if name == "Option_Unwrap" || name == "Option_unwrap" || name == "Unwrap" || name == "unwrap" {
-                eprintln!("DEBUG LLVM: emit_call for '{}' with args: {:?}, result: {:?}", name, args, result);
-            }
-            if name.contains("unwrap") || name.contains("Unwrap") {
-                eprintln!("DEBUG LLVM: emit_call checking function '{}' for unwrap handling", name);
+        if self.trace_options.trace_boxing {
+            eprintln!("[BOXING] emit_call target={:?}", target);
+            // Debug: log Option_Unwrap calls
+            if let IRValue::Variable(name) = target {
+                if name == "Option_Unwrap" || name == "Option_unwrap" || name == "Unwrap" || name == "unwrap" {
+                    eprintln!("[BOXING] emit_call for '{}' with args: {:?}, result: {:?}", name, args, result);
+                }
+                if name.contains("unwrap") || name.contains("Unwrap") {
+                    eprintln!("[BOXING] emit_call checking function '{}' for unwrap handling", name);
+                }
             }
         }
         
@@ -66,9 +74,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         };
         
         // Debug all function calls
-        if let Some(ref fn_name) = func_name {
-            if fn_name.contains("toString") || fn_name.contains("ToString") {
-                eprintln!("DEBUG LLVM emit_call: func_name={}", fn_name);
+        if self.trace_options.trace_boxing {
+            if let Some(ref fn_name) = func_name {
+                if fn_name.contains("toString") || fn_name.contains("ToString") {
+                    eprintln!("[BOXING] emit_call: func_name={}", fn_name);
+                }
             }
         }
         
@@ -88,6 +98,32 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     // Track the Vec variable as storing floats
                     if let Some(IRValue::Variable(vec_var)) = args.get(0) {
                         self.var_is_float_vec.insert(vec_var.clone());
+                        // Also track as element type for unwrap unboxing
+                        self.var_array_element_struct.insert(vec_var.clone(), "Float".to_string());
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] Vec_push tracking Float element for vec '{}'", vec_var);
+                        }
+                    }
+                }
+                // Track Int element type from push calls (for primitive int values)
+                if val.is_int_value() {
+                    let int_val = val.into_int_value();
+                    let bit_width = int_val.get_type().get_bit_width();
+                    if let Some(IRValue::Variable(vec_var)) = args.get(0) {
+                        let type_name = match bit_width {
+                            64 => "Int",
+                            32 => "Int",  // i32 also treated as Int
+                            8 => "Char",
+                            1 => "Bool",
+                            _ => "Int",  // Default to Int for other int widths
+                        };
+                        // Only track if not already tracked (don't overwrite String etc.)
+                        if !self.var_array_element_struct.contains_key(vec_var) {
+                            self.var_array_element_struct.insert(vec_var.clone(), type_name.to_string());
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Vec_push tracking {} element for vec '{}' (bit_width={})", type_name, vec_var, bit_width);
+                            }
+                        }
                     }
                 }
                 // Track String element type from push calls
@@ -102,12 +138,16 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     false
                 };
 
-                eprintln!("DEBUG Vec_push: value_type={:?}, is_struct={}, is_string_type={}, is_string_struct={}, vec_var={:?}, value={:?}", 
-                    val.get_type(), val.is_struct_value(), is_string_type, is_string_struct, args.get(0), v);
-                
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] Vec_push: value_type={:?}, is_struct={}, is_string_type={}, is_string_struct={}, vec_var={:?}, value={:?}",
+                        val.get_type(), val.is_struct_value(), is_string_type, is_string_struct, args.get(0), v);
+                }
+
                 if is_string_type || is_string_struct {
                     if let Some(IRValue::Variable(vec_var)) = args.get(0) {
-                        eprintln!("DEBUG: Vec_push tracking String element for vec '{}'", vec_var);
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] Vec_push tracking String element for vec '{}'", vec_var);
+                        }
                         self.var_array_element_struct.insert(vec_var.clone(), "String".to_string());
                     }
                 }
@@ -120,7 +160,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             // If pushing an Option to a Vec, track the Option's inner type for the Vec
                             if struct_name == "Option" {
                                 if let Some(inner_type) = self.var_option_inner_type.get(pushed_var).cloned() {
-                                    eprintln!("DEBUG: Vec_push tracking Option inner type '{}' for vec '{}'", inner_type, vec_var);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Vec_push tracking Option inner type '{}' for vec '{}'", inner_type, vec_var);
+                                    }
                                     self.var_option_inner_type.insert(vec_var.clone(), inner_type);
                                 }
                             }
@@ -133,7 +175,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         if struct_name == "Option" {
                             if let Some(inner_type) = self.reg_option_inner_type.get(pushed_reg).cloned() {
                                 if let Some(IRValue::Variable(vec_var)) = args.get(0) {
-                                    eprintln!("DEBUG: Vec_push tracking Option inner type '{}' for vec '{}' from reg {}", inner_type, vec_var, pushed_reg);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Vec_push tracking Option inner type '{}' for vec '{}' from reg {}", inner_type, vec_var, pushed_reg);
+                                    }
                                     self.var_option_inner_type.insert(vec_var.clone(), inner_type);
                                 }
                             }
@@ -372,33 +416,37 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     if args.len() >= 2 {
                         let opt_val = self.eval_value(&args[0], fn_map)?;
                         let default_val = self.eval_value(&args[1], fn_map)?;
-                        
-                        eprintln!("DEBUG: unwrapOr opt_val type: {:?}", opt_val.get_type());
-                        
+
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] unwrapOr opt_val type: {:?}", opt_val.get_type());
+                        }
+
                         let result_val = if opt_val.is_struct_value() {
-                            eprintln!("DEBUG: unwrapOr path: struct value");
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] unwrapOr path: struct value");
+                            }
                             let sv = opt_val.into_struct_value();
                             let is_some = self.builder.build_extract_value(sv, 0, "is_some")
                                 .map(|v| v.into_int_value())
                                 .unwrap_or_else(|_| self.bool_t.const_zero());
-                            
-                            // Debug print is_some
-                            // We can't print runtime value easily without printf, but we can check if it's const
-                            // But it's likely not const.
-                            
+
                             // Extract inner value - ensure type matches default
                             let inner_val = self.builder.build_extract_value(sv, 1, "inner_val")
                                 .ok();
-                            
+
                             if let Some(inner) = inner_val {
-                                eprintln!("DEBUG: unwrapOr inner type: {:?}", inner.get_type());
-                                eprintln!("DEBUG: unwrapOr default type: {:?}", default_val.get_type());
-                                
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] unwrapOr inner type: {:?}", inner.get_type());
+                                    eprintln!("[BOXING] unwrapOr default type: {:?}", default_val.get_type());
+                                }
+
                                 // Types must match for select - if they do, use select
                                 if inner.get_type() == default_val.get_type() {
                                     self.builder.build_select(is_some, inner, default_val, "unwrap_or_result")?
                                 } else {
-                                    eprintln!("DEBUG: unwrapOr type mismatch, using phi");
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] unwrapOr type mismatch, using phi");
+                                    }
                                     // Type mismatch - need to cast or use conditional blocks
                                     // For now, if is_some use inner, else use default via phi
                                     let current_fn = self.builder.get_insert_block()
@@ -1122,11 +1170,15 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 // Check if this register came from a FieldAccess on an Array field
                                 // If so, use the field pointer directly to enable in-place modification
                                 if let Some((struct_ptr, field_idx, struct_ty)) = self.reg_field_access_info.get(reg_id).copied() {
-                                    eprintln!("DEBUG: Array_push using field pointer for Register({}) - struct_ptr={:?}, field_idx={}", reg_id, struct_ptr, field_idx);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Array_push using field pointer for Register({}) - struct_ptr={:?}, field_idx={}", reg_id, struct_ptr, field_idx);
+                                    }
                                     // Get a pointer to the array field in the struct
                                     self.builder.build_struct_gep(struct_ty, struct_ptr, field_idx, "arr_field_ptr")?
                                 } else {
-                                    eprintln!("DEBUG: Array_push fallback for Register({}) - no field access info", reg_id);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Array_push fallback for Register({}) - no field access info", reg_id);
+                                    }
                                     // Not from a field access - evaluate normally
                                     let arr_val = self.eval_value(&args[0], fn_map)?;
                                     if arr_val.is_pointer_value() {
@@ -2149,7 +2201,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 "Array_push" | "push" if name != "Vec_push" => {
-                    eprintln!("DEBUG: Array_push handler for name='{}'", name);
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] Array_push handler for name='{}'", name);
+                    }
                     
                     // Get array pointer - handle Variables specially to get their address
                     let arr_ptr = if let IRValue::Variable(var_name) = &args[0] {
@@ -2196,8 +2250,18 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                          let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
                          self.builder.build_store(tmp, item_val)?;
                          (tmp, size)
+                    } else if item_val.is_pointer_value() {
+                         // For boxed primitives (generic T where T=Int/Float/etc.), the item_val
+                         // is a pointer to the actual value. We need to dereference it and store
+                         // the actual value, not the pointer.
+                         let size = self.i64_t.const_int(8, false);
+                         let tmp = self.alloca_for_type(self.i64_t.into(), "item_tmp")?;
+                         // Dereference the boxed value to get the actual primitive
+                         let deref_val = self.builder.build_load(self.i64_t, item_val.into_pointer_value(), "deref_boxed")?;
+                         self.builder.build_store(tmp, deref_val)?;
+                         (tmp, size)
                     } else {
-                         // Int/Float/Bool/Pointer
+                         // Int/Float/Bool - direct value
                          let size = self.i64_t.const_int(8, false);
                          let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
                          self.builder.build_store(tmp, item_val)?;
@@ -2224,7 +2288,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 // Handle push for List/Vec - forward to Vec_push
                 // NOTE: Do NOT forward Vec_push to itself!
                 "push" | "List_push" if args.len() == 2 && !name.starts_with("Vec_") && !name.starts_with("Array_") => {
-                    eprintln!("DEBUG: Forward-to-Vec_push handler for name='{}', normalized='{}'", name, base_normalized);
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] Forward-to-Vec_push handler for name='{}', normalized='{}'", name, base_normalized);
+                    }
                     // Try to call Vec_push if it exists
                     if let Some(vec_push) = fn_map.get("Vec_push").copied()
                         .or_else(|| self.module.get_function("Vec_push")) {
@@ -3031,38 +3097,89 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // So we should spill Int.
                         
                         // BUT, legacy code might expect Int cast to Ptr?
-                        // Let's check if it's a collection method
+                        // Let's check if it's a collection/generic method that needs boxing
                         let is_collection = fn_name.starts_with("Vec_") || fn_name.starts_with("Map_") || fn_name.starts_with("List_");
-                        
+
+                        // Some() and Option_Store take generic T values that need boxing
+                        let is_generic_option_fn = fn_name == "Some" || fn_name == "Option_Store" || fn_name == "Option_Replace";
+
                         // CRITICAL: The first argument to collection methods is the 'this' pointer,
                         // which is stored as i64 but represents a heap pointer. This should be cast
                         // to ptr, NOT spilled to stack. Only subsequent arguments (generic T values)
                         // should be spilled.
-                        let is_this_arg = i == 0 && is_collection;
-                        eprintln!("DEBUG: Vec arg i={}, is_collection={}, is_this_arg={}, v.is_int_value={}", i, is_collection, is_this_arg, v.is_int_value());
-                        
-                        if is_collection && !is_this_arg {
-                            // Spill Int to stack for generic T value arguments
-                            eprintln!("DEBUG: Collection arg {} spill to stack", i);
+                        // For Some(), ALL arguments are generic values (no 'this' pointer).
+                        // For Option_Store/Replace, arg0 is 'this', arg1 is the value.
+                        let is_this_arg = (i == 0 && is_collection) || (i == 0 && (fn_name == "Option_Store" || fn_name == "Option_Replace"));
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] Vec arg i={}, is_collection={}, is_generic_option_fn={}, is_this_arg={}, v.is_int_value={}", i, is_collection, is_generic_option_fn, is_this_arg, v.is_int_value());
+                        }
+
+                        if (is_collection || is_generic_option_fn) && !is_this_arg {
+                            // Spill Int to stack for generic T value arguments (collections and Option constructors)
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Collection arg {} spill to stack", i);
+                            }
                             let iv = v.into_int_value();
                             let tmp = self.alloca_for_type(self.i64_t.into(), "int_spill")?;
                             self.builder.build_store(tmp, iv)?;
                             call_args.push(tmp.into());
                             pushed = true;
                         } else {
-                            // Standard Int -> Ptr cast for 'this' pointer or non-collection functions
-                            eprintln!("DEBUG: Int to ptr cast for arg {}", i);
-                            let ptr = self.builder.build_int_to_ptr(
-                                v.into_int_value(), 
-                                expected_ty.into_pointer_type(), 
-                                "arg_cast"
-                            )?;
-                            eprintln!("DEBUG: Created arg_cast ptr {:?}", ptr);
-                            let ptr_meta: BasicMetadataValueEnum = ptr.into();
-                            eprintln!("DEBUG: ptr_meta = {:?}", ptr_meta);
-                            call_args.push(ptr_meta);
-                            eprintln!("DEBUG: call_args after push = {:?}", call_args.last());
-                            pushed = true;
+                            // Check if the int value came from a dereferenced boxed generic parameter
+                            // If so, we need to re-box it for the callee
+                            // But NOT for class instances (they are represented as i64 pointers)
+                            let is_from_boxed_generic = if let IRValue::Variable(name) = a {
+                                let in_boxed = self.var_is_boxed_generic.contains(name);
+                                // Don't treat class instances as boxed generics
+                                let is_class = self.var_struct_types.get(name)
+                                    .map(|t| self.class_types.contains(t))
+                                    .unwrap_or(false);
+                                if in_boxed && !is_class {
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] var '{}' is boxed generic, will re-box", name);
+                                    }
+                                    true
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            };
+
+                            if is_from_boxed_generic {
+                                // Re-box: the value was dereferenced by load_from_slot,
+                                // but the callee expects a boxed pointer
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] Re-boxing dereferenced boxed generic for arg {}", i);
+                                }
+                                let iv = v.into_int_value();
+                                let tmp = self.alloca_for_type(self.i64_t.into(), "rebox_deref")?;
+                                self.builder.build_store(tmp, iv)?;
+                                call_args.push(tmp.into());
+                                pushed = true;
+                            } else {
+                                // Standard Int -> Ptr cast for 'this' pointer or non-collection functions
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] Int to ptr cast for arg {}", i);
+                                }
+                                let ptr = self.builder.build_int_to_ptr(
+                                    v.into_int_value(),
+                                    expected_ty.into_pointer_type(),
+                                    "arg_cast"
+                                )?;
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] Created arg_cast ptr {:?}", ptr);
+                                }
+                                let ptr_meta: BasicMetadataValueEnum = ptr.into();
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] ptr_meta = {:?}", ptr_meta);
+                                }
+                                call_args.push(ptr_meta);
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] call_args after push = {:?}", call_args.last());
+                                }
+                                pushed = true;
+                            }
                         }
                     } else if v.is_float_value() {
                         // Float -> Pointer (Spill)
@@ -3079,32 +3196,102 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // We "box" it by allocating heap memory and copying the struct there.
                         
                         let arg_type = a.get_type();
-                        eprintln!("DEBUG: Checking if should box. arg_type={:?}", arg_type);
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] Checking if should box. arg_type={:?}", arg_type);
+                        }
                         
                         let mut should_box = matches!(arg_type, crate::value::IRType::Struct { .. } | crate::value::IRType::String);
                         let mut target_type = arg_type.clone();
                         
-                        if !should_box {
+                        // Check if this is a ptr-as-int representation (from Vec.get, Option.unwrap, etc.)
+                        // These need to be re-boxed for generic function calls
+                        let current_fn_name = self.current_fn.map(|f| f.get_name().to_string_lossy().into_owned()).unwrap_or_else(|| "?".to_string());
+                        let is_ptr_as_int = if let IRValue::Variable(name) = a {
+                            // If the variable has struct type "T" (generic), it might be ptr-as-int
+                            let struct_type = self.var_struct_types.get(name);
+                            let elem_type = self.var_array_element_struct.get(name);
+
+                            // Check for generic type markers
+                            let is_generic = struct_type.map(|t| t == "T" || t == "E" || t == "K" || t == "V").unwrap_or(false);
+
+                            // Check for primitive from Vec.get (has elem_type set to primitive)
+                            // Also check if struct_type is "Option" but elem_type is primitive - this happens
+                            // when the IR type is Optional<T> but the runtime returns T directly (like Vec.get)
+                            let is_vec_get_primitive = elem_type.map(|t| is_primitive_type(t)).unwrap_or(false);
+
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] is_ptr_as_int check in '{}' for var '{}', struct_type={:?}, elem_type={:?}, is_generic={}, is_vec_get_primitive={}",
+                                    current_fn_name, name, struct_type, elem_type, is_generic, is_vec_get_primitive);
+                            }
+
+                            is_generic || is_vec_get_primitive
+                        } else if let IRValue::Register(reg_id) = a {
+                            // If the register has struct type "T" (generic), it might be ptr-as-int
+                            let struct_type = self.reg_struct_types.get(reg_id);
+                            let elem_type = self.reg_array_element_struct.get(reg_id);
+
+                            let is_generic = struct_type.map(|t| t == "T" || t == "E" || t == "K" || t == "V").unwrap_or(false);
+                            let is_vec_get_primitive = elem_type.map(|t| is_primitive_type(t)).unwrap_or(false);
+
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] is_ptr_as_int check in '{}' for reg {}, struct_type={:?}, elem_type={:?}, is_generic={}, is_vec_get_primitive={}",
+                                    current_fn_name, reg_id, struct_type, elem_type, is_generic, is_vec_get_primitive);
+                            }
+
+                            is_generic || is_vec_get_primitive
+                        } else {
+                            false
+                        };
+
+                        if is_ptr_as_int {
+                            // This is a ptr-as-int value (like from Vec.get) being passed to a generic function.
+                            // Convert the pointer back to an integer and box it properly.
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Re-boxing ptr-as-int value for generic function call");
+                            }
+                            let ptr_val = v.into_pointer_value();
+                            let int_val = self.builder.build_ptr_to_int(ptr_val, self.i64_t, "ptr2int_rebox")?;
+                            let tmp = self.alloca_for_type(self.i64_t.into(), "rebox_spill")?;
+                            self.builder.build_store(tmp, int_val)?;
+                            call_args.push(tmp.into());
+                            pushed = true;
+                        }
+                        
+                        if !pushed && !should_box {
                             if let IRValue::Variable(name) = a {
                                 if self.var_is_string.contains(name) {
                                     should_box = true;
                                     target_type = crate::value::IRType::String;
-                                    eprintln!("DEBUG: Variable {} is string, boxing", name);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Variable {} is string, boxing", name);
+                                    }
                                 } else if let Some(ty_name) = self.var_struct_types.get(name) {
-                                    if let Some(fields) = self.struct_definitions.get(ty_name) {
-                                        should_box = true;
-                                        target_type = crate::value::IRType::Struct {
-                                            name: ty_name.clone(),
-                                            fields: fields.clone(),
-                                        };
-                                        eprintln!("DEBUG: Variable {} is struct {}, boxing", name, ty_name);
+                                    // Don't box class instances - they're already heap pointers
+                                    let is_class = self.class_types.contains(ty_name);
+                                    if !is_class {
+                                        if let Some(fields) = self.struct_definitions.get(ty_name) {
+                                            should_box = true;
+                                            target_type = crate::value::IRType::Struct {
+                                                name: ty_name.clone(),
+                                                fields: fields.clone(),
+                                            };
+                                            if self.trace_options.trace_boxing {
+                                                eprintln!("[BOXING] Variable {} is struct {}, boxing", name, ty_name);
+                                            }
+                                        }
+                                    } else {
+                                        if self.trace_options.trace_boxing {
+                                            eprintln!("[BOXING] Variable {} is class {}, NOT boxing (already heap ptr)", name, ty_name);
+                                        }
                                     }
                                 }
                             }
                         }
                         
-                        if should_box {
-                            eprintln!("DEBUG: Boxing pointer argument for generic call. Type: {:?}", target_type);
+                        if !pushed && should_box {
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Boxing pointer argument for generic call. Type: {:?}", target_type);
+                            }
                             let llvm_ty = ir_type_to_llvm(
                                 self.ctx, 
                                 &target_type, 
@@ -3223,7 +3410,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             }
             
             if !pushed {
-                eprintln!("DEBUG: generic call fallback - pushing v={:?} as-is for fn {}", v.get_type(), fn_name);
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] generic call fallback - pushing v={:?} as-is for fn {}", v.get_type(), fn_name);
+                }
                 call_args.push(v.into());
             }
 
@@ -3254,26 +3443,26 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         }
         
         // Debug the final call_args
-        if fn_name == "Vec_push" {
-            eprintln!("DEBUG Vec_push final call_args before build_call:");
+        if self.trace_options.trace_boxing && fn_name == "Vec_push" {
+            eprintln!("[BOXING] Vec_push final call_args before build_call:");
             for (i, arg) in call_args.iter().enumerate() {
                 eprintln!("  arg[{}] = {:?}", i, arg);
             }
-            eprintln!("DEBUG: Calling build_call with f={:?}, call_args len={}", f.get_name().to_str(), call_args.len());
+            eprintln!("[BOXING] Calling build_call with f={:?}, call_args len={}", f.get_name().to_str(), call_args.len());
         }
-        
+
         let call = self.builder.build_call(f, &call_args, "call")?;
-        
-        if fn_name == "Vec_push" {
-            eprintln!("DEBUG Vec_push: call result = {:?}", call);
+
+        if self.trace_options.trace_boxing && fn_name == "Vec_push" {
+            eprintln!("[BOXING] Vec_push: call result = {:?}", call);
         }
         // Debug: check the return type of the call
         let target_name = match target {
             IRValue::Variable(name) | IRValue::Function { name, .. } => name.as_str(),
             _ => "unknown",
         };
-        if target_name.contains("unwrap") || target_name.contains("Unwrap") {
-            eprintln!("DEBUG: After build_call for '{}', f.get_type().get_return_type() = {:?}", 
+        if self.trace_options.trace_boxing && (target_name.contains("unwrap") || target_name.contains("Unwrap")) {
+            eprintln!("[BOXING] After build_call for '{}', f.get_type().get_return_type() = {:?}",
                 target_name, f.get_type().get_return_type());
         }
         if target_name == "SeenLexer_new" {
@@ -3283,8 +3472,8 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         }
         if let Some(r) = result {
             let call_result = call.try_as_basic_value().left();
-            if target_name.contains("unwrap") || target_name.contains("Unwrap") {
-                eprintln!("DEBUG: {} call result = {:?}, ret type = {:?}", target_name, call_result.is_some(), f.get_type().get_return_type());
+            if self.trace_options.trace_boxing && (target_name.contains("unwrap") || target_name.contains("Unwrap")) {
+                eprintln!("[BOXING] {} call result = {:?}, ret type = {:?}", target_name, call_result.is_some(), f.get_type().get_return_type());
             }
             if let Some(ret) = call_result {
                 // For Vec_get from float Vec, DON'T bitcast here - keep as i64
@@ -3313,8 +3502,10 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         _ => (None, None)
                     };
                     
-                    eprintln!("DEBUG: Vec_get on {:?}, elem_type={:?}, inner_type={:?}", vec_arg, elem_type, inner_type);
-                    
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] Vec_get on {:?}, elem_type={:?}, inner_type={:?}", vec_arg, elem_type, inner_type);
+                    }
+
                     if let Some(elem_type) = elem_type {
                         // If element type is "String", unbox the pointer
                         if elem_type == "String" {
@@ -3328,7 +3519,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                              };
 
                              if let Some(ptr) = ptr {
-                                 eprintln!("DEBUG: Vec_get unboxing String from ptr {:?}", ptr);
+                                 if self.trace_options.trace_boxing {
+                                     eprintln!("[BOXING] Vec_get unboxing String from ptr {:?}", ptr);
+                                 }
                                  let struct_ptr = self.builder.build_pointer_cast(ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "str_ptr")?;
                                  let struct_val = self.builder.build_load(self.ty_string(), struct_ptr, "str_load")?;
                                  self.assign_value(r, struct_val)?;
@@ -3340,23 +3533,29 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         if elem_type == "Option" {
                             if let Some(inner_type) = inner_type {
                                 if let IRValue::Register(reg_id) = r {
-                                    eprintln!("DEBUG: Vec_get returning Option with inner type '{}' to reg {}", inner_type, reg_id);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Vec_get returning Option with inner type '{}' to reg {}", inner_type, reg_id);
+                                    }
                                     self.reg_option_inner_type.insert(*reg_id, inner_type);
                                     // Also set reg_struct_types to Option so store propagation works
                                     self.reg_struct_types.insert(*reg_id, "Option".to_string());
                                 }
                             }
                         } else {
-                            // Element type is not "Option" but something else (like HashEntry)
-                            // If Vec_get returns Option<T>, the T is this elem_type
-                            // But we need to check if the return type is actually Option
+                            // Element type is not "Option" - this is the actual element type (Int, String, etc.)
+                            // Vec.get() in Seen returns T directly (not Option<T>), aborting on out-of-bounds
+                            // So we track the element type as the register's struct type (if applicable)
                             if let IRValue::Register(reg_id) = r {
-                                // The Vec stores non-Option elements, so get() returns the element directly
-                                // In this case, elem_type IS the Option's inner type
-                                // (This handles Vec<Option<HashEntry>> where elem_type tracked as HashEntry via push)
-                                eprintln!("DEBUG: Vec_get returning element type '{}' to reg {}", elem_type, reg_id);
-                                // Track this as the Option's inner type since get() wraps in Option
-                                self.reg_option_inner_type.insert(*reg_id, elem_type);
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] Vec_get returning element type '{}' to reg {}", elem_type, reg_id);
+                                }
+                                // Track the element type as the register's struct type
+                                // This is useful for struct types, but primitives (Int/Bool/etc.) don't need struct tracking
+                                if !is_primitive_type(&elem_type) {
+                                    self.reg_struct_types.insert(*reg_id, elem_type.clone());
+                                }
+                                // Also track as array element struct for propagation
+                                self.reg_array_element_struct.insert(*reg_id, elem_type);
                             }
                         }
                     }
@@ -3365,18 +3564,22 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 self.assign_value(r, ret.clone())?;
                 
                 // Debug: trace char return values
-                if ret.is_int_value() && ret.into_int_value().get_type().get_bit_width() == 8 {
-                    eprintln!("DEBUG: Assigning i8 return value to {:?}, ret_type={:?}", r, ret.get_type());
+                if self.trace_options.trace_boxing && ret.is_int_value() && ret.into_int_value().get_type().get_bit_width() == 8 {
+                    eprintln!("[BOXING] Assigning i8 return value to {:?}, ret_type={:?}", r, ret.get_type());
                 }
 
                 // Propagate return struct type info
-                eprintln!("DEBUG: emit_call struct type propagation for target={:?}", target);
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] emit_call struct type propagation for target={:?}", target);
+                }
                 let func_name = match target {
                     IRValue::Variable(name) => Some(name),
                     IRValue::Function { name, .. } => Some(name),
                     _ => None,
                 };
-                eprintln!("DEBUG: emit_call func_name={:?}", func_name);
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] emit_call func_name={:?}", func_name);
+                }
                 
                 if let Some(name) = func_name {
                     // Try both underscore and dot naming conventions
@@ -3403,23 +3606,33 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     
                     // Try to find struct return type using both naming conventions
                     let struct_name = self.fn_return_struct_types.get(name).cloned()
-                        .or_else(|| alt_name.as_ref().and_then(|alt| self.fn_return_struct_types.get(alt).cloned()));
+                        .or_else(|| alt_name.as_ref().and_then(|alt| self.fn_return_struct_types.get(alt).cloned()))
+                        // Special case: Some() and None() return Option type
+                        .or_else(|| if name == "Some" || name == "None" { Some("Option".to_string()) } else { None });
                     
-                    if name.contains("ImportSymbol") || name.contains("getLocation") || name.contains("TypeError") {
-                        eprintln!("DEBUG: Call to '{}', fn_return_struct_types.get = {:?}, alt_name = {:?}, r = {:?}", 
+                    if self.trace_options.trace_boxing && (name.contains("ImportSymbol") || name.contains("getLocation") || name.contains("TypeError")) {
+                        eprintln!("[BOXING] Call to '{}', fn_return_struct_types.get = {:?}, alt_name = {:?}, r = {:?}",
                             name, self.fn_return_struct_types.get(name), alt_name.as_ref().and_then(|alt| self.fn_return_struct_types.get(alt)), r);
                     }
-                    
+
                     if let Some(struct_name) = struct_name {
                         if let IRValue::Register(reg_id) = r {
                             // Don't overwrite a more specific type with a generic 'T'
                             // If we already have a concrete type (like Option) from Vec_get handling, keep it
+                            // Also don't overwrite if we have an array element type (from Vec.get returning primitives)
                             let existing = self.reg_struct_types.get(reg_id).cloned();
-                            if existing.is_none() || (struct_name != "T" && struct_name != "V" && struct_name != "E") {
-                                eprintln!("DEBUG: Setting reg {} struct type to '{}' from call to '{}'", reg_id, struct_name, name);
+                            let has_elem_type = self.reg_array_element_struct.contains_key(reg_id);
+                            let is_generic = struct_name == "T" || struct_name == "V" || struct_name == "E" || struct_name == "K";
+                            if (existing.is_none() && !has_elem_type) || !is_generic {
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] Setting reg {} struct type to '{}' from call to '{}'", reg_id, struct_name, name);
+                                }
                                 self.reg_struct_types.insert(*reg_id, struct_name.clone());
                             } else {
-                                eprintln!("DEBUG: Keeping existing reg {} struct type '{}' (not overwriting with '{}')", reg_id, existing.as_ref().unwrap_or(&String::new()), struct_name);
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] Keeping existing reg {} struct type '{}' (not overwriting with '{}', has_elem_type={})",
+                                        reg_id, existing.as_ref().unwrap_or(&String::new()), struct_name, has_elem_type);
+                                }
                             }
                         }
                     }
@@ -3435,12 +3648,16 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     
                     // Special handling for Vec_toArray: propagate element type from Vec to resulting Array
                     if name == "Vec_toArray" {
-                        eprintln!("DEBUG: Vec_toArray call detected, args[0] = {:?}", args.get(0));
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] Vec_toArray call detected, args[0] = {:?}", args.get(0));
+                        }
                         if let Some(vec_arg) = args.get(0) {
                             // Try to get element type from the Vec variable
                             let elem_type = match vec_arg {
                                 IRValue::Variable(var_name) => {
-                                    eprintln!("DEBUG: Vec_toArray checking var_array_element_struct for '{}'", var_name);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Vec_toArray checking var_array_element_struct for '{}'", var_name);
+                                    }
                                     self.var_array_element_struct.get(var_name).cloned()
                                 }
                                 IRValue::Register(reg_id) => {
@@ -3448,10 +3665,14 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 }
                                 _ => None,
                             };
-                            eprintln!("DEBUG: Vec_toArray elem_type = {:?}", elem_type);
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Vec_toArray elem_type = {:?}", elem_type);
+                            }
                             if let Some(elem_type) = elem_type {
                                 if let IRValue::Register(reg_id) = r {
-                                    eprintln!("DEBUG: Vec_toArray propagating element type '{}' to reg {}", elem_type, reg_id);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Vec_toArray propagating element type '{}' to reg {}", elem_type, reg_id);
+                                    }
                                     self.reg_array_element_struct.insert(*reg_id, elem_type);
                                 }
                             }
@@ -3460,29 +3681,76 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     
                     // Special handling for Option/Result unwrap: propagate inner type
                     if name == "Option_unwrap" || name == "Option_Unwrap" || name == "Result_unwrap" || name == "unwrap" || name == "Unwrap" {
-                        eprintln!("DEBUG: unwrap special handling triggered for '{}', args: {:?}", name, args);
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] unwrap special handling triggered for '{}', args: {:?}", name, args);
+                        }
                         if let Some(container_arg) = args.get(0) {
-                            eprintln!("DEBUG: unwrap call to '{}' with arg {:?}", name, container_arg);
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] unwrap call to '{}' with arg {:?}", name, container_arg);
+                            }
                             // Try to get inner type from the Option tracking first, then fall back to array element struct
                             let inner_type = match container_arg {
                                 IRValue::Variable(var_name) => {
-                                    eprintln!("DEBUG: unwrap checking var_option_inner_type for '{}', all keys: {:?}", 
-                                        var_name, self.var_option_inner_type.keys().collect::<Vec<_>>());
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] unwrap checking var_option_inner_type for '{}', all keys: {:?}",
+                                            var_name, self.var_option_inner_type.keys().collect::<Vec<_>>());
+                                    }
                                     self.var_option_inner_type.get(var_name).cloned()
                                         .or_else(|| self.var_array_element_struct.get(var_name).cloned())
                                 }
                                 IRValue::Register(reg_id) => {
-                                    eprintln!("DEBUG: unwrap checking reg_option_inner_type for reg {}", reg_id);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] unwrap checking reg_option_inner_type for reg {}", reg_id);
+                                    }
                                     self.reg_option_inner_type.get(reg_id).cloned()
                                         .or_else(|| self.reg_array_element_struct.get(reg_id).cloned())
                                 }
                                 _ => None,
                             };
-                            eprintln!("DEBUG: unwrap inner_type = {:?}", inner_type);
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] unwrap inner_type = {:?}", inner_type);
+                            }
                             if let Some(inner_type) = inner_type {
                                 if let IRValue::Register(reg_id) = r {
-                                    eprintln!("DEBUG: unwrap propagating inner type '{}' to reg {}", inner_type, reg_id);
-                                    self.reg_struct_types.insert(*reg_id, inner_type);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] unwrap propagating inner type '{}' to reg {}", inner_type, reg_id);
+                                    }
+                                    self.reg_struct_types.insert(*reg_id, inner_type.clone());
+
+                                    // Unbox primitives: unwrap() returns ptr to boxed value for generic T
+                                    // When T is a primitive (Int/Bool/Char/Float), we need to dereference the pointer
+                                    if is_primitive_type(&inner_type) {
+                                        if self.trace_options.trace_boxing {
+                                            eprintln!("[BOXING] Unboxing primitive '{}' from unwrap result reg {}", inner_type, reg_id);
+                                        }
+
+                                        // Get the ptr value that was assigned from the unwrap call
+                                        if let Some(ptr_val) = self.reg_values.get(reg_id).copied() {
+                                            if ptr_val.is_pointer_value() {
+                                                let ptr = ptr_val.into_pointer_value();
+                                                let llvm_ty: inkwell::types::BasicTypeEnum = match inner_type.as_str() {
+                                                    "Int" | "Integer" | "i64" => self.i64_t.into(),
+                                                    "Bool" | "Boolean" | "i1" => self.bool_t.into(),
+                                                    "Char" | "i8" => self.ctx.i8_type().into(),
+                                                    "Float" | "f64" => self.ctx.f64_type().into(),
+                                                    _ => self.i64_t.into(),
+                                                };
+                                                let loaded = self.builder.build_load(llvm_ty, ptr, "unbox_prim")?;
+
+                                                if self.trace_options.trace_boxing {
+                                                    eprintln!("[BOXING] Unboxed value from ptr {:?} -> {:?}", ptr, loaded);
+                                                }
+
+                                                // Update reg_values with the unboxed value
+                                                self.reg_values.insert(*reg_id, loaded);
+
+                                                // Also update slot if exists
+                                                if let Some(slot) = self.reg_slots.get(reg_id).copied() {
+                                                    self.builder.build_store(slot, loaded)?;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3490,16 +3758,66 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     
                     // Track Option inner types when Some() is called
                     if name == "Some" {
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] Some() call detected, args={:?}, result={:?}", args, result);
+                        }
                         if let Some(value_arg) = args.get(0) {
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Some() value_arg={:?}", value_arg);
+                            }
                             // Get the type of the value being wrapped in Some
+                            // Try multiple sources: struct types, array element types (from Vec.get), and literals
                             let inner_type = match value_arg {
-                                IRValue::Variable(var_name) => self.var_struct_types.get(var_name).cloned(),
-                                IRValue::Register(reg_id) => self.reg_struct_types.get(reg_id).cloned(),
+                                IRValue::Variable(var_name) => {
+                                    let struct_ty = self.var_struct_types.get(var_name).cloned();
+                                    let elem_ty = self.var_array_element_struct.get(var_name).cloned();
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Some() var '{}' lookup: struct_ty={:?}, elem_ty={:?}", var_name, struct_ty, elem_ty);
+                                    }
+                                    // Prefer the element type (from Vec.get) if it's a primitive, otherwise use struct type
+                                    if elem_ty.is_some() && is_primitive_type(elem_ty.as_ref().unwrap()) {
+                                        elem_ty
+                                    } else {
+                                        struct_ty.or(elem_ty)
+                                    }
+                                }
+                                IRValue::Register(reg_id) => {
+                                    self.reg_struct_types.get(reg_id).cloned()
+                                        .or_else(|| self.reg_array_element_struct.get(reg_id).cloned())
+                                }
+                                // For integer literals
+                                IRValue::Integer(_) => Some("Int".to_string()),
+                                IRValue::Float(_) => Some("Float".to_string()),
+                                IRValue::Boolean(_) => Some("Bool".to_string()),
+                                IRValue::Char(_) => Some("Char".to_string()),
                                 _ => None,
                             };
+                            // If no type found from IR value, try to infer from LLVM value
+                            let inner_type = inner_type.or_else(|| {
+                                if let Ok(val) = self.eval_value(value_arg, fn_map) {
+                                    if val.is_int_value() {
+                                        let bit_width = val.into_int_value().get_type().get_bit_width();
+                                        Some(match bit_width {
+                                            64 => "Int",
+                                            32 => "Int",
+                                            8 => "Char",
+                                            1 => "Bool",
+                                            _ => "Int",
+                                        }.to_string())
+                                    } else if val.is_float_value() {
+                                        Some("Float".to_string())
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            });
                             if let Some(inner_type) = inner_type.clone() {
                                 if let IRValue::Register(reg_id) = r {
-                                    eprintln!("DEBUG: Some() tracking inner type '{}' for result reg {}", inner_type, reg_id);
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] Some() tracking inner type '{}' for result reg {}", inner_type, reg_id);
+                                    }
                                     self.reg_option_inner_type.insert(*reg_id, inner_type);
                                 }
                             }

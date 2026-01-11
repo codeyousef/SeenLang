@@ -108,9 +108,11 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         let arr_v = self.eval_value(array, fn_map)?;
         
         // Debug: print array access type info
-        if let IRValue::Variable(var_name) = array {
-            if var_name.contains("rawArgs") {
-                eprintln!("DEBUG: ArrayAccess on '{}', element_struct_type: {:?}", var_name, self.var_array_element_struct.get(var_name));
+        if self.trace_options.trace_boxing {
+            if let IRValue::Variable(var_name) = array {
+                if var_name.contains("rawArgs") {
+                    eprintln!("[BOXING] ArrayAccess on '{}', element_struct_type: {:?}", var_name, self.var_array_element_struct.get(var_name));
+                }
             }
         }
         // Check if this is a string variable (for string indexing)
@@ -673,7 +675,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 self.builder.build_store(elem_ptr, struct_to_store)?;
                 return Ok(());
             } else {
-                 // Handle unknown/generic struct type
+                 // Handle unknown/generic struct type (like T in Vec<T>)
                  eprintln!("DEBUG ArraySet: unknown struct type '{}', treating as i64/ptr", struct_type_name);
                  let i64_ptr_ty = self.ctx.ptr_type(inkwell::AddressSpace::from(0u16));
                  let data_i64_ptr = self.builder.build_pointer_cast(data_ptr, i64_ptr_ty, "data_i64_ptr")?;
@@ -687,8 +689,17 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                      )?
                  };
                  
+                 // For generic T, the value is passed as a pointer (boxed).
+                 // We need to dereference the pointer to get the actual i64 value to store.
+                 // This works for:
+                 // - Boxed integers: pointer to stack slot containing i64 -> load the i64
+                 // - Boxed floats: pointer to stack slot -> load as i64 (bits)  
+                 // - Heap pointers (classes/structs): pointer to heap -> load gives the heap address as i64
                  let i64_val = if val_v.is_pointer_value() {
-                     self.builder.build_ptr_to_int(val_v.into_pointer_value(), self.i64_t, "ptr2i")?
+                     // Dereference the pointer to get the actual value
+                     // For boxed primitives (Int, Float), this loads the primitive value
+                     // For heap-allocated structs, this loads the heap pointer
+                     self.builder.build_load(self.i64_t, val_v.into_pointer_value(), "deref_boxed")?.into_int_value()
                  } else if val_v.is_int_value() {
                      val_v.into_int_value()
                  } else {
@@ -932,13 +943,17 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         // Track struct fields for nested field access
                         if let IRType::Struct { name: field_struct_name, .. } = field_type {
                             if let IRValue::Register(reg_id) = result {
-                                eprintln!("DEBUG: FieldAccess {}.{} result Register({}) -> struct type '{}'", type_name, field, reg_id, field_struct_name);
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] FieldAccess {}.{} result Register({}) -> struct type '{}'", type_name, field, reg_id, field_struct_name);
+                                }
                                 self.reg_struct_types.insert(*reg_id, field_struct_name.clone());
-                                
+
                                 // Special handling for known container types with generic parameters
                                 // StringHashMap.entries is Vec<Option<HashEntry>> - element type is Option<HashEntry>
                                 if type_name == "StringHashMap" && field == "entries" {
-                                    eprintln!("DEBUG: FieldAccess StringHashMap.entries - tracking Option<HashEntry> element type");
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] FieldAccess StringHashMap.entries - tracking Option<HashEntry> element type");
+                                    }
                                     self.reg_array_element_struct.insert(*reg_id, "Option".to_string());
                                     self.reg_option_inner_type.insert(*reg_id, "HashEntry".to_string());
                                 }
@@ -966,7 +981,9 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         }
                     }
                 } else {
-                    eprintln!("DEBUG: FieldAccess {}.{} - no struct_definitions found for type", type_name, field);
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] FieldAccess {}.{} - no struct_definitions found for type", type_name, field);
+                    }
                 }
 
                 return Ok(());
@@ -1057,9 +1074,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         if let Some(type_name) = struct_type_name {
             if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(&type_name).cloned() {
                 // Find field index
+                let trace_boxing = self.trace_options.trace_boxing;
                 let field_idx = field_names.iter().position(|n| n == field)
                     .ok_or_else(|| {
-                        eprintln!("DEBUG: FieldSet: Field '{}' not found in struct '{}'. Available fields: {:?}", field, type_name, field_names);
+                        if trace_boxing {
+                            eprintln!("[BOXING] FieldSet: Field '{}' not found in struct '{}'. Available fields: {:?}", field, type_name, field_names);
+                        }
                         anyhow!("Field '{}' not found in struct '{}'", field, type_name)
                     })?;
                 
@@ -1146,6 +1166,9 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                             "f2i_field"
                         )?.as_basic_value_enum()
                     } else if val.is_pointer_value() {
+                        // Convert pointer to int - use ptr_to_int for ptr-as-int representation
+                        // (like values returned from Vec.get which are already the integer value
+                        // stored in pointer form)
                         self.builder.build_ptr_to_int(
                             val.into_pointer_value(),
                             field_ty.into_int_type(),

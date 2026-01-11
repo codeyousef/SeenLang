@@ -71,6 +71,8 @@ pub struct LlvmTraceOptions {
     pub dump_layouts: bool,
     /// Trace GEP (struct field access) operations with indices
     pub trace_gep: bool,
+    /// Trace boxing/unboxing operations for generic types (Option.unwrap, Vec.get, etc.)
+    pub trace_boxing: bool,
 }
 
 impl LlvmTraceOptions {
@@ -83,6 +85,7 @@ impl LlvmTraceOptions {
             dump_ir: true,
             dump_layouts: true,
             trace_gep: true,
+            trace_boxing: true,
         }
     }
     
@@ -97,13 +100,14 @@ impl LlvmTraceOptions {
             Ok("ir") | Ok("dump") => Self { dump_ir: true, ..Default::default() },
             Ok("layouts") => Self { dump_layouts: true, trace_types: true, ..Default::default() },
             Ok("gep") => Self { trace_gep: true, ..Default::default() },
+            Ok("boxing") => Self { trace_boxing: true, ..Default::default() },
             _ => Self::default(),
         }
     }
     
     /// Returns true if any tracing is enabled
     pub fn any_enabled(&self) -> bool {
-        self.trace_instructions || self.trace_values || self.trace_types || self.dump_ir || self.dump_layouts || self.trace_gep
+        self.trace_instructions || self.trace_values || self.trace_types || self.dump_ir || self.dump_layouts || self.trace_gep || self.trace_boxing
     }
 }
 
@@ -390,6 +394,8 @@ pub struct LlvmBackend<'ctx> {
     pub(crate) reg_is_float: HashSet<u32>,
     // Variable name -> true if it holds a float value (stored as i64 bits)
     pub(crate) var_is_float: HashSet<String>,
+    // Variable name -> true if it's a boxed generic (pointer to actual value, needs dereference)
+    pub(crate) var_is_boxed_generic: HashSet<String>,
     // Variable name -> LLVM element type (for arrays)
     pub(crate) array_element_types: HashMap<String, BasicTypeEnum<'ctx>>,
     // Register id -> LLVM element type (for arrays)
@@ -523,6 +529,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             reg_option_inner_type: HashMap::new(),
             reg_is_float: HashSet::new(),
             var_is_float: HashSet::new(),
+            var_is_boxed_generic: HashSet::new(),
             array_element_types: HashMap::new(),
             reg_array_element_types: HashMap::new(),
             class_types: HashSet::new(),
@@ -1014,6 +1021,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                 if let IRType::Struct { name, .. } = &func.return_type {
                     self.fn_return_struct_types.insert(func.name.clone(), name.clone());
                 }
+                // Also track Optional return types as returning "Option"
+                if let IRType::Optional(_) = &func.return_type {
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] Function '{}' returns Optional, tracking as 'Option'", func.name);
+                    }
+                    self.fn_return_struct_types.insert(func.name.clone(), "Option".to_string());
+                }
                 
                 // Track return array element struct type (for functions returning Array<Struct>)
                 if let IRType::Array(inner) = &func.return_type {
@@ -1483,13 +1497,25 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             
             // Track struct type names for field access
-            if let IRType::Struct { name, .. } = &param.param_type {
+            if let IRType::Struct { name, fields } = &param.param_type {
                 self.var_struct_types.insert(param.name.clone(), name.clone());
-                if param.name == "this" || param.name == "self" {
-                    eprintln!("DEBUG: define_function '{}': param '{}' has struct type '{}'", func.name, param.name, name);
+                if self.trace_options.trace_boxing && (param.name == "this" || param.name == "self") {
+                    eprintln!("[BOXING] define_function '{}': param '{}' has struct type '{}'", func.name, param.name, name);
                 }
-            } else if param.name == "this" || param.name == "self" {
-                eprintln!("DEBUG: define_function '{}': param '{}' has NON-struct type {:?}", func.name, param.name, param.param_type);
+                // Debug: also show value param
+                if self.trace_options.trace_boxing && param.name == "value" {
+                    eprintln!("[BOXING] define_function '{}': param 'value' has struct type '{}', fields={:?}", func.name, name, fields);
+                }
+                // Mark generic type parameters (struct T { }) as boxed
+                // These are passed as pointers to the actual value and need dereference on use
+                if (name == "T" || name == "E" || name == "K" || name == "V") && fields.is_empty() {
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] Marking param '{}' as boxed generic (type '{}')", param.name, name);
+                    }
+                    self.var_is_boxed_generic.insert(param.name.clone());
+                }
+            } else if self.trace_options.trace_boxing && (param.name == "this" || param.name == "self") {
+                eprintln!("[BOXING] define_function '{}': param '{}' has NON-struct type {:?}", func.name, param.name, param.param_type);
             }
             // Also track struct types behind references/pointers
             if let IRType::Pointer(inner) | IRType::Reference(inner) = &param.param_type {
@@ -1533,13 +1559,29 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.var_slot_types.insert(local.name.clone(), ty);
             let slot = self.alloca_for_type(ty, &format!("local_slot_{}", local.name))?;
             self.var_slots.insert(local.name.clone(), slot);
+            // Debug all local variables in Some function
+            if self.trace_options.trace_boxing && func.name == "Some" {
+                eprintln!("[BOXING] Some: local var '{}' has type {:?}", local.name, local.var_type);
+            }
             // Track struct type names for field access
             if let IRType::Struct { name, .. } = &local.var_type {
                 // Debug: show location variable type
-                if local.name == "location" || local.name == "error" || local.name == "typeError" {
-                    eprintln!("DEBUG: local var '{}' has struct type '{}' in func '{}'", local.name, name, func.name);
+                if self.trace_options.trace_boxing && (local.name == "location" || local.name == "error" || local.name == "typeError") {
+                    eprintln!("[BOXING] local var '{}' has struct type '{}' in func '{}'", local.name, name, func.name);
                 }
                 self.var_struct_types.insert(local.name.clone(), name.clone());
+            }
+            // Handle Optional types (struct T { }?) - track as "Option", not inner type
+            if let IRType::Optional(inner) = &local.var_type {
+                // Optional<T> is represented as Option struct
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] local var '{}' has Optional type, tracking as 'Option' in func '{}'", local.name, func.name);
+                }
+                self.var_struct_types.insert(local.name.clone(), "Option".to_string());
+                // Also track the inner type for unwrap
+                if let IRType::Struct { name, .. } = inner.as_ref() {
+                    self.var_option_inner_type.insert(local.name.clone(), name.clone());
+                }
             }
             // Also track struct types behind references/pointers
             if let IRType::Pointer(inner) | IRType::Reference(inner) = &local.var_type {
@@ -1561,25 +1603,31 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             // Track array element struct types for array[i].field patterns
             if let IRType::Array(element_type) = &local.var_type {
-                eprintln!("DEBUG: Found Array type for '{}', element_type: {:?}", local.name, element_type);
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] Found Array type for '{}', element_type: {:?}", local.name, element_type);
+                }
                 if let IRType::Struct { name, .. } = element_type.as_ref() {
                     self.var_array_element_struct.insert(local.name.clone(), name.clone());
-                    eprintln!("DEBUG: Tracked struct array element type '{}' for '{}'", name, local.name);
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] Tracked struct array element type '{}' for '{}'", name, local.name);
+                    }
                 }
                 // Track String arrays (String is a built-in struct type)
                 if matches!(element_type.as_ref(), IRType::String) {
                     self.var_array_element_struct.insert(local.name.clone(), "String".to_string());
-                    eprintln!("DEBUG: Tracked String array element type for '{}'", local.name);
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] Tracked String array element type for '{}'", local.name);
+                    }
                 }
                 // Track integer and char arrays for proper array access
                 if matches!(element_type.as_ref(), IRType::Integer | IRType::Char) {
                     self.var_is_int_array.insert(local.name.clone());
                 }
             }
-            
+
             // Debug: print local variable types
-            if func.name == "GetCommandLineArgs" && local.name.contains("rawArgs") {
-                eprintln!("DEBUG: GetCommandLineArgs local '{}' has type {:?}", local.name, local.var_type);
+            if self.trace_options.trace_boxing && func.name == "GetCommandLineArgs" && local.name.contains("rawArgs") {
+                eprintln!("[BOXING] GetCommandLineArgs local '{}' has type {:?}", local.name, local.var_type);
             }
             
             // Track string types for string indexing
@@ -2728,8 +2776,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                     let value_ty = self
                         .basic_type_from_value(&v)
                         .ok_or_else(|| anyhow!("Cannot infer type for variable {}", name))?;
-                    eprintln!("DEBUG: assign_value creating new slot for '{}', value_ty={}", 
-                        name, value_ty.print_to_string().to_string());
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] assign_value creating new slot for '{}', value_ty={}",
+                            name, value_ty.print_to_string().to_string());
+                    }
                     let slot = self.alloca_for_type(value_ty, &format!("var_{}", name))?;
                     self.var_slots.insert(name.clone(), slot);
                     self.var_slot_types.insert(name.clone(), value_ty);
@@ -2844,8 +2894,10 @@ impl<'ctx> LlvmBackend<'ctx> {
             .var_slot_types
             .get(name)
             .ok_or_else(|| anyhow!("Missing slot type for {}", name))?;
-        eprintln!("DEBUG: load_from_slot name='{}', slot={:?}, elem_ty={}", 
-            name, slot, elem_ty.print_to_string().to_string());
+        if self.trace_options.trace_boxing {
+            eprintln!("[BOXING] load_from_slot name='{}', slot={:?}, elem_ty={}",
+                name, slot, elem_ty.print_to_string().to_string());
+        }
         let load_name = format!("load_{}", name);
         let loaded = match elem_ty {
             BasicTypeEnum::ArrayType(at) => self.builder.build_load(at, slot, &load_name),
@@ -2859,6 +2911,21 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
         }
         .map_err(|e| anyhow!("{e:?}"))?;
+        
+        // For boxed generic parameters, dereference the pointer to get the actual value
+        // The loaded value is a pointer to the actual value (boxed primitive)
+        if self.var_is_boxed_generic.contains(name) {
+            if self.trace_options.trace_boxing {
+                eprintln!("[BOXING] load_from_slot dereferencing boxed generic '{}'", name);
+            }
+            if loaded.is_pointer_value() {
+                let ptr = loaded.into_pointer_value();
+                let deref = self.builder.build_load(self.i64_t, ptr, "deref_boxed_generic")
+                    .map_err(|e| anyhow!("{e:?}"))?;
+                return Ok(deref.as_basic_value_enum());
+            }
+        }
+        
         Ok(loaded.as_basic_value_enum())
     }
 

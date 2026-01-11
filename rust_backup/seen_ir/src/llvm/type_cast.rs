@@ -105,28 +105,17 @@ impl<'ctx> TypeCastOps<'ctx> for LlvmBackend<'ctx> {
                     .map_err(|e| anyhow!("{e:?}"))
             }
         } else if v.is_pointer_value() {
-            // Handle pointer values - for generic returns (like Vec_get), this is a pointer 
-            // to the actual value, so we need to dereference
+            // Handle pointer values - for generic returns (like Option.unwrap), the pointer
+            // value IS the integer value (ptr-as-int representation for boxed primitives).
+            // Use ptr_to_int to extract the integer value.
+            // 
+            // NOTE: This assumes pointers passed to as_i64 are boxed integers, not actual
+            // pointers to integer data. If dereferencing is needed, it should be done by
+            // the caller before calling as_i64.
             let ptr = v.into_pointer_value();
-            
-            // Try loading as i64 from the pointer - this handles generic return values
-            // which are autoboxed pointers to the actual value
-            let loaded = self.builder.build_load(self.i64_t, ptr, "deref_i64")?;
-            if loaded.is_int_value() {
-                let iv = loaded.into_int_value();
-                if iv.get_type() == self.i64_t {
-                    Ok(iv)
-                } else {
-                    self.builder
-                        .build_int_z_extend(iv, self.i64_t, "zext")
-                        .map_err(|e| anyhow!("{e:?}"))
-                }
-            } else {
-                // Fall back to ptr-to-int if dereference fails
-                self.builder
-                    .build_ptr_to_int(ptr, self.i64_t, "ptr2i")
-                    .map_err(|e| anyhow!("{e:?}"))
-            }
+            self.builder
+                .build_ptr_to_int(ptr, self.i64_t, "ptr2i")
+                .map_err(|e| anyhow!("{e:?}"))
         } else if v.is_float_value() {
             // Handle float values by converting to int
             self.builder

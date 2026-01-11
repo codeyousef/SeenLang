@@ -1,0 +1,872 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Type definitions
+type Option = struct Option { hasValue: bool, value: i64 }
+type Vec = struct Vec { chunks: [struct VecChunk { values: [struct T {  }] }], capacities: [i64], usage: [i64], length: i64, totalCapacity: i64, nextChunkSize: i64 }
+type VecChunk = struct VecChunk { values: [struct T {  }] }
+type VecSlot = struct VecSlot { chunk: i64, offset: i64 }
+
+; Functions
+fn None() -> struct T {  }? {
+; Entry: entry
+entry:
+  call %Option_New () -> %r0
+  ret %r0
+
+}
+
+fn Option [public]() -> struct Option { hasValue: bool, value: struct T {  } } {
+; Entry: entry
+entry:
+  new Option(false, null) -> %r0
+  ret %r0
+
+}
+
+fn Option_Clear(this: struct Option {  }) -> struct Void {  } {
+; Entry: entry
+entry:
+  field_set %this.hasValue = false
+  ret false
+
+}
+
+fn Option_Expect(this: struct Option {  }, message: string) -> struct T {  } {
+; Entry: entry
+entry:
+  field_get %this.hasValue -> %r0 (Option.bool)
+  jif %r0 .then_3
+
+block_0:
+  jmp .else_4
+
+then_3:
+  field_get %this.value -> %r1 (Option.struct T {  })
+  ret %r1
+
+block_1:
+  mov %r1 -> %r2
+  jmp .if_end_5
+
+else_4:
+  mov void -> %r2
+  jmp .if_end_5
+
+if_end_5:
+  call %abort (%message) -> %r3
+  call %Option_Unwrap (%this) -> %r4
+  ret %r4
+
+}
+
+fn Option_IsNone(this: struct Option {  }) -> bool {
+; Entry: entry
+entry:
+  field_get %this.hasValue -> %r0 (Option.bool)
+  not %r0 -> %r1
+  ret %r1
+
+}
+
+fn Option_IsSome(this: struct Option {  }) -> bool {
+; Entry: entry
+entry:
+  field_get %this.hasValue -> %r0 (Option.bool)
+  ret %r0
+
+}
+
+fn Option_New() -> struct T {  }? {
+; Entry: entry
+entry:
+  call %__default_T () -> %r0
+  ret struct Option
+
+}
+
+fn Option_Replace(this: struct Option {  }, value: struct T {  }) -> struct T {  }? {
+; Entry: entry
+entry:
+  field_get %this.hasValue -> %r0 (Option.bool)
+  jif %r0 .then_9
+
+block_0:
+  jmp .else_10
+
+then_9:
+  field_get %this.value -> %r1 (Option.struct T {  })
+  call %Some (%r1) -> %r2
+  mov %r2 -> %r3
+  jmp .if_end_11
+
+else_10:
+  call %None () -> %r4
+  mov %r4 -> %r3
+  jmp .if_end_11
+
+if_end_11:
+  store %r3 -> %previous
+  call %Option_Store (%this, %value) -> %r5
+  ret %previous
+
+}
+
+fn Option_Store(this: struct Option {  }, value: struct T {  }) -> struct Void {  } {
+; Entry: entry
+entry:
+  field_set %this.value = %value
+  field_set %this.hasValue = true
+  ret true
+
+}
+
+fn Option_Unwrap(this: struct Option {  }) -> struct T {  } {
+; Entry: entry
+entry:
+  field_get %this.hasValue -> %r0 (Option.bool)
+  not %r0 -> %r1
+  jif %r1 .then_0
+
+block_0:
+  jmp .else_1
+
+then_0:
+  call %abort ("called unwrap() on None option") -> %r2
+  mov %r2 -> %r3
+  jmp .if_end_2
+
+else_1:
+  mov void -> %r3
+  jmp .if_end_2
+
+if_end_2:
+  field_get %this.value -> %r4 (Option.struct T {  })
+  ret %r4
+
+}
+
+fn Option_UnwrapOr(this: struct Option {  }, defaultValue: struct T {  }) -> struct T {  } {
+; Entry: entry
+entry:
+  field_get %this.hasValue -> %r0 (Option.bool)
+  jif %r0 .then_6
+
+block_0:
+  jmp .else_7
+
+then_6:
+  field_get %this.value -> %r1 (Option.struct T {  })
+  ret %r1
+
+block_1:
+  mov %r1 -> %r2
+  jmp .if_end_8
+
+else_7:
+  mov void -> %r2
+  jmp .if_end_8
+
+if_end_8:
+  ret %defaultValue
+
+}
+
+fn Option_WithValue(v: struct T {  }) -> struct T {  }? {
+; Entry: entry
+entry:
+  ret struct Option
+
+}
+
+fn Option_expect(this: struct Option {  }, message: string) -> struct T {  } {
+; Entry: entry
+entry:
+  call %Option_Expect (%this, %message) -> %r0
+  ret %r0
+
+}
+
+fn Option_isNone(this: struct Option {  }) -> bool {
+; Entry: entry
+entry:
+  call %Option_IsNone (%this) -> %r0
+  ret %r0
+
+}
+
+fn Option_isSome(this: struct Option {  }) -> bool {
+; Entry: entry
+entry:
+  call %Option_IsSome (%this) -> %r0
+  ret %r0
+
+}
+
+fn Option_unwrap(this: struct Option {  }) -> struct T {  } {
+; Entry: entry
+entry:
+  call %Option_Unwrap (%this) -> %r0
+  ret %r0
+
+}
+
+fn Option_unwrapOr(this: struct Option {  }, defaultValue: struct T {  }) -> struct T {  } {
+; Entry: entry
+entry:
+  call %Option_UnwrapOr (%this, %defaultValue) -> %r0
+  ret %r0
+
+}
+
+fn Some(value: struct T {  }) -> struct T {  }? {
+  ; Local variables
+  option: struct T {  }?
+
+; Entry: entry
+entry:
+  call %Option_New () -> %r0
+  store %r0 -> %option
+  call %Option_Store (%option, %value) -> %r1
+  ret %option
+
+}
+
+fn UnwrapOr(option: struct T {  }?, defaultValue: struct T {  }) -> struct T {  } {
+; Entry: entry
+entry:
+  call %Option_UnwrapOr (%option, %defaultValue) -> %r0
+  ret %r0
+
+}
+
+fn Vec [public]() -> struct Vec { chunks: [struct VecChunk { values: [struct T {  }] }], capacities: [i64], usage: [i64], length: i64, totalCapacity: i64, nextChunkSize: i64 } {
+; Entry: entry
+entry:
+  new Vec(null, null, null, 0, 0, 0) -> %r3
+  ret %r3
+
+}
+
+fn VecChunk [public]() -> struct VecChunk { values: [struct T {  }] } {
+; Entry: entry
+entry:
+  new VecChunk(null) -> %r1
+  ret %r1
+
+}
+
+fn VecSlot [public]() -> struct VecSlot { chunk: i64, offset: i64 } {
+; Entry: entry
+entry:
+  new VecSlot(0, 0) -> %r2
+  ret %r2
+
+}
+
+fn Vec_capacity(this: struct Vec {  }) -> i64 {
+; Entry: entry
+entry:
+  field_get %this.totalCapacity -> %r0 (Vec.i64)
+  ret %r0
+
+}
+
+fn Vec_clear(this: struct Vec {  }) -> struct Void {  } {
+; Entry: entry
+entry:
+  call %__ArrayNew (sizeof(Struct { name: "VecChunk", fields: [("values", Array(Struct { name: "T", fields: [] }))] }), 0) -> %r0
+  field_set %this.chunks = %r0
+  call %__ArrayNew (sizeof(Integer), 0) -> %r1
+  field_set %this.capacities = %r1
+  call %__ArrayNew (sizeof(Integer), 0) -> %r2
+  field_set %this.usage = %r2
+  field_set %this.length = 0
+  field_set %this.totalCapacity = 0
+  field_set %this.nextChunkSize = 8
+  ret 8
+
+}
+
+fn Vec_ensureCapacity(this: struct Vec {  }, capacity: i64) -> struct Void {  } {
+; Entry: entry
+entry:
+  call %Vec_reserve (%this, %capacity) -> %r0
+  ret %r0
+
+}
+
+fn Vec_get(this: struct Vec {  }, index: i64) -> struct T {  } {
+  ; Local variables
+  chunk: struct VecChunk { values: [struct T {  }] }
+  chunkIndex: i64
+  chunkUsage: i64
+
+; Entry: entry
+entry:
+  lt %index 0 -> %r0
+  field_get %this.length -> %r1 (Vec.i64)
+  ge %index %r1 -> %r2
+  or %r0 %r2 -> %r3
+  jif %r3 .then_27
+
+block_0:
+  jmp .else_28
+
+then_27:
+  call %abort ("Vec index out of bounds") -> %r4
+  mov %r4 -> %r5
+  jmp .if_end_29
+
+else_28:
+  mov void -> %r5
+  jmp .if_end_29
+
+if_end_29:
+  call %__Print ("Vec.get index:") -> %r6
+  call %__PrintInt (%index) -> %r7
+  store %index -> %remaining
+  store 0 -> %chunkIndex
+  jmp .loop_start_30
+
+loop_start_30:
+  field_get %this.chunks -> %r8 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_len %r8 -> %r9
+  lt %chunkIndex %r9 -> %r10
+  jnot %r10 .loop_end_32
+
+loop_body_31:
+  call %__Print ("Checking chunk:") -> %r11
+  call %__PrintInt (%chunkIndex) -> %r12
+  field_get %this.usage -> %r13 (Vec.[i64])
+  arr_get %r13[%chunkIndex] -> %r14 : i64
+  store %r14 -> %chunkUsage
+  call %__Print ("Chunk usage:") -> %r15
+  call %__PrintInt (%chunkUsage) -> %r16
+  lt %remaining %chunkUsage -> %r17
+  jif %r17 .then_33
+
+block_1:
+  jmp .else_34
+
+then_33:
+  call %__Print ("Found in chunk") -> %r18
+  field_get %this.chunks -> %r19 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_get %r19[%chunkIndex] -> %r20 : struct VecChunk { values: [struct T {  }] }
+  store %r20 -> %chunk
+  call %__Print ("Accessing values") -> %r21
+  field_get %chunk.values -> %r22 (VecChunk.[struct T {  }])
+  arr_get %r22[%remaining] -> %r23 : struct T {  }
+  ret %r23
+
+block_2:
+  mov %r23 -> %r24
+  jmp .if_end_35
+
+else_34:
+  mov void -> %r24
+  jmp .if_end_35
+
+if_end_35:
+  sub %remaining %chunkUsage -> %r25
+  store %r25 -> %remaining
+  add %chunkIndex 1 -> %r26
+  store %r26 -> %chunkIndex
+  jmp .loop_start_30
+
+loop_end_32:
+  call %abort ("Vec internal error") -> %r27
+  ret %r27
+
+}
+
+fn Vec_growChunk(this: struct Vec {  }) -> struct Void {  } {
+  ; Local variables
+  capsArr: [i64]
+  chunk: struct VecChunk { values: [struct T {  }] }
+  chunksArr: [struct VecChunk { values: [struct T {  }] }]
+  usageArr: [i64]
+
+; Entry: entry
+entry:
+  field_get %this.nextChunkSize -> %r1 (Vec.i64)
+  call %__ArrayNew (sizeof(Struct { name: "T", fields: [] }), %r1) -> %r0
+  store struct VecChunk -> %chunk
+  field_get %this.chunks -> %r2 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  store %r2 -> %chunksArr
+  call %Array_push (%chunksArr, %chunk) -> %r3
+  field_set %this.chunks = %chunksArr
+  field_get %this.capacities -> %r4 (Vec.[i64])
+  store %r4 -> %capsArr
+  field_get %this.nextChunkSize -> %r5 (Vec.i64)
+  call %Array_push (%capsArr, %r5) -> %r6
+  field_set %this.capacities = %capsArr
+  field_get %this.usage -> %r7 (Vec.[i64])
+  store %r7 -> %usageArr
+  call %Array_push (%usageArr, 0) -> %r8
+  field_set %this.usage = %usageArr
+  field_get %this.totalCapacity -> %r9 (Vec.i64)
+  field_get %this.nextChunkSize -> %r10 (Vec.i64)
+  add %r9 %r10 -> %r11
+  field_set %this.totalCapacity = %r11
+  field_get %this.nextChunkSize -> %r12 (Vec.i64)
+  mul %r12 2 -> %r13
+  field_set %this.nextChunkSize = %r13
+  ret %r13
+
+}
+
+fn Vec_isEmpty(this: struct Vec {  }) -> bool {
+; Entry: entry
+entry:
+  field_get %this.length -> %r0 (Vec.i64)
+  eq %r0 0 -> %r1
+  ret %r1
+
+}
+
+fn Vec_len(this: struct Vec {  }) -> i64 {
+; Entry: entry
+entry:
+  field_get %this.length -> %r0 (Vec.i64)
+  ret %r0
+
+}
+
+fn Vec_locateSlot(this: struct Vec {  }, index: i64) -> struct VecSlot { chunk: i64, offset: i64 } {
+  ; Local variables
+  chunkIndex: i64
+  chunkUsage: i64
+
+; Entry: entry
+entry:
+  lt %index 0 -> %r0
+  field_get %this.length -> %r1 (Vec.i64)
+  ge %index %r1 -> %r2
+  or %r0 %r2 -> %r3
+  jif %r3 .then_54
+
+block_0:
+  jmp .else_55
+
+then_54:
+  call %abort ("Vec index out of bounds") -> %r4
+  mov %r4 -> %r5
+  jmp .if_end_56
+
+else_55:
+  mov void -> %r5
+  jmp .if_end_56
+
+if_end_56:
+  store %index -> %remaining
+  store 0 -> %chunkIndex
+  jmp .loop_start_57
+
+loop_start_57:
+  field_get %this.chunks -> %r6 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_len %r6 -> %r7
+  lt %chunkIndex %r7 -> %r8
+  jnot %r8 .loop_end_59
+
+loop_body_58:
+  field_get %this.usage -> %r9 (Vec.[i64])
+  arr_get %r9[%chunkIndex] -> %r10 : i64
+  store %r10 -> %chunkUsage
+  lt %remaining %chunkUsage -> %r11
+  jif %r11 .then_60
+
+block_1:
+  jmp .else_61
+
+then_60:
+  ret struct VecSlot
+
+block_2:
+  mov struct VecSlot -> %r12
+  jmp .if_end_62
+
+else_61:
+  mov void -> %r12
+  jmp .if_end_62
+
+if_end_62:
+  sub %remaining %chunkUsage -> %r13
+  store %r13 -> %remaining
+  add %chunkIndex 1 -> %r14
+  store %r14 -> %chunkIndex
+  jmp .loop_start_57
+
+loop_end_59:
+  call %abort ("Vec index out of bounds") -> %r15
+  ret struct VecSlot
+
+}
+
+fn Vec_new() -> struct Vec {  } {
+  ; Local variables
+  this: struct Vec {  }
+
+; Entry: entry
+entry:
+  call %__ArrayNew (sizeof(Struct { name: "VecChunk", fields: [("values", Array(Struct { name: "T", fields: [] }))] }), 0) -> %r0
+  call %__ArrayNew (sizeof(Integer), 0) -> %r1
+  call %__ArrayNew (sizeof(Integer), 0) -> %r2
+  ret struct Vec
+
+}
+
+fn Vec_pop(this: struct Vec {  }) -> struct T {  } {
+; Entry: entry
+entry:
+  field_get %this.length -> %r0 (Vec.i64)
+  eq %r0 0 -> %r1
+  jif %r1 .then_18
+
+block_0:
+  jmp .else_19
+
+then_18:
+  call %abort ("Vec.pop() called on empty Vec") -> %r2
+  mov %r2 -> %r3
+  jmp .if_end_20
+
+else_19:
+  mov void -> %r3
+  jmp .if_end_20
+
+if_end_20:
+  field_get %this.chunks -> %r4 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_len %r4 -> %r5
+  sub %r5 1 -> %r6
+  store %r6 -> %chunkIndex
+  jmp .loop_start_21
+
+loop_start_21:
+  ge %chunkIndex 0 -> %r7
+  field_get %this.usage -> %r8 (Vec.[i64])
+  arr_get %r8[%chunkIndex] -> %r9 : i64
+  eq %r9 0 -> %r10
+  and %r7 %r10 -> %r11
+  jnot %r11 .loop_end_23
+
+loop_body_22:
+  sub %chunkIndex 1 -> %r12
+  store %r12 -> %chunkIndex
+  jmp .loop_start_21
+
+loop_end_23:
+  lt %chunkIndex 0 -> %r13
+  jif %r13 .then_24
+
+block_1:
+  jmp .else_25
+
+then_24:
+  call %abort ("Vec internal state corrupted") -> %r14
+  mov %r14 -> %r15
+  jmp .if_end_26
+
+else_25:
+  mov void -> %r15
+  jmp .if_end_26
+
+if_end_26:
+  field_get %this.usage -> %r16 (Vec.[i64])
+  arr_get %r16[%chunkIndex] -> %r17 : i64
+  sub %r17 1 -> %r18
+  store %r18 -> %used
+  field_get %this.usage -> %r19 (Vec.[i64])
+  arr_set %r19[%chunkIndex] = %used
+  field_get %this.length -> %r20 (Vec.i64)
+  sub %r20 1 -> %r21
+  field_set %this.length = %r21
+  field_get %this.chunks -> %r22 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_get %r22[%chunkIndex] -> %r23 : struct VecChunk { values: [struct T {  }] }
+  field_get %r23.values -> %r24 (VecChunk.[struct T {  }])
+  arr_get %r24[%used] -> %r25 : struct T {  }
+  ret %r25
+
+}
+
+fn Vec_push(this: struct Vec {  }, value: struct T {  }) -> struct Void {  } {
+  ; Local variables
+  chunk: struct VecChunk { values: [struct T {  }] }
+  used: i64
+  valuesArr: [struct T {  }]
+
+; Entry: entry
+entry:
+  call %__Print ("[DEBUG] Vec_push called. \'this\' address: ") -> %r0
+  call %__PtrToInt (%this) -> %r1
+  call %__PrintInt (%r1) -> %r2
+  call %__Println ("") -> %r3
+  field_get %this.length -> %r4 (Vec.i64)
+  field_get %this.totalCapacity -> %r5 (Vec.i64)
+  ge %r4 %r5 -> %r6
+  jif %r6 .then_12
+
+block_0:
+  jmp .else_13
+
+then_12:
+  call %Vec_growChunk (%this) -> %r7
+  mov %r7 -> %r8
+  jmp .if_end_14
+
+else_13:
+  mov void -> %r8
+  jmp .if_end_14
+
+if_end_14:
+  field_get %this.chunks -> %r9 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_len %r9 -> %r10
+  sub %r10 1 -> %r11
+  store %r11 -> %lastIndex
+  field_get %this.chunks -> %r12 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_get %r12[%lastIndex] -> %r13 : struct VecChunk { values: [struct T {  }] }
+  store %r13 -> %chunk
+  field_get %this.usage -> %r14 (Vec.[i64])
+  arr_get %r14[%lastIndex] -> %r15 : i64
+  store %r15 -> %used
+  field_get %chunk.values -> %r16 (VecChunk.[struct T {  }])
+  store %r16 -> %valuesArr
+  arr_len %valuesArr -> %r17
+  lt %used %r17 -> %r18
+  jif %r18 .then_15
+
+block_1:
+  jmp .else_16
+
+then_15:
+  arr_set %valuesArr[%used] = %value
+  mov %value -> %r19
+  jmp .if_end_17
+
+else_16:
+  call %Array_push (%valuesArr, %value) -> %r20
+  mov %r20 -> %r19
+  jmp .if_end_17
+
+if_end_17:
+  field_set %chunk.values = %valuesArr
+  field_get %this.chunks -> %r21 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_set %r21[%lastIndex] = %chunk
+  add %used 1 -> %r22
+  field_get %this.usage -> %r23 (Vec.[i64])
+  arr_set %r23[%lastIndex] = %r22
+  field_get %this.length -> %r24 (Vec.i64)
+  add %r24 1 -> %r25
+  field_set %this.length = %r25
+  ret %r25
+
+}
+
+fn Vec_reserve(this: struct Vec {  }, capacity: i64) -> struct Void {  } {
+; Entry: entry
+entry:
+  field_get %this.totalCapacity -> %r0 (Vec.i64)
+  le %capacity %r0 -> %r1
+  jif %r1 .then_45
+
+block_0:
+  jmp .else_46
+
+then_45:
+  ret
+
+block_1:
+  mov void -> %r2
+  jmp .if_end_47
+
+else_46:
+  mov void -> %r2
+  jmp .if_end_47
+
+if_end_47:
+  jmp .loop_start_48
+
+loop_start_48:
+  field_get %this.totalCapacity -> %r3 (Vec.i64)
+  lt %r3 %capacity -> %r4
+  jnot %r4 .loop_end_50
+
+loop_body_49:
+  call %Vec_growChunk (%this) -> %r5
+  jmp .loop_start_48
+
+loop_end_50:
+  ret void
+
+}
+
+fn Vec_set(this: struct Vec {  }, index: i64, value: struct T {  }) -> struct Void {  } {
+  ; Local variables
+  chunkIndex: i64
+  chunkUsage: i64
+
+; Entry: entry
+entry:
+  lt %index 0 -> %r0
+  field_get %this.length -> %r1 (Vec.i64)
+  ge %index %r1 -> %r2
+  or %r0 %r2 -> %r3
+  jif %r3 .then_36
+
+block_0:
+  jmp .else_37
+
+then_36:
+  call %abort ("Vec index out of bounds") -> %r4
+  mov %r4 -> %r5
+  jmp .if_end_38
+
+else_37:
+  mov void -> %r5
+  jmp .if_end_38
+
+if_end_38:
+  store %index -> %remaining
+  store 0 -> %chunkIndex
+  jmp .loop_start_39
+
+loop_start_39:
+  field_get %this.chunks -> %r6 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_len %r6 -> %r7
+  lt %chunkIndex %r7 -> %r8
+  jnot %r8 .loop_end_41
+
+loop_body_40:
+  field_get %this.usage -> %r9 (Vec.[i64])
+  arr_get %r9[%chunkIndex] -> %r10 : i64
+  store %r10 -> %chunkUsage
+  lt %remaining %chunkUsage -> %r11
+  jif %r11 .then_42
+
+block_1:
+  jmp .else_43
+
+then_42:
+  field_get %this.chunks -> %r12 (Vec.[struct VecChunk { values: [struct T {  }] }])
+  arr_get %r12[%chunkIndex] -> %r13 : struct VecChunk { values: [struct T {  }] }
+  field_get %r13.values -> %r14 (VecChunk.[struct T {  }])
+  arr_set %r14[%remaining] = %value
+  ret
+
+block_2:
+  mov void -> %r15
+  jmp .if_end_44
+
+else_43:
+  mov void -> %r15
+  jmp .if_end_44
+
+if_end_44:
+  sub %remaining %chunkUsage -> %r16
+  store %r16 -> %remaining
+  add %chunkIndex 1 -> %r17
+  store %r17 -> %chunkIndex
+  jmp .loop_start_39
+
+loop_end_41:
+  call %abort ("Vec internal error") -> %r18
+  ret %r18
+
+}
+
+fn Vec_toArray(this: struct Vec {  }) -> [struct T {  }] {
+  ; Local variables
+  arr: [struct T {  }]
+  i: i64
+
+; Entry: entry
+entry:
+  call %__ArrayNew (sizeof(Struct { name: "T", fields: [] }), 0) -> %r0
+  store %r0 -> %arr
+  store 0 -> %i
+  jmp .loop_start_51
+
+loop_start_51:
+  field_get %this.length -> %r1 (Vec.i64)
+  lt %i %r1 -> %r2
+  jnot %r2 .loop_end_53
+
+loop_body_52:
+  call %Vec_get (%this, %i) -> %r3
+  call %Array_push (%arr, %r3) -> %r4
+  add %i 1 -> %r5
+  store %r5 -> %i
+  jmp .loop_start_51
+
+loop_end_53:
+  ret %arr
+
+}
+
+fn Vec_withCapacity(capacity: i64) -> struct Vec {  } {
+  ; Local variables
+  vec: struct Vec {  }
+
+; Entry: entry
+entry:
+  call %Vec_new () -> %r0
+  store %r0 -> %vec
+  call %Vec_reserve (%vec, %capacity) -> %r1
+  ret %vec
+
+}
+
+fn __Print [extern](s: string) -> void {}
+
+fn __PrintInt [extern](n: i64) -> void {}
+
+fn __Println [extern](s: string) -> void {}
+
+fn __PtrToInt [extern](ptr: struct T {  }) -> i64 {}
+
+fn __default [extern]() -> struct T {  } {}
+
+fn main() -> void {
+  ; Local variables
+  opt: struct T {  }?
+  opt2: struct T {  }?
+  v: struct Vec {  }
+  x: i64?
+
+; Entry: entry
+entry:
+  call %__Println ("Creating Vec<Int>") -> %r0
+  call %Vec_new () -> %r1
+  store %r1 -> %v
+  call %__Println ("Pushing 42") -> %r2
+  call %Vec_push (%v, 42) -> %r3
+  call %__Print ("Direct PrintInt: ") -> %r4
+  call %Vec_get (%v, 0) -> %r5
+  call %__PrintInt (%r5) -> %r6
+  call %__Println ("") -> %r7
+  call %Vec_get (%v, 0) -> %r8
+  store %r8 -> %x
+  call %__Print ("Stored x PrintInt: ") -> %r9
+  call %__PrintInt (%x) -> %r10
+  call %__Println ("") -> %r11
+  call %Some (%x) -> %r12
+  store %r12 -> %opt
+  call %__Print ("Some(x).unwrap(): ") -> %r13
+  call %Option_unwrap (%opt) -> %r14
+  call %__PrintInt (%r14) -> %r15
+  call %__Println ("") -> %r16
+  call %Vec_get (%v, 0) -> %r17
+  call %Some (%r17) -> %r18
+  store %r18 -> %opt2
+  call %__Print ("Some(v.get(0)).unwrap(): ") -> %r19
+  call %Option_unwrap (%opt2) -> %r20
+  call %__PrintInt (%r20) -> %r21
+  call %__Println ("") -> %r22
+  call %__Println ("Done!") -> %r23
+  ret %r23
+
+}
+
+
