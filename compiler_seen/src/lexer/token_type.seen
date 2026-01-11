@@ -127,3 +127,19 @@ fun getCommaType() r: SeenTokenType {
 fun getEndOfFileType() r: SeenTokenType {
     return SeenTokenType.EndOfFile
 }
+
+fun getKeywordFunType() r: SeenTokenType {
+    return SeenTokenType.KeywordFun
+}
+
+fun getKeywordImportType() r: SeenTokenType {
+    return SeenTokenType.KeywordImport
+}
+
+fun getKeywordUseType() r: SeenTokenType {
+    return SeenTokenType.KeywordUse
+}
+
+fun getKeywordClassType() r: SeenTokenType {
+    return SeenTokenType.KeywordClass
+}

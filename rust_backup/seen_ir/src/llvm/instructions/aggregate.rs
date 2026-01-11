@@ -737,6 +737,13 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         )
                     })?;
                 
+                // [GEP TRACE] output for debugging struct layout issues
+                if self.trace_options.trace_gep {
+                    eprintln!("[GEP TRACE] accessing member '{}' of struct '{}'", field, type_name);
+                    eprintln!("[GEP TRACE]   - Base Pointer Type: {:?}", llvm_struct_ty);
+                    eprintln!("[GEP TRACE]   - Calculated Field Index: {}", field_idx);
+                }
+                
                 let ptr = if sv.is_pointer_value() {
                     sv.into_pointer_value()
                 } else if sv.is_int_value() {
@@ -934,6 +941,13 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         eprintln!("DEBUG: FieldSet: Field '{}' not found in struct '{}'. Available fields: {:?}", field, type_name, field_names);
                         anyhow!("Field '{}' not found in struct '{}'", field, type_name)
                     })?;
+                
+                // [GEP TRACE] output for debugging struct layout issues
+                if self.trace_options.trace_gep {
+                    eprintln!("[GEP TRACE] setting member '{}' of struct '{}'", field, type_name);
+                    eprintln!("[GEP TRACE]   - Base Pointer Type: {:?}", llvm_struct_ty);
+                    eprintln!("[GEP TRACE]   - Calculated Field Index: {}", field_idx);
+                }
                 
                 let ptr = if let IRValue::Variable(name) = struct_val {
                      eprintln!("DEBUG FieldSet: var_name='{}', field='{}', type_name='{}'", name, field, type_name);

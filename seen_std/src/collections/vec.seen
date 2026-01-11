@@ -5,6 +5,8 @@
 extern fun __default<T>() r: T
 extern fun __Print(s: String)
 extern fun __PrintInt(n: Int)
+extern fun __PtrToInt<T>(ptr: T) r: Int
+extern fun __Println(s: String)
 
 class VecChunk<T> {
     var values: Array<T>
@@ -53,6 +55,10 @@ class Vec<T> {
     }
 
     fun push(value: T) r: Void {
+        __Print("[DEBUG] Vec_push called. 'this' address: ")
+        __PrintInt(__PtrToInt(this))
+        __Println("")
+        
         if this.length >= this.totalCapacity {
             this.growChunk()
         }

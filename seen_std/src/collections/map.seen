@@ -5,6 +5,11 @@
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
 
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+extern fun __PtrToInt<T>(ptr: T) r: Int
+extern fun __Println(s: String)
+
 class Map<K, V> {
     var keys: Vec<K>
     var values: Vec<V>
@@ -21,6 +26,10 @@ class Map<K, V> {
     }
 
     fun put(key: K, value: V) r: Void {
+        __Print("[DEBUG Map.put] 'this' address: ")
+        __PrintInt(__PtrToInt(this))
+        __Println("")
+        
         // Check if key already exists
         var i = 0
         while i < this.length {
@@ -34,14 +43,23 @@ class Map<K, V> {
         // Add new entry
         // Route through locals so the stage-1 type checker resolves Vec.push correctly
         var keysVec = this.keys
+        __Print("[DEBUG Map.put] keysVec address: ")
+        __PrintInt(__PtrToInt(keysVec))
+        __Println("")
         keysVec.push(key)
         this.keys = keysVec
 
         var valuesVec = this.values
+        __Print("[DEBUG Map.put] valuesVec address: ")
+        __PrintInt(__PtrToInt(valuesVec))
+        __Println("")
         valuesVec.push(value)
         this.values = valuesVec
 
         var hashesVec = this.hashes
+        __Print("[DEBUG Map.put] hashesVec address: ")
+        __PrintInt(__PtrToInt(hashesVec))
+        __Println("")
         hashesVec.push(0)
         this.hashes = hashesVec
         this.length = this.length + 1

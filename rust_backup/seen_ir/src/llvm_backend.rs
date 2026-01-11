@@ -67,6 +67,10 @@ pub struct LlvmTraceOptions {
     pub trace_types: bool,
     /// Dump LLVM IR to debug_ir.ll before verification
     pub dump_ir: bool,
+    /// Dump struct layouts with field indices (for debugging layout mismatches)
+    pub dump_layouts: bool,
+    /// Trace GEP (struct field access) operations with indices
+    pub trace_gep: bool,
 }
 
 impl LlvmTraceOptions {
@@ -77,6 +81,8 @@ impl LlvmTraceOptions {
             trace_values: true,
             trace_types: true,
             dump_ir: true,
+            dump_layouts: true,
+            trace_gep: true,
         }
     }
     
@@ -89,13 +95,15 @@ impl LlvmTraceOptions {
             Ok("values") => Self { trace_values: true, ..Default::default() },
             Ok("types") => Self { trace_types: true, ..Default::default() },
             Ok("ir") | Ok("dump") => Self { dump_ir: true, ..Default::default() },
+            Ok("layouts") => Self { dump_layouts: true, trace_types: true, ..Default::default() },
+            Ok("gep") => Self { trace_gep: true, ..Default::default() },
             _ => Self::default(),
         }
     }
     
     /// Returns true if any tracing is enabled
     pub fn any_enabled(&self) -> bool {
-        self.trace_instructions || self.trace_values || self.trace_types || self.dump_ir
+        self.trace_instructions || self.trace_values || self.trace_types || self.dump_ir || self.dump_layouts || self.trace_gep
     }
 }
 
@@ -1115,11 +1123,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             return; // Already registered
         }
         
-        // Trace type registration
-        if self.trace_options.trace_types || name == "VecChunk" || name == "Map" {
-            eprintln!("[LLVM TRACE] register_struct_type '{}' with {} fields:", name, fields.len());
-            for (fname, ftype) in fields {
-                eprintln!("[LLVM TRACE]   field '{}': {:?}", fname, ftype);
+        // Trace type registration with [LAYOUT] output for debugging layout mismatches
+        if self.trace_options.trace_types || self.trace_options.dump_layouts || name == "VecChunk" || name == "Map" {
+            eprintln!("[LAYOUT] Struct Name: {}", name);
+            for (idx, (fname, ftype)) in fields.iter().enumerate() {
+                eprintln!("[LAYOUT]   Field {}: {} (Type: {:?})", idx, fname, ftype);
             }
         }
         

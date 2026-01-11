@@ -4,8 +4,11 @@
 // full parser port continues.
 
 import lexer.interfaces.{Token, Position}
-import lexer.token_type.{SeenTokenType, SeenTokenType2, TestEnum, getA, getLeftParenType, getLeftParenType2, getRightParenType, getSemicolonType, getDotType, getLeftBraceType, getKeywordAsType, getIdentifierType, getColonType, getRightBraceType, getCommaType, getEndOfFileType}
+import lexer.token_type.{SeenTokenType, SeenTokenType2, TestEnum, getA, getLeftParenType, getLeftParenType2, getRightParenType, getSemicolonType, getDotType, getLeftBraceType, getKeywordAsType, getIdentifierType, getColonType, getRightBraceType, getCommaType, getEndOfFileType, getKeywordFunType, getKeywordImportType, getKeywordUseType, getKeywordClassType}
 import core.option.{Option}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
 
 
 
@@ -161,7 +164,11 @@ class RealParser {
         println("[trace] RealParser.parse: checking isAtEnd...")
 
         while not this.isAtEnd() {
-            if this.matchTokenStr(SeenTokenType.KeywordImport) {
+            let currentToken = this.peek()
+            println("[trace] RealParser.parse: current token type=" + currentToken.getType().toString())
+            
+            if this.matchTokenStr(getKeywordImportType()) {
+                println("[trace] RealParser.parse: matched KeywordImport")
                 let importItem = this.parseImportItem()
                 if importItem.itemType != "" {
                     program.items.push(importItem)
@@ -169,7 +176,8 @@ class RealParser {
                 continue
             }
 
-            if this.matchTokenStr(SeenTokenType.KeywordUse) {
+            if this.matchTokenStr(getKeywordUseType()) {
+                println("[trace] RealParser.parse: matched KeywordUse")
                 let importItem = this.parseImportItem()
                 if importItem.itemType != "" {
                     program.items.push(importItem)
@@ -177,15 +185,19 @@ class RealParser {
                 continue
             }
 
-            if this.matchTokenStr(SeenTokenType.KeywordFun) {
+            if this.matchTokenStr(getKeywordFunType()) {
+                println("[trace] RealParser.parse: matched KeywordFun, parsing function...")
                 let functionItem = this.parseFunctionItem()
+                println("[trace] RealParser.parse: functionItem.itemType=" + functionItem.itemType)
                 if functionItem.itemType != "" {
                     program.items.push(functionItem)
+                    println("[trace] RealParser.parse: pushed function item")
                 }
                 continue
             }
 
-            if this.matchTokenStr(SeenTokenType.KeywordClass) {
+            if this.matchTokenStr(getKeywordClassType()) {
+                println("[trace] RealParser.parse: matched KeywordClass")
                 let classItem = this.parseClassItem()
                 if classItem.itemType != "" {
                     program.items.push(classItem)
@@ -194,9 +206,11 @@ class RealParser {
             }
 
             // Skip tokens we do not understand yet (enums, specs, etc.).
+            println("[trace] RealParser.parse: skipping unknown token")
             this.advance()
         }
 
+        println("[trace] RealParser.parse: done, items.length()=" + program.items.length().toString())
         return program
     }
 
@@ -694,15 +708,15 @@ class RealParser {
         }
         println("[trace] checkToken: calling peek...")
         let tok: Token = this.peek()
-        println("[trace] checkToken: got tok, calling getType...")
+        println("[trace] checkToken: got tok, value=" + tok.getValue())
         let tokType: SeenTokenType = tok.getType()
-        println("[trace] checkToken: got tokType, comparing...")
-        // println("tokType: " + tokType.toString() + " expected: " + tokenType.toString())
-        if tokType == tokenType {
+        println("[trace] checkToken: got tokType, about to compare...")
+        let result = tokType == tokenType
+        if result {
              println("MATCH!")
              return true
         }
-        println("NO MATCH")
+        println("NO MATCH for token value: " + tok.getValue())
         return false
     }
     fun advance() r: Token {

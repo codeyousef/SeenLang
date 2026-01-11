@@ -1,0 +1,39 @@
+// repro_enum.seen - Test enum comparison
+// Goal: Isolate whether enum comparison hangs/crashes
+
+extern fun __Println(s: String)
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+fun main() r: Int {
+    __Println("=== repro_enum.seen - Enum comparison test ===")
+    
+    let c1 = Color.Red
+    let c2 = Color.Red
+    let c3 = Color.Blue
+    
+    __Println("Created enum values")
+    
+    __Print("Comparing c1 == c2 (both Red): ")
+    if c1 == c2 {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    __Print("Comparing c1 == c3 (Red vs Blue): ")
+    if c1 == c3 {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    __Println("All enum comparisons completed successfully!")
+    return 0
+}

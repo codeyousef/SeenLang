@@ -1,0 +1,28 @@
+// repro_map.seen - Test Map→Vec interaction with debug tracing
+// Goal: Isolate whether the crash is in Map's storage of Vec pointers
+
+import collections.map.{Map}
+
+extern fun __Println(s: String)
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() r: Int {
+    __Println("=== repro_map.seen - Map→Vec interaction test ===")
+    
+    // Create a Map with simple Int keys and values
+    __Println("Creating Map<Int, Int>...")
+    var m = Map<Int, Int>.new()
+    
+    __Println("Map created. About to call put(1, 100)...")
+    m.put(1, 100)
+    
+    __Println("First put succeeded! About to call put(2, 200)...")
+    m.put(2, 200)
+    
+    __Println("Second put succeeded! About to call get(1)...")
+    // var result = m.get(1)
+    
+    __Println("All Map operations completed successfully!")
+    return 0
+}

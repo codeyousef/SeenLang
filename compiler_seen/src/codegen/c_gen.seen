@@ -27,7 +27,7 @@ class CGenerator {
         println("[trace] CGenerator.generate: after helpers, sb.length()=" + sb.length().toString())
         
         for item in program.items {
-            println("[trace] CGenerator.generate: processing item")
+            println("[trace] CGenerator.generate: processing item, itemType='" + item.itemType + "'")
             generateItem(item)
         }
         

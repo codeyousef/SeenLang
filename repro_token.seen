@@ -1,0 +1,49 @@
+// repro_token.seen - Test Token.getType() enum comparison
+// Goal: Test if enums from Token class can be compared
+
+import lexer.token_type.{SeenTokenType, getKeywordFunType, getLeftParenType}
+import lexer.interfaces.{Token}
+
+extern fun __Println(s: String)
+extern fun __Print(s: String)
+
+fun main() r: Int {
+    __Println("=== repro_token.seen - Token enum test ===")
+    
+    // Create a token with KeywordFun type
+    let tok = Token.new(SeenTokenType.KeywordFun, "fun", 1, 1, 3, 0)
+    
+    __Println("Created Token with KeywordFun type")
+    
+    // Get the type back
+    let tokType = tok.getType()
+    
+    __Println("Got type from token")
+    
+    // Compare with direct enum
+    __Print("Comparing tokType == SeenTokenType.KeywordFun: ")
+    if tokType == SeenTokenType.KeywordFun {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    // Compare with helper
+    __Print("Comparing tokType == getKeywordFunType(): ")
+    if tokType == getKeywordFunType() {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    // Compare with LeftParen
+    __Print("Comparing tokType == SeenTokenType.LeftParen: ")
+    if tokType == SeenTokenType.LeftParen {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    __Println("Token enum test completed!")
+    return 0
+}

@@ -1,0 +1,51 @@
+// repro_enum_module.seen - Test enum comparison across modules
+// Goal: Test if enums can be compared when passed between modules
+
+import lexer.token_type.{SeenTokenType, getKeywordFunType, getLeftParenType}
+
+extern fun __Println(s: String)
+extern fun __Print(s: String)
+
+fun main() r: Int {
+    __Println("=== repro_enum_module.seen - Cross-module enum test ===")
+    
+    // Get enum from helper function in another module
+    let funType = getKeywordFunType()
+    let parenType = getLeftParenType()
+    
+    __Println("Got enum values from helper functions")
+    
+    // Compare directly
+    __Print("Comparing funType == SeenTokenType.KeywordFun: ")
+    if funType == SeenTokenType.KeywordFun {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    __Print("Comparing parenType == SeenTokenType.LeftParen: ")
+    if parenType == SeenTokenType.LeftParen {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    // Compare two from helpers
+    __Print("Comparing funType == funType: ")
+    if funType == funType {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    // Compare different
+    __Print("Comparing funType == parenType: ")
+    if funType == parenType {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    __Println("Cross-module enum test completed!")
+    return 0
+}

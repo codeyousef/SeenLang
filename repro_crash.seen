@@ -1,0 +1,58 @@
+// Isolation test case for class-nested-in-class struct layout debugging
+// This tests the scenario without Map logic overhead to identify pointer/layout issues
+// Simplified to use only built-in intrinsics that are implemented
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+extern fun __Println(s: String)
+
+class Inner {
+    var value: Int
+    
+    static fun new() r: Inner {
+        var inner = Inner{value: 42}
+        return inner
+    }
+    
+    fun touch() r: Void {
+        __Print("[Inner.touch] Value: ")
+        __PrintInt(this.value)
+        __Println("")
+        
+        // Modify the field to test write access
+        this.value = 99
+        
+        __Print("[Inner.touch] After modification: ")
+        __PrintInt(this.value)
+        __Println("")
+    }
+}
+
+class Outer {
+    var inner: Inner
+    
+    static fun new() r: Outer {
+        var outer = Outer{inner: Inner.new()}
+        return outer
+    }
+}
+
+fun main() r: Int {
+    __Println("=== repro_crash.seen - Class nested in Class test ===")
+    
+    var o = Outer.new()
+    __Print("Outer created. Accessing inner.value: ")
+    __PrintInt(o.inner.value)
+    __Println("")
+    
+    // Trigger the potential crash - call method on nested class
+    o.inner.touch()
+    __Println("Touch successful - nested class access works!")
+    
+    // Final verification
+    __Print("Final inner.value: ")
+    __PrintInt(o.inner.value)
+    __Println("")
+    
+    return 0
+}

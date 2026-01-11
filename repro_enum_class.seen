@@ -1,0 +1,64 @@
+// repro_enum_class.seen - Test enum stored in class field
+// Goal: Isolate whether enum stored in class field can be compared
+
+extern fun __Println(s: String)
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+class ColorHolder {
+    let color: Color
+    
+    static fun new(c: Color) r: ColorHolder {
+        return ColorHolder { color: c }
+    }
+    
+    fun getColor() r: Color {
+        return color
+    }
+}
+
+fun main() r: Int {
+    __Println("=== repro_enum_class.seen - Enum in class test ===")
+    
+    let holder1 = ColorHolder.new(Color.Red)
+    let holder2 = ColorHolder.new(Color.Red)
+    let holder3 = ColorHolder.new(Color.Blue)
+    
+    __Println("Created ColorHolder instances")
+    
+    let c1 = holder1.getColor()
+    let c2 = holder2.getColor()
+    let c3 = holder3.getColor()
+    
+    __Println("Retrieved colors from holders")
+    
+    __Print("Comparing c1 == c2 (both Red from class): ")
+    if c1 == c2 {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    __Print("Comparing c1 == c3 (Red vs Blue from class): ")
+    if c1 == c3 {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    __Print("Comparing c1 == Color.Red (direct): ")
+    if c1 == Color.Red {
+        __Println("TRUE")
+    } else {
+        __Println("FALSE")
+    }
+    
+    __Println("All enum-in-class comparisons completed successfully!")
+    return 0
+}

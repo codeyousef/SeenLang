@@ -1268,13 +1268,33 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                 }
                 "__Print" => {
-                    // Print a string
+                    // Print a string (no newline)
                     if let Some(arg0) = args.get(0) {
                         let val = self.eval_value(arg0, fn_map)?;
                         let s = self.as_cstr_ptr(val)?;
                         // Use printf with %s format
                         let fmt = self.builder.build_global_string_ptr("%s", "fmt_str")?;
                         self.call_printf(&[fmt.as_pointer_value().into(), s.into()])?;
+                        if let Some(r) = result {
+                            self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
+                        }
+                        return Ok(());
+                    }
+                }
+                "__Println" => {
+                    // Print a string with newline
+                    if let Some(arg0) = args.get(0) {
+                        let val = self.eval_value(arg0, fn_map)?;
+                        let s = self.as_cstr_ptr(val)?;
+                        // Use puts which auto-appends newline
+                        let puts_fn = self.module.get_function("puts").unwrap_or_else(|| {
+                            self.module.add_function(
+                                "puts",
+                                self.ctx.i32_type().fn_type(&[self.i8_ptr_t.into()], false),
+                                None,
+                            )
+                        });
+                        self.builder.build_call(puts_fn, &[s.into()], "puts_call")?;
                         if let Some(r) = result {
                             self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
                         }
@@ -1290,6 +1310,28 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         self.call_printf(&[fmt.as_pointer_value().into(), int_val.into()])?;
                         if let Some(r) = result {
                             self.assign_value(r, self.i64_t.const_zero().as_basic_value_enum())?;
+                        }
+                        return Ok(());
+                    }
+                }
+                "__PtrToInt" => {
+                    // Convert a pointer to an integer (for debug printing addresses)
+                    if let Some(arg0) = args.get(0) {
+                        let val = self.eval_value(arg0, fn_map)?;
+                        let int_val = if val.is_pointer_value() {
+                            self.builder.build_ptr_to_int(
+                                val.into_pointer_value(),
+                                self.i64_t,
+                                "ptr_to_int"
+                            )?
+                        } else if val.is_int_value() {
+                            // Already an int (class pointers are stored as i64)
+                            val.into_int_value()
+                        } else {
+                            return Err(anyhow!("__PtrToInt: unsupported value type"));
+                        };
+                        if let Some(r) = result {
+                            self.assign_value(r, int_val.as_basic_value_enum())?;
                         }
                         return Ok(());
                     }

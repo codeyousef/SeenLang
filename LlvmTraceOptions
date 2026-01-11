@@ -1,0 +1,6 @@
+
+
+[LAYOUT] Struct Name: {struct_name}
+[LAYOUT]   Field 0: {field_name} (Type: {ir_type})
+[LAYOUT]   Field 1: {field_name} (Type: {ir_type})
+...

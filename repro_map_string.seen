@@ -1,0 +1,28 @@
+// repro_map_string.seen - Test Map with String keys
+// This tests the scenario used in the Stage1 compiler
+
+import collections.map.{Map}
+
+extern fun __Println(s: String)
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+
+fun main() r: Int {
+    __Println("=== repro_map_string.seen - Map<String, Int> test ===")
+    
+    // Create a Map with String keys
+    __Println("Creating Map<String, Int>...")
+    var m = Map<String, Int>.new()
+    
+    __Println("Map created. About to call put(\"hello\", 100)...")
+    m.put("hello", 100)
+    
+    __Println("First put succeeded! About to call put(\"world\", 200)...")
+    m.put("world", 200)
+    
+    __Println("Second put succeeded! About to call put(\"test\", 300)...")
+    m.put("test", 300)
+    
+    __Println("All Map<String, Int> operations completed successfully!")
+    return 0
+}
