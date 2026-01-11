@@ -1106,8 +1106,13 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
             }
             IRType::Struct { name, .. } => {
+                // Check if this is actually an enum type that was misidentified as struct
+                // This happens when enum type isn't registered before it's referenced
+                if self.enum_types.contains_key(name) {
+                    // Enums are represented as i64
+                    self.i64_t.into()
                 // Check if this is a class type (heap-allocated, represented as pointer/i64)
-                if self.class_types.contains(name) {
+                } else if self.class_types.contains(name) {
                     // Classes are represented as i64 (pointer-to-int) for ABI compatibility
                     self.i64_t.into()
                 } else if let Some((st, _)) = self.struct_types.get(name) {
