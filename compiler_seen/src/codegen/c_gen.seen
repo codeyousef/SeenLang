@@ -26,9 +26,13 @@ class CGenerator {
         sb.appendLine("")
         println("[trace] CGenerator.generate: after helpers, sb.length()=" + sb.length().toString())
         
-        for item in program.items {
-            println("[trace] CGenerator.generate: processing item, itemType='" + item.itemType + "'")
+        // Use while loop instead of for-in to avoid iterator issues
+        var idx = 0
+        while idx < program.items.length() {
+            let item = program.items[idx]
+            println("[trace] CGenerator.generate: processing item idx=" + idx.toString() + ", itemType='" + item.itemType + "'")
             generateItem(item)
+            idx = idx + 1
         }
         
         println("[trace] CGenerator.generate: about to toString() CHECK, sb.length()=" + sb.length().toString())

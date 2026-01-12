@@ -4,6 +4,7 @@ import bootstrap.frontend.{FrontendResult, run_frontend}
 import io.file.{readText, writeText}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 import env.env.{args}
+import codegen.c_gen.{CGenerator}
 
 fun compileCommand(inputFile: String, outputFile: String) r: Int {
     println("🚀 Stage1 compiling (Seen-only path)")
@@ -21,9 +22,10 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
         return 1
     }
 
-    // Stub codegen: emit minimal C and compile with gcc
+    // Generate C code from AST
+    let generator = CGenerator.new()
+    let cCode = generator.generate(frontend.program)
     let cFilePath = outputFile + ".c"
-    let cCode = "#include <stdio.h>\nint main(){return 0;}\n"
     if not writeText(cFilePath, cCode) {
         println("❌ Failed to write intermediate C file: " + cFilePath)
         return 1

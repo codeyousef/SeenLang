@@ -26,6 +26,7 @@ pub trait AggregateOps<'ctx> {
         index: &IRValue,
         result: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
+        instruction_element_type: Option<&IRType>,
     ) -> Result<()>;
 
     fn emit_array_set(
@@ -104,9 +105,10 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         index: &IRValue,
         result: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
+        instruction_element_type: Option<&IRType>,
     ) -> Result<()> {
         let arr_v = self.eval_value(array, fn_map)?;
-        
+
         // Debug: print array access type info
         if self.trace_options.trace_boxing {
             if let IRValue::Variable(var_name) = array {
@@ -130,11 +132,20 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         };
         
         // Check if this is an array of structs
+        // First try hashmap lookup, then fall back to instruction_element_type
         let element_struct_type = match array {
             IRValue::Variable(var_name) => self.var_array_element_struct.get(var_name).cloned(),
             IRValue::Register(reg_id) => self.reg_array_element_struct.get(reg_id).cloned(),
             _ => None
-        };
+        }.or_else(|| {
+            // Use element_type from instruction as fallback
+            if let Some(IRType::Struct { name, .. }) = instruction_element_type {
+                eprintln!("DEBUG ArrayAccess: using instruction_element_type fallback: {}", name);
+                Some(name.clone())
+            } else {
+                None
+            }
+        });
         
         if let IRValue::Array(vs) = array {
             let idx_bv = self.eval_value(index, fn_map)?;

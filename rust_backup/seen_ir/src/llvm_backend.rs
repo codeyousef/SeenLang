@@ -1950,7 +1950,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                         }
                     }
                 }
-                self.emit_array_access(array, index, result, fn_map)?;
+                self.emit_array_access(array, index, result, fn_map, element_type.as_ref())?;
             }
             Instruction::ArraySet { array, index, value, element_type } => {
                 // Pass element_type to help with struct array set
