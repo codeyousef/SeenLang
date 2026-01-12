@@ -715,9 +715,9 @@ class RealParser {
         println("Token Value:")
         println(tok.value)
         
-        // Try to print enum values as integers if possible, or just rely on value
-        // __PrintInt(tokType) 
-        // __PrintInt(tokenType)
+        // Print enum values using toString
+        println("tokType.toString()=" + tokType.toString())
+        println("expected.toString()=" + tokenType.toString())
 
         if tokType == tokenType {
              println("MATCH!")

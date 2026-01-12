@@ -1,0 +1,23 @@
+enum TokenType {
+    Int,
+    Float,
+    Fun,
+    Let
+}
+
+fun main() {
+    let t1: TokenType = TokenType.Fun
+    let t2: TokenType = TokenType.Fun
+    let t3: TokenType = TokenType.Let
+    
+    println("t1 == t2: " + (t1 == t2).toString())
+    println("t1 == t3: " + (t1 == t3).toString())
+    
+    // Test using a function that returns the enum
+    let t4: TokenType = getFunType()
+    println("t1 == t4: " + (t1 == t4).toString())
+}
+
+fun getFunType() r: TokenType {
+    return TokenType.Fun
+}

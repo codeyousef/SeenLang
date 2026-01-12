@@ -1,0 +1,10 @@
+// Simple Option test
+fun getOpt() r: Option<String> {
+    return Some("hello")
+}
+
+fun main() {
+    let opt = getOpt()
+    let val = opt.unwrapOr("default")
+    println("Got: " + val)
+}

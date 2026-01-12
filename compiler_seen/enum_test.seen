@@ -1,0 +1,14 @@
+import lexer.token_type.{SeenTokenType, getKeywordFunType}
+
+fun main() {
+    // Direct enum value
+    let direct: SeenTokenType = SeenTokenType.KeywordFun
+    println("Direct KeywordFun: " + direct.toString())
+    
+    // Via function
+    let viaFn: SeenTokenType = getKeywordFunType()
+    println("Via function: " + viaFn.toString())
+    
+    // Compare
+    println("direct == viaFn: " + (direct == viaFn).toString())
+}

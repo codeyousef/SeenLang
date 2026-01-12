@@ -155,17 +155,13 @@ fun readText(path: String) r: String {
 }
 
 fun writeText(path: String, content: String) r: Bool {
-    abort("TRACE: writeText called")
-    println("[trace] std.writeText: path=" + path)
     let res = FsFile.create(path)
     if res.isOk {
         let myFile: FsFile = res.unwrap()
         let written = __WriteFile(myFile.fd, content)
         let _ = myFile.closeFile()
-        println("[trace] std.writeText: written=" + written.toString())
         return written >= 0
     }
-    println("[trace] std.writeText: create failed")
     return false
 }
 

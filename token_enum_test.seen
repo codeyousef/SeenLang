@@ -1,0 +1,36 @@
+enum TokenType {
+    Int,
+    Float,
+    Fun,
+    Let
+}
+
+class Token {
+    let tokenType: TokenType
+    let value: String
+    
+    static fun new(t: TokenType, v: String) r: Token {
+        return Token { tokenType: t, value: v }
+    }
+    
+    fun getType() r: TokenType {
+        return tokenType
+    }
+}
+
+fun main() {
+    // Create a token with TokenType.Fun
+    let tok: Token = Token.new(TokenType.Fun, "fun")
+    println("Token value: " + tok.value)
+    
+    // Get the type back
+    let t: TokenType = tok.getType()
+    println("Got type: " + t.toString())
+    
+    // Compare
+    let expected: TokenType = TokenType.Fun
+    println("expected == t: " + (expected == t).toString())
+    
+    // Compare directly  
+    println("TokenType.Fun == t: " + (TokenType.Fun == t).toString())
+}

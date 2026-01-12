@@ -14,12 +14,8 @@ import codegen.c_gen.{CGenerator}
 
 
 // NOTE: Use println directly to avoid runtime file descriptor quirks on /dev/stdout.
-fun stdoutWrite(text: String) r: Void {
-    println(text)
-    return
-}
-
-fun stdoutLine(text: String) r: Void {
+// Use printLn instead of printLn to avoid symbol collision with runtime
+fun printLn(text: String) r: Void {
     println(text)
     return
 }
@@ -33,12 +29,12 @@ extern fun __CloseFile(fd: Int) r: Int
 fun myWriteText(path: String, content: String) r: Bool {
     let abi = __VerifyStringABI(content)
     if abi == 0 {
-        stdoutLine("String ABI mismatch or corruption detected in myWriteText!")
+        printLn("String ABI mismatch or corruption detected in myWriteText!")
         return false
     }
     let fd = __OpenFile(path, "w")
     if fd < 0 {
-        stdoutLine("Failed to open file: " + path)
+        printLn("Failed to open file: " + path)
         return false
     }
     let written = __WriteFile(fd, content)
@@ -65,15 +61,15 @@ fun main() r: Int {
         exit = checkCommand(sourceFile)
     
     } else if command == "--version" or command == "-v" {
-        stdoutLine("Seen Compiler v2.0.0 (Self-hosted)")
-        stdoutLine("Language: Seen (س)")
-        stdoutLine("Status: REAL IMPLEMENTATION - Not a stub!")
+        printLn("Seen Compiler v2.0.0 (Self-hosted)")
+        printLn("Language: Seen (س)")
+        printLn("Status: REAL IMPLEMENTATION - Not a stub!")
         exit = 0
     } else if command == "--help" or command == "-h" {
         printUsage()
         exit = 0
     } else {
-        stdoutLine("Error: Unknown command '" + command + "'")
+        printLn("Error: Unknown command '" + command + "'")
         printUsage()
         exit = 1
     }
@@ -82,36 +78,36 @@ fun main() r: Int {
 }
 
 fun printUsage() r: Void {
-    stdoutLine("Seen Compiler v2.0.0 - Self-hosted Implementation")
-    stdoutLine("")
-    stdoutLine("Usage: seen <command> [options]")
-    stdoutLine("")
-    stdoutLine("Commands:")
-    stdoutLine("  build <source.seen> [output]  Compile source file to executable")
-    stdoutLine("  check <source.seen>           Type check without building")
-    stdoutLine("  --version, -v                 Show version information")
-    stdoutLine("  --help, -h                    Show this help message")
-    stdoutLine("")
-    stdoutLine("Examples:")
-    stdoutLine("  seen build main.seen          Build executable 'main'")
-    stdoutLine("  seen build app.seen app.exe   Build with custom output name")
-    stdoutLine("  seen run hello.seen           Run program immediately")
-    stdoutLine("  seen check src/*.seen         Type check all files")
-    stdoutLine("  seen init my_project          Create new project")
+    printLn("Seen Compiler v2.0.0 - Self-hosted Implementation")
+    printLn("")
+    printLn("Usage: seen <command> [options]")
+    printLn("")
+    printLn("Commands:")
+    printLn("  build <source.seen> [output]  Compile source file to executable")
+    printLn("  check <source.seen>           Type check without building")
+    printLn("  --version, -v                 Show version information")
+    printLn("  --help, -h                    Show this help message")
+    printLn("")
+    printLn("Examples:")
+    printLn("  seen build main.seen          Build executable 'main'")
+    printLn("  seen build app.seen app.exe   Build with custom output name")
+    printLn("  seen run hello.seen           Run program immediately")
+    printLn("  seen check src/*.seen         Type check all files")
+    printLn("  seen init my_project          Create new project")
     return
 }
 
 fun CompileSeenProgram(sourceCode: String, outputPath: String) r: Bool {
     // Run real frontend (lexer+parser+typechecker)
-    stdoutLine("[trace] CompileSeenProgram: calling run_frontend...")
+    printLn("[trace] CompileSeenProgram: calling run_frontend...")
     let result = run_frontend(sourceCode, "<memory>", "en")
-    stdoutLine("[trace] run_frontend returned")
+    printLn("[trace] run_frontend returned")
     
     if not result.success {
-        stdoutLine("Frontend errors detected")
+        printLn("Frontend errors detected")
         return false
     }
-    stdoutLine("[trace] Frontend success. Generating C code...")
+    printLn("[trace] Frontend success. Generating C code...")
     
     // Generate C code from AST
     let generator = CGenerator.new()
@@ -120,87 +116,87 @@ fun CompileSeenProgram(sourceCode: String, outputPath: String) r: Bool {
     let cFilePath = outputPath + ".c"
     
     if not myWriteText(cFilePath, cCode) {
-        stdoutLine("Error: Failed to write intermediate file '" + cFilePath + "'")
+        printLn("Error: Failed to write intermediate file '" + cFilePath + "'")
         return false
     }
-    stdoutLine("[trace] C code written to " + cFilePath)
+    printLn("[trace] C code written to " + cFilePath)
     
     let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath + " 2>&1"
-    stdoutLine("[trace] Running GCC: " + compileCommand)
+    printLn("[trace] Running GCC: " + compileCommand)
     
     // Fallback direct invocation while process module linking finalizes
     // Use standard process API
     let compileResult: CommandResult = runCommand(compileCommand)
-    stdoutLine("[trace] GCC finished. Success: " + compileResult.success.toString())
+    printLn("[trace] GCC finished. Success: " + compileResult.success.toString())
     if not compileResult.success {
-        stdoutLine("GCC compilation failed:")
-        stdoutLine(compileResult.output)
+        printLn("GCC compilation failed:")
+        printLn(compileResult.output)
     }
     return commandWasSuccessful(compileResult)
 }
 
 fun buildCommand(sourceFile: String, outputFile: String) r: Int {
-    stdoutLine("🚀 Building...")
-    stdoutLine("Source file: " + sourceFile)
+    printLn("🚀 Building...")
+    printLn("Source file: " + sourceFile)
     
     // Read source file
     let sourceCode = readText(sourceFile)
-    // stdoutLine("[trace] sourceCode type: " + type_of(sourceCode))
+    // printLn("[trace] sourceCode type: " + type_of(sourceCode))
     let sourceLen = sourceCode.len()
-    stdoutLine("[DEBUG] sourceCode len=" + sourceLen.toString())
+    printLn("[DEBUG] sourceCode len=" + sourceLen.toString())
     if sourceLen > 0 {
-        stdoutLine("[DEBUG] source[0] = '" + sourceCode.charAt(0).toString() + "'")
+        printLn("[DEBUG] source[0] = '" + sourceCode.charAt(0).toString() + "'")
     }
     if sourceLen > 1 {
-        stdoutLine("[DEBUG] source[1] = '" + sourceCode.charAt(1).toString() + "'")
+        printLn("[DEBUG] source[1] = '" + sourceCode.charAt(1).toString() + "'")
     }
     
     if sourceLen == 0 {
-        stdoutLine("Error: Could not read file '" + sourceFile + "'")
+        printLn("Error: Could not read file '" + sourceFile + "'")
         return 1
     }
 
     let success = CompileSeenProgram(sourceCode, outputFile)
     
     if success {
-        stdoutLine("✅ Build successful")
+        printLn("✅ Build successful")
         return 0
     } else {
-        stdoutLine("❌ Build failed")
+        printLn("❌ Build failed")
         return 1
     }
 }
 
 fun checkCommand(sourceFile: String) r: Int {
-    stdoutLine("[trace] checkCommand: entry")
-    stdoutLine("🔍 Checking " + sourceFile + "...")
+    printLn("[trace] checkCommand: entry")
+    printLn("🔍 Checking " + sourceFile + "...")
     
     let sourceCode = readText(sourceFile)
     if sourceCode == "" {
-        stdoutLine("Error: Could not read file '" + sourceFile + "'")
+        printLn("Error: Could not read file '" + sourceFile + "'")
         return 1
     }
     
     let result = run_frontend(sourceCode, sourceFile, "en")
     if not result.success {
-        stdoutLine("❌ Frontend validation failed.")
-        stdoutLine("Frontend errors detected")
+        printLn("❌ Frontend validation failed.")
+        printLn("Frontend errors detected")
         return 1
     }
 
     printFrontendWarnings(result)
-    stdoutLine("✅ Type check passed")
+    printLn("✅ Type check passed")
     return 0
 }
 
 
 // disabled
 fun formatCommand(sourceFile: String) r: Int {
-    stdoutLine("📝 Formatting...")
+    printLn("📝 Formatting...")
     
     let sourceCode = readText(sourceFile)
     if sourceCode == "" {
-        stdoutLine("Error: Could not read file '" + sourceFile + "'")
+        printLn("Error: Could not read file '" + sourceFile + "'")
         return 1
     }
     
@@ -210,11 +206,11 @@ fun formatCommand(sourceFile: String) r: Int {
     // Write back to file
     let wrote: Bool = writeText(sourceFile, formatted)
     if not wrote {
-        stdoutLine("Error: Could not write file '" + sourceFile + "'")
+        printLn("Error: Could not write file '" + sourceFile + "'")
         return 1
     }
     
-    stdoutLine("✅ Formatted " + sourceFile)
+    printLn("✅ Formatted " + sourceFile)
     return 0
 }
 
@@ -233,7 +229,7 @@ fun getDefaultOutput(sourceFile: String) r: String {
 fun validateFrontend(sourceCode: String, sourceFile: String, action: String) r: Bool {
     let frontend = run_frontend(sourceCode, sourceFile, "en")
     if not frontend.success {
-        stdoutLine("❌ Frontend validation failed before " + action + ".")
+        printLn("❌ Frontend validation failed before " + action + ".")
         printFrontendDiagnostics(frontend)
         return false
     }
@@ -243,7 +239,7 @@ fun validateFrontend(sourceCode: String, sourceFile: String, action: String) r: 
 fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
     let diagnostics = frontend.getDiagnostics()
     if diagnostics.length() == 0 {
-        stdoutLine("No diagnostics recorded.")
+        printLn("No diagnostics recorded.")
         return
     }
     var index = 0
@@ -252,7 +248,7 @@ fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
         let lineInfo = diag.line.toString()
         let columnInfo = diag.column.toString()
         let location = diag.file + ":" + lineInfo + ":" + columnInfo
-        stdoutLine("[" + diag.severity + "] " + location + " " + diag.message)
+        printLn("[" + diag.severity + "] " + location + " " + diag.message)
         index = index + 1
     }
     return
@@ -266,13 +262,13 @@ fun printFrontendWarnings(frontend: FrontendResult) r: Void {
         let diag = diagnostics[index]
         if diag.severity == "warning" {
             if not printedHeader {
-                stdoutLine("Warnings:")
+                printLn("Warnings:")
                 printedHeader = true
             }
             let lineInfo = diag.line.toString()
             let columnInfo = diag.column.toString()
             let location = diag.file + ":" + lineInfo + ":" + columnInfo
-            stdoutLine("  " + location + " " + diag.message)
+            printLn("  " + location + " " + diag.message)
         }
         index = index + 1
     }
@@ -294,7 +290,7 @@ fun requireArg(args: List<String>, index: Int, message: String) r: String {
         let val = args[index]
         return val
     }
-    stdoutLine(message)
+    printLn(message)
     abort(message)
     return ""
 }
@@ -303,7 +299,7 @@ fun requireArg(args: List<String>, index: Int, message: String) r: String {
 
 fun GetCommandLineArgs() r: List<String> {
     let rawArgs = args()
-    stdoutLine("[trace] rawArgs len=" + rawArgs.length().toString())
+    printLn("[trace] rawArgs len=" + rawArgs.length().toString())
     var list: List<String> = []
     var index = 0
     while index < rawArgs.length() {

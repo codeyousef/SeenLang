@@ -689,17 +689,30 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                      )?
                  };
                  
-                 // For generic T, the value is passed as a pointer (boxed).
-                 // We need to dereference the pointer to get the actual i64 value to store.
-                 // This works for:
-                 // - Boxed integers: pointer to stack slot containing i64 -> load the i64
-                 // - Boxed floats: pointer to stack slot -> load as i64 (bits)  
-                 // - Heap pointers (classes/structs): pointer to heap -> load gives the heap address as i64
+                 // For generic T, the value can be:
+                 // A) A direct pointer value (e.g., String pointer from a literal or local variable)
+                 //    -> Use ptr_to_int to convert the pointer address to i64
+                 // B) A boxed parameter from a generic function call (e.g., value param in Vec_push)
+                 //    -> The pointer points to a box containing an i64, so LOAD the i64
+                 //
+                 // We detect case B by checking if the value comes from a boxed generic parameter.
+                 let is_boxed_param = if let IRValue::Variable(name) = value {
+                     self.var_is_boxed_generic.contains(name)
+                 } else {
+                     false
+                 };
+
                  let i64_val = if val_v.is_pointer_value() {
-                     // Dereference the pointer to get the actual value
-                     // For boxed primitives (Int, Float), this loads the primitive value
-                     // For heap-allocated structs, this loads the heap pointer
-                     self.builder.build_load(self.i64_t, val_v.into_pointer_value(), "deref_boxed")?.into_int_value()
+                     if is_boxed_param {
+                         // Case B: Load the i64 value from the boxed parameter
+                         if self.trace_options.trace_boxing {
+                             eprintln!("[BOXING] ArraySet: loading i64 from boxed param");
+                         }
+                         self.builder.build_load(self.i64_t, val_v.into_pointer_value(), "unbox_load")?.into_int_value()
+                     } else {
+                         // Case A: Convert pointer to i64 - this handles ptr-as-int values
+                         self.builder.build_ptr_to_int(val_v.into_pointer_value(), self.i64_t, "ptr2i")?
+                     }
                  } else if val_v.is_int_value() {
                      val_v.into_int_value()
                  } else {
@@ -870,10 +883,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     })?;
                 
                 // [GEP TRACE] output for debugging struct layout issues
-                if self.trace_options.trace_gep {
+                let trace_option = type_name == "Option";
+                if self.trace_options.trace_gep || trace_option {
                     eprintln!("[GEP TRACE] accessing member '{}' of struct '{}'", field, type_name);
                     eprintln!("[GEP TRACE]   - Base Pointer Type: {:?}", llvm_struct_ty);
                     eprintln!("[GEP TRACE]   - Calculated Field Index: {}", field_idx);
+                    eprintln!("[GEP TRACE]   - LLVM struct fields: {:?}", llvm_struct_ty.get_field_types());
                 }
                 
                 let ptr = if sv.is_pointer_value() {
@@ -941,12 +956,22 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 if let Some(fields) = self.struct_definitions.get(type_name) {
                     if let Some((_, field_type)) = fields.iter().find(|(n, _)| n == field) {
                         // Track struct fields for nested field access
-                        if let IRType::Struct { name: field_struct_name, .. } = field_type {
+                        if let IRType::Struct { name: field_struct_name, fields: struct_fields } = field_type {
                             if let IRValue::Register(reg_id) = result {
                                 if self.trace_options.trace_boxing {
                                     eprintln!("[BOXING] FieldAccess {}.{} result Register({}) -> struct type '{}'", type_name, field, reg_id, field_struct_name);
                                 }
                                 self.reg_struct_types.insert(*reg_id, field_struct_name.clone());
+
+                                // Mark generic type fields (T, K, V, E with empty fields) as boxed generic
+                                // These are stored as ptr-as-int and need unboxing on use
+                                let is_generic = matches!(field_struct_name.as_str(), "T" | "K" | "V" | "E") && struct_fields.is_empty();
+                                if is_generic {
+                                    if self.trace_options.trace_boxing {
+                                        eprintln!("[BOXING] FieldAccess {}.{} is generic type '{}' - marking Register({}) as boxed generic", type_name, field, field_struct_name, reg_id);
+                                    }
+                                    self.reg_is_boxed_generic.insert(*reg_id);
+                                }
 
                                 // Special handling for known container types with generic parameters
                                 // StringHashMap.entries is Vec<Option<HashEntry>> - element type is Option<HashEntry>
@@ -1166,14 +1191,34 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                             "f2i_field"
                         )?.as_basic_value_enum()
                     } else if val.is_pointer_value() {
-                        // Convert pointer to int - use ptr_to_int for ptr-as-int representation
-                        // (like values returned from Vec.get which are already the integer value
-                        // stored in pointer form)
-                        self.builder.build_ptr_to_int(
-                            val.into_pointer_value(),
-                            field_ty.into_int_type(),
-                            "ptr2i_field"
-                        )?.as_basic_value_enum()
+                        // Check if the value is a "boxed generic" parameter - a pointer to an i64
+                        // containing the actual value (ptr-as-int). In this case, we need to LOAD
+                        // the value from the pointer, not convert the pointer address to i64.
+                        let is_boxed_generic = match value {
+                            IRValue::Variable(name) => self.var_is_boxed_generic.contains(name),
+                            _ => false,
+                        };
+
+                        if is_boxed_generic {
+                            // Load the i64 value from the boxed generic pointer
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] FieldSet: loading i64 from boxed generic pointer for field '{}'", field);
+                            }
+                            self.builder.build_load(
+                                field_ty.into_int_type(),
+                                val.into_pointer_value(),
+                                "load_boxed_gen"
+                            )?.as_basic_value_enum()
+                        } else {
+                            // Convert pointer to int - use ptr_to_int for ptr-as-int representation
+                            // (like values returned from Vec.get which are already the integer value
+                            // stored in pointer form)
+                            self.builder.build_ptr_to_int(
+                                val.into_pointer_value(),
+                                field_ty.into_int_type(),
+                                "ptr2i_field"
+                            )?.as_basic_value_enum()
+                        }
                     } else {
                         val
                     }

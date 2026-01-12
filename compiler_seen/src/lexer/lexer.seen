@@ -482,10 +482,16 @@ class SeenLexer {
         
         // Check if it's a keyword
         let keywordType = keywordManager.getKeywordType(value)
+        println("[trace lexer] keywordType returned")
         
         if keywordType != null {
-            this.emitToken(keywordType, value, length)
+            println("[trace lexer] keywordType is not null")
+            // Try explicit unwrap - note: toString on unwrapped enum from Map may not work correctly
+            let unwrapped = keywordType.unwrap()
+            // Skip toString call as it causes issues with enum values from generic containers
+            this.emitToken(unwrapped, value, length)
         } else {
+            println("[trace lexer] keywordType is null, using Identifier")
             this.emitToken(SeenTokenType.Identifier, value, length)
         }
     }

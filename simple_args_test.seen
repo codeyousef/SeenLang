@@ -1,0 +1,5 @@
+// Test just args() call
+fun main() {
+    let rawArgs = args()
+    println("Got args")
+}

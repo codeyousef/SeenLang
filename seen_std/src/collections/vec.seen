@@ -102,23 +102,12 @@ class Vec<T> {
             abort("Vec index out of bounds")
         }
 
-        __Print("Vec.get index:")
-        __PrintInt(index)
-
         var remaining = index
         var chunkIndex = 0
         while chunkIndex < this.chunks.length() {
-            __Print("Checking chunk:")
-            __PrintInt(chunkIndex)
-
             let chunkUsage = this.usage[chunkIndex]
-            __Print("Chunk usage:")
-            __PrintInt(chunkUsage)
-
             if remaining < chunkUsage {
-                __Print("Found in chunk")
                 let chunk = this.chunks[chunkIndex]
-                __Print("Accessing values")
                 return chunk.values[remaining]
             }
             remaining = remaining - chunkUsage

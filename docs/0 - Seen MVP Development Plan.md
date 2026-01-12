@@ -8,18 +8,21 @@
 
 ## High Priority Remaining Work (Generic Boxing Fixes)
 
-We are finalizing the fix for generic boxing/unboxing to ensure `Option<Int>`, `Vec<Int>` and other generic containers work correctly with primitive types.
+✅ **COMPLETED** (2026-01-11) - All generic boxing/unboxing fixes are now implemented and verified.
 
-1.  **Fix Primitive Return from Generic Functions**:
+1.  **Fix Primitive Return from Generic Functions**: ✅ Complete
     *   **Issue**: `Option.unwrap()` returns a `T`. For `Option<Int>`, `T` is treated as a boxed integer (pointer). `PrintInt` expects a value. `unwrap()` returns the pointer address instead of the value.
-    *   **Solution**: In `emit_call`, when a function returns a generic `T` and the caller knows `T` is a primitive type (Int/Bool/Char), we must check if the value is a pointer (boxed) and dereference it automatically.
-    *   This pairs with the logic we added for *passing* primitives to generic functions (re-boxing).
+    *   **Solution**: Added `is_primitive_type()` helper and automatic unboxing after `unwrap()` calls. When the caller knows `T` is a primitive type (Int/Bool/Char/Float), the pointer is dereferenced automatically.
+    *   Verified with `test_option_int.seen` - both `Some(42).unwrap()` and `Some(x).unwrap()` print 42 correctly.
 
-2.  **Verify Array/Vec consistency**:
-    *   Ensure `Vec.get()` also correctly dereferences the pointer if it returns a boxed `Int`. (Currently it might be working by accident or partially implemented).
+2.  **Verify Array/Vec consistency**: ✅ Complete
+    *   `Vec.get()` correctly returns primitives via the `Option` unwrap path.
+    *   Verified with `test_vec_some.seen` - all 4 test cases pass (Direct PrintInt, Stored x PrintInt, Some(x).unwrap(), Some(v.get(0)).unwrap()).
 
-3.  **Clean up Debugging**:
-    *   Remove `is_ptr_as_int`, `Re-boxing`, and `should_box` debug prints from `call.rs`, `llvm_backend.rs`, and `memory_ops.rs` once verified.
+3.  **Clean up Debugging**: ✅ Complete
+    *   All boxing-related debug prints (`is_ptr_as_int`, `Re-boxing`, `should_box`, etc.) are now gated behind `trace_boxing` flag.
+    *   Added `trace_boxing` field to `LlvmTraceOptions`.
+    *   Debug output is only shown when `SEEN_TRACE_LLVM=boxing` or `--trace-llvm` is passed.
 
 ---
 
@@ -34,10 +37,18 @@ We are finalizing the fix for generic boxing/unboxing to ensure `Option<Int>`, `
 | Stage1→Stage2→Stage3 | ⏳ Blocked on Stage1 |
 | LLVM Tracing Infrastructure | ✅ Complete |
 | __PtrToInt Intrinsic | ✅ Implemented |
+| Generic Boxing/Unboxing | ✅ Complete (Option<Int>, Vec<Int> work correctly) |
 
 **Blocking Issues:** 
 1. **Runtime:** ✅ `Vec<String>` data corruption fixed.
 2. **Build:** `compiler_seen/src/main.seen` fails with `Unknown enum variant 'BangEqual'` (needs rename to `NotEqual`).
+
+**Recent Progress (2026-01-11):**
+1. **[FIXED]** Generic Boxing/Unboxing for Option<Int>, Vec<Int> - primitives now correctly unboxed after unwrap()
+2. **[NEW]** Added `trace_boxing` field to `LlvmTraceOptions` for debugging boxing operations
+3. **[NEW]** Added `is_primitive_type()` helper function in call.rs
+4. **[REFACTOR]** Gated all boxing debug prints behind `trace_boxing` flag (~70 prints across call.rs, memory_ops.rs, aggregate.rs, llvm_backend.rs)
+5. **[VERIFIED]** test_option_int.seen and test_vec_some.seen pass all test cases
 
 **Recent Progress (2026-01-04):**
 1. Implemented `LlvmTraceOptions` with `--trace-llvm` CLI flag for debugging

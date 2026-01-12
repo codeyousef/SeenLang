@@ -1,0 +1,14 @@
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+fun main() {
+    let c: Color = Color.Red
+    let s: String = c.toString()
+    println("Color is: " + s)
+    
+    let c2: Color = Color.Green
+    println("Another color: " + c2.toString())
+}

@@ -1,0 +1,3456 @@
+; ModuleID = 'seen_module'
+source_filename = "seen_module"
+target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
+target triple = "x86_64-pc-linux-gnu"
+
+@str = private unnamed_addr constant [23 x i8] c"[Map.get] this.length=\00", align 1
+@fmt_str = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@fmt_int = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+@str.1 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+@str.2 = private unnamed_addr constant [28 x i8] c"[Map.get] calling keys.get(\00", align 1
+@fmt_str.3 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@fmt_int.4 = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+@str.5 = private unnamed_addr constant [2 x i8] c")\00", align 1
+@str.6 = private unnamed_addr constant [27 x i8] c"[Map.get] got key from vec\00", align 1
+@fmt_str.7 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@str.8 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+@str.9 = private unnamed_addr constant [30 x i8] c"[Map.get] comparing at index \00", align 1
+@fmt_str.10 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@fmt_int.11 = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+@str.12 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+@str.13 = private unnamed_addr constant [23 x i8] c"[Map.get] Match found!\00", align 1
+@str.14 = private unnamed_addr constant [19 x i8] c"[Map.get] No match\00", align 1
+@str.15 = private unnamed_addr constant [25 x i8] c"[Map.get] returning None\00", align 1
+@str.16 = private unnamed_addr constant [33 x i8] c"[DEBUG Map.put] 'this' address: \00", align 1
+@fmt_str.17 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@fmt_int.18 = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+@str.19 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+@str.20 = private unnamed_addr constant [34 x i8] c"[DEBUG Map.put] keysVec address: \00", align 1
+@fmt_str.21 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@fmt_int.22 = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+@str.23 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+@str.24 = private unnamed_addr constant [36 x i8] c"[DEBUG Map.put] valuesVec address: \00", align 1
+@fmt_str.25 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@fmt_int.26 = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+@str.27 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+@str.28 = private unnamed_addr constant [36 x i8] c"[DEBUG Map.put] hashesVec address: \00", align 1
+@fmt_str.29 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@fmt_int.30 = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+@str.31 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+@newline = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@str.32 = private unnamed_addr constant [31 x i8] c"called unwrap() on None option\00", align 1
+@newline.33 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@str.34 = private unnamed_addr constant [24 x i8] c"Vec index out of bounds\00", align 1
+@newline.35 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@fmt_p = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@fmt_p.36 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@fmt_p.37 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@str.38 = private unnamed_addr constant [19 x i8] c"Vec internal error\00", align 1
+@newline.39 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@str.40 = private unnamed_addr constant [24 x i8] c"Vec index out of bounds\00", align 1
+@newline.41 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@fmt_p.42 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@str.43 = private unnamed_addr constant [24 x i8] c"Vec index out of bounds\00", align 1
+@newline.44 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@str.45 = private unnamed_addr constant [30 x i8] c"Vec.pop() called on empty Vec\00", align 1
+@newline.46 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@fmt_p.47 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@str.48 = private unnamed_addr constant [29 x i8] c"Vec internal state corrupted\00", align 1
+@newline.49 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@fmt_p.50 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@fmt_p.51 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@fmt_p.52 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@str.53 = private unnamed_addr constant [42 x i8] c"[DEBUG] Vec_push called. 'this' address: \00", align 1
+@fmt_str.54 = private unnamed_addr constant [3 x i8] c"%s\00", align 1
+@fmt_int.55 = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+@str.56 = private unnamed_addr constant [1 x i8] zeroinitializer, align 1
+@fmt_p.57 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@fmt_p.58 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@str.59 = private unnamed_addr constant [24 x i8] c"Vec index out of bounds\00", align 1
+@newline.60 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@fmt_p.61 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@fmt_p.62 = private unnamed_addr constant [22 x i8] c"DEBUG: data_ptr = %p\0A\00", align 1
+@str.63 = private unnamed_addr constant [19 x i8] c"Vec internal error\00", align 1
+@newline.64 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@debug_start = private unnamed_addr constant [23 x i8] c"DEBUG: seen_main start\00", align 1
+@str.65 = private unnamed_addr constant [6 x i8] c"hello\00", align 1
+@str.66 = private unnamed_addr constant [6 x i8] c"hello\00", align 1
+@str.67 = private unnamed_addr constant [5 x i8] c"PASS\00", align 1
+@fmt_println_cstr = private unnamed_addr constant [4 x i8] c"%s\0A\00", align 1
+@str.68 = private unnamed_addr constant [5 x i8] c"FAIL\00", align 1
+@fmt_println_cstr.69 = private unnamed_addr constant [4 x i8] c"%s\0A\00", align 1
+@debug_main_start = private unnamed_addr constant [26 x i8] c"DEBUG: main wrapper start\00", align 1
+@__argc = global i32 0
+@__argv = global ptr null
+
+declare noalias ptr @malloc(i64)
+
+declare void @free(ptr)
+
+declare ptr @memcpy(ptr, ptr, i64)
+
+declare i64 @printf(ptr, ...)
+
+declare { i64, ptr } @__IntToString(i64)
+
+declare { i64, ptr } @__FloatToString(double)
+
+declare ptr @seen_box_int(i64)
+
+declare ptr @seen_box_bool(i32)
+
+declare ptr @seen_box_ptr(ptr)
+
+declare ptr @seen_channel_send(ptr, ptr)
+
+declare i64 @abort(ptr)
+
+declare ptr @__ArrayNew(i64, i64)
+
+declare i64 @push(ptr, ptr)
+
+declare { i64, ptr } @__ReadFile(i64)
+
+declare { i64, ptr } @__ReadFileFromPath({ i64, ptr })
+
+declare i64 @__WriteFile(i64, { i64, ptr })
+
+declare i64 @__WriteFileToPath({ i64, ptr }, { i64, ptr })
+
+declare void @__ExecuteCommand(ptr, ptr)
+
+declare ptr @__GetCommandLineArgs()
+
+declare ptr @__GetCommandLineArgsHelper(i32, ptr)
+
+declare i64 @__CreateDirectory({ i64, ptr })
+
+declare i64 @__GetTimestamp()
+
+declare { i64, ptr } @__CommandOutput({ i64, ptr })
+
+define i64 @Map() #0 {
+entry:
+  %r4 = alloca { i64, i64, i64, i64 }, align 8
+  %alloc_obj = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i64, i64, i64, i64 }, ptr null, i32 1) to i64))
+  %field_0_ptr = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 0
+  store ptr null, ptr %field_0_ptr, align 8
+  %field_1_ptr = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 1
+  store ptr null, ptr %field_1_ptr, align 8
+  %field_2_ptr = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 2
+  store ptr null, ptr %field_2_ptr, align 8
+  %field_3_ptr = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 3
+  store i64 0, ptr %field_3_ptr, align 8
+  %obj_ptr = ptrtoint ptr %alloc_obj to i64
+  ret i64 %obj_ptr
+}
+
+define ptr @Map_clear(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i64, align 8
+  %r2 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %call = call i64 @Vec_new()
+  store i64 %call, ptr %r0, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr = load i64, ptr %param_slot_this, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr, i32 0, i32 0
+  store i64 %call, ptr %field_set_keys, align 8
+  %call1 = call i64 @Vec_new()
+  store i64 %call1, ptr %r1, align 8
+  %load_this2 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr3 = load i64, ptr %param_slot_this, align 8
+  %class_ptr4 = inttoptr i64 %load_class_ptr3 to ptr
+  %field_set_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr4, i32 0, i32 1
+  store i64 %call1, ptr %field_set_values, align 8
+  %call5 = call i64 @Vec_new()
+  store i64 %call5, ptr %r2, align 8
+  %load_this6 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr7 = load i64, ptr %param_slot_this, align 8
+  %class_ptr8 = inttoptr i64 %load_class_ptr7 to ptr
+  %field_set_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr8, i32 0, i32 2
+  store i64 %call5, ptr %field_set_hashes, align 8
+  %load_this9 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr10 = load i64, ptr %param_slot_this, align 8
+  %class_ptr11 = inttoptr i64 %load_class_ptr10 to ptr
+  %field_set_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr11, i32 0, i32 3
+  store i64 0, ptr %field_set_length, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 0, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define i1 @Map_containsKey(ptr %0, ptr %1) #0 {
+entry:
+  %local_slot_i = alloca i64, align 8
+  %param_slot_key = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i1, align 1
+  %r2 = alloca i64, align 8
+  %r3 = alloca ptr, align 8
+  %r4 = alloca i1, align 1
+  %r5 = alloca i64, align 8
+  %r6 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store ptr %1, ptr %param_slot_key, align 8
+  store i64 0, ptr %local_slot_i, align 8
+  br label %loop_start_75
+
+loop_start_75:                                    ; preds = %if_end_80, %entry
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r0, align 8
+  %load_i = load i64, ptr %local_slot_i, align 8
+  %lt = icmp slt i64 %load_i, %load_length
+  store i1 %lt, ptr %r1, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_77, label %loop_body_76
+
+loop_body_76:                                     ; preds = %loop_start_75
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr2, i32 0, i32 0
+  %load_keys = load i64, ptr %field_keys, align 8
+  store i64 %load_keys, ptr %r2, align 8
+  %arg_cast = inttoptr i64 %load_keys to ptr
+  %load_i3 = load i64, ptr %local_slot_i, align 8
+  %call = call ptr @Vec_get(ptr %arg_cast, i64 %load_i3)
+  store ptr %call, ptr %r3, align 8
+  %load_key = load ptr, ptr %param_slot_key, align 8
+  %maybe_str_load = load { i64, ptr }, ptr %call, align 8
+  %load_boxed_str_ptr = load i64, ptr %load_key, align 8
+  %boxed_str_ptr = inttoptr i64 %load_boxed_str_ptr to ptr
+  %maybe_str_load4 = load { i64, ptr }, ptr %boxed_str_ptr, align 8
+  %str_data_ptr = extractvalue { i64, ptr } %maybe_str_load, 1
+  %str_data_ptr5 = extractvalue { i64, ptr } %maybe_str_load4, 1
+  %strcmp = call i32 @strcmp(ptr %str_data_ptr, ptr %str_data_ptr5)
+  %strcmp6 = icmp eq i32 %strcmp, 0
+  store i1 %strcmp6, ptr %r4, align 1
+  br i1 %strcmp6, label %then_78, label %block_0
+
+block_0:                                          ; preds = %loop_body_76
+  br label %else_79
+
+then_78:                                          ; preds = %loop_body_76
+  ret i1 true
+
+block_1:                                          ; No predecessors!
+  store i64 -1, ptr %r5, align 8
+  br label %if_end_80
+
+else_79:                                          ; preds = %block_0
+  store i64 0, ptr %r5, align 8
+  br label %if_end_80
+
+if_end_80:                                        ; preds = %else_79, %block_1
+  %load_i7 = load i64, ptr %local_slot_i, align 8
+  %add = add i64 %load_i7, 1
+  store i64 %add, ptr %r6, align 8
+  store i64 %add, ptr %local_slot_i, align 8
+  br label %loop_start_75
+
+loop_end_77:                                      ; preds = %loop_start_75
+  ret i1 false
+}
+
+define i1 @Map_containsValue(ptr %0, ptr %1) #0 {
+entry:
+  %local_slot_i = alloca i64, align 8
+  %param_slot_value = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i1, align 1
+  %r2 = alloca { i64, i64, ptr }, align 8
+  %r3 = alloca ptr, align 8
+  %r4 = alloca i1, align 1
+  %r5 = alloca i64, align 8
+  %r6 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store ptr %1, ptr %param_slot_value, align 8
+  store i64 0, ptr %local_slot_i, align 8
+  br label %loop_start_81
+
+loop_start_81:                                    ; preds = %if_end_86, %entry
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r0, align 8
+  %load_i = load i64, ptr %local_slot_i, align 8
+  %lt = icmp slt i64 %load_i, %load_length
+  store i1 %lt, ptr %r1, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_83, label %loop_body_82
+
+loop_body_82:                                     ; preds = %loop_start_81
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr2, i32 0, i32 1
+  %load_values = load i64, ptr %field_values, align 8
+  %arg_cast = inttoptr i64 %load_values to ptr
+  %load_i3 = load i64, ptr %local_slot_i, align 8
+  %call = call ptr @Vec_get(ptr %arg_cast, i64 %load_i3)
+  store ptr %call, ptr %r3, align 8
+  %load_value = load ptr, ptr %param_slot_value, align 8
+  %maybe_str_load = load { i64, ptr }, ptr %call, align 8
+  %load_boxed_str_ptr = load i64, ptr %load_value, align 8
+  %boxed_str_ptr = inttoptr i64 %load_boxed_str_ptr to ptr
+  %maybe_str_load4 = load { i64, ptr }, ptr %boxed_str_ptr, align 8
+  %str_data_ptr = extractvalue { i64, ptr } %maybe_str_load, 1
+  %str_data_ptr5 = extractvalue { i64, ptr } %maybe_str_load4, 1
+  %strcmp = call i32 @strcmp(ptr %str_data_ptr, ptr %str_data_ptr5)
+  %strcmp6 = icmp eq i32 %strcmp, 0
+  store i1 %strcmp6, ptr %r4, align 1
+  br i1 %strcmp6, label %then_84, label %block_0
+
+block_0:                                          ; preds = %loop_body_82
+  br label %else_85
+
+then_84:                                          ; preds = %loop_body_82
+  ret i1 true
+
+block_1:                                          ; No predecessors!
+  store i64 -1, ptr %r5, align 8
+  br label %if_end_86
+
+else_85:                                          ; preds = %block_0
+  store i64 0, ptr %r5, align 8
+  br label %if_end_86
+
+if_end_86:                                        ; preds = %else_85, %block_1
+  %load_i7 = load i64, ptr %local_slot_i, align 8
+  %add = add i64 %load_i7, 1
+  store i64 %add, ptr %r6, align 8
+  store i64 %add, ptr %local_slot_i, align 8
+  br label %loop_start_81
+
+loop_end_83:                                      ; preds = %loop_start_81
+  ret i1 false
+}
+
+define ptr @Map_get(ptr %0, ptr %1) #0 {
+entry:
+  %rebox_spill = alloca i64, align 8
+  %local_slot_k = alloca ptr, align 8
+  %local_slot_i = alloca i64, align 8
+  %param_slot_key = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i64, align 8
+  %r4 = alloca i64, align 8
+  %r5 = alloca i1, align 1
+  %r9 = alloca i64, align 8
+  %r10 = alloca ptr, align 8
+  %r16 = alloca i1, align 1
+  %r18 = alloca { i64, i64, ptr }, align 8
+  %r19 = alloca ptr, align 8
+  %r20 = alloca ptr, align 8
+  %r21 = alloca i64, align 8
+  %r23 = alloca i64, align 8
+  %r25 = alloca ptr, align 8
+  %r2 = alloca i64, align 8
+  %r3 = alloca i64, align 8
+  %r6 = alloca i64, align 8
+  %r7 = alloca i64, align 8
+  %r8 = alloca i64, align 8
+  %r11 = alloca i64, align 8
+  %r12 = alloca i64, align 8
+  %r13 = alloca i64, align 8
+  %r14 = alloca i64, align 8
+  %r15 = alloca i64, align 8
+  %r17 = alloca i64, align 8
+  %r22 = alloca i64, align 8
+  %r24 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %ptr2i1 = ptrtoint ptr %1 to i64
+  store i64 %ptr2i1, ptr %r1, align 8
+  store ptr %1, ptr %param_slot_key, align 8
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 22, ptr @str }, ptr %str_malloc, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr @fmt_str, ptr %str_data)
+  %fflush_call = call i32 @fflush(ptr null)
+  store i64 0, ptr %r0, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r1, align 8
+  %printf_call2 = call i64 (ptr, ...) @printf(ptr @fmt_int, i64 %load_length)
+  %fflush_call3 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r2, align 8
+  %str_malloc4 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 0, ptr @str.1 }, ptr %str_malloc4, align 8
+  %try_load_str5 = load { i64, ptr }, ptr %str_malloc4, align 8
+  %str_data6 = extractvalue { i64, ptr } %try_load_str5, 1
+  %puts_call = call i32 @puts(ptr %str_data6)
+  store i64 0, ptr %r3, align 8
+  store i64 0, ptr %local_slot_i, align 8
+  br label %loop_start_69
+
+loop_start_69:                                    ; preds = %if_end_74, %entry
+  %load_this7 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr8 = inttoptr i64 %load_this7 to ptr
+  %field_length9 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr8, i32 0, i32 3
+  %load_length10 = load i64, ptr %field_length9, align 8
+  store i64 %load_length10, ptr %r4, align 8
+  %load_i = load i64, ptr %local_slot_i, align 8
+  %lt = icmp slt i64 %load_i, %load_length10
+  store i1 %lt, ptr %r5, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_71, label %loop_body_70
+
+loop_body_70:                                     ; preds = %loop_start_69
+  %str_malloc11 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 27, ptr @str.2 }, ptr %str_malloc11, align 8
+  %try_load_str12 = load { i64, ptr }, ptr %str_malloc11, align 8
+  %str_data13 = extractvalue { i64, ptr } %try_load_str12, 1
+  %printf_call14 = call i64 (ptr, ...) @printf(ptr @fmt_str.3, ptr %str_data13)
+  %fflush_call15 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r6, align 8
+  %load_i16 = load i64, ptr %local_slot_i, align 8
+  %printf_call17 = call i64 (ptr, ...) @printf(ptr @fmt_int.4, i64 %load_i16)
+  %fflush_call18 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r7, align 8
+  %str_malloc19 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 1, ptr @str.5 }, ptr %str_malloc19, align 8
+  %try_load_str20 = load { i64, ptr }, ptr %str_malloc19, align 8
+  %str_data21 = extractvalue { i64, ptr } %try_load_str20, 1
+  %puts_call22 = call i32 @puts(ptr %str_data21)
+  store i64 0, ptr %r8, align 8
+  %load_this23 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr24 = inttoptr i64 %load_this23 to ptr
+  %field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr24, i32 0, i32 0
+  %load_keys = load i64, ptr %field_keys, align 8
+  store i64 %load_keys, ptr %r9, align 8
+  %arg_cast = inttoptr i64 %load_keys to ptr
+  %load_i25 = load i64, ptr %local_slot_i, align 8
+  %call = call ptr @Vec_get(ptr %arg_cast, i64 %load_i25)
+  store ptr %call, ptr %r10, align 8
+  store ptr %call, ptr %local_slot_k, align 8
+  %str_malloc26 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 26, ptr @str.6 }, ptr %str_malloc26, align 8
+  %try_load_str27 = load { i64, ptr }, ptr %str_malloc26, align 8
+  %str_data28 = extractvalue { i64, ptr } %try_load_str27, 1
+  %printf_call29 = call i64 (ptr, ...) @printf(ptr @fmt_str.7, ptr %str_data28)
+  %fflush_call30 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r11, align 8
+  %str_malloc31 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 0, ptr @str.8 }, ptr %str_malloc31, align 8
+  %try_load_str32 = load { i64, ptr }, ptr %str_malloc31, align 8
+  %str_data33 = extractvalue { i64, ptr } %try_load_str32, 1
+  %puts_call34 = call i32 @puts(ptr %str_data33)
+  store i64 0, ptr %r12, align 8
+  %str_malloc35 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 29, ptr @str.9 }, ptr %str_malloc35, align 8
+  %try_load_str36 = load { i64, ptr }, ptr %str_malloc35, align 8
+  %str_data37 = extractvalue { i64, ptr } %try_load_str36, 1
+  %printf_call38 = call i64 (ptr, ...) @printf(ptr @fmt_str.10, ptr %str_data37)
+  %fflush_call39 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r13, align 8
+  %load_i40 = load i64, ptr %local_slot_i, align 8
+  %printf_call41 = call i64 (ptr, ...) @printf(ptr @fmt_int.11, i64 %load_i40)
+  %fflush_call42 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r14, align 8
+  %str_malloc43 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 0, ptr @str.12 }, ptr %str_malloc43, align 8
+  %try_load_str44 = load { i64, ptr }, ptr %str_malloc43, align 8
+  %str_data45 = extractvalue { i64, ptr } %try_load_str44, 1
+  %puts_call46 = call i32 @puts(ptr %str_data45)
+  store i64 0, ptr %r15, align 8
+  %load_k = load ptr, ptr %local_slot_k, align 8
+  %load_key = load ptr, ptr %param_slot_key, align 8
+  %maybe_str_load = load { i64, ptr }, ptr %load_k, align 8
+  %load_boxed_str_ptr = load i64, ptr %load_key, align 8
+  %boxed_str_ptr = inttoptr i64 %load_boxed_str_ptr to ptr
+  %maybe_str_load47 = load { i64, ptr }, ptr %boxed_str_ptr, align 8
+  %str_data_ptr = extractvalue { i64, ptr } %maybe_str_load, 1
+  %str_data_ptr48 = extractvalue { i64, ptr } %maybe_str_load47, 1
+  %strcmp = call i32 @strcmp(ptr %str_data_ptr, ptr %str_data_ptr48)
+  %strcmp49 = icmp eq i32 %strcmp, 0
+  store i1 %strcmp49, ptr %r16, align 1
+  br i1 %strcmp49, label %then_72, label %block_0
+
+block_0:                                          ; preds = %loop_body_70
+  br label %else_73
+
+then_72:                                          ; preds = %loop_body_70
+  %str_malloc50 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 22, ptr @str.13 }, ptr %str_malloc50, align 8
+  %try_load_str51 = load { i64, ptr }, ptr %str_malloc50, align 8
+  %str_data52 = extractvalue { i64, ptr } %try_load_str51, 1
+  %puts_call53 = call i32 @puts(ptr %str_data52)
+  store i64 0, ptr %r17, align 8
+  %load_this54 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr55 = inttoptr i64 %load_this54 to ptr
+  %field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr55, i32 0, i32 1
+  %load_values = load i64, ptr %field_values, align 8
+  %arg_cast56 = inttoptr i64 %load_values to ptr
+  %load_i57 = load i64, ptr %local_slot_i, align 8
+  %call58 = call ptr @Vec_get(ptr %arg_cast56, i64 %load_i57)
+  store ptr %call58, ptr %r19, align 8
+  %ptr2int_rebox = ptrtoint ptr %call58 to i64
+  store i64 %ptr2int_rebox, ptr %rebox_spill, align 8
+  %call59 = call ptr @Some(ptr %rebox_spill)
+  store ptr %call59, ptr %r20, align 8
+  ret ptr %call59
+
+block_1:                                          ; No predecessors!
+  %load_r20 = load ptr, ptr %r20, align 8
+  %ptr2i60 = ptrtoint ptr %load_r20 to i64
+  store i64 %ptr2i60, ptr %r21, align 8
+  br label %if_end_74
+
+else_73:                                          ; preds = %block_0
+  %str_malloc61 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 18, ptr @str.14 }, ptr %str_malloc61, align 8
+  %try_load_str62 = load { i64, ptr }, ptr %str_malloc61, align 8
+  %str_data63 = extractvalue { i64, ptr } %try_load_str62, 1
+  %puts_call64 = call i32 @puts(ptr %str_data63)
+  store i64 0, ptr %r22, align 8
+  store i64 0, ptr %r21, align 8
+  br label %if_end_74
+
+if_end_74:                                        ; preds = %else_73, %block_1
+  %load_i65 = load i64, ptr %local_slot_i, align 8
+  %add = add i64 %load_i65, 1
+  store i64 %add, ptr %r23, align 8
+  store i64 %add, ptr %local_slot_i, align 8
+  br label %loop_start_69
+
+loop_end_71:                                      ; preds = %loop_start_69
+  %str_malloc66 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 24, ptr @str.15 }, ptr %str_malloc66, align 8
+  %try_load_str67 = load { i64, ptr }, ptr %str_malloc66, align 8
+  %str_data68 = extractvalue { i64, ptr } %try_load_str67, 1
+  %puts_call69 = call i32 @puts(ptr %str_data68)
+  store i64 0, ptr %r24, align 8
+  %call70 = call ptr @None()
+  store ptr %call70, ptr %r25, align 8
+  ret ptr %call70
+}
+
+define i1 @Map_isEmpty(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i1, align 1
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r0, align 8
+  %icmp = icmp eq i64 %load_length, 0
+  store i1 %icmp, ptr %r1, align 1
+  ret i1 %icmp
+}
+
+define i64 @Map_keys(ptr %0) #0 {
+entry:
+  %rebox_spill = alloca i64, align 8
+  %local_slot_i = alloca i64, align 8
+  %local_slot_result = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i64, align 8
+  %r2 = alloca i1, align 1
+  %r3 = alloca i64, align 8
+  %r4 = alloca ptr, align 8
+  %r5 = alloca ptr, align 8
+  %r6 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %call = call i64 @Vec_new()
+  store i64 %call, ptr %r0, align 8
+  store i64 %call, ptr %local_slot_result, align 8
+  store i64 0, ptr %local_slot_i, align 8
+  br label %loop_start_87
+
+loop_start_87:                                    ; preds = %loop_body_88, %entry
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r1, align 8
+  %load_i = load i64, ptr %local_slot_i, align 8
+  %lt = icmp slt i64 %load_i, %load_length
+  store i1 %lt, ptr %r2, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_89, label %loop_body_88
+
+loop_body_88:                                     ; preds = %loop_start_87
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr2, i32 0, i32 0
+  %load_keys = load i64, ptr %field_keys, align 8
+  store i64 %load_keys, ptr %r3, align 8
+  %arg_cast = inttoptr i64 %load_keys to ptr
+  %load_i3 = load i64, ptr %local_slot_i, align 8
+  %call4 = call ptr @Vec_get(ptr %arg_cast, i64 %load_i3)
+  store ptr %call4, ptr %r4, align 8
+  %load_result = load i64, ptr %local_slot_result, align 8
+  %arg_cast5 = inttoptr i64 %load_result to ptr
+  %ptr2int_rebox = ptrtoint ptr %call4 to i64
+  store i64 %ptr2int_rebox, ptr %rebox_spill, align 8
+  %call6 = call ptr @Vec_push(ptr %arg_cast5, ptr %rebox_spill)
+  store ptr %call6, ptr %r5, align 8
+  %load_i7 = load i64, ptr %local_slot_i, align 8
+  %add = add i64 %load_i7, 1
+  store i64 %add, ptr %r6, align 8
+  store i64 %add, ptr %local_slot_i, align 8
+  br label %loop_start_87
+
+loop_end_89:                                      ; preds = %loop_start_87
+  %load_result8 = load i64, ptr %local_slot_result, align 8
+  ret i64 %load_result8
+}
+
+define i64 @Map_new() #0 {
+entry:
+  %local_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i64, align 8
+  %r2 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 3
+  %call = call i64 @Vec_new()
+  store i64 %call, ptr %r0, align 8
+  %call1 = call i64 @Vec_new()
+  store i64 %call1, ptr %r1, align 8
+  %call2 = call i64 @Vec_new()
+  store i64 %call2, ptr %r2, align 8
+  %Map_malloc = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i64, i64, i64, i64 }, ptr null, i32 1) to i64))
+  %Map_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %Map_malloc, i32 0, i32 0
+  store i64 %call, ptr %Map_field_keys, align 8
+  %Map_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %Map_malloc, i32 0, i32 1
+  store i64 %call1, ptr %Map_field_values, align 8
+  %Map_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %Map_malloc, i32 0, i32 2
+  store i64 %call2, ptr %Map_field_hashes, align 8
+  %Map_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %Map_malloc, i32 0, i32 3
+  store i64 0, ptr %Map_field_length, align 8
+  %ptr2int_store = ptrtoint ptr %Map_malloc to i64
+  ret i64 %ptr2int_store
+}
+
+define ptr @Map_put(ptr %0, ptr %1, ptr %2) #0 {
+entry:
+  %int_spill = alloca i64, align 8
+  %rebox_spill65 = alloca i64, align 8
+  %rebox_spill41 = alloca i64, align 8
+  %rebox_spill = alloca i64, align 8
+  %local_slot_hashesVec = alloca i64, align 8
+  %local_slot_valuesVec = alloca i64, align 8
+  %local_slot_keysVec = alloca i64, align 8
+  %local_slot_i = alloca i64, align 8
+  %param_slot_value = alloca ptr, align 8
+  %param_slot_key = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i64, align 8
+  %r2 = alloca ptr, align 8
+  %r4 = alloca i64, align 8
+  %r5 = alloca i1, align 1
+  %r6 = alloca i64, align 8
+  %r7 = alloca ptr, align 8
+  %r8 = alloca i1, align 1
+  %r9 = alloca { i64, i64, ptr }, align 8
+  %r10 = alloca ptr, align 8
+  %r11 = alloca i64, align 8
+  %r12 = alloca i64, align 8
+  %r13 = alloca i64, align 8
+  %r15 = alloca i64, align 8
+  %r18 = alloca ptr, align 8
+  %r19 = alloca { i64, i64, ptr }, align 8
+  %r21 = alloca i64, align 8
+  %r24 = alloca ptr, align 8
+  %r25 = alloca i64, align 8
+  %r27 = alloca i64, align 8
+  %r30 = alloca ptr, align 8
+  %r31 = alloca i64, align 8
+  %r32 = alloca i64, align 8
+  %r3 = alloca i64, align 8
+  %r14 = alloca i64, align 8
+  %r16 = alloca i64, align 8
+  %r17 = alloca i64, align 8
+  %r20 = alloca i64, align 8
+  %r22 = alloca i64, align 8
+  %r23 = alloca i64, align 8
+  %r26 = alloca i64, align 8
+  %r28 = alloca i64, align 8
+  %r29 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %ptr2i1 = ptrtoint ptr %1 to i64
+  store i64 %ptr2i1, ptr %r1, align 8
+  store ptr %1, ptr %param_slot_key, align 8
+  store ptr %2, ptr %r2, align 8
+  store ptr %2, ptr %param_slot_value, align 8
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 32, ptr @str.16 }, ptr %str_malloc, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr @fmt_str.17, ptr %str_data)
+  %fflush_call = call i32 @fflush(ptr null)
+  store i64 0, ptr %r0, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  store i64 %load_this, ptr %r1, align 8
+  %printf_call2 = call i64 (ptr, ...) @printf(ptr @fmt_int.18, i64 %load_this)
+  %fflush_call3 = call i32 @fflush(ptr null)
+  %str_malloc4 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 0, ptr @str.19 }, ptr %str_malloc4, align 8
+  %try_load_str5 = load { i64, ptr }, ptr %str_malloc4, align 8
+  %str_data6 = extractvalue { i64, ptr } %try_load_str5, 1
+  %puts_call = call i32 @puts(ptr %str_data6)
+  store i64 0, ptr %r3, align 8
+  store i64 0, ptr %local_slot_i, align 8
+  br label %loop_start_63
+
+loop_start_63:                                    ; preds = %if_end_68, %entry
+  %load_this7 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this7 to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r4, align 8
+  %load_i = load i64, ptr %local_slot_i, align 8
+  %lt = icmp slt i64 %load_i, %load_length
+  store i1 %lt, ptr %r5, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_65, label %loop_body_64
+
+loop_body_64:                                     ; preds = %loop_start_63
+  %load_this8 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr9 = inttoptr i64 %load_this8 to ptr
+  %field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr9, i32 0, i32 0
+  %load_keys = load i64, ptr %field_keys, align 8
+  store i64 %load_keys, ptr %r6, align 8
+  %arg_cast = inttoptr i64 %load_keys to ptr
+  %load_i10 = load i64, ptr %local_slot_i, align 8
+  %call = call ptr @Vec_get(ptr %arg_cast, i64 %load_i10)
+  store ptr %call, ptr %r7, align 8
+  %load_key = load ptr, ptr %param_slot_key, align 8
+  %maybe_str_load = load { i64, ptr }, ptr %call, align 8
+  %load_boxed_str_ptr = load i64, ptr %load_key, align 8
+  %boxed_str_ptr = inttoptr i64 %load_boxed_str_ptr to ptr
+  %maybe_str_load11 = load { i64, ptr }, ptr %boxed_str_ptr, align 8
+  %str_data_ptr = extractvalue { i64, ptr } %maybe_str_load, 1
+  %str_data_ptr12 = extractvalue { i64, ptr } %maybe_str_load11, 1
+  %strcmp = call i32 @strcmp(ptr %str_data_ptr, ptr %str_data_ptr12)
+  %strcmp13 = icmp eq i32 %strcmp, 0
+  store i1 %strcmp13, ptr %r8, align 1
+  br i1 %strcmp13, label %then_66, label %block_0
+
+block_0:                                          ; preds = %loop_body_64
+  br label %else_67
+
+then_66:                                          ; preds = %loop_body_64
+  %load_this14 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr15 = inttoptr i64 %load_this14 to ptr
+  %field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr15, i32 0, i32 1
+  %load_values = load i64, ptr %field_values, align 8
+  %load_value = load ptr, ptr %param_slot_value, align 8
+  %arg_cast16 = inttoptr i64 %load_values to ptr
+  %load_i17 = load i64, ptr %local_slot_i, align 8
+  %load_value18 = load ptr, ptr %param_slot_value, align 8
+  %load_boxed_rebox = load i64, ptr %load_value18, align 8
+  store i64 %load_boxed_rebox, ptr %rebox_spill, align 8
+  %call19 = call ptr @Vec_set(ptr %arg_cast16, i64 %load_i17, ptr %rebox_spill)
+  store ptr %call19, ptr %r10, align 8
+  ret ptr null
+
+block_1:                                          ; No predecessors!
+  store i64 0, ptr %r11, align 8
+  br label %if_end_68
+
+else_67:                                          ; preds = %block_0
+  store i64 0, ptr %r11, align 8
+  br label %if_end_68
+
+if_end_68:                                        ; preds = %else_67, %block_1
+  %load_i20 = load i64, ptr %local_slot_i, align 8
+  %add = add i64 %load_i20, 1
+  store i64 %add, ptr %r12, align 8
+  store i64 %add, ptr %local_slot_i, align 8
+  br label %loop_start_63
+
+loop_end_65:                                      ; preds = %loop_start_63
+  %load_this21 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr22 = inttoptr i64 %load_this21 to ptr
+  %field_keys23 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr22, i32 0, i32 0
+  %load_keys24 = load i64, ptr %field_keys23, align 8
+  store i64 %load_keys24, ptr %r13, align 8
+  store i64 %load_keys24, ptr %local_slot_keysVec, align 8
+  %str_malloc25 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 33, ptr @str.20 }, ptr %str_malloc25, align 8
+  %try_load_str26 = load { i64, ptr }, ptr %str_malloc25, align 8
+  %str_data27 = extractvalue { i64, ptr } %try_load_str26, 1
+  %printf_call28 = call i64 (ptr, ...) @printf(ptr @fmt_str.21, ptr %str_data27)
+  %fflush_call29 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r14, align 8
+  %load_keysVec = load i64, ptr %local_slot_keysVec, align 8
+  store i64 %load_keysVec, ptr %r15, align 8
+  %printf_call30 = call i64 (ptr, ...) @printf(ptr @fmt_int.22, i64 %load_keysVec)
+  %fflush_call31 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r16, align 8
+  %str_malloc32 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 0, ptr @str.23 }, ptr %str_malloc32, align 8
+  %try_load_str33 = load { i64, ptr }, ptr %str_malloc32, align 8
+  %str_data34 = extractvalue { i64, ptr } %try_load_str33, 1
+  %puts_call35 = call i32 @puts(ptr %str_data34)
+  store i64 0, ptr %r17, align 8
+  %load_key36 = load ptr, ptr %param_slot_key, align 8
+  %load_keysVec37 = load i64, ptr %local_slot_keysVec, align 8
+  %arg_cast38 = inttoptr i64 %load_keysVec37 to ptr
+  %load_key39 = load ptr, ptr %param_slot_key, align 8
+  %load_boxed_rebox40 = load i64, ptr %load_key39, align 8
+  store i64 %load_boxed_rebox40, ptr %rebox_spill41, align 8
+  %call42 = call ptr @Vec_push(ptr %arg_cast38, ptr %rebox_spill41)
+  store ptr %call42, ptr %r18, align 8
+  %load_this43 = load i64, ptr %param_slot_this, align 8
+  %load_keysVec44 = load i64, ptr %local_slot_keysVec, align 8
+  %load_class_ptr = load i64, ptr %param_slot_this, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr, i32 0, i32 0
+  store i64 %load_keysVec44, ptr %field_set_keys, align 8
+  %load_this45 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr46 = inttoptr i64 %load_this45 to ptr
+  %field_values47 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr46, i32 0, i32 1
+  %load_values48 = load i64, ptr %field_values47, align 8
+  store i64 %load_values48, ptr %local_slot_valuesVec, align 8
+  %str_malloc49 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 35, ptr @str.24 }, ptr %str_malloc49, align 8
+  %try_load_str50 = load { i64, ptr }, ptr %str_malloc49, align 8
+  %str_data51 = extractvalue { i64, ptr } %try_load_str50, 1
+  %printf_call52 = call i64 (ptr, ...) @printf(ptr @fmt_str.25, ptr %str_data51)
+  %fflush_call53 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r20, align 8
+  %load_valuesVec = load i64, ptr %local_slot_valuesVec, align 8
+  store i64 %load_valuesVec, ptr %r21, align 8
+  %printf_call54 = call i64 (ptr, ...) @printf(ptr @fmt_int.26, i64 %load_valuesVec)
+  %fflush_call55 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r22, align 8
+  %str_malloc56 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 0, ptr @str.27 }, ptr %str_malloc56, align 8
+  %try_load_str57 = load { i64, ptr }, ptr %str_malloc56, align 8
+  %str_data58 = extractvalue { i64, ptr } %try_load_str57, 1
+  %puts_call59 = call i32 @puts(ptr %str_data58)
+  store i64 0, ptr %r23, align 8
+  %load_value60 = load ptr, ptr %param_slot_value, align 8
+  %load_valuesVec61 = load i64, ptr %local_slot_valuesVec, align 8
+  %arg_cast62 = inttoptr i64 %load_valuesVec61 to ptr
+  %load_value63 = load ptr, ptr %param_slot_value, align 8
+  %load_boxed_rebox64 = load i64, ptr %load_value63, align 8
+  store i64 %load_boxed_rebox64, ptr %rebox_spill65, align 8
+  %call66 = call ptr @Vec_push(ptr %arg_cast62, ptr %rebox_spill65)
+  store ptr %call66, ptr %r24, align 8
+  %load_this67 = load i64, ptr %param_slot_this, align 8
+  %load_valuesVec68 = load i64, ptr %local_slot_valuesVec, align 8
+  %load_class_ptr69 = load i64, ptr %param_slot_this, align 8
+  %class_ptr70 = inttoptr i64 %load_class_ptr69 to ptr
+  %field_set_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr70, i32 0, i32 1
+  store i64 %load_valuesVec68, ptr %field_set_values, align 8
+  %load_this71 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr72 = inttoptr i64 %load_this71 to ptr
+  %field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr72, i32 0, i32 2
+  %load_hashes = load i64, ptr %field_hashes, align 8
+  store i64 %load_hashes, ptr %r25, align 8
+  store i64 %load_hashes, ptr %local_slot_hashesVec, align 8
+  %str_malloc73 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 35, ptr @str.28 }, ptr %str_malloc73, align 8
+  %try_load_str74 = load { i64, ptr }, ptr %str_malloc73, align 8
+  %str_data75 = extractvalue { i64, ptr } %try_load_str74, 1
+  %printf_call76 = call i64 (ptr, ...) @printf(ptr @fmt_str.29, ptr %str_data75)
+  %fflush_call77 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r26, align 8
+  %load_hashesVec = load i64, ptr %local_slot_hashesVec, align 8
+  store i64 %load_hashesVec, ptr %r27, align 8
+  %printf_call78 = call i64 (ptr, ...) @printf(ptr @fmt_int.30, i64 %load_hashesVec)
+  %fflush_call79 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r28, align 8
+  %str_malloc80 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 0, ptr @str.31 }, ptr %str_malloc80, align 8
+  %try_load_str81 = load { i64, ptr }, ptr %str_malloc80, align 8
+  %str_data82 = extractvalue { i64, ptr } %try_load_str81, 1
+  %puts_call83 = call i32 @puts(ptr %str_data82)
+  store i64 0, ptr %r29, align 8
+  %load_hashesVec84 = load i64, ptr %local_slot_hashesVec, align 8
+  %arg_cast85 = inttoptr i64 %load_hashesVec84 to ptr
+  store i64 0, ptr %int_spill, align 8
+  %call86 = call ptr @Vec_push(ptr %arg_cast85, ptr %int_spill)
+  store ptr %call86, ptr %r30, align 8
+  %load_this87 = load i64, ptr %param_slot_this, align 8
+  %load_hashesVec88 = load i64, ptr %local_slot_hashesVec, align 8
+  %load_class_ptr89 = load i64, ptr %param_slot_this, align 8
+  %class_ptr90 = inttoptr i64 %load_class_ptr89 to ptr
+  %field_set_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr90, i32 0, i32 2
+  store i64 %load_hashesVec88, ptr %field_set_hashes, align 8
+  %load_this91 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr92 = inttoptr i64 %load_this91 to ptr
+  %field_length93 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr92, i32 0, i32 3
+  %load_length94 = load i64, ptr %field_length93, align 8
+  store i64 %load_length94, ptr %r31, align 8
+  %add95 = add i64 %load_length94, 1
+  store i64 %add95, ptr %r32, align 8
+  %load_this96 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr97 = load i64, ptr %param_slot_this, align 8
+  %class_ptr98 = inttoptr i64 %load_class_ptr97 to ptr
+  %field_set_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr98, i32 0, i32 3
+  store i64 %add95, ptr %field_set_length, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 %add95, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define ptr @Map_remove(ptr %0, ptr %1) #0 {
+entry:
+  %rebox_spill99 = alloca i64, align 8
+  %rebox_spill59 = alloca i64, align 8
+  %rebox_spill45 = alloca i64, align 8
+  %rebox_spill = alloca i64, align 8
+  %var_lastIdx = alloca i64, align 8
+  %local_slot_hashesVec = alloca i64, align 8
+  %local_slot_valuesVec = alloca i64, align 8
+  %local_slot_keysVec = alloca i64, align 8
+  %local_slot_value = alloca ptr, align 8
+  %local_slot_i = alloca i64, align 8
+  %param_slot_key = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i1, align 1
+  %r2 = alloca i64, align 8
+  %r3 = alloca ptr, align 8
+  %r4 = alloca i1, align 1
+  %r5 = alloca { i64, i64, ptr }, align 8
+  %r6 = alloca ptr, align 8
+  %r7 = alloca i64, align 8
+  %r8 = alloca i64, align 8
+  %r9 = alloca i1, align 1
+  %r10 = alloca i64, align 8
+  %r11 = alloca ptr, align 8
+  %r12 = alloca i64, align 8
+  %r13 = alloca ptr, align 8
+  %r14 = alloca { i64, i64, ptr }, align 8
+  %r15 = alloca ptr, align 8
+  %r16 = alloca { i64, i64, ptr }, align 8
+  %r17 = alloca ptr, align 8
+  %r18 = alloca i64, align 8
+  %r19 = alloca ptr, align 8
+  %r20 = alloca i64, align 8
+  %r21 = alloca ptr, align 8
+  %r22 = alloca i64, align 8
+  %r23 = alloca i64, align 8
+  %r24 = alloca ptr, align 8
+  %r25 = alloca { i64, i64, ptr }, align 8
+  %r26 = alloca ptr, align 8
+  %r27 = alloca i64, align 8
+  %r28 = alloca ptr, align 8
+  %r29 = alloca i64, align 8
+  %r30 = alloca i64, align 8
+  %r31 = alloca ptr, align 8
+  %r32 = alloca i64, align 8
+  %r33 = alloca i64, align 8
+  %r34 = alloca ptr, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store ptr %1, ptr %param_slot_key, align 8
+  store i64 0, ptr %local_slot_i, align 8
+  br label %loop_start_93
+
+loop_start_93:                                    ; preds = %if_end_98, %entry
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r0, align 8
+  %load_i = load i64, ptr %local_slot_i, align 8
+  %lt = icmp slt i64 %load_i, %load_length
+  store i1 %lt, ptr %r1, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_95, label %loop_body_94
+
+loop_body_94:                                     ; preds = %loop_start_93
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr2, i32 0, i32 0
+  %load_keys = load i64, ptr %field_keys, align 8
+  store i64 %load_keys, ptr %r2, align 8
+  %arg_cast = inttoptr i64 %load_keys to ptr
+  %load_i3 = load i64, ptr %local_slot_i, align 8
+  %call = call ptr @Vec_get(ptr %arg_cast, i64 %load_i3)
+  store ptr %call, ptr %r3, align 8
+  %load_key = load ptr, ptr %param_slot_key, align 8
+  %maybe_str_load = load { i64, ptr }, ptr %call, align 8
+  %load_boxed_str_ptr = load i64, ptr %load_key, align 8
+  %boxed_str_ptr = inttoptr i64 %load_boxed_str_ptr to ptr
+  %maybe_str_load4 = load { i64, ptr }, ptr %boxed_str_ptr, align 8
+  %str_data_ptr = extractvalue { i64, ptr } %maybe_str_load, 1
+  %str_data_ptr5 = extractvalue { i64, ptr } %maybe_str_load4, 1
+  %strcmp = call i32 @strcmp(ptr %str_data_ptr, ptr %str_data_ptr5)
+  %strcmp6 = icmp eq i32 %strcmp, 0
+  store i1 %strcmp6, ptr %r4, align 1
+  br i1 %strcmp6, label %then_96, label %block_0
+
+block_0:                                          ; preds = %loop_body_94
+  br label %else_97
+
+then_96:                                          ; preds = %loop_body_94
+  %load_this7 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr8 = inttoptr i64 %load_this7 to ptr
+  %field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr8, i32 0, i32 1
+  %load_values = load i64, ptr %field_values, align 8
+  %arg_cast9 = inttoptr i64 %load_values to ptr
+  %load_i10 = load i64, ptr %local_slot_i, align 8
+  %call11 = call ptr @Vec_get(ptr %arg_cast9, i64 %load_i10)
+  store ptr %call11, ptr %r6, align 8
+  store ptr %call11, ptr %local_slot_value, align 8
+  %load_this12 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr13 = inttoptr i64 %load_this12 to ptr
+  %field_length14 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr13, i32 0, i32 3
+  %load_length15 = load i64, ptr %field_length14, align 8
+  store i64 %load_length15, ptr %r7, align 8
+  %sub = sub i64 %load_length15, 1
+  store i64 %sub, ptr %r8, align 8
+  store i64 %sub, ptr %var_lastIdx, align 8
+  %load_i16 = load i64, ptr %local_slot_i, align 8
+  %load_lastIdx = load i64, ptr %var_lastIdx, align 8
+  %icmp = icmp ne i64 %load_i16, %load_lastIdx
+  store i1 %icmp, ptr %r9, align 1
+  br i1 %icmp, label %then_99, label %block_1
+
+block_1:                                          ; preds = %then_96
+  br label %else_100
+
+then_99:                                          ; preds = %then_96
+  %load_this17 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr18 = inttoptr i64 %load_this17 to ptr
+  %field_keys19 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr18, i32 0, i32 0
+  %load_keys20 = load i64, ptr %field_keys19, align 8
+  store i64 %load_keys20, ptr %r10, align 8
+  %arg_cast21 = inttoptr i64 %load_keys20 to ptr
+  %load_lastIdx22 = load i64, ptr %var_lastIdx, align 8
+  %call23 = call ptr @Vec_get(ptr %arg_cast21, i64 %load_lastIdx22)
+  store ptr %call23, ptr %r11, align 8
+  %load_this24 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr25 = inttoptr i64 %load_this24 to ptr
+  %field_keys26 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr25, i32 0, i32 0
+  %load_keys27 = load i64, ptr %field_keys26, align 8
+  store i64 %load_keys27, ptr %r12, align 8
+  %arg_cast28 = inttoptr i64 %load_keys27 to ptr
+  %load_i29 = load i64, ptr %local_slot_i, align 8
+  %ptr2int_rebox = ptrtoint ptr %call23 to i64
+  store i64 %ptr2int_rebox, ptr %rebox_spill, align 8
+  %call30 = call ptr @Vec_set(ptr %arg_cast28, i64 %load_i29, ptr %rebox_spill)
+  store ptr %call30, ptr %r13, align 8
+  %load_this31 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr32 = inttoptr i64 %load_this31 to ptr
+  %field_values33 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr32, i32 0, i32 1
+  %load_values34 = load i64, ptr %field_values33, align 8
+  %arg_cast35 = inttoptr i64 %load_values34 to ptr
+  %load_lastIdx36 = load i64, ptr %var_lastIdx, align 8
+  %call37 = call ptr @Vec_get(ptr %arg_cast35, i64 %load_lastIdx36)
+  store ptr %call37, ptr %r15, align 8
+  %load_this38 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr39 = inttoptr i64 %load_this38 to ptr
+  %field_values40 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr39, i32 0, i32 1
+  %load_values41 = load i64, ptr %field_values40, align 8
+  %arg_cast42 = inttoptr i64 %load_values41 to ptr
+  %load_i43 = load i64, ptr %local_slot_i, align 8
+  %ptr2int_rebox44 = ptrtoint ptr %call37 to i64
+  store i64 %ptr2int_rebox44, ptr %rebox_spill45, align 8
+  %call46 = call ptr @Vec_set(ptr %arg_cast42, i64 %load_i43, ptr %rebox_spill45)
+  store ptr %call46, ptr %r17, align 8
+  %load_this47 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr48 = inttoptr i64 %load_this47 to ptr
+  %field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr48, i32 0, i32 2
+  %load_hashes = load i64, ptr %field_hashes, align 8
+  store i64 %load_hashes, ptr %r18, align 8
+  %arg_cast49 = inttoptr i64 %load_hashes to ptr
+  %load_lastIdx50 = load i64, ptr %var_lastIdx, align 8
+  %call51 = call ptr @Vec_get(ptr %arg_cast49, i64 %load_lastIdx50)
+  store ptr %call51, ptr %r19, align 8
+  %load_this52 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr53 = inttoptr i64 %load_this52 to ptr
+  %field_hashes54 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr53, i32 0, i32 2
+  %load_hashes55 = load i64, ptr %field_hashes54, align 8
+  store i64 %load_hashes55, ptr %r20, align 8
+  %arg_cast56 = inttoptr i64 %load_hashes55 to ptr
+  %load_i57 = load i64, ptr %local_slot_i, align 8
+  %ptr2int_rebox58 = ptrtoint ptr %call51 to i64
+  store i64 %ptr2int_rebox58, ptr %rebox_spill59, align 8
+  %call60 = call ptr @Vec_set(ptr %arg_cast56, i64 %load_i57, ptr %rebox_spill59)
+  store ptr %call60, ptr %r21, align 8
+  %ptr2i61 = ptrtoint ptr %call60 to i64
+  store i64 %ptr2i61, ptr %r22, align 8
+  br label %if_end_101
+
+else_100:                                         ; preds = %block_1
+  store i64 0, ptr %r22, align 8
+  br label %if_end_101
+
+if_end_101:                                       ; preds = %else_100, %then_99
+  %load_this62 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr63 = inttoptr i64 %load_this62 to ptr
+  %field_keys64 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr63, i32 0, i32 0
+  %load_keys65 = load i64, ptr %field_keys64, align 8
+  store i64 %load_keys65, ptr %r23, align 8
+  store i64 %load_keys65, ptr %local_slot_keysVec, align 8
+  %load_keysVec = load i64, ptr %local_slot_keysVec, align 8
+  %arg_cast66 = inttoptr i64 %load_keysVec to ptr
+  %call67 = call ptr @Vec_pop(ptr %arg_cast66)
+  store ptr %call67, ptr %r24, align 8
+  %load_this68 = load i64, ptr %param_slot_this, align 8
+  %load_keysVec69 = load i64, ptr %local_slot_keysVec, align 8
+  %load_class_ptr = load i64, ptr %param_slot_this, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr, i32 0, i32 0
+  store i64 %load_keysVec69, ptr %field_set_keys, align 8
+  %load_this70 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr71 = inttoptr i64 %load_this70 to ptr
+  %field_values72 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr71, i32 0, i32 1
+  %load_values73 = load i64, ptr %field_values72, align 8
+  store i64 %load_values73, ptr %local_slot_valuesVec, align 8
+  %load_valuesVec = load i64, ptr %local_slot_valuesVec, align 8
+  %arg_cast74 = inttoptr i64 %load_valuesVec to ptr
+  %call75 = call ptr @Vec_pop(ptr %arg_cast74)
+  store ptr %call75, ptr %r26, align 8
+  %load_this76 = load i64, ptr %param_slot_this, align 8
+  %load_valuesVec77 = load i64, ptr %local_slot_valuesVec, align 8
+  %load_class_ptr78 = load i64, ptr %param_slot_this, align 8
+  %class_ptr79 = inttoptr i64 %load_class_ptr78 to ptr
+  %field_set_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr79, i32 0, i32 1
+  store i64 %load_valuesVec77, ptr %field_set_values, align 8
+  %load_this80 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr81 = inttoptr i64 %load_this80 to ptr
+  %field_hashes82 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr81, i32 0, i32 2
+  %load_hashes83 = load i64, ptr %field_hashes82, align 8
+  store i64 %load_hashes83, ptr %r27, align 8
+  store i64 %load_hashes83, ptr %local_slot_hashesVec, align 8
+  %load_hashesVec = load i64, ptr %local_slot_hashesVec, align 8
+  %arg_cast84 = inttoptr i64 %load_hashesVec to ptr
+  %call85 = call ptr @Vec_pop(ptr %arg_cast84)
+  store ptr %call85, ptr %r28, align 8
+  %load_this86 = load i64, ptr %param_slot_this, align 8
+  %load_hashesVec87 = load i64, ptr %local_slot_hashesVec, align 8
+  %load_class_ptr88 = load i64, ptr %param_slot_this, align 8
+  %class_ptr89 = inttoptr i64 %load_class_ptr88 to ptr
+  %field_set_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr89, i32 0, i32 2
+  store i64 %load_hashesVec87, ptr %field_set_hashes, align 8
+  %load_this90 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr91 = inttoptr i64 %load_this90 to ptr
+  %field_length92 = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr91, i32 0, i32 3
+  %load_length93 = load i64, ptr %field_length92, align 8
+  store i64 %load_length93, ptr %r29, align 8
+  %sub94 = sub i64 %load_length93, 1
+  store i64 %sub94, ptr %r30, align 8
+  %load_this95 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr96 = load i64, ptr %param_slot_this, align 8
+  %class_ptr97 = inttoptr i64 %load_class_ptr96 to ptr
+  %field_set_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %class_ptr97, i32 0, i32 3
+  store i64 %sub94, ptr %field_set_length, align 8
+  %load_value = load ptr, ptr %local_slot_value, align 8
+  %ptr2int_rebox98 = ptrtoint ptr %load_value to i64
+  store i64 %ptr2int_rebox98, ptr %rebox_spill99, align 8
+  %call100 = call ptr @Some(ptr %rebox_spill99)
+  store ptr %call100, ptr %r31, align 8
+  ret ptr %call100
+
+block_2:                                          ; No predecessors!
+  %load_r31 = load ptr, ptr %r31, align 8
+  %ptr2i101 = ptrtoint ptr %load_r31 to i64
+  store i64 %ptr2i101, ptr %r32, align 8
+  br label %if_end_98
+
+else_97:                                          ; preds = %block_0
+  store i64 0, ptr %r32, align 8
+  br label %if_end_98
+
+if_end_98:                                        ; preds = %else_97, %block_2
+  %load_i102 = load i64, ptr %local_slot_i, align 8
+  %add = add i64 %load_i102, 1
+  store i64 %add, ptr %r33, align 8
+  store i64 %add, ptr %local_slot_i, align 8
+  br label %loop_start_93
+
+loop_end_95:                                      ; preds = %loop_start_93
+  %call103 = call ptr @None()
+  store ptr %call103, ptr %r34, align 8
+  ret ptr %call103
+}
+
+define i64 @Map_size(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r0, align 8
+  ret i64 %load_length
+}
+
+define i64 @Map_values(ptr %0) #0 {
+entry:
+  %rebox_spill = alloca i64, align 8
+  %local_slot_i = alloca i64, align 8
+  %local_slot_result = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i64, align 8
+  %r2 = alloca i1, align 1
+  %r3 = alloca { i64, i64, ptr }, align 8
+  %r4 = alloca ptr, align 8
+  %r5 = alloca ptr, align 8
+  %r6 = alloca i64, align 8
+  %this_field_keys = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_hashes = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %call = call i64 @Vec_new()
+  store i64 %call, ptr %r0, align 8
+  store i64 %call, ptr %local_slot_result, align 8
+  store i64 0, ptr %local_slot_i, align 8
+  br label %loop_start_90
+
+loop_start_90:                                    ; preds = %loop_body_91, %entry
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r1, align 8
+  %load_i = load i64, ptr %local_slot_i, align 8
+  %lt = icmp slt i64 %load_i, %load_length
+  store i1 %lt, ptr %r2, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_92, label %loop_body_91
+
+loop_body_91:                                     ; preds = %loop_start_90
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_values = getelementptr inbounds nuw { i64, i64, i64, i64 }, ptr %struct_field_ptr2, i32 0, i32 1
+  %load_values = load i64, ptr %field_values, align 8
+  %arg_cast = inttoptr i64 %load_values to ptr
+  %load_i3 = load i64, ptr %local_slot_i, align 8
+  %call4 = call ptr @Vec_get(ptr %arg_cast, i64 %load_i3)
+  store ptr %call4, ptr %r4, align 8
+  %load_result = load i64, ptr %local_slot_result, align 8
+  %arg_cast5 = inttoptr i64 %load_result to ptr
+  %ptr2int_rebox = ptrtoint ptr %call4 to i64
+  store i64 %ptr2int_rebox, ptr %rebox_spill, align 8
+  %call6 = call ptr @Vec_push(ptr %arg_cast5, ptr %rebox_spill)
+  store ptr %call6, ptr %r5, align 8
+  %load_i7 = load i64, ptr %local_slot_i, align 8
+  %add = add i64 %load_i7, 1
+  store i64 %add, ptr %r6, align 8
+  store i64 %add, ptr %local_slot_i, align 8
+  br label %loop_start_90
+
+loop_end_92:                                      ; preds = %loop_start_90
+  %load_result8 = load i64, ptr %local_slot_result, align 8
+  ret i64 %load_result8
+}
+
+define ptr @None() #0 {
+entry:
+  %r0 = alloca ptr, align 8
+  %call = call ptr @Option_New()
+  store ptr %call, ptr %r0, align 8
+  ret ptr %call
+}
+
+define i64 @Option() #0 {
+entry:
+  %r0 = alloca { i1, i64 }, align 8
+  %alloc_obj = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i1, i64 }, ptr null, i32 1) to i64))
+  %field_0_ptr = getelementptr inbounds nuw { i1, i64 }, ptr %alloc_obj, i32 0, i32 0
+  store i1 false, ptr %field_0_ptr, align 1
+  %field_1_ptr = getelementptr inbounds nuw { i1, i64 }, ptr %alloc_obj, i32 0, i32 1
+  store ptr null, ptr %field_1_ptr, align 8
+  %obj_ptr = ptrtoint ptr %alloc_obj to i64
+  ret i64 %obj_ptr
+}
+
+define ptr @Option_Clear(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr = load i64, ptr %param_slot_this, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %class_ptr, i32 0, i32 0
+  store i1 false, ptr %field_set_hasValue, align 1
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 0, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define ptr @Option_Expect(ptr %0, { i64, ptr } %1) #0 {
+entry:
+  %param_slot_message = alloca { i64, ptr }, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %r1 = alloca i64, align 8
+  %r2 = alloca i64, align 8
+  %r3 = alloca i64, align 8
+  %r4 = alloca ptr, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store i64 0, ptr %r1, align 8
+  store { i64, ptr } %1, ptr %param_slot_message, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr, i32 0, i32 0
+  %load_hasValue = load i1, ptr %field_hasValue, align 1
+  store i1 %load_hasValue, ptr %r0, align 1
+  br i1 %load_hasValue, label %then_3, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_4
+
+then_3:                                           ; preds = %entry
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_value = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr2, i32 0, i32 1
+  %load_value = load i64, ptr %field_value, align 8
+  store i64 %load_value, ptr %r1, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 %load_value, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+
+block_1:                                          ; No predecessors!
+  %load_r1 = load i64, ptr %r1, align 8
+  store i64 %load_r1, ptr %r2, align 8
+  br label %if_end_5
+
+else_4:                                           ; preds = %block_0
+  store i64 0, ptr %r2, align 8
+  br label %if_end_5
+
+if_end_5:                                         ; preds = %else_4, %block_1
+  %load_message = load { i64, ptr }, ptr %param_slot_message, align 8
+  %str_data_ptr = extractvalue { i64, ptr } %load_message, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr %str_data_ptr)
+  %printf_call3 = call i64 (ptr, ...) @printf(ptr @newline)
+  call void @exit(i32 1)
+  %load_this4 = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this4 to ptr
+  %call = call ptr @Option_Unwrap(ptr %arg_cast)
+  store ptr %call, ptr %r4, align 8
+  ret ptr %call
+}
+
+define i1 @Option_IsNone(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %r1 = alloca i1, align 1
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr, i32 0, i32 0
+  %load_hasValue = load i1, ptr %field_hasValue, align 1
+  store i1 %load_hasValue, ptr %r0, align 1
+  %zext = zext i1 %load_hasValue to i64
+  %not = icmp eq i64 %zext, 0
+  %not_ext = zext i1 %not to i64
+  %trunc_store = trunc i64 %not_ext to i1
+  ret i1 %trunc_store
+}
+
+define i1 @Option_IsSome(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr, i32 0, i32 0
+  %load_hasValue = load i1, ptr %field_hasValue, align 1
+  store i1 %load_hasValue, ptr %r0, align 1
+  ret i1 %load_hasValue
+}
+
+define ptr @Option_New() #0 {
+entry:
+  %r0 = alloca i64, align 8
+  store i64 0, ptr %r0, align 8
+  %Option_malloc = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i1, i64 }, ptr null, i32 1) to i64))
+  %Option_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %Option_malloc, i32 0, i32 0
+  store i1 false, ptr %Option_field_hasValue, align 1
+  %Option_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %Option_malloc, i32 0, i32 1
+  store i64 0, ptr %Option_field_value, align 8
+  ret ptr %Option_malloc
+}
+
+define ptr @Option_Replace(ptr %0, ptr %1) #0 {
+entry:
+  %rebox_spill = alloca i64, align 8
+  %var_previous = alloca ptr, align 8
+  %int_spill = alloca i64, align 8
+  %param_slot_value = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %r1 = alloca i64, align 8
+  %r2 = alloca ptr, align 8
+  %r3 = alloca ptr, align 8
+  %r4 = alloca ptr, align 8
+  %r5 = alloca ptr, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %ptr2i = ptrtoint ptr %1 to i64
+  store i64 %ptr2i, ptr %r1, align 8
+  store ptr %1, ptr %param_slot_value, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr, i32 0, i32 0
+  %load_hasValue = load i1, ptr %field_hasValue, align 1
+  store i1 %load_hasValue, ptr %r0, align 1
+  br i1 %load_hasValue, label %then_9, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_10
+
+then_9:                                           ; preds = %entry
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_value = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr2, i32 0, i32 1
+  %load_value = load i64, ptr %field_value, align 8
+  store i64 %load_value, ptr %r1, align 8
+  store i64 %load_value, ptr %int_spill, align 8
+  %call = call ptr @Some(ptr %int_spill)
+  store ptr %call, ptr %r2, align 8
+  store ptr %call, ptr %r3, align 8
+  br label %if_end_11
+
+else_10:                                          ; preds = %block_0
+  %call3 = call ptr @None()
+  store ptr %call3, ptr %r4, align 8
+  store ptr %call3, ptr %r3, align 8
+  br label %if_end_11
+
+if_end_11:                                        ; preds = %else_10, %then_9
+  %load_r3 = load ptr, ptr %r3, align 8
+  store ptr %load_r3, ptr %var_previous, align 8
+  %load_this4 = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this4 to ptr
+  %load_value5 = load ptr, ptr %param_slot_value, align 8
+  %load_boxed_rebox = load i64, ptr %load_value5, align 8
+  store i64 %load_boxed_rebox, ptr %rebox_spill, align 8
+  %call6 = call ptr @Option_Store(ptr %arg_cast, ptr %rebox_spill)
+  store ptr %call6, ptr %r5, align 8
+  %load_previous = load ptr, ptr %var_previous, align 8
+  ret ptr %load_previous
+}
+
+define ptr @Option_Store(ptr %0, ptr %1) #0 {
+entry:
+  %param_slot_value = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca ptr, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store ptr %1, ptr %r1, align 8
+  store ptr %1, ptr %param_slot_value, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %load_value = load ptr, ptr %param_slot_value, align 8
+  %load_class_ptr = load i64, ptr %param_slot_this, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_value = getelementptr inbounds nuw { i1, i64 }, ptr %class_ptr, i32 0, i32 1
+  %load_boxed_gen = load i64, ptr %load_value, align 8
+  store i64 %load_boxed_gen, ptr %field_set_value, align 8
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr2 = load i64, ptr %param_slot_this, align 8
+  %class_ptr3 = inttoptr i64 %load_class_ptr2 to ptr
+  %field_set_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %class_ptr3, i32 0, i32 0
+  store i1 true, ptr %field_set_hasValue, align 1
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 -1, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define ptr @Option_Unwrap(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %r1 = alloca i1, align 1
+  %r2 = alloca i64, align 8
+  %r3 = alloca i64, align 8
+  %r4 = alloca i64, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr, i32 0, i32 0
+  %load_hasValue = load i1, ptr %field_hasValue, align 1
+  store i1 %load_hasValue, ptr %r0, align 1
+  %zext = zext i1 %load_hasValue to i64
+  %not = icmp eq i64 %zext, 0
+  %not_ext = zext i1 %not to i64
+  %tobool = icmp ne i64 %not_ext, 0
+  br i1 %tobool, label %then_0, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_1
+
+then_0:                                           ; preds = %entry
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 30, ptr @str.32 }, ptr %str_malloc, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr %str_data)
+  %printf_call1 = call i64 (ptr, ...) @printf(ptr @newline.33)
+  call void @exit(i32 1)
+  %load_r2 = load i64, ptr %r2, align 8
+  store i64 %load_r2, ptr %r3, align 8
+  br label %if_end_2
+
+else_1:                                           ; preds = %block_0
+  store i64 0, ptr %r3, align 8
+  br label %if_end_2
+
+if_end_2:                                         ; preds = %else_1, %then_0
+  %load_this2 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr3 = inttoptr i64 %load_this2 to ptr
+  %field_value = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr3, i32 0, i32 1
+  %load_value = load i64, ptr %field_value, align 8
+  store i64 %load_value, ptr %r4, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 %load_value, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define ptr @Option_UnwrapOr(ptr %0, ptr %1) #0 {
+entry:
+  %param_slot_defaultValue = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %r1 = alloca i64, align 8
+  %r2 = alloca i64, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %ptr2i = ptrtoint ptr %1 to i64
+  store i64 %ptr2i, ptr %r1, align 8
+  store ptr %1, ptr %param_slot_defaultValue, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr, i32 0, i32 0
+  %load_hasValue = load i1, ptr %field_hasValue, align 1
+  store i1 %load_hasValue, ptr %r0, align 1
+  br i1 %load_hasValue, label %then_6, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_7
+
+then_6:                                           ; preds = %entry
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_value = getelementptr inbounds nuw { i1, i64 }, ptr %struct_field_ptr2, i32 0, i32 1
+  %load_value = load i64, ptr %field_value, align 8
+  store i64 %load_value, ptr %r1, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 %load_value, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+
+block_1:                                          ; No predecessors!
+  %load_r1 = load i64, ptr %r1, align 8
+  store i64 %load_r1, ptr %r2, align 8
+  br label %if_end_8
+
+else_7:                                           ; preds = %block_0
+  store i64 0, ptr %r2, align 8
+  br label %if_end_8
+
+if_end_8:                                         ; preds = %else_7, %block_1
+  %load_defaultValue = load ptr, ptr %param_slot_defaultValue, align 8
+  ret ptr %load_defaultValue
+}
+
+define ptr @Option_WithValue(ptr %0) #0 {
+entry:
+  %param_slot_v = alloca ptr, align 8
+  %r0 = alloca ptr, align 8
+  store ptr %0, ptr %r0, align 8
+  store ptr %0, ptr %param_slot_v, align 8
+  %Option_malloc = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i1, i64 }, ptr null, i32 1) to i64))
+  %Option_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %Option_malloc, i32 0, i32 0
+  store i1 true, ptr %Option_field_hasValue, align 1
+  %load_v = load ptr, ptr %param_slot_v, align 8
+  %Option_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %Option_malloc, i32 0, i32 1
+  store ptr %load_v, ptr %Option_field_value, align 8
+  ret ptr %Option_malloc
+}
+
+define ptr @Option_expect(ptr %0, { i64, ptr } %1) #0 {
+entry:
+  %param_slot_message = alloca { i64, ptr }, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca { i64, ptr }, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  store ptr %0, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store { i64, ptr } %1, ptr %r1, align 8
+  store { i64, ptr } %1, ptr %param_slot_message, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this to ptr
+  %load_message = load { i64, ptr }, ptr %param_slot_message, align 8
+  %call = call ptr @Option_Expect(ptr %arg_cast, { i64, ptr } %load_message)
+  store ptr %call, ptr %r0, align 8
+  ret ptr %call
+}
+
+define i1 @Option_isNone(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this to ptr
+  %call = call i1 @Option_IsNone(ptr %arg_cast)
+  store i1 %call, ptr %r0, align 1
+  ret i1 %call
+}
+
+define i1 @Option_isSome(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this to ptr
+  %call = call i1 @Option_IsSome(ptr %arg_cast)
+  store i1 %call, ptr %r0, align 1
+  ret i1 %call
+}
+
+define ptr @Option_unwrap(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca ptr, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  store ptr %0, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this to ptr
+  %call = call ptr @Option_Unwrap(ptr %arg_cast)
+  store ptr %call, ptr %r0, align 8
+  ret ptr %call
+}
+
+define ptr @Option_unwrapOr(ptr %0, ptr %1) #0 {
+entry:
+  %rebox_spill = alloca i64, align 8
+  %param_slot_defaultValue = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca ptr, align 8
+  %this_field_hasValue = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_value = getelementptr inbounds nuw { i1, i64 }, ptr %param_slot_this, i32 0, i32 1
+  store ptr %0, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store ptr %1, ptr %r1, align 8
+  store ptr %1, ptr %param_slot_defaultValue, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this to ptr
+  %load_defaultValue = load ptr, ptr %param_slot_defaultValue, align 8
+  %load_boxed_rebox = load i64, ptr %load_defaultValue, align 8
+  store i64 %load_boxed_rebox, ptr %rebox_spill, align 8
+  %call = call ptr @Option_UnwrapOr(ptr %arg_cast, ptr %rebox_spill)
+  store ptr %call, ptr %r0, align 8
+  ret ptr %call
+}
+
+define ptr @Some(ptr %0) #0 {
+entry:
+  %rebox_spill = alloca i64, align 8
+  %local_slot_option = alloca ptr, align 8
+  %param_slot_value = alloca ptr, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca ptr, align 8
+  store ptr %0, ptr %r0, align 8
+  store ptr %0, ptr %param_slot_value, align 8
+  %call = call ptr @Option_New()
+  store ptr %call, ptr %r0, align 8
+  store ptr %call, ptr %local_slot_option, align 8
+  %load_option = load ptr, ptr %local_slot_option, align 8
+  %load_value = load ptr, ptr %param_slot_value, align 8
+  %load_boxed_rebox = load i64, ptr %load_value, align 8
+  store i64 %load_boxed_rebox, ptr %rebox_spill, align 8
+  %call1 = call ptr @Option_Store(ptr %load_option, ptr %rebox_spill)
+  store ptr %call1, ptr %r1, align 8
+  %load_option2 = load ptr, ptr %local_slot_option, align 8
+  ret ptr %load_option2
+}
+
+define ptr @UnwrapOr(ptr %0, ptr %1) #0 {
+entry:
+  %rebox_spill = alloca i64, align 8
+  %param_slot_defaultValue = alloca ptr, align 8
+  %param_slot_option = alloca ptr, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca ptr, align 8
+  store ptr %0, ptr %r0, align 8
+  store ptr %0, ptr %param_slot_option, align 8
+  store ptr %1, ptr %r1, align 8
+  store ptr %1, ptr %param_slot_defaultValue, align 8
+  %load_option = load ptr, ptr %param_slot_option, align 8
+  %load_defaultValue = load ptr, ptr %param_slot_defaultValue, align 8
+  %load_boxed_rebox = load i64, ptr %load_defaultValue, align 8
+  store i64 %load_boxed_rebox, ptr %rebox_spill, align 8
+  %call = call ptr @Option_UnwrapOr(ptr %load_option, ptr %rebox_spill)
+  store ptr %call, ptr %r0, align 8
+  ret ptr %call
+}
+
+define i64 @Vec() #0 {
+entry:
+  %r3 = alloca { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, align 8
+  %alloc_obj = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr null, i32 1) to i64))
+  %field_0_ptr = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 0
+  store { i64, i64, ptr } zeroinitializer, ptr %field_0_ptr, align 8
+  %field_1_ptr = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 1
+  store { i64, i64, ptr } zeroinitializer, ptr %field_1_ptr, align 8
+  %field_2_ptr = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 2
+  store { i64, i64, ptr } zeroinitializer, ptr %field_2_ptr, align 8
+  %field_3_ptr = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 3
+  store i64 0, ptr %field_3_ptr, align 8
+  %field_4_ptr = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 4
+  store i64 0, ptr %field_4_ptr, align 8
+  %field_5_ptr = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %alloc_obj, i32 0, i32 5
+  store i64 0, ptr %field_5_ptr, align 8
+  %obj_ptr = ptrtoint ptr %alloc_obj to i64
+  ret i64 %obj_ptr
+}
+
+define i64 @VecChunk() #0 {
+entry:
+  %r1 = alloca { { i64, i64, ptr } }, align 8
+  %alloc_obj = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ { i64, i64, ptr } }, ptr null, i32 1) to i64))
+  %field_0_ptr = getelementptr inbounds nuw { { i64, i64, ptr } }, ptr %alloc_obj, i32 0, i32 0
+  store { i64, i64, ptr } zeroinitializer, ptr %field_0_ptr, align 8
+  %obj_ptr = ptrtoint ptr %alloc_obj to i64
+  ret i64 %obj_ptr
+}
+
+define i64 @VecSlot() #0 {
+entry:
+  %r2 = alloca { i64, i64 }, align 8
+  %alloc_obj = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i64, i64 }, ptr null, i32 1) to i64))
+  %field_0_ptr = getelementptr inbounds nuw { i64, i64 }, ptr %alloc_obj, i32 0, i32 0
+  store i64 0, ptr %field_0_ptr, align 8
+  %field_1_ptr = getelementptr inbounds nuw { i64, i64 }, ptr %alloc_obj, i32 0, i32 1
+  store i64 0, ptr %field_1_ptr, align 8
+  %obj_ptr = ptrtoint ptr %alloc_obj to i64
+  ret i64 %obj_ptr
+}
+
+define i64 @Vec_capacity(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 4
+  %load_totalCapacity = load i64, ptr %field_totalCapacity, align 8
+  store i64 %load_totalCapacity, ptr %r0, align 8
+  ret i64 %load_totalCapacity
+}
+
+define ptr @Vec_clear(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca ptr, align 8
+  %r2 = alloca ptr, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  store ptr %0, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %arr_header_alloc = call ptr @malloc(i64 24)
+  %data_size = mul i64 4, ptrtoint (ptr getelementptr (i64, ptr null, i32 1) to i64)
+  %arr_data_alloc = call ptr @malloc(i64 %data_size)
+  store i64 0, ptr %arr_header_alloc, align 8
+  %cap_ptr = getelementptr i64, ptr %arr_header_alloc, i64 1
+  store i64 4, ptr %cap_ptr, align 8
+  %data_ptr_ptr = getelementptr i64, ptr %arr_header_alloc, i64 2
+  store ptr %arr_data_alloc, ptr %data_ptr_ptr, align 8
+  store ptr %arr_header_alloc, ptr %r0, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr = load i64, ptr %param_slot_this, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr, i32 0, i32 0
+  %load_arr_struct = load { i64, i64, ptr }, ptr %arr_header_alloc, align 8
+  store { i64, i64, ptr } %load_arr_struct, ptr %field_set_chunks, align 8
+  %arr_header_alloc1 = call ptr @malloc(i64 24)
+  %data_size2 = mul i64 4, ptrtoint (ptr getelementptr (i64, ptr null, i32 1) to i64)
+  %arr_data_alloc3 = call ptr @malloc(i64 %data_size2)
+  store i64 0, ptr %arr_header_alloc1, align 8
+  %cap_ptr4 = getelementptr i64, ptr %arr_header_alloc1, i64 1
+  store i64 4, ptr %cap_ptr4, align 8
+  %data_ptr_ptr5 = getelementptr i64, ptr %arr_header_alloc1, i64 2
+  store ptr %arr_data_alloc3, ptr %data_ptr_ptr5, align 8
+  store ptr %arr_header_alloc1, ptr %r1, align 8
+  %load_this6 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr7 = load i64, ptr %param_slot_this, align 8
+  %class_ptr8 = inttoptr i64 %load_class_ptr7 to ptr
+  %field_set_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr8, i32 0, i32 1
+  %load_arr_struct9 = load { i64, i64, ptr }, ptr %arr_header_alloc1, align 8
+  store { i64, i64, ptr } %load_arr_struct9, ptr %field_set_capacities, align 8
+  %arr_header_alloc10 = call ptr @malloc(i64 24)
+  %data_size11 = mul i64 4, ptrtoint (ptr getelementptr (i64, ptr null, i32 1) to i64)
+  %arr_data_alloc12 = call ptr @malloc(i64 %data_size11)
+  store i64 0, ptr %arr_header_alloc10, align 8
+  %cap_ptr13 = getelementptr i64, ptr %arr_header_alloc10, i64 1
+  store i64 4, ptr %cap_ptr13, align 8
+  %data_ptr_ptr14 = getelementptr i64, ptr %arr_header_alloc10, i64 2
+  store ptr %arr_data_alloc12, ptr %data_ptr_ptr14, align 8
+  store ptr %arr_header_alloc10, ptr %r2, align 8
+  %load_this15 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr16 = load i64, ptr %param_slot_this, align 8
+  %class_ptr17 = inttoptr i64 %load_class_ptr16 to ptr
+  %field_set_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr17, i32 0, i32 2
+  %load_arr_struct18 = load { i64, i64, ptr }, ptr %arr_header_alloc10, align 8
+  store { i64, i64, ptr } %load_arr_struct18, ptr %field_set_usage, align 8
+  %load_this19 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr20 = load i64, ptr %param_slot_this, align 8
+  %class_ptr21 = inttoptr i64 %load_class_ptr20 to ptr
+  %field_set_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr21, i32 0, i32 3
+  store i64 0, ptr %field_set_length, align 8
+  %load_this22 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr23 = load i64, ptr %param_slot_this, align 8
+  %class_ptr24 = inttoptr i64 %load_class_ptr23 to ptr
+  %field_set_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr24, i32 0, i32 4
+  store i64 0, ptr %field_set_totalCapacity, align 8
+  %load_this25 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr26 = load i64, ptr %param_slot_this, align 8
+  %class_ptr27 = inttoptr i64 %load_class_ptr26 to ptr
+  %field_set_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr27, i32 0, i32 5
+  store i64 8, ptr %field_set_nextChunkSize, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 8, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define ptr @Vec_ensureCapacity(ptr %0, i64 %1) #0 {
+entry:
+  %param_slot_capacity = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  store ptr %0, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store i64 %1, ptr %r1, align 8
+  store i64 %1, ptr %param_slot_capacity, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this to ptr
+  %load_capacity = load i64, ptr %param_slot_capacity, align 8
+  %call = call ptr @Vec_reserve(ptr %arg_cast, i64 %load_capacity)
+  store ptr %call, ptr %r0, align 8
+  ret ptr %call
+}
+
+define ptr @Vec_get(ptr %0, i64 %1) #0 {
+entry:
+  %var_remaining = alloca i64, align 8
+  %local_slot_chunk = alloca i64, align 8
+  %local_slot_chunkUsage = alloca i64, align 8
+  %local_slot_chunkIndex = alloca i64, align 8
+  %param_slot_index = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %r1 = alloca i64, align 8
+  %r2 = alloca i1, align 1
+  %r3 = alloca i1, align 1
+  %r4 = alloca i64, align 8
+  %r5 = alloca i64, align 8
+  %r6 = alloca { i64, i64, ptr }, align 8
+  %r7 = alloca i64, align 8
+  %r8 = alloca i1, align 1
+  %r9 = alloca { i64, i64, ptr }, align 8
+  %r10 = alloca i64, align 8
+  %r11 = alloca i1, align 1
+  %r12 = alloca { i64, i64, ptr }, align 8
+  %r13 = alloca { { i64, i64, ptr } }, align 8
+  %r14 = alloca { i64, i64, ptr }, align 8
+  %r15 = alloca i64, align 8
+  %r16 = alloca i64, align 8
+  %r17 = alloca i64, align 8
+  %r18 = alloca i64, align 8
+  %r19 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store i64 %1, ptr %r1, align 8
+  store i64 %1, ptr %param_slot_index, align 8
+  %load_index = load i64, ptr %param_slot_index, align 8
+  %lt = icmp slt i64 %load_index, 0
+  store i1 %lt, ptr %r0, align 1
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r1, align 8
+  %load_index1 = load i64, ptr %param_slot_index, align 8
+  %ge = icmp sge i64 %load_index1, %load_length
+  store i1 %ge, ptr %r2, align 1
+  %or = or i1 %lt, %ge
+  store i1 %or, ptr %r3, align 1
+  br i1 %or, label %then_27, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_28
+
+then_27:                                          ; preds = %entry
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 23, ptr @str.34 }, ptr %str_malloc, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr %str_data)
+  %printf_call2 = call i64 (ptr, ...) @printf(ptr @newline.35)
+  call void @exit(i32 1)
+  %load_r4 = load i64, ptr %r4, align 8
+  store i64 %load_r4, ptr %r5, align 8
+  br label %if_end_29
+
+else_28:                                          ; preds = %block_0
+  store i64 0, ptr %r5, align 8
+  br label %if_end_29
+
+if_end_29:                                        ; preds = %else_28, %then_27
+  %load_index3 = load i64, ptr %param_slot_index, align 8
+  store i64 %load_index3, ptr %var_remaining, align 8
+  store i64 0, ptr %local_slot_chunkIndex, align 8
+  br label %loop_start_30
+
+loop_start_30:                                    ; preds = %if_end_35, %if_end_29
+  %load_this4 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr5 = inttoptr i64 %load_this4 to ptr
+  %field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr5, i32 0, i32 0
+  %load_chunks = load { i64, i64, ptr }, ptr %field_chunks, align 8
+  store { i64, i64, ptr } %load_chunks, ptr %r6, align 8
+  %alen = extractvalue { i64, i64, ptr } %load_chunks, 0
+  store i64 %alen, ptr %r7, align 8
+  %load_chunkIndex = load i64, ptr %local_slot_chunkIndex, align 8
+  %lt6 = icmp slt i64 %load_chunkIndex, %alen
+  store i1 %lt6, ptr %r8, align 1
+  %not = xor i1 %lt6, true
+  br i1 %not, label %loop_end_32, label %loop_body_31
+
+loop_body_31:                                     ; preds = %loop_start_30
+  %load_this7 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr8 = inttoptr i64 %load_this7 to ptr
+  %field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr8, i32 0, i32 2
+  %load_usage = load { i64, i64, ptr }, ptr %field_usage, align 8
+  store { i64, i64, ptr } %load_usage, ptr %r9, align 8
+  %data_ptr = extractvalue { i64, i64, ptr } %load_usage, 2
+  %printf_call9 = call i64 (ptr, ...) @printf(ptr @fmt_p, ptr %data_ptr)
+  %load_chunkIndex10 = load i64, ptr %local_slot_chunkIndex, align 8
+  %elem_ptr = getelementptr i64, ptr %data_ptr, i64 %load_chunkIndex10
+  %elem = load i64, ptr %elem_ptr, align 8
+  store i64 %elem, ptr %r10, align 8
+  store i64 %elem, ptr %local_slot_chunkUsage, align 8
+  %load_remaining = load i64, ptr %var_remaining, align 8
+  %load_chunkUsage = load i64, ptr %local_slot_chunkUsage, align 8
+  %lt11 = icmp slt i64 %load_remaining, %load_chunkUsage
+  store i1 %lt11, ptr %r11, align 1
+  br i1 %lt11, label %then_33, label %block_1
+
+block_1:                                          ; preds = %loop_body_31
+  br label %else_34
+
+then_33:                                          ; preds = %loop_body_31
+  %load_this12 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr13 = inttoptr i64 %load_this12 to ptr
+  %field_chunks14 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr13, i32 0, i32 0
+  %load_chunks15 = load { i64, i64, ptr }, ptr %field_chunks14, align 8
+  store { i64, i64, ptr } %load_chunks15, ptr %r12, align 8
+  %data_ptr16 = extractvalue { i64, i64, ptr } %load_chunks15, 2
+  %printf_call17 = call i64 (ptr, ...) @printf(ptr @fmt_p.36, ptr %data_ptr16)
+  %load_chunkIndex18 = load i64, ptr %local_slot_chunkIndex, align 8
+  %class_elem_ptr_sv = getelementptr i64, ptr %data_ptr16, i64 %load_chunkIndex18
+  %class_ptr_int_sv = load i64, ptr %class_elem_ptr_sv, align 8
+  store i64 %class_ptr_int_sv, ptr %local_slot_chunk, align 8
+  %load_chunk = load i64, ptr %local_slot_chunk, align 8
+  %struct_field_ptr19 = inttoptr i64 %load_chunk to ptr
+  %field_values = getelementptr inbounds nuw { { i64, i64, ptr } }, ptr %struct_field_ptr19, i32 0, i32 0
+  %load_values = load { i64, i64, ptr }, ptr %field_values, align 8
+  store { i64, i64, ptr } %load_values, ptr %r14, align 8
+  %data_ptr20 = extractvalue { i64, i64, ptr } %load_values, 2
+  %printf_call21 = call i64 (ptr, ...) @printf(ptr @fmt_p.37, ptr %data_ptr20)
+  %load_remaining22 = load i64, ptr %var_remaining, align 8
+  %generic_elem_ptr = getelementptr i64, ptr %data_ptr20, i64 %load_remaining22
+  %generic_load = load i64, ptr %generic_elem_ptr, align 8
+  %i64_to_ptr = inttoptr i64 %generic_load to ptr
+  %ptr2i = ptrtoint ptr %i64_to_ptr to i64
+  store i64 %ptr2i, ptr %r15, align 8
+  ret ptr %i64_to_ptr
+
+block_2:                                          ; No predecessors!
+  %load_r15 = load i64, ptr %r15, align 8
+  store i64 %load_r15, ptr %r16, align 8
+  br label %if_end_35
+
+else_34:                                          ; preds = %block_1
+  store i64 0, ptr %r16, align 8
+  br label %if_end_35
+
+if_end_35:                                        ; preds = %else_34, %block_2
+  %load_remaining23 = load i64, ptr %var_remaining, align 8
+  %load_chunkUsage24 = load i64, ptr %local_slot_chunkUsage, align 8
+  %sub = sub i64 %load_remaining23, %load_chunkUsage24
+  store i64 %sub, ptr %r17, align 8
+  store i64 %sub, ptr %var_remaining, align 8
+  %load_chunkIndex25 = load i64, ptr %local_slot_chunkIndex, align 8
+  %add = add i64 %load_chunkIndex25, 1
+  store i64 %add, ptr %r18, align 8
+  store i64 %add, ptr %local_slot_chunkIndex, align 8
+  br label %loop_start_30
+
+loop_end_32:                                      ; preds = %loop_start_30
+  %str_malloc26 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 18, ptr @str.38 }, ptr %str_malloc26, align 8
+  %try_load_str27 = load { i64, ptr }, ptr %str_malloc26, align 8
+  %str_data28 = extractvalue { i64, ptr } %try_load_str27, 1
+  %printf_call29 = call i64 (ptr, ...) @printf(ptr %str_data28)
+  %printf_call30 = call i64 (ptr, ...) @printf(ptr @newline.39)
+  call void @exit(i32 1)
+  %load_r19 = load i64, ptr %r19, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 %load_r19, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define ptr @Vec_growChunk(ptr %0) #0 {
+entry:
+  %item_tmp18 = alloca i64, align 8
+  %item_tmp11 = alloca i64, align 8
+  %item_tmp = alloca i64, align 8
+  %local_slot_usageArr = alloca { i64, i64, ptr }, align 8
+  %local_slot_capsArr = alloca { i64, i64, ptr }, align 8
+  %local_slot_chunksArr = alloca { i64, i64, ptr }, align 8
+  %local_slot_chunk = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca i64, align 8
+  %r2 = alloca { i64, i64, ptr }, align 8
+  %r4 = alloca { i64, i64, ptr }, align 8
+  %r5 = alloca i64, align 8
+  %r7 = alloca { i64, i64, ptr }, align 8
+  %r9 = alloca i64, align 8
+  %r10 = alloca i64, align 8
+  %r11 = alloca i64, align 8
+  %r12 = alloca i64, align 8
+  %r13 = alloca i64, align 8
+  %r3 = alloca i64, align 8
+  %r6 = alloca i64, align 8
+  %r8 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  store ptr %0, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 5
+  %load_nextChunkSize = load i64, ptr %field_nextChunkSize, align 8
+  store i64 %load_nextChunkSize, ptr %r1, align 8
+  %is_zero = icmp eq i64 %load_nextChunkSize, 0
+  %alloc_cap = select i1 %is_zero, i64 4, i64 %load_nextChunkSize
+  %arr_header_alloc = call ptr @malloc(i64 24)
+  %data_size = mul i64 %alloc_cap, ptrtoint (ptr getelementptr (ptr, ptr null, i32 1) to i64)
+  %arr_data_alloc = call ptr @malloc(i64 %data_size)
+  store i64 0, ptr %arr_header_alloc, align 8
+  %cap_ptr = getelementptr i64, ptr %arr_header_alloc, i64 1
+  store i64 %alloc_cap, ptr %cap_ptr, align 8
+  %data_ptr_ptr = getelementptr i64, ptr %arr_header_alloc, i64 2
+  store ptr %arr_data_alloc, ptr %data_ptr_ptr, align 8
+  store ptr %arr_header_alloc, ptr %r0, align 8
+  %VecChunk_malloc = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ { i64, i64, ptr } }, ptr null, i32 1) to i64))
+  %VecChunk_field_values = getelementptr inbounds nuw { { i64, i64, ptr } }, ptr %VecChunk_malloc, i32 0, i32 0
+  %load_arr_struct = load { i64, i64, ptr }, ptr %arr_header_alloc, align 8
+  store { i64, i64, ptr } %load_arr_struct, ptr %VecChunk_field_values, align 8
+  %ptr2int_store1 = ptrtoint ptr %VecChunk_malloc to i64
+  store i64 %ptr2int_store1, ptr %local_slot_chunk, align 8
+  %load_this2 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr3 = inttoptr i64 %load_this2 to ptr
+  %field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr3, i32 0, i32 0
+  %load_chunks = load { i64, i64, ptr }, ptr %field_chunks, align 8
+  store { i64, i64, ptr } %load_chunks, ptr %r2, align 8
+  store { i64, i64, ptr } %load_chunks, ptr %local_slot_chunksArr, align 8
+  %load_chunk = load i64, ptr %local_slot_chunk, align 8
+  store i64 %load_chunk, ptr %item_tmp, align 8
+  %push_res = call i32 @__ArrayPush(ptr %local_slot_chunksArr, ptr %item_tmp, i64 8)
+  %load_this4 = load i64, ptr %param_slot_this, align 8
+  %load_chunksArr = load { i64, i64, ptr }, ptr %local_slot_chunksArr, align 8
+  %load_class_ptr = load i64, ptr %param_slot_this, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr, i32 0, i32 0
+  store { i64, i64, ptr } %load_chunksArr, ptr %field_set_chunks, align 8
+  %load_this5 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr6 = inttoptr i64 %load_this5 to ptr
+  %field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr6, i32 0, i32 1
+  %load_capacities = load { i64, i64, ptr }, ptr %field_capacities, align 8
+  store { i64, i64, ptr } %load_capacities, ptr %r4, align 8
+  store { i64, i64, ptr } %load_capacities, ptr %local_slot_capsArr, align 8
+  %load_this7 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr8 = inttoptr i64 %load_this7 to ptr
+  %field_nextChunkSize9 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr8, i32 0, i32 5
+  %load_nextChunkSize10 = load i64, ptr %field_nextChunkSize9, align 8
+  store i64 %load_nextChunkSize10, ptr %r5, align 8
+  store i64 %load_nextChunkSize10, ptr %item_tmp11, align 8
+  %push_res12 = call i32 @__ArrayPush(ptr %local_slot_capsArr, ptr %item_tmp11, i64 8)
+  %load_this13 = load i64, ptr %param_slot_this, align 8
+  %load_capsArr = load { i64, i64, ptr }, ptr %local_slot_capsArr, align 8
+  %load_class_ptr14 = load i64, ptr %param_slot_this, align 8
+  %class_ptr15 = inttoptr i64 %load_class_ptr14 to ptr
+  %field_set_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr15, i32 0, i32 1
+  store { i64, i64, ptr } %load_capsArr, ptr %field_set_capacities, align 8
+  %load_this16 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr17 = inttoptr i64 %load_this16 to ptr
+  %field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr17, i32 0, i32 2
+  %load_usage = load { i64, i64, ptr }, ptr %field_usage, align 8
+  store { i64, i64, ptr } %load_usage, ptr %r7, align 8
+  store { i64, i64, ptr } %load_usage, ptr %local_slot_usageArr, align 8
+  store i64 0, ptr %item_tmp18, align 8
+  %push_res19 = call i32 @__ArrayPush(ptr %local_slot_usageArr, ptr %item_tmp18, i64 8)
+  %load_this20 = load i64, ptr %param_slot_this, align 8
+  %load_usageArr = load { i64, i64, ptr }, ptr %local_slot_usageArr, align 8
+  %load_class_ptr21 = load i64, ptr %param_slot_this, align 8
+  %class_ptr22 = inttoptr i64 %load_class_ptr21 to ptr
+  %field_set_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr22, i32 0, i32 2
+  store { i64, i64, ptr } %load_usageArr, ptr %field_set_usage, align 8
+  %load_this23 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr24 = inttoptr i64 %load_this23 to ptr
+  %field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr24, i32 0, i32 4
+  %load_totalCapacity = load i64, ptr %field_totalCapacity, align 8
+  store i64 %load_totalCapacity, ptr %r9, align 8
+  %load_this25 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr26 = inttoptr i64 %load_this25 to ptr
+  %field_nextChunkSize27 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr26, i32 0, i32 5
+  %load_nextChunkSize28 = load i64, ptr %field_nextChunkSize27, align 8
+  store i64 %load_nextChunkSize28, ptr %r10, align 8
+  %add = add i64 %load_totalCapacity, %load_nextChunkSize28
+  store i64 %add, ptr %r11, align 8
+  %load_this29 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr30 = load i64, ptr %param_slot_this, align 8
+  %class_ptr31 = inttoptr i64 %load_class_ptr30 to ptr
+  %field_set_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr31, i32 0, i32 4
+  store i64 %add, ptr %field_set_totalCapacity, align 8
+  %load_this32 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr33 = inttoptr i64 %load_this32 to ptr
+  %field_nextChunkSize34 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr33, i32 0, i32 5
+  %load_nextChunkSize35 = load i64, ptr %field_nextChunkSize34, align 8
+  store i64 %load_nextChunkSize35, ptr %r12, align 8
+  %mul = mul i64 %load_nextChunkSize35, 2
+  store i64 %mul, ptr %r13, align 8
+  %load_this36 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr37 = load i64, ptr %param_slot_this, align 8
+  %class_ptr38 = inttoptr i64 %load_class_ptr37 to ptr
+  %field_set_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr38, i32 0, i32 5
+  store i64 %mul, ptr %field_set_nextChunkSize, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 %mul, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define i1 @Vec_isEmpty(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i1, align 1
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r0, align 8
+  %icmp = icmp eq i64 %load_length, 0
+  store i1 %icmp, ptr %r1, align 1
+  ret i1 %icmp
+}
+
+define i64 @Vec_len(ptr %0) #0 {
+entry:
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r0, align 8
+  ret i64 %load_length
+}
+
+define i64 @Vec_locateSlot(ptr %0, i64 %1) #0 {
+entry:
+  %var_remaining = alloca i64, align 8
+  %local_slot_chunkUsage = alloca i64, align 8
+  %local_slot_chunkIndex = alloca i64, align 8
+  %param_slot_index = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %r1 = alloca i64, align 8
+  %r2 = alloca i1, align 1
+  %r3 = alloca i1, align 1
+  %r4 = alloca i64, align 8
+  %r5 = alloca i64, align 8
+  %r6 = alloca { i64, i64, ptr }, align 8
+  %r7 = alloca i64, align 8
+  %r8 = alloca i1, align 1
+  %r9 = alloca { i64, i64, ptr }, align 8
+  %r10 = alloca i64, align 8
+  %r11 = alloca i1, align 1
+  %r12 = alloca i64, align 8
+  %r13 = alloca i64, align 8
+  %r14 = alloca i64, align 8
+  %r15 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store i64 %1, ptr %r1, align 8
+  store i64 %1, ptr %param_slot_index, align 8
+  %load_index = load i64, ptr %param_slot_index, align 8
+  %lt = icmp slt i64 %load_index, 0
+  store i1 %lt, ptr %r0, align 1
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r1, align 8
+  %load_index1 = load i64, ptr %param_slot_index, align 8
+  %ge = icmp sge i64 %load_index1, %load_length
+  store i1 %ge, ptr %r2, align 1
+  %or = or i1 %lt, %ge
+  store i1 %or, ptr %r3, align 1
+  br i1 %or, label %then_54, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_55
+
+then_54:                                          ; preds = %entry
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 23, ptr @str.40 }, ptr %str_malloc, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr %str_data)
+  %printf_call2 = call i64 (ptr, ...) @printf(ptr @newline.41)
+  call void @exit(i32 1)
+  %load_r4 = load i64, ptr %r4, align 8
+  store i64 %load_r4, ptr %r5, align 8
+  br label %if_end_56
+
+else_55:                                          ; preds = %block_0
+  store i64 0, ptr %r5, align 8
+  br label %if_end_56
+
+if_end_56:                                        ; preds = %else_55, %then_54
+  %load_index3 = load i64, ptr %param_slot_index, align 8
+  store i64 %load_index3, ptr %var_remaining, align 8
+  store i64 0, ptr %local_slot_chunkIndex, align 8
+  br label %loop_start_57
+
+loop_start_57:                                    ; preds = %if_end_62, %if_end_56
+  %load_this4 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr5 = inttoptr i64 %load_this4 to ptr
+  %field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr5, i32 0, i32 0
+  %load_chunks = load { i64, i64, ptr }, ptr %field_chunks, align 8
+  store { i64, i64, ptr } %load_chunks, ptr %r6, align 8
+  %alen = extractvalue { i64, i64, ptr } %load_chunks, 0
+  store i64 %alen, ptr %r7, align 8
+  %load_chunkIndex = load i64, ptr %local_slot_chunkIndex, align 8
+  %lt6 = icmp slt i64 %load_chunkIndex, %alen
+  store i1 %lt6, ptr %r8, align 1
+  %not = xor i1 %lt6, true
+  br i1 %not, label %loop_end_59, label %loop_body_58
+
+loop_body_58:                                     ; preds = %loop_start_57
+  %load_this7 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr8 = inttoptr i64 %load_this7 to ptr
+  %field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr8, i32 0, i32 2
+  %load_usage = load { i64, i64, ptr }, ptr %field_usage, align 8
+  store { i64, i64, ptr } %load_usage, ptr %r9, align 8
+  %data_ptr = extractvalue { i64, i64, ptr } %load_usage, 2
+  %printf_call9 = call i64 (ptr, ...) @printf(ptr @fmt_p.42, ptr %data_ptr)
+  %load_chunkIndex10 = load i64, ptr %local_slot_chunkIndex, align 8
+  %elem_ptr = getelementptr i64, ptr %data_ptr, i64 %load_chunkIndex10
+  %elem = load i64, ptr %elem_ptr, align 8
+  store i64 %elem, ptr %r10, align 8
+  store i64 %elem, ptr %local_slot_chunkUsage, align 8
+  %load_remaining = load i64, ptr %var_remaining, align 8
+  %load_chunkUsage = load i64, ptr %local_slot_chunkUsage, align 8
+  %lt11 = icmp slt i64 %load_remaining, %load_chunkUsage
+  store i1 %lt11, ptr %r11, align 1
+  br i1 %lt11, label %then_60, label %block_1
+
+block_1:                                          ; preds = %loop_body_58
+  br label %else_61
+
+then_60:                                          ; preds = %loop_body_58
+  %VecSlot_malloc = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i64, i64 }, ptr null, i32 1) to i64))
+  %load_chunkIndex12 = load i64, ptr %local_slot_chunkIndex, align 8
+  %VecSlot_field_chunk = getelementptr inbounds nuw { i64, i64 }, ptr %VecSlot_malloc, i32 0, i32 0
+  store i64 %load_chunkIndex12, ptr %VecSlot_field_chunk, align 8
+  %load_remaining13 = load i64, ptr %var_remaining, align 8
+  %VecSlot_field_offset = getelementptr inbounds nuw { i64, i64 }, ptr %VecSlot_malloc, i32 0, i32 1
+  store i64 %load_remaining13, ptr %VecSlot_field_offset, align 8
+  %ptr2int_store14 = ptrtoint ptr %VecSlot_malloc to i64
+  ret i64 %ptr2int_store14
+
+block_2:                                          ; No predecessors!
+  %VecSlot_malloc15 = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i64, i64 }, ptr null, i32 1) to i64))
+  %load_chunkIndex16 = load i64, ptr %local_slot_chunkIndex, align 8
+  %VecSlot_field_chunk17 = getelementptr inbounds nuw { i64, i64 }, ptr %VecSlot_malloc15, i32 0, i32 0
+  store i64 %load_chunkIndex16, ptr %VecSlot_field_chunk17, align 8
+  %load_remaining18 = load i64, ptr %var_remaining, align 8
+  %VecSlot_field_offset19 = getelementptr inbounds nuw { i64, i64 }, ptr %VecSlot_malloc15, i32 0, i32 1
+  store i64 %load_remaining18, ptr %VecSlot_field_offset19, align 8
+  %ptr2i = ptrtoint ptr %VecSlot_malloc15 to i64
+  store i64 %ptr2i, ptr %r12, align 8
+  br label %if_end_62
+
+else_61:                                          ; preds = %block_1
+  store i64 0, ptr %r12, align 8
+  br label %if_end_62
+
+if_end_62:                                        ; preds = %else_61, %block_2
+  %load_remaining20 = load i64, ptr %var_remaining, align 8
+  %load_chunkUsage21 = load i64, ptr %local_slot_chunkUsage, align 8
+  %sub = sub i64 %load_remaining20, %load_chunkUsage21
+  store i64 %sub, ptr %r13, align 8
+  store i64 %sub, ptr %var_remaining, align 8
+  %load_chunkIndex22 = load i64, ptr %local_slot_chunkIndex, align 8
+  %add = add i64 %load_chunkIndex22, 1
+  store i64 %add, ptr %r14, align 8
+  store i64 %add, ptr %local_slot_chunkIndex, align 8
+  br label %loop_start_57
+
+loop_end_59:                                      ; preds = %loop_start_57
+  %str_malloc23 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 23, ptr @str.43 }, ptr %str_malloc23, align 8
+  %try_load_str24 = load { i64, ptr }, ptr %str_malloc23, align 8
+  %str_data25 = extractvalue { i64, ptr } %try_load_str24, 1
+  %printf_call26 = call i64 (ptr, ...) @printf(ptr %str_data25)
+  %printf_call27 = call i64 (ptr, ...) @printf(ptr @newline.44)
+  call void @exit(i32 1)
+  %VecSlot_malloc28 = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ i64, i64 }, ptr null, i32 1) to i64))
+  %VecSlot_field_chunk29 = getelementptr inbounds nuw { i64, i64 }, ptr %VecSlot_malloc28, i32 0, i32 0
+  store i64 0, ptr %VecSlot_field_chunk29, align 8
+  %VecSlot_field_offset30 = getelementptr inbounds nuw { i64, i64 }, ptr %VecSlot_malloc28, i32 0, i32 1
+  store i64 0, ptr %VecSlot_field_offset30, align 8
+  %ptr2int_store31 = ptrtoint ptr %VecSlot_malloc28 to i64
+  ret i64 %ptr2int_store31
+}
+
+define i64 @Vec_new() #0 {
+entry:
+  %local_slot_this = alloca i64, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca ptr, align 8
+  %r2 = alloca ptr, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %local_slot_this, i32 0, i32 5
+  %arr_header_alloc = call ptr @malloc(i64 24)
+  %data_size = mul i64 4, ptrtoint (ptr getelementptr (i64, ptr null, i32 1) to i64)
+  %arr_data_alloc = call ptr @malloc(i64 %data_size)
+  store i64 0, ptr %arr_header_alloc, align 8
+  %cap_ptr = getelementptr i64, ptr %arr_header_alloc, i64 1
+  store i64 4, ptr %cap_ptr, align 8
+  %data_ptr_ptr = getelementptr i64, ptr %arr_header_alloc, i64 2
+  store ptr %arr_data_alloc, ptr %data_ptr_ptr, align 8
+  store ptr %arr_header_alloc, ptr %r0, align 8
+  %arr_header_alloc1 = call ptr @malloc(i64 24)
+  %data_size2 = mul i64 4, ptrtoint (ptr getelementptr (i64, ptr null, i32 1) to i64)
+  %arr_data_alloc3 = call ptr @malloc(i64 %data_size2)
+  store i64 0, ptr %arr_header_alloc1, align 8
+  %cap_ptr4 = getelementptr i64, ptr %arr_header_alloc1, i64 1
+  store i64 4, ptr %cap_ptr4, align 8
+  %data_ptr_ptr5 = getelementptr i64, ptr %arr_header_alloc1, i64 2
+  store ptr %arr_data_alloc3, ptr %data_ptr_ptr5, align 8
+  store ptr %arr_header_alloc1, ptr %r1, align 8
+  %arr_header_alloc6 = call ptr @malloc(i64 24)
+  %data_size7 = mul i64 4, ptrtoint (ptr getelementptr (i64, ptr null, i32 1) to i64)
+  %arr_data_alloc8 = call ptr @malloc(i64 %data_size7)
+  store i64 0, ptr %arr_header_alloc6, align 8
+  %cap_ptr9 = getelementptr i64, ptr %arr_header_alloc6, i64 1
+  store i64 4, ptr %cap_ptr9, align 8
+  %data_ptr_ptr10 = getelementptr i64, ptr %arr_header_alloc6, i64 2
+  store ptr %arr_data_alloc8, ptr %data_ptr_ptr10, align 8
+  store ptr %arr_header_alloc6, ptr %r2, align 8
+  %Vec_malloc = call ptr @malloc(i64 ptrtoint (ptr getelementptr ({ { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr null, i32 1) to i64))
+  %Vec_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %Vec_malloc, i32 0, i32 0
+  %load_arr_struct = load { i64, i64, ptr }, ptr %arr_header_alloc, align 8
+  store { i64, i64, ptr } %load_arr_struct, ptr %Vec_field_chunks, align 8
+  %Vec_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %Vec_malloc, i32 0, i32 1
+  %load_arr_struct11 = load { i64, i64, ptr }, ptr %arr_header_alloc1, align 8
+  store { i64, i64, ptr } %load_arr_struct11, ptr %Vec_field_capacities, align 8
+  %Vec_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %Vec_malloc, i32 0, i32 2
+  %load_arr_struct12 = load { i64, i64, ptr }, ptr %arr_header_alloc6, align 8
+  store { i64, i64, ptr } %load_arr_struct12, ptr %Vec_field_usage, align 8
+  %Vec_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %Vec_malloc, i32 0, i32 3
+  store i64 0, ptr %Vec_field_length, align 8
+  %Vec_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %Vec_malloc, i32 0, i32 4
+  store i64 0, ptr %Vec_field_totalCapacity, align 8
+  %Vec_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %Vec_malloc, i32 0, i32 5
+  store i64 8, ptr %Vec_field_nextChunkSize, align 8
+  %ptr2int_store = ptrtoint ptr %Vec_malloc to i64
+  ret i64 %ptr2int_store
+}
+
+define ptr @Vec_pop(ptr %0) #0 {
+entry:
+  %var_used = alloca i64, align 8
+  %var_chunkIndex = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i1, align 1
+  %r2 = alloca i64, align 8
+  %r3 = alloca i64, align 8
+  %r4 = alloca { i64, i64, ptr }, align 8
+  %r5 = alloca i64, align 8
+  %r6 = alloca i64, align 8
+  %r7 = alloca i1, align 1
+  %r8 = alloca { i64, i64, ptr }, align 8
+  %r9 = alloca i64, align 8
+  %r10 = alloca i1, align 1
+  %r11 = alloca i1, align 1
+  %r12 = alloca i64, align 8
+  %r13 = alloca i1, align 1
+  %r14 = alloca i64, align 8
+  %r15 = alloca i64, align 8
+  %r16 = alloca { i64, i64, ptr }, align 8
+  %r17 = alloca i64, align 8
+  %r18 = alloca i64, align 8
+  %r19 = alloca { i64, i64, ptr }, align 8
+  %r20 = alloca i64, align 8
+  %r21 = alloca i64, align 8
+  %r22 = alloca { i64, i64, ptr }, align 8
+  %r23 = alloca { { i64, i64, ptr } }, align 8
+  %r24 = alloca { i64, i64, ptr }, align 8
+  %r25 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r0, align 8
+  %icmp = icmp eq i64 %load_length, 0
+  store i1 %icmp, ptr %r1, align 1
+  br i1 %icmp, label %then_18, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_19
+
+then_18:                                          ; preds = %entry
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 29, ptr @str.45 }, ptr %str_malloc, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr %str_data)
+  %printf_call1 = call i64 (ptr, ...) @printf(ptr @newline.46)
+  call void @exit(i32 1)
+  %load_r2 = load i64, ptr %r2, align 8
+  store i64 %load_r2, ptr %r3, align 8
+  br label %if_end_20
+
+else_19:                                          ; preds = %block_0
+  store i64 0, ptr %r3, align 8
+  br label %if_end_20
+
+if_end_20:                                        ; preds = %else_19, %then_18
+  %load_this2 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr3 = inttoptr i64 %load_this2 to ptr
+  %field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr3, i32 0, i32 0
+  %load_chunks = load { i64, i64, ptr }, ptr %field_chunks, align 8
+  store { i64, i64, ptr } %load_chunks, ptr %r4, align 8
+  %alen = extractvalue { i64, i64, ptr } %load_chunks, 0
+  store i64 %alen, ptr %r5, align 8
+  %sub = sub i64 %alen, 1
+  store i64 %sub, ptr %r6, align 8
+  store i64 %sub, ptr %var_chunkIndex, align 8
+  br label %loop_start_21
+
+loop_start_21:                                    ; preds = %loop_body_22, %if_end_20
+  %load_chunkIndex = load i64, ptr %var_chunkIndex, align 8
+  %ge = icmp sge i64 %load_chunkIndex, 0
+  store i1 %ge, ptr %r7, align 1
+  %load_this4 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr5 = inttoptr i64 %load_this4 to ptr
+  %field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr5, i32 0, i32 2
+  %load_usage = load { i64, i64, ptr }, ptr %field_usage, align 8
+  store { i64, i64, ptr } %load_usage, ptr %r8, align 8
+  %data_ptr = extractvalue { i64, i64, ptr } %load_usage, 2
+  %printf_call6 = call i64 (ptr, ...) @printf(ptr @fmt_p.47, ptr %data_ptr)
+  %load_chunkIndex7 = load i64, ptr %var_chunkIndex, align 8
+  %elem_ptr = getelementptr i64, ptr %data_ptr, i64 %load_chunkIndex7
+  %elem = load i64, ptr %elem_ptr, align 8
+  store i64 %elem, ptr %r9, align 8
+  %icmp8 = icmp eq i64 %elem, 0
+  store i1 %icmp8, ptr %r10, align 1
+  %and = and i1 %ge, %icmp8
+  store i1 %and, ptr %r11, align 1
+  %not = xor i1 %and, true
+  br i1 %not, label %loop_end_23, label %loop_body_22
+
+loop_body_22:                                     ; preds = %loop_start_21
+  %load_chunkIndex9 = load i64, ptr %var_chunkIndex, align 8
+  %sub10 = sub i64 %load_chunkIndex9, 1
+  store i64 %sub10, ptr %r12, align 8
+  store i64 %sub10, ptr %var_chunkIndex, align 8
+  br label %loop_start_21
+
+loop_end_23:                                      ; preds = %loop_start_21
+  %load_chunkIndex11 = load i64, ptr %var_chunkIndex, align 8
+  %lt = icmp slt i64 %load_chunkIndex11, 0
+  store i1 %lt, ptr %r13, align 1
+  br i1 %lt, label %then_24, label %block_1
+
+block_1:                                          ; preds = %loop_end_23
+  br label %else_25
+
+then_24:                                          ; preds = %loop_end_23
+  %str_malloc12 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 28, ptr @str.48 }, ptr %str_malloc12, align 8
+  %try_load_str13 = load { i64, ptr }, ptr %str_malloc12, align 8
+  %str_data14 = extractvalue { i64, ptr } %try_load_str13, 1
+  %printf_call15 = call i64 (ptr, ...) @printf(ptr %str_data14)
+  %printf_call16 = call i64 (ptr, ...) @printf(ptr @newline.49)
+  call void @exit(i32 1)
+  %load_r14 = load i64, ptr %r14, align 8
+  store i64 %load_r14, ptr %r15, align 8
+  br label %if_end_26
+
+else_25:                                          ; preds = %block_1
+  store i64 0, ptr %r15, align 8
+  br label %if_end_26
+
+if_end_26:                                        ; preds = %else_25, %then_24
+  %load_this17 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr18 = inttoptr i64 %load_this17 to ptr
+  %field_usage19 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr18, i32 0, i32 2
+  %load_usage20 = load { i64, i64, ptr }, ptr %field_usage19, align 8
+  store { i64, i64, ptr } %load_usage20, ptr %r16, align 8
+  %data_ptr21 = extractvalue { i64, i64, ptr } %load_usage20, 2
+  %printf_call22 = call i64 (ptr, ...) @printf(ptr @fmt_p.50, ptr %data_ptr21)
+  %load_chunkIndex23 = load i64, ptr %var_chunkIndex, align 8
+  %elem_ptr24 = getelementptr i64, ptr %data_ptr21, i64 %load_chunkIndex23
+  %elem25 = load i64, ptr %elem_ptr24, align 8
+  store i64 %elem25, ptr %r17, align 8
+  %sub26 = sub i64 %elem25, 1
+  store i64 %sub26, ptr %r18, align 8
+  store i64 %sub26, ptr %var_used, align 8
+  %load_this27 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr28 = inttoptr i64 %load_this27 to ptr
+  %field_usage29 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr28, i32 0, i32 2
+  %load_usage30 = load { i64, i64, ptr }, ptr %field_usage29, align 8
+  store { i64, i64, ptr } %load_usage30, ptr %r19, align 8
+  %load_used = load i64, ptr %var_used, align 8
+  %len = extractvalue { i64, i64, ptr } %load_usage30, 0
+  %data_ptr31 = extractvalue { i64, i64, ptr } %load_usage30, 2
+  %load_chunkIndex32 = load i64, ptr %var_chunkIndex, align 8
+  %bounds_check = icmp uge i64 %load_chunkIndex32, %len
+  br i1 %bounds_check, label %bounds_fail, label %bounds_ok
+
+bounds_fail:                                      ; preds = %if_end_26
+  call void @llvm.trap()
+  unreachable
+
+bounds_ok:                                        ; preds = %if_end_26
+  %int_elem_ptr = getelementptr i64, ptr %data_ptr31, i64 %load_chunkIndex32
+  store i64 %load_used, ptr %int_elem_ptr, align 8
+  %load_this33 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr34 = inttoptr i64 %load_this33 to ptr
+  %field_length35 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr34, i32 0, i32 3
+  %load_length36 = load i64, ptr %field_length35, align 8
+  store i64 %load_length36, ptr %r20, align 8
+  %sub37 = sub i64 %load_length36, 1
+  store i64 %sub37, ptr %r21, align 8
+  %load_this38 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr = load i64, ptr %param_slot_this, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr, i32 0, i32 3
+  store i64 %sub37, ptr %field_set_length, align 8
+  %load_this39 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr40 = inttoptr i64 %load_this39 to ptr
+  %field_chunks41 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr40, i32 0, i32 0
+  %load_chunks42 = load { i64, i64, ptr }, ptr %field_chunks41, align 8
+  store { i64, i64, ptr } %load_chunks42, ptr %r22, align 8
+  %data_ptr43 = extractvalue { i64, i64, ptr } %load_chunks42, 2
+  %printf_call44 = call i64 (ptr, ...) @printf(ptr @fmt_p.51, ptr %data_ptr43)
+  %load_chunkIndex45 = load i64, ptr %var_chunkIndex, align 8
+  %class_elem_ptr_sv = getelementptr i64, ptr %data_ptr43, i64 %load_chunkIndex45
+  %class_ptr_int_sv = load i64, ptr %class_elem_ptr_sv, align 8
+  %struct_field_ptr46 = inttoptr i64 %class_ptr_int_sv to ptr
+  %field_values = getelementptr inbounds nuw { { i64, i64, ptr } }, ptr %struct_field_ptr46, i32 0, i32 0
+  %load_values = load { i64, i64, ptr }, ptr %field_values, align 8
+  store { i64, i64, ptr } %load_values, ptr %r24, align 8
+  %data_ptr47 = extractvalue { i64, i64, ptr } %load_values, 2
+  %printf_call48 = call i64 (ptr, ...) @printf(ptr @fmt_p.52, ptr %data_ptr47)
+  %load_used49 = load i64, ptr %var_used, align 8
+  %generic_elem_ptr = getelementptr i64, ptr %data_ptr47, i64 %load_used49
+  %generic_load = load i64, ptr %generic_elem_ptr, align 8
+  %i64_to_ptr = inttoptr i64 %generic_load to ptr
+  %ptr2i50 = ptrtoint ptr %i64_to_ptr to i64
+  store i64 %ptr2i50, ptr %r25, align 8
+  ret ptr %i64_to_ptr
+}
+
+define ptr @Vec_push(ptr %0, ptr %1) #0 {
+entry:
+  %item_tmp = alloca i64, align 8
+  %var_lastIndex = alloca i64, align 8
+  %local_slot_valuesArr = alloca { i64, i64, ptr }, align 8
+  %local_slot_used = alloca i64, align 8
+  %local_slot_chunk = alloca i64, align 8
+  %param_slot_value = alloca ptr, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i64, align 8
+  %r4 = alloca i64, align 8
+  %r5 = alloca i64, align 8
+  %r6 = alloca i1, align 1
+  %r7 = alloca ptr, align 8
+  %r8 = alloca i64, align 8
+  %r9 = alloca { i64, i64, ptr }, align 8
+  %r10 = alloca i64, align 8
+  %r11 = alloca i64, align 8
+  %r12 = alloca { i64, i64, ptr }, align 8
+  %r13 = alloca { { i64, i64, ptr } }, align 8
+  %r14 = alloca { i64, i64, ptr }, align 8
+  %r15 = alloca i64, align 8
+  %r16 = alloca { i64, i64, ptr }, align 8
+  %r17 = alloca i64, align 8
+  %r18 = alloca i1, align 1
+  %r19 = alloca i64, align 8
+  %r21 = alloca { i64, i64, ptr }, align 8
+  %r22 = alloca i64, align 8
+  %r23 = alloca { i64, i64, ptr }, align 8
+  %r24 = alloca i64, align 8
+  %r25 = alloca i64, align 8
+  %r2 = alloca i64, align 8
+  %r3 = alloca i64, align 8
+  %r20 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %ptr2i1 = ptrtoint ptr %1 to i64
+  store i64 %ptr2i1, ptr %r1, align 8
+  store ptr %1, ptr %param_slot_value, align 8
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 41, ptr @str.53 }, ptr %str_malloc, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr @fmt_str.54, ptr %str_data)
+  %fflush_call = call i32 @fflush(ptr null)
+  store i64 0, ptr %r0, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  store i64 %load_this, ptr %r1, align 8
+  %printf_call2 = call i64 (ptr, ...) @printf(ptr @fmt_int.55, i64 %load_this)
+  %fflush_call3 = call i32 @fflush(ptr null)
+  store i64 0, ptr %r2, align 8
+  %str_malloc4 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 0, ptr @str.56 }, ptr %str_malloc4, align 8
+  %try_load_str5 = load { i64, ptr }, ptr %str_malloc4, align 8
+  %str_data6 = extractvalue { i64, ptr } %try_load_str5, 1
+  %puts_call = call i32 @puts(ptr %str_data6)
+  store i64 0, ptr %r3, align 8
+  %load_this7 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this7 to ptr
+  %field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r4, align 8
+  %load_this8 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr9 = inttoptr i64 %load_this8 to ptr
+  %field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr9, i32 0, i32 4
+  %load_totalCapacity = load i64, ptr %field_totalCapacity, align 8
+  store i64 %load_totalCapacity, ptr %r5, align 8
+  %ge = icmp sge i64 %load_length, %load_totalCapacity
+  store i1 %ge, ptr %r6, align 1
+  br i1 %ge, label %then_12, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_13
+
+then_12:                                          ; preds = %entry
+  %load_this10 = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this10 to ptr
+  %call = call ptr @Vec_growChunk(ptr %arg_cast)
+  store ptr %call, ptr %r7, align 8
+  %ptr2i11 = ptrtoint ptr %call to i64
+  store i64 %ptr2i11, ptr %r8, align 8
+  br label %if_end_14
+
+else_13:                                          ; preds = %block_0
+  store i64 0, ptr %r8, align 8
+  br label %if_end_14
+
+if_end_14:                                        ; preds = %else_13, %then_12
+  %load_this12 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr13 = inttoptr i64 %load_this12 to ptr
+  %field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr13, i32 0, i32 0
+  %load_chunks = load { i64, i64, ptr }, ptr %field_chunks, align 8
+  store { i64, i64, ptr } %load_chunks, ptr %r9, align 8
+  %alen = extractvalue { i64, i64, ptr } %load_chunks, 0
+  store i64 %alen, ptr %r10, align 8
+  %sub = sub i64 %alen, 1
+  store i64 %sub, ptr %r11, align 8
+  store i64 %sub, ptr %var_lastIndex, align 8
+  %load_this14 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr15 = inttoptr i64 %load_this14 to ptr
+  %field_chunks16 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr15, i32 0, i32 0
+  %load_chunks17 = load { i64, i64, ptr }, ptr %field_chunks16, align 8
+  store { i64, i64, ptr } %load_chunks17, ptr %r12, align 8
+  %data_ptr = extractvalue { i64, i64, ptr } %load_chunks17, 2
+  %printf_call18 = call i64 (ptr, ...) @printf(ptr @fmt_p.57, ptr %data_ptr)
+  %load_lastIndex = load i64, ptr %var_lastIndex, align 8
+  %class_elem_ptr_sv = getelementptr i64, ptr %data_ptr, i64 %load_lastIndex
+  %class_ptr_int_sv = load i64, ptr %class_elem_ptr_sv, align 8
+  store i64 %class_ptr_int_sv, ptr %local_slot_chunk, align 8
+  %load_this19 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr20 = inttoptr i64 %load_this19 to ptr
+  %field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr20, i32 0, i32 2
+  %load_usage = load { i64, i64, ptr }, ptr %field_usage, align 8
+  store { i64, i64, ptr } %load_usage, ptr %r14, align 8
+  %data_ptr21 = extractvalue { i64, i64, ptr } %load_usage, 2
+  %printf_call22 = call i64 (ptr, ...) @printf(ptr @fmt_p.58, ptr %data_ptr21)
+  %load_lastIndex23 = load i64, ptr %var_lastIndex, align 8
+  %elem_ptr = getelementptr i64, ptr %data_ptr21, i64 %load_lastIndex23
+  %elem = load i64, ptr %elem_ptr, align 8
+  store i64 %elem, ptr %r15, align 8
+  store i64 %elem, ptr %local_slot_used, align 8
+  %load_chunk = load i64, ptr %local_slot_chunk, align 8
+  %struct_field_ptr24 = inttoptr i64 %load_chunk to ptr
+  %field_values = getelementptr inbounds nuw { { i64, i64, ptr } }, ptr %struct_field_ptr24, i32 0, i32 0
+  %load_values = load { i64, i64, ptr }, ptr %field_values, align 8
+  store { i64, i64, ptr } %load_values, ptr %r16, align 8
+  store { i64, i64, ptr } %load_values, ptr %local_slot_valuesArr, align 8
+  %load_valuesArr = load { i64, i64, ptr }, ptr %local_slot_valuesArr, align 8
+  %alen25 = extractvalue { i64, i64, ptr } %load_valuesArr, 0
+  store i64 %alen25, ptr %r17, align 8
+  %load_used = load i64, ptr %local_slot_used, align 8
+  %lt = icmp slt i64 %load_used, %alen25
+  store i1 %lt, ptr %r18, align 1
+  br i1 %lt, label %then_15, label %block_1
+
+block_1:                                          ; preds = %if_end_14
+  br label %else_16
+
+then_15:                                          ; preds = %if_end_14
+  %load_valuesArr26 = load { i64, i64, ptr }, ptr %local_slot_valuesArr, align 8
+  %load_value = load ptr, ptr %param_slot_value, align 8
+  %len = extractvalue { i64, i64, ptr } %load_valuesArr26, 0
+  %data_ptr27 = extractvalue { i64, i64, ptr } %load_valuesArr26, 2
+  %load_used28 = load i64, ptr %local_slot_used, align 8
+  %bounds_check = icmp uge i64 %load_used28, %len
+  br i1 %bounds_check, label %bounds_fail, label %bounds_ok
+
+else_16:                                          ; preds = %block_1
+  %load_value31 = load ptr, ptr %param_slot_value, align 8
+  %unbox_load32 = load i64, ptr %load_value31, align 8
+  store i64 %unbox_load32, ptr %item_tmp, align 8
+  %push_res = call i32 @__ArrayPush(ptr %local_slot_valuesArr, ptr %item_tmp, i64 8)
+  %load_r20 = load i64, ptr %r20, align 8
+  store i64 %load_r20, ptr %r19, align 8
+  br label %if_end_17
+
+if_end_17:                                        ; preds = %else_16, %bounds_ok
+  %load_chunk33 = load i64, ptr %local_slot_chunk, align 8
+  %load_valuesArr34 = load { i64, i64, ptr }, ptr %local_slot_valuesArr, align 8
+  %load_class_ptr = load i64, ptr %local_slot_chunk, align 8
+  %class_ptr = inttoptr i64 %load_class_ptr to ptr
+  %field_set_values = getelementptr inbounds nuw { { i64, i64, ptr } }, ptr %class_ptr, i32 0, i32 0
+  store { i64, i64, ptr } %load_valuesArr34, ptr %field_set_values, align 8
+  %load_this35 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr36 = inttoptr i64 %load_this35 to ptr
+  %field_chunks37 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr36, i32 0, i32 0
+  %load_chunks38 = load { i64, i64, ptr }, ptr %field_chunks37, align 8
+  store { i64, i64, ptr } %load_chunks38, ptr %r21, align 8
+  %load_chunk39 = load i64, ptr %local_slot_chunk, align 8
+  %len40 = extractvalue { i64, i64, ptr } %load_chunks38, 0
+  %data_ptr41 = extractvalue { i64, i64, ptr } %load_chunks38, 2
+  %load_lastIndex42 = load i64, ptr %var_lastIndex, align 8
+  %bounds_check43 = icmp uge i64 %load_lastIndex42, %len40
+  br i1 %bounds_check43, label %bounds_fail44, label %bounds_ok45
+
+bounds_fail:                                      ; preds = %then_15
+  call void @llvm.trap()
+  unreachable
+
+bounds_ok:                                        ; preds = %then_15
+  %generic_elem_ptr = getelementptr i64, ptr %data_ptr27, i64 %load_used28
+  %unbox_load = load i64, ptr %load_value, align 8
+  store i64 %unbox_load, ptr %generic_elem_ptr, align 8
+  %load_value29 = load ptr, ptr %param_slot_value, align 8
+  %ptr2i30 = ptrtoint ptr %load_value29 to i64
+  store i64 %ptr2i30, ptr %r19, align 8
+  br label %if_end_17
+
+bounds_fail44:                                    ; preds = %if_end_17
+  call void @llvm.trap()
+  unreachable
+
+bounds_ok45:                                      ; preds = %if_end_17
+  %class_set_elem_ptr = getelementptr i64, ptr %data_ptr41, i64 %load_lastIndex42
+  store i64 %load_chunk39, ptr %class_set_elem_ptr, align 8
+  %load_used46 = load i64, ptr %local_slot_used, align 8
+  %add = add i64 %load_used46, 1
+  store i64 %add, ptr %r22, align 8
+  %load_this47 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr48 = inttoptr i64 %load_this47 to ptr
+  %field_usage49 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr48, i32 0, i32 2
+  %load_usage50 = load { i64, i64, ptr }, ptr %field_usage49, align 8
+  store { i64, i64, ptr } %load_usage50, ptr %r23, align 8
+  %len51 = extractvalue { i64, i64, ptr } %load_usage50, 0
+  %data_ptr52 = extractvalue { i64, i64, ptr } %load_usage50, 2
+  %load_lastIndex53 = load i64, ptr %var_lastIndex, align 8
+  %bounds_check54 = icmp uge i64 %load_lastIndex53, %len51
+  br i1 %bounds_check54, label %bounds_fail55, label %bounds_ok56
+
+bounds_fail55:                                    ; preds = %bounds_ok45
+  call void @llvm.trap()
+  unreachable
+
+bounds_ok56:                                      ; preds = %bounds_ok45
+  %int_elem_ptr = getelementptr i64, ptr %data_ptr52, i64 %load_lastIndex53
+  store i64 %add, ptr %int_elem_ptr, align 8
+  %load_this57 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr58 = inttoptr i64 %load_this57 to ptr
+  %field_length59 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr58, i32 0, i32 3
+  %load_length60 = load i64, ptr %field_length59, align 8
+  store i64 %load_length60, ptr %r24, align 8
+  %add61 = add i64 %load_length60, 1
+  store i64 %add61, ptr %r25, align 8
+  %load_this62 = load i64, ptr %param_slot_this, align 8
+  %load_class_ptr63 = load i64, ptr %param_slot_this, align 8
+  %class_ptr64 = inttoptr i64 %load_class_ptr63 to ptr
+  %field_set_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %class_ptr64, i32 0, i32 3
+  store i64 %add61, ptr %field_set_length, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 %add61, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define ptr @Vec_reserve(ptr %0, i64 %1) #0 {
+entry:
+  %param_slot_capacity = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca i1, align 1
+  %r2 = alloca i64, align 8
+  %r3 = alloca i64, align 8
+  %r4 = alloca i1, align 1
+  %r5 = alloca ptr, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2i = ptrtoint ptr %0 to i64
+  store i64 %ptr2i, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store i64 %1, ptr %param_slot_capacity, align 8
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 4
+  %load_totalCapacity = load i64, ptr %field_totalCapacity, align 8
+  store i64 %load_totalCapacity, ptr %r0, align 8
+  %load_capacity = load i64, ptr %param_slot_capacity, align 8
+  %le = icmp sle i64 %load_capacity, %load_totalCapacity
+  store i1 %le, ptr %r1, align 1
+  br i1 %le, label %then_45, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_46
+
+then_45:                                          ; preds = %entry
+  ret ptr null
+
+block_1:                                          ; No predecessors!
+  store i64 0, ptr %r2, align 8
+  br label %if_end_47
+
+else_46:                                          ; preds = %block_0
+  store i64 0, ptr %r2, align 8
+  br label %if_end_47
+
+if_end_47:                                        ; preds = %else_46, %block_1
+  br label %loop_start_48
+
+loop_start_48:                                    ; preds = %loop_body_49, %if_end_47
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr2 = inttoptr i64 %load_this1 to ptr
+  %field_totalCapacity3 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr2, i32 0, i32 4
+  %load_totalCapacity4 = load i64, ptr %field_totalCapacity3, align 8
+  store i64 %load_totalCapacity4, ptr %r3, align 8
+  %load_capacity5 = load i64, ptr %param_slot_capacity, align 8
+  %lt = icmp slt i64 %load_totalCapacity4, %load_capacity5
+  store i1 %lt, ptr %r4, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_50, label %loop_body_49
+
+loop_body_49:                                     ; preds = %loop_start_48
+  %load_this6 = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this6 to ptr
+  %call = call ptr @Vec_growChunk(ptr %arg_cast)
+  store ptr %call, ptr %r5, align 8
+  br label %loop_start_48
+
+loop_end_50:                                      ; preds = %loop_start_48
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 0, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+}
+
+define ptr @Vec_set(ptr %0, i64 %1, ptr %2) #0 {
+entry:
+  %var_remaining = alloca i64, align 8
+  %local_slot_chunkUsage = alloca i64, align 8
+  %local_slot_chunkIndex = alloca i64, align 8
+  %param_slot_value = alloca ptr, align 8
+  %param_slot_index = alloca i64, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca i1, align 1
+  %r1 = alloca i64, align 8
+  %r2 = alloca i1, align 1
+  %r3 = alloca i1, align 1
+  %r4 = alloca i64, align 8
+  %r5 = alloca i64, align 8
+  %r6 = alloca { i64, i64, ptr }, align 8
+  %r7 = alloca i64, align 8
+  %r8 = alloca i1, align 1
+  %r9 = alloca { i64, i64, ptr }, align 8
+  %r10 = alloca i64, align 8
+  %r11 = alloca i1, align 1
+  %r12 = alloca { i64, i64, ptr }, align 8
+  %r13 = alloca { { i64, i64, ptr } }, align 8
+  %r14 = alloca { i64, i64, ptr }, align 8
+  %r15 = alloca i64, align 8
+  %r16 = alloca i64, align 8
+  %r17 = alloca i64, align 8
+  %r18 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  store i64 %1, ptr %r1, align 8
+  store i64 %1, ptr %param_slot_index, align 8
+  store ptr %2, ptr %param_slot_value, align 8
+  %load_index = load i64, ptr %param_slot_index, align 8
+  %lt = icmp slt i64 %load_index, 0
+  store i1 %lt, ptr %r0, align 1
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r1, align 8
+  %load_index1 = load i64, ptr %param_slot_index, align 8
+  %ge = icmp sge i64 %load_index1, %load_length
+  store i1 %ge, ptr %r2, align 1
+  %or = or i1 %lt, %ge
+  store i1 %or, ptr %r3, align 1
+  br i1 %or, label %then_36, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_37
+
+then_36:                                          ; preds = %entry
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 23, ptr @str.59 }, ptr %str_malloc, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr %str_data)
+  %printf_call2 = call i64 (ptr, ...) @printf(ptr @newline.60)
+  call void @exit(i32 1)
+  %load_r4 = load i64, ptr %r4, align 8
+  store i64 %load_r4, ptr %r5, align 8
+  br label %if_end_38
+
+else_37:                                          ; preds = %block_0
+  store i64 0, ptr %r5, align 8
+  br label %if_end_38
+
+if_end_38:                                        ; preds = %else_37, %then_36
+  %load_index3 = load i64, ptr %param_slot_index, align 8
+  store i64 %load_index3, ptr %var_remaining, align 8
+  store i64 0, ptr %local_slot_chunkIndex, align 8
+  br label %loop_start_39
+
+loop_start_39:                                    ; preds = %if_end_44, %if_end_38
+  %load_this4 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr5 = inttoptr i64 %load_this4 to ptr
+  %field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr5, i32 0, i32 0
+  %load_chunks = load { i64, i64, ptr }, ptr %field_chunks, align 8
+  store { i64, i64, ptr } %load_chunks, ptr %r6, align 8
+  %alen = extractvalue { i64, i64, ptr } %load_chunks, 0
+  store i64 %alen, ptr %r7, align 8
+  %load_chunkIndex = load i64, ptr %local_slot_chunkIndex, align 8
+  %lt6 = icmp slt i64 %load_chunkIndex, %alen
+  store i1 %lt6, ptr %r8, align 1
+  %not = xor i1 %lt6, true
+  br i1 %not, label %loop_end_41, label %loop_body_40
+
+loop_body_40:                                     ; preds = %loop_start_39
+  %load_this7 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr8 = inttoptr i64 %load_this7 to ptr
+  %field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr8, i32 0, i32 2
+  %load_usage = load { i64, i64, ptr }, ptr %field_usage, align 8
+  store { i64, i64, ptr } %load_usage, ptr %r9, align 8
+  %data_ptr = extractvalue { i64, i64, ptr } %load_usage, 2
+  %printf_call9 = call i64 (ptr, ...) @printf(ptr @fmt_p.61, ptr %data_ptr)
+  %load_chunkIndex10 = load i64, ptr %local_slot_chunkIndex, align 8
+  %elem_ptr = getelementptr i64, ptr %data_ptr, i64 %load_chunkIndex10
+  %elem = load i64, ptr %elem_ptr, align 8
+  store i64 %elem, ptr %r10, align 8
+  store i64 %elem, ptr %local_slot_chunkUsage, align 8
+  %load_remaining = load i64, ptr %var_remaining, align 8
+  %load_chunkUsage = load i64, ptr %local_slot_chunkUsage, align 8
+  %lt11 = icmp slt i64 %load_remaining, %load_chunkUsage
+  store i1 %lt11, ptr %r11, align 1
+  br i1 %lt11, label %then_42, label %block_1
+
+block_1:                                          ; preds = %loop_body_40
+  br label %else_43
+
+then_42:                                          ; preds = %loop_body_40
+  %load_this12 = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr13 = inttoptr i64 %load_this12 to ptr
+  %field_chunks14 = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr13, i32 0, i32 0
+  %load_chunks15 = load { i64, i64, ptr }, ptr %field_chunks14, align 8
+  store { i64, i64, ptr } %load_chunks15, ptr %r12, align 8
+  %data_ptr16 = extractvalue { i64, i64, ptr } %load_chunks15, 2
+  %printf_call17 = call i64 (ptr, ...) @printf(ptr @fmt_p.62, ptr %data_ptr16)
+  %load_chunkIndex18 = load i64, ptr %local_slot_chunkIndex, align 8
+  %class_elem_ptr_sv = getelementptr i64, ptr %data_ptr16, i64 %load_chunkIndex18
+  %class_ptr_int_sv = load i64, ptr %class_elem_ptr_sv, align 8
+  %struct_field_ptr19 = inttoptr i64 %class_ptr_int_sv to ptr
+  %field_values = getelementptr inbounds nuw { { i64, i64, ptr } }, ptr %struct_field_ptr19, i32 0, i32 0
+  %load_values = load { i64, i64, ptr }, ptr %field_values, align 8
+  store { i64, i64, ptr } %load_values, ptr %r14, align 8
+  %load_value = load ptr, ptr %param_slot_value, align 8
+  %len = extractvalue { i64, i64, ptr } %load_values, 0
+  %data_ptr20 = extractvalue { i64, i64, ptr } %load_values, 2
+  %load_remaining21 = load i64, ptr %var_remaining, align 8
+  %bounds_check = icmp uge i64 %load_remaining21, %len
+  br i1 %bounds_check, label %bounds_fail, label %bounds_ok
+
+block_2:                                          ; No predecessors!
+  store i64 0, ptr %r15, align 8
+  br label %if_end_44
+
+else_43:                                          ; preds = %block_1
+  store i64 0, ptr %r15, align 8
+  br label %if_end_44
+
+if_end_44:                                        ; preds = %else_43, %block_2
+  %load_remaining22 = load i64, ptr %var_remaining, align 8
+  %load_chunkUsage23 = load i64, ptr %local_slot_chunkUsage, align 8
+  %sub = sub i64 %load_remaining22, %load_chunkUsage23
+  store i64 %sub, ptr %r16, align 8
+  store i64 %sub, ptr %var_remaining, align 8
+  %load_chunkIndex24 = load i64, ptr %local_slot_chunkIndex, align 8
+  %add = add i64 %load_chunkIndex24, 1
+  store i64 %add, ptr %r17, align 8
+  store i64 %add, ptr %local_slot_chunkIndex, align 8
+  br label %loop_start_39
+
+loop_end_41:                                      ; preds = %loop_start_39
+  %str_malloc25 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 18, ptr @str.63 }, ptr %str_malloc25, align 8
+  %try_load_str26 = load { i64, ptr }, ptr %str_malloc25, align 8
+  %str_data27 = extractvalue { i64, ptr } %try_load_str26, 1
+  %printf_call28 = call i64 (ptr, ...) @printf(ptr %str_data27)
+  %printf_call29 = call i64 (ptr, ...) @printf(ptr @newline.64)
+  call void @exit(i32 1)
+  %load_r18 = load i64, ptr %r18, align 8
+  %int_autobox = call ptr @malloc(i64 8)
+  store i64 %load_r18, ptr %int_autobox, align 8
+  ret ptr %int_autobox
+
+bounds_fail:                                      ; preds = %then_42
+  call void @llvm.trap()
+  unreachable
+
+bounds_ok:                                        ; preds = %then_42
+  %generic_elem_ptr = getelementptr i64, ptr %data_ptr20, i64 %load_remaining21
+  %unbox_load = load i64, ptr %load_value, align 8
+  store i64 %unbox_load, ptr %generic_elem_ptr, align 8
+  ret ptr null
+}
+
+define { i64, i64, ptr } @Vec_toArray(ptr %0) #0 {
+entry:
+  %item_tmp = alloca i64, align 8
+  %local_slot_i = alloca i64, align 8
+  %local_slot_arr = alloca { i64, i64, ptr }, align 8
+  %param_slot_this = alloca i64, align 8
+  %r0 = alloca ptr, align 8
+  %r1 = alloca i64, align 8
+  %r2 = alloca i1, align 1
+  %r3 = alloca ptr, align 8
+  %r5 = alloca i64, align 8
+  %r4 = alloca i64, align 8
+  %this_field_chunks = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 0
+  %this_field_capacities = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 1
+  %this_field_usage = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 2
+  %this_field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 3
+  %this_field_totalCapacity = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 4
+  %this_field_nextChunkSize = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %param_slot_this, i32 0, i32 5
+  store ptr %0, ptr %r0, align 8
+  %ptr2int_store = ptrtoint ptr %0 to i64
+  store i64 %ptr2int_store, ptr %param_slot_this, align 8
+  %arr_header_alloc = call ptr @malloc(i64 24)
+  %data_size = mul i64 4, ptrtoint (ptr getelementptr (ptr, ptr null, i32 1) to i64)
+  %arr_data_alloc = call ptr @malloc(i64 %data_size)
+  store i64 0, ptr %arr_header_alloc, align 8
+  %cap_ptr = getelementptr i64, ptr %arr_header_alloc, i64 1
+  store i64 4, ptr %cap_ptr, align 8
+  %data_ptr_ptr = getelementptr i64, ptr %arr_header_alloc, i64 2
+  store ptr %arr_data_alloc, ptr %data_ptr_ptr, align 8
+  store ptr %arr_header_alloc, ptr %r0, align 8
+  %arr_header_load = load { i64, i64, ptr }, ptr %arr_header_alloc, align 8
+  store { i64, i64, ptr } %arr_header_load, ptr %local_slot_arr, align 8
+  store i64 0, ptr %local_slot_i, align 8
+  br label %loop_start_51
+
+loop_start_51:                                    ; preds = %loop_body_52, %entry
+  %load_this = load i64, ptr %param_slot_this, align 8
+  %struct_field_ptr = inttoptr i64 %load_this to ptr
+  %field_length = getelementptr inbounds nuw { { i64, i64, ptr }, { i64, i64, ptr }, { i64, i64, ptr }, i64, i64, i64 }, ptr %struct_field_ptr, i32 0, i32 3
+  %load_length = load i64, ptr %field_length, align 8
+  store i64 %load_length, ptr %r1, align 8
+  %load_i = load i64, ptr %local_slot_i, align 8
+  %lt = icmp slt i64 %load_i, %load_length
+  store i1 %lt, ptr %r2, align 1
+  %not = xor i1 %lt, true
+  br i1 %not, label %loop_end_53, label %loop_body_52
+
+loop_body_52:                                     ; preds = %loop_start_51
+  %load_this1 = load i64, ptr %param_slot_this, align 8
+  %arg_cast = inttoptr i64 %load_this1 to ptr
+  %load_i2 = load i64, ptr %local_slot_i, align 8
+  %call = call ptr @Vec_get(ptr %arg_cast, i64 %load_i2)
+  store ptr %call, ptr %r3, align 8
+  %ptr2i = ptrtoint ptr %call to i64
+  store i64 %ptr2i, ptr %item_tmp, align 8
+  %push_res = call i32 @__ArrayPush(ptr %local_slot_arr, ptr %item_tmp, i64 8)
+  %load_i3 = load i64, ptr %local_slot_i, align 8
+  %add = add i64 %load_i3, 1
+  store i64 %add, ptr %r5, align 8
+  store i64 %add, ptr %local_slot_i, align 8
+  br label %loop_start_51
+
+loop_end_53:                                      ; preds = %loop_start_51
+  %load_arr = load { i64, i64, ptr }, ptr %local_slot_arr, align 8
+  ret { i64, i64, ptr } %load_arr
+}
+
+define i64 @Vec_withCapacity(i64 %0) #0 {
+entry:
+  %local_slot_vec = alloca i64, align 8
+  %param_slot_capacity = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca ptr, align 8
+  store i64 %0, ptr %r0, align 8
+  store i64 %0, ptr %param_slot_capacity, align 8
+  %call = call i64 @Vec_new()
+  store i64 %call, ptr %r0, align 8
+  store i64 %call, ptr %local_slot_vec, align 8
+  %load_vec = load i64, ptr %local_slot_vec, align 8
+  %arg_cast = inttoptr i64 %load_vec to ptr
+  %load_capacity = load i64, ptr %param_slot_capacity, align 8
+  %call1 = call ptr @Vec_reserve(ptr %arg_cast, i64 %load_capacity)
+  store ptr %call1, ptr %r1, align 8
+  %load_vec2 = load i64, ptr %local_slot_vec, align 8
+  ret i64 %load_vec2
+}
+
+declare void @__Print({ i64, ptr }) #0
+
+declare void @__PrintInt(i64) #0
+
+declare void @__Println({ i64, ptr }) #0
+
+declare i64 @__PtrToInt(ptr) #0
+
+declare ptr @__default() #0
+
+define void @seen_main() #0 {
+entry:
+  %str_box6 = alloca i64, align 8
+  %int_spill = alloca i64, align 8
+  %str_box = alloca i64, align 8
+  %local_slot_result = alloca ptr, align 8
+  %local_slot_m = alloca i64, align 8
+  %r0 = alloca i64, align 8
+  %r1 = alloca ptr, align 8
+  %r2 = alloca ptr, align 8
+  %r3 = alloca i1, align 1
+  %r5 = alloca i64, align 8
+  %r4 = alloca i64, align 8
+  %r6 = alloca i64, align 8
+  %debug_puts = call i32 @puts(ptr @debug_start)
+  %call = call i64 @Map_new()
+  store i64 %call, ptr %r0, align 8
+  store i64 %call, ptr %local_slot_m, align 8
+  %load_m = load i64, ptr %local_slot_m, align 8
+  %arg_cast = inttoptr i64 %load_m to ptr
+  %str_malloc = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 5, ptr @str.65 }, ptr %str_malloc, align 8
+  %str_ptr2int = ptrtoint ptr %str_malloc to i64
+  store i64 %str_ptr2int, ptr %str_box, align 8
+  store i64 42, ptr %int_spill, align 8
+  %call1 = call ptr @Map_put(ptr %arg_cast, ptr %str_box, ptr %int_spill)
+  store ptr %call1, ptr %r1, align 8
+  %load_m2 = load i64, ptr %local_slot_m, align 8
+  %arg_cast3 = inttoptr i64 %load_m2 to ptr
+  %str_malloc4 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 5, ptr @str.66 }, ptr %str_malloc4, align 8
+  %str_ptr2int5 = ptrtoint ptr %str_malloc4 to i64
+  store i64 %str_ptr2int5, ptr %str_box6, align 8
+  %call7 = call ptr @Map_get(ptr %arg_cast3, ptr %str_box6)
+  store ptr %call7, ptr %r2, align 8
+  store ptr %call7, ptr %local_slot_result, align 8
+  %load_result = load ptr, ptr %local_slot_result, align 8
+  %call8 = call i1 @Option_isSome(ptr %load_result)
+  store i1 %call8, ptr %r3, align 1
+  br i1 %call8, label %then_102, label %block_0
+
+block_0:                                          ; preds = %entry
+  br label %else_103
+
+then_102:                                         ; preds = %entry
+  %str_malloc9 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 4, ptr @str.67 }, ptr %str_malloc9, align 8
+  %try_load_str = load { i64, ptr }, ptr %str_malloc9, align 8
+  %str_data = extractvalue { i64, ptr } %try_load_str, 1
+  %printf_call = call i64 (ptr, ...) @printf(ptr @fmt_println_cstr, ptr %str_data)
+  store i64 0, ptr %r4, align 8
+  store i64 0, ptr %r5, align 8
+  br label %if_end_104
+
+else_103:                                         ; preds = %block_0
+  %str_malloc10 = tail call ptr @malloc(i32 ptrtoint (ptr getelementptr ({ i64, ptr }, ptr null, i32 1) to i32))
+  store { i64, ptr } { i64 4, ptr @str.68 }, ptr %str_malloc10, align 8
+  %try_load_str11 = load { i64, ptr }, ptr %str_malloc10, align 8
+  %str_data12 = extractvalue { i64, ptr } %try_load_str11, 1
+  %printf_call13 = call i64 (ptr, ...) @printf(ptr @fmt_println_cstr.69, ptr %str_data12)
+  store i64 0, ptr %r6, align 8
+  store i64 0, ptr %r5, align 8
+  br label %if_end_104
+
+if_end_104:                                       ; preds = %else_103, %then_102
+  ret void
+}
+
+declare i32 @strcmp(ptr, ptr)
+
+declare i32 @fflush(ptr)
+
+declare i32 @puts(ptr)
+
+declare void @exit(i32)
+
+declare i32 @__ArrayPush(ptr, ptr, i64)
+
+; Function Attrs: cold noreturn nounwind memory(inaccessiblemem: write)
+declare void @llvm.trap() #1
+
+define i32 @main(i32 %0, ptr %1) {
+entry:
+  %debug_puts = call i32 @puts(ptr @debug_main_start)
+  store i32 %0, ptr @__argc, align 4
+  store ptr %1, ptr @__argv, align 8
+  call void @seen_main()
+  ret i32 0
+}
+
+attributes #0 = { "seen-register-budget"="64" "seen-scheduler-hint"="balanced" }
+attributes #1 = { cold noreturn nounwind memory(inaccessiblemem: write) }

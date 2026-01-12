@@ -1,0 +1,46 @@
+// Debug test for Map string comparison
+
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+extern fun __Println(s: String)
+extern fun __PtrToInt<T>(ptr: T) r: Int
+
+fun main() r: Int {
+    __Println("=== Debug Map Compare Test ===")
+    
+    // Create a Vec<String>
+    var keys: Vec<String> = Vec.new()
+    
+    // Push a known string
+    let key1 = "hello"
+    __Print("Original key1: ")
+    __Println(key1)
+    
+    keys.push(key1)
+    __Println("Pushed key1 to vec")
+    
+    // Get it back
+    __Println("About to call keys.get(0)")
+    let retrieved = keys.get(0)
+    __Println("Got key back from vec")
+    
+    __Print("Retrieved key: ")
+    __Println(retrieved)
+    
+    // Compare with search key
+    let searchKey = "hello"
+    __Print("Search key: ")
+    __Println(searchKey)
+    
+    __Println("About to compare...")
+    if retrieved == searchKey {
+        __Println("MATCH!")
+    } else {
+        __Println("NO MATCH")
+    }
+    
+    __Println("=== Test complete ===")
+    return 0
+}

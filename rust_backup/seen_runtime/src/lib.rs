@@ -513,6 +513,19 @@ pub extern "C" fn __CloseFile(fd: i64) -> i64 {
     }
 }
 
+/// Print a line to stdout (with newline)
+#[unsafe(no_mangle)]
+pub extern "C" fn stdoutLine(s: SeenString) {
+    let bytes = if s.data.is_null() || s.len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(s.data, s.len as usize) }
+    };
+    let _ = stdout().write_all(bytes);
+    let _ = stdout().write_all(b"\n");
+    let _ = stdout().flush();
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __WriteFile(fd: i64, content: SeenString) -> i64 {
     // Handle standard streams directly

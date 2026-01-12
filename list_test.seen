@@ -1,0 +1,6 @@
+// Test just List creation
+fun main() {
+    var list: List<String> = []
+    list.push("hello")
+    println("done")
+}

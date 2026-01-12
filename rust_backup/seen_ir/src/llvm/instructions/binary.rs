@@ -29,14 +29,53 @@ fn is_llvm_string_struct<'ctx>(backend: &LlvmBackend<'ctx>, val: BasicValueEnum<
 
 /// Try to load a string struct from a pointer value
 /// Returns Some(string_struct) if the pointer points to a string struct, None otherwise
-fn try_load_string_from_ptr<'ctx>(backend: &mut LlvmBackend<'ctx>, val: BasicValueEnum<'ctx>, trace: bool) -> Option<BasicValueEnum<'ctx>> {
+///
+/// For boxed generic parameters (ptr to i64 containing string ptr), this function
+/// first loads the i64, converts to ptr, then loads the String struct.
+/// Also handles generic type markers (T, K, V, E) which use ptr-as-int representation.
+fn try_load_string_from_ptr<'ctx>(backend: &mut LlvmBackend<'ctx>, val: BasicValueEnum<'ctx>, trace: bool, ir_val: Option<&IRValue>) -> Option<BasicValueEnum<'ctx>> {
     if !val.is_pointer_value() {
         return None;
     }
     let ptr = val.into_pointer_value();
     let str_ty = backend.ty_string();
-    
-    // Try to load as string struct
+
+    // Check if this is a boxed generic PARAMETER or a register from a generic field access
+    // VARIABLES (function parameters) use the ptr -> i64 -> ptr -> String representation
+    // REGISTERS can also be boxed generic when loaded from a field of generic type (T, K, V, E)
+    let is_boxed_generic = match ir_val {
+        Some(IRValue::Variable(name)) => backend.var_is_boxed_generic.contains(name),
+        Some(IRValue::Register(reg_id)) => backend.reg_is_boxed_generic.contains(reg_id),
+        _ => false,
+    };
+
+    if is_boxed_generic {
+        // Boxed generic: ptr -> i64 -> ptr -> String
+        // Load the i64 value (which is the actual String ptr as int)
+        if let Ok(i64_val) = backend.builder.build_load(backend.i64_t, ptr, "load_boxed_str_ptr") {
+            let i64_val = i64_val.into_int_value();
+            // Convert i64 to pointer
+            if let Ok(str_ptr) = backend.builder.build_int_to_ptr(
+                i64_val,
+                backend.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
+                "boxed_str_ptr"
+            ) {
+                // Now load the String struct from this pointer
+                match backend.builder.build_load(str_ty, str_ptr, "maybe_str_load") {
+                    Ok(loaded) => {
+                        if trace {
+                            eprintln!("[TRACE binary] try_load_string_from_ptr: loaded {:?} from boxed generic", loaded.get_type());
+                        }
+                        return Some(loaded);
+                    }
+                    Err(_) => return None
+                }
+            }
+        }
+        return None;
+    }
+
+    // Direct pointer to String struct
     match backend.builder.build_load(str_ty, ptr, "maybe_str_load") {
         Ok(loaded) => {
             if trace {
@@ -45,6 +84,64 @@ fn try_load_string_from_ptr<'ctx>(backend: &mut LlvmBackend<'ctx>, val: BasicVal
             Some(loaded)
         }
         Err(_) => None
+    }
+}
+
+/// Try to load a string from a generic register that holds an i64 (ptr-as-int).
+/// When Vec.get returns a value with generic type T, the LLVM value is an i64,
+/// not a pointer. This function detects that case and loads the String struct.
+fn try_load_string_from_generic_i64<'ctx>(backend: &mut LlvmBackend<'ctx>, val: BasicValueEnum<'ctx>, trace: bool, ir_val: &IRValue) -> Option<BasicValueEnum<'ctx>> {
+    // Only handle registers with generic types
+    let reg_id = match ir_val {
+        IRValue::Register(id) => *id,
+        _ => return None,
+    };
+
+    // Check if this register has a generic type marker
+    let is_generic = if let Some(struct_type) = backend.reg_struct_types.get(&reg_id) {
+        struct_type == "T" || struct_type == "K" || struct_type == "V" || struct_type == "E"
+    } else {
+        false
+    };
+
+    if !is_generic {
+        return None;
+    }
+
+    // The value should be an i64 (ptr-as-int representation)
+    if !val.is_int_value() {
+        return None;
+    }
+
+    let i64_val = val.into_int_value();
+    if i64_val.get_type().get_bit_width() != 64 {
+        return None;
+    }
+
+    if trace {
+        eprintln!("[TRACE binary] try_load_string_from_generic_i64: reg {} has generic type, i64 value", reg_id);
+    }
+
+    // Convert i64 to pointer
+    let str_ptr = match backend.builder.build_int_to_ptr(
+        i64_val,
+        backend.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
+        "generic_str_ptr"
+    ) {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+
+    // Load the String struct
+    let str_ty = backend.ty_string();
+    match backend.builder.build_load(str_ty, str_ptr, "generic_str_load") {
+        Ok(loaded) => {
+            if trace {
+                eprintln!("[TRACE binary] try_load_string_from_generic_i64: loaded String struct {:?}", loaded.get_type());
+            }
+            Some(loaded)
+        }
+        Err(_) => None,
     }
 }
 
@@ -156,20 +253,137 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                     _ => inkwell::IntPredicate::NE,
                 };
                 
+                // Handle null comparison specially
+                // For Option<T> types, we compare hasValue field (first field) to check if it has a value
+                // For other types, we do pointer comparison
+                let left_is_null = matches!(left, IRValue::Null);
+                let right_is_null = matches!(right, IRValue::Null);
+                
+                if left_is_null || right_is_null {
+                    // Determine which side is the non-null value and check if it's an Option
+                    let (non_null_val, non_null_ir, non_null_llvm) = if left_is_null {
+                        (right, r.clone(), l.clone())
+                    } else {
+                        (left, l.clone(), r.clone())
+                    };
+                    
+                    // Check if the non-null value is an Option type
+                    let is_option = match non_null_val {
+                        IRValue::Register(reg_id) => {
+                            self.reg_struct_types.get(reg_id)
+                                .map(|s| s.starts_with("Option"))
+                                .unwrap_or(false)
+                        }
+                        IRValue::Variable(name) => {
+                            self.var_struct_types.get(name)
+                                .map(|s| s.starts_with("Option"))
+                                .unwrap_or(false)
+                        }
+                        _ => false,
+                    };
+                    
+                    if trace {
+                        eprintln!("[TRACE binary] null comparison: left_is_null={}, right_is_null={}, is_option={}", 
+                            left_is_null, right_is_null, is_option);
+                    }
+                    
+                    if is_option {
+                        // For Option, compare hasValue field to check if it has a value
+                        // Option layout: { i1 hasValue, i64 value }
+                        // hasValue is at index 0
+                        let option_ptr = if non_null_ir.is_pointer_value() {
+                            non_null_ir.into_pointer_value()
+                        } else if non_null_ir.is_int_value() {
+                            // i64 (ptr-as-int) - convert to pointer
+                            let iv = non_null_ir.into_int_value();
+                            self.builder.build_int_to_ptr(iv, self.i8_ptr_t, "option_ptr")?
+                        } else {
+                            return Err(anyhow!("Expected pointer or i64 for Option null comparison"));
+                        };
+                        
+                        // Option struct type: { i1, i64 }
+                        let option_ty = self.ctx.struct_type(&[self.bool_t.into(), self.i64_t.into()], false);
+                        
+                        // Get pointer to hasValue field (index 0)
+                        let has_value_ptr = self.builder.build_struct_gep(
+                            option_ty,
+                            option_ptr,
+                            0,
+                            "has_value_ptr"
+                        )?;
+                        
+                        // Load hasValue (i1/bool)
+                        let has_value = self.builder.build_load(self.bool_t, has_value_ptr, "has_value")?;
+                        let has_value_i1 = has_value.into_int_value();
+                        
+                        if trace {
+                            eprintln!("[TRACE binary] Option null comparison: loaded hasValue, comparing with pred {:?}", pred);
+                        }
+                        
+                        // For "option == null", we want hasValue == false (0)
+                        // For "option != null", we want hasValue == true (1)
+                        // Since pred is EQ for ==, NE for !=:
+                        // - "option == null" means "hasValue == 0" -> compare hasValue to 0 with EQ
+                        // - "option != null" means "hasValue != 0" -> compare hasValue to 0 with NE
+                        let zero = self.bool_t.const_zero();
+                        return Ok(self.builder
+                            .build_int_compare(pred, has_value_i1, zero, "option_null_cmp")?
+                            .as_basic_value_enum());
+                    }
+                    
+                    // For non-Option types, use pointer comparison for null checks
+                    // Both sides should be pointers (or castable to pointers)
+                    let lp = if l.is_pointer_value() {
+                        l.into_pointer_value()
+                    } else if l.is_int_value() {
+                        // i64 (could be ptr-as-int) - treat as pointer
+                        let iv = l.into_int_value();
+                        self.builder.build_int_to_ptr(iv, self.i8_ptr_t, "null_cmp_i2p")?
+                    } else {
+                        // Fallback: treat as null pointer if it's a null literal
+                        self.i8_ptr_t.const_null()
+                    };
+                    let rp = if r.is_pointer_value() {
+                        r.into_pointer_value()
+                    } else if r.is_int_value() {
+                        let iv = r.into_int_value();
+                        self.builder.build_int_to_ptr(iv, self.i8_ptr_t, "null_cmp_i2p")?
+                    } else {
+                        self.i8_ptr_t.const_null()
+                    };
+                    let li = self.builder.build_ptr_to_int(lp, self.i64_t, "l_ptr2i")?;
+                    let ri = self.builder.build_ptr_to_int(rp, self.i64_t, "r_ptr2i")?;
+                    return Ok(self.builder
+                        .build_int_compare(pred, li, ri, "null_cmp")?
+                        .as_basic_value_enum());
+                }
+                
                 // Check IR-level string detection
                 let l_is_ir_str = self.is_string_value_ir(left);
                 let r_is_ir_str = self.is_string_value_ir(right);
-                
+
                 // Check LLVM-level string struct types for generics
                 let l_is_llvm_str = is_llvm_string_struct(self, l.clone(), trace);
                 let r_is_llvm_str = is_llvm_string_struct(self, r.clone(), trace);
-                
-                // For pointer values that might point to string structs (boxed generics),
-                // try to load and check if they're strings
-                let (l_final, l_loaded_str) = if !l_is_ir_str && !l_is_llvm_str && l.is_pointer_value() {
-                    if let Some(loaded) = try_load_string_from_ptr(self, l.clone(), trace) {
+
+                // For generic registers holding i64 (ptr-as-int from Vec.get), convert to String
+                // This must be checked BEFORE pointer check since these are i64 values, not pointers
+                let (l_final, l_loaded_str) = if !l_is_ir_str && !l_is_llvm_str {
+                    // First try: generic i64 (from Vec.get with type T)
+                    if let Some(loaded) = try_load_string_from_generic_i64(self, l.clone(), trace, left) {
                         if is_llvm_string_struct(self, loaded.clone(), trace) {
                             (loaded, true)
+                        } else {
+                            (l.clone(), false)
+                        }
+                    // Second try: pointer to boxed generic
+                    } else if l.is_pointer_value() {
+                        if let Some(loaded) = try_load_string_from_ptr(self, l.clone(), trace, Some(left)) {
+                            if is_llvm_string_struct(self, loaded.clone(), trace) {
+                                (loaded, true)
+                            } else {
+                                (l.clone(), false)
+                            }
                         } else {
                             (l.clone(), false)
                         }
@@ -179,11 +393,23 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 } else {
                     (l.clone(), false)
                 };
-                
-                let (r_final, r_loaded_str) = if !r_is_ir_str && !r_is_llvm_str && r.is_pointer_value() {
-                    if let Some(loaded) = try_load_string_from_ptr(self, r.clone(), trace) {
+
+                let (r_final, r_loaded_str) = if !r_is_ir_str && !r_is_llvm_str {
+                    // First try: generic i64 (from Vec.get with type T)
+                    if let Some(loaded) = try_load_string_from_generic_i64(self, r.clone(), trace, right) {
                         if is_llvm_string_struct(self, loaded.clone(), trace) {
                             (loaded, true)
+                        } else {
+                            (r.clone(), false)
+                        }
+                    // Second try: pointer to boxed generic
+                    } else if r.is_pointer_value() {
+                        if let Some(loaded) = try_load_string_from_ptr(self, r.clone(), trace, Some(right)) {
+                            if is_llvm_string_struct(self, loaded.clone(), trace) {
+                                (loaded, true)
+                            } else {
+                                (r.clone(), false)
+                            }
                         } else {
                             (r.clone(), false)
                         }

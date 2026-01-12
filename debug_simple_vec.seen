@@ -1,0 +1,25 @@
+// Simplest Vec<String> test
+
+import collections.vec.{Vec}
+
+extern fun __Print(s: String)
+extern fun __Println(s: String)
+
+fun main() r: Int {
+    __Println("=== Simple Vec<String> Test ===")
+    
+    let keys = Vec.new<String>()
+    __Println("Vec created")
+    
+    keys.push("hello")
+    __Println("String pushed")
+    
+    __Println("About to get from vec")
+    let retrieved = keys.get(0)
+    __Println("Got from vec")
+    
+    __Print("Value: ")
+    __Println(retrieved)
+    
+    return 0
+}

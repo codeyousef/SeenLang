@@ -3,13 +3,21 @@ import io.file.{readText}
 extern fun __Print(s: String)
 extern fun __PrintInt(n: Int)
 
-fun main() {
-    __Print("Starting...\n")
-    let content = readText("test_simple_stage1.seen")
-    __Print("Read file, len = ")
+fun main() r: Int {
+    let content = readText("test_stage1_compile.seen")
+    __Print("Content length: ")
     __PrintInt(content.len())
-    __Print("\n")
-    __Print("Content: ")
-    __Print(content)
-    __Print("\n")
+    __Print("")
+    __Print("First 20 chars: ")
+    
+    var i = 0
+    while i < 20 and i < content.len() {
+        let c = content.charAt(i)
+        __Print(c.toString())
+        i = i + 1
+    }
+    __Print("")
+    return 0
 }
+
+main()

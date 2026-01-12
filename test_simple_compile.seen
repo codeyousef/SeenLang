@@ -1,1 +1,0 @@
-fun main() r: Int { return 42 }

@@ -10,8 +10,8 @@ class Token {
     let fileId: Int
 
     static fun new(tokenType: SeenTokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) r: Token {
-        println("[trace] Token.new: entered")
-        return Token {
+        // Note: toString() may not work correctly for enum values from generic containers
+        let tok = Token {
             tokenType: tokenType,
             value: value,
             line: line,
@@ -19,6 +19,7 @@ class Token {
             length: length,
             fileId: fileId
         }
+        return tok
     }
 
     fun getType() r: SeenTokenType {
@@ -79,11 +80,12 @@ class Position {
     let column: Int
     let fileId: Int
 
-    fun new(line: Int, column: Int, fileId: Int) r: Position {
-        this.line = line
-        this.column = column
-        this.fileId = fileId
-        return this
+    static fun new(line: Int, column: Int, fileId: Int) r: Position {
+        return Position {
+            line: line,
+            column: column,
+            fileId: fileId
+        }
     }
 
     fun getLine() r: Int {

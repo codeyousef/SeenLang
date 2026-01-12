@@ -1,0 +1,91 @@
+; Seen IR Program
+; Entry point: main
+
+; Module: main
+
+; Type definitions
+type Box = struct Box { value: struct T {  } }
+
+; Functions
+fn Box [public]() -> struct Box { value: struct T {  } } {
+; Entry: entry
+entry:
+  new Box(null) -> %r0
+  ret %r0
+
+}
+
+fn Box_equals(this: struct Box { value: struct T {  } }, other: struct T {  }) -> bool {
+  ; Local variables
+  v: struct T {  }
+
+; Entry: entry
+entry:
+  call %__Println ("[Box.equals] called") -> %r0
+  field_get %this.value -> %r1 (Box.struct T {  })
+  store %r1 -> %v
+  call %__Println ("[Box.equals] got this.value") -> %r2
+  eq %v %other -> %r3
+  store %r3 -> %cmp
+  call %__Println ("[Box.equals] comparison done") -> %r4
+  ret %cmp
+
+}
+
+fn Box_get(this: struct Box { value: struct T {  } }) -> struct T {  } {
+; Entry: entry
+entry:
+  field_get %this.value -> %r0 (Box.struct T {  })
+  ret %r0
+
+}
+
+fn Box_new(v: struct T {  }) -> struct Box { value: struct T {  } } {
+  ; Local variables
+  this: struct Box {  }
+
+; Entry: entry
+entry:
+  ret struct Box
+
+}
+
+fn __Print [extern](s: string) -> void {}
+
+fn __PrintInt [extern](n: i64) -> void {}
+
+fn __Println [extern](s: string) -> void {}
+
+fn main() -> void {
+  ; Local variables
+  b: struct Box { value: struct T {  } }
+
+; Entry: entry
+entry:
+  call %__Println ("Creating box...") -> %r0
+  call %Box_new ("hello") -> %r1
+  store %r1 -> %b
+  call %__Println ("Box created") -> %r2
+  call %__Println ("Testing equals...") -> %r3
+  call %Box_equals (%b, "hello") -> %r4
+  jif %r4 .then_0
+
+block_0:
+  jmp .else_1
+
+then_0:
+  call %__Println ("PASS: equals returned true") -> %r5
+  mov %r5 -> %r6
+  jmp .if_end_2
+
+else_1:
+  call %__Println ("FAIL: equals returned false") -> %r7
+  mov %r7 -> %r6
+  jmp .if_end_2
+
+if_end_2:
+  ret %r6
+
+}
+
+

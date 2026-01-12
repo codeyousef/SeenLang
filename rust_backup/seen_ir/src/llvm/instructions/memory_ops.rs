@@ -135,6 +135,14 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
                             self.var_option_inner_type.insert(var_name.clone(), inner_type.clone());
                         }
                     }
+                    // Propagate boxed generic status from register to variable
+                    // This is needed when a field with generic type (T, K, V, E) is assigned to a local
+                    if self.reg_is_boxed_generic.contains(reg_id) {
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] emit_store propagating boxed generic from reg {} to var '{}'", reg_id, var_name);
+                        }
+                        self.var_is_boxed_generic.insert(var_name.clone());
+                    }
                 }
                 IRValue::Variable(src_name) => {
                     if let Some(struct_name) = self.var_struct_types.get(src_name) {
@@ -155,6 +163,13 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
                         if is_option {
                             self.var_option_inner_type.insert(var_name.clone(), inner_type.clone());
                         }
+                    }
+                    // Propagate boxed generic status from variable to variable
+                    if self.var_is_boxed_generic.contains(src_name) {
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] emit_store propagating boxed generic from var '{}' to var '{}'", src_name, var_name);
+                        }
+                        self.var_is_boxed_generic.insert(var_name.clone());
                     }
                 }
                 _ => {}

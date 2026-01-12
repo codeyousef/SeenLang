@@ -1,0 +1,55 @@
+enum TokenType {
+    Int,
+    Float,
+    Fun,
+    Let
+}
+
+class MyMap {
+    keys_arr: Array<String>
+    vals_arr: Array<TokenType>
+    
+    fun new() r: MyMap {
+        let m = MyMap { keys_arr: [], vals_arr: [] }
+        return m
+    }
+    
+    fun put(key: String, val: TokenType) r: Void {
+        keys_arr.push(key)
+        vals_arr.push(val)
+    }
+    
+    fun get(key: String) r: TokenType? {
+        let i = 0
+        while i < keys_arr.length() {
+            if keys_arr[i] == key {
+                return vals_arr[i]
+            }
+            i = i + 1
+        }
+        return null
+    }
+}
+
+fun main() {
+    let map: MyMap = MyMap.new()
+    map.put("fun", TokenType.Fun)
+    map.put("let", TokenType.Let)
+    
+    let retrieved: TokenType? = map.get("fun")
+    if retrieved != null {
+        println("Got value from map")
+        let expected: TokenType = TokenType.Fun
+        println("expected == retrieved: " + (expected == retrieved).toString())
+    } else {
+        println("Map.get returned null!")
+    }
+    
+    // Test direct function call
+    let direct: TokenType = getFunType()
+    println("direct == expected: " + (direct == TokenType.Fun).toString())
+}
+
+fun getFunType() r: TokenType {
+    return TokenType.Fun
+}

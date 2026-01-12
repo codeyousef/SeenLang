@@ -1,20 +1,39 @@
+// Test Map<String, enum> storage and retrieval
+
 import collections.map.{Map}
 
 extern fun __Print(s: String)
+extern fun __PrintInt(n: Int)
+extern fun __Println(s: String)
 
-enum TestEnum {
-    One,
-    Two,
-    Three
+enum Color {
+    Red,
+    Green,
+    Blue
 }
 
-fun main() {
-    __Print("Step 1\n")
-    let m = Map<String, TestEnum>()
-    __Print("Step 2\n")
-    m.put("one", TestEnum.One)
-    __Print("Step 3\n")
-    m.put("two", TestEnum.Two)
-    __Print("Step 4\n")
-    __Print("Done\n")
+fun main() r: Int {
+    // Test 1: Direct enum value
+    let c = Color.Red
+    __Print("Direct enum toString: ")
+    __Println(c.toString())
+
+    // Test 2: Enum in Map
+    let m = Map.new<String, Color>()
+    m.put("favorite", Color.Blue)
+
+    __Println("Put Color.Blue in map")
+
+    let result = m.get("favorite")
+    if result.isSome() {
+        let unwrapped = result.unwrap()
+        __Print("Unwrapped enum toString: ")
+        __Println(unwrapped.toString())
+    } else {
+        __Println("Key not found")
+    }
+
+    return 0
 }
+
+main()

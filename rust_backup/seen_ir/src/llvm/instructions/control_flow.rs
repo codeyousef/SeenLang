@@ -174,6 +174,33 @@ impl<'ctx> ControlFlowOps<'ctx> for LlvmBackend<'ctx> {
                         self.builder.build_store(tmp, bv)?;
                         let ptr_as_int = self.builder.build_ptr_to_int(tmp, self.i64_t, "ptr_to_i64")?;
                         bv = ptr_as_int.as_basic_value_enum();
+                    } else if bv.is_int_value() && ret_ty.is_pointer_type() {
+                        // When returning an i64 with ptr return type, we need to distinguish:
+                        // 1. Constructors (New, new, create, etc.) - the i64 IS the class pointer → use inttoptr
+                        // 2. Generic methods (unwrap, get, etc.) - the i64 is a boxed value → use boxing
+                        
+                        // Check if this looks like a constructor function
+                        let fn_lower = fn_name.to_lowercase();
+                        let is_constructor = fn_lower.ends_with("_new") 
+                            || fn_lower.ends_with("_create")
+                            || fn_lower == "new" 
+                            || fn_lower == "create"
+                            || fn_lower.contains("_from")
+                            || fn_lower.contains("_with");
+                        
+                        eprintln!("DEBUG emit_return i64->ptr: fn={}, is_constructor={}", fn_name, is_constructor);
+                        
+                        if is_constructor {
+                            // Constructor: the i64 IS the class pointer, use inttoptr
+                            eprintln!("DEBUG emit_return: using inttoptr for constructor {}", fn_name);
+                            let iv = bv.into_int_value();
+                            bv = self.builder.build_int_to_ptr(iv, ret_ty.into_pointer_type(), "class_ptr_ret")
+                                .map_err(|e| anyhow!("{e:?}"))?
+                                .as_basic_value_enum();
+                        } else {
+                            // Generic return: use the default boxing behavior
+                            bv = self.cast_basic_to_type(bv, ret_ty)?;
+                        }
                     } else {
                         bv = self.cast_basic_to_type(bv, ret_ty)?;
                     }

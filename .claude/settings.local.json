@@ -242,7 +242,6 @@
       "Bash(CARGO_TARGET_DIR=target-wsl cargo run -p seen_cli -- build test_function_single.seen -o test_function_single.c)",
       "Bash(CARGO_TARGET_DIR=target-wsl cargo run -p seen_cli -- build test_function_single.seen -o test_function_single_fixed.c)",
       "Bash(./test_function_single_fixed)"
->>>>>>> 4d7eaf7 (feat: complete end-to-end function compilation pipeline)
     ],
     "deny": []
   }

@@ -1,0 +1,16 @@
+enum TokenType {
+    Int,
+    Float,
+    Fun,
+    Let
+}
+
+fun main() {
+    let arr: Array<TokenType> = []
+    arr.push(TokenType.Fun)
+    arr.push(TokenType.Let)
+    
+    let retrieved: TokenType = arr[0]
+    let expected: TokenType = TokenType.Fun
+    println("retrieved == expected: " + (retrieved == expected).toString())
+}

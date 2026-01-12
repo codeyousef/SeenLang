@@ -1,0 +1,45 @@
+// Test Map<String, Enum> storage and retrieval
+
+import collections.map.{Map}
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+fun main() r: Int {
+    println("Testing Map<String, Color>...")
+    
+    // Create a map
+    var map = Map<String, Color>.new()
+    
+    // Store enum values
+    println("Storing Red for key 'first'...")
+    map.put("first", Color.Red)
+    
+    println("Storing Green for key 'second'...")
+    map.put("second", Color.Green)
+    
+    // Retrieve and check
+    println("Retrieving 'first'...")
+    let opt1 = map.get("first")
+    
+    if opt1 != null {
+        println("Got Some for 'first'")
+        println("About to call unwrap...")
+        let val = opt1.unwrap()
+        println("unwrap returned")
+        println("val.toString()=" + val.toString())
+        
+        if val == Color.Red {
+            println("SUCCESS: val == Color.Red")
+        } else {
+            println("FAIL: val != Color.Red")
+        }
+    } else {
+        println("Got None for 'first'")
+    }
+    
+    return 0
+}

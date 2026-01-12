@@ -1,0 +1,18 @@
+// Minimal Option test - build this with Rust compiler, run as standalone
+import seen_std.core.option
+
+fun getOpt() r: Option<String> {
+    println("In getOpt, before Some")
+    let result = Some("hello")
+    println("In getOpt, after Some")
+    return result
+}
+
+fun main() {
+    println("Before getOpt")
+    let opt = getOpt()
+    println("After getOpt, before unwrapOr")
+    let val = opt.unwrapOr("default")
+    println("After unwrapOr")
+    println("Got: " + val)
+}
