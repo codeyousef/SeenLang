@@ -85,7 +85,49 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
         let is_vec_push = func_name.as_deref() == Some("Vec_push");
         let is_vec_get = func_name.as_deref() == Some("Vec_get");
         let is_vec_set = func_name.as_deref() == Some("Vec_set");
-        
+        let is_map_put = func_name.as_deref() == Some("Map_put");
+        let is_map_get = func_name.as_deref() == Some("Map_get");
+
+        // Track Map value types from Map.put calls
+        // For Map<K, V>, args[0]=this, args[1]=key, args[2]=value
+        if is_map_put {
+            if let Some(value_arg) = args.get(2) {
+                // Track enum value types
+                if let IRValue::Variable(value_var) = value_arg {
+                    if let Some(struct_name) = self.var_struct_types.get(value_var).cloned() {
+                        if let Some(IRValue::Variable(map_var)) = args.get(0) {
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Map_put tracking value type '{}' for map '{}'", struct_name, map_var);
+                            }
+                            self.var_array_element_struct.insert(map_var.clone(), struct_name);
+                        }
+                    }
+                    // Check if it's an enum type by looking up the struct type name
+                    if let Some(type_name) = self.var_struct_types.get(value_var).cloned() {
+                        if self.enum_types.contains_key(&type_name) {
+                            if let Some(IRValue::Variable(map_var)) = args.get(0) {
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] Map_put tracking enum value type '{}' for map '{}'", type_name, map_var);
+                                }
+                                self.var_array_element_struct.insert(map_var.clone(), type_name);
+                            }
+                        }
+                    }
+                }
+                // Track from register if value comes from expression result
+                if let IRValue::Register(value_reg) = value_arg {
+                    if let Some(struct_name) = self.reg_struct_types.get(value_reg).cloned() {
+                        if let Some(IRValue::Variable(map_var)) = args.get(0) {
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Map_put tracking value type '{}' (from reg) for map '{}'", struct_name, map_var);
+                            }
+                            self.var_array_element_struct.insert(map_var.clone(), struct_name);
+                        }
+                    }
+                }
+            }
+        }
+
         // Track which Vec variables store floats (from push calls)
         let mut is_float_vec_call = false;
         if is_vec_push || is_vec_set {
@@ -596,13 +638,26 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 name if name.ends_with("_toString") => {
                     // Extract type name (e.g., "TokenType" from "TokenType_toString")
                     let type_name = &name[..name.len() - "_toString".len()];
+                    let str_ty = self.ty_string();
+                    
+                    eprintln!("[DEBUG toString] type_name='{}', enum_types contains: {:?}", type_name, self.enum_types.keys().collect::<Vec<_>>());
+                    
+                    // Helper to build a String struct from a C string pointer
+                    let build_string_struct = |builder: &inkwell::builder::Builder<'ctx>, ptr: inkwell::values::PointerValue<'ctx>, len: u64, str_ty: inkwell::types::StructType<'ctx>, i64_t: inkwell::types::IntType<'ctx>| -> Result<inkwell::values::BasicValueEnum<'ctx>, anyhow::Error> {
+                        let len_val = i64_t.const_int(len, false);
+                        let mut str_struct = str_ty.get_undef();
+                        str_struct = builder.build_insert_value(str_struct, len_val, 0, "str_len")?.into_struct_value();
+                        str_struct = builder.build_insert_value(str_struct, ptr, 1, "str_ptr")?.into_struct_value();
+                        Ok(str_struct.as_basic_value_enum())
+                    };
                     
                     if let Some(arg) = args.get(0) {
                         let val = self.eval_value(arg, fn_map)?;
                         
                         // Check if this is a known enum type with variants
                         if let Some(variants) = self.enum_types.get(type_name).cloned() {
-                            // Enum toString - build a switch on the tag to return variant name
+                            eprintln!("[DEBUG toString] Found enum '{}' with {} variants", type_name, variants.len());
+                            // Enum toString - build a switch on the tag to return variant name as String struct
                             if val.is_int_value() {
                                 let tag = val.into_int_value();
                                 
@@ -613,27 +668,31 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 
                                 let merge_block = self.ctx.append_basic_block(current_fn, "tostring_merge");
                                 
-                                // Build switch with variant name strings
+                                // Build switch with variant name strings - now as String structs
                                 let mut cases = Vec::new();
-                                let mut variant_strings = Vec::new();
+                                let mut variant_structs: Vec<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::values::BasicValueEnum<'ctx>)> = Vec::new();
                                 
                                 for (i, variant) in variants.iter().enumerate() {
                                     let variant_block = self.ctx.append_basic_block(current_fn, &format!("variant_{}", i));
                                     cases.push((self.i64_t.const_int(i as u64, false), variant_block));
                                     
-                                    // Create string for this variant
+                                    // Create string for this variant as a String struct { len, ptr }
                                     let variant_str = self.builder.build_global_string_ptr(variant, &format!("enum_str_{}", i))?;
-                                    variant_strings.push((variant_block, variant_str.as_pointer_value()));
+                                    let variant_len = variant.len() as u64;
+                                    let str_struct = build_string_struct(&self.builder, variant_str.as_pointer_value(), variant_len, str_ty, self.i64_t)?;
+                                    variant_structs.push((variant_block, str_struct));
                                 }
                                 
-                                // Default case returns the type name
+                                // Default case returns the type name as String struct
                                 let default_block = self.ctx.append_basic_block(current_fn, "default_variant");
                                 let default_str = self.builder.build_global_string_ptr(type_name, "enum_default_str")?;
+                                let default_len = type_name.len() as u64;
+                                let default_struct = build_string_struct(&self.builder, default_str.as_pointer_value(), default_len, str_ty, self.i64_t)?;
                                 
                                 self.builder.build_switch(tag, default_block, &cases)?;
                                 
                                 // Build each variant block to jump to merge
-                                for (block, _str_ptr) in &variant_strings {
+                                for (block, _) in &variant_structs {
                                     self.builder.position_at_end(*block);
                                     self.builder.build_unconditional_branch(merge_block)?;
                                 }
@@ -642,14 +701,14 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 self.builder.position_at_end(default_block);
                                 self.builder.build_unconditional_branch(merge_block)?;
                                 
-                                // Merge block with phi node
+                                // Merge block with phi node for String struct
                                 self.builder.position_at_end(merge_block);
-                                let phi = self.builder.build_phi(self.i8_ptr_t, "variant_str")?;
+                                let phi = self.builder.build_phi(str_ty, "variant_str_struct")?;
                                 
-                                for (block, str_ptr) in &variant_strings {
-                                    phi.add_incoming(&[(str_ptr, *block)]);
+                                for (block, str_struct) in &variant_structs {
+                                    phi.add_incoming(&[(str_struct, *block)]);
                                 }
-                                phi.add_incoming(&[(&default_str.as_pointer_value(), default_block)]);
+                                phi.add_incoming(&[(&default_struct, default_block)]);
                                 
                                 if let Some(r) = result {
                                     self.assign_value(r, phi.as_basic_value())?;
@@ -664,23 +723,42 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             let func = self.ensure_int_to_string_fn();
                             let call = self.builder.build_call(func, &[val.into()], "int2s")?;
                             call.try_as_basic_value().left().unwrap_or_else(|| {
-                                // Return type name as fallback
-                                self.builder.build_global_string_ptr(type_name, "type_str")
-                                    .map(|g| g.as_pointer_value().as_basic_value_enum())
+                                // Return type name as fallback - as String struct
+                                let ptr = self.builder.build_global_string_ptr(type_name, "type_str")
+                                    .map(|g| g.as_pointer_value())
+                                    .unwrap_or_else(|_| self.i8_ptr_t.const_null());
+                                build_string_struct(&self.builder, ptr, type_name.len() as u64, str_ty, self.i64_t)
                                     .unwrap_or_else(|_| self.i8_ptr_t.const_null().as_basic_value_enum())
                             })
                         } else if val.is_pointer_value() {
-                            // Assume it's already a string
-                            val
+                            // Assume it's already a string - try to build struct
+                            let ptr = val.into_pointer_value();
+                            // Use strlen to get length for C string pointers
+                            let strlen_ty = self.i64_t.fn_type(&[self.i8_ptr_t.into()], false);
+                            let strlen_fn = if let Some(f) = self.module.get_function("strlen") {
+                                f
+                            } else {
+                                self.module.add_function("strlen", strlen_ty, None)
+                            };
+                            let len_call = self.builder.build_call(strlen_fn, &[ptr.into()], "cstr_len")?;
+                            let len = len_call.try_as_basic_value().left().unwrap().into_int_value();
+                            let mut str_struct = str_ty.get_undef();
+                            str_struct = self.builder.build_insert_value(str_struct, len, 0, "str_len")?.into_struct_value();
+                            str_struct = self.builder.build_insert_value(str_struct, ptr, 1, "str_ptr")?.into_struct_value();
+                            str_struct.as_basic_value_enum()
                         } else if val.is_struct_value() {
-                            // Struct toString - return type name
-                            self.builder.build_global_string_ptr(type_name, "struct_type_str")
-                                .map(|g| g.as_pointer_value().as_basic_value_enum())
+                            // Struct toString - return type name as String struct
+                            let ptr = self.builder.build_global_string_ptr(type_name, "struct_type_str")
+                                .map(|g| g.as_pointer_value())
+                                .unwrap_or_else(|_| self.i8_ptr_t.const_null());
+                            build_string_struct(&self.builder, ptr, type_name.len() as u64, str_ty, self.i64_t)
                                 .unwrap_or_else(|_| self.i8_ptr_t.const_null().as_basic_value_enum())
                         } else {
-                            // Return type name as fallback
-                            self.builder.build_global_string_ptr(type_name, "fallback_type_str")
-                                .map(|g| g.as_pointer_value().as_basic_value_enum())
+                            // Return type name as fallback - as String struct
+                            let ptr = self.builder.build_global_string_ptr(type_name, "fallback_type_str")
+                                .map(|g| g.as_pointer_value())
+                                .unwrap_or_else(|_| self.i8_ptr_t.const_null());
+                            build_string_struct(&self.builder, ptr, type_name.len() as u64, str_ty, self.i64_t)
                                 .unwrap_or_else(|_| self.i8_ptr_t.const_null().as_basic_value_enum())
                         };
                         
@@ -688,11 +766,13 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             self.assign_value(r, str_val)?;
                         }
                     } else if let Some(r) = result {
-                        // No argument - return type name
-                        let type_str = self.builder.build_global_string_ptr(type_name, "type_name_str")
-                            .map(|g| g.as_pointer_value().as_basic_value_enum())
+                        // No argument - return type name as String struct
+                        let ptr = self.builder.build_global_string_ptr(type_name, "type_name_str")
+                            .map(|g| g.as_pointer_value())
+                            .unwrap_or_else(|_| self.i8_ptr_t.const_null());
+                        let str_struct = build_string_struct(&self.builder, ptr, type_name.len() as u64, str_ty, self.i64_t)
                             .unwrap_or_else(|_| self.i8_ptr_t.const_null().as_basic_value_enum());
-                        self.assign_value(r, type_str)?;
+                        self.assign_value(r, str_struct)?;
                     }
                     return Ok(());
                 }
@@ -2244,6 +2324,13 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
 
                     let item_val = self.eval_value(&args[1], fn_map)?;
 
+                    // Check if item is from a boxed generic parameter
+                    let is_boxed_param = if let IRValue::Variable(name) = &args[1] {
+                        self.var_is_boxed_generic.contains(name)
+                    } else {
+                        false
+                    };
+
                     // Get item pointer and size
                     let (item_ptr, item_size_val) = if item_val.is_struct_value() {
                          let size = item_val.get_type().size_of().unwrap();
@@ -2251,14 +2338,23 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                          self.builder.build_store(tmp, item_val)?;
                          (tmp, size)
                     } else if item_val.is_pointer_value() {
-                         // For boxed primitives (generic T where T=Int/Float/etc.), the item_val
-                         // is a pointer to the actual value. We need to dereference it and store
-                         // the actual value, not the pointer.
                          let size = self.i64_t.const_int(8, false);
                          let tmp = self.alloca_for_type(self.i64_t.into(), "item_tmp")?;
-                         // Dereference the boxed value to get the actual primitive
-                         let deref_val = self.builder.build_load(self.i64_t, item_val.into_pointer_value(), "deref_boxed")?;
-                         self.builder.build_store(tmp, deref_val)?;
+
+                         if is_boxed_param {
+                             // For boxed generic parameters, the pointer points to a box containing
+                             // an i64 value. We need to load the i64 and store it.
+                             if self.trace_options.trace_boxing {
+                                 eprintln!("[BOXING] Array_push: loading i64 from boxed param");
+                             }
+                             let i64_val = self.builder.build_load(self.i64_t, item_val.into_pointer_value(), "unbox_load")?;
+                             self.builder.build_store(tmp, i64_val)?;
+                         } else {
+                             // For direct pointer values (e.g., String pointer from literal),
+                             // convert the pointer to i64 using ptrtoint.
+                             let ptr_as_int = self.builder.build_ptr_to_int(item_val.into_pointer_value(), self.i64_t, "ptr2i")?;
+                             self.builder.build_store(tmp, ptr_as_int)?;
+                         }
                          (tmp, size)
                     } else {
                          // Int/Float/Bool - direct value
@@ -3078,12 +3174,46 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     if v.is_struct_value() {
                         // Struct -> Pointer (Spill)
                         let sv = v.into_struct_value();
-                        // Use malloc instead of alloca to ensure value survives if stored (e.g. in Vec)
-                        // This effectively boxes the struct on the heap
-                        let malloc_ptr = self.builder.build_malloc(sv.get_type(), "arg_box")?;
-                        self.builder.build_store(malloc_ptr, sv)?;
-                        call_args.push(malloc_ptr.into());
-                        pushed = true;
+                        
+                        // Check if this is a generic container function that needs ptr-as-int boxing
+                        let is_generic_map_fn = matches!(fn_name,
+                            "Map_put" | "Map_get" | "Map_containsKey" | "Map_containsValue" | "Map_remove"
+                        );
+                        let is_generic_vec_fn = matches!(fn_name,
+                            "Vec_push" | "Vec_set" | "Array_push" | "ArraySet" | "HashMap_get" | "HashMap_put"
+                        );
+                        let param_is_generic = self.fn_generic_param_indices
+                            .get(fn_name)
+                            .map(|indices| indices.contains(&i))
+                            .unwrap_or(false);
+                        
+                        let needs_ptr_as_int = (is_generic_map_fn || is_generic_vec_fn || param_is_generic) && i > 0;
+                        
+                        if needs_ptr_as_int {
+                            // For generic parameters, use ptr-as-int representation:
+                            // 1. malloc for struct
+                            // 2. store struct
+                            // 3. ptrtoint of malloc_ptr
+                            // 4. store ptrtoint into spill
+                            // 5. pass pointer to spill
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Struct value to generic param: using ptr-as-int boxing for fn '{}' arg {}", fn_name, i);
+                            }
+                            let malloc_ptr = self.builder.build_malloc(sv.get_type(), "arg_box")?;
+                            self.builder.build_store(malloc_ptr, sv)?;
+                            let ptr_as_int = self.builder.build_ptr_to_int(malloc_ptr, self.i64_t, "arg_ptr2int")?;
+                            let spill = self.alloca_for_type(self.i64_t.into(), "arg_box_spill")?;
+                            self.builder.build_store(spill, ptr_as_int)?;
+                            call_args.push(spill.into());
+                            pushed = true;
+                        } else {
+                            // Use malloc instead of alloca to ensure value survives if stored (e.g. in Vec)
+                            // This effectively boxes the struct on the heap
+                            let malloc_ptr = self.builder.build_malloc(sv.get_type(), "arg_box")?;
+                            self.builder.build_store(malloc_ptr, sv)?;
+                            call_args.push(malloc_ptr.into());
+                            pushed = true;
+                        }
                     } else if v.is_int_value() {
                         // Int -> Pointer
                         // If it's a generic function (T), we might need to spill int to stack?
@@ -3244,17 +3374,44 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         };
 
                         if is_ptr_as_int {
-                            // This is a ptr-as-int value (like from Vec.get) being passed to a generic function.
-                            // Convert the pointer back to an integer and box it properly.
-                            if self.trace_options.trace_boxing {
-                                eprintln!("[BOXING] Re-boxing ptr-as-int value for generic function call");
+                            // Check if this is already a boxed generic parameter (ptr to i64)
+                            let is_already_boxed = if let IRValue::Variable(name) = a {
+                                self.var_is_boxed_generic.contains(name)
+                            } else {
+                                false
+                            };
+
+                            if is_already_boxed {
+                                // Boxed generic parameter - LOAD the i64 value from it, then store in new rebox_spill
+                                if self.trace_options.trace_boxing {
+                                    let var_name = if let IRValue::Variable(name) = a { name.clone() } else { "?".to_string() };
+                                    eprintln!("[BOXING] Re-boxing boxed generic parameter '{}' (loading from ptr to i64)", var_name);
+                                }
+                                let ptr_val = v.into_pointer_value();
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING]   ptr_val = {:?}", ptr_val);
+                                }
+                                let int_val = self.builder.build_load(self.i64_t, ptr_val, "load_boxed_rebox")?.into_int_value();
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING]   loaded int_val = {:?}", int_val);
+                                }
+                                let tmp = self.alloca_for_type(self.i64_t.into(), "rebox_spill")?;
+                                self.builder.build_store(tmp, int_val)?;
+                                call_args.push(tmp.into());
+                                pushed = true;
+                            } else {
+                                // This is a ptr-as-int value (like from Vec.get) being passed to a generic function.
+                                // Convert the pointer back to an integer and box it properly.
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] Re-boxing ptr-as-int value for generic function call");
+                                }
+                                let ptr_val = v.into_pointer_value();
+                                let int_val = self.builder.build_ptr_to_int(ptr_val, self.i64_t, "ptr2int_rebox")?;
+                                let tmp = self.alloca_for_type(self.i64_t.into(), "rebox_spill")?;
+                                self.builder.build_store(tmp, int_val)?;
+                                call_args.push(tmp.into());
+                                pushed = true;
                             }
-                            let ptr_val = v.into_pointer_value();
-                            let int_val = self.builder.build_ptr_to_int(ptr_val, self.i64_t, "ptr2int_rebox")?;
-                            let tmp = self.alloca_for_type(self.i64_t.into(), "rebox_spill")?;
-                            self.builder.build_store(tmp, int_val)?;
-                            call_args.push(tmp.into());
-                            pushed = true;
                         }
                         
                         if !pushed && !should_box {
@@ -3292,25 +3449,62 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             if self.trace_options.trace_boxing {
                                 eprintln!("[BOXING] Boxing pointer argument for generic call. Type: {:?}", target_type);
                             }
-                            let llvm_ty = ir_type_to_llvm(
-                                self.ctx, 
-                                &target_type, 
-                                self.i64_t, 
-                                self.bool_t, 
-                                self.i8_ptr_t, 
-                                &self.struct_types
-                            );
-                            
+
                             let ptr_val = v.into_pointer_value();
-                            // Load the struct from the current pointer
-                            let loaded = self.builder.build_load(llvm_ty, ptr_val, "box_load")?;
-                            // Allocate new heap memory
-                            let malloc_ptr = self.builder.build_malloc(llvm_ty, "box_malloc")?;
-                            // Store the struct to the new heap memory
-                            self.builder.build_store(malloc_ptr, loaded)?;
-                            
-                            call_args.push(malloc_ptr.into());
-                            pushed = true;
+
+                            // Check if this is a container storage function that uses ptr-as-int representation
+                            // These functions expect generic parameters as ptr -> i64 (where i64 = ptrtoint of actual value ptr)
+                            let is_container_storage_fn = matches!(fn_name,
+                                "Vec_push" | "Vec_set" | "Array_push" | "ArraySet" |
+                                "Map_put" | "Map_get" | "Map_containsKey" | "Map_containsValue" | "Map_remove"
+                            );
+
+                            // Check if the target function has a generic parameter at this index
+                            // Generic params (T, K, V, E) expect ptr-as-int boxing for String arguments
+                            let param_is_generic = self.fn_generic_param_indices
+                                .get(fn_name)
+                                .map(|indices| indices.contains(&i))
+                                .unwrap_or(false);
+
+                            if param_is_generic && self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Target fn '{}' has generic param at index {}", fn_name, i);
+                            }
+
+                            // For String type in container storage functions (like Vec<String>.push, Map<String, V>.put),
+                            // OR when target function has a generic parameter at this index,
+                            // we use ptr-as-int representation: the container stores i64 values
+                            // that are ptrtoint of String pointers.
+                            // So we box the pointer (as i64), not the struct contents.
+                            if matches!(target_type, crate::value::IRType::String) && (is_container_storage_fn || param_is_generic) {
+                                if self.trace_options.trace_boxing {
+                                    eprintln!("[BOXING] String arg to generic param in fn '{}' idx {}: boxing pointer-as-int", fn_name, i);
+                                }
+                                // Convert pointer to i64 and box that
+                                let ptr_as_int = self.builder.build_ptr_to_int(ptr_val, self.i64_t, "str_ptr2int")?;
+                                let tmp = self.alloca_for_type(self.i64_t.into(), "str_box")?;
+                                self.builder.build_store(tmp, ptr_as_int)?;
+                                call_args.push(tmp.into());
+                                pushed = true;
+                            } else {
+                                let llvm_ty = ir_type_to_llvm(
+                                    self.ctx,
+                                    &target_type,
+                                    self.i64_t,
+                                    self.bool_t,
+                                    self.i8_ptr_t,
+                                    &self.struct_types
+                                );
+
+                                // Load the struct from the current pointer
+                                let loaded = self.builder.build_load(llvm_ty, ptr_val, "box_load")?;
+                                // Allocate new heap memory
+                                let malloc_ptr = self.builder.build_malloc(llvm_ty, "box_malloc")?;
+                                // Store the struct to the new heap memory
+                                self.builder.build_store(malloc_ptr, loaded)?;
+
+                                call_args.push(malloc_ptr.into());
+                                pushed = true;
+                            }
                         }
                     }
                 }
@@ -3404,6 +3598,72 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         } else {
                             call_args.push(as_i64.into());
                         }
+                        pushed = true;
+                    }
+                }
+            }
+            
+            // Handle struct values (like String) being passed to generic parameters
+            // These need ptr-as-int boxing but the value is already a struct, not a pointer
+            if !pushed && v.is_struct_value() {
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] struct value handling for fn '{}' arg {} - v.is_struct_value()=true", fn_name, i);
+                }
+                
+                // Check if the function expects a generic parameter at this index
+                let param_is_generic = self.fn_generic_param_indices
+                    .get(fn_name)
+                    .map(|indices| indices.contains(&i))
+                    .unwrap_or(false);
+                
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] param_is_generic={}, fn_generic_param_indices for '{}' = {:?}", 
+                        param_is_generic, fn_name, self.fn_generic_param_indices.get(fn_name));
+                }
+                
+                // Also check for generic container storage functions (NOT StringHashMap which has concrete String key)
+                // Map<K, V> functions that take generic K or V:
+                let is_generic_map_fn = matches!(fn_name,
+                    "Map_put" | "Map_get" | "Map_containsKey" | "Map_containsValue" | "Map_remove"
+                );
+                // Vec<T> and Array<T> functions that take generic T:
+                let is_generic_vec_fn = matches!(fn_name,
+                    "Vec_push" | "Vec_set" | "Array_push" | "ArraySet" | "HashMap_get" | "HashMap_put"
+                );
+                
+                if self.trace_options.trace_boxing {
+                    eprintln!("[BOXING] is_generic_map_fn={}, is_generic_vec_fn={}", is_generic_map_fn, is_generic_vec_fn);
+                }
+                
+                let needs_boxing = param_is_generic || is_generic_map_fn || is_generic_vec_fn;
+                
+                if needs_boxing {
+                    let sv = v.into_struct_value();
+                    let sv_type = sv.get_type();
+                    
+                    // Check if this looks like a String struct { i64, ptr }
+                    let is_string_like = sv_type.count_fields() == 2;
+                    
+                    if is_string_like {
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] Struct value arg to generic param in fn '{}' idx {}: boxing with ptr-as-int", fn_name, i);
+                        }
+                        // Allocate heap memory for the struct, store it, convert ptr to i64, store that in a spill
+                        let malloc_ptr = self.builder.build_malloc(sv_type, "arg_box")?;
+                        self.builder.build_store(malloc_ptr, sv)?;
+                        let ptr_as_int = self.builder.build_ptr_to_int(malloc_ptr, self.i64_t, "arg_ptr2int")?;
+                        let tmp = self.alloca_for_type(self.i64_t.into(), "arg_box_spill")?;
+                        self.builder.build_store(tmp, ptr_as_int)?;
+                        call_args.push(tmp.into());
+                        pushed = true;
+                    } else {
+                        // For non-String structs, just malloc and pass pointer
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] Non-string struct value arg to generic param in fn '{}' idx {}: malloc and pass ptr", fn_name, i);
+                        }
+                        let malloc_ptr = self.builder.build_malloc(sv_type, "arg_box")?;
+                        self.builder.build_store(malloc_ptr, sv)?;
+                        call_args.push(malloc_ptr.into());
                         pushed = true;
                     }
                 }
@@ -3555,12 +3815,46 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                     self.reg_struct_types.insert(*reg_id, elem_type.clone());
                                 }
                                 // Also track as array element struct for propagation
-                                self.reg_array_element_struct.insert(*reg_id, elem_type);
+                                self.reg_array_element_struct.insert(*reg_id, elem_type.clone());
+                                // NOTE: Vec_get results should NOT be marked as boxed generic!
+                                // Vec_get already unboxes the ptr-as-int internally and returns
+                                // a direct pointer to the element. Marking it as boxed would cause
+                                // the comparison code to try to unbox again, leading to crashes.
                             }
                         }
                     }
                 }
-                
+
+                // Handle Map_get: Map.get(key) returns Option<V>
+                // Propagate the tracked value type as the Option's inner type
+                if is_map_get {
+                    let map_arg = args.get(0);
+                    let value_type = match map_arg {
+                        Some(IRValue::Variable(map_var)) => {
+                            self.var_array_element_struct.get(map_var).cloned()
+                        }
+                        Some(IRValue::Register(map_reg)) => {
+                            self.reg_array_element_struct.get(map_reg).cloned()
+                        }
+                        _ => None
+                    };
+
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] Map_get on {:?}, value_type={:?}", map_arg, value_type);
+                    }
+
+                    if let Some(vtype) = value_type {
+                        if let IRValue::Register(reg_id) = r {
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] Map_get returning Option with inner type '{}' to reg {}", vtype, reg_id);
+                            }
+                            // Map.get returns Option<V>, so track the inner type
+                            self.reg_option_inner_type.insert(*reg_id, vtype.clone());
+                            self.reg_struct_types.insert(*reg_id, "Option".to_string());
+                        }
+                    }
+                }
+
                 self.assign_value(r, ret.clone())?;
                 
                 // Debug: trace char return values
@@ -3628,6 +3922,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                     eprintln!("[BOXING] Setting reg {} struct type to '{}' from call to '{}'", reg_id, struct_name, name);
                                 }
                                 self.reg_struct_types.insert(*reg_id, struct_name.clone());
+                                // NOTE: Do NOT mark generic type results as boxed generic here!
+                                // Functions like Vec_get already unbox the ptr-as-int internally and
+                                // return a direct pointer. Marking results as boxed would cause
+                                // the comparison code to try to unbox again, leading to crashes.
+                                // If a function truly returns boxed values, the caller should handle it explicitly.
                             } else {
                                 if self.trace_options.trace_boxing {
                                     eprintln!("[BOXING] Keeping existing reg {} struct type '{}' (not overwriting with '{}', has_elem_type={})",
@@ -3717,36 +4016,114 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                     }
                                     self.reg_struct_types.insert(*reg_id, inner_type.clone());
 
-                                    // Unbox primitives: unwrap() returns ptr to boxed value for generic T
-                                    // When T is a primitive (Int/Bool/Char/Float), we need to dereference the pointer
-                                    if is_primitive_type(&inner_type) {
+                                    // Check if this is a generic type parameter (single uppercase letter or common generics)
+                                    let is_generic_param = matches!(inner_type.as_str(),
+                                        "T" | "V" | "K" | "T1" | "T2" | "U" | "R" | "E" | "A" | "B");
+
+                                    // Check if this is an enum type
+                                    let is_enum_type = self.enum_types.contains_key(&inner_type);
+
+                                    // Unbox values: unwrap() returns ptr to boxed value for generic T
+                                    // When T is a primitive (Int/Bool/Char/Float), String, enum, or a generic parameter
+                                    // we need to dereference the pointer
+                                    let needs_unboxing = is_primitive_type(&inner_type) || inner_type == "String" || is_generic_param || is_enum_type;
+                                    if needs_unboxing {
                                         if self.trace_options.trace_boxing {
-                                            eprintln!("[BOXING] Unboxing primitive '{}' from unwrap result reg {}", inner_type, reg_id);
+                                            eprintln!("[BOXING] Unboxing '{}' from unwrap result reg {} (is_generic={}, is_enum={})",
+                                                inner_type, reg_id, is_generic_param, is_enum_type);
                                         }
 
                                         // Get the ptr value that was assigned from the unwrap call
                                         if let Some(ptr_val) = self.reg_values.get(reg_id).copied() {
                                             if ptr_val.is_pointer_value() {
                                                 let ptr = ptr_val.into_pointer_value();
-                                                let llvm_ty: inkwell::types::BasicTypeEnum = match inner_type.as_str() {
-                                                    "Int" | "Integer" | "i64" => self.i64_t.into(),
-                                                    "Bool" | "Boolean" | "i1" => self.bool_t.into(),
-                                                    "Char" | "i8" => self.ctx.i8_type().into(),
-                                                    "Float" | "f64" => self.ctx.f64_type().into(),
-                                                    _ => self.i64_t.into(),
-                                                };
-                                                let loaded = self.builder.build_load(llvm_ty, ptr, "unbox_prim")?;
 
-                                                if self.trace_options.trace_boxing {
-                                                    eprintln!("[BOXING] Unboxed value from ptr {:?} -> {:?}", ptr, loaded);
-                                                }
+                                                if is_enum_type {
+                                                    // For enum types: load the i64 value directly (enum tag)
+                                                    // Enums are stored as i64 integers, NOT as pointers
+                                                    let loaded_i64 = self.builder.build_load(self.i64_t, ptr, "unbox_enum")?;
 
-                                                // Update reg_values with the unboxed value
-                                                self.reg_values.insert(*reg_id, loaded);
+                                                    if self.trace_options.trace_boxing {
+                                                        eprintln!("[BOXING] Unboxed enum '{}': loaded i64={:?}", inner_type, loaded_i64);
+                                                    }
 
-                                                // Also update slot if exists
-                                                if let Some(slot) = self.reg_slots.get(reg_id).copied() {
-                                                    self.builder.build_store(slot, loaded)?;
+                                                    // Update reg_values with the unboxed enum value
+                                                    self.reg_values.insert(*reg_id, loaded_i64);
+
+                                                    // Also update slot if exists
+                                                    if let Some(slot) = self.reg_slots.get(reg_id).copied() {
+                                                        self.builder.build_store(slot, loaded_i64)?;
+                                                    }
+
+                                                    // Track the enum type name in reg_struct_types for method dispatch
+                                                    self.reg_struct_types.insert(*reg_id, inner_type.clone());
+                                                } else if inner_type == "String" {
+                                                    // For String: the boxed value is an i64 (ptr-as-int)
+                                                    // Load the i64 and convert to pointer
+                                                    let loaded_i64 = self.builder.build_load(self.i64_t, ptr, "unbox_gen_int")?;
+                                                    let gen_ptr = self.builder.build_int_to_ptr(
+                                                        loaded_i64.into_int_value(),
+                                                        self.ctx.ptr_type(inkwell::AddressSpace::default()),
+                                                        "unbox_gen_ptr"
+                                                    )?;
+
+                                                    if self.trace_options.trace_boxing {
+                                                        eprintln!("[BOXING] Unboxed String: i64={:?} -> ptr={:?}", loaded_i64, gen_ptr);
+                                                    }
+
+                                                    // Update reg_values with the unboxed pointer
+                                                    self.reg_values.insert(*reg_id, gen_ptr.into());
+
+                                                    // Also update slot if exists
+                                                    if let Some(slot) = self.reg_slots.get(reg_id).copied() {
+                                                        self.builder.build_store(slot, gen_ptr)?;
+                                                    }
+                                                } else if is_generic_param {
+                                                    // For generic params: the boxed value is an i64 (ptr-as-int)
+                                                    // Load the i64 and convert to pointer for use by downstream operations
+                                                    // (e.g., String operations that expect a pointer they can dereference)
+                                                    // NOTE: This may cause issues with enum values, but String concatenation
+                                                    // is more common than enum toString, so prioritize Strings.
+                                                    let loaded_i64 = self.builder.build_load(self.i64_t, ptr, "unbox_gen_int")?;
+                                                    let gen_ptr = self.builder.build_int_to_ptr(
+                                                        loaded_i64.into_int_value(),
+                                                        self.ctx.ptr_type(inkwell::AddressSpace::default()),
+                                                        "unbox_gen_ptr"
+                                                    )?;
+
+                                                    if self.trace_options.trace_boxing {
+                                                        eprintln!("[BOXING] Unboxed generic param '{}': i64={:?} -> ptr={:?}", inner_type, loaded_i64, gen_ptr);
+                                                    }
+
+                                                    // Update reg_values with the unboxed pointer
+                                                    self.reg_values.insert(*reg_id, gen_ptr.into());
+
+                                                    // Also update slot if exists
+                                                    if let Some(slot) = self.reg_slots.get(reg_id).copied() {
+                                                        self.builder.build_store(slot, gen_ptr)?;
+                                                    }
+                                                } else {
+                                                    // For primitives: load the value directly
+                                                    let llvm_ty: inkwell::types::BasicTypeEnum = match inner_type.as_str() {
+                                                        "Int" | "Integer" | "i64" => self.i64_t.into(),
+                                                        "Bool" | "Boolean" | "i1" => self.bool_t.into(),
+                                                        "Char" | "i8" => self.ctx.i8_type().into(),
+                                                        "Float" | "f64" => self.ctx.f64_type().into(),
+                                                        _ => self.i64_t.into(),
+                                                    };
+                                                    let loaded = self.builder.build_load(llvm_ty, ptr, "unbox_prim")?;
+
+                                                    if self.trace_options.trace_boxing {
+                                                        eprintln!("[BOXING] Unboxed primitive from ptr {:?} -> {:?}", ptr, loaded);
+                                                    }
+
+                                                    // Update reg_values with the unboxed value
+                                                    self.reg_values.insert(*reg_id, loaded);
+
+                                                    // Also update slot if exists
+                                                    if let Some(slot) = self.reg_slots.get(reg_id).copied() {
+                                                        self.builder.build_store(slot, loaded)?;
+                                                    }
                                                 }
                                             }
                                         }

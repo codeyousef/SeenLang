@@ -68,6 +68,41 @@ impl IRGenerator {
         object: &Expression,
         member: &str,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        // Check if this is an enum variant access (EnumName.VariantName)
+        // This handles the case where Color.Red is parsed as MemberAccess instead of EnumLiteral
+        if let Expression::Identifier { name: enum_name, .. } = object {
+            // Clone the enum info if it exists to avoid borrow conflicts
+            let enum_info = self.context.type_definitions.get(enum_name).cloned();
+            if let Some(IRType::Enum { variants, .. }) = enum_info {
+                // Check if member is a valid variant name
+                if let Some((idx, _)) = variants.iter().enumerate().find(|(_, (v, _))| v == member) {
+                    let result_reg = self.context.allocate_register();
+                    let result_value = IRValue::Register(result_reg);
+
+                    // Set the register type to the enum type
+                    let enum_type = IRType::Enum {
+                        name: enum_name.clone(),
+                        variants: variants.clone()
+                    };
+                    self.context.set_register_type(result_reg, enum_type.clone());
+
+                    eprintln!("DEBUG IR: generate_member_access - enum variant {}.{} -> tag {}",
+                        enum_name, member, idx);
+
+                    // Generate instruction for enum variant access
+                    let instruction = Instruction::FieldAccess {
+                        struct_val: IRValue::Variable(enum_name.clone()),
+                        field: member.to_string(),
+                        result: result_value.clone(),
+                        struct_type: Some(enum_name.clone()),
+                        field_type: Some(enum_type),
+                    };
+
+                    return Ok((result_value, vec![instruction]));
+                }
+            }
+        }
+
         let (obj_val, mut obj_instructions) = self.generate_expression(object)?;
 
         let result_reg = self.context.allocate_register();
@@ -90,8 +125,8 @@ impl IRGenerator {
             }
             _ => None
         };
-        
-        eprintln!("DEBUG IR: generate_member_access obj_val={:?}, member={}, obj_type_name={:?}", 
+
+        eprintln!("DEBUG IR: generate_member_access obj_val={:?}, member={}, obj_type_name={:?}",
             obj_val, member, obj_type_name);
 
         // If we know the struct type, look up the field type and set it on the result register

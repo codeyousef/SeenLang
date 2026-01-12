@@ -66,12 +66,12 @@ impl IRGenerator {
         type_annotation: Option<&seen_parser::ast::Type>,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let (value_val, mut instructions) = self.generate_expression(value)?;
-        
+
         // If there's an explicit type annotation, use that type for the variable
         if let Some(ty) = type_annotation {
             let ir_type = self.convert_ast_type_to_ir(ty);
             self.context.set_variable_type(name.to_string(), ir_type.clone());
-            
+
             // Also register the struct type name for field access tracking
             if let crate::value::IRType::Struct { name: _struct_name, .. } = &ir_type {
                 // Track this in local_variables for the LLVM backend
@@ -80,8 +80,27 @@ impl IRGenerator {
                     self.context.local_variables.push(local);
                 }
             }
+        } else {
+            // No explicit type annotation - infer type from the value expression
+            // Check if the value is from a register with a known type
+            if let IRValue::Register(reg_id) = &value_val {
+                if let Some(reg_type) = self.context.register_types.get(reg_id).cloned() {
+                    self.context.set_variable_type(name.to_string(), reg_type.clone());
+                    // Track enums and structs in local_variables
+                    match &reg_type {
+                        crate::value::IRType::Enum { .. } |
+                        crate::value::IRType::Struct { .. } => {
+                            if !self.context.local_variables.iter().any(|lv| lv.name == name) {
+                                let local = crate::function::LocalVariable::new(name, reg_type);
+                                self.context.local_variables.push(local);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
-        
+
         self.generate_binding_core(name, value_val.clone(), &mut instructions);
         Ok((value_val, instructions))
     }
