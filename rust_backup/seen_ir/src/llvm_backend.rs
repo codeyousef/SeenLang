@@ -991,11 +991,32 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
         }
         
-        // SECOND PASS: Now register struct types with proper class field handling
+        // SECOND PASS: Create opaque struct types first (before setting bodies)
+        // This ensures all struct types exist before we resolve nested struct references
+        // Note: We register ALL types including class types - class types are passed as i64
+        // but we still need their layout for allocation and field access
         for module in &modules {
             for type_def in module.types.iter() {
                 if let IRType::Struct { name, fields, .. } = &type_def.type_def {
-                    self.register_struct_type(name.as_str(), fields);
+                    // Create opaque struct type if not already exists
+                    if !self.struct_types.contains_key(name) {
+                        let opaque_ty = self.ctx.opaque_struct_type(name);
+                        let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
+                        self.struct_types.insert(name.clone(), (opaque_ty, field_names));
+                        // Store the field definitions for the third pass
+                        self.struct_definitions.insert(name.to_string(), fields.to_vec());
+                        let is_class = self.class_types.contains(name);
+                        eprintln!("[LLVM TRACE] Created opaque struct type: '{}' (is_class={})", name, is_class);
+                    }
+                }
+            }
+        }
+
+        // THIRD PASS: Set struct bodies with full field layouts (now all types are known)
+        for module in &modules {
+            for type_def in module.types.iter() {
+                if let IRType::Struct { name, fields, .. } = &type_def.type_def {
+                    self.set_struct_body(name.as_str(), fields);
                 }
             }
         }
@@ -1196,6 +1217,47 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
         
         self.struct_types.insert(name.to_string(), (llvm_struct_ty, field_names));
+    }
+
+    /// Set the body of an opaque struct type (used in second pass of struct registration)
+    fn set_struct_body(&mut self, name: &str, fields: &[(String, IRType)]) {
+        // Get the opaque struct type we created earlier
+        let opaque_ty = if let Some((ty, _)) = self.struct_types.get(name) {
+            *ty
+        } else {
+            eprintln!("[LLVM ERROR] set_struct_body: struct '{}' not found in struct_types", name);
+            return;
+        };
+
+        // Skip if body is already set (non-opaque)
+        if !opaque_ty.is_opaque() {
+            return;
+        }
+
+        // Trace type registration with [LAYOUT] output for debugging layout mismatches
+        if self.trace_options.trace_types || self.trace_options.dump_layouts || name == "ItemNode" || name == "FunctionNode" || name == "ClassNode" {
+            eprintln!("[LAYOUT] Setting body for struct: {}", name);
+            for (idx, (fname, ftype)) in fields.iter().enumerate() {
+                eprintln!("[LAYOUT]   Field {}: {} (Type: {:?})", idx, fname, ftype);
+            }
+        }
+
+        // Build LLVM field types
+        let field_types: Vec<BasicTypeEnum<'ctx>> = fields
+            .iter()
+            .map(|(fname, ty)| {
+                let llvm_ty = self.ir_type_to_llvm(ty);
+                if name == "ItemNode" || name == "FunctionNode" {
+                    eprintln!("[LLVM DEBUG] {} field {} type {:?} -> LLVM {:?}", name, fname, ty, llvm_ty);
+                }
+                llvm_ty
+            })
+            .collect();
+
+        // Set the body on the opaque struct
+        opaque_ty.set_body(&field_types, false);
+
+        eprintln!("[LLVM TRACE] Set body for struct '{}' with {} fields: {:?}", name, field_types.len(), opaque_ty);
     }
 
     /// Get or create a struct type by name (used when struct is referenced before definition)
@@ -2599,27 +2661,39 @@ impl<'ctx> LlvmBackend<'ctx> {
                             &format!("{}_field_{}", type_name, field_name),
                         )?;
                         
-                        // Check if the field is an Array type and val is a pointer
-                        // If so, load the array struct content from the pointer
+                        // Check if the field is an Array type or String type and val is a pointer
+                        // If so, load the struct content from the pointer
                         let field_llvm_ty = llvm_struct_ty.get_field_types()[idx];
                         let is_array_field = if let BasicTypeEnum::StructType(ft) = field_llvm_ty {
                             let types = ft.get_field_types();
-                            types.len() == 3 
+                            // Array: { i64, i64, ptr }
+                            types.len() == 3
                                 && matches!(types[0], BasicTypeEnum::IntType(_))
                                 && matches!(types[1], BasicTypeEnum::IntType(_))
                                 && matches!(types[2], BasicTypeEnum::PointerType(_))
                         } else {
                             false
                         };
-                        
-                        if is_array_field && val.is_pointer_value() {
-                            // val is a pointer to an array struct - load the struct and store it
+
+                        // Check if the field is a String type { i64, ptr }
+                        let is_string_field = if let BasicTypeEnum::StructType(ft) = field_llvm_ty {
+                            let types = ft.get_field_types();
+                            types.len() == 2
+                                && matches!(types[0], BasicTypeEnum::IntType(_))
+                                && matches!(types[1], BasicTypeEnum::PointerType(_))
+                        } else {
+                            false
+                        };
+
+                        if (is_array_field || is_string_field) && val.is_pointer_value() {
+                            // val is a pointer to an array/string struct - load the struct and store it
                             if self.trace_options.trace_values {
-                                eprintln!("[LLVM TRACE]   IRValue::Struct field '{}': loading array struct from ptr", field_name);
+                                eprintln!("[LLVM TRACE]   IRValue::Struct field '{}': loading struct from ptr (array={}, string={})",
+                                    field_name, is_array_field, is_string_field);
                             }
-                            let arr_struct_ty = field_llvm_ty.into_struct_type();
-                            let loaded_arr = self.builder.build_load(arr_struct_ty, val.into_pointer_value(), "load_arr_struct")?;
-                            self.builder.build_store(field_ptr, loaded_arr)?;
+                            let struct_ty = field_llvm_ty.into_struct_type();
+                            let loaded = self.builder.build_load(struct_ty, val.into_pointer_value(), "load_struct")?;
+                            self.builder.build_store(field_ptr, loaded)?;
                         } else {
                             self.builder.build_store(field_ptr, val)?;
                         }

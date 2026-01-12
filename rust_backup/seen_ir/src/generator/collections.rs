@@ -44,7 +44,7 @@ impl IRGenerator {
     }
     
     /// Get the element type of an array value
-    fn get_array_element_type(&self, array_val: &IRValue) -> Option<IRType> {
+    pub(crate) fn get_array_element_type(&self, array_val: &IRValue) -> Option<IRType> {
         match array_val {
             IRValue::Register(reg) => {
                 match self.context.register_types.get(reg) {

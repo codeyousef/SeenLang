@@ -269,6 +269,107 @@ impl IRGenerator {
                     _ => Ok((IRValue::Void, Vec::new())),
                 }
             }
+            // Handle array/collection iteration (for item in array { ... })
+            Expression::Identifier { .. } | Expression::MemberAccess { .. } => {
+                // Generate the array expression to get the array value
+                let (array_val, array_instructions) = self.generate_expression(iterable)?;
+                instructions.extend(array_instructions);
+
+                // Get array length
+                let len_reg = self.context.allocate_register();
+                let len_val = IRValue::Register(len_reg);
+                instructions.push(Instruction::ArrayLength {
+                    array: array_val.clone(),
+                    result: len_val.clone(),
+                });
+
+                // Create index variable (initialized to 0)
+                let idx_var = IRValue::Variable(format!("__for_idx_{}", self.context.allocate_register()));
+                instructions.push(Instruction::Store {
+                    value: IRValue::Integer(0),
+                    dest: idx_var.clone(),
+                });
+
+                // Allocate labels
+                let loop_start = self.context.allocate_label("for_arr_start");
+                let loop_body_label = self.context.allocate_label("for_arr_body");
+                let loop_end = self.context.allocate_label("for_arr_end");
+
+                self.context.push_loop_labels(loop_end.0.clone(), loop_start.0.clone());
+
+                instructions.push(Instruction::Label(loop_start.clone()));
+
+                // Check condition: idx < len
+                let cond_reg = self.context.allocate_register();
+                let cond_result = IRValue::Register(cond_reg);
+                instructions.push(Instruction::Binary {
+                    op: crate::instruction::BinaryOp::LessThan,
+                    left: idx_var.clone(),
+                    right: len_val.clone(),
+                    result: cond_result.clone(),
+                });
+
+                instructions.push(Instruction::JumpIfNot {
+                    condition: cond_result,
+                    target: loop_end.clone(),
+                });
+
+                instructions.push(Instruction::Label(loop_body_label));
+
+                // Get element: item = array[idx]
+                let elem_reg = self.context.allocate_register();
+                let elem_val = IRValue::Register(elem_reg);
+
+                // Try to get element type from the array's type
+                let element_type = self.get_array_element_type(&array_val);
+
+                instructions.push(Instruction::ArrayAccess {
+                    array: array_val.clone(),
+                    index: idx_var.clone(),
+                    result: elem_val.clone(),
+                    element_type,
+                });
+
+                // Store element in loop variable
+                let loop_var = IRValue::Variable(variable.to_string());
+                instructions.push(Instruction::Store {
+                    value: elem_val.clone(),
+                    dest: loop_var.clone(),
+                });
+
+                // If we know the element type is a struct, track it for the loop variable
+                if let Some(ref et) = self.get_array_element_type(&array_val) {
+                    if let crate::value::IRType::Struct { .. } = et {
+                        self.context.set_variable_type(variable.to_string(), et.clone());
+                    }
+                }
+
+                // Generate body
+                let (_, body_instructions) = self.generate_expression(body)?;
+                instructions.extend(body_instructions);
+
+                // Increment index: idx = idx + 1
+                let inc_reg = self.context.allocate_register();
+                let inc_result = IRValue::Register(inc_reg);
+                instructions.push(Instruction::Binary {
+                    op: crate::instruction::BinaryOp::Add,
+                    left: idx_var.clone(),
+                    right: IRValue::Integer(1),
+                    result: inc_result.clone(),
+                });
+                instructions.push(Instruction::Store {
+                    value: inc_result,
+                    dest: idx_var,
+                });
+
+                // Jump back to start
+                instructions.push(Instruction::Jump(loop_start));
+
+                instructions.push(Instruction::Label(loop_end));
+                self.context.pop_loop_labels();
+
+                Ok((IRValue::Void, instructions))
+            }
             _ => Ok((IRValue::Void, Vec::new())),
         }
     }

@@ -2331,12 +2331,42 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         false
                     };
 
+                    // Check if we're pushing a non-class struct (data struct)
+                    // These should be stored by value, not as pointers
+                    let element_struct_type = match &args[0] {
+                        IRValue::Variable(var_name) => self.var_array_element_struct.get(var_name).cloned(),
+                        IRValue::Register(reg_id) => self.reg_array_element_struct.get(reg_id).cloned(),
+                        _ => None,
+                    };
+                    let is_non_class_struct = element_struct_type.as_ref()
+                        .map(|t| !self.class_types.contains(t) && self.struct_types.contains_key(t))
+                        .unwrap_or(false);
+
                     // Get item pointer and size
                     let (item_ptr, item_size_val) = if item_val.is_struct_value() {
                          let size = item_val.get_type().size_of().unwrap();
                          let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
                          self.builder.build_store(tmp, item_val)?;
                          (tmp, size)
+                    } else if item_val.is_pointer_value() && is_non_class_struct {
+                         // For non-class structs (data structs), load the struct from pointer
+                         // and store by value
+                         let struct_name = element_struct_type.as_ref().unwrap();
+                         if let Some((struct_ty, _)) = self.struct_types.get(struct_name).cloned() {
+                             eprintln!("[DEBUG] Array_push: non-class struct '{}', loading from pointer", struct_name);
+                             let loaded = self.builder.build_load(struct_ty, item_val.into_pointer_value(), "load_struct")?;
+                             let size = struct_ty.size_of().unwrap();
+                             let tmp = self.alloca_for_type(struct_ty.into(), "item_tmp")?;
+                             self.builder.build_store(tmp, loaded)?;
+                             (tmp, size)
+                         } else {
+                             // Fallback: store pointer-as-int
+                             let size = self.i64_t.const_int(8, false);
+                             let tmp = self.alloca_for_type(self.i64_t.into(), "item_tmp")?;
+                             let ptr_as_int = self.builder.build_ptr_to_int(item_val.into_pointer_value(), self.i64_t, "ptr2i")?;
+                             self.builder.build_store(tmp, ptr_as_int)?;
+                             (tmp, size)
+                         }
                     } else if item_val.is_pointer_value() {
                          let size = self.i64_t.const_int(8, false);
                          let tmp = self.alloca_for_type(self.i64_t.into(), "item_tmp")?;
@@ -2350,7 +2380,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                              let i64_val = self.builder.build_load(self.i64_t, item_val.into_pointer_value(), "unbox_load")?;
                              self.builder.build_store(tmp, i64_val)?;
                          } else {
-                             // For direct pointer values (e.g., String pointer from literal),
+                             // For direct pointer values (e.g., class types, String pointer from literal),
                              // convert the pointer to i64 using ptrtoint.
                              let ptr_as_int = self.builder.build_ptr_to_int(item_val.into_pointer_value(), self.i64_t, "ptr2i")?;
                              self.builder.build_store(tmp, ptr_as_int)?;
