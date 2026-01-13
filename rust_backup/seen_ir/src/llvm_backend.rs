@@ -1537,15 +1537,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
 
         // DEBUG: Print start of main
-        if func.name == "main" || func.name == "seen_main" {
-             let i32_t = self.ctx.i32_type();
-             let i8_ptr_t = self.i8_ptr_t;
-             let puts_ty = i32_t.fn_type(&[i8_ptr_t.into()], false);
-             let puts = if let Some(f) = self.module.get_function("puts") { f } else { self.module.add_function("puts", puts_ty, None) };
-             
-             let fmt = self.builder.build_global_string_ptr("DEBUG: seen_main start", "debug_start").unwrap();
-             self.builder.build_call(puts, &[fmt.as_pointer_value().into()], "debug_puts").unwrap();
-        }
+        // Debug print removed to reduce noise
 
         // Pre-scan to determine register types and allocate slots
         self.scan_and_allocate_registers(func)?;
@@ -3611,15 +3603,6 @@ impl<'ctx> LlvmBackend<'ctx> {
         let c_main = self.module.add_function("main", c_main_ty, None);
         let bb = self.ctx.append_basic_block(c_main, "entry");
         self.builder.position_at_end(bb);
-        
-        // DEBUG: Print start of main wrapper
-        let i32_t = self.ctx.i32_type();
-        let i8_ptr_t = self.i8_ptr_t;
-        let puts_ty = i32_t.fn_type(&[i8_ptr_t.into()], false);
-        let puts = if let Some(f) = self.module.get_function("puts") { f } else { self.module.add_function("puts", puts_ty, None) };
-        
-        let fmt = self.builder.build_global_string_ptr("DEBUG: main wrapper start", "debug_main_start").unwrap();
-        self.builder.build_call(puts, &[fmt.as_pointer_value().into()], "debug_puts").unwrap();
 
         // If runtime debugging is enabled, call __seen_debug_init() first
         if self.runtime_debug_flag {

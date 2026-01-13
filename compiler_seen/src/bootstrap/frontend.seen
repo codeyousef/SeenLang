@@ -64,31 +64,28 @@ class FrontendResult {
 }
 
 fun run_frontend(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
-    println("[trace] run_frontend: creating FrontendResult...")
+    
     let result = FrontendResult.new()
-    println("[trace] run_frontend: FrontendResult created")
+    
 
     // Without try/catch, we assume the pipeline succeeds.
     // Error handling is done via result types from the lexer/parser/checker.
-    println("[trace] run_frontend: creating SeenLexer...")
+    
     let lexer = SeenLexer.new(source, 1, language)
-    println("[trace] run_frontend: SeenLexer created")
-    println("[trace] run_frontend: calling tokenize...")
+    
+    
     let tokens = lexer.tokenize()
-    println("[trace] run_frontend: tokenize done")
+    
 
-    println("[trace] run_frontend: creating RealParser...")
+    
     let parser = RealParser.new(tokens)
-    println("[trace] run_frontend: parsing...")
+    
     let ast = parser.parse()
+    
     result.program = ast
-    println("[trace] run_frontend: parsing done")
-
-    println("[trace] run_frontend: creating TypeChecker...")
+    // Reduced tracing to avoid string allocation crashes
     let checker = TypeChecker.new()
-    println("[trace] run_frontend: checking...")
     let typeResult = checker.check(ast)
-    println("[trace] run_frontend: checking done")
 
     if typeResult.errors.length() > 0 {
         let typeErrors = typeResult.errors

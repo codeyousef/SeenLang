@@ -635,11 +635,13 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     return Ok(());
                 }
                 // Handle Type_toString methods (enum/struct toString)
-                name if name.ends_with("_toString") => {
+                // Only use special handling if the function is NOT defined in fn_map
+                // This allows user-defined toString methods (like StringBuilder.toString) to be called
+                name if name.ends_with("_toString") && !fn_map.contains_key(name) => {
                     // Extract type name (e.g., "TokenType" from "TokenType_toString")
                     let type_name = &name[..name.len() - "_toString".len()];
                     let str_ty = self.ty_string();
-                    
+
                     eprintln!("[DEBUG toString] type_name='{}', enum_types contains: {:?}", type_name, self.enum_types.keys().collect::<Vec<_>>());
                     
                     // Helper to build a String struct from a C string pointer

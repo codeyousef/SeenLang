@@ -61,24 +61,12 @@ class StringBuilder {
     }
 
     fun toString() r: String {
-        return this.toStringDebug()
-    }
-
-    fun toStringDebug() r: String {
-        println("SB_TOSTRING_DEBUG_ENTER")
-        let myParts = this.parts
-        println("[DEBUG] StringBuilder.toStringDebug: parts.len=" + myParts.length().toString())
-        
         let result = ""
         let i = 0
-        while i < myParts.length() {
-            let p = myParts[i]
-            println("[DEBUG] Loop i=" + i.toString() + " p.len=" + p.length().toString())
-            result = result + p
-            println("[DEBUG] Loop i=" + i.toString() + " result.len=" + result.length().toString())
+        while i < this.parts.length() {
+            result = result + this.parts[i]
             i = i + 1
         }
-        println("[DEBUG] StringBuilder.toStringDebug: result len=" + result.length().toString())
         return result
     }
 

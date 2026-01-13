@@ -12,19 +12,19 @@ class KeywordManager {
     var sources: Array<String>
     
     static fun new(language: String) r: KeywordManager {
-        println("[trace] KeywordManager.new: creating Map...")
+        
         let km = KeywordManager {
             language: language,
             keywords: Map<String, SeenTokenType>.new(),
             tokenNameMap: Map<String, SeenTokenType>.new(),
             sources: Array<String>()
         }
-        println("[trace] KeywordManager.new: Map created")
+        
         
         km.initTokenNameMap()
 
         // Load keywords directly (skip TOML for now)
-        println("[trace] KeywordManager.new: loading keywords...")
+        
         
         if language == "en" {
              // Skip TOML loading for now - go directly to hardcoded keywords
@@ -34,7 +34,7 @@ class KeywordManager {
              km.loadEnglishKeywords()
         }
 
-        println("[trace] KeywordManager.new: loading done")
+        
         
         return km
     }
@@ -165,9 +165,9 @@ class KeywordManager {
     }
     
     fun getKeywordType(text: String) r: SeenTokenType? {
-        println("[trace] KeywordManager.getKeywordType: calling map.get")
+        
         let res = keywords.get(text)
-        println("[trace] KeywordManager.getKeywordType: map.get returned")
+        
         return res
     }
     
@@ -196,9 +196,9 @@ class KeywordManager {
     // Language-specific keyword loading methods
     
     fun loadEnglishKeywords() r: Void {
-        println("[trace] loadEnglishKeywords: putting 'fun'")
+        
         keywords.put("fun", SeenTokenType.KeywordFun)
-        println("[trace] loadEnglishKeywords: putting 'let'")
+        
         keywords.put("let", SeenTokenType.KeywordLet)
         keywords.put("var", SeenTokenType.KeywordVar)
         keywords.put("if", SeenTokenType.KeywordIf)

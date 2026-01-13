@@ -9,14 +9,10 @@ class Option<T> {
     var value: T
 
     static fun New() r: Option<T> {
-        __Println("[Option.New] entering")
         let opt = Option{
             hasValue: false,
             value: __default<T>()
         }
-        __Print("[Option.New] created option at: ")
-        __PrintInt(__PtrToInt(opt))
-        __Println("")
         return opt
     }
 
@@ -28,13 +24,8 @@ class Option<T> {
     }
 
     fun Store(value: T) r: Void {
-        __Println("[Option.Store] entered")
-        __Print("[Option.Store] this address: ")
-        __PrintInt(__PtrToInt(this))
-        __Println("")
         this.value = value
         this.hasValue = true
-        __Println("[Option.Store] done")
     }
 
     fun IsSome() r: Bool {
@@ -46,20 +37,9 @@ class Option<T> {
     }
 
     fun Unwrap() r: T {
-        __Println("[Option.Unwrap] entered")
-        __Print("[Option.Unwrap] this address: ")
-        __PrintInt(__PtrToInt(this))
-        __Println("")
-        __Print("[Option.Unwrap] hasValue=")
-        if this.hasValue {
-            __Println("true")
-        } else {
-            __Println("false")
-        }
         if not this.hasValue {
             abort("called unwrap() on None option")
         }
-        __Println("[Option.Unwrap] returning this.value")
         return this.value
     }
 

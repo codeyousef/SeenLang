@@ -26,10 +26,6 @@ class Map<K, V> {
     }
 
     fun put(key: K, value: V) r: Void {
-        __Print("[DEBUG Map.put] 'this' address: ")
-        __PrintInt(__PtrToInt(this))
-        __Println("")
-        
         // Check if key already exists
         var i = 0
         while i < this.length {
@@ -43,53 +39,28 @@ class Map<K, V> {
         // Add new entry
         // Route through locals so the stage-1 type checker resolves Vec.push correctly
         var keysVec = this.keys
-        __Print("[DEBUG Map.put] keysVec address: ")
-        __PrintInt(__PtrToInt(keysVec))
-        __Println("")
         keysVec.push(key)
         this.keys = keysVec
 
         var valuesVec = this.values
-        __Print("[DEBUG Map.put] valuesVec address: ")
-        __PrintInt(__PtrToInt(valuesVec))
-        __Println("")
         valuesVec.push(value)
         this.values = valuesVec
 
         var hashesVec = this.hashes
-        __Print("[DEBUG Map.put] hashesVec address: ")
-        __PrintInt(__PtrToInt(hashesVec))
-        __Println("")
         hashesVec.push(0)
         this.hashes = hashesVec
         this.length = this.length + 1
     }
 
     fun get(key: K) r: Option<V> {
-        __Print("[Map.get] this.length=")
-        __PrintInt(this.length)
-        __Println("")
         var i = 0
         while i < this.length {
-            __Print("[Map.get] calling keys.get(")
-            __PrintInt(i)
-            __Println(")")
             let k = this.keys.get(i)
-            __Print("[Map.get] got key from vec")
-            __Println("")
-            __Print("[Map.get] comparing at index ")
-            __PrintInt(i)
-            __Println("")
-            
             if k == key {
-                __Println("[Map.get] Match found!")
                 return Some(this.values.get(i))
-            } else {
-                __Println("[Map.get] No match")
             }
             i = i + 1
         }
-        __Println("[Map.get] returning None")
         return None()
     }
 

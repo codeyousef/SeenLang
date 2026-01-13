@@ -55,10 +55,6 @@ class Vec<T> {
     }
 
     fun push(value: T) r: Void {
-        __Print("[DEBUG] Vec_push called. 'this' address: ")
-        __PrintInt(__PtrToInt(this))
-        __Println("")
-        
         if this.length >= this.totalCapacity {
             this.growChunk()
         }

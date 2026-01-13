@@ -405,10 +405,6 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             let data_ptr = self.builder.build_extract_value(arr_struct, 2, "data_ptr")?
                 .into_pointer_value();
             
-            // DEBUG: Print data_ptr
-            let fmt = self.builder.build_global_string_ptr("DEBUG: data_ptr = %p\n", "fmt_p")?;
-            self.call_printf(&[fmt.as_pointer_value().into(), data_ptr.into()])?;
-            
             let idx_bv = self.eval_value(index, fn_map)?;
             let idx_iv = self.as_i64(idx_bv)?;
             

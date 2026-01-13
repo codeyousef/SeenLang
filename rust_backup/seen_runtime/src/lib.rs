@@ -458,14 +458,8 @@ pub extern "C" fn __ReadFileFromPath(path: SeenString) -> SeenString {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
-    eprintln!("DEBUG: __OpenFile path.len={} path.data={:?}", path.len, path.data);
-    eprintln!("DEBUG: __OpenFile mode.len={} mode.data={:?}", mode.len, mode.data);
     let path_str = path.to_str();
     let mode_str = mode.to_str();
-    eprintln!("DEBUG: __OpenFile path='{}' mode='{}'", path_str, mode_str);
-    if let Ok(cwd) = std::env::current_dir() {
-        eprintln!("DEBUG: CWD={:?}", cwd);
-    }
 
     // Fast-path standard streams without going through the FILE_MAP
     match path_str {
@@ -474,17 +468,15 @@ pub extern "C" fn __OpenFile(path: SeenString, mode: SeenString) -> i64 {
         "/dev/stdin" => return 0,
         _ => {}
     }
-    
+
     let file_res = match mode_str {
         "r" => fs::File::open(path_str),
         "w" => fs::File::create(path_str),
         "a" => fs::OpenOptions::new().append(true).create(true).open(path_str),
         _ => {
-            eprintln!("DEBUG: __OpenFile unknown mode '{}'", mode_str);
             return -1;
         }
     };
-    eprintln!("DEBUG: __OpenFile file_res={:?}", file_res);
     
     match file_res {
         Ok(file) => {
@@ -1374,7 +1366,6 @@ pub extern "C" fn __BoolToString(value: i64) -> SeenString {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __CharToString(value: i64) -> SeenString {
-    eprintln!("DEBUG: __CharToString value={}", value);
     let ch = std::char::from_u32(value as u32).unwrap_or('\u{FFFD}');
     string_to_seen_string(ch.to_string())
 }
