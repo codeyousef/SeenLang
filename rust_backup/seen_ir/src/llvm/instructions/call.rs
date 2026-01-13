@@ -409,6 +409,175 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
+                "startsWith" | "String_startsWith" => {
+                    // Inline implementation: if prefix.len > text.len return false; else memcmp == 0
+                    if args.len() >= 2 {
+                        let text_raw = self.eval_value(&args[0], fn_map)?;
+                        let prefix_raw = self.eval_value(&args[1], fn_map)?;
+
+                        // Convert arguments to SeenString structs
+                        // String literals from eval_value are pointers to heap-allocated SeenString structs
+                        let text = if text_raw.is_pointer_value() {
+                            self.load_seen_string_from_ptr(text_raw.into_pointer_value())?
+                        } else {
+                            text_raw
+                        };
+                        let prefix = if prefix_raw.is_pointer_value() {
+                            self.load_seen_string_from_ptr(prefix_raw.into_pointer_value())?
+                        } else {
+                            prefix_raw
+                        };
+
+                        // Extract length and data from both strings
+                        let text_sv = text.into_struct_value();
+                        let prefix_sv = prefix.into_struct_value();
+                        let text_len = self.builder.build_extract_value(text_sv, 0, "text_len")?.into_int_value();
+                        let text_data = self.builder.build_extract_value(text_sv, 1, "text_data")?.into_pointer_value();
+                        let prefix_len = self.builder.build_extract_value(prefix_sv, 0, "prefix_len")?.into_int_value();
+                        let prefix_data = self.builder.build_extract_value(prefix_sv, 1, "prefix_data")?.into_pointer_value();
+
+                        // if prefix_len > text_len, return false
+                        let len_cmp = self.builder.build_int_compare(
+                            inkwell::IntPredicate::UGT,
+                            prefix_len,
+                            text_len,
+                            "prefix_longer",
+                        )?;
+
+                        // Get or declare memcmp
+                        let memcmp_fn = if let Some(f) = self.module.get_function("memcmp") {
+                            f
+                        } else {
+                            let fn_ty = self.ctx.i32_type().fn_type(
+                                &[self.i8_ptr_t.into(), self.i8_ptr_t.into(), self.i64_t.into()],
+                                false,
+                            );
+                            self.module.add_function("memcmp", fn_ty, None)
+                        };
+
+                        // Call memcmp(text_data, prefix_data, prefix_len)
+                        let memcmp_result = self.builder.build_call(
+                            memcmp_fn,
+                            &[text_data.into(), prefix_data.into(), prefix_len.into()],
+                            "memcmp_result",
+                        )?;
+                        let cmp_val = memcmp_result.try_as_basic_value().left().unwrap().into_int_value();
+                        let cmp_zero = self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ,
+                            cmp_val,
+                            self.ctx.i32_type().const_zero(),
+                            "cmp_zero",
+                        )?;
+
+                        // Result: !len_cmp && cmp_zero (prefix not longer AND memcmp == 0)
+                        let not_longer = self.builder.build_not(len_cmp, "not_longer")?;
+                        let starts_with = self.builder.build_and(not_longer, cmp_zero, "starts_with")?;
+
+                        if let Some(r) = result {
+                            self.assign_value(r, starts_with.as_basic_value_enum())?;
+                        }
+                    }
+                    return Ok(());
+                }
+                "endsWith" | "String_endsWith" => {
+                    // Runtime: endsWith(SeenString text, SeenString suffix) -> bool
+                    if args.len() >= 2 {
+                        let text_raw = self.eval_value(&args[0], fn_map)?;
+                        let suffix_raw = self.eval_value(&args[1], fn_map)?;
+
+                        // Convert arguments to SeenString structs
+                        // String literals from eval_value are pointers to heap-allocated SeenString structs
+                        let text = if text_raw.is_pointer_value() {
+                            self.load_seen_string_from_ptr(text_raw.into_pointer_value())?
+                        } else {
+                            text_raw
+                        };
+                        let suffix = if suffix_raw.is_pointer_value() {
+                            self.load_seen_string_from_ptr(suffix_raw.into_pointer_value())?
+                        } else {
+                            suffix_raw
+                        };
+
+                        let func = if let Some(f) = self.module.get_function("endsWith") {
+                            f
+                        } else {
+                            let fn_ty = self.bool_t.fn_type(&[self.ty_string().into(), self.ty_string().into()], false);
+                            self.module.add_function("endsWith", fn_ty, None)
+                        };
+
+                        let call = self.builder.build_call(func, &[text.into(), suffix.into()], "ends")?;
+                        if let Some(r) = result {
+                            if let Some(val) = call.try_as_basic_value().left() {
+                                self.assign_value(r, val)?;
+                            }
+                        }
+                    }
+                    return Ok(());
+                }
+                "contains" | "String_contains" => {
+                    // Runtime: contains(SeenString text, SeenString needle) -> bool
+                    if args.len() >= 2 {
+                        let text_raw = self.eval_value(&args[0], fn_map)?;
+                        let needle_raw = self.eval_value(&args[1], fn_map)?;
+
+                        // Convert arguments to SeenString structs
+                        // String literals from eval_value are pointers to heap-allocated SeenString structs
+                        let text = if text_raw.is_pointer_value() {
+                            self.load_seen_string_from_ptr(text_raw.into_pointer_value())?
+                        } else {
+                            text_raw
+                        };
+                        let needle = if needle_raw.is_pointer_value() {
+                            self.load_seen_string_from_ptr(needle_raw.into_pointer_value())?
+                        } else {
+                            needle_raw
+                        };
+
+                        let func = if let Some(f) = self.module.get_function("contains") {
+                            f
+                        } else {
+                            let fn_ty = self.bool_t.fn_type(&[self.ty_string().into(), self.ty_string().into()], false);
+                            self.module.add_function("contains", fn_ty, None)
+                        };
+
+                        let call = self.builder.build_call(func, &[text.into(), needle.into()], "has")?;
+                        if let Some(r) = result {
+                            if let Some(val) = call.try_as_basic_value().left() {
+                                self.assign_value(r, val)?;
+                            }
+                        }
+                    }
+                    return Ok(());
+                }
+                "trim" | "String_trim" => {
+                    // Runtime: trim(SeenString text) -> SeenString
+                    if let Some(arg) = args.get(0) {
+                        let text_raw = self.eval_value(arg, fn_map)?;
+
+                        // Convert argument to SeenString struct
+                        // String literals from eval_value are pointers to heap-allocated SeenString structs
+                        let text = if text_raw.is_pointer_value() {
+                            self.load_seen_string_from_ptr(text_raw.into_pointer_value())?
+                        } else {
+                            text_raw
+                        };
+
+                        let func = if let Some(f) = self.module.get_function("trim") {
+                            f
+                        } else {
+                            let fn_ty = self.ty_string().fn_type(&[self.ty_string().into()], false);
+                            self.module.add_function("trim", fn_ty, None)
+                        };
+
+                        let call = self.builder.build_call(func, &[text.into()], "trimmed")?;
+                        if let Some(r) = result {
+                            if let Some(val) = call.try_as_basic_value().left() {
+                                self.assign_value(r, val)?;
+                            }
+                        }
+                    }
+                    return Ok(());
+                }
                 "Result_isOk" | "isOk" => {
                     // Result.isOk() checks if the result is Ok (success)
                     // Result struct layout: { bool is_ok, i8* ok_value, i8* err_value }

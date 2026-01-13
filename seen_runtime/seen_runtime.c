@@ -211,6 +211,89 @@ SeenString trim(SeenString text) {
 }
 
 // ============================================================================
+// String Functions (implementations for LLVM backend linking)
+// ============================================================================
+
+SeenString seen_cstr_to_str(const char* s) {
+    SeenString result = { strlen(s), (char*)s };
+    return result;
+}
+
+int64_t seen_str_length(SeenString s) {
+    return s.len;
+}
+
+int64_t seen_length(SeenString s) {
+    return s.len;
+}
+
+SeenString seen_substring(SeenString s, int64_t start, int64_t end) {
+    if (start < 0) start = 0;
+    if (end > s.len) end = s.len;
+    if (start >= end) {
+        SeenString empty = { 0, "" };
+        return empty;
+    }
+    int64_t newlen = end - start;
+    char* newdata = (char*)malloc(newlen + 1);
+    memcpy(newdata, s.data + start, newlen);
+    newdata[newlen] = 0;
+    SeenString result = { newlen, newdata };
+    return result;
+}
+
+SeenString seen_str_concat_ss(SeenString a, SeenString b) {
+    char* newdata = (char*)malloc(a.len + b.len + 1);
+    memcpy(newdata, a.data, a.len);
+    memcpy(newdata + a.len, b.data, b.len);
+    newdata[a.len + b.len] = 0;
+    SeenString result = { a.len + b.len, newdata };
+    return result;
+}
+
+SeenString seen_int_to_string(int64_t n) {
+    char* buf = (char*)malloc(32);
+    sprintf(buf, "%ld", n);
+    SeenString result = { strlen(buf), buf };
+    return result;
+}
+
+bool startsWith(SeenString text, SeenString prefix) {
+    if (prefix.len > text.len) return false;
+    return memcmp(text.data, prefix.data, prefix.len) == 0;
+}
+
+bool endsWith(SeenString text, SeenString suffix) {
+    if (suffix.len > text.len) return false;
+    return memcmp(text.data + text.len - suffix.len, suffix.data, suffix.len) == 0;
+}
+
+bool contains(SeenString text, SeenString needle) {
+    if (needle.len == 0) return true;
+    if (needle.len > text.len) return false;
+    for (int64_t i = 0; i <= text.len - needle.len; i++) {
+        if (memcmp(text.data + i, needle.data, needle.len) == 0) return true;
+    }
+    return false;
+}
+
+// ============================================================================
+// Print Functions
+// ============================================================================
+
+void println_cstr(const char* s) {
+    printf("%s\n", s);
+}
+
+void println_str(SeenString s) {
+    printf("%.*s\n", (int)s.len, s.data);
+}
+
+void println(SeenString s) {
+    printf("%.*s\n", (int)s.len, s.data);
+}
+
+// ============================================================================
 // Bootstrap Stub Functions
 // These are placeholders for the actual compiler implementation
 // In a full bootstrap, these would be replaced with compiled Seen code

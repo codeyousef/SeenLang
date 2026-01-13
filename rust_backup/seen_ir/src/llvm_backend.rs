@@ -3314,7 +3314,15 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             (BasicValueEnum::PointerValue(pv), BasicTypeEnum::StructType(st)) => {
                 if st == self.ty_string() {
-                    // Convert i8* to String struct
+                    // First, try loading as a pointer to String struct (from IRValue::String)
+                    // This handles the case where pv is a pointer to {i64, ptr} struct
+                    let loaded = self.builder.build_load(st, pv, "load_string_struct");
+                    if let Ok(loaded_val) = loaded {
+                        if loaded_val.is_struct_value() {
+                            return Ok(loaded_val.as_basic_value_enum());
+                        }
+                    }
+                    // Fall back to C string conversion if load failed
                     let len = self.call_strlen(pv)?;
                     let mut val = st.get_undef();
                     val = self.builder.build_insert_value(val, len, 0, "slen").unwrap().into_struct_value();
@@ -3424,6 +3432,13 @@ impl<'ctx> LlvmBackend<'ctx> {
     // C library function getters (get_printf, get_strlen, get_strcmp, get_malloc, get_realloc,
     // get_free, get_memcpy, get_fflush, get_or_declare_clock_gettime) and call helpers
     // (call_printf, call_fflush, call_strlen, call_strcmp) moved to crate::llvm::c_library::CLibraryOps trait
+
+    /// Load a SeenString struct from a pointer (for String literals that are heap-allocated)
+    pub(crate) fn load_seen_string_from_ptr(&mut self, ptr: PointerValue<'ctx>) -> Result<BasicValueEnum<'ctx>> {
+        let str_ty = self.ty_string();
+        let loaded = self.builder.build_load(str_ty, ptr, "load_seen_str")?;
+        Ok(loaded)
+    }
 
     /// Convert a C string pointer to a Seen String struct { i64 len, ptr data }
     pub(crate) fn cstr_to_string_struct(&mut self, cstr: PointerValue<'ctx>) -> Result<BasicValueEnum<'ctx>> {

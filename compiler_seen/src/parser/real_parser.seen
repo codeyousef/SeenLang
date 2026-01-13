@@ -1341,8 +1341,18 @@ class RealParser {
                     let memberName = advance().getValue()
                     let memberExpr = ParserExpressionNode.new()
                     memberExpr.kind = "MemberAccess"
-                    // Use literalValue for receiver name to avoid operands array memory corruption
-                    memberExpr.literalValue = expr.variableName  // receiver variable name
+                    // Build full receiver path for chained access like diag.line.field
+                    if expr.kind == "MemberAccess" {
+                        // Chain: previousReceiver.previousMember -> becomes receiver for new member
+                        memberExpr.literalValue = expr.literalValue + "." + expr.variableName
+                    } else if expr.kind == "MethodCall" or expr.kind == "Call" {
+                        // Chained method call: result.method() - store the expression in operands
+                        memberExpr.literalValue = ""  // Signal: use operands[0] as receiver
+                        memberExpr.operands.push(expr)
+                    } else {
+                        // Simple variable access
+                        memberExpr.literalValue = expr.variableName
+                    }
                     memberExpr.variableName = memberName         // member/method name
                     expr = memberExpr
                 } else {

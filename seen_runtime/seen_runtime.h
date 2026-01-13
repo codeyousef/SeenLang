@@ -53,10 +53,7 @@ typedef struct CGenerator CGenerator;
 // ============================================================================
 
 // Create SeenString from C string (does not copy)
-static inline SeenString seen_cstr_to_str(const char* s) {
-    SeenString result = { strlen(s), (char*)s };
-    return result;
-}
+SeenString seen_cstr_to_str(const char* s);
 
 // Create SeenString with copy
 static inline SeenString seen_str_copy(const char* s) {
@@ -68,17 +65,16 @@ static inline SeenString seen_str_copy(const char* s) {
 }
 
 // String length
-static inline int64_t seen_str_length(SeenString s) {
-    return s.len;
-}
+int64_t seen_str_length(SeenString s);
+int64_t seen_length(SeenString s);  // For LLVM backend
 
 // Array length
 static inline int64_t seen_arr_length(SeenArray a) {
     return a.len;
 }
 
-// Generic length macro
-#define seen_length(x) _Generic((x), \
+// Generic length macro for C code
+#define seen_length_generic(x) _Generic((x), \
     SeenString: seen_str_length, \
     SeenArray: seen_arr_length)(x)
 
@@ -93,14 +89,7 @@ static inline SeenString seen_str_concat(SeenString a, const char* b) {
 }
 
 // String concatenation (SeenString + SeenString)
-static inline SeenString seen_str_concat_ss(SeenString a, SeenString b) {
-    char* newdata = (char*)malloc(a.len + b.len + 1);
-    memcpy(newdata, a.data, a.len);
-    memcpy(newdata + a.len, b.data, b.len);
-    newdata[a.len + b.len] = 0;
-    SeenString result = { a.len + b.len, newdata };
-    return result;
-}
+SeenString seen_str_concat_ss(SeenString a, SeenString b);
 
 // String equality (SeenString == char*)
 static inline bool seen_str_eq(SeenString a, const char* b) {
@@ -130,28 +119,10 @@ static inline bool seen_starts_with(SeenString s, const char* prefix) {
 }
 
 // Substring
-static inline SeenString seen_substring(SeenString s, int64_t start, int64_t end) {
-    if (start < 0) start = 0;
-    if (end > s.len) end = s.len;
-    if (start >= end) {
-        SeenString empty = { 0, "" };
-        return empty;
-    }
-    int64_t newlen = end - start;
-    char* newdata = (char*)malloc(newlen + 1);
-    memcpy(newdata, s.data + start, newlen);
-    newdata[newlen] = 0;
-    SeenString result = { newlen, newdata };
-    return result;
-}
+SeenString seen_substring(SeenString s, int64_t start, int64_t end);
 
 // Integer to string
-static inline SeenString seen_int_to_string(int64_t n) {
-    char* buf = (char*)malloc(32);
-    sprintf(buf, "%ld", n);
-    SeenString result = { strlen(buf), buf };
-    return result;
-}
+SeenString seen_int_to_string(int64_t n);
 
 // Alias for compatibility
 static inline char* seen_to_string(int64_t n) {
@@ -212,15 +183,11 @@ static inline FrontendDiagnostic seen_arr_get_diag(SeenArray a, int64_t idx) {
 // Print Functions
 // ============================================================================
 
-static inline void println_cstr(const char* s) {
-    printf("%s\n", s);
-}
+void println_cstr(const char* s);
+void println_str(SeenString s);
+void println(SeenString s);  // For LLVM backend
 
-static inline void println_str(SeenString s) {
-    printf("%.*s\n", (int)s.len, s.data);
-}
-
-#define println(x) _Generic((x), \
+#define println_generic(x) _Generic((x), \
     char*: println_cstr, \
     const char*: println_cstr, \
     SeenString: println_str)(x)
@@ -309,25 +276,12 @@ SeenArray split(SeenString text, SeenString delimiter);
 SeenString trim(SeenString text);
 
 // Check if starts with prefix
-static inline bool startsWith(SeenString text, SeenString prefix) {
-    if (prefix.len > text.len) return false;
-    return memcmp(text.data, prefix.data, prefix.len) == 0;
-}
+bool startsWith(SeenString text, SeenString prefix);
 
 // Check if ends with suffix
-static inline bool endsWith(SeenString text, SeenString suffix) {
-    if (suffix.len > text.len) return false;
-    return memcmp(text.data + text.len - suffix.len, suffix.data, suffix.len) == 0;
-}
+bool endsWith(SeenString text, SeenString suffix);
 
 // Check if contains substring
-static inline bool contains(SeenString text, SeenString needle) {
-    if (needle.len == 0) return true;
-    if (needle.len > text.len) return false;
-    for (int64_t i = 0; i <= text.len - needle.len; i++) {
-        if (memcmp(text.data + i, needle.data, needle.len) == 0) return true;
-    }
-    return false;
-}
+bool contains(SeenString text, SeenString needle);
 
 #endif // SEEN_RUNTIME_H

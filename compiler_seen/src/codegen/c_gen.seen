@@ -9,6 +9,8 @@ class CGenerator {
     var varTypeValues: Array<String>
     // Store current program to avoid passing ProgramNode as parameter (causes memory corruption)
     var currentProgram: ProgramNode
+    // Track String variables using a string with delimiters (avoids array iteration issues in LLVM)
+    var stringVarList: String
 
     static fun new() r: CGenerator {
         return CGenerator{
@@ -17,7 +19,8 @@ class CGenerator {
             currentClassFields: Array<String>(),
             varTypeNames: Array<String>(),
             varTypeValues: Array<String>(),
-            currentProgram: ProgramNode.new()
+            currentProgram: ProgramNode.new(),
+            stringVarList: "|"
         }
     }
 
@@ -428,6 +431,12 @@ class CGenerator {
                         varTypeValues.push(receiverClassName)
                     }
                 }
+                // Track String variables for type lookup
+                if varType == "SeenString" or varType == "String" {
+                    varTypeNames.push(stmt.variableName)
+                    varTypeValues.push("String")
+                    trackStringVariable(stmt.variableName)
+                }
             }
             sb.appendLine(";")
         } else if stmt.kind == "KeywordIf" or stmt.kind == "If" {
@@ -509,6 +518,21 @@ class CGenerator {
                 } else if expr.operator == "+" {
                     let leftIsLiteral = left.kind == "Literal" and left.literalType == "String"
                     let rightIsLiteral = right.kind == "Literal" and right.literalType == "String"
+                    // Check if left/right are String variables
+                    var leftIsStringVar = false
+                    var rightIsStringVar = false
+                    if left.kind == "Variable" or left.kind == "VarExpr" {
+                        let lt = lookupVariableType(left.variableName)
+                        if lt == "String" or lt == "SeenString" {
+                            leftIsStringVar = true
+                        }
+                    }
+                    if right.kind == "Variable" or right.kind == "VarExpr" {
+                        let rt = lookupVariableType(right.variableName)
+                        if rt == "String" or rt == "SeenString" {
+                            rightIsStringVar = true
+                        }
+                    }
                     if leftIsLiteral and rightIsLiteral {
                         sb.append("seen_str_concat(seen_cstr_to_str(")
                         generateExpression(left)
@@ -523,6 +547,13 @@ class CGenerator {
                         sb.append(")")
                     } else if rightIsLiteral {
                         sb.append("seen_str_concat(")
+                        generateExpression(left)
+                        sb.append(", ")
+                        generateExpression(right)
+                        sb.append(")")
+                    } else if leftIsStringVar or rightIsStringVar {
+                        // Both are String variables - use seen_str_concat_ss
+                        sb.append("seen_str_concat_ss(")
                         generateExpression(left)
                         sb.append(", ")
                         generateExpression(right)
@@ -590,8 +621,9 @@ class CGenerator {
                 sb.append(")")
             }
         } else if expr.kind == "MethodCall" {
-            // Receiver variable name is stored in literalValue (not operands)
+            // Receiver can be a variable name (in literalValue) or a complex expression (in operands[0])
             let receiverVarName = expr.literalValue
+            let hasComplexReceiver = receiverVarName == "" and expr.operands.length() > 0
             if expr.callee == "new" {
                 // ClassName.new() - receiverVarName is the class name
                 sb.append(receiverVarName + "_new(")
@@ -604,23 +636,95 @@ class CGenerator {
                 sb.append(")")
             } else if expr.callee == "length" {
                 sb.append("seen_length(")
-                sb.append(receiverVarName)
+                if hasComplexReceiver {
+                    generateExpression(expr.operands[0])
+                } else {
+                    sb.append(receiverVarName)
+                }
                 sb.append(")")
             } else if expr.callee == "toString" {
                 sb.append("seen_int_to_string(")
-                sb.append(receiverVarName)
+                if hasComplexReceiver {
+                    generateExpression(expr.operands[0])
+                } else {
+                    sb.append(receiverVarName)
+                }
                 sb.append(")")
             } else if expr.callee == "endsWith" {
-                sb.append("seen_ends_with(")
-                sb.append(receiverVarName)
+                sb.append("endsWith(")
+                if hasComplexReceiver {
+                    generateExpression(expr.operands[0])
+                } else {
+                    sb.append(receiverVarName)
+                }
                 if expr.arguments.length() > 0 {
                     sb.append(", ")
-                    generateExpression(expr.arguments[0])
+                    // Wrap string literals in seen_cstr_to_str
+                    let arg = expr.arguments[0]
+                    if arg.kind == "Literal" and arg.literalType == "String" {
+                        sb.append("seen_cstr_to_str(")
+                        generateExpression(arg)
+                        sb.append(")")
+                    } else {
+                        generateExpression(arg)
+                    }
+                }
+                sb.append(")")
+            } else if expr.callee == "startsWith" {
+                sb.append("startsWith(")
+                if hasComplexReceiver {
+                    generateExpression(expr.operands[0])
+                } else {
+                    sb.append(receiverVarName)
+                }
+                if expr.arguments.length() > 0 {
+                    sb.append(", ")
+                    // Wrap string literals in seen_cstr_to_str
+                    let arg = expr.arguments[0]
+                    if arg.kind == "Literal" and arg.literalType == "String" {
+                        sb.append("seen_cstr_to_str(")
+                        generateExpression(arg)
+                        sb.append(")")
+                    } else {
+                        generateExpression(arg)
+                    }
+                }
+                sb.append(")")
+            } else if expr.callee == "contains" {
+                sb.append("contains(")
+                if hasComplexReceiver {
+                    generateExpression(expr.operands[0])
+                } else {
+                    sb.append(receiverVarName)
+                }
+                if expr.arguments.length() > 0 {
+                    sb.append(", ")
+                    // Wrap string literals in seen_cstr_to_str
+                    let arg = expr.arguments[0]
+                    if arg.kind == "Literal" and arg.literalType == "String" {
+                        sb.append("seen_cstr_to_str(")
+                        generateExpression(arg)
+                        sb.append(")")
+                    } else {
+                        generateExpression(arg)
+                    }
+                }
+                sb.append(")")
+            } else if expr.callee == "trim" {
+                sb.append("trim(")
+                if hasComplexReceiver {
+                    generateExpression(expr.operands[0])
+                } else {
+                    sb.append(receiverVarName)
                 }
                 sb.append(")")
             } else if expr.callee == "substring" {
                 sb.append("seen_substring(")
-                sb.append(receiverVarName)
+                if hasComplexReceiver {
+                    generateExpression(expr.operands[0])
+                } else {
+                    sb.append(receiverVarName)
+                }
                 var i = 0
                 while i < expr.arguments.length() {
                     sb.append(", ")
@@ -854,13 +958,16 @@ class CGenerator {
     }
 
     fun lookupVariableType(varName: String) r: String {
-        var i = 0
-        while i < varTypeNames.length() {
-            if varTypeNames[i] == varName {
-                return varTypeValues[i]
-            }
-            i = i + 1
+        // Use string-based lookup instead of array iteration (LLVM array bugs)
+        let searchKey = "|" + varName + "|"
+        if stringVarList.contains(searchKey) {
+            return "String"
         }
         return ""
+    }
+
+    fun trackStringVariable(varName: String) r: Void {
+        // Add variable to string-based list: "|a|b|c|"
+        stringVarList = stringVarList + varName + "|"
     }
 }

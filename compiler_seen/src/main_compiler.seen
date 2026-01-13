@@ -1,13 +1,13 @@
-// Stage1 compiler driver — pure Seen pipeline (no Rust dependency).
+// Stage1 compiler driver — pure Seen pipeline with LLVM backend.
 
 import bootstrap.frontend.{FrontendResult, run_frontend}
 import io.file.{readText, writeText}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 import env.env.{args}
-import codegen.c_gen.{CGenerator}
+import codegen.llvm_ir_gen.{LLVMIRGenerator}
 
 fun compileCommand(inputFile: String, outputFile: String) r: Int {
-    println("🚀 Stage1 compiling (Seen-only path)")
+    println("🚀 Stage1 compiling (LLVM path)")
 
     let sourceCode = readText(inputFile)
     if sourceCode == "" {
@@ -22,24 +22,35 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
         return 1
     }
 
-    // Generate C code from AST
-    let generator = CGenerator.new()
-    let cCode = generator.generate(frontend.program)
-    let cFilePath = outputFile + ".c"
-    if not writeText(cFilePath, cCode) {
-        println("❌ Failed to write intermediate C file: " + cFilePath)
+    // Generate LLVM IR from AST
+    let generator = LLVMIRGenerator.new()
+    let llvmIR = generator.generate(frontend.program)
+
+    // Write LLVM IR to file
+    let irFilePath = "/tmp/seen_program.ll"
+    if not writeText(irFilePath, llvmIR) {
+        println("❌ Failed to write LLVM IR file: " + irFilePath)
         return 1
     }
 
-    // Link with seen_runtime - assume it's in seen_runtime/ relative to current directory
-    let compileResult: CommandResult = runCommand("gcc -std=c99 -O2 -I seen_runtime -o " + outputFile + " " + cFilePath + " seen_runtime/seen_runtime.c")
-    if commandWasSuccessful(compileResult) {
+    // Compile LLVM IR to object file using llc
+    let objFilePath = "/tmp/seen_program.o"
+    let llcResult: CommandResult = runCommand("llc -filetype=obj -O3 -relocation-model=pic " + irFilePath + " -o " + objFilePath)
+    if not commandWasSuccessful(llcResult) {
+        println("❌ llc compilation failed")
+        println(llcResult.output)
+        return 1
+    }
+
+    // Link with seen_runtime using clang
+    let linkResult: CommandResult = runCommand("clang -O3 -I seen_runtime " + objFilePath + " seen_runtime/seen_runtime.c -o " + outputFile + " -lm")
+    if commandWasSuccessful(linkResult) {
         println("✅ Build succeeded -> " + outputFile)
         return 0
     }
 
-    println("❌ gcc failed")
-    println(compileResult.output)
+    println("❌ Linking failed")
+    println(linkResult.output)
     return 1
 }
 
