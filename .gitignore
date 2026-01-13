@@ -108,3 +108,17 @@ seen_lsp_fixed.exe
 
 .github/*
 .bmad/*
+# Stage compiler outputs
+stage1_fixed
+stage1_test
+stage2_test
+stage2_test.c
+stage2_compiler.c
+
+# Test outputs
+test_out
+test_out.c
+test_if_out
+test_if_out.c
+test_simple.seen
+test_if.seen

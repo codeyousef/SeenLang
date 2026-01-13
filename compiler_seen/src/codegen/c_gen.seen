@@ -100,6 +100,28 @@ class CGenerator {
             sb.append("    " + varType + " " + stmt.variableName)
             // TODO: handle initializer
             sb.appendLine(";")
+        } else if stmt.kind == "KeywordIf" or stmt.kind == "If" {
+            // If statement
+            sb.append("    if (")
+            generateExpression(stmt.condition)
+            sb.appendLine(") {")
+            generateBlock(stmt.thenBranch)
+            sb.append("    }")
+            // Check for else branch
+            if stmt.elseBranch.statements.length() > 0 {
+                sb.appendLine(" else {")
+                generateBlock(stmt.elseBranch)
+                sb.appendLine("    }")
+            } else {
+                sb.appendLine("")
+            }
+        } else if stmt.kind == "KeywordWhile" or stmt.kind == "While" {
+            // While statement
+            sb.append("    while (")
+            generateExpression(stmt.loopCondition)
+            sb.appendLine(") {")
+            generateBlock(stmt.loopBody)
+            sb.appendLine("    }")
         }
     }
 
@@ -123,12 +145,22 @@ class CGenerator {
         } else if expr.kind == "Variable" {
             sb.append(expr.variableName)
         } else if expr.kind == "Binary" {
-            // Binary expression (e.g., a + b)
-            // Note: C doesn't support string concatenation with +
-            // For now, just output the components
-            sb.append("/* TODO: binary ")
-            sb.append(expr.operator)
-            sb.append(" */")
+            // Binary expression (e.g., a < b, a + b)
+            sb.append("(")
+            // Access left operand through Option
+            let leftOpt = expr.left
+            if leftOpt.hasValue {
+                let leftExpr = leftOpt.value
+                generateExpression(leftExpr)
+            }
+            sb.append(" " + expr.operator + " ")
+            // Access right operand through Option
+            let rightOpt = expr.right
+            if rightOpt.hasValue {
+                let rightExpr = rightOpt.value
+                generateExpression(rightExpr)
+            }
+            sb.append(")")
         } else if expr.kind == "MemberAccess" {
             // Member access (e.g., obj.field)
             // For now, just output the field name
