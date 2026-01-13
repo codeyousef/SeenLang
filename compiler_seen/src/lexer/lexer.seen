@@ -401,7 +401,8 @@ class SeenLexer {
             // Decimal (integer or float)
             while this.isDigit(this.getCurrentChar()) or this.getCurrentChar() == '_' {
                 if this.getCurrentChar() != '_' {
-                    value += this.getCurrentChar().toString()
+                    // Note: use value = value + x instead of value += x due to potential bug with +=
+                    value = value + this.getCurrentChar().toString()
                 }
                 this.advance()
             }

@@ -115,12 +115,9 @@ class StatementNode {
 
 class ParserExpressionNode {
     var kind: String
-    // Binary
-    var left: Option<ParserExpressionNode>
+    // Binary - use operands array: [0]=left, [1]=right (avoids Option corruption issue)
+    var operands: Array<ParserExpressionNode>
     var operator: String
-    var right: Option<ParserExpressionNode>
-    // Unary
-    var operand: Option<ParserExpressionNode>
     // Literal
     var literalValue: String
     var literalType: String
@@ -129,16 +126,14 @@ class ParserExpressionNode {
     // Call
     var callee: String
     var arguments: Array<ParserExpressionNode>
+    // Index access: obj[index] - object is variableName, index in operands[0]
+    // Member access: obj.field - object is variableName, member is callee
 
     static fun new() r: ParserExpressionNode {
-        // We can't return 'this' in a static-like new, but we can return a constructed object
-        // However, classes in Seen (based on FrontendDiagnostic) use explicit struct construction
         return ParserExpressionNode{
             kind: "None",
-            left: Option.New(),
+            operands: Array<ParserExpressionNode>(),
             operator: "",
-            right: Option.New(),
-            operand: Option.New(),
             literalValue: "",
             literalType: "",
             variableName: "",
@@ -418,32 +413,32 @@ class RealParser {
         if matchTokenStr(SeenTokenType.KeywordReturn) { return parseReturnStatement() }
         if matchTokenStr(SeenTokenType.KeywordIf) { return parseIfStatement() }
         if matchTokenStr(SeenTokenType.KeywordWhile) { return parseWhileStatement() }
-        
+
         // Expression statement
         return parseExpressionStatement()
     }
 
     fun parseLetStatement() r: StatementNode {
         let stmt = StatementNode.new()
-        stmt.kind = SeenTokenType.KeywordLet
+        stmt.kind = "Let"
         let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
         stmt.variableName = nameToken.getValue()
-        
+
         if matchTokenStr(SeenTokenType.Colon) {
             stmt.variableType = this.parseTypeNode()
         }
-        
+
         if matchTokenStr(SeenTokenType.Equal) {
             stmt.initializer = parseExpression()
         }
-        
+
         if matchTokenStr(SeenTokenType.Semicolon) { }
         return stmt
     }
 
     fun parseReturnStatement() r: StatementNode {
         let stmt = StatementNode.new()
-        stmt.kind = SeenTokenType.KeywordReturn
+        stmt.kind = "Return"
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
             stmt.returnValue = parseExpression()
         }
@@ -453,7 +448,7 @@ class RealParser {
 
     fun parseIfStatement() r: StatementNode {
         let stmt = StatementNode.new()
-        stmt.kind = SeenTokenType.KeywordIf
+        stmt.kind = "If"
         stmt.condition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after if condition")
         stmt.thenBranch = parseBlock()
@@ -473,7 +468,7 @@ class RealParser {
 
     fun parseWhileStatement() r: StatementNode {
         let stmt = StatementNode.new()
-        stmt.kind = SeenTokenType.KeywordWhile
+        stmt.kind = "While"
         stmt.loopCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
         stmt.loopBody = parseBlock()
@@ -497,12 +492,12 @@ class RealParser {
         if matchTokenStr(SeenTokenType.Equal) {
             let equals = previous()
             let value = parseAssignment()
-            
+
             if expr.kind == "Variable" {
                 let assign = ParserExpressionNode.new()
                 assign.kind = "Assignment"
                 assign.variableName = expr.variableName
-                assign.right = Option.WithValue(value)
+                assign.operands.push(value) // [0] = rhs value
                 return assign
             }
         }
@@ -516,9 +511,9 @@ class RealParser {
             let right = parseComparison()
             let newExpr = ParserExpressionNode.new()
             newExpr.kind = "Binary"
-            newExpr.left = Option.WithValue(expr)
+            newExpr.operands.push(expr)  // [0] = left
+            newExpr.operands.push(right) // [1] = right
             newExpr.operator = operator
-            newExpr.right = Option.WithValue(right)
             expr = newExpr
         }
         return expr
@@ -531,9 +526,9 @@ class RealParser {
             let right = parseTerm()
             let newExpr = ParserExpressionNode.new()
             newExpr.kind = "Binary"
-            newExpr.left = Option.WithValue(expr)
+            newExpr.operands.push(expr)  // [0] = left
+            newExpr.operands.push(right) // [1] = right
             newExpr.operator = operator
-            newExpr.right = Option.WithValue(right)
             expr = newExpr
         }
         return expr
@@ -546,9 +541,9 @@ class RealParser {
             let right = parseFactor()
             let newExpr = ParserExpressionNode.new()
             newExpr.kind = "Binary"
-            newExpr.left = Option.WithValue(expr)
+            newExpr.operands.push(expr)  // [0] = left
+            newExpr.operands.push(right) // [1] = right
             newExpr.operator = operator
-            newExpr.right = Option.WithValue(right)
             expr = newExpr
         }
         return expr
@@ -563,13 +558,21 @@ class RealParser {
     fun parseCall() r: ParserExpressionNode {
         var expr = parsePrimary()
 
-        // Check for function call - identifier followed by (
+        // Check for function call, member access, method call, and index access
         while true {
             if checkToken(getLeftParenType()) {
                 advance() // consume (
                 let callExpr = ParserExpressionNode.new()
-                callExpr.kind = "Call"
-                callExpr.callee = expr.variableName
+
+                // Check if this is a method call (expr.method())
+                if expr.kind == "MemberAccess" {
+                    callExpr.kind = "MethodCall"
+                    callExpr.operands.push(expr.operands[0]) // [0] = object
+                    callExpr.callee = expr.variableName      // method name
+                } else {
+                    callExpr.kind = "Call"
+                    callExpr.callee = expr.variableName
+                }
 
                 // Parse arguments
                 if not checkToken(getRightParenType()) {
@@ -587,12 +590,21 @@ class RealParser {
                     let memberName = advance().getValue()
                     let memberExpr = ParserExpressionNode.new()
                     memberExpr.kind = "MemberAccess"
-                    memberExpr.left = Option.WithValue(expr)
+                    memberExpr.operands.push(expr) // [0] = object being accessed
                     memberExpr.variableName = memberName
                     expr = memberExpr
                 } else {
                     break
                 }
+            } else if checkToken(SeenTokenType.LeftBracket) {
+                advance() // consume [
+                let indexExpr = parseExpression()
+                consume(SeenTokenType.RightBracket, "Expected ']' after index")
+                let accessExpr = ParserExpressionNode.new()
+                accessExpr.kind = "IndexAccess"
+                accessExpr.operands.push(expr)      // [0] = array/object
+                accessExpr.operands.push(indexExpr) // [1] = index
+                expr = accessExpr
             } else {
                 break
             }
@@ -647,6 +659,22 @@ class RealParser {
             expr.kind = "Variable"
             expr.variableName = token.getValue()
             return expr
+        }
+
+        // Array literal [a, b, c]
+        if checkToken(SeenTokenType.LeftBracket) {
+            advance() // consume [
+            let arrayExpr = ParserExpressionNode.new()
+            arrayExpr.kind = "ArrayLiteral"
+            // Parse elements
+            if not checkToken(SeenTokenType.RightBracket) {
+                arrayExpr.arguments.push(parseExpression())
+                while matchTokenStr(getCommaType()) {
+                    arrayExpr.arguments.push(parseExpression())
+                }
+            }
+            consume(SeenTokenType.RightBracket, "Expected ']' after array elements")
+            return arrayExpr
         }
 
         // Unknown token - advance to avoid infinite loop
@@ -811,30 +839,16 @@ class RealParser {
         return false
     }
     fun checkToken(tokenType: SeenTokenType) r: Bool {
-        println("[trace] checkToken: entry")
         if this.isAtEnd() {
-            println("[trace] checkToken: at end, return false")
             return false
         }
-        println("[trace] checkToken: calling peek...")
         let tok: Token = this.peek()
-        println("[trace] checkToken: got tok, value=" + tok.getValue())
         let tokType: SeenTokenType = tok.getType()
-        println("[trace] checkToken: got tokType, comparing...")
-        
-        println("Token Value:")
-        println(tok.value)
-        
-        // Print enum values using toString
-        println("tokType.toString()=" + tokType.toString())
-        println("expected.toString()=" + tokenType.toString())
 
-        if tokType == tokenType {
-             println("MATCH!")
-             return true
-        }
-        println("NO MATCH for token value: " + tok.getValue())
-        return false
+        // Use string comparison since cross-module enum comparison doesn't work
+        let tokTypeStr = tokType.toString()
+        let expectedStr = tokenType.toString()
+        return tokTypeStr == expectedStr
     }
     fun advance() r: Token {
         if not this.isAtEnd() {
