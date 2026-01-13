@@ -94,8 +94,8 @@ class CGenerator {
             sb.append("    ")
             generateExpression(stmt.expression)
             sb.appendLine(";")
-        } else if stmt.kind == "KeywordLet" or stmt.kind == "Let" {
-            // Variable declaration with optional initializer
+        } else if stmt.kind == "KeywordLet" or stmt.kind == "Let" or stmt.kind == "KeywordVar" or stmt.kind == "Var" {
+            // Variable declaration with optional initializer (both let and var)
             // Check if initializer is an array literal to determine type
             if stmt.initializer.kind == "ArrayLiteral" {
                 sb.append("    int* " + stmt.variableName)

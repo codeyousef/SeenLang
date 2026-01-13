@@ -44,22 +44,23 @@ fun ItemNode.new() r: ItemNode {
 data ImportSymbolNode { name: String; alias: String }
 fun ImportSymbolNode.new() r: ImportSymbolNode { return ImportSymbolNode{ name: "", alias: "" } }
 
-data FunctionNode {
-    name: String
-    params: Array<ParamNode>
-    returnType: TypeNode
-    body: BlockNode
-    isAsync: Bool
-    isInline: Bool
-}
-fun FunctionNode.new() r: FunctionNode {
-    return FunctionNode{
-        name: "",
-        params: Array<ParamNode>(),
-        returnType: TypeNode.new(),
-        body: BlockNode.new(),
-        isAsync: false,
-        isInline: false
+class FunctionNode {
+    var name: String
+    var params: Array<ParamNode>
+    var returnType: TypeNode
+    var body: BlockNode
+    var isAsync: Bool
+    var isInline: Bool
+
+    static fun new() r: FunctionNode {
+        return FunctionNode{
+            name: "",
+            params: Array<ParamNode>(),
+            returnType: TypeNode.new(),
+            body: BlockNode.new(),
+            isAsync: false,
+            isInline: false
+        }
     }
 }
 
@@ -410,6 +411,7 @@ class RealParser {
 
     fun parseStatement() r: StatementNode {
         if matchTokenStr(SeenTokenType.KeywordLet) { return parseLetStatement() }
+        if matchTokenStr(SeenTokenType.KeywordVar) { return parseVarStatement() }
         if matchTokenStr(SeenTokenType.KeywordReturn) { return parseReturnStatement() }
         if matchTokenStr(SeenTokenType.KeywordIf) { return parseIfStatement() }
         if matchTokenStr(SeenTokenType.KeywordWhile) { return parseWhileStatement() }
@@ -421,6 +423,24 @@ class RealParser {
     fun parseLetStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "Let"
+        let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        stmt.variableName = nameToken.getValue()
+
+        if matchTokenStr(SeenTokenType.Colon) {
+            stmt.variableType = this.parseTypeNode()
+        }
+
+        if matchTokenStr(SeenTokenType.Equal) {
+            stmt.initializer = parseExpression()
+        }
+
+        if matchTokenStr(SeenTokenType.Semicolon) { }
+        return stmt
+    }
+
+    fun parseVarStatement() r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = "Var"
         let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
         stmt.variableName = nameToken.getValue()
 
@@ -550,7 +570,18 @@ class RealParser {
     }
 
     fun parseFactor() r: ParserExpressionNode {
-        return parseUnary()
+        var expr = parseUnary()
+        while matchTokenStr(SeenTokenType.Multiply) or matchTokenStr(SeenTokenType.Divide) {
+            let operator = previous().getValue()
+            let right = parseUnary()
+            let newExpr = ParserExpressionNode.new()
+            newExpr.kind = "Binary"
+            newExpr.operands.push(expr)
+            newExpr.operands.push(right)
+            newExpr.operator = operator
+            expr = newExpr
+        }
+        return expr
     }
     fun parseUnary() r: ParserExpressionNode {
         return parseCall()

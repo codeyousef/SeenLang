@@ -498,16 +498,37 @@ class SeenLexer {
     fun handleOperator() r: Bool {
         let char = this.getCurrentChar()
         let nextChar = this.peekChar(1)
-        
-        // Two-character operators
-        let s1 = char.toString()
-        let s2 = nextChar.toString()
-        let twoChar: String = s1 + s2
-        let twoCharType = this.getTwoCharOperatorType(twoChar)
-        if twoCharType != SeenTokenType.None {
+
+        // Two-character operators - check specific combinations directly
+        // This avoids potential string concatenation issues
+        if char == '=' and nextChar == '=' {
             this.advance()
             this.advance()
-            this.emitToken(twoCharType, twoChar, 2)
+            this.emitToken(SeenTokenType.EqualEqual, "==", 2)
+            return true
+        }
+        if char == '!' and nextChar == '=' {
+            this.advance()
+            this.advance()
+            this.emitToken(SeenTokenType.NotEqual, "!=", 2)
+            return true
+        }
+        if char == '<' and nextChar == '=' {
+            this.advance()
+            this.advance()
+            this.emitToken(SeenTokenType.LessEqual, "<=", 2)
+            return true
+        }
+        if char == '>' and nextChar == '=' {
+            this.advance()
+            this.advance()
+            this.emitToken(SeenTokenType.GreaterEqual, ">=", 2)
+            return true
+        }
+        if char == '-' and nextChar == '>' {
+            this.advance()
+            this.advance()
+            this.emitToken(SeenTokenType.Arrow, "->", 2)
             return true
         }
         
