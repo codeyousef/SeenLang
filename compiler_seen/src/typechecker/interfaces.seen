@@ -1,7 +1,7 @@
 // Simplified typechecker interfaces for bootstrap determinism. These definitions
 // are intentionally minimal and side-effect free.
 
-import parser.ast.{ProgramNode}
+import parser.real_parser.{ProgramNode}
 
 class AST {}
 class Function {}

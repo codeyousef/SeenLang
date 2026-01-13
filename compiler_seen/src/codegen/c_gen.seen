@@ -48,35 +48,57 @@ class CGenerator {
     }
 
     fun generateFunction(func: FunctionNode) r: Void {
-        let retType = mapType(func.returnType.typeName)
-        sb.append(retType + " " + func.name + "(")
-        
-        let i = 0
-        for param in func.params {
+        println("[trace] CGenerator.generateFunction: name=" + func.name + ", params.length()=" + func.params.length().toString())
+
+        // C main() must return int
+        if func.name == "main" {
+            sb.append("int " + func.name + "(")
+        } else {
+            let retType = mapType(func.returnType.typeName)
+            sb.append(retType + " " + func.name + "(")
+        }
+
+        // Use while loop instead of for-in to avoid iterator issues with data struct arrays
+        var i = 0
+        while i < func.params.length() {
+            let param = func.params[i]
             if i > 0 { sb.append(", "); }
             sb.append(mapType(param.paramType.typeName) + " " + param.name)
             i = i + 1
         }
-        
+
         sb.appendLine(") {")
         generateBlock(func.body)
         sb.appendLine("}")
     }
 
     fun generateBlock(block: BlockNode) r: Void {
-        for stmt in block.statements {
+        println("[trace] CGenerator.generateBlock: statements.length()=" + block.statements.length().toString())
+        // Use while loop instead of for-in to avoid iterator issues with data struct arrays
+        var i = 0
+        while i < block.statements.length() {
+            let stmt = block.statements[i]
+            println("[trace] CGenerator.generateBlock: stmt[" + i.toString() + "].kind=" + stmt.kind)
             generateStatement(stmt)
+            i = i + 1
         }
     }
 
     fun generateStatement(stmt: StatementNode) r: Void {
-        if stmt.kind == "Return" {
+        // Parser uses "KeywordReturn" for return statements
+        if stmt.kind == "Return" or stmt.kind == "KeywordReturn" {
             sb.append("    return ")
             generateExpression(stmt.returnValue)
             sb.appendLine(";")
         } else if stmt.kind == "Expression" {
             sb.append("    ")
             generateExpression(stmt.expression)
+            sb.appendLine(";")
+        } else if stmt.kind == "KeywordLet" or stmt.kind == "Let" {
+            // Variable declaration
+            let varType = mapType(stmt.variableType.typeName)
+            sb.append("    " + varType + " " + stmt.variableName)
+            // TODO: handle initializer
             sb.appendLine(";")
         }
     }
@@ -90,13 +112,30 @@ class CGenerator {
             }
         } else if expr.kind == "Call" {
             sb.append(expr.callee + "(")
-            let i = 0
-            for arg in expr.arguments {
+            var i = 0
+            while i < expr.arguments.length() {
+                let arg = expr.arguments[i]
                 if i > 0 { sb.append(", "); }
                 generateExpression(arg)
                 i = i + 1
             }
             sb.append(")")
+        } else if expr.kind == "Variable" {
+            sb.append(expr.variableName)
+        } else if expr.kind == "Binary" {
+            // Binary expression (e.g., a + b)
+            // Note: C doesn't support string concatenation with +
+            // For now, just output the components
+            sb.append("/* TODO: binary ")
+            sb.append(expr.operator)
+            sb.append(" */")
+        } else if expr.kind == "MemberAccess" {
+            // Member access (e.g., obj.field)
+            // For now, just output the field name
+            sb.append(expr.variableName)
+        } else {
+            // Unknown expression - output placeholder to avoid syntax errors
+            sb.append("/* unknown expr */")
         }
     }
     

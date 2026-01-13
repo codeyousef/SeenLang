@@ -69,8 +69,14 @@ fun ParamNode.new() r: ParamNode { return ParamNode{ name: "", paramType: TypeNo
 data TypeNode { typeName: String; isNullable: Bool }
 fun TypeNode.new() r: TypeNode { return TypeNode{ typeName: "Unknown", isNullable: false } }
 
-data BlockNode { statements: Array<StatementNode> }
-fun BlockNode.new() r: BlockNode { return BlockNode{ statements: Array<StatementNode>() } }
+class BlockNode {
+    var statements: Array<StatementNode>
+
+    static fun new() r: BlockNode {
+        let block = BlockNode{ statements: Array<StatementNode>() }
+        return block
+    }
+}
 
 class StatementNode {
     var kind: String
@@ -215,6 +221,7 @@ class RealParser {
     }
 
     fun parseFunctionItem() r: ItemNode {
+        println("[trace] parseFunctionItem: entry")
         if isAtEnd() {
             return ItemNode.new()
         }
@@ -222,13 +229,18 @@ class RealParser {
         let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         let func = FunctionNode.new()
         func.name = nameToken.getValue()
+        println("[trace] parseFunctionItem: name=" + func.name)
 
         parseParameterList(func)
         func.returnType = parseOptionalReturnType()
-        
+        println("[trace] parseFunctionItem: checking for LeftBrace...")
+
         if matchTokenStr(SeenTokenType.LeftBrace) {
+            println("[trace] parseFunctionItem: found LeftBrace, calling parseBlock")
             func.body = parseBlock()
+            println("[trace] parseFunctionItem: parseBlock returned, body.statements.length()=" + func.body.statements.length().toString())
         } else {
+            println("[trace] parseFunctionItem: NO LeftBrace found, using empty body")
             // Abstract function or declaration
             func.body = BlockNode.new()
             if matchTokenStr(SeenTokenType.Semicolon) {
@@ -335,10 +347,23 @@ class RealParser {
     }
 
     fun parseOptionalReturnType() r: TypeNode {
-        if !matchTokenStr(SeenTokenType.Arrow) {
-            return TypeNode.new()
+        // Seen uses "r: Type" syntax for return types
+        // Check for identifier "r" followed by colon
+        if checkToken(SeenTokenType.Identifier) {
+            let tok = peek()
+            if tok.getValue() == "r" {
+                advance() // consume "r"
+                if matchTokenStr(SeenTokenType.Colon) {
+                    println("[trace] parseOptionalReturnType: found 'r:', parsing type")
+                    return parseTypeNode()
+                }
+            }
         }
-        return parseTypeNode()
+        // Also support arrow syntax for compatibility
+        if matchTokenStr(SeenTokenType.Arrow) {
+            return parseTypeNode()
+        }
+        return TypeNode.new()
     }
 
     fun parseTypeNode() r: TypeNode {
@@ -372,14 +397,19 @@ class RealParser {
     }
 
     fun parseBlock() r: BlockNode {
+        println("[trace] parseBlock: entry")
         let block = BlockNode.new()
         while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+            println("[trace] parseBlock: parsing statement...")
             let stmt = parseStatement()
+            println("[trace] parseBlock: got stmt.kind=" + stmt.kind)
             if stmt.kind != "" {
                 block.statements.push(stmt)
+                println("[trace] parseBlock: pushed, now length=" + block.statements.length().toString())
             }
         }
         consume(SeenTokenType.RightBrace, "Expected '}' after block")
+        println("[trace] parseBlock: exit, final length=" + block.statements.length().toString())
         return block
     }
 
@@ -531,18 +561,98 @@ class RealParser {
         return parseCall()
     }
     fun parseCall() r: ParserExpressionNode {
-        return parsePrimary()
+        var expr = parsePrimary()
+
+        // Check for function call - identifier followed by (
+        while true {
+            if checkToken(getLeftParenType()) {
+                advance() // consume (
+                let callExpr = ParserExpressionNode.new()
+                callExpr.kind = "Call"
+                callExpr.callee = expr.variableName
+
+                // Parse arguments
+                if not checkToken(getRightParenType()) {
+                    callExpr.arguments.push(parseExpression())
+                    while matchTokenStr(getCommaType()) {
+                        callExpr.arguments.push(parseExpression())
+                    }
+                }
+
+                consume(getRightParenType(), "Expected ')' after arguments")
+                expr = callExpr
+            } else if checkToken(getDotType()) {
+                advance() // consume .
+                if checkToken(getIdentifierType()) {
+                    let memberName = advance().getValue()
+                    let memberExpr = ParserExpressionNode.new()
+                    memberExpr.kind = "MemberAccess"
+                    memberExpr.left = Option.WithValue(expr)
+                    memberExpr.variableName = memberName
+                    expr = memberExpr
+                } else {
+                    break
+                }
+            } else {
+                break
+            }
+        }
+
+        return expr
     }
+
     fun parsePrimary() r: ParserExpressionNode {
-        
-        // Manual expansion of matchTokenStr to debug type error
+        // Parenthesized expression
         if checkToken(getLeftParenType()) {
             advance()
             let expr = parseExpression()
             consume(getRightParenType(), "Expected ')' after expression")
             return expr
         }
-        
+
+        // String literal
+        if checkToken(SeenTokenType.StringLiteral) {
+            let token = advance()
+            let rawValue = token.getValue()
+            // Strip quotes from the token value if present
+            var strValue = rawValue
+            if rawValue.length() >= 2 {
+                if rawValue.startsWith("\"") and rawValue.endsWith("\"") {
+                    strValue = rawValue.substring(1, rawValue.length() - 1)
+                }
+            }
+            return makeLiteral(strValue, "String")
+        }
+
+        // Integer literal
+        if checkToken(SeenTokenType.IntegerLiteral) {
+            let token = advance()
+            return makeLiteral(token.getValue(), "Int")
+        }
+
+        // Boolean literals
+        if checkToken(SeenTokenType.KeywordTrue) {
+            advance()
+            return makeLiteral("true", "Bool")
+        }
+        if checkToken(SeenTokenType.KeywordFalse) {
+            advance()
+            return makeLiteral("false", "Bool")
+        }
+
+        // Identifier (variable or function name)
+        if checkToken(getIdentifierType()) {
+            let token = advance()
+            let expr = ParserExpressionNode.new()
+            expr.kind = "Variable"
+            expr.variableName = token.getValue()
+            return expr
+        }
+
+        // Unknown token - advance to avoid infinite loop
+        if not isAtEnd() {
+            advance()
+        }
         return ParserExpressionNode.new()
     }
 

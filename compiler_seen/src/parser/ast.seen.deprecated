@@ -95,13 +95,24 @@ fun TypeNode.new() r: TypeNode {
     }
 }
 
+// StatementNode - simplified version for the typechecker
+class StatementNode {
+    var kind: String
+    var variableName: String
+    var variableType: TypeNode
+
+    static fun new() r: StatementNode {
+        return StatementNode{ kind: "", variableName: "", variableType: TypeNode.new() }
+    }
+}
+
 data BlockNode {
-    statements: Array<String>
+    statements: Array<StatementNode>
 }
 
 fun BlockNode.new() r: BlockNode {
     return BlockNode{
-        statements: Array<String>()
+        statements: Array<StatementNode>()
     }
 }
 

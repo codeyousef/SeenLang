@@ -172,8 +172,6 @@ class SeenLexer {
     }
     
     fun emitToken(type: SeenTokenType, value: String, length: Int) r: Void {
-        println("emitToken value:")
-        println(value)
         let token = Token.new(type, value, line, column - length, length, fileId)
         tokens.push(token)
     }
@@ -243,25 +241,25 @@ class SeenLexer {
     fun handleStringLiteral() r: Void {
         let startPos = position
         this.advance() // Skip opening quote
-        
+
         var value = ""
         var hasInterpolation = false
-        
+
         while position < source.length() and this.getCurrentChar() != '"' {
             let char = this.getCurrentChar()
-            
+
             if char == '\\' {
                 // Handle escape sequences
                 this.advance()
                 let escaped = this.getCurrentChar()
-                value += this.handleEscapeSequence(escaped)
+                value = value + this.handleEscapeSequence(escaped)
                 this.advance()
             } else if char == '{' and !this.isInInterpolation() {
                 // Check for string interpolation
                 hasInterpolation = true
                 break
             } else {
-                value += char.toString()
+                value = value + char.toString()
                 this.advance()
             }
         }

@@ -6,7 +6,7 @@
 
 // Import the real implementation
 import typechecker.interfaces.{TypeChecker}
-import parser.ast.{ProgramNode}
+import parser.real_parser.{ProgramNode}
 
 // Utility functions for tests
 fun createTypeChecker() r: TypeChecker {
