@@ -132,85 +132,51 @@ fun getSourceDir(filePath: String) r: String {
     return filePath.substring(0, lastSlash)
 }
 
-fun compileCommand(inputFile: String, outputFile: String) r: Int {
-    println("🚀 Stage1 compiling (LLVM path)")
-
-    println("  [1] Reading source file...")
-    let sourceCode = readText(inputFile)
-    if sourceCode == "" {
-        println("❌ Failed to read source: " + inputFile)
-        return 1
+// Check if a path is in the array
+fun containsPath(paths: Array<String>, path: String) r: Bool {
+    var i = 0
+    while i < paths.length() {
+        if paths[i] == path {
+            return true
+        }
+        i = i + 1
     }
-    println("  [1] Read " + sourceCode.length().toString() + " chars")
+    return false
+}
 
-    println("  [2] Running frontend on main file...")
-    let frontend = run_frontend(sourceCode, inputFile, "en")
-    println("  [2] Frontend done")
-    if not frontend.success {
-        println("❌ Frontend errors detected")
-        printFrontendDiagnostics(frontend)
-        return 1
-    }
-
-    var programs = Array<ProgramNode>()
-    programs.push(frontend.program)
-
-    // Track which modules we've already processed to avoid duplicates
+// Collect all module paths needed for compilation (without storing ASTs)
+fun collectModulePaths(inputFile: String) r: Array<String> {
+    var paths = Array<String>()
     var processedPaths = Array<String>()
+
+    paths.push(inputFile)
     processedPaths.push(inputFile)
 
-    // Get directory of source file for relative imports
     let sourceDir = getSourceDir(inputFile)
-
-    // Check if we're compiling main_compiler.seen (bootstrap mode)
     let isBootstrap = inputFile.contains("main_compiler.seen")
-    println("  [2.1] isBootstrap: " + isBootstrap.toString())
-    println("  [2.2] Processing " + frontend.program.items.length().toString() + " items...")
 
-    // Process imports from the main program
-    var itemIdx = 0
-    while itemIdx < frontend.program.items.length() {
-        let item = frontend.program.items[itemIdx]
-        println("  [2.3] Item " + itemIdx.toString() + ": " + item.itemType)
-        if item.itemType == "Import" {
-            // Resolve import path
-            let importFilePath = resolveImportPath(item.importPath, sourceDir)
-            println("  [2.4] Import path: " + importFilePath)
-
-            // Check if we've already processed this module
-            var alreadyProcessed = false
-            var pi = 0
-            println("  [2.5] Checking " + processedPaths.length().toString() + " processed paths...")
-            while pi < processedPaths.length() {
-                if processedPaths[pi] == importFilePath {
-                    alreadyProcessed = true
-                    pi = processedPaths.length()  // Break
+    // Parse main file to discover imports (AST released after this block)
+    println("    Discovering imports from main file...")
+    let mainFrontend = parseModule(inputFile, "en")
+    if mainFrontend.success {
+        var itemIdx = 0
+        while itemIdx < mainFrontend.program.items.length() {
+            let item = mainFrontend.program.items[itemIdx]
+            if item.itemType == "Import" {
+                let importFilePath = resolveImportPath(item.importPath, sourceDir)
+                if not containsPath(processedPaths, importFilePath) {
+                    paths.push(importFilePath)
+                    processedPaths.push(importFilePath)
                 }
-                pi = pi + 1
             }
-
-            if not alreadyProcessed {
-                processedPaths.push(importFilePath)
-                println("  [2.6] Parsing module: " + importFilePath)
-                let modFrontend = parseModule(importFilePath, "en")
-                println("  [2.7] Parse completed")
-                if modFrontend.success {
-                    programs.push(modFrontend.program)
-                    println("  ✓ Imported: " + importFilePath)
-                } else {
-                    println("  ⚠️ Failed to import: " + importFilePath)
-                }
-            } else {
-                println("  [2.5] Already processed, skipping")
-            }
+            itemIdx = itemIdx + 1
         }
-        itemIdx = itemIdx + 1
     }
+    // mainFrontend.program (AST) goes out of scope here
 
+    // Add bootstrap modules if compiling the compiler
     if isBootstrap {
-        println("  📦 Bootstrap mode: compiling additional modules...")
-
-        // List of modules needed for bootstrap (in dependency order)
+        println("    Bootstrap mode: adding compiler modules...")
         let modules = Array<String>()
         modules.push("lexer.token")
         modules.push("lexer.token_type")
@@ -224,73 +190,100 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
         var mi = 0
         while mi < modules.length() {
             let modPath = resolveModulePath(modules[mi])
-
-            // Check if we've already processed this module
-            var alreadyProcessed = false
-            var pi = 0
-            while pi < processedPaths.length() {
-                if processedPaths[pi] == modPath {
-                    alreadyProcessed = true
-                    pi = processedPaths.length()  // Break
-                }
-                pi = pi + 1
-            }
-
-            if not alreadyProcessed {
+            if not containsPath(processedPaths, modPath) {
+                paths.push(modPath)
                 processedPaths.push(modPath)
-                let modFrontend = parseModule(modPath, "en")
-                if modFrontend.success {
-                    programs.push(modFrontend.program)
-                    println("  ✓ " + modules[mi])
-                } else {
-                    println("  ✗ " + modules[mi] + " (failed to parse)")
-                }
             }
             mi = mi + 1
         }
     }
 
-    // Generate LLVM IR and compile each module separately (memory-efficient)
-    println("  [3] Compiling " + programs.length().toString() + " modules...")
+    return paths
+}
+
+fun compileCommand(inputFile: String, outputFile: String) r: Int {
+    println("Stage1 compiling (Two-Pass Memory Optimized)")
+
+    // Create generator - registries will persist across both passes
     let generator = LLVMIRGenerator.new()
+
+    // ============================================================
+    // PASS 1: Collect module paths and register all declarations
+    // ============================================================
+    println("  [Pass 1] Scanning declarations...")
+    let modulePaths = collectModulePaths(inputFile)
+    println("    Found " + modulePaths.length().toString() + " modules")
+
+    var passIdx = 0
+    while passIdx < modulePaths.length() {
+        let path = modulePaths[passIdx]
+        println("    Scanning: " + path)
+        let frontend = parseModule(path, "en")
+        if frontend.success {
+            generator.registerDeclarations(frontend.program)
+        } else {
+            println("    Warning: Failed to parse " + path)
+        }
+        // AST goes out of scope here - memory released
+        passIdx = passIdx + 1
+    }
+    println("  [Pass 1] Complete - declarations registered")
+
+    // ============================================================
+    // PASS 2: Stream compile each module (one AST at a time)
+    // ============================================================
+    println("  [Pass 2] Compiling modules...")
     var objectFiles = Array<String>()
     var moduleIndex = 0
 
-    while moduleIndex < programs.length() {
-        let program = programs[moduleIndex]
+    while moduleIndex < modulePaths.length() {
+        let path = modulePaths[moduleIndex]
+        println("    [" + moduleIndex.toString() + "] Compiling: " + path)
+
+        // Re-parse module (full AST needed for code generation)
+        let frontend = parseModule(path, "en")
+        if not frontend.success {
+            println("    Error: Failed to parse " + path)
+            moduleIndex = moduleIndex + 1
+            continue
+        }
 
         // Generate IR for this module
-        let llvmIR = generator.generateSingle(program, moduleIndex)
-        println("    [" + moduleIndex.toString() + "] Generated " + llvmIR.length().toString() + " chars of IR")
+        let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
+        println("      Generated " + llvmIR.length().toString() + " chars of IR")
 
         // Write to module-specific file
         let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
         let objFile = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
 
         if not writeText(llFile, llvmIR) {
-            println("❌ Failed to write IR file: " + llFile)
+            println("    Error: Failed to write IR: " + llFile)
             return 1
         }
 
         // Compile to object file
         let llcResult: CommandResult = runCommand("llc -filetype=obj -O3 -relocation-model=pic " + llFile + " -o " + objFile)
         if not commandWasSuccessful(llcResult) {
-            println("❌ llc failed for module " + moduleIndex.toString())
+            println("    Error: llc failed for module " + moduleIndex.toString())
             println(llcResult.output)
             return 1
         }
 
         objectFiles.push(objFile)
 
-        // Reset generator state for next module (release memory)
+        // Reset generator state for next module (keeps registries, clears output)
         generator.reset()
 
+        // AST goes out of scope here - memory released
         moduleIndex = moduleIndex + 1
     }
+    println("  [Pass 2] Complete")
 
-    println("  [4] Linking " + objectFiles.length().toString() + " object files...")
+    // ============================================================
+    // LINKING: Combine all object files
+    // ============================================================
+    println("  [3] Linking " + objectFiles.length().toString() + " object files...")
 
-    // Build link command with all object files
     var linkCmd = "clang -O3 -I seen_runtime "
     var oi = 0
     while oi < objectFiles.length() {
@@ -301,11 +294,11 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
 
     let linkResult: CommandResult = runCommand(linkCmd)
     if commandWasSuccessful(linkResult) {
-        println("✅ Build succeeded -> " + outputFile)
+        println("Build succeeded -> " + outputFile)
         return 0
     }
 
-    println("❌ Linking failed")
+    println("Linking failed")
     println(linkResult.output)
     return 1
 }

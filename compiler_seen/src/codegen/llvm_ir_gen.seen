@@ -33,6 +33,8 @@ class LLVMIRGenerator {
     var preAllocatedTypes: Array<String>
     // Module prefix for per-module compilation (empty for multi-module)
     var stringConstantPrefix: String
+    // Track which functions have been emitted in current module (reset per-module)
+    var generatedFunctions: Array<String>
 
     static fun new() r: LLVMIRGenerator {
         return LLVMIRGenerator{
@@ -57,7 +59,8 @@ class LLVMIRGenerator {
             blockTerminated: false,
             preAllocatedVars: Array<String>(),
             preAllocatedTypes: Array<String>(),
-            stringConstantPrefix: ""
+            stringConstantPrefix: "",
+            generatedFunctions: Array<String>()
         }
     }
 
@@ -75,7 +78,38 @@ class LLVMIRGenerator {
         preAllocatedVars = Array<String>()
         preAllocatedTypes = Array<String>()
         stringConstantPrefix = ""
+        generatedFunctions = Array<String>()
         // Keep struct/func registries for cross-module references
+    }
+
+    // Register all declarations from a program without keeping the AST
+    // Used in Pass 1 to populate registries for cross-module references
+    fun registerDeclarations(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+
+            if item.itemType == "Class" {
+                // Register struct layout (fields)
+                registerStructLayout(item.classNode)
+
+                // Also register class methods as functions
+                var mi = 0
+                while mi < item.classNode.methods.length() {
+                    let method = item.classNode.methods[mi]
+                    let mangledName = item.classNode.name + "_" + method.name
+                    registerFunction(mangledName, method.returnType.typeName)
+                    mi = mi + 1
+                }
+            }
+
+            if item.itemType == "Function" {
+                // Register function signature
+                registerFunction(item.function.name, item.function.returnType.typeName)
+            }
+
+            i = i + 1
+        }
     }
 
     // Register a user-defined function's return type
@@ -961,13 +995,23 @@ class LLVMIRGenerator {
     }
 
     fun generateFunction(fn: FunctionNode) r: Void {
-        // Check if this function was already generated (duplicate detection)
-        let existingRetType = getFunctionReturnType(fn.name)
-        if existingRetType != "" {
+        // Check if this function was already emitted in this module (duplicate detection)
+        var alreadyGenerated = false
+        var gi = 0
+        while gi < generatedFunctions.length() {
+            if generatedFunctions[gi] == fn.name {
+                alreadyGenerated = true
+                gi = generatedFunctions.length()  // break
+            }
+            gi = gi + 1
+        }
+        if alreadyGenerated {
             return
         }
+        generatedFunctions.push(fn.name)
 
         // Register this function's return type for later call site inference
+        // (may already be registered from registerDeclarations, but that's OK)
         registerFunction(fn.name, fn.returnType.typeName)
 
         // Reset per-function state
