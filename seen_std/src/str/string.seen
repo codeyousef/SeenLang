@@ -61,13 +61,22 @@ class StringBuilder {
     }
 
     fun toString() r: String {
-        let result = ""
-        let i = 0
-        while i < this.parts.length() {
-            result = result + this.parts[i]
-            i = i + 1
-        }
-        return result
+        let len = this.parts.length()
+        if len == 0 { return "" }
+        if len == 1 { return this.parts[0] }
+        if len == 2 { return this.parts[0] + this.parts[1] }
+        // Use binary tree reduction: O(n log n) instead of O(n²)
+        return this.reduceToString(0, len)
+    }
+
+    // Binary tree reduction for efficient string concatenation
+    fun reduceToString(start: Int, end: Int) r: String {
+        let count = end - start
+        if count == 0 { return "" }
+        if count == 1 { return this.parts[start] }
+        if count == 2 { return this.parts[start] + this.parts[start + 1] }
+        let mid = start + count / 2
+        return this.reduceToString(start, mid) + this.reduceToString(mid, end)
     }
 
     fun copyParts(source: Array<String>) r: Array<String> {

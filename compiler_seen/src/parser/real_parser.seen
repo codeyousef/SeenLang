@@ -197,56 +197,38 @@ class RealParser {
     }
 
     fun parse() r: ProgramNode {
-        // trace
         // Use currentProgram field to avoid returning/passing ProgramNode
         currentProgram = ProgramNode.new()
-        // trace
-
         while not this.isAtEnd() {
-            // trace)
             // Use peekTokenTypeStr to avoid creating Token copy that corrupts memory
             let currentTokenTypeStr = this.peekTokenTypeStr()
-            // trace
-            // trace
 
             if this.matchTokenStr(getKeywordImportType()) {
-                // trace
-                // Push directly to avoid returning ItemNode (memory corruption)
                 this.parseImportItemInto()
                 continue
             }
 
             if this.matchTokenStr(getKeywordUseType()) {
-                // trace
-                // Push directly to avoid returning ItemNode (memory corruption)
                 this.parseImportItemInto()
                 continue
             }
 
             if this.matchTokenStr(getKeywordFunType()) {
-                // trace
-                // Push directly to avoid returning ItemNode (memory corruption)
                 this.parseFunctionItemInto()
-                // trace
                 continue
             }
 
             if this.matchTokenStr(getKeywordClassType()) {
-                // trace
-                // Push directly to avoid returning ItemNode (memory corruption)
                 this.parseClassItemInto()
                 continue
             }
 
             if this.matchTokenStr(SeenTokenType.KeywordEnum) {
-                // trace
-                // Push directly to avoid returning ItemNode (memory corruption)
                 this.parseEnumItemInto()
                 continue
             }
 
             // Skip tokens we do not understand yet.
-            // trace
             this.advance()
         }
 
@@ -299,7 +281,6 @@ class RealParser {
 
     // Push directly to currentProgram to avoid returning ItemNode (memory corruption workaround)
     fun parseFunctionItemInto() r: Void {
-        // trace
         if isAtEnd() {
             return
         }
@@ -308,18 +289,13 @@ class RealParser {
         // Use class field to avoid local variable corruption
         lastFunction = FunctionNode.new()
         lastFunction.name = nameToken.getValue()
-        // trace
 
         parseParameterListField()
         lastFunction.returnType = parseOptionalReturnType()
-        // trace
 
         if matchTokenStr(SeenTokenType.LeftBrace) {
-            // trace
             lastFunction.body = parseBlock()
-            // trace.toString())
         } else {
-            // trace
             lastFunction.body = BlockNode.new()
             if matchTokenStr(SeenTokenType.Semicolon) {
                 // Consumed
@@ -342,8 +318,12 @@ class RealParser {
     // Parse parameter list into lastFunction (avoids passing FunctionNode by value)
     fun parseParameterListField() r: Void {
         consume(SeenTokenType.LeftParen, "Expected '(' after function name")
-
+        var paramIter = 0
         while not checkToken(SeenTokenType.RightParen) and not isAtEnd() {
+            paramIter = paramIter + 1
+            if paramIter > 100 {
+                break
+            }
             // Return type parameter (r: Type syntax)
             if matchTokenStr(SeenTokenType.Identifier) {
                 let prevTok = previous()
@@ -367,7 +347,6 @@ class RealParser {
                 advance()
             }
         }
-
         consume(SeenTokenType.RightParen, "Expected ')' after parameters")
     }
 
@@ -763,6 +742,14 @@ class RealParser {
         }
         if matchTokenStr(SeenTokenType.KeywordWhile) {
             this.parseWhileStatementField()
+            currentBlock.statements.push(lastStatement)
+            return
+        }
+        // Throw statement (treated like expression statement but with throw keyword consumed)
+        if matchTokenStr(SeenTokenType.KeywordThrow) {
+            lastStatement.kind = "Throw"
+            lastStatement.expression = parseExpression()
+            if matchTokenStr(SeenTokenType.Semicolon) { }
             currentBlock.statements.push(lastStatement)
             return
         }
@@ -1480,6 +1467,12 @@ class RealParser {
             return makeVariable("this")
         }
 
+        // Handle 'super' keyword for parent class constructor/method calls
+        if checkToken(SeenTokenType.KeywordSuper) {
+            advance()
+            return makeVariable("super")
+        }
+
         // Identifier (variable or function name or struct literal)
         let curTok = peek()
         // trace.toString() + " value=" + curTok.getValue())
@@ -1513,17 +1506,24 @@ class RealParser {
                         }
                     }
 
+                    // Handle multiple type parameters like Map<K, V>
+                    while matchTokenStr(getCommaType()) {
+                        if checkToken(getIdentifierType()) {
+                            fullTypeParam = fullTypeParam + ", " + advance().getValue()
+                        }
+                    }
+
                     // Check for closing >
                     if checkToken(SeenTokenType.GreaterThan) {
                         advance() // consume >
 
-                        // Now check if followed by () or {} to confirm generic type
-                        if checkToken(getLeftParenType()) or checkToken(SeenTokenType.LeftBrace) {
+                        // Now check if followed by (), {}, or . to confirm generic type
+                        if checkToken(getLeftParenType()) or checkToken(SeenTokenType.LeftBrace) or checkToken(getDotType()) {
                             // This IS a generic type - update name to include type param
                             name = name + "<" + fullTypeParam + ">"
                             // Continue to normal call/struct literal handling below
                         } else {
-                            // Not followed by () or {} - backtrack, treat as comparison
+                            // Not followed by (), {}, or . - backtrack, treat as comparison
                             current = savedPos
                         }
                     } else {

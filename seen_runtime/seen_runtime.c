@@ -353,6 +353,16 @@ SeenString seen_int_to_string(int64_t n) {
     return result;
 }
 
+SeenString seen_bool_to_string(bool b) {
+    if (b) {
+        SeenString result = { 4, "true" };
+        return result;
+    } else {
+        SeenString result = { 5, "false" };
+        return result;
+    }
+}
+
 SeenString seen_char_to_str(int64_t c) {
     // Convert a Unicode code point to a UTF-8 string
     char* buf = (char*)malloc(8);  // Max 4 bytes for UTF-8 + null
@@ -449,6 +459,190 @@ void println_str(SeenString s) {
 
 void println(SeenString s) {
     printf("%.*s\n", (int)s.len, s.data);
+}
+
+// ============================================================================
+// StringBuilder Implementation (LLVM pointer-based calling convention)
+// ============================================================================
+
+// Allocate a StringBuilder on the heap and return pointer
+void* StringBuilder_new(void) {
+    StringBuilder* sb = (StringBuilder*)malloc(sizeof(StringBuilder));
+    *sb = StringBuilder_new_value();  // Call inline version
+    return sb;
+}
+
+// Append text to StringBuilder, returns 0 for LLVM compatibility
+int64_t StringBuilder_append(void* s, SeenString str) {
+    StringBuilder* sb = (StringBuilder*)s;
+    StringBuilder_append_value(sb, str);  // Call inline version
+    return 0;
+}
+
+// Convert StringBuilder to string
+SeenString StringBuilder_toString(void* s) {
+    StringBuilder* sb = (StringBuilder*)s;
+    return StringBuilder_toString_value(sb);  // Call inline version
+}
+
+// Get length of StringBuilder
+int64_t StringBuilder_length(void* s) {
+    StringBuilder* sb = (StringBuilder*)s;
+    return sb->totalLength;
+}
+
+// Clear StringBuilder
+void StringBuilder_clear_impl(void* s) {
+    StringBuilder* sb = (StringBuilder*)s;
+    StringBuilder_clear(sb);  // Call inline version
+}
+
+// ============================================================================
+// Map (Hash Map) Implementation
+// Simple linear-search map for small collections (like keyword maps)
+// ============================================================================
+
+#define MAP_INITIAL_CAPACITY 32
+
+typedef struct {
+    SeenString* keys;
+    int64_t* values;
+    int64_t size;
+    int64_t capacity;
+} SeenMap;
+
+void* Map_new(void) {
+    SeenMap* map = (SeenMap*)malloc(sizeof(SeenMap));
+    map->capacity = MAP_INITIAL_CAPACITY;
+    map->size = 0;
+    map->keys = (SeenString*)malloc(sizeof(SeenString) * map->capacity);
+    map->values = (int64_t*)malloc(sizeof(int64_t) * map->capacity);
+    return map;
+}
+
+static void Map_grow(SeenMap* map) {
+    int64_t new_capacity = map->capacity * 2;
+    SeenString* new_keys = (SeenString*)malloc(sizeof(SeenString) * new_capacity);
+    int64_t* new_values = (int64_t*)malloc(sizeof(int64_t) * new_capacity);
+
+    for (int64_t i = 0; i < map->size; i++) {
+        new_keys[i] = map->keys[i];
+        new_values[i] = map->values[i];
+    }
+
+    free(map->keys);
+    free(map->values);
+    map->keys = new_keys;
+    map->values = new_values;
+    map->capacity = new_capacity;
+}
+
+int64_t Map_put(void* m, SeenString key, int64_t value) {
+    SeenMap* map = (SeenMap*)m;
+
+    // Check if key already exists
+    for (int64_t i = 0; i < map->size; i++) {
+        if (map->keys[i].len == key.len &&
+            memcmp(map->keys[i].data, key.data, key.len) == 0) {
+            int64_t old_value = map->values[i];
+            map->values[i] = value;
+            return old_value;
+        }
+    }
+
+    // Key not found, add new entry
+    if (map->size >= map->capacity) {
+        Map_grow(map);
+    }
+
+    // Copy the key string data
+    char* key_copy = (char*)malloc(key.len + 1);
+    memcpy(key_copy, key.data, key.len);
+    key_copy[key.len] = 0;
+
+    map->keys[map->size].len = key.len;
+    map->keys[map->size].data = key_copy;
+    map->values[map->size] = value;
+    map->size++;
+
+    return 0;  // No previous value
+}
+
+int64_t Map_set(void* m, SeenString key, int64_t value) {
+    return Map_put(m, key, value);
+}
+
+int64_t Map_get(void* m, SeenString key) {
+    SeenMap* map = (SeenMap*)m;
+
+    for (int64_t i = 0; i < map->size; i++) {
+        if (map->keys[i].len == key.len &&
+            memcmp(map->keys[i].data, key.data, key.len) == 0) {
+            return map->values[i];
+        }
+    }
+
+    return 0;  // Not found, return 0 (or could use sentinel)
+}
+
+int64_t Map_size(void* m) {
+    SeenMap* map = (SeenMap*)m;
+    return map->size;
+}
+
+bool Map_containsKey(void* m, SeenString key) {
+    SeenMap* map = (SeenMap*)m;
+
+    for (int64_t i = 0; i < map->size; i++) {
+        if (map->keys[i].len == key.len &&
+            memcmp(map->keys[i].data, key.data, key.len) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Map_containsValue(void* m, int64_t value) {
+    SeenMap* map = (SeenMap*)m;
+
+    for (int64_t i = 0; i < map->size; i++) {
+        if (map->values[i] == value) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+SeenArray Map_keys(void* m) {
+    SeenMap* map = (SeenMap*)m;
+
+    SeenArray result;
+    result.len = map->size;
+    result.cap = map->size;
+    result.data = malloc(sizeof(SeenString) * map->size);
+
+    for (int64_t i = 0; i < map->size; i++) {
+        ((SeenString*)result.data)[i] = map->keys[i];
+    }
+
+    return result;
+}
+
+SeenArray Map_values(void* m) {
+    SeenMap* map = (SeenMap*)m;
+
+    SeenArray result;
+    result.len = map->size;
+    result.cap = map->size;
+    result.data = malloc(sizeof(int64_t) * map->size);
+
+    for (int64_t i = 0; i < map->size; i++) {
+        ((int64_t*)result.data)[i] = map->values[i];
+    }
+
+    return result;
 }
 
 // ============================================================================

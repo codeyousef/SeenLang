@@ -64,24 +64,15 @@ class FrontendResult {
 }
 
 fun run_frontend(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
-    
     let result = FrontendResult.new()
-    
 
     // Without try/catch, we assume the pipeline succeeds.
     // Error handling is done via result types from the lexer/parser/checker.
-    
     let lexer = SeenLexer.new(source, 1, language)
-    
-    
     let tokens = lexer.tokenize()
-    
 
-    
     let parser = RealParser.new(tokens)
-    
     let ast = parser.parse()
-    
     result.program = ast
     // Reduced tracing to avoid string allocation crashes
     let checker = TypeChecker.new()

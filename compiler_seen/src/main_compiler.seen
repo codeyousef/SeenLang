@@ -9,11 +9,16 @@ import parser.real_parser.{ProgramNode, ItemNode}
 
 // Helper to parse a module and return its program
 fun parseModule(path: String, lang: String) r: FrontendResult {
+    println("    [parseModule] Reading file...")
     let source = readText(path)
+    println("    [parseModule] Read " + source.length().toString() + " chars")
     if source == "" {
         println("  ⚠️ Warning: could not read module " + path)
     }
-    return run_frontend(source, path, lang)
+    println("    [parseModule] Calling run_frontend...")
+    let result = run_frontend(source, path, lang)
+    println("    [parseModule] run_frontend done")
+    return result
 }
 
 // Resolve compiler_seen module path to actual file path
@@ -33,18 +38,65 @@ fun resolveModulePath(modulePath: String) r: String {
     return filePath + ".seen"
 }
 
+// Extract last segment from a path (e.g., "foo/bar/baz" -> "baz")
+fun getLastSegment(path: String) r: String {
+    var lastSlash = 0 - 1
+    var i = 0
+    while i < path.length() {
+        let c = path.substring(i, i + 1)
+        if c == "/" {
+            lastSlash = i
+        }
+        i = i + 1
+    }
+    if lastSlash < 0 {
+        return path
+    }
+    return path.substring(lastSlash + 1, path.length())
+}
+
 // Resolve general module path relative to source file
 fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     // Convert import path segments to file path
-    // e.g., ["test_module"] -> "test_module/mod.seen" or "test_module.seen"
+
+    // Check for stdlib imports (str, io, env, process, collections)
+    if importPath.length() > 0 {
+        let firstSegment = importPath[0]
+        if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" {
+            // This is a stdlib import - resolve from seen_std/src/
+            var filePath = "seen_std/src/"
+            var i = 0
+            while i < importPath.length() {
+                if i > 0 {
+                    filePath = filePath + "/"
+                }
+                filePath = filePath + importPath[i]
+                i = i + 1
+            }
+            return filePath + ".seen"
+        }
+    }
+
+    // Handle module-style imports: if first segment matches last segment of sourceDir,
+    // skip it to avoid duplication (e.g., in lexer/, "lexer.interfaces" -> "interfaces.seen")
     var filePath = sourceDir
     if filePath != "" and not filePath.endsWith("/") {
         filePath = filePath + "/"
     }
 
-    var i = 0
+    // Check if first import segment matches last segment of sourceDir
+    var startIdx = 0
+    if importPath.length() > 0 {
+        let lastDirSegment = getLastSegment(sourceDir)
+        if lastDirSegment == importPath[0] {
+            // Skip the first segment - it's the current module
+            startIdx = 1
+        }
+    }
+
+    var i = startIdx
     while i < importPath.length() {
-        if i > 0 {
+        if i > startIdx {
             filePath = filePath + "/"
         }
         filePath = filePath + importPath[i]
@@ -83,13 +135,17 @@ fun getSourceDir(filePath: String) r: String {
 fun compileCommand(inputFile: String, outputFile: String) r: Int {
     println("🚀 Stage1 compiling (LLVM path)")
 
+    println("  [1] Reading source file...")
     let sourceCode = readText(inputFile)
     if sourceCode == "" {
         println("❌ Failed to read source: " + inputFile)
         return 1
     }
+    println("  [1] Read " + sourceCode.length().toString() + " chars")
 
+    println("  [2] Running frontend on main file...")
     let frontend = run_frontend(sourceCode, inputFile, "en")
+    println("  [2] Frontend done")
     if not frontend.success {
         println("❌ Frontend errors detected")
         printFrontendDiagnostics(frontend)
@@ -108,18 +164,23 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
 
     // Check if we're compiling main_compiler.seen (bootstrap mode)
     let isBootstrap = inputFile.contains("main_compiler.seen")
+    println("  [2.1] isBootstrap: " + isBootstrap.toString())
+    println("  [2.2] Processing " + frontend.program.items.length().toString() + " items...")
 
     // Process imports from the main program
     var itemIdx = 0
     while itemIdx < frontend.program.items.length() {
         let item = frontend.program.items[itemIdx]
+        println("  [2.3] Item " + itemIdx.toString() + ": " + item.itemType)
         if item.itemType == "Import" {
             // Resolve import path
             let importFilePath = resolveImportPath(item.importPath, sourceDir)
+            println("  [2.4] Import path: " + importFilePath)
 
             // Check if we've already processed this module
             var alreadyProcessed = false
             var pi = 0
+            println("  [2.5] Checking " + processedPaths.length().toString() + " processed paths...")
             while pi < processedPaths.length() {
                 if processedPaths[pi] == importFilePath {
                     alreadyProcessed = true
@@ -130,13 +191,17 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
 
             if not alreadyProcessed {
                 processedPaths.push(importFilePath)
+                println("  [2.6] Parsing module: " + importFilePath)
                 let modFrontend = parseModule(importFilePath, "en")
+                println("  [2.7] Parse completed")
                 if modFrontend.success {
                     programs.push(modFrontend.program)
                     println("  ✓ Imported: " + importFilePath)
                 } else {
                     println("  ⚠️ Failed to import: " + importFilePath)
                 }
+            } else {
+                println("  [2.5] Already processed, skipping")
             }
         }
         itemIdx = itemIdx + 1
@@ -186,15 +251,19 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
     }
 
     // Generate LLVM IR from AST
+    println("  [3] Generating LLVM IR for " + programs.length().toString() + " programs...")
     let generator = LLVMIRGenerator.new()
     let llvmIR = generator.generateMultiple(programs)
+    println("  [3] Generated " + llvmIR.length().toString() + " chars of IR")
 
     // Write LLVM IR to file
+    println("  [4] Writing LLVM IR to file...")
     let irFilePath = "/tmp/seen_program.ll"
     if not writeText(irFilePath, llvmIR) {
         println("❌ Failed to write LLVM IR file: " + irFilePath)
         return 1
     }
+    println("  [4] Done writing IR")
 
     // Compile LLVM IR to object file using llc
     let objFilePath = "/tmp/seen_program.o"
@@ -260,23 +329,29 @@ fun printUsage() r: Void {
 }
 
 fun main() r: Int {
+    println("[DEBUG] main() started")
     let argv = args()
+    println("[DEBUG] got args: " + argv.length().toString())
     if argv.length() < 2 {
         printUsage()
         return 1
     }
 
     let command = argv[1]
+    println("[DEBUG] command: " + command)
     if command == "compile" {
         if argv.length() < 3 {
             printUsage()
             return 1
         }
         let inputFile = argv[2]
+        println("[DEBUG] inputFile: " + inputFile)
         var outputFile = defaultOutput(inputFile)
+        println("[DEBUG] outputFile: " + outputFile)
         if argv.length() > 3 {
             outputFile = argv[3]
         }
+        println("[DEBUG] calling compileCommand")
         return compileCommand(inputFile, outputFile)
     }
 

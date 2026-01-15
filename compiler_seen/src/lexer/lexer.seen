@@ -4,6 +4,7 @@
 import lexer.interfaces.{Token, Position, LexerError}
 import lexer.token_type.{SeenTokenType}
 import lexer.keyword_manager.{KeywordManager}
+import str.string.{StringBuilder}
 
 class SeenLexer {
     let source: String
@@ -248,7 +249,7 @@ class SeenLexer {
         let startPos = position
         this.advance() // Skip opening quote
 
-        var value = ""
+        let valueBuilder = StringBuilder.new()
         var hasInterpolation = false
 
         while position < source.length() and this.getCurrentChar() != '"' {
@@ -258,15 +259,18 @@ class SeenLexer {
                 // Handle escape sequences
                 this.advance()
                 let escaped = this.getCurrentChar()
-                value = value + this.handleEscapeSequence(escaped)
+                valueBuilder.append(this.handleEscapeSequence(escaped))
                 this.advance()
             } else if char == '{' and !this.isInInterpolation() {
-                // Check for escaped brace {{ -> {
+                // Check for escaped brace {{ -> { OR single { at end of string
                 this.advance()
                 if position < source.length() and this.getCurrentChar() == '{' {
                     // Escaped brace - add single { to value
-                    value = value + "{"
+                    valueBuilder.append("{")
                     this.advance()
+                } else if position >= source.length() or this.getCurrentChar() == '"' {
+                    // Single { at end of string - just add it
+                    valueBuilder.append("{")
                 } else {
                     // Start of string interpolation
                     hasInterpolation = true
@@ -277,14 +281,14 @@ class SeenLexer {
                 this.advance()
                 if position < source.length() and this.getCurrentChar() == '}' {
                     // Escaped brace - add single } to value
-                    value = value + "}"
+                    valueBuilder.append("}")
                     this.advance()
                 } else {
                     // Single } - just add it
-                    value = value + "}"
+                    valueBuilder.append("}")
                 }
             } else {
-                value = value + char.toString()
+                valueBuilder.append(char.toString())
                 this.advance()
             }
         }
@@ -299,8 +303,9 @@ class SeenLexer {
         } else {
             throw LexerError.new("Unterminated string literal", this.getCurrentPosition(), "")
         }
-        
+
         let length = position - startPos
+        let value = valueBuilder.toString()
         this.emitToken(SeenTokenType.StringLiteral, value, length)
     }
 
@@ -414,8 +419,8 @@ class SeenLexer {
         // Parse the expression inside {} - this is a mini-parser
         // For now, tokenize it as regular tokens
         let saved_position = position
-        
-        while position < source.length() and this.getCurrentChar() != '}' {
+
+        while position < source.length() and this.getCurrentChar() != '}' and this.getCurrentChar() != '"' {
             // Recursively tokenize the expression
             if this.isAlpha(this.getCurrentChar()) or this.getCurrentChar() == '_' {
                 this.handleIdentifierOrKeyword()
@@ -433,77 +438,77 @@ class SeenLexer {
     
     fun handleNumericLiteral() r: Void {
         let startPos = position
-        var value = ""
+        let valueBuilder = StringBuilder.new()
         var isFloat = false
-        
+
         // Handle different number formats
         if this.getCurrentChar() == '0' and (this.peekChar(1) == 'x' or this.peekChar(1) == 'X') {
             // Hexadecimal
             this.advance() // Skip '0'
             this.advance() // Skip 'x'
-            value = "0x"
-            
+            valueBuilder.append("0x")
+
             while this.isHexDigit(this.getCurrentChar()) {
-                value += this.getCurrentChar().toString()
+                valueBuilder.append(this.getCurrentChar().toString())
                 this.advance()
             }
         } else if this.getCurrentChar() == '0' and (this.peekChar(1) == 'b' or this.peekChar(1) == 'B') {
             // Binary
             this.advance() // Skip '0'
             this.advance() // Skip 'b'
-            value = "0b"
-            
+            valueBuilder.append("0b")
+
             while this.isBinaryDigit(this.getCurrentChar()) {
-                value += this.getCurrentChar().toString()
+                valueBuilder.append(this.getCurrentChar().toString())
                 this.advance()
             }
         } else {
             // Decimal (integer or float)
             while this.isDigit(this.getCurrentChar()) or this.getCurrentChar() == '_' {
                 if this.getCurrentChar() != '_' {
-                    // Note: use value = value + x instead of value += x due to potential bug with +=
-                    value = value + this.getCurrentChar().toString()
+                    valueBuilder.append(this.getCurrentChar().toString())
                 }
                 this.advance()
             }
-            
+
             // Check for decimal point
             if this.getCurrentChar() == '.' and this.isDigit(this.peekChar(1)) {
                 isFloat = true
-                value += this.getCurrentChar().toString()
+                valueBuilder.append(this.getCurrentChar().toString())
                 this.advance()
-                
+
                 while this.isDigit(this.getCurrentChar()) or this.getCurrentChar() == '_' {
                     if this.getCurrentChar() != '_' {
-                        value += this.getCurrentChar().toString()
+                        valueBuilder.append(this.getCurrentChar().toString())
                     }
                     this.advance()
                 }
             }
-            
+
             // Check for scientific notation
             if this.getCurrentChar() == 'e' or this.getCurrentChar() == 'E' {
                 isFloat = true
-                value += this.getCurrentChar().toString()
+                valueBuilder.append(this.getCurrentChar().toString())
                 this.advance()
-                
+
                 if this.getCurrentChar() == '+' or this.getCurrentChar() == '-' {
-                    value += this.getCurrentChar().toString()
+                    valueBuilder.append(this.getCurrentChar().toString())
                     this.advance()
                 }
-                
+
                 while this.isDigit(this.getCurrentChar()) {
-                    value += this.getCurrentChar().toString()
+                    valueBuilder.append(this.getCurrentChar().toString())
                     this.advance()
                 }
             }
         }
-        
+
         let length = position - startPos
         var tokenType = SeenTokenType.IntegerLiteral
         if isFloat {
             tokenType = SeenTokenType.FloatLiteral
         }
+        let value = valueBuilder.toString()
         this.emitToken(tokenType, value, length)
     }
     
@@ -517,43 +522,37 @@ class SeenLexer {
     
     fun handleIdentifierOrKeyword() r: Void {
         let startPos = position
-        var value = ""
-        
+        let valueBuilder = StringBuilder.new()
+
         // First character (already validated as alpha or underscore)
         let c1 = this.getCurrentChar()
-        let s1 = c1.toString()
-        
-        value = value + s1
-        
+        valueBuilder.append(c1.toString())
+
         this.advance()
-        
+
         // Subsequent characters
         while position < source.length() {
             let c = this.getCurrentChar()
             if this.isAlphaNumeric(c) or c == '_' {
-                let s = c.toString()
-                value = value + s
+                valueBuilder.append(c.toString())
                 this.advance()
             } else {
                 break
             }
         }
-        
-        
+
         let length = position - startPos
-        
+        let value = valueBuilder.toString()
+
         // Check if it's a keyword
         let keywordType = keywordManager.getKeywordType(value)
-        
-        
+
         if keywordType != null {
-            
             // Try explicit unwrap - note: toString on unwrapped enum from Map may not work correctly
             let unwrapped = keywordType.unwrap()
             // Skip toString call as it causes issues with enum values from generic containers
             this.emitToken(unwrapped, value, length)
         } else {
-            
             this.emitToken(SeenTokenType.Identifier, value, length)
         }
     }

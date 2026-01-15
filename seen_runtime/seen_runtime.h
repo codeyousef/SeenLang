@@ -120,6 +120,9 @@ SeenString seen_substring(SeenString s, int64_t start, int64_t end);
 // Integer to string
 SeenString seen_int_to_string(int64_t n);
 
+// Bool to string
+SeenString seen_bool_to_string(bool b);
+
 // Char (Unicode code point) to string
 SeenString seen_char_to_str(int64_t c);
 
@@ -228,20 +231,29 @@ typedef struct {
     int64_t totalLength;
 } StringBuilder;
 
-static inline StringBuilder StringBuilder_new(void) {
+// LLVM backend uses pointer-based calling convention - these are declared
+// as external functions implemented in seen_runtime.c
+void* StringBuilder_new(void);
+int64_t StringBuilder_append(void* sb, SeenString text);
+SeenString StringBuilder_toString(void* sb);
+int64_t StringBuilder_length(void* sb);
+void StringBuilder_clear_impl(void* sb);
+
+// Helper inline version for code that uses value-based StringBuilder
+static inline StringBuilder StringBuilder_new_value(void) {
     StringBuilder sb = { seen_arr_new_str(), 0 };
     return sb;
 }
 
-static inline void StringBuilder_append(StringBuilder* sb, SeenString text) {
+static inline void StringBuilder_append_value(StringBuilder* sb, SeenString text) {
     if (text.len == 0) return;
     sb->totalLength += text.len;
     seen_arr_push_str(&sb->parts, text);
 }
 
 static inline void StringBuilder_appendLine(StringBuilder* sb, SeenString text) {
-    StringBuilder_append(sb, text);
-    StringBuilder_append(sb, seen_cstr_to_str("\n"));
+    StringBuilder_append_value(sb, text);
+    StringBuilder_append_value(sb, seen_cstr_to_str("\n"));
 }
 
 static inline void StringBuilder_clear(StringBuilder* sb) {
@@ -249,7 +261,7 @@ static inline void StringBuilder_clear(StringBuilder* sb) {
     sb->totalLength = 0;
 }
 
-static inline SeenString StringBuilder_toString(StringBuilder* sb) {
+static inline SeenString StringBuilder_toString_value(StringBuilder* sb) {
     char* data = (char*)malloc(sb->totalLength + 1);
     char* ptr = data;
     for (int64_t i = 0; i < sb->parts.len; i++) {

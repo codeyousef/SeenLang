@@ -2,9 +2,10 @@
 // This replaces the C generator for Stage1 compilation
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode}
+import str.string.{StringBuilder}
 
 class LLVMIRGenerator {
-    var output: String
+    var output: StringBuilder
     var stringConstants: Array<String>
     var nextReg: Int
     var nextBlock: Int
@@ -26,10 +27,14 @@ class LLVMIRGenerator {
     var funcRetTypes: Array<String>        // Function return types
     // Current function context
     var currentFunctionReturnType: String
+    var blockTerminated: Bool  // Track if current block has a terminator
+    // Pre-allocated variable names and types (for hoisting allocas to entry block)
+    var preAllocatedVars: Array<String>
+    var preAllocatedTypes: Array<String>
 
     static fun new() r: LLVMIRGenerator {
         return LLVMIRGenerator{
-            output: "",
+            output: StringBuilder.new(),
             stringConstants: Array<String>(),
             nextReg: 1,
             nextBlock: 0,
@@ -46,7 +51,10 @@ class LLVMIRGenerator {
             structMethodRetTypes: Array<String>(),
             funcNames: Array<String>(),
             funcRetTypes: Array<String>(),
-            currentFunctionReturnType: ""
+            currentFunctionReturnType: "",
+            blockTerminated: false,
+            preAllocatedVars: Array<String>(),
+            preAllocatedTypes: Array<String>()
         }
     }
 
@@ -148,6 +156,73 @@ class LLVMIRGenerator {
         return -1
     }
 
+    // Collect all variable declarations from a block (recursively)
+    // Stores names and types in preAllocatedVars/preAllocatedTypes
+    fun collectVariableDeclarations(block: BlockNode) r: Void {
+        var i = 0
+        while i < block.statements.length() {
+            let stmt = block.statements[i]
+            if stmt.kind == "Let" or stmt.kind == "Var" {
+                // Determine type - explicit or inferred
+                var varType = stmt.variableType.typeName
+                if varType == "" or varType == "Unknown" {
+                    // Try to infer from initializer
+                    if stmt.initializer.kind != "None" {
+                        varType = inferExpressionType(stmt.initializer)
+                    }
+                }
+                // Default to i64 if still unknown
+                if varType == "" or varType == "Unknown" {
+                    varType = "Int"
+                }
+                // Add to pre-allocated lists
+                preAllocatedVars.push(stmt.variableName)
+                preAllocatedTypes.push(varType)
+            } else if stmt.kind == "If" {
+                // Recurse into then/else branches
+                collectVariableDeclarations(stmt.thenBranch)
+                if stmt.elseBranch.statements.length() > 0 {
+                    collectVariableDeclarations(stmt.elseBranch)
+                }
+            } else if stmt.kind == "While" {
+                // Recurse into while body
+                collectVariableDeclarations(stmt.loopBody)
+            } else if stmt.kind == "For" {
+                // For loop may have iterator variable and body
+                collectVariableDeclarations(stmt.loopBody)
+            }
+            i = i + 1
+        }
+    }
+
+    // Check if a variable has been pre-allocated, return its index or -1
+    fun findPreAllocated(name: String) r: Int {
+        var i = 0
+        while i < preAllocatedVars.length() {
+            if preAllocatedVars[i] == name {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    // Emit allocas for all pre-allocated variables at function entry
+    // This ensures all allocas are in the entry block, avoiding domination errors
+    fun emitPreAllocatedAllocas() r: Void {
+        var i = 0
+        while i < preAllocatedVars.length() {
+            let varName = preAllocatedVars[i]
+            let varType = preAllocatedTypes[i]
+            let llvmType = mapType(varType)
+            let reg = getNextReg()
+            output.append("  " + reg + " = alloca " + llvmType + "\n")
+            // Store the mapping for later use
+            storeVar(varName, reg, varType)
+            i = i + 1
+        }
+    }
+
     // Get size of a Seen type in bytes
     fun getTypeSize(typeName: String) r: Int {
         if typeName == "Int" {
@@ -183,7 +258,7 @@ class LLVMIRGenerator {
             if i > 0 {
                 layout = layout + ", "
                 fieldNames = fieldNames + ","
-                fieldTypes = fieldTypes + ","
+                fieldTypes = fieldTypes + "|"  // Use | as separator for types (not comma, due to generics)
             }
             let field = classNode.fields[i]
             let fieldType = field.paramType.typeName
@@ -255,6 +330,7 @@ class LLVMIRGenerator {
     }
 
     // Get field type from registered struct
+    // Note: fieldTypes uses | as separator (not comma) to handle generic types like Map<K,V>
     fun getFieldType(structName: String, fieldName: String) r: String {
         let idx = findStruct(structName)
         if idx < 0 {
@@ -264,40 +340,47 @@ class LLVMIRGenerator {
         let fieldNamesStr = structFieldNames[idx]
         let fieldTypesStr = structFieldTypes[idx]
 
-        // Parse to find matching field
+        // Parse to find matching field by index
         var fieldIdx = 0
         var nameStart = 0
-        var typeStart = 0
-        var namePos = 0
-        var typePos = 0
+        var nameEnd = 0
 
-        while namePos <= fieldNamesStr.length() {
-            var nc = ""
-            if namePos < fieldNamesStr.length() {
-                nc = fieldNamesStr.substring(namePos, namePos + 1)
-            }
-
-            // Find end of current type
-            while typePos < fieldTypesStr.length() {
-                let tc = fieldTypesStr.substring(typePos, typePos + 1)
-                if tc == "," {
-                    break
-                }
-                typePos = typePos + 1
-            }
-
-            if nc == "," or namePos == fieldNamesStr.length() {
-                let name = fieldNamesStr.substring(nameStart, namePos)
-                let typeName = fieldTypesStr.substring(typeStart, typePos)
+        // Find field index from names string (comma-separated)
+        var foundField = false
+        var pos = 0
+        while pos <= fieldNamesStr.length() and not foundField {
+            if pos == fieldNamesStr.length() or fieldNamesStr.substring(pos, pos + 1) == "," {
+                let name = fieldNamesStr.substring(nameStart, pos)
                 if name == fieldName {
+                    foundField = true
+                } else {
+                    fieldIdx = fieldIdx + 1
+                    nameStart = pos + 1
+                }
+            }
+            pos = pos + 1
+        }
+
+        if not foundField {
+            return "i64"
+        }
+
+        // Now find the type at fieldIdx (pipe-separated)
+        var typeIdx = 0
+        var typeStart = 0
+        pos = 0
+        while pos <= fieldTypesStr.length() {
+            if pos == fieldTypesStr.length() or fieldTypesStr.substring(pos, pos + 1) == "|" {
+                if typeIdx == fieldIdx {
+                    let typeName = fieldTypesStr.substring(typeStart, pos)
                     return mapType(typeName)
                 }
-                nameStart = namePos + 1
-                typeStart = typePos + 1
-                typePos = typePos + 1
+                typeIdx = typeIdx + 1
+                typeStart = pos + 1
             }
-            namePos = namePos + 1
+            pos = pos + 1
         }
+
         return "i64"  // Default
     }
 
@@ -334,38 +417,44 @@ class LLVMIRGenerator {
         let fieldNamesStr = structFieldNames[idx]
         let fieldTypesStr = structFieldTypes[idx]
 
-        // Parse to find matching field
+        // Parse to find matching field by index
+        var fieldIdx = 0
         var nameStart = 0
-        var typeStart = 0
-        var namePos = 0
-        var typePos = 0
 
-        while namePos <= fieldNamesStr.length() {
-            var nc = ""
-            if namePos < fieldNamesStr.length() {
-                nc = fieldNamesStr.substring(namePos, namePos + 1)
-            }
-
-            // Find end of current type
-            while typePos < fieldTypesStr.length() {
-                let tc = fieldTypesStr.substring(typePos, typePos + 1)
-                if tc == "," {
-                    break
-                }
-                typePos = typePos + 1
-            }
-
-            if nc == "," or namePos == fieldNamesStr.length() {
-                let name = fieldNamesStr.substring(nameStart, namePos)
-                let typeName = fieldTypesStr.substring(typeStart, typePos)
+        // Find field index from names string (comma-separated)
+        var foundField = false
+        var pos = 0
+        while pos <= fieldNamesStr.length() and not foundField {
+            if pos == fieldNamesStr.length() or fieldNamesStr.substring(pos, pos + 1) == "," {
+                let name = fieldNamesStr.substring(nameStart, pos)
                 if name == fieldName {
+                    foundField = true
+                } else {
+                    fieldIdx = fieldIdx + 1
+                    nameStart = pos + 1
+                }
+            }
+            pos = pos + 1
+        }
+
+        if not foundField {
+            return "Int"
+        }
+
+        // Now find the type at fieldIdx (pipe-separated)
+        var typeIdx = 0
+        var typeStart = 0
+        pos = 0
+        while pos <= fieldTypesStr.length() {
+            if pos == fieldTypesStr.length() or fieldTypesStr.substring(pos, pos + 1) == "|" {
+                if typeIdx == fieldIdx {
+                    let typeName = fieldTypesStr.substring(typeStart, pos)
                     return typeName  // Return Seen type, not LLVM type
                 }
-                nameStart = namePos + 1
-                typeStart = typePos + 1
-                typePos = typePos + 1
+                typeIdx = typeIdx + 1
+                typeStart = pos + 1
             }
-            namePos = namePos + 1
+            pos = pos + 1
         }
         return "Int"  // Default
     }
@@ -424,7 +513,7 @@ class LLVMIRGenerator {
     }
 
     fun generateMultiple(programs: Array<ProgramNode>) r: String {
-        output = ""
+        output = StringBuilder.new()
         stringConstants = Array<String>()
 
         // First pass: collect string constants from all programs
@@ -466,6 +555,35 @@ class LLVMIRGenerator {
             while i < program.items.length() {
                 let item = program.items[i]
                 if item.itemType == "Function" {
+                    let fnName = item.function.name
+                    // Skip StringBuilder methods that were incorrectly parsed as standalone
+                    if fnName == "clear" or fnName == "isEmpty" or fnName == "length" or fnName == "buildAndClear" or fnName == "toString" or fnName == "reduceToString" or fnName == "append" or fnName == "appendChar" or fnName == "appendLine" or fnName == "appendAll" {
+                        i = i + 1
+                        continue
+                    }
+                    // Skip string utility functions that use unsupported features (break, for)
+                    // These could be provided by the C runtime instead
+                    if fnName == "trimStart" or fnName == "trimEnd" or fnName == "trim" or fnName == "split" or fnName == "lines" or fnName == "words" or fnName == "splitWhitespace" {
+                        i = i + 1
+                        continue
+                    }
+                    if fnName == "replaceFirst" or fnName == "replaceAll" or fnName == "replace" or fnName == "indexOf" or fnName == "lastIndexOf" {
+                        i = i + 1
+                        continue
+                    }
+                    if fnName == "padStart" or fnName == "padEnd" or fnName == "repeat" or fnName == "join" or fnName == "mergeAdjacent" {
+                        i = i + 1
+                        continue
+                    }
+                    if fnName == "isBlank" or fnName == "isWhitespace" or fnName == "contains" or fnName == "startsWith" or fnName == "endsWith" {
+                        // These might use features we don't support yet
+                        i = i + 1
+                        continue
+                    }
+                    if fnName == "removePrefix" or fnName == "removeSuffix" or fnName == "ensurePrefix" or fnName == "ensureSuffix" {
+                        i = i + 1
+                        continue
+                    }
                     generateFunction(item.function)
                 }
                 i = i + 1
@@ -488,17 +606,17 @@ class LLVMIRGenerator {
             pi = pi + 1
         }
 
-        return output
+        return output.toString()
     }
 
     fun emitPrologue() r: Void {
-        output = output + "; Generated by Seen Stage1 Compiler (LLVM backend)\n"
-        output = output + "target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n"
-        output = output + "target triple = \"x86_64-unknown-linux-gnu\"\n\n"
+        output.append("; Generated by Seen Stage1 Compiler (LLVM backend)\n")
+        output.append("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n")
+        output.append("target triple = \"x86_64-unknown-linux-gnu\"\n\n")
 
         // Type definitions
-        output = output + "%SeenString = type { i64, ptr }\n"
-        output = output + "%SeenArray = type { i64, i64, ptr }\n\n"
+        output.append("%SeenString = type { i64, ptr }\n")
+        output.append("%SeenArray = type { i64, i64, ptr }\n\n")
     }
 
     fun emitClassType(classNode: ClassNode) r: Void {
@@ -507,22 +625,30 @@ class LLVMIRGenerator {
 
         // Emit struct type for class
         // %ClassName = type { field1Type, field2Type, ... }
-        output = output + "%" + classNode.name + " = type { "
+        output.append("%" + classNode.name + " = type { ")
 
         var i = 0
         while i < classNode.fields.length() {
             if i > 0 {
-                output = output + ", "
+                output.append(", ")
             }
             let field = classNode.fields[i]
-            output = output + mapType(field.paramType.typeName)
+            output.append(mapType(field.paramType.typeName))
             i = i + 1
         }
 
-        output = output + " }\n"
+        output.append(" }\n")
     }
 
     fun generateClass(classNode: ClassNode) r: Void {
+        // Skip classes that are provided by the runtime
+        let className = classNode.name
+        if className == "StringBuilder" or className == "" {
+            // StringBuilder is provided by the C runtime
+            // Empty class name means parsing issue - skip to avoid bad code
+            return
+        }
+
         // Generate all methods for this class
         var i = 0
         while i < classNode.methods.length() {
@@ -539,7 +665,13 @@ class LLVMIRGenerator {
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
+        preAllocatedVars = Array<String>()
+        preAllocatedTypes = Array<String>()
         currentFunctionReturnType = method.returnType.typeName
+        blockTerminated = false
+
+        // Collect all variable declarations for hoisting allocas to entry block
+        collectVariableDeclarations(method.body)
 
         let returnType = mapType(method.returnType.typeName)
         let className = classNode.name
@@ -549,12 +681,12 @@ class LLVMIRGenerator {
         let isStatic = methodName == "new"
 
         // Function signature: ClassName_methodName or ClassName_new
-        output = output + "define " + returnType + " @" + className + "_" + methodName + "("
+        output.append("define " + returnType + " @" + className + "_" + methodName + "(")
 
         // For instance methods, first parameter is 'this' pointer
         var hasThis = false
         if not isStatic {
-            output = output + "ptr %this"
+            output.append("ptr %this")
             hasThis = true
         }
 
@@ -562,22 +694,22 @@ class LLVMIRGenerator {
         var paramIdx = 0
         while paramIdx < method.params.length() {
             if paramIdx > 0 or hasThis {
-                output = output + ", "
+                output.append(", ")
             }
             let param = method.params[paramIdx]
             let paramType = mapType(param.paramType.typeName)
-            output = output + paramType + " %" + param.name + ".arg"
+            output.append(paramType + " %" + param.name + ".arg")
             paramIdx = paramIdx + 1
         }
 
-        output = output + ") {\n"
-        output = output + "entry:\n"
+        output.append(") {\n")
+        output.append("entry:\n")
 
         // For instance methods, store 'this' pointer
         if not isStatic {
             let thisReg = getNextReg()
-            output = output + "  " + thisReg + " = alloca ptr\n"
-            output = output + "  store ptr %this, ptr " + thisReg + "\n"
+            output.append("  " + thisReg + " = alloca ptr\n")
+            output.append("  store ptr %this, ptr " + thisReg + "\n")
             storeVar("this", thisReg, className)
         }
 
@@ -587,21 +719,39 @@ class LLVMIRGenerator {
             let param = method.params[paramIdx]
             let paramType = mapType(param.paramType.typeName)
             let reg = getNextReg()
-            output = output + "  " + reg + " = alloca " + paramType + "\n"
-            output = output + "  store " + paramType + " %" + param.name + ".arg, ptr " + reg + "\n"
+            output.append("  " + reg + " = alloca " + paramType + "\n")
+            output.append("  store " + paramType + " %" + param.name + ".arg, ptr " + reg + "\n")
             storeVar(param.name, reg, param.paramType.typeName)
             paramIdx = paramIdx + 1
         }
 
+        // Emit allocas for all local variables at entry (avoids domination errors)
+        emitPreAllocatedAllocas()
+
         // Generate method body
         generateBlock(method.body)
 
-        // If no return was generated for void functions, add one
-        if returnType == "void" {
-            output = output + "  ret void\n"
+        // If no terminator was generated, add a default return
+        if not blockTerminated {
+            if returnType == "void" {
+                output.append("  ret void\n")
+            } else if returnType == "i1" {
+                output.append("  ret i1 false\n")
+            } else if returnType == "i64" {
+                output.append("  ret i64 0\n")
+            } else if returnType == "ptr" {
+                output.append("  ret ptr null\n")
+            } else if returnType == "%SeenString" {
+                output.append("  ret %SeenString zeroinitializer\n")
+            } else if returnType == "%SeenArray" {
+                output.append("  ret %SeenArray zeroinitializer\n")
+            } else {
+                // Default for other types
+                output.append("  ret " + returnType + " zeroinitializer\n")
+            }
         }
 
-        output = output + "}\n\n"
+        output.append("}\n\n")
     }
 
     fun emitStringConstants() r: Void {
@@ -610,66 +760,89 @@ class LLVMIRGenerator {
             let str = stringConstants[i]
             let escaped = escapeString(str)
             let len = str.length() + 1  // +1 for null terminator
-            output = output + "@.str." + i.toString() + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escaped + "\\00\"\n"
+            output.append("@.str." + i.toString() + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escaped + "\\00\"\n")
             i = i + 1
         }
         if stringConstants.length() > 0 {
-            output = output + "\n"
+            output.append("\n")
         }
     }
 
     fun emitRuntimeDeclarations() r: Void {
-        output = output + "; Runtime function declarations\n"
-        output = output + "declare void @seen_runtime_init(i32, ptr)\n"
-        output = output + "declare void @println(%SeenString)\n"
-        output = output + "declare %SeenString @seen_cstr_to_str(ptr)\n"
-        output = output + "declare i64 @seen_length(%SeenString)\n"
-        output = output + "declare %SeenString @seen_substring(%SeenString, i64, i64)\n"
-        output = output + "declare i1 @startsWith(%SeenString, %SeenString)\n"
-        output = output + "declare i1 @endsWith(%SeenString, %SeenString)\n"
-        output = output + "declare i1 @contains(%SeenString, %SeenString)\n"
-        output = output + "declare %SeenString @trim(%SeenString)\n"
-        output = output + "declare %SeenString @seen_str_concat_ss(%SeenString, %SeenString)\n"
-        output = output + "declare %SeenString @seen_int_to_string(i64)\n"
-        output = output + "declare %SeenString @seen_char_to_str(i64)\n"
-        output = output + "declare i64 @seen_char_at(%SeenString, i64)\n"
-        output = output + "declare i64 @Char_toInt(i64)\n"
-        output = output + "declare i64 @Int_unwrap(i64)\n"
-        output = output + "declare ptr @Optional_unwrap(ptr)\n"
-        output = output + "declare i1 @seen_str_eq_ss(%SeenString, %SeenString)\n"
-        output = output + "declare i1 @seen_str_ne_ss(%SeenString, %SeenString)\n"
-        output = output + "declare %SeenString @readText(%SeenString)\n"
-        output = output + "declare i1 @writeText(%SeenString, %SeenString)\n"
+        output.append("; Runtime function declarations\n")
+        output.append("declare void @seen_runtime_init(i32, ptr)\n")
+        output.append("declare void @println(%SeenString)\n")
+        output.append("declare %SeenString @seen_cstr_to_str(ptr)\n")
+        output.append("declare i64 @seen_length(%SeenString)\n")
+        output.append("declare %SeenString @seen_substring(%SeenString, i64, i64)\n")
+        output.append("declare i1 @startsWith(%SeenString, %SeenString)\n")
+        output.append("declare i1 @endsWith(%SeenString, %SeenString)\n")
+        output.append("declare i1 @contains(%SeenString, %SeenString)\n")
+        // Note: trim is provided by string.seen, not the C runtime
+        output.append("declare %SeenString @seen_str_concat_ss(%SeenString, %SeenString)\n")
+        output.append("declare %SeenString @seen_int_to_string(i64)\n")
+        output.append("declare %SeenString @seen_char_to_str(i64)\n")
+        output.append("declare %SeenString @seen_bool_to_string(i1)\n")
+        output.append("declare i64 @seen_char_at(%SeenString, i64)\n")
+
+        // StringBuilder functions
+        output.append("declare ptr @StringBuilder_new()\n")
+        output.append("declare i64 @StringBuilder_append(ptr, %SeenString)\n")
+        output.append("declare %SeenString @StringBuilder_toString(ptr)\n")
+        output.append("declare i64 @Char_toInt(i64)\n")
+        output.append("declare i64 @Int_unwrap(i64)\n")
+        output.append("declare ptr @Optional_unwrap(ptr)\n")
+        output.append("declare i1 @seen_str_eq_ss(%SeenString, %SeenString)\n")
+        output.append("declare i1 @seen_str_ne_ss(%SeenString, %SeenString)\n")
+        output.append("declare %SeenString @readText(%SeenString)\n")
+        output.append("declare i1 @writeText(%SeenString, %SeenString)\n")
 
         // Array functions - use byval for SeenArray (> 16 bytes)
-        output = output + "declare i64 @seen_arr_length(ptr byval(%SeenArray) align 8)\n"
-        output = output + "declare %SeenString @seen_arr_get_str(ptr byval(%SeenArray) align 8, i64)\n"
-        output = output + "declare ptr @seen_arr_get_diag(ptr byval(%SeenArray) align 8, i64)\n"
-        output = output + "declare ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8, i64)\n"
-        output = output + "declare i64 @Array_push(ptr, ptr)\n"
-        output = output + "declare void @seen_arr_push_str(ptr, %SeenString)\n"
+        output.append("declare i64 @seen_arr_length(ptr byval(%SeenArray) align 8)\n")
+        output.append("declare %SeenString @seen_arr_get_str(ptr byval(%SeenArray) align 8, i64)\n")
+        output.append("declare ptr @seen_arr_get_diag(ptr byval(%SeenArray) align 8, i64)\n")
+        output.append("declare ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8, i64)\n")
+        output.append("declare i64 @Array_push(ptr, ptr)\n")
+        output.append("declare void @seen_arr_push_str(ptr, %SeenString)\n")
         // Note: args() returns via sret because SeenArray > 16 bytes
-        output = output + "declare void @args(ptr sret(%SeenArray) align 8)\n"
+        output.append("declare void @args(ptr sret(%SeenArray) align 8)\n")
 
         // Command execution
-        output = output + "declare ptr @runCommand(%SeenString)\n"
-        output = output + "declare i1 @commandWasSuccessful(ptr)\n"
+        output.append("declare ptr @runCommand(%SeenString)\n")
+        output.append("declare i1 @commandWasSuccessful(ptr)\n")
+
+        // Map functions (generic key-value store)
+        output.append("declare ptr @Map_new()\n")
+        output.append("declare i64 @Map_set(ptr, %SeenString, i64)\n")
+        output.append("declare i64 @Map_put(ptr, %SeenString, i64)\n")
+        output.append("declare i64 @Map_get(ptr, %SeenString)\n")
+        output.append("declare i64 @Map_size(ptr)\n")
+        output.append("declare i1 @Map_containsKey(ptr, %SeenString)\n")
+        output.append("declare i1 @Map_containsValue(ptr, i64)\n")
+        output.append("declare %SeenArray @Map_keys(ptr)\n")
+        output.append("declare %SeenArray @Map_values(ptr)\n")
 
         // Memory allocation
-        output = output + "declare ptr @malloc(i64)\n"
-        output = output + "declare void @free(ptr)\n"
+        output.append("declare ptr @malloc(i64)\n")
+        output.append("declare void @free(ptr)\n")
 
         // Frontend functions (from imported modules - these would be compiled separately)
-        output = output + "declare ptr @run_frontend(%SeenString, %SeenString, %SeenString)\n"
-        output = output + "declare ptr @FrontendResult_getDiagnostics(ptr)\n"
-        output = output + "declare ptr @LLVMIRGenerator_new()\n"
-        output = output + "declare %SeenString @LLVMIRGenerator_generate(ptr, ptr)\n"
-        output = output + "declare %SeenString @LLVMIRGenerator_generateMultiple(ptr, %SeenArray)\n"
+        output.append("declare ptr @run_frontend(%SeenString, %SeenString, %SeenString)\n")
+        output.append("declare ptr @FrontendResult_getDiagnostics(ptr)\n")
+        output.append("declare ptr @LLVMIRGenerator_new()\n")
+        output.append("declare %SeenString @LLVMIRGenerator_generate(ptr, ptr)\n")
+        output.append("declare %SeenString @LLVMIRGenerator_generateMultiple(ptr, %SeenArray)\n")
 
-        output = output + "\n"
+        output.append("\n")
     }
 
     fun generateFunction(fn: FunctionNode) r: Void {
+        // Check if this function was already generated (duplicate detection)
+        let existingRetType = getFunctionReturnType(fn.name)
+        if existingRetType != "" {
+            return
+        }
+
         // Register this function's return type for later call site inference
         registerFunction(fn.name, fn.returnType.typeName)
 
@@ -679,40 +852,53 @@ class LLVMIRGenerator {
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
+        preAllocatedVars = Array<String>()
+        preAllocatedTypes = Array<String>()
         currentFunctionReturnType = fn.returnType.typeName
+        blockTerminated = false
+
+        // Collect all variable declarations for hoisting allocas to entry block
+        collectVariableDeclarations(fn.body)
 
         let returnType = mapType(fn.returnType.typeName)
 
         // Special handling for main function - needs to accept argc/argv from OS
         if fn.name == "main" {
-            output = output + "define " + returnType + " @main(i32 %argc, ptr %argv) {\n"
-            output = output + "entry:\n"
-            output = output + "  call void @seen_runtime_init(i32 %argc, ptr %argv)\n"
+            output.append("define " + returnType + " @main(i32 %argc, ptr %argv) {\n")
+            output.append("entry:\n")
+            output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
+            // Emit allocas for all local variables at entry (avoids domination errors)
+            emitPreAllocatedAllocas()
             generateBlock(fn.body)
-            if returnType == "void" {
-                output = output + "  ret void\n"
+            // Add default return if no terminator generated
+            if not blockTerminated {
+                if returnType == "void" {
+                    output.append("  ret void\n")
+                } else if returnType == "i64" {
+                    output.append("  ret i64 0\n")
+                }
             }
-            output = output + "}\n\n"
+            output.append("}\n\n")
             return
         }
 
         // Function signature
-        output = output + "define " + returnType + " @" + fn.name + "("
+        output.append("define " + returnType + " @" + fn.name + "(")
 
         // Parameters
         var paramIdx = 0
         while paramIdx < fn.params.length() {
             if paramIdx > 0 {
-                output = output + ", "
+                output.append(", ")
             }
             let param = fn.params[paramIdx]
             let paramType = mapType(param.paramType.typeName)
-            output = output + paramType + " %" + param.name + ".arg"
+            output.append(paramType + " %" + param.name + ".arg")
             paramIdx = paramIdx + 1
         }
 
-        output = output + ") {\n"
-        output = output + "entry:\n"
+        output.append(") {\n")
+        output.append("entry:\n")
 
         // Allocate space for parameters and store them
         paramIdx = 0
@@ -720,26 +906,48 @@ class LLVMIRGenerator {
             let param = fn.params[paramIdx]
             let paramType = mapType(param.paramType.typeName)
             let reg = getNextReg()
-            output = output + "  " + reg + " = alloca " + paramType + "\n"
-            output = output + "  store " + paramType + " %" + param.name + ".arg, ptr " + reg + "\n"
+            output.append("  " + reg + " = alloca " + paramType + "\n")
+            output.append("  store " + paramType + " %" + param.name + ".arg, ptr " + reg + "\n")
             storeVar(param.name, reg, param.paramType.typeName)
             paramIdx = paramIdx + 1
         }
 
+        // Emit allocas for all local variables at entry (avoids domination errors)
+        emitPreAllocatedAllocas()
+
         // Generate function body
         generateBlock(fn.body)
 
-        // If no return was generated for void functions, add one
-        if returnType == "void" {
-            output = output + "  ret void\n"
+        // If no terminator was generated, add a default return
+        if not blockTerminated {
+            if returnType == "void" {
+                output.append("  ret void\n")
+            } else if returnType == "i1" {
+                output.append("  ret i1 false\n")
+            } else if returnType == "i64" {
+                output.append("  ret i64 0\n")
+            } else if returnType == "ptr" {
+                output.append("  ret ptr null\n")
+            } else if returnType == "%SeenString" {
+                output.append("  ret %SeenString zeroinitializer\n")
+            } else if returnType == "%SeenArray" {
+                output.append("  ret %SeenArray zeroinitializer\n")
+            } else {
+                // Default for other types
+                output.append("  ret " + returnType + " zeroinitializer\n")
+            }
         }
 
-        output = output + "}\n\n"
+        output.append("}\n\n")
     }
 
     fun generateBlock(block: BlockNode) r: Void {
         var i = 0
         while i < block.statements.length() {
+            // Skip statements after a terminator (ret, br unconditional)
+            if blockTerminated {
+                break
+            }
             generateStatement(block.statements[i])
             i = i + 1
         }
@@ -777,23 +985,46 @@ class LLVMIRGenerator {
         }
         let llvmType = mapType(varType)
 
-        // Allocate space
-        let reg = getNextReg()
-        output = output + "  " + reg + " = alloca " + llvmType + "\n"
-
-        // Store variable mapping
-        storeVar(stmt.variableName, reg, varType)
+        // Check if this variable was pre-allocated at function entry
+        let existingIdx = findVar(stmt.variableName)
+        var reg = ""
+        if existingIdx >= 0 {
+            // Variable was pre-allocated, use existing register
+            reg = varRegs[existingIdx]
+        } else {
+            // Fallback: allocate here (shouldn't happen with proper collection)
+            reg = getNextReg()
+            output.append("  " + reg + " = alloca " + llvmType + "\n")
+            storeVar(stmt.variableName, reg, varType)
+        }
 
         // Initialize if there's an initializer
         if stmt.initializer.kind != "None" {
             let valueReg = generateExpression(stmt.initializer)
-            output = output + "  store " + llvmType + " " + valueReg + ", ptr " + reg + "\n"
+            output.append("  store " + llvmType + " " + valueReg + ", ptr " + reg + "\n")
         }
     }
 
     fun generateReturnStatement(stmt: StatementNode) r: Void {
         if stmt.returnValue.kind == "None" {
-            output = output + "  ret void\n"
+            // Check if function has non-void return type - use default value
+            let llvmType = mapType(currentFunctionReturnType)
+            if llvmType == "void" or currentFunctionReturnType == "" or currentFunctionReturnType == "Void" {
+                output.append("  ret void\n")
+            } else if llvmType == "i1" {
+                output.append("  ret i1 false\n")
+            } else if llvmType == "i64" {
+                output.append("  ret i64 0\n")
+            } else if llvmType == "ptr" {
+                output.append("  ret ptr null\n")
+            } else if llvmType == "%SeenString" {
+                output.append("  ret %SeenString zeroinitializer\n")
+            } else if llvmType == "%SeenArray" {
+                output.append("  ret %SeenArray zeroinitializer\n")
+            } else {
+                // Generic struct type - return zeroinitializer
+                output.append("  ret " + llvmType + " zeroinitializer\n")
+            }
         } else {
             // Special handling for Char return type with string literals
             if currentFunctionReturnType == "Char" and stmt.returnValue.kind == "Literal" and stmt.returnValue.literalType == "String" {
@@ -802,7 +1033,8 @@ class LLVMIRGenerator {
                 if charValue.length() == 1 {
                     // Get first character's code point
                     let codePoint = charValue.charCodeAt(0)
-                    output = output + "  ret i64 " + codePoint.toString() + "\n"
+                    output.append("  ret i64 " + codePoint.toString() + "\n")
+                    blockTerminated = true
                     return
                 }
             }
@@ -810,12 +1042,23 @@ class LLVMIRGenerator {
             var valueReg = generateExpression(stmt.returnValue)
             // Use the function's declared return type, not inferred type
             let llvmType = mapType(currentFunctionReturnType)
-            // Convert 0 to null for pointer return types
-            if llvmType == "ptr" and valueReg == "0" {
-                valueReg = "null"
+            // Handle default return values when expression generation fails
+            if valueReg == "0" {
+                if llvmType == "ptr" {
+                    valueReg = "null"
+                } else if llvmType == "%SeenString" {
+                    // Return empty string { 0, null }
+                    valueReg = "zeroinitializer"
+                } else if llvmType == "%SeenArray" {
+                    // Return empty array { 0, 0, null }
+                    valueReg = "zeroinitializer"
+                } else if llvmType == "i1" {
+                    valueReg = "false"
+                }
             }
-            output = output + "  ret " + llvmType + " " + valueReg + "\n"
+            output.append("  ret " + llvmType + " " + valueReg + "\n")
         }
+        blockTerminated = true
     }
 
     fun generateIfStatement(stmt: StatementNode) r: Void {
@@ -826,28 +1069,37 @@ class LLVMIRGenerator {
         let endLabel = getNextBlockLabel()
 
         // Branch on condition
-        output = output + "  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel + "\n"
+        output.append("  br i1 " + condReg + ", label %" + thenLabel + ", label %" + elseLabel + "\n")
 
         // Then block
-        output = output + thenLabel + ":\n"
-        let thenHasTerminator = blockHasTerminator(stmt.thenBranch)
+        output.append(thenLabel + ":\n")
+        blockTerminated = false
         generateBlock(stmt.thenBranch)
-        if not thenHasTerminator {
-            output = output + "  br label %" + endLabel + "\n"
+        let thenTerminated = blockTerminated
+        if not thenTerminated {
+            output.append("  br label %" + endLabel + "\n")
         }
 
         // Else block
-        output = output + elseLabel + ":\n"
-        let elseHasTerminator = blockHasTerminator(stmt.elseBranch)
+        output.append(elseLabel + ":\n")
+        blockTerminated = false
         if stmt.elseBranch.statements.length() > 0 {
             generateBlock(stmt.elseBranch)
         }
-        if not elseHasTerminator {
-            output = output + "  br label %" + endLabel + "\n"
+        let elseTerminated = blockTerminated
+        if not elseTerminated {
+            output.append("  br label %" + endLabel + "\n")
         }
 
         // End block
-        output = output + endLabel + ":\n"
+        output.append(endLabel + ":\n")
+        // Only set blockTerminated if BOTH branches terminate
+        if thenTerminated and elseTerminated {
+            blockTerminated = true
+            output.append("  unreachable\n")
+        } else {
+            blockTerminated = false
+        }
     }
 
     fun blockHasTerminator(block: BlockNode) r: Bool {
@@ -864,20 +1116,27 @@ class LLVMIRGenerator {
         let endLabel = getNextBlockLabel()
 
         // Jump to condition check
-        output = output + "  br label %" + condLabel + "\n"
+        output.append("  br label %" + condLabel + "\n")
 
         // Condition block
-        output = output + condLabel + ":\n"
+        output.append(condLabel + ":\n")
         let condReg = generateExpression(stmt.loopCondition)
-        output = output + "  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n"
+        output.append("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
 
         // Body block
-        output = output + bodyLabel + ":\n"
+        output.append(bodyLabel + ":\n")
+        blockTerminated = false  // Reset for body
         generateBlock(stmt.loopBody)
-        output = output + "  br label %" + condLabel + "\n"
+        let bodyTerminated = blockTerminated
+        // Only add loop branch if body didn't terminate (return/break)
+        if not bodyTerminated {
+            output.append("  br label %" + condLabel + "\n")
+        }
 
-        // End block
-        output = output + endLabel + ":\n"
+        // End block - reached when condition is false
+        output.append(endLabel + ":\n")
+        // While loop end is always reachable (condition can be false)
+        blockTerminated = false
     }
 
     // Handle assignment expression (from parser)
@@ -902,7 +1161,7 @@ class LLVMIRGenerator {
 
                         // Load 'this' pointer
                         let thisPtrReg = getNextReg()
-                        output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
 
                         // Get struct layout and field type
                         let structLayout = structLayouts[structIdx]
@@ -910,10 +1169,10 @@ class LLVMIRGenerator {
 
                         // Generate GEP to field
                         let fieldPtrReg = getNextReg()
-                        output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n"
+                        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
 
                         // Store the value
-                        output = output + "  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n"
+                        output.append("  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n")
                         return
                     }
                 }
@@ -925,7 +1184,7 @@ class LLVMIRGenerator {
         let varReg = varRegs[idx]
         let varType = varTypes[idx]
         let llvmType = mapType(varType)
-        output = output + "  store " + llvmType + " " + valueReg + ", ptr " + varReg + "\n"
+        output.append("  store " + llvmType + " " + valueReg + ", ptr " + varReg + "\n")
     }
 
     fun generateAssignment(stmt: StatementNode) r: Void {
@@ -949,7 +1208,7 @@ class LLVMIRGenerator {
 
                         // Load 'this' pointer
                         let thisPtrReg = getNextReg()
-                        output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
 
                         // Get struct layout and field type
                         let structLayout = structLayouts[structIdx]
@@ -957,10 +1216,10 @@ class LLVMIRGenerator {
 
                         // Generate GEP to field
                         let fieldPtrReg = getNextReg()
-                        output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n"
+                        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
 
                         // Store the value
-                        output = output + "  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n"
+                        output.append("  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n")
                         return
                     }
                 }
@@ -972,7 +1231,7 @@ class LLVMIRGenerator {
         let varReg = varRegs[idx]
         let varType = varTypes[idx]
         let llvmType = mapType(varType)
-        output = output + "  store " + llvmType + " " + valueReg + ", ptr " + varReg + "\n"
+        output.append("  store " + llvmType + " " + valueReg + ", ptr " + varReg + "\n")
     }
 
     fun generateExpression(expr: ParserExpressionNode) r: String {
@@ -1003,64 +1262,64 @@ class LLVMIRGenerator {
     fun generateArrayLiteral(expr: ParserExpressionNode) r: String {
         // Allocate empty SeenArray structure: { length: 0, capacity: 0, data: null }
         let ptrReg = getNextReg()
-        output = output + "  " + ptrReg + " = call ptr @malloc(i64 24)\n"
+        output.append("  " + ptrReg + " = call ptr @malloc(i64 24)\n")
         // Store length = number of elements
         let lenPtr = getNextReg()
-        output = output + "  " + lenPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 0\n"
-        output = output + "  store i64 " + expr.arguments.length().toString() + ", ptr " + lenPtr + "\n"
+        output.append("  " + lenPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 0\n")
+        output.append("  store i64 " + expr.arguments.length().toString() + ", ptr " + lenPtr + "\n")
         // Store capacity = length (or 0 for empty)
         let capPtr = getNextReg()
-        output = output + "  " + capPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 1\n"
-        output = output + "  store i64 " + expr.arguments.length().toString() + ", ptr " + capPtr + "\n"
+        output.append("  " + capPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 1\n")
+        output.append("  store i64 " + expr.arguments.length().toString() + ", ptr " + capPtr + "\n")
         // For empty array, store null pointer
         if expr.arguments.length() == 0 {
             let dataPtr = getNextReg()
-            output = output + "  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n"
-            output = output + "  store ptr null, ptr " + dataPtr + "\n"
+            output.append("  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n")
+            output.append("  store ptr null, ptr " + dataPtr + "\n")
         } else {
             // For non-empty arrays, we need to allocate data and store elements
             // TODO: Support non-empty array literals
             let dataPtr = getNextReg()
-            output = output + "  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n"
-            output = output + "  store ptr null, ptr " + dataPtr + "\n"
+            output.append("  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n")
+            output.append("  store ptr null, ptr " + dataPtr + "\n")
         }
         // Load the array structure
         let resultReg = getNextReg()
-        output = output + "  " + resultReg + " = load %SeenArray, ptr " + ptrReg + ", align 8\n"
+        output.append("  " + resultReg + " = load %SeenArray, ptr " + ptrReg + ", align 8\n")
         return resultReg
     }
 
     fun generateIndexAccess(expr: ParserExpressionNode) r: String {
         // operands[0] = array expression
         // operands[1] = index expression
-        output = output + "; DEBUG generateIndexAccess: operands[0].kind=" + expr.operands[0].kind + " variableName=" + expr.operands[0].variableName + " literalValue=" + expr.operands[0].literalValue + "\n"
+        output.append("; DEBUG generateIndexAccess: operands[0].kind=" + expr.operands[0].kind + " variableName=" + expr.operands[0].variableName + " literalValue=" + expr.operands[0].literalValue + "\n")
         let arrayReg = generateExpression(expr.operands[0])
-        output = output + "; DEBUG arrayReg=" + arrayReg + "\n"
+        output.append("; DEBUG arrayReg=" + arrayReg + "\n")
         let indexReg = generateExpression(expr.operands[1])
 
         // Infer the element type from the array type
         let arrayType = inferExpressionType(expr.operands[0])
-        output = output + "; DEBUG arrayType=" + arrayType + "\n"
+        output.append("; DEBUG arrayType=" + arrayType + "\n")
 
         // For byval, we need to store the array in an alloca and pass the pointer
         let arrayPtrReg = getNextReg()
-        output = output + "  " + arrayPtrReg + " = alloca %SeenArray, align 8\n"
-        output = output + "  store %SeenArray " + arrayReg + ", ptr " + arrayPtrReg + ", align 8\n"
+        output.append("  " + arrayPtrReg + " = alloca %SeenArray, align 8\n")
+        output.append("  store %SeenArray " + arrayReg + ", ptr " + arrayPtrReg + ", align 8\n")
 
         let resultReg = getNextReg()
 
         // Use typed array get functions based on element type
         if arrayType == "Array<String>" {
-            output = output + "  " + resultReg + " = call %SeenString @seen_arr_get_str(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+            output.append("  " + resultReg + " = call %SeenString @seen_arr_get_str(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n")
         } else if arrayType == "Array<FrontendDiagnostic>" {
-            output = output + "  " + resultReg + " = call ptr @seen_arr_get_diag(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+            output.append("  " + resultReg + " = call ptr @seen_arr_get_diag(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n")
         } else if arrayType == "Array<ItemNode>" {
-            output = output + "  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+            output.append("  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n")
         } else if arrayType == "Array<ProgramNode>" {
-            output = output + "  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+            output.append("  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n")
         } else {
             // Default: generic pointer get
-            output = output + "  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+            output.append("  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n")
         }
 
         return resultReg
@@ -1088,7 +1347,7 @@ class LLVMIRGenerator {
 
             // Load the struct pointer
             let ptrReg = getNextReg()
-            output = output + "  " + ptrReg + " = load ptr, ptr " + varReg + "\n"
+            output.append("  " + ptrReg + " = load ptr, ptr " + varReg + "\n")
 
             return generateFieldAccess(ptrReg, varType, fieldName)
         }
@@ -1105,7 +1364,7 @@ class LLVMIRGenerator {
                     let frontendType = varTypes[frontendIdx]
                     // Load frontend pointer
                     let ptrReg = getNextReg()
-                    output = output + "  " + ptrReg + " = load ptr, ptr " + frontendReg + "\n"
+                    output.append("  " + ptrReg + " = load ptr, ptr " + frontendReg + "\n")
                     // Access program field to get ProgramNode pointer
                     let programReg = generateFieldAccess(ptrReg, frontendType, "program")
                     // Now access the final field (items) on ProgramNode
@@ -1118,7 +1377,7 @@ class LLVMIRGenerator {
     }
 
     fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
-        output = output + "; DEBUG generateFieldAccess: structType=" + structType + " fieldName=" + fieldName + "\n"
+        output.append("; DEBUG generateFieldAccess: structType=" + structType + " fieldName=" + fieldName + "\n")
         // Handle known chained field access patterns directly (avoid substring for reliability)
         if fieldName == "program.items" {
             // FrontendResult.program -> ProgramNode, then ProgramNode.items
@@ -1130,14 +1389,14 @@ class LLVMIRGenerator {
             let itemsReg = generateFieldAccess(progReg, "ProgramNode", "items")
             // Return length field of array
             let lenPtrReg = getNextReg()
-            output = output + "  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + itemsReg + ", i32 0, i32 0\n"
+            output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + itemsReg + ", i32 0, i32 0\n")
             let lenReg = getNextReg()
-            output = output + "  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n"
+            output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
             return lenReg
         } else if fieldName.contains(".") {
             // Generic chained access - handle known patterns
             // For now, return error indicator for unknown patterns
-            output = output + "; ERROR: Unknown chained field access: " + fieldName + "\n"
+            output.append("; ERROR: Unknown chained field access: " + fieldName + "\n")
             return "0"
         }
 
@@ -1249,11 +1508,11 @@ class LLVMIRGenerator {
 
         // Generate GEP to field
         let fieldPtrReg = getNextReg()
-        output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n"
+        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n")
 
         // Load the field value
         let resultReg = getNextReg()
-        output = output + "  " + resultReg + " = load " + fieldType + ", ptr " + fieldPtrReg + "\n"
+        output.append("  " + resultReg + " = load " + fieldType + ", ptr " + fieldPtrReg + "\n")
 
         return resultReg
     }
@@ -1276,7 +1535,7 @@ class LLVMIRGenerator {
 
         // Generate GEP to field (without loading)
         let fieldPtrReg = getNextReg()
-        output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n"
+        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n")
 
         return fieldPtrReg
     }
@@ -1316,7 +1575,7 @@ class LLVMIRGenerator {
 
         // Allocate memory for struct
         let mallocReg = getNextReg()
-        output = output + "  " + mallocReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n"
+        output.append("  " + mallocReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
 
         // Store each field
         var fieldIdx = 0
@@ -1327,6 +1586,7 @@ class LLVMIRGenerator {
             // Generate the field value
             var valueReg = "0"
             if fieldExpr.operands.length() > 0 {
+                output.append("; DEBUG structlit field " + fieldName + " expr.kind=" + fieldExpr.operands[0].kind + " literalValue=" + fieldExpr.operands[0].literalValue + "\n")
                 valueReg = generateExpression(fieldExpr.operands[0])
             }
 
@@ -1340,6 +1600,7 @@ class LLVMIRGenerator {
                 if regFieldIdx >= 0 {
                     gepIndex = regFieldIdx
                     fieldType = getFieldType(structName, fieldName)
+                    output.append("; DEBUG fieldType for " + structName + "." + fieldName + " = " + fieldType + "\n")
                 }
             } else {
                 // Fallback to hardcoded field mappings
@@ -1378,10 +1639,10 @@ class LLVMIRGenerator {
 
             // Generate GEP to field
             let fieldPtrReg = getNextReg()
-            output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + mallocReg + ", i32 0, i32 " + gepIndex.toString() + "\n"
+            output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + mallocReg + ", i32 0, i32 " + gepIndex.toString() + "\n")
 
             // Store the value
-            output = output + "  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n"
+            output.append("  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n")
 
             fieldIdx = fieldIdx + 1
         }
@@ -1599,7 +1860,7 @@ class LLVMIRGenerator {
                 return "96"  // Backtick
             }
             // Fallback: return 0 for unknown characters
-            output = output + "; WARNING: unknown character literal '" + val + "'\n"
+            output.append("; WARNING: unknown character literal '" + val + "'\n")
             return "0"
         } else if expr.literalType == "Bool" or expr.literalType == "Boolean" {
             if expr.literalValue == "true" {
@@ -1622,10 +1883,10 @@ class LLVMIRGenerator {
             // Convert to SeenString
             let ptrReg = getNextReg()
             let strLen = expr.literalValue.length() + 1
-            output = output + "  " + ptrReg + " = getelementptr [" + strLen.toString() + " x i8], ptr @.str." + idx.toString() + ", i64 0, i64 0\n"
+            output.append("  " + ptrReg + " = getelementptr [" + strLen.toString() + " x i8], ptr @.str." + idx.toString() + ", i64 0, i64 0\n")
 
             let strReg = getNextReg()
-            output = output + "  " + strReg + " = call %SeenString @seen_cstr_to_str(ptr " + ptrReg + ")\n"
+            output.append("  " + strReg + " = call %SeenString @seen_cstr_to_str(ptr " + ptrReg + ")\n")
             return strReg
         } else if expr.literalType == "Float" {
             return expr.literalValue
@@ -1659,7 +1920,7 @@ class LLVMIRGenerator {
                     if fieldIdx >= 0 {
                         // Load 'this' pointer
                         let thisPtrReg = getNextReg()
-                        output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
                         // Access the field
                         return generateFieldAccess(thisPtrReg, thisType, varName)
                     }
@@ -1672,7 +1933,7 @@ class LLVMIRGenerator {
         let varType = varTypes[idx]
         let llvmType = mapType(varType)
         let loadReg = getNextReg()
-        output = output + "  " + loadReg + " = load " + llvmType + ", ptr " + varReg + "\n"
+        output.append("  " + loadReg + " = load " + llvmType + ", ptr " + varReg + "\n")
         return loadReg
     }
 
@@ -1698,42 +1959,42 @@ class LLVMIRGenerator {
                 if leftType == "Char" {
                     // Convert Char to String using runtime function
                     leftStrReg = getNextReg()
-                    output = output + "  " + leftStrReg + " = call %SeenString @seen_char_to_str(i64 " + leftReg + ")\n"
+                    output.append("  " + leftStrReg + " = call %SeenString @seen_char_to_str(i64 " + leftReg + ")\n")
                 } else if leftType == "Int" {
                     // Convert Int to String
                     leftStrReg = getNextReg()
-                    output = output + "  " + leftStrReg + " = call %SeenString @seen_int_to_string(i64 " + leftReg + ")\n"
+                    output.append("  " + leftStrReg + " = call %SeenString @seen_int_to_string(i64 " + leftReg + ")\n")
                 }
 
                 if rightType == "Char" {
                     // Convert Char to String using runtime function
                     rightStrReg = getNextReg()
-                    output = output + "  " + rightStrReg + " = call %SeenString @seen_char_to_str(i64 " + rightReg + ")\n"
+                    output.append("  " + rightStrReg + " = call %SeenString @seen_char_to_str(i64 " + rightReg + ")\n")
                 } else if rightType == "Int" {
                     // Convert Int to String
                     rightStrReg = getNextReg()
-                    output = output + "  " + rightStrReg + " = call %SeenString @seen_int_to_string(i64 " + rightReg + ")\n"
+                    output.append("  " + rightStrReg + " = call %SeenString @seen_int_to_string(i64 " + rightReg + ")\n")
                 }
 
                 let resultReg = getNextReg()
-                output = output + "  " + resultReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n"
+                output.append("  " + resultReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")
                 return resultReg
             } else {
                 let resultReg = getNextReg()
-                output = output + "  " + resultReg + " = add i64 " + leftReg + ", " + rightReg + "\n"
+                output.append("  " + resultReg + " = add i64 " + leftReg + ", " + rightReg + "\n")
                 return resultReg
             }
         }
 
         let resultReg = getNextReg()
         if expr.operator == "-" {
-            output = output + "  " + resultReg + " = sub i64 " + leftReg + ", " + rightReg + "\n"
+            output.append("  " + resultReg + " = sub i64 " + leftReg + ", " + rightReg + "\n")
         } else if expr.operator == "*" {
-            output = output + "  " + resultReg + " = mul i64 " + leftReg + ", " + rightReg + "\n"
+            output.append("  " + resultReg + " = mul i64 " + leftReg + ", " + rightReg + "\n")
         } else if expr.operator == "/" {
-            output = output + "  " + resultReg + " = sdiv i64 " + leftReg + ", " + rightReg + "\n"
+            output.append("  " + resultReg + " = sdiv i64 " + leftReg + ", " + rightReg + "\n")
         } else if expr.operator == "%" {
-            output = output + "  " + resultReg + " = srem i64 " + leftReg + ", " + rightReg + "\n"
+            output.append("  " + resultReg + " = srem i64 " + leftReg + ", " + rightReg + "\n")
         } else if expr.operator == "==" {
             // Handle Char comparisons specially
             if leftType == "Char" or rightType == "Char" {
@@ -1749,10 +2010,10 @@ class LLVMIRGenerator {
                     // Convert single-char string to its code point
                     leftVal = leftExpr.literalValue.charCodeAt(0).toString()
                 }
-                output = output + "  " + resultReg + " = icmp eq i64 " + leftVal + ", " + rightVal + "\n"
+                output.append("  " + resultReg + " = icmp eq i64 " + leftVal + ", " + rightVal + "\n")
             } else if leftType == "String" or rightType == "String" {
                 // String comparison - use runtime function
-                output = output + "  " + resultReg + " = call i1 @seen_str_eq_ss(%SeenString " + leftReg + ", %SeenString " + rightReg + ")\n"
+                output.append("  " + resultReg + " = call i1 @seen_str_eq_ss(%SeenString " + leftReg + ", %SeenString " + rightReg + ")\n")
             } else {
                 // Check if comparing pointer types (enums, classes, optionals)
                 let llvmLeftType = mapType(leftType)
@@ -1762,9 +2023,9 @@ class LLVMIRGenerator {
                     if rightReg == "0" {
                         rightNullVal = "null"
                     }
-                    output = output + "  " + resultReg + " = icmp eq ptr " + leftReg + ", " + rightNullVal + "\n"
+                    output.append("  " + resultReg + " = icmp eq ptr " + leftReg + ", " + rightNullVal + "\n")
                 } else {
-                    output = output + "  " + resultReg + " = icmp eq i64 " + leftReg + ", " + rightReg + "\n"
+                    output.append("  " + resultReg + " = icmp eq i64 " + leftReg + ", " + rightReg + "\n")
                 }
             }
         } else if expr.operator == "!=" {
@@ -1778,10 +2039,10 @@ class LLVMIRGenerator {
                 if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
                     leftVal = leftExpr.literalValue.charCodeAt(0).toString()
                 }
-                output = output + "  " + resultReg + " = icmp ne i64 " + leftVal + ", " + rightVal + "\n"
+                output.append("  " + resultReg + " = icmp ne i64 " + leftVal + ", " + rightVal + "\n")
             } else if leftType == "String" or rightType == "String" {
                 // String comparison - use runtime function
-                output = output + "  " + resultReg + " = call i1 @seen_str_ne_ss(%SeenString " + leftReg + ", %SeenString " + rightReg + ")\n"
+                output.append("  " + resultReg + " = call i1 @seen_str_ne_ss(%SeenString " + leftReg + ", %SeenString " + rightReg + ")\n")
             } else {
                 // Check if comparing pointer types (enums, classes, optionals)
                 let llvmLeftType = mapType(leftType)
@@ -1791,9 +2052,9 @@ class LLVMIRGenerator {
                     if rightReg == "0" {
                         rightNullVal = "null"
                     }
-                    output = output + "  " + resultReg + " = icmp ne ptr " + leftReg + ", " + rightNullVal + "\n"
+                    output.append("  " + resultReg + " = icmp ne ptr " + leftReg + ", " + rightNullVal + "\n")
                 } else {
-                    output = output + "  " + resultReg + " = icmp ne i64 " + leftReg + ", " + rightReg + "\n"
+                    output.append("  " + resultReg + " = icmp ne i64 " + leftReg + ", " + rightReg + "\n")
                 }
             }
         } else if expr.operator == "<" {
@@ -1806,7 +2067,7 @@ class LLVMIRGenerator {
             if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
                 leftVal = leftExpr.literalValue.charCodeAt(0).toString()
             }
-            output = output + "  " + resultReg + " = icmp slt i64 " + leftVal + ", " + rightVal + "\n"
+            output.append("  " + resultReg + " = icmp slt i64 " + leftVal + ", " + rightVal + "\n")
         } else if expr.operator == "<=" {
             var leftVal = leftReg
             var rightVal = rightReg
@@ -1816,7 +2077,7 @@ class LLVMIRGenerator {
             if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
                 leftVal = leftExpr.literalValue.charCodeAt(0).toString()
             }
-            output = output + "  " + resultReg + " = icmp sle i64 " + leftVal + ", " + rightVal + "\n"
+            output.append("  " + resultReg + " = icmp sle i64 " + leftVal + ", " + rightVal + "\n")
         } else if expr.operator == ">" {
             var leftVal = leftReg
             var rightVal = rightReg
@@ -1826,7 +2087,7 @@ class LLVMIRGenerator {
             if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
                 leftVal = leftExpr.literalValue.charCodeAt(0).toString()
             }
-            output = output + "  " + resultReg + " = icmp sgt i64 " + leftVal + ", " + rightVal + "\n"
+            output.append("  " + resultReg + " = icmp sgt i64 " + leftVal + ", " + rightVal + "\n")
         } else if expr.operator == ">=" {
             var leftVal = leftReg
             var rightVal = rightReg
@@ -1836,11 +2097,11 @@ class LLVMIRGenerator {
             if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
                 leftVal = leftExpr.literalValue.charCodeAt(0).toString()
             }
-            output = output + "  " + resultReg + " = icmp sge i64 " + leftVal + ", " + rightVal + "\n"
+            output.append("  " + resultReg + " = icmp sge i64 " + leftVal + ", " + rightVal + "\n")
         } else if expr.operator == "and" {
-            output = output + "  " + resultReg + " = and i1 " + leftReg + ", " + rightReg + "\n"
+            output.append("  " + resultReg + " = and i1 " + leftReg + ", " + rightReg + "\n")
         } else if expr.operator == "or" {
-            output = output + "  " + resultReg + " = or i1 " + leftReg + ", " + rightReg + "\n"
+            output.append("  " + resultReg + " = or i1 " + leftReg + ", " + rightReg + "\n")
         }
 
         return resultReg
@@ -1853,30 +2114,42 @@ class LLVMIRGenerator {
         if funcName.startsWith("Array<") or funcName == "Array" {
             // Allocate empty SeenArray structure: { length: 0, capacity: 0, data: null }
             let ptrReg = getNextReg()
-            output = output + "  " + ptrReg + " = call ptr @malloc(i64 24)\n"
+            output.append("  " + ptrReg + " = call ptr @malloc(i64 24)\n")
             // Store length = 0
             let lenPtr = getNextReg()
-            output = output + "  " + lenPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 0\n"
-            output = output + "  store i64 0, ptr " + lenPtr + "\n"
+            output.append("  " + lenPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 0\n")
+            output.append("  store i64 0, ptr " + lenPtr + "\n")
             // Store capacity = 0
             let capPtr = getNextReg()
-            output = output + "  " + capPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 1\n"
-            output = output + "  store i64 0, ptr " + capPtr + "\n"
+            output.append("  " + capPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 1\n")
+            output.append("  store i64 0, ptr " + capPtr + "\n")
             // Store data = null
             let dataPtr = getNextReg()
-            output = output + "  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n"
-            output = output + "  store ptr null, ptr " + dataPtr + "\n"
+            output.append("  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n")
+            output.append("  store ptr null, ptr " + dataPtr + "\n")
             // Load the array structure
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = load %SeenArray, ptr " + ptrReg + ", align 8\n"
+            output.append("  " + resultReg + " = load %SeenArray, ptr " + ptrReg + ", align 8\n")
             return resultReg
+        }
+
+        // Special case: super() parent constructor call - no-op for now
+        // (inheritance not fully supported in Stage1 IR generator)
+        if funcName == "super" or funcName == "" {
+            // Just evaluate arguments for side effects, but don't generate a call
+            var i = 0
+            while i < expr.arguments.length() {
+                generateExpression(expr.arguments[i])
+                i = i + 1
+            }
+            return "0"  // super() returns nothing meaningful
         }
 
         // Special case: println
         if funcName == "println" {
             if expr.arguments.length() > 0 {
                 let argReg = generateExpression(expr.arguments[0])
-                output = output + "  call void @println(%SeenString " + argReg + ")\n"
+                output.append("  call void @println(%SeenString " + argReg + ")\n")
             }
             return "0"
         }
@@ -1886,7 +2159,7 @@ class LLVMIRGenerator {
             if expr.arguments.length() > 0 {
                 let argReg = generateExpression(expr.arguments[0])
                 let resultReg = getNextReg()
-                output = output + "  " + resultReg + " = call %SeenString @readText(%SeenString " + argReg + ")\n"
+                output.append("  " + resultReg + " = call %SeenString @readText(%SeenString " + argReg + ")\n")
                 return resultReg
             }
             return "0"
@@ -1898,7 +2171,7 @@ class LLVMIRGenerator {
                 let pathReg = generateExpression(expr.arguments[0])
                 let contentReg = generateExpression(expr.arguments[1])
                 let resultReg = getNextReg()
-                output = output + "  " + resultReg + " = call i1 @writeText(%SeenString " + pathReg + ", %SeenString " + contentReg + ")\n"
+                output.append("  " + resultReg + " = call i1 @writeText(%SeenString " + pathReg + ", %SeenString " + contentReg + ")\n")
                 return resultReg
             }
             return "0"
@@ -1907,12 +2180,63 @@ class LLVMIRGenerator {
         // Special case: args() uses sret for struct > 16 bytes
         if funcName == "args" {
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = alloca %SeenArray, align 8\n"
-            output = output + "  call void @args(ptr sret(%SeenArray) align 8 " + resultReg + ")\n"
+            output.append("  " + resultReg + " = alloca %SeenArray, align 8\n")
+            output.append("  call void @args(ptr sret(%SeenArray) align 8 " + resultReg + ")\n")
             // Load the result from the alloca
             let loadReg = getNextReg()
-            output = output + "  " + loadReg + " = load %SeenArray, ptr " + resultReg + ", align 8\n"
+            output.append("  " + loadReg + " = load %SeenArray, ptr " + resultReg + ", align 8\n")
             return loadReg
+        }
+
+        // Check if this is a method call on the current class (implicit this)
+        // This handles calls like foo(x) inside a class method when foo is a method of the same class
+        let thisIdx = findVar("this")
+        if thisIdx >= 0 {
+            let thisType = varTypes[thisIdx]
+            // Check if the function is a method of the current class
+            let methodRetType = getMethodReturnType(thisType, funcName)
+            if methodRetType != "" {
+                // This is an implicit this.method() call
+                let thisReg = varRegs[thisIdx]
+                var argRegs = Array<String>()
+                var argTypeStrs = Array<String>()
+                var argIdx = 0
+                while argIdx < expr.arguments.length() {
+                    let argReg = generateExpression(expr.arguments[argIdx])
+                    let argType = inferExpressionType(expr.arguments[argIdx])
+                    argRegs.push(argReg)
+                    argTypeStrs.push(mapType(argType))
+                    argIdx = argIdx + 1
+                }
+
+                let methodFuncName = thisType + "_" + funcName
+                let llvmReturnType = mapType(methodRetType)
+
+                // Load this pointer
+                let thisPtrReg = getNextReg()
+                output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+
+                if llvmReturnType == "void" {
+                    output.append("  call void @" + methodFuncName + "(ptr " + thisPtrReg)
+                    argIdx = 0
+                    while argIdx < argRegs.length() {
+                        output.append(", " + argTypeStrs[argIdx] + " " + argRegs[argIdx])
+                        argIdx = argIdx + 1
+                    }
+                    output.append(")\n")
+                    return "0"
+                }
+
+                let resultReg = getNextReg()
+                output.append("  " + resultReg + " = call " + llvmReturnType + " @" + methodFuncName + "(ptr " + thisPtrReg)
+                argIdx = 0
+                while argIdx < argRegs.length() {
+                    output.append(", " + argTypeStrs[argIdx] + " " + argRegs[argIdx])
+                    argIdx = argIdx + 1
+                }
+                output.append(")\n")
+                return resultReg
+            }
         }
 
         // Generic function call - generate args first, then result reg
@@ -1933,34 +2257,34 @@ class LLVMIRGenerator {
 
         // For void functions, don't assign result
         if llvmReturnType == "void" {
-            output = output + "  call void @" + funcName + "("
+            output.append("  call void @" + funcName + "(")
 
             argIdx = 0
             while argIdx < argRegs.length() {
                 if argIdx > 0 {
-                    output = output + ", "
+                    output.append(", ")
                 }
-                output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+                output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
                 argIdx = argIdx + 1
             }
 
-            output = output + ")\n"
+            output.append(")\n")
             return "0"  // No result for void functions
         }
 
         let resultReg = getNextReg()
-        output = output + "  " + resultReg + " = call " + llvmReturnType + " @" + funcName + "("
+        output.append("  " + resultReg + " = call " + llvmReturnType + " @" + funcName + "(")
 
         argIdx = 0
         while argIdx < argRegs.length() {
             if argIdx > 0 {
-                output = output + ", "
+                output.append(", ")
             }
-            output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+            output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
             argIdx = argIdx + 1
         }
 
-        output = output + ")\n"
+        output.append(")\n")
         return resultReg
     }
 
@@ -2001,7 +2325,7 @@ class LLVMIRGenerator {
 
                 // Load the struct pointer
                 let ptrReg = getNextReg()
-                output = output + "  " + ptrReg + " = load ptr, ptr " + varReg + "\n"
+                output.append("  " + ptrReg + " = load ptr, ptr " + varReg + "\n")
 
                 // Generate field access
                 receiverReg = generateFieldAccess(ptrReg, varType, fieldName)
@@ -2040,7 +2364,7 @@ class LLVMIRGenerator {
                 let llvmType = mapType(varType)
                 receiverReg = getNextReg()
                 receiverType = varType
-                output = output + "  " + receiverReg + " = load " + llvmType + ", ptr " + varReg + "\n"
+                output.append("  " + receiverReg + " = load " + llvmType + ", ptr " + varReg + "\n")
             } else {
                 // Variable not found - check if 'this' exists and varName is a field
                 let thisIdx = findVar("this")
@@ -2050,38 +2374,105 @@ class LLVMIRGenerator {
 
                     // Check if this type has the field
                     let structIdx = findStruct(thisType)
-                    output = output + "; DEBUG methodCall: varName=" + varName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n"
+                    output.append("; DEBUG methodCall: varName=" + varName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n")
                     if structIdx >= 0 {
                         let fieldIdx = getFieldInfo(thisType, varName)
-                        output = output + "; DEBUG fieldIdx=" + fieldIdx.toString() + "\n"
+                        output.append("; DEBUG fieldIdx=" + fieldIdx.toString() + "\n")
                         if fieldIdx >= 0 {
                             // Load 'this' pointer
                             let thisPtrReg = getNextReg()
-                            output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
                             // Access the field
                             receiverReg = generateFieldAccess(thisPtrReg, thisType, varName)
-                            output = output + "; DEBUG after generateFieldAccess: receiverReg=" + receiverReg + "\n"
+                            output.append("; DEBUG after generateFieldAccess: receiverReg=" + receiverReg + "\n")
                             // Infer receiver type from field
                             receiverType = getSeenFieldType(thisType, varName)
-                            output = output + "; DEBUG receiverType=" + receiverType + "\n"
+                            output.append("; DEBUG receiverType=" + receiverType + "\n")
                         }
                     } else {
                         // Fallback: hardcoded field access for well-known fields
                         // SeenLexer.keywordManager is at index 4
-                        output = output + "; DEBUG: thisType=" + thisType + " varName=" + varName + "\n"
+                        output.append("; DEBUG: thisType=" + thisType + " varName=" + varName + "\n")
                         if thisType == "SeenLexer" and varName == "keywordManager" {
-                            output = output + "; DEBUG: Matched SeenLexer.keywordManager!\n"
+                            output.append("; DEBUG: Matched SeenLexer.keywordManager!\n")
                             let thisPtrReg = getNextReg()
-                            output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
                             let gepReg = getNextReg()
-                            output = output + "  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n"
+                            output.append("  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n")
                             receiverReg = getNextReg()
-                            output = output + "  " + receiverReg + " = load ptr, ptr " + gepReg + "\n"
+                            output.append("  " + receiverReg + " = load ptr, ptr " + gepReg + "\n")
                             receiverType = "KeywordManager"
-                            output = output + "; DEBUG: receiverReg=" + receiverReg + " receiverType=" + receiverType + "\n"
+                            output.append("; DEBUG: receiverReg=" + receiverReg + " receiverType=" + receiverType + "\n")
                         }
                     }
                 }
+            }
+        }
+
+        // Check if this is a static method call BEFORE setting receiver fallback
+        // Static method call: ClassName.method() where ClassName is not a variable
+        // Class names use PascalCase (start with uppercase letter)
+        if receiverReg == "" and expr.literalValue != "" {
+            var potentialClassName = expr.literalValue
+            // Strip generic type parameters: Map<K, V> -> Map
+            var ltIdx = 0
+            var i = 0
+            while i < potentialClassName.length() {
+                let ch = potentialClassName.substring(i, i + 1)
+                if ch == "<" {
+                    ltIdx = i
+                    i = potentialClassName.length()  // break
+                }
+                i = i + 1
+            }
+            if ltIdx > 0 {
+                potentialClassName = potentialClassName.substring(0, ltIdx)
+            }
+            let firstChar = potentialClassName.substring(0, 1)
+            // Check if it starts with uppercase (A-Z) and is not a known variable
+            let isUppercase = firstChar >= "A" and firstChar <= "Z"
+            if isUppercase and findVar(potentialClassName) < 0 {
+                // This is a static method call
+                let funcName = potentialClassName + "_" + methodName
+
+                // Generate arguments
+                var staticArgRegs = Array<String>()
+                var staticArgTypeStrs = Array<String>()
+                var staticArgIdx = 0
+                while staticArgIdx < expr.arguments.length() {
+                    let argReg = generateExpression(expr.arguments[staticArgIdx])
+                    let argType = inferExpressionType(expr.arguments[staticArgIdx])
+                    staticArgRegs.push(argReg)
+                    staticArgTypeStrs.push(mapType(argType))
+                    staticArgIdx = staticArgIdx + 1
+                }
+
+                let resultReg = getNextReg()
+                output.append("  " + resultReg + " = call ptr @" + funcName + "(")
+
+                staticArgIdx = 0
+                while staticArgIdx < staticArgRegs.length() {
+                    if staticArgIdx > 0 {
+                        output.append(", ")
+                    }
+                    output.append(staticArgTypeStrs[staticArgIdx] + " " + staticArgRegs[staticArgIdx])
+                    staticArgIdx = staticArgIdx + 1
+                }
+
+                output.append(")\n")
+                return resultReg
+            }
+        }
+
+        // If receiver couldn't be resolved, use default value based on inferred type
+        if receiverReg == "" {
+            output.append("; WARNING: receiver not resolved for " + methodName + ", using default\n")
+            if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
+                receiverReg = "0"
+            } else if receiverType == "Bool" {
+                receiverReg = "false"
+            } else {
+                receiverReg = "0"  // Generic fallback for i64 operations
             }
         }
 
@@ -2091,54 +2482,74 @@ class LLVMIRGenerator {
             if receiverType.startsWith("Array<") or receiverType == "Array" {
                 // For byval, store array in alloca and pass pointer
                 let arrayPtrReg = getNextReg()
-                output = output + "  " + arrayPtrReg + " = alloca %SeenArray, align 8\n"
-                output = output + "  store %SeenArray " + receiverReg + ", ptr " + arrayPtrReg + ", align 8\n"
+                output.append("  " + arrayPtrReg + " = alloca %SeenArray, align 8\n")
+                output.append("  store %SeenArray " + receiverReg + ", ptr " + arrayPtrReg + ", align 8\n")
                 let resultReg = getNextReg()
-                output = output + "  " + resultReg + " = call i64 @seen_arr_length(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ")\n"
+                output.append("  " + resultReg + " = call i64 @seen_arr_length(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ")\n")
                 return resultReg
             } else {
                 let resultReg = getNextReg()
-                output = output + "  " + resultReg + " = call i64 @seen_length(%SeenString " + receiverReg + ")\n"
+                output.append("  " + resultReg + " = call i64 @seen_length(%SeenString " + receiverReg + ")\n")
                 return resultReg
             }
         } else if methodName == "toString" {
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call %SeenString @seen_int_to_string(i64 " + receiverReg + ")\n"
+            if receiverType == "StringBuilder" {
+                output.append("  " + resultReg + " = call %SeenString @StringBuilder_toString(ptr " + receiverReg + ")\n")
+            } else if receiverType == "Bool" {
+                // Bool.toString() - convert i1 to string
+                output.append("  " + resultReg + " = call %SeenString @seen_bool_to_string(i1 " + receiverReg + ")\n")
+            } else if receiverType == "Char" {
+                output.append("  " + resultReg + " = call %SeenString @seen_char_to_str(i64 " + receiverReg + ")\n")
+            } else {
+                // Default: Int.toString()
+                output.append("  " + resultReg + " = call %SeenString @seen_int_to_string(i64 " + receiverReg + ")\n")
+            }
             return resultReg
         } else if methodName == "startsWith" {
             let argReg = generateExpression(expr.arguments[0])
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call i1 @startsWith(%SeenString " + receiverReg + ", %SeenString " + argReg + ")\n"
+            output.append("  " + resultReg + " = call i1 @startsWith(%SeenString " + receiverReg + ", %SeenString " + argReg + ")\n")
             return resultReg
         } else if methodName == "endsWith" {
             let argReg = generateExpression(expr.arguments[0])
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call i1 @endsWith(%SeenString " + receiverReg + ", %SeenString " + argReg + ")\n"
+            output.append("  " + resultReg + " = call i1 @endsWith(%SeenString " + receiverReg + ", %SeenString " + argReg + ")\n")
             return resultReg
         } else if methodName == "contains" {
             let argReg = generateExpression(expr.arguments[0])
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call i1 @contains(%SeenString " + receiverReg + ", %SeenString " + argReg + ")\n"
+            output.append("  " + resultReg + " = call i1 @contains(%SeenString " + receiverReg + ", %SeenString " + argReg + ")\n")
             return resultReg
         } else if methodName == "trim" {
+            // Check if this is a class method call (receiver is not a String)
+            if receiverType != "String" and receiverType != "" {
+                // This is a class method like KeywordManager.trim(s)
+                let funcName = receiverType + "_trim"
+                let argReg = generateExpression(expr.arguments[0])
+                let resultReg = getNextReg()
+                output.append("  " + resultReg + " = call %SeenString @" + funcName + "(ptr " + receiverReg + ", %SeenString " + argReg + ")\n")
+                return resultReg
+            }
+            // String method - no arguments, trim whitespace from string itself
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call %SeenString @trim(%SeenString " + receiverReg + ")\n"
+            output.append("  " + resultReg + " = call %SeenString @trim(%SeenString " + receiverReg + ")\n")
             return resultReg
         } else if methodName == "substring" {
             let startReg = generateExpression(expr.arguments[0])
             let endReg = generateExpression(expr.arguments[1])
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call %SeenString @seen_substring(%SeenString " + receiverReg + ", i64 " + startReg + ", i64 " + endReg + ")\n"
+            output.append("  " + resultReg + " = call %SeenString @seen_substring(%SeenString " + receiverReg + ", i64 " + startReg + ", i64 " + endReg + ")\n")
             return resultReg
         } else if methodName == "charAt" {
             let indexReg = generateExpression(expr.arguments[0])
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverReg + ", i64 " + indexReg + ")\n"
+            output.append("  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverReg + ", i64 " + indexReg + ")\n")
             return resultReg
         } else if methodName == "charCodeAt" {
             let indexReg = generateExpression(expr.arguments[0])
             let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverReg + ", i64 " + indexReg + ")\n"
+            output.append("  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverReg + ", i64 " + indexReg + ")\n")
             return resultReg
         } else if methodName == "push" {
             // push needs pointer to array to modify in place
@@ -2168,7 +2579,7 @@ class LLVMIRGenerator {
                             if fieldIdx >= 0 {
                                 // Load 'this' pointer and get field pointer
                                 let thisPtrReg = getNextReg()
-                                output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                                output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
                                 arrayPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
                             }
                         }
@@ -2179,20 +2590,24 @@ class LLVMIRGenerator {
             // Fall back to alloca if we still don't have a pointer
             if arrayPtrReg == "" and (receiverType.startsWith("Array<") or receiverType == "Array") {
                 arrayPtrReg = getNextReg()
-                output = output + "  " + arrayPtrReg + " = alloca %SeenArray, align 8\n"
-                output = output + "  store %SeenArray " + receiverReg + ", ptr " + arrayPtrReg + ", align 8\n"
+                output.append("  " + arrayPtrReg + " = alloca %SeenArray, align 8\n")
+                output.append("  store %SeenArray " + receiverReg + ", ptr " + arrayPtrReg + ", align 8\n")
             }
 
             if arrayPtrReg != "" {
                 // Use type-specific push function for correct ABI
                 if argType == "String" {
                     // For strings, use seen_arr_push_str which takes SeenString by value
-                    output = output + "  call void @seen_arr_push_str(ptr " + arrayPtrReg + ", %SeenString " + argReg + ")\n"
+                    output.append("  call void @seen_arr_push_str(ptr " + arrayPtrReg + ", %SeenString " + argReg + ")\n")
                     return "0"  // void return
                 } else {
                     // For pointer types, use Array_push
+                    var ptrArgReg = argReg
+                    if ptrArgReg == "0" {
+                        ptrArgReg = "null"  // Convert 0 to null for pointer types
+                    }
                     let resultReg = getNextReg()
-                    output = output + "  " + resultReg + " = call i64 @Array_push(ptr " + arrayPtrReg + ", ptr " + argReg + ")\n"
+                    output.append("  " + resultReg + " = call i64 @Array_push(ptr " + arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
                     return resultReg
                 }
             }
@@ -2221,18 +2636,18 @@ class LLVMIRGenerator {
 
             let resultReg = getNextReg()
             // Static methods like .new() return a pointer to the struct
-            output = output + "  " + resultReg + " = call ptr @" + funcName + "("
+            output.append("  " + resultReg + " = call ptr @" + funcName + "(")
 
             argIdx = 0
             while argIdx < argRegs.length() {
                 if argIdx > 0 {
-                    output = output + ", "
+                    output.append(", ")
                 }
-                output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+                output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
                 argIdx = argIdx + 1
             }
 
-            output = output + ")\n"
+            output.append(")\n")
             return resultReg
         }
 
@@ -2277,30 +2692,30 @@ class LLVMIRGenerator {
 
         // Handle void return type - don't assign to a register
         if llvmReturnType == "void" {
-            output = output + "  call void @" + funcName + "(" + receiverLlvmType + " " + receiverReg
+            output.append("  call void @" + funcName + "(" + receiverLlvmType + " " + receiverReg)
 
             argIdx = 0
             while argIdx < argRegs.length() {
-                output = output + ", "
-                output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+                output.append(", ")
+                output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
                 argIdx = argIdx + 1
             }
 
-            output = output + ")\n"
+            output.append(")\n")
             return "0"  // Void calls return nothing
         }
 
         let resultReg = getNextReg()
-        output = output + "  " + resultReg + " = call " + llvmReturnType + " @" + funcName + "(" + receiverLlvmType + " " + receiverReg
+        output.append("  " + resultReg + " = call " + llvmReturnType + " @" + funcName + "(" + receiverLlvmType + " " + receiverReg)
 
         argIdx = 0
         while argIdx < argRegs.length() {
-            output = output + ", "
-            output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+            output.append(", ")
+            output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
             argIdx = argIdx + 1
         }
 
-        output = output + ")\n"
+        output.append(")\n")
         return resultReg
     }
 
@@ -2309,9 +2724,9 @@ class LLVMIRGenerator {
         let resultReg = getNextReg()
 
         if expr.operator == "-" {
-            output = output + "  " + resultReg + " = sub i64 0, " + operandReg + "\n"
+            output.append("  " + resultReg + " = sub i64 0, " + operandReg + "\n")
         } else if expr.operator == "not" or expr.operator == "!" {
-            output = output + "  " + resultReg + " = xor i1 " + operandReg + ", 1\n"
+            output.append("  " + resultReg + " = xor i1 " + operandReg + ", 1\n")
         }
 
         return resultReg
@@ -2345,6 +2760,10 @@ class LLVMIRGenerator {
             return "double"
         } else if seenType == "Void" or seenType == "" {
             return "void"
+        }
+        // Enums are represented as i64
+        if seenType == "SeenTokenType" {
+            return "i64"
         }
         // Class/struct types are stored as pointers
         // Known class types that return structs/pointers
@@ -2416,11 +2835,11 @@ class LLVMIRGenerator {
                 return "Char"
             } else if expr.callee == "toString" or expr.callee == "substring" or expr.callee == "trim" or expr.callee == "generate" or expr.callee == "generateMultiple" {
                 return "String"
-            } else if expr.callee == "startsWith" or expr.callee == "endsWith" or expr.callee == "contains" or expr.callee == "success" or expr.callee == "isDynamic" or expr.callee == "isKeyword" or expr.callee == "hasTranslation" {
+            } else if expr.callee == "startsWith" or expr.callee == "endsWith" or expr.callee == "contains" or expr.callee == "success" or expr.callee == "isDynamic" or expr.callee == "isKeyword" or expr.callee == "hasTranslation" or expr.callee == "containsKey" or expr.callee == "containsValue" {
                 return "Bool"
             } else if expr.callee == "getDiagnostics" {
                 return "Array<FrontendDiagnostic>"
-            } else if expr.callee == "getSources" or expr.callee == "getKeywordSources" {
+            } else if expr.callee == "getSources" or expr.callee == "getKeywordSources" or expr.callee == "keys" or expr.callee == "values" or expr.callee == "split" {
                 return "Array<String>"
             } else if expr.callee == "getKeywordCount" {
                 return "Int"
@@ -2471,6 +2890,23 @@ class LLVMIRGenerator {
                 return "Array<String>"
             } else if expr.callee == "printUsage" or expr.callee == "printFrontendDiagnostics" {
                 return "Void"
+            // String utility functions from string.seen
+            } else if expr.callee == "trim" or expr.callee == "trimStart" or expr.callee == "trimEnd" {
+                return "String"
+            } else if expr.callee == "split" or expr.callee == "lines" or expr.callee == "words" {
+                return "Array<String>"
+            } else if expr.callee == "isBlank" or expr.callee == "isWhitespace" or expr.callee == "startsWith" or expr.callee == "endsWith" or expr.callee == "contains" {
+                return "Bool"
+            } else if expr.callee == "indexOf" or expr.callee == "lastIndexOf" {
+                return "Int"
+            } else if expr.callee == "padStart" or expr.callee == "padEnd" or expr.callee == "repeat" or expr.callee == "join" {
+                return "String"
+            } else if expr.callee == "replaceFirst" or expr.callee == "replaceAll" or expr.callee == "replace" {
+                return "String"
+            } else if expr.callee == "removePrefix" or expr.callee == "removeSuffix" {
+                return "String"
+            } else if expr.callee == "ensurePrefix" or expr.callee == "ensureSuffix" {
+                return "String"
             }
         } else if expr.kind == "MemberAccess" {
             // Field access - infer type from known fields
