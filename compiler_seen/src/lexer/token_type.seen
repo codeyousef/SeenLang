@@ -2,6 +2,7 @@ enum SeenTokenType {
     IntegerLiteral,
     FloatLiteral,
     StringLiteral,
+    CharLiteral,
     BooleanLiteral,
     KeywordFalse,
     Identifier,

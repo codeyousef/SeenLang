@@ -66,7 +66,13 @@ class SeenLexer {
                 this.handleStringLiteral()
                 continue
             }
-            
+
+            // Handle character literals (single-quoted)
+            if char == '\'' {
+                this.handleCharLiteral()
+                continue
+            }
+
             // Handle numeric literals
             if this.isDigit(char) {
                 this.handleNumericLiteral()
@@ -255,15 +261,34 @@ class SeenLexer {
                 value = value + this.handleEscapeSequence(escaped)
                 this.advance()
             } else if char == '{' and !this.isInInterpolation() {
-                // Check for string interpolation
-                hasInterpolation = true
-                break
+                // Check for escaped brace {{ -> {
+                this.advance()
+                if position < source.length() and this.getCurrentChar() == '{' {
+                    // Escaped brace - add single { to value
+                    value = value + "{"
+                    this.advance()
+                } else {
+                    // Start of string interpolation
+                    hasInterpolation = true
+                    break
+                }
+            } else if char == '}' {
+                // Check for escaped brace }} -> }
+                this.advance()
+                if position < source.length() and this.getCurrentChar() == '}' {
+                    // Escaped brace - add single } to value
+                    value = value + "}"
+                    this.advance()
+                } else {
+                    // Single } - just add it
+                    value = value + "}"
+                }
             } else {
                 value = value + char.toString()
                 this.advance()
             }
         }
-        
+
         if hasInterpolation {
             this.handleInterpolatedString(startPos)
             return
@@ -278,15 +303,50 @@ class SeenLexer {
         let length = position - startPos
         this.emitToken(SeenTokenType.StringLiteral, value, length)
     }
-    
+
+    fun handleCharLiteral() r: Void {
+        let startPos = position
+        this.advance() // Skip opening single quote
+
+        var value = ""
+        if position < source.length() {
+            let char = this.getCurrentChar()
+            let charStr = char.toString()
+            if charStr == "\\" {
+                // Handle escape sequences
+                this.advance()
+                let escaped = this.getCurrentChar()
+                value = this.handleEscapeSequence(escaped)
+                this.advance()
+            } else {
+                value = charStr
+                this.advance()
+            }
+        }
+
+        // Consume closing single quote
+        let closingChar = this.getCurrentChar().toString()
+        if closingChar == "'" {
+            this.advance()
+        } else {
+            throw LexerError.new("Unterminated character literal", this.getCurrentPosition(), "")
+        }
+
+        let length = position - startPos
+        // Emit as a character literal
+        this.emitToken(SeenTokenType.CharLiteral, value, length)
+    }
+
     fun handleEscapeSequence(char: Char) r: String {
-        if char == 'n' { return "\n" }
-        if char == 't' { return "\t" }
-        if char == 'r' { return "\r" }
-        if char == '\\' { return "\\" }
-        if char == '"' { return "\"" }
-        if char == '0' { return "\u{0000}" }
-        return char.toString()
+        let c = char.toString()
+        if c == "n" { return "\n" }
+        if c == "t" { return "\t" }
+        if c == "r" { return "\r" }
+        if c == "\\" { return "\\" }
+        if c == "\"" { return "\"" }
+        if c == "'" { return "'" }
+        if c == "0" { return "" }  // Null character - simplified for bootstrap
+        return c
     }
     
     fun isInInterpolation() r: Bool {
@@ -440,7 +500,10 @@ class SeenLexer {
         }
         
         let length = position - startPos
-        let tokenType = if isFloat { SeenTokenType.FloatLiteral } else { SeenTokenType.IntegerLiteral }
+        var tokenType = SeenTokenType.IntegerLiteral
+        if isFloat {
+            tokenType = SeenTokenType.FloatLiteral
+        }
         this.emitToken(tokenType, value, length)
     }
     
@@ -568,6 +631,7 @@ class SeenLexer {
         if char == '<' { return SeenTokenType.LessThan }
         if char == '>' { return SeenTokenType.GreaterThan }
         if char == '?' { return SeenTokenType.Question }
+        if char == '!' { return SeenTokenType.LogicalNot }
         return SeenTokenType.None
     }
     

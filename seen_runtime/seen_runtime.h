@@ -68,10 +68,8 @@ static inline SeenString seen_str_copy(const char* s) {
 int64_t seen_str_length(SeenString s);
 int64_t seen_length(SeenString s);  // For LLVM backend
 
-// Array length
-static inline int64_t seen_arr_length(SeenArray a) {
-    return a.len;
-}
+// Array length (declared here, implemented in .c for LLVM linking)
+int64_t seen_arr_length(SeenArray a);
 
 // Generic length macro for C code
 #define seen_length_generic(x) _Generic((x), \
@@ -98,11 +96,9 @@ static inline bool seen_str_eq(SeenString a, const char* b) {
     return memcmp(a.data, b, blen) == 0;
 }
 
-// String equality (SeenString == SeenString)
-static inline bool seen_str_eq_ss(SeenString a, SeenString b) {
-    if (a.len != b.len) return false;
-    return memcmp(a.data, b.data, a.len) == 0;
-}
+// String equality (SeenString == SeenString) - exported for LLVM backend
+bool seen_str_eq_ss(SeenString a, SeenString b);
+bool seen_str_ne_ss(SeenString a, SeenString b);
 
 // Check if string ends with suffix
 static inline bool seen_ends_with(SeenString s, const char* suffix) {
@@ -124,6 +120,19 @@ SeenString seen_substring(SeenString s, int64_t start, int64_t end);
 // Integer to string
 SeenString seen_int_to_string(int64_t n);
 
+// Char (Unicode code point) to string
+SeenString seen_char_to_str(int64_t c);
+
+// Get character at index (returns code point)
+int64_t seen_char_at(SeenString s, int64_t index);
+
+// Char to Int conversion (identity since Char is stored as i64)
+int64_t Char_toInt(int64_t c);
+
+// Unwrap functions for optional types
+int64_t Int_unwrap(int64_t val);
+void* Optional_unwrap(void* ptr);
+
 // Alias for compatibility
 static inline char* seen_to_string(int64_t n) {
     char* buf = (char*)malloc(32);
@@ -143,41 +152,29 @@ static inline bool seen_contains(SeenString s, const char* needle) {
 }
 
 // ============================================================================
-// Array Functions
+// Array Functions (exported for LLVM linking)
 // ============================================================================
 
 // Get string from array
-static inline SeenString seen_arr_get_str(SeenArray a, int64_t idx) {
-    if (idx < 0 || idx >= a.len) {
-        SeenString empty = { 0, "" };
-        return empty;
-    }
-    return ((SeenString*)a.data)[idx];
-}
+SeenString seen_arr_get_str(SeenArray a, int64_t idx);
 
 // Create empty string array
-static inline SeenArray seen_arr_new_str(void) {
-    SeenArray arr = { 0, 8, malloc(8 * sizeof(SeenString)) };
-    return arr;
-}
+SeenArray seen_arr_new_str(void);
 
 // Push string to array
-static inline void seen_arr_push_str(SeenArray* arr, SeenString s) {
-    if (arr->len >= arr->cap) {
-        arr->cap *= 2;
-        arr->data = realloc(arr->data, arr->cap * sizeof(SeenString));
-    }
-    ((SeenString*)arr->data)[arr->len++] = s;
-}
+void seen_arr_push_str(SeenArray* arr, SeenString s);
+
+// Generic push for pointer types
+void seen_arr_push_ptr(SeenArray* arr, void* p);
+
+// Generic Array_push (for generated code)
+int64_t Array_push(SeenArray* arr, void* element);
 
 // Get FrontendDiagnostic from array
-static inline FrontendDiagnostic seen_arr_get_diag(SeenArray a, int64_t idx) {
-    if (idx < 0 || idx >= a.len) {
-        FrontendDiagnostic empty = { { 0, "" }, { 0, "" }, 0, 0, { 0, "" } };
-        return empty;
-    }
-    return ((FrontendDiagnostic*)a.data)[idx];
-}
+FrontendDiagnostic seen_arr_get_diag(SeenArray a, int64_t idx);
+
+// Generic get for pointer types
+void* seen_arr_get_ptr(SeenArray a, int64_t idx);
 
 // ============================================================================
 // Print Functions

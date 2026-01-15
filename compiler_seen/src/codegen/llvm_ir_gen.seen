@@ -1,7 +1,7 @@
 // LLVM IR Generator - Generates LLVM IR text from ProgramNode
 // This replaces the C generator for Stage1 compilation
 
-import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode}
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode}
 
 class LLVMIRGenerator {
     var output: String
@@ -13,6 +13,19 @@ class LLVMIRGenerator {
     var varRegs: Array<String>
     var varTypes: Array<String>
     var indent: Int
+    // Struct layout registry - parallel arrays for struct info
+    var structNames: Array<String>        // Struct/class names
+    var structLayouts: Array<String>      // LLVM struct layout strings
+    var structFieldNames: Array<String>   // Comma-separated field names
+    var structFieldTypes: Array<String>   // Comma-separated field type names
+    var structSizes: Array<Int>           // Struct sizes in bytes
+    var structMethodNames: Array<String>  // Comma-separated method names
+    var structMethodRetTypes: Array<String> // Comma-separated method return types
+    // Function registry - track user-defined function return types
+    var funcNames: Array<String>           // Function names
+    var funcRetTypes: Array<String>        // Function return types
+    // Current function context
+    var currentFunctionReturnType: String
 
     static fun new() r: LLVMIRGenerator {
         return LLVMIRGenerator{
@@ -23,8 +36,82 @@ class LLVMIRGenerator {
             varNames: Array<String>(),
             varRegs: Array<String>(),
             varTypes: Array<String>(),
-            indent: 0
+            indent: 0,
+            structNames: Array<String>(),
+            structLayouts: Array<String>(),
+            structFieldNames: Array<String>(),
+            structFieldTypes: Array<String>(),
+            structSizes: Array<Int>(),
+            structMethodNames: Array<String>(),
+            structMethodRetTypes: Array<String>(),
+            funcNames: Array<String>(),
+            funcRetTypes: Array<String>(),
+            currentFunctionReturnType: ""
         }
+    }
+
+    // Register a user-defined function's return type
+    fun registerFunction(name: String, retType: String) r: Void {
+        funcNames.push(name)
+        funcRetTypes.push(retType)
+    }
+
+    // Look up a user-defined function's return type
+    fun getFunctionReturnType(name: String) r: String {
+        let len = funcNames.length()
+        var i = 0
+        while i < len {
+            let current = funcNames[i]
+            if current == name {
+                return funcRetTypes[i]
+            }
+            i = i + 1
+        }
+        return ""  // Not found
+    }
+
+    // Convert a hex string value (like "0x00C0") to decimal string
+    fun hexToDecimal(value: String) r: String {
+        let len = value.length()
+        if len < 3 {
+            return value  // Too short to be hex
+        }
+        // Check for 0x or 0X prefix
+        let firstChar = value.substring(0, 1)
+        let secondChar = value.substring(1, 2)
+        if firstChar != "0" {
+            return value  // Not hex
+        }
+        if secondChar != "x" and secondChar != "X" {
+            return value  // Not hex
+        }
+
+        // Parse hex digits
+        var result = 0
+        var i = 2
+        while i < len {
+            let c = value.substring(i, i + 1)
+            var digit = 0
+            if c == "0" { digit = 0 }
+            else if c == "1" { digit = 1 }
+            else if c == "2" { digit = 2 }
+            else if c == "3" { digit = 3 }
+            else if c == "4" { digit = 4 }
+            else if c == "5" { digit = 5 }
+            else if c == "6" { digit = 6 }
+            else if c == "7" { digit = 7 }
+            else if c == "8" { digit = 8 }
+            else if c == "9" { digit = 9 }
+            else if c == "a" or c == "A" { digit = 10 }
+            else if c == "b" or c == "B" { digit = 11 }
+            else if c == "c" or c == "C" { digit = 12 }
+            else if c == "d" or c == "D" { digit = 13 }
+            else if c == "e" or c == "E" { digit = 14 }
+            else if c == "f" or c == "F" { digit = 15 }
+            result = result * 16 + digit
+            i = i + 1
+        }
+        return result.toString()
     }
 
     // Helper to store variable
@@ -48,15 +135,322 @@ class LLVMIRGenerator {
         return -1
     }
 
+    // Helper to find struct layout index
+    fun findStruct(name: String) r: Int {
+        let len = structNames.length()
+        var i = 0
+        while i < len {
+            if structNames[i] == name {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    // Get size of a Seen type in bytes
+    fun getTypeSize(typeName: String) r: Int {
+        if typeName == "Int" {
+            return 8
+        } else if typeName == "Bool" or typeName == "Boolean" {
+            return 1  // But aligned to 8 in structs typically
+        } else if typeName == "Float" {
+            return 8
+        } else if typeName == "String" {
+            return 16  // %SeenString = { i64, ptr } = 8 + 8
+        } else if typeName.startsWith("Array<") {
+            return 24  // %SeenArray = { i64, i64, ptr } = 8 + 8 + 8
+        }
+        // All other types (classes, structs) are pointers = 8 bytes
+        return 8
+    }
+
+    // Register a struct layout from a ClassNode
+    fun registerStructLayout(classNode: ClassNode) r: Void {
+        // Check if already registered
+        if findStruct(classNode.name) >= 0 {
+            return
+        }
+
+        // Build the layout from fields
+        var layout = "{ "
+        var fieldNames = ""
+        var fieldTypes = ""
+        var totalSize = 0
+
+        var i = 0
+        while i < classNode.fields.length() {
+            if i > 0 {
+                layout = layout + ", "
+                fieldNames = fieldNames + ","
+                fieldTypes = fieldTypes + ","
+            }
+            let field = classNode.fields[i]
+            let fieldType = field.paramType.typeName
+            let llvmType = mapType(fieldType)
+
+            layout = layout + llvmType
+            fieldNames = fieldNames + field.name
+            fieldTypes = fieldTypes + fieldType
+            totalSize = totalSize + getTypeSize(fieldType)
+
+            i = i + 1
+        }
+
+        layout = layout + " }"
+
+        // Collect method signatures
+        var methodNames = ""
+        var methodRetTypes = ""
+        var mi = 0
+        while mi < classNode.methods.length() {
+            if mi > 0 {
+                methodNames = methodNames + ","
+                methodRetTypes = methodRetTypes + ","
+            }
+            let method = classNode.methods[mi]
+            methodNames = methodNames + method.name
+            methodRetTypes = methodRetTypes + method.returnType.typeName
+            mi = mi + 1
+        }
+
+        // Store in registry
+        structNames.push(classNode.name)
+        structLayouts.push(layout)
+        structFieldNames.push(fieldNames)
+        structFieldTypes.push(fieldTypes)
+        structSizes.push(totalSize)
+        structMethodNames.push(methodNames)
+        structMethodRetTypes.push(methodRetTypes)
+    }
+
+    // Get field index and type from registered struct
+    fun getFieldInfo(structName: String, fieldName: String) r: Int {
+        let idx = findStruct(structName)
+        if idx < 0 {
+            return -1  // Struct not found
+        }
+
+        let fieldNamesStr = structFieldNames[idx]
+        // Parse comma-separated field names to find index
+        var fieldIdx = 0
+        var start = 0
+        var pos = 0
+        while pos <= fieldNamesStr.length() {
+            var c = ""
+            if pos < fieldNamesStr.length() {
+                c = fieldNamesStr.substring(pos, pos + 1)
+            }
+            if c == "," or pos == fieldNamesStr.length() {
+                let name = fieldNamesStr.substring(start, pos)
+                if name == fieldName {
+                    return fieldIdx
+                }
+                fieldIdx = fieldIdx + 1
+                start = pos + 1
+            }
+            pos = pos + 1
+        }
+        return -1  // Field not found
+    }
+
+    // Get field type from registered struct
+    fun getFieldType(structName: String, fieldName: String) r: String {
+        let idx = findStruct(structName)
+        if idx < 0 {
+            return "i64"  // Default
+        }
+
+        let fieldNamesStr = structFieldNames[idx]
+        let fieldTypesStr = structFieldTypes[idx]
+
+        // Parse to find matching field
+        var fieldIdx = 0
+        var nameStart = 0
+        var typeStart = 0
+        var namePos = 0
+        var typePos = 0
+
+        while namePos <= fieldNamesStr.length() {
+            var nc = ""
+            if namePos < fieldNamesStr.length() {
+                nc = fieldNamesStr.substring(namePos, namePos + 1)
+            }
+
+            // Find end of current type
+            while typePos < fieldTypesStr.length() {
+                let tc = fieldTypesStr.substring(typePos, typePos + 1)
+                if tc == "," {
+                    break
+                }
+                typePos = typePos + 1
+            }
+
+            if nc == "," or namePos == fieldNamesStr.length() {
+                let name = fieldNamesStr.substring(nameStart, namePos)
+                let typeName = fieldTypesStr.substring(typeStart, typePos)
+                if name == fieldName {
+                    return mapType(typeName)
+                }
+                nameStart = namePos + 1
+                typeStart = typePos + 1
+                typePos = typePos + 1
+            }
+            namePos = namePos + 1
+        }
+        return "i64"  // Default
+    }
+
+    // Get field Seen type (not LLVM type) from registered struct
+    fun getSeenFieldType(structName: String, fieldName: String) r: String {
+        let idx = findStruct(structName)
+        if idx < 0 {
+            // Fallback for well-known types not in registry
+            if structName == "FrontendResult" {
+                if fieldName == "success" { return "Bool" }
+                if fieldName == "diagnostics" { return "Array<FrontendDiagnostic>" }
+                if fieldName == "program" { return "ProgramNode" }
+            } else if structName == "ProgramNode" {
+                if fieldName == "items" { return "Array<ItemNode>" }
+            } else if structName == "ItemNode" {
+                if fieldName == "itemType" { return "String" }
+                if fieldName == "function" { return "FunctionNode" }
+                if fieldName == "classNode" { return "ClassNode" }
+                if fieldName == "importPath" { return "Array<String>" }
+            } else if structName == "FrontendDiagnostic" {
+                if fieldName == "severity" { return "String" }
+                if fieldName == "file" { return "String" }
+                if fieldName == "line" { return "Int" }
+                if fieldName == "column" { return "Int" }
+                if fieldName == "message" { return "String" }
+            } else if structName == "CommandResult" {
+                if fieldName == "success" { return "Bool" }
+                if fieldName == "output" { return "String" }
+                if fieldName == "exitCode" { return "Int" }
+            }
+            return "Int"  // Default
+        }
+
+        let fieldNamesStr = structFieldNames[idx]
+        let fieldTypesStr = structFieldTypes[idx]
+
+        // Parse to find matching field
+        var nameStart = 0
+        var typeStart = 0
+        var namePos = 0
+        var typePos = 0
+
+        while namePos <= fieldNamesStr.length() {
+            var nc = ""
+            if namePos < fieldNamesStr.length() {
+                nc = fieldNamesStr.substring(namePos, namePos + 1)
+            }
+
+            // Find end of current type
+            while typePos < fieldTypesStr.length() {
+                let tc = fieldTypesStr.substring(typePos, typePos + 1)
+                if tc == "," {
+                    break
+                }
+                typePos = typePos + 1
+            }
+
+            if nc == "," or namePos == fieldNamesStr.length() {
+                let name = fieldNamesStr.substring(nameStart, namePos)
+                let typeName = fieldTypesStr.substring(typeStart, typePos)
+                if name == fieldName {
+                    return typeName  // Return Seen type, not LLVM type
+                }
+                nameStart = namePos + 1
+                typeStart = typePos + 1
+                typePos = typePos + 1
+            }
+            namePos = namePos + 1
+        }
+        return "Int"  // Default
+    }
+
+    // Get method return type from registered struct
+    fun getMethodReturnType(structName: String, methodName: String) r: String {
+        let idx = findStruct(structName)
+        if idx < 0 {
+            return ""  // Not found
+        }
+
+        let methodNamesStr = structMethodNames[idx]
+        let methodRetTypesStr = structMethodRetTypes[idx]
+
+        // Parse to find matching method
+        var nameStart = 0
+        var typeStart = 0
+        var namePos = 0
+        var typePos = 0
+
+        while namePos <= methodNamesStr.length() {
+            var nc = ""
+            if namePos < methodNamesStr.length() {
+                nc = methodNamesStr.substring(namePos, namePos + 1)
+            }
+
+            // Find end of current type
+            while typePos < methodRetTypesStr.length() {
+                let tc = methodRetTypesStr.substring(typePos, typePos + 1)
+                if tc == "," {
+                    break
+                }
+                typePos = typePos + 1
+            }
+
+            if nc == "," or namePos == methodNamesStr.length() {
+                let name = methodNamesStr.substring(nameStart, namePos)
+                let typeName = methodRetTypesStr.substring(typeStart, typePos)
+                if name == methodName {
+                    return typeName
+                }
+                nameStart = namePos + 1
+                typeStart = typePos + 1
+                typePos = typePos + 1
+            }
+            namePos = namePos + 1
+        }
+        return ""  // Not found
+    }
+
     fun generate(program: ProgramNode) r: String {
+        // Single module compilation
+        let programs = Array<ProgramNode>()
+        programs.push(program)
+        return generateMultiple(programs)
+    }
+
+    fun generateMultiple(programs: Array<ProgramNode>) r: String {
         output = ""
         stringConstants = Array<String>()
 
-        // First pass: collect string constants
-        collectStringConstants(program)
+        // First pass: collect string constants from all programs
+        var pi = 0
+        while pi < programs.length() {
+            collectStringConstants(programs[pi])
+            pi = pi + 1
+        }
 
         // Emit module header
         emitPrologue()
+
+        // Emit class struct type definitions from all programs
+        pi = 0
+        while pi < programs.length() {
+            let program = programs[pi]
+            var i = 0
+            while i < program.items.length() {
+                let item = program.items[i]
+                if item.itemType == "Class" {
+                    emitClassType(item.classNode)
+                }
+                i = i + 1
+            }
+            pi = pi + 1
+        }
 
         // Emit string constants
         emitStringConstants()
@@ -64,14 +458,34 @@ class LLVMIRGenerator {
         // Emit runtime declarations
         emitRuntimeDeclarations()
 
-        // Emit functions
-        var i = 0
-        while i < program.items.length() {
-            let item = program.items[i]
-            if item.itemType == "Function" {
-                generateFunction(item.function)
+        // Emit functions (top-level) from all programs
+        pi = 0
+        while pi < programs.length() {
+            let program = programs[pi]
+            var i = 0
+            while i < program.items.length() {
+                let item = program.items[i]
+                if item.itemType == "Function" {
+                    generateFunction(item.function)
+                }
+                i = i + 1
             }
-            i = i + 1
+            pi = pi + 1
+        }
+
+        // Emit class methods from all programs
+        pi = 0
+        while pi < programs.length() {
+            let program = programs[pi]
+            var i = 0
+            while i < program.items.length() {
+                let item = program.items[i]
+                if item.itemType == "Class" {
+                    generateClass(item.classNode)
+                }
+                i = i + 1
+            }
+            pi = pi + 1
         }
 
         return output
@@ -82,8 +496,112 @@ class LLVMIRGenerator {
         output = output + "target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n"
         output = output + "target triple = \"x86_64-unknown-linux-gnu\"\n\n"
 
-        // SeenString type
-        output = output + "%SeenString = type { i64, ptr }\n\n"
+        // Type definitions
+        output = output + "%SeenString = type { i64, ptr }\n"
+        output = output + "%SeenArray = type { i64, i64, ptr }\n\n"
+    }
+
+    fun emitClassType(classNode: ClassNode) r: Void {
+        // Register struct layout for code generation
+        registerStructLayout(classNode)
+
+        // Emit struct type for class
+        // %ClassName = type { field1Type, field2Type, ... }
+        output = output + "%" + classNode.name + " = type { "
+
+        var i = 0
+        while i < classNode.fields.length() {
+            if i > 0 {
+                output = output + ", "
+            }
+            let field = classNode.fields[i]
+            output = output + mapType(field.paramType.typeName)
+            i = i + 1
+        }
+
+        output = output + " }\n"
+    }
+
+    fun generateClass(classNode: ClassNode) r: Void {
+        // Generate all methods for this class
+        var i = 0
+        while i < classNode.methods.length() {
+            let method = classNode.methods[i]
+            generateClassMethod(classNode, method)
+            i = i + 1
+        }
+    }
+
+    fun generateClassMethod(classNode: ClassNode, method: FunctionNode) r: Void {
+        // Reset per-function state
+        nextReg = 1
+        nextBlock = 0
+        varNames = Array<String>()
+        varRegs = Array<String>()
+        varTypes = Array<String>()
+        currentFunctionReturnType = method.returnType.typeName
+
+        let returnType = mapType(method.returnType.typeName)
+        let className = classNode.name
+        let methodName = method.name
+
+        // Determine if this is a static method (name is "new" or has no 'this' implicit)
+        let isStatic = methodName == "new"
+
+        // Function signature: ClassName_methodName or ClassName_new
+        output = output + "define " + returnType + " @" + className + "_" + methodName + "("
+
+        // For instance methods, first parameter is 'this' pointer
+        var hasThis = false
+        if not isStatic {
+            output = output + "ptr %this"
+            hasThis = true
+        }
+
+        // Other parameters
+        var paramIdx = 0
+        while paramIdx < method.params.length() {
+            if paramIdx > 0 or hasThis {
+                output = output + ", "
+            }
+            let param = method.params[paramIdx]
+            let paramType = mapType(param.paramType.typeName)
+            output = output + paramType + " %" + param.name + ".arg"
+            paramIdx = paramIdx + 1
+        }
+
+        output = output + ") {\n"
+        output = output + "entry:\n"
+
+        // For instance methods, store 'this' pointer
+        if not isStatic {
+            let thisReg = getNextReg()
+            output = output + "  " + thisReg + " = alloca ptr\n"
+            output = output + "  store ptr %this, ptr " + thisReg + "\n"
+            storeVar("this", thisReg, className)
+        }
+
+        // Allocate space for parameters and store them
+        paramIdx = 0
+        while paramIdx < method.params.length() {
+            let param = method.params[paramIdx]
+            let paramType = mapType(param.paramType.typeName)
+            let reg = getNextReg()
+            output = output + "  " + reg + " = alloca " + paramType + "\n"
+            output = output + "  store " + paramType + " %" + param.name + ".arg, ptr " + reg + "\n"
+            storeVar(param.name, reg, param.paramType.typeName)
+            paramIdx = paramIdx + 1
+        }
+
+        // Generate method body
+        generateBlock(method.body)
+
+        // If no return was generated for void functions, add one
+        if returnType == "void" {
+            output = output + "  ret void\n"
+        }
+
+        output = output + "}\n\n"
     }
 
     fun emitStringConstants() r: Void {
@@ -113,20 +631,70 @@ class LLVMIRGenerator {
         output = output + "declare %SeenString @trim(%SeenString)\n"
         output = output + "declare %SeenString @seen_str_concat_ss(%SeenString, %SeenString)\n"
         output = output + "declare %SeenString @seen_int_to_string(i64)\n"
+        output = output + "declare %SeenString @seen_char_to_str(i64)\n"
+        output = output + "declare i64 @seen_char_at(%SeenString, i64)\n"
+        output = output + "declare i64 @Char_toInt(i64)\n"
+        output = output + "declare i64 @Int_unwrap(i64)\n"
+        output = output + "declare ptr @Optional_unwrap(ptr)\n"
+        output = output + "declare i1 @seen_str_eq_ss(%SeenString, %SeenString)\n"
+        output = output + "declare i1 @seen_str_ne_ss(%SeenString, %SeenString)\n"
         output = output + "declare %SeenString @readText(%SeenString)\n"
         output = output + "declare i1 @writeText(%SeenString, %SeenString)\n"
+
+        // Array functions - use byval for SeenArray (> 16 bytes)
+        output = output + "declare i64 @seen_arr_length(ptr byval(%SeenArray) align 8)\n"
+        output = output + "declare %SeenString @seen_arr_get_str(ptr byval(%SeenArray) align 8, i64)\n"
+        output = output + "declare ptr @seen_arr_get_diag(ptr byval(%SeenArray) align 8, i64)\n"
+        output = output + "declare ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8, i64)\n"
+        output = output + "declare i64 @Array_push(ptr, ptr)\n"
+        output = output + "declare void @seen_arr_push_str(ptr, %SeenString)\n"
+        // Note: args() returns via sret because SeenArray > 16 bytes
+        output = output + "declare void @args(ptr sret(%SeenArray) align 8)\n"
+
+        // Command execution
+        output = output + "declare ptr @runCommand(%SeenString)\n"
+        output = output + "declare i1 @commandWasSuccessful(ptr)\n"
+
+        // Memory allocation
+        output = output + "declare ptr @malloc(i64)\n"
+        output = output + "declare void @free(ptr)\n"
+
+        // Frontend functions (from imported modules - these would be compiled separately)
+        output = output + "declare ptr @run_frontend(%SeenString, %SeenString, %SeenString)\n"
+        output = output + "declare ptr @FrontendResult_getDiagnostics(ptr)\n"
+        output = output + "declare ptr @LLVMIRGenerator_new()\n"
+        output = output + "declare %SeenString @LLVMIRGenerator_generate(ptr, ptr)\n"
+        output = output + "declare %SeenString @LLVMIRGenerator_generateMultiple(ptr, %SeenArray)\n"
+
         output = output + "\n"
     }
 
     fun generateFunction(fn: FunctionNode) r: Void {
+        // Register this function's return type for later call site inference
+        registerFunction(fn.name, fn.returnType.typeName)
+
         // Reset per-function state
         nextReg = 1
         nextBlock = 0
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
+        currentFunctionReturnType = fn.returnType.typeName
 
         let returnType = mapType(fn.returnType.typeName)
+
+        // Special handling for main function - needs to accept argc/argv from OS
+        if fn.name == "main" {
+            output = output + "define " + returnType + " @main(i32 %argc, ptr %argv) {\n"
+            output = output + "entry:\n"
+            output = output + "  call void @seen_runtime_init(i32 %argc, ptr %argv)\n"
+            generateBlock(fn.body)
+            if returnType == "void" {
+                output = output + "  ret void\n"
+            }
+            output = output + "}\n\n"
+            return
+        }
 
         // Function signature
         output = output + "define " + returnType + " @" + fn.name + "("
@@ -158,11 +726,6 @@ class LLVMIRGenerator {
             paramIdx = paramIdx + 1
         }
 
-        // For main function, call runtime init
-        if fn.name == "main" {
-            output = output + "  call void @seen_runtime_init(i32 0, ptr null)\n"
-        }
-
         // Generate function body
         generateBlock(fn.body)
 
@@ -188,7 +751,12 @@ class LLVMIRGenerator {
         } else if stmt.kind == "Return" {
             generateReturnStatement(stmt)
         } else if stmt.kind == "Expression" {
-            generateExpression(stmt.expression)
+            // Check if the expression is actually an assignment
+            if stmt.expression.kind == "Assignment" {
+                generateAssignmentExpr(stmt.expression)
+            } else {
+                generateExpression(stmt.expression)
+            }
         } else if stmt.kind == "If" {
             generateIfStatement(stmt)
         } else if stmt.kind == "While" {
@@ -227,10 +795,25 @@ class LLVMIRGenerator {
         if stmt.returnValue.kind == "None" {
             output = output + "  ret void\n"
         } else {
-            let valueReg = generateExpression(stmt.returnValue)
-            // Determine return type from expression
-            let retType = inferExpressionType(stmt.returnValue)
-            let llvmType = mapType(retType)
+            // Special handling for Char return type with string literals
+            if currentFunctionReturnType == "Char" and stmt.returnValue.kind == "Literal" and stmt.returnValue.literalType == "String" {
+                // Convert single-char string to its code point
+                let charValue = stmt.returnValue.literalValue
+                if charValue.length() == 1 {
+                    // Get first character's code point
+                    let codePoint = charValue.charCodeAt(0)
+                    output = output + "  ret i64 " + codePoint.toString() + "\n"
+                    return
+                }
+            }
+
+            var valueReg = generateExpression(stmt.returnValue)
+            // Use the function's declared return type, not inferred type
+            let llvmType = mapType(currentFunctionReturnType)
+            // Convert 0 to null for pointer return types
+            if llvmType == "ptr" and valueReg == "0" {
+                valueReg = "null"
+            }
             output = output + "  ret " + llvmType + " " + valueReg + "\n"
         }
     }
@@ -297,10 +880,91 @@ class LLVMIRGenerator {
         output = output + endLabel + ":\n"
     }
 
+    // Handle assignment expression (from parser)
+    fun generateAssignmentExpr(expr: ParserExpressionNode) r: Void {
+        let varName = expr.variableName
+        let idx = findVar(varName)
+
+        if idx < 0 {
+            // Variable not found - check if 'this' exists and varName is a field
+            let thisIdx = findVar("this")
+            if thisIdx >= 0 {
+                let thisReg = varRegs[thisIdx]
+                let thisType = varTypes[thisIdx]
+
+                // Check if this type has the field
+                let structIdx = findStruct(thisType)
+                if structIdx >= 0 {
+                    let fieldIdx = getFieldInfo(thisType, varName)
+                    if fieldIdx >= 0 {
+                        // Generate field assignment to this.fieldName
+                        let valueReg = generateExpression(expr.operands[0])
+
+                        // Load 'this' pointer
+                        let thisPtrReg = getNextReg()
+                        output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+
+                        // Get struct layout and field type
+                        let structLayout = structLayouts[structIdx]
+                        let fieldType = getFieldType(thisType, varName)
+
+                        // Generate GEP to field
+                        let fieldPtrReg = getNextReg()
+                        output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n"
+
+                        // Store the value
+                        output = output + "  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n"
+                        return
+                    }
+                }
+            }
+            return
+        }
+
+        let valueReg = generateExpression(expr.operands[0])
+        let varReg = varRegs[idx]
+        let varType = varTypes[idx]
+        let llvmType = mapType(varType)
+        output = output + "  store " + llvmType + " " + valueReg + ", ptr " + varReg + "\n"
+    }
+
     fun generateAssignment(stmt: StatementNode) r: Void {
         let varName = stmt.variableName
         let idx = findVar(varName)
+
         if idx < 0 {
+            // Variable not found - check if 'this' exists and varName is a field
+            let thisIdx = findVar("this")
+            if thisIdx >= 0 {
+                let thisReg = varRegs[thisIdx]
+                let thisType = varTypes[thisIdx]
+
+                // Check if this type has the field
+                let structIdx = findStruct(thisType)
+                if structIdx >= 0 {
+                    let fieldIdx = getFieldInfo(thisType, varName)
+                    if fieldIdx >= 0 {
+                        // Generate field assignment to this.fieldName
+                        let valueReg = generateExpression(stmt.initializer)
+
+                        // Load 'this' pointer
+                        let thisPtrReg = getNextReg()
+                        output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+
+                        // Get struct layout and field type
+                        let structLayout = structLayouts[structIdx]
+                        let fieldType = getFieldType(thisType, varName)
+
+                        // Generate GEP to field
+                        let fieldPtrReg = getNextReg()
+                        output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n"
+
+                        // Store the value
+                        output = output + "  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n"
+                        return
+                    }
+                }
+            }
             return
         }
 
@@ -324,13 +988,619 @@ class LLVMIRGenerator {
             return generateMethodCall(expr)
         } else if expr.kind == "Unary" {
             return generateUnary(expr)
+        } else if expr.kind == "MemberAccess" {
+            return generateMemberAccess(expr)
+        } else if expr.kind == "IndexAccess" {
+            return generateIndexAccess(expr)
+        } else if expr.kind == "StructLiteral" {
+            return generateStructLiteral(expr)
+        } else if expr.kind == "ArrayLiteral" {
+            return generateArrayLiteral(expr)
         }
         return "0"
     }
 
+    fun generateArrayLiteral(expr: ParserExpressionNode) r: String {
+        // Allocate empty SeenArray structure: { length: 0, capacity: 0, data: null }
+        let ptrReg = getNextReg()
+        output = output + "  " + ptrReg + " = call ptr @malloc(i64 24)\n"
+        // Store length = number of elements
+        let lenPtr = getNextReg()
+        output = output + "  " + lenPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 0\n"
+        output = output + "  store i64 " + expr.arguments.length().toString() + ", ptr " + lenPtr + "\n"
+        // Store capacity = length (or 0 for empty)
+        let capPtr = getNextReg()
+        output = output + "  " + capPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 1\n"
+        output = output + "  store i64 " + expr.arguments.length().toString() + ", ptr " + capPtr + "\n"
+        // For empty array, store null pointer
+        if expr.arguments.length() == 0 {
+            let dataPtr = getNextReg()
+            output = output + "  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n"
+            output = output + "  store ptr null, ptr " + dataPtr + "\n"
+        } else {
+            // For non-empty arrays, we need to allocate data and store elements
+            // TODO: Support non-empty array literals
+            let dataPtr = getNextReg()
+            output = output + "  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n"
+            output = output + "  store ptr null, ptr " + dataPtr + "\n"
+        }
+        // Load the array structure
+        let resultReg = getNextReg()
+        output = output + "  " + resultReg + " = load %SeenArray, ptr " + ptrReg + ", align 8\n"
+        return resultReg
+    }
+
+    fun generateIndexAccess(expr: ParserExpressionNode) r: String {
+        // operands[0] = array expression
+        // operands[1] = index expression
+        output = output + "; DEBUG generateIndexAccess: operands[0].kind=" + expr.operands[0].kind + " variableName=" + expr.operands[0].variableName + " literalValue=" + expr.operands[0].literalValue + "\n"
+        let arrayReg = generateExpression(expr.operands[0])
+        output = output + "; DEBUG arrayReg=" + arrayReg + "\n"
+        let indexReg = generateExpression(expr.operands[1])
+
+        // Infer the element type from the array type
+        let arrayType = inferExpressionType(expr.operands[0])
+        output = output + "; DEBUG arrayType=" + arrayType + "\n"
+
+        // For byval, we need to store the array in an alloca and pass the pointer
+        let arrayPtrReg = getNextReg()
+        output = output + "  " + arrayPtrReg + " = alloca %SeenArray, align 8\n"
+        output = output + "  store %SeenArray " + arrayReg + ", ptr " + arrayPtrReg + ", align 8\n"
+
+        let resultReg = getNextReg()
+
+        // Use typed array get functions based on element type
+        if arrayType == "Array<String>" {
+            output = output + "  " + resultReg + " = call %SeenString @seen_arr_get_str(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+        } else if arrayType == "Array<FrontendDiagnostic>" {
+            output = output + "  " + resultReg + " = call ptr @seen_arr_get_diag(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+        } else if arrayType == "Array<ItemNode>" {
+            output = output + "  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+        } else if arrayType == "Array<ProgramNode>" {
+            output = output + "  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+        } else {
+            // Default: generic pointer get
+            output = output + "  " + resultReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n"
+        }
+
+        return resultReg
+    }
+
+    fun generateMemberAccess(expr: ParserExpressionNode) r: String {
+        // literalValue = receiver variable name (or chained path)
+        // variableName = field/member name
+        let receiverName = expr.literalValue
+        let fieldName = expr.variableName
+
+        // Check if receiver has an operand (chained expression like func().field)
+        if expr.operands.length() > 0 {
+            // Receiver is an expression result - get its type and generate field access
+            let receiverReg = generateExpression(expr.operands[0])
+            let receiverType = inferExpressionType(expr.operands[0])
+            return generateFieldAccess(receiverReg, receiverType, fieldName)
+        }
+
+        // Simple variable field access like frontend.success or frontend.program
+        let idx = findVar(receiverName)
+        if idx >= 0 {
+            let varReg = varRegs[idx]
+            let varType = varTypes[idx]
+
+            // Load the struct pointer
+            let ptrReg = getNextReg()
+            output = output + "  " + ptrReg + " = load ptr, ptr " + varReg + "\n"
+
+            return generateFieldAccess(ptrReg, varType, fieldName)
+        }
+
+        // Handle chained receiver like "frontend.program" with fieldName "items"
+        // Need to find base variable and chain through fields
+        if receiverName.contains(".") {
+            // Handle known patterns directly to avoid substring issues
+            if receiverName == "frontend.program" {
+                // First, get frontend variable
+                let frontendIdx = findVar("frontend")
+                if frontendIdx >= 0 {
+                    let frontendReg = varRegs[frontendIdx]
+                    let frontendType = varTypes[frontendIdx]
+                    // Load frontend pointer
+                    let ptrReg = getNextReg()
+                    output = output + "  " + ptrReg + " = load ptr, ptr " + frontendReg + "\n"
+                    // Access program field to get ProgramNode pointer
+                    let programReg = generateFieldAccess(ptrReg, frontendType, "program")
+                    // Now access the final field (items) on ProgramNode
+                    return generateFieldAccess(programReg, "ProgramNode", fieldName)
+                }
+            }
+        }
+
+        return "0"
+    }
+
+    fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
+        output = output + "; DEBUG generateFieldAccess: structType=" + structType + " fieldName=" + fieldName + "\n"
+        // Handle known chained field access patterns directly (avoid substring for reliability)
+        if fieldName == "program.items" {
+            // FrontendResult.program -> ProgramNode, then ProgramNode.items
+            let progReg = generateFieldAccess(ptrReg, structType, "program")
+            return generateFieldAccess(progReg, "ProgramNode", "items")
+        } else if fieldName == "program.items.length" {
+            // Access through chain
+            let progReg = generateFieldAccess(ptrReg, structType, "program")
+            let itemsReg = generateFieldAccess(progReg, "ProgramNode", "items")
+            // Return length field of array
+            let lenPtrReg = getNextReg()
+            output = output + "  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + itemsReg + ", i32 0, i32 0\n"
+            let lenReg = getNextReg()
+            output = output + "  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n"
+            return lenReg
+        } else if fieldName.contains(".") {
+            // Generic chained access - handle known patterns
+            // For now, return error indicator for unknown patterns
+            output = output + "; ERROR: Unknown chained field access: " + fieldName + "\n"
+            return "0"
+        }
+
+        var fieldIndex = 0
+        var fieldType = "i64"
+        var structLayout = "{ i64 }"  // Default
+
+        // Try registry first
+        let structIdx = findStruct(structType)
+        if structIdx >= 0 {
+            structLayout = structLayouts[structIdx]
+            let regFieldIdx = getFieldInfo(structType, fieldName)
+            if regFieldIdx >= 0 {
+                fieldIndex = regFieldIdx
+                fieldType = getFieldType(structType, fieldName)
+            }
+        } else {
+            // Fallback to hardcoded layouts for well-known types
+            if structType == "FrontendResult" {
+                // FrontendResult { success: Bool, diagnostics: SeenArray, program: ptr }
+                // SeenArray is { i64, i64, ptr } = 24 bytes inline
+                structLayout = "{ i1, { i64, i64, ptr }, ptr }"
+                if fieldName == "success" {
+                    fieldIndex = 0
+                    fieldType = "i1"
+                } else if fieldName == "diagnostics" {
+                    fieldIndex = 1
+                    fieldType = "%SeenArray"
+                } else if fieldName == "program" {
+                    fieldIndex = 2
+                    fieldType = "ptr"
+                }
+            } else if structType == "FrontendDiagnostic" {
+                // FrontendDiagnostic { severity: String, file: String, line: Int, column: Int, message: String }
+                // Order matches C struct in seen_runtime.h
+                structLayout = "{ %SeenString, %SeenString, i64, i64, %SeenString }"
+                if fieldName == "severity" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                } else if fieldName == "file" {
+                    fieldIndex = 1
+                    fieldType = "%SeenString"
+                } else if fieldName == "line" {
+                    fieldIndex = 2
+                    fieldType = "i64"
+                } else if fieldName == "column" {
+                    fieldIndex = 3
+                    fieldType = "i64"
+                } else if fieldName == "message" {
+                    fieldIndex = 4
+                    fieldType = "%SeenString"
+                }
+            } else if structType == "CommandResult" {
+                // CommandResult { success: Bool, output: SeenString, exitCode: Int }
+                // Order matches C struct in seen_runtime.h
+                structLayout = "{ i1, %SeenString, i32 }"
+                if fieldName == "success" {
+                    fieldIndex = 0
+                    fieldType = "i1"
+                } else if fieldName == "output" {
+                    fieldIndex = 1
+                    fieldType = "%SeenString"
+                } else if fieldName == "exitCode" {
+                    fieldIndex = 2
+                    fieldType = "i32"
+                }
+            } else if structType == "Point" {
+                // Point { x: Int, y: Int }
+                structLayout = "{ i64, i64 }"
+                if fieldName == "x" {
+                    fieldIndex = 0
+                    fieldType = "i64"
+                } else if fieldName == "y" {
+                    fieldIndex = 1
+                    fieldType = "i64"
+                }
+            } else if structType == "Counter" {
+                // Counter { value: Int }
+                structLayout = "{ i64 }"
+                if fieldName == "value" {
+                    fieldIndex = 0
+                    fieldType = "i64"
+                }
+            } else if structType == "ProgramNode" {
+                // ProgramNode { items: SeenArray }
+                structLayout = "{ { i64, i64, ptr } }"
+                if fieldName == "items" {
+                    fieldIndex = 0
+                    fieldType = "%SeenArray"
+                }
+            } else if structType == "ItemNode" {
+                // ItemNode { itemType: String, function: ptr, classNode: ptr, importPath: SeenArray, ... }
+                structLayout = "{ %SeenString, ptr, ptr, { i64, i64, ptr } }"
+                if fieldName == "itemType" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                } else if fieldName == "function" {
+                    fieldIndex = 1
+                    fieldType = "ptr"
+                } else if fieldName == "classNode" {
+                    fieldIndex = 2
+                    fieldType = "ptr"
+                } else if fieldName == "importPath" {
+                    fieldIndex = 3
+                    fieldType = "%SeenArray"
+                }
+            }
+        }
+
+        // Generate GEP to field
+        let fieldPtrReg = getNextReg()
+        output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n"
+
+        // Load the field value
+        let resultReg = getNextReg()
+        output = output + "  " + resultReg + " = load " + fieldType + ", ptr " + fieldPtrReg + "\n"
+
+        return resultReg
+    }
+
+    // Same as generateFieldAccess but returns the GEP pointer without loading
+    // Used for methods like push that need to modify the field in place
+    fun generateFieldAccessPtr(ptrReg: String, structType: String, fieldName: String) r: String {
+        var fieldIndex = 0
+        var structLayout = "{ i64 }"  // Default
+
+        // Try registry first
+        let structIdx = findStruct(structType)
+        if structIdx >= 0 {
+            structLayout = structLayouts[structIdx]
+            let regFieldIdx = getFieldInfo(structType, fieldName)
+            if regFieldIdx >= 0 {
+                fieldIndex = regFieldIdx
+            }
+        }
+
+        // Generate GEP to field (without loading)
+        let fieldPtrReg = getNextReg()
+        output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n"
+
+        return fieldPtrReg
+    }
+
+    fun generateStructLiteral(expr: ParserExpressionNode) r: String {
+        // Get struct name from literalType
+        let structName = expr.literalType
+
+        // Try to get layout from registry first
+        let structIdx = findStruct(structName)
+        var structSize = 8  // Default size
+        var structLayout = "{ i64 }"  // Default layout
+
+        if structIdx >= 0 {
+            // Use registered layout
+            structSize = structSizes[structIdx]
+            structLayout = structLayouts[structIdx]
+        } else {
+            // Fallback to hardcoded layouts for well-known types
+            if structName == "FrontendDiagnostic" {
+                structSize = 48
+                structLayout = "{ i64, i64, %SeenString, %SeenString }"
+            } else if structName == "CommandResult" {
+                structSize = 24
+                structLayout = "{ i64, %SeenString }"
+            } else if structName == "Point" {
+                structSize = 16
+                structLayout = "{ i64, i64 }"
+            } else if structName == "Counter" {
+                structSize = 8
+                structLayout = "{ i64 }"
+            } else {
+                // Generic struct: estimate based on field count
+                structSize = expr.arguments.length() * 16  // Conservative: 16 bytes per field
+            }
+        }
+
+        // Allocate memory for struct
+        let mallocReg = getNextReg()
+        output = output + "  " + mallocReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n"
+
+        // Store each field
+        var fieldIdx = 0
+        while fieldIdx < expr.arguments.length() {
+            let fieldExpr = expr.arguments[fieldIdx]
+            let fieldName = fieldExpr.variableName
+
+            // Generate the field value
+            var valueReg = "0"
+            if fieldExpr.operands.length() > 0 {
+                valueReg = generateExpression(fieldExpr.operands[0])
+            }
+
+            // Get field index and type - try registry first, then fallback
+            var gepIndex = fieldIdx
+            var fieldType = "i64"
+
+            if structIdx >= 0 {
+                // Use registry to get field info
+                let regFieldIdx = getFieldInfo(structName, fieldName)
+                if regFieldIdx >= 0 {
+                    gepIndex = regFieldIdx
+                    fieldType = getFieldType(structName, fieldName)
+                }
+            } else {
+                // Fallback to hardcoded field mappings
+                if structName == "FrontendDiagnostic" {
+                    if fieldName == "line" {
+                        gepIndex = 0
+                        fieldType = "i64"
+                    } else if fieldName == "column" {
+                        gepIndex = 1
+                        fieldType = "i64"
+                    } else if fieldName == "file" {
+                        gepIndex = 2
+                        fieldType = "%SeenString"
+                    } else if fieldName == "message" {
+                        gepIndex = 3
+                        fieldType = "%SeenString"
+                    }
+                } else if structName == "CommandResult" {
+                    if fieldName == "exitCode" {
+                        gepIndex = 0
+                        fieldType = "i64"
+                    } else if fieldName == "output" {
+                        gepIndex = 1
+                        fieldType = "%SeenString"
+                    }
+                } else if structName == "Point" {
+                    if fieldName == "x" {
+                        gepIndex = 0
+                        fieldType = "i64"
+                    } else if fieldName == "y" {
+                        gepIndex = 1
+                        fieldType = "i64"
+                    }
+                }
+            }
+
+            // Generate GEP to field
+            let fieldPtrReg = getNextReg()
+            output = output + "  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + mallocReg + ", i32 0, i32 " + gepIndex.toString() + "\n"
+
+            // Store the value
+            output = output + "  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n"
+
+            fieldIdx = fieldIdx + 1
+        }
+
+        return mallocReg
+    }
+
     fun generateLiteral(expr: ParserExpressionNode) r: String {
         if expr.literalType == "Int" or expr.literalType == "Integer" {
-            return expr.literalValue
+            // Convert hex values to decimal (LLVM text format doesn't accept hex for integers)
+            return hexToDecimal(expr.literalValue)
+        } else if expr.literalType == "Char" {
+            // Character literal - return the code point as i64
+            // Note: charCodeAt is broken in Rust backend, so we parse manually
+            let val = expr.literalValue
+            if val.length() == 0 {
+                return "0"
+            }
+            // Handle common characters directly (workaround for charCodeAt returning 0)
+            if val == " " {
+                return "32"  // Space
+            } else if val == "\t" {
+                return "9"   // Tab
+            } else if val == "\n" {
+                return "10"  // Newline
+            } else if val == "\r" {
+                return "13"  // Carriage return
+            } else if val == "0" {
+                return "48"
+            } else if val == "1" {
+                return "49"
+            } else if val == "2" {
+                return "50"
+            } else if val == "3" {
+                return "51"
+            } else if val == "4" {
+                return "52"
+            } else if val == "5" {
+                return "53"
+            } else if val == "6" {
+                return "54"
+            } else if val == "7" {
+                return "55"
+            } else if val == "8" {
+                return "56"
+            } else if val == "9" {
+                return "57"
+            } else if val == "a" {
+                return "97"
+            } else if val == "b" {
+                return "98"
+            } else if val == "c" {
+                return "99"
+            } else if val == "d" {
+                return "100"
+            } else if val == "e" {
+                return "101"
+            } else if val == "f" {
+                return "102"
+            } else if val == "g" {
+                return "103"
+            } else if val == "h" {
+                return "104"
+            } else if val == "i" {
+                return "105"
+            } else if val == "j" {
+                return "106"
+            } else if val == "k" {
+                return "107"
+            } else if val == "l" {
+                return "108"
+            } else if val == "m" {
+                return "109"
+            } else if val == "n" {
+                return "110"
+            } else if val == "o" {
+                return "111"
+            } else if val == "p" {
+                return "112"
+            } else if val == "q" {
+                return "113"
+            } else if val == "r" {
+                return "114"
+            } else if val == "s" {
+                return "115"
+            } else if val == "t" {
+                return "116"
+            } else if val == "u" {
+                return "117"
+            } else if val == "v" {
+                return "118"
+            } else if val == "w" {
+                return "119"
+            } else if val == "x" {
+                return "120"
+            } else if val == "y" {
+                return "121"
+            } else if val == "z" {
+                return "122"
+            } else if val == "A" {
+                return "65"
+            } else if val == "B" {
+                return "66"
+            } else if val == "C" {
+                return "67"
+            } else if val == "D" {
+                return "68"
+            } else if val == "E" {
+                return "69"
+            } else if val == "F" {
+                return "70"
+            } else if val == "G" {
+                return "71"
+            } else if val == "H" {
+                return "72"
+            } else if val == "I" {
+                return "73"
+            } else if val == "J" {
+                return "74"
+            } else if val == "K" {
+                return "75"
+            } else if val == "L" {
+                return "76"
+            } else if val == "M" {
+                return "77"
+            } else if val == "N" {
+                return "78"
+            } else if val == "O" {
+                return "79"
+            } else if val == "P" {
+                return "80"
+            } else if val == "Q" {
+                return "81"
+            } else if val == "R" {
+                return "82"
+            } else if val == "S" {
+                return "83"
+            } else if val == "T" {
+                return "84"
+            } else if val == "U" {
+                return "85"
+            } else if val == "V" {
+                return "86"
+            } else if val == "W" {
+                return "87"
+            } else if val == "X" {
+                return "88"
+            } else if val == "Y" {
+                return "89"
+            } else if val == "Z" {
+                return "90"
+            } else if val == "'" {
+                return "39"  // Single quote
+            } else if val == "\"" {
+                return "34"  // Double quote
+            } else if val == "\\" {
+                return "92"  // Backslash
+            } else if val == "/" {
+                return "47"  // Forward slash
+            } else if val == "." {
+                return "46"  // Period
+            } else if val == "," {
+                return "44"  // Comma
+            } else if val == ":" {
+                return "58"  // Colon
+            } else if val == ";" {
+                return "59"  // Semicolon
+            } else if val == "!" {
+                return "33"  // Exclamation
+            } else if val == "?" {
+                return "63"  // Question mark
+            } else if val == "@" {
+                return "64"  // At sign
+            } else if val == "#" {
+                return "35"  // Hash
+            } else if val == "$" {
+                return "36"  // Dollar
+            } else if val == "%" {
+                return "37"  // Percent
+            } else if val == "^" {
+                return "94"  // Caret
+            } else if val == "&" {
+                return "38"  // Ampersand
+            } else if val == "*" {
+                return "42"  // Asterisk
+            } else if val == "(" {
+                return "40"  // Left paren
+            } else if val == ")" {
+                return "41"  // Right paren
+            } else if val == "[" {
+                return "91"  // Left bracket
+            } else if val == "]" {
+                return "93"  // Right bracket
+            } else if val == "{" {
+                return "123" // Left brace
+            } else if val == "}" {
+                return "125" // Right brace
+            } else if val == "<" {
+                return "60"  // Less than
+            } else if val == ">" {
+                return "62"  // Greater than
+            } else if val == "=" {
+                return "61"  // Equals
+            } else if val == "+" {
+                return "43"  // Plus
+            } else if val == "-" {
+                return "45"  // Minus
+            } else if val == "_" {
+                return "95"  // Underscore
+            } else if val == "|" {
+                return "124" // Pipe
+            } else if val == "~" {
+                return "126" // Tilde
+            } else if val == "`" {
+                return "96"  // Backtick
+            }
+            // Fallback: return 0 for unknown characters
+            output = output + "; WARNING: unknown character literal '" + val + "'\n"
+            return "0"
         } else if expr.literalType == "Bool" or expr.literalType == "Boolean" {
             if expr.literalValue == "true" {
                 return "1"
@@ -375,6 +1645,26 @@ class LLVMIRGenerator {
 
         let idx = findVar(varName)
         if idx < 0 {
+            // Variable not found - check if 'this' exists and varName is a field
+            let thisIdx = findVar("this")
+            if thisIdx >= 0 {
+                // Try to access as this.fieldName
+                let thisReg = varRegs[thisIdx]
+                let thisType = varTypes[thisIdx]
+
+                // Check if this type has the field
+                let structIdx = findStruct(thisType)
+                if structIdx >= 0 {
+                    let fieldIdx = getFieldInfo(thisType, varName)
+                    if fieldIdx >= 0 {
+                        // Load 'this' pointer
+                        let thisPtrReg = getNextReg()
+                        output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                        // Access the field
+                        return generateFieldAccess(thisPtrReg, thisType, varName)
+                    }
+                }
+            }
             return "0"
         }
 
@@ -396,16 +1686,47 @@ class LLVMIRGenerator {
         let leftReg = generateExpression(leftExpr)
         let rightReg = generateExpression(rightExpr)
 
-        let resultReg = getNextReg()
+        // Note: resultReg must be allocated AFTER any intermediate conversion registers
+        // to maintain SSA sequential numbering
 
         if expr.operator == "+" {
-            if leftType == "String" or rightType == "String" {
-                // String concatenation
-                output = output + "  " + resultReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + leftReg + ", %SeenString " + rightReg + ")\n"
+            if leftType == "String" or rightType == "String" or leftType == "Char" or rightType == "Char" {
+                // String/Char concatenation - need to convert non-strings to strings first
+                var leftStrReg = leftReg
+                var rightStrReg = rightReg
+
+                if leftType == "Char" {
+                    // Convert Char to String using runtime function
+                    leftStrReg = getNextReg()
+                    output = output + "  " + leftStrReg + " = call %SeenString @seen_char_to_str(i64 " + leftReg + ")\n"
+                } else if leftType == "Int" {
+                    // Convert Int to String
+                    leftStrReg = getNextReg()
+                    output = output + "  " + leftStrReg + " = call %SeenString @seen_int_to_string(i64 " + leftReg + ")\n"
+                }
+
+                if rightType == "Char" {
+                    // Convert Char to String using runtime function
+                    rightStrReg = getNextReg()
+                    output = output + "  " + rightStrReg + " = call %SeenString @seen_char_to_str(i64 " + rightReg + ")\n"
+                } else if rightType == "Int" {
+                    // Convert Int to String
+                    rightStrReg = getNextReg()
+                    output = output + "  " + rightStrReg + " = call %SeenString @seen_int_to_string(i64 " + rightReg + ")\n"
+                }
+
+                let resultReg = getNextReg()
+                output = output + "  " + resultReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n"
+                return resultReg
             } else {
+                let resultReg = getNextReg()
                 output = output + "  " + resultReg + " = add i64 " + leftReg + ", " + rightReg + "\n"
+                return resultReg
             }
-        } else if expr.operator == "-" {
+        }
+
+        let resultReg = getNextReg()
+        if expr.operator == "-" {
             output = output + "  " + resultReg + " = sub i64 " + leftReg + ", " + rightReg + "\n"
         } else if expr.operator == "*" {
             output = output + "  " + resultReg + " = mul i64 " + leftReg + ", " + rightReg + "\n"
@@ -414,23 +1735,108 @@ class LLVMIRGenerator {
         } else if expr.operator == "%" {
             output = output + "  " + resultReg + " = srem i64 " + leftReg + ", " + rightReg + "\n"
         } else if expr.operator == "==" {
-            if leftType == "String" {
-                // String comparison - use memcmp through runtime
-                // For now, just compare pointers (TODO: proper string compare)
-                output = output + "  " + resultReg + " = icmp eq i64 0, 0\n"  // placeholder
+            // Handle Char comparisons specially
+            if leftType == "Char" or rightType == "Char" {
+                // Char comparison - both sides should be i64
+                // If comparing Char to single-char string literal, extract char code
+                var leftVal = leftReg
+                var rightVal = rightReg
+                if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
+                    // Convert single-char string to its code point
+                    rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+                }
+                if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
+                    // Convert single-char string to its code point
+                    leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+                }
+                output = output + "  " + resultReg + " = icmp eq i64 " + leftVal + ", " + rightVal + "\n"
+            } else if leftType == "String" or rightType == "String" {
+                // String comparison - use runtime function
+                output = output + "  " + resultReg + " = call i1 @seen_str_eq_ss(%SeenString " + leftReg + ", %SeenString " + rightReg + ")\n"
             } else {
-                output = output + "  " + resultReg + " = icmp eq i64 " + leftReg + ", " + rightReg + "\n"
+                // Check if comparing pointer types (enums, classes, optionals)
+                let llvmLeftType = mapType(leftType)
+                if llvmLeftType == "ptr" {
+                    // Pointer comparison - use ptr type with null
+                    var rightNullVal = rightReg
+                    if rightReg == "0" {
+                        rightNullVal = "null"
+                    }
+                    output = output + "  " + resultReg + " = icmp eq ptr " + leftReg + ", " + rightNullVal + "\n"
+                } else {
+                    output = output + "  " + resultReg + " = icmp eq i64 " + leftReg + ", " + rightReg + "\n"
+                }
             }
         } else if expr.operator == "!=" {
-            output = output + "  " + resultReg + " = icmp ne i64 " + leftReg + ", " + rightReg + "\n"
+            // Handle Char comparisons specially
+            if leftType == "Char" or rightType == "Char" {
+                var leftVal = leftReg
+                var rightVal = rightReg
+                if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
+                    rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+                }
+                if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
+                    leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+                }
+                output = output + "  " + resultReg + " = icmp ne i64 " + leftVal + ", " + rightVal + "\n"
+            } else if leftType == "String" or rightType == "String" {
+                // String comparison - use runtime function
+                output = output + "  " + resultReg + " = call i1 @seen_str_ne_ss(%SeenString " + leftReg + ", %SeenString " + rightReg + ")\n"
+            } else {
+                // Check if comparing pointer types (enums, classes, optionals)
+                let llvmLeftType = mapType(leftType)
+                if llvmLeftType == "ptr" {
+                    // Pointer comparison - use ptr type with null
+                    var rightNullVal = rightReg
+                    if rightReg == "0" {
+                        rightNullVal = "null"
+                    }
+                    output = output + "  " + resultReg + " = icmp ne ptr " + leftReg + ", " + rightNullVal + "\n"
+                } else {
+                    output = output + "  " + resultReg + " = icmp ne i64 " + leftReg + ", " + rightReg + "\n"
+                }
+            }
         } else if expr.operator == "<" {
-            output = output + "  " + resultReg + " = icmp slt i64 " + leftReg + ", " + rightReg + "\n"
+            // Handle Char comparisons - if comparing with single-char string, use char code
+            var leftVal = leftReg
+            var rightVal = rightReg
+            if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
+                rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+            }
+            if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
+                leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+            }
+            output = output + "  " + resultReg + " = icmp slt i64 " + leftVal + ", " + rightVal + "\n"
         } else if expr.operator == "<=" {
-            output = output + "  " + resultReg + " = icmp sle i64 " + leftReg + ", " + rightReg + "\n"
+            var leftVal = leftReg
+            var rightVal = rightReg
+            if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
+                rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+            }
+            if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
+                leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+            }
+            output = output + "  " + resultReg + " = icmp sle i64 " + leftVal + ", " + rightVal + "\n"
         } else if expr.operator == ">" {
-            output = output + "  " + resultReg + " = icmp sgt i64 " + leftReg + ", " + rightReg + "\n"
+            var leftVal = leftReg
+            var rightVal = rightReg
+            if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
+                rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+            }
+            if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
+                leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+            }
+            output = output + "  " + resultReg + " = icmp sgt i64 " + leftVal + ", " + rightVal + "\n"
         } else if expr.operator == ">=" {
-            output = output + "  " + resultReg + " = icmp sge i64 " + leftReg + ", " + rightReg + "\n"
+            var leftVal = leftReg
+            var rightVal = rightReg
+            if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
+                rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+            }
+            if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
+                leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+            }
+            output = output + "  " + resultReg + " = icmp sge i64 " + leftVal + ", " + rightVal + "\n"
         } else if expr.operator == "and" {
             output = output + "  " + resultReg + " = and i1 " + leftReg + ", " + rightReg + "\n"
         } else if expr.operator == "or" {
@@ -442,6 +1848,29 @@ class LLVMIRGenerator {
 
     fun generateCall(expr: ParserExpressionNode) r: String {
         let funcName = expr.callee
+
+        // Special case: Array<Type>() constructor - creates empty array
+        if funcName.startsWith("Array<") or funcName == "Array" {
+            // Allocate empty SeenArray structure: { length: 0, capacity: 0, data: null }
+            let ptrReg = getNextReg()
+            output = output + "  " + ptrReg + " = call ptr @malloc(i64 24)\n"
+            // Store length = 0
+            let lenPtr = getNextReg()
+            output = output + "  " + lenPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 0\n"
+            output = output + "  store i64 0, ptr " + lenPtr + "\n"
+            // Store capacity = 0
+            let capPtr = getNextReg()
+            output = output + "  " + capPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 1\n"
+            output = output + "  store i64 0, ptr " + capPtr + "\n"
+            // Store data = null
+            let dataPtr = getNextReg()
+            output = output + "  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n"
+            output = output + "  store ptr null, ptr " + dataPtr + "\n"
+            // Load the array structure
+            let resultReg = getNextReg()
+            output = output + "  " + resultReg + " = load %SeenArray, ptr " + ptrReg + ", align 8\n"
+            return resultReg
+        }
 
         // Special case: println
         if funcName == "println" {
@@ -475,6 +1904,17 @@ class LLVMIRGenerator {
             return "0"
         }
 
+        // Special case: args() uses sret for struct > 16 bytes
+        if funcName == "args" {
+            let resultReg = getNextReg()
+            output = output + "  " + resultReg + " = alloca %SeenArray, align 8\n"
+            output = output + "  call void @args(ptr sret(%SeenArray) align 8 " + resultReg + ")\n"
+            // Load the result from the alloca
+            let loadReg = getNextReg()
+            output = output + "  " + loadReg + " = load %SeenArray, ptr " + resultReg + ", align 8\n"
+            return loadReg
+        }
+
         // Generic function call - generate args first, then result reg
         var argRegs = Array<String>()
         var argTypeStrs = Array<String>()
@@ -487,8 +1927,29 @@ class LLVMIRGenerator {
             argIdx = argIdx + 1
         }
 
+        // Infer return type from function name
+        let returnType = inferExpressionType(expr)
+        let llvmReturnType = mapType(returnType)
+
+        // For void functions, don't assign result
+        if llvmReturnType == "void" {
+            output = output + "  call void @" + funcName + "("
+
+            argIdx = 0
+            while argIdx < argRegs.length() {
+                if argIdx > 0 {
+                    output = output + ", "
+                }
+                output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+                argIdx = argIdx + 1
+            }
+
+            output = output + ")\n"
+            return "0"  // No result for void functions
+        }
+
         let resultReg = getNextReg()
-        output = output + "  " + resultReg + " = call i64 @" + funcName + "("
+        output = output + "  " + resultReg + " = call " + llvmReturnType + " @" + funcName + "("
 
         argIdx = 0
         while argIdx < argRegs.length() {
@@ -505,7 +1966,6 @@ class LLVMIRGenerator {
 
     fun generateMethodCall(expr: ParserExpressionNode) r: String {
         let methodName = expr.callee
-
         // Get receiver
         var receiverReg = ""
         var receiverType = "String"  // Default assumption for method calls
@@ -514,6 +1974,62 @@ class LLVMIRGenerator {
             // Complex receiver (e.g., chained method call or expression)
             receiverReg = generateExpression(expr.operands[0])
             receiverType = inferExpressionType(expr.operands[0])
+        } else if expr.literalValue.contains(".") {
+            // Chained field access like diag.line.toString()
+            // literalValue = "diag.line", callee = "toString"
+            // Need to parse and load the field
+            let path = expr.literalValue
+
+            // Find the dot index manually
+            var dotIdx = 0
+            var searchIdx = 0
+            while searchIdx < path.length() {
+                if path.substring(searchIdx, searchIdx + 1) == "." {
+                    dotIdx = searchIdx
+                    searchIdx = path.length()  // Exit loop
+                }
+                searchIdx = searchIdx + 1
+            }
+
+            let varName = path.substring(0, dotIdx)
+            let fieldName = path.substring(dotIdx + 1, path.length())
+
+            let idx = findVar(varName)
+            if idx >= 0 {
+                let varReg = varRegs[idx]
+                let varType = varTypes[idx]
+
+                // Load the struct pointer
+                let ptrReg = getNextReg()
+                output = output + "  " + ptrReg + " = load ptr, ptr " + varReg + "\n"
+
+                // Generate field access
+                receiverReg = generateFieldAccess(ptrReg, varType, fieldName)
+
+                // Infer receiver type from field - handle chained field names
+                // Use endsWith checks to avoid substring memory corruption issues
+                if fieldName.endsWith(".items") or fieldName == "items" {
+                    receiverType = "Array<ItemNode>"
+                } else if fieldName.endsWith(".diagnostics") or fieldName == "diagnostics" {
+                    receiverType = "Array<FrontendDiagnostic>"
+                } else if fieldName.endsWith(".importPath") or fieldName == "importPath" {
+                    receiverType = "Array<String>"
+                } else if fieldName.endsWith(".line") or fieldName == "line" or fieldName.endsWith(".column") or fieldName == "column" {
+                    receiverType = "Int"
+                } else if fieldName.endsWith(".severity") or fieldName == "severity" or fieldName.endsWith(".message") or fieldName == "message" or fieldName.endsWith(".file") or fieldName == "file" or fieldName.endsWith(".output") or fieldName == "output" {
+                    receiverType = "String"
+                } else if fieldName.endsWith(".program") or fieldName == "program" {
+                    receiverType = "ProgramNode"
+                } else if fieldName.endsWith(".function") or fieldName == "function" {
+                    receiverType = "FunctionNode"
+                } else if fieldName.endsWith(".classNode") or fieldName == "classNode" {
+                    receiverType = "ClassNode"
+                } else if fieldName.endsWith(".itemType") or fieldName == "itemType" {
+                    receiverType = "String"
+                } else {
+                    receiverType = getSeenFieldType(varType, fieldName)
+                }
+            }
         } else if expr.literalValue != "" {
             // Simple variable receiver stored in literalValue
             let varName = expr.literalValue
@@ -525,14 +2041,66 @@ class LLVMIRGenerator {
                 receiverReg = getNextReg()
                 receiverType = varType
                 output = output + "  " + receiverReg + " = load " + llvmType + ", ptr " + varReg + "\n"
+            } else {
+                // Variable not found - check if 'this' exists and varName is a field
+                let thisIdx = findVar("this")
+                if thisIdx >= 0 {
+                    let thisReg = varRegs[thisIdx]
+                    let thisType = varTypes[thisIdx]
+
+                    // Check if this type has the field
+                    let structIdx = findStruct(thisType)
+                    output = output + "; DEBUG methodCall: varName=" + varName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n"
+                    if structIdx >= 0 {
+                        let fieldIdx = getFieldInfo(thisType, varName)
+                        output = output + "; DEBUG fieldIdx=" + fieldIdx.toString() + "\n"
+                        if fieldIdx >= 0 {
+                            // Load 'this' pointer
+                            let thisPtrReg = getNextReg()
+                            output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                            // Access the field
+                            receiverReg = generateFieldAccess(thisPtrReg, thisType, varName)
+                            output = output + "; DEBUG after generateFieldAccess: receiverReg=" + receiverReg + "\n"
+                            // Infer receiver type from field
+                            receiverType = getSeenFieldType(thisType, varName)
+                            output = output + "; DEBUG receiverType=" + receiverType + "\n"
+                        }
+                    } else {
+                        // Fallback: hardcoded field access for well-known fields
+                        // SeenLexer.keywordManager is at index 4
+                        output = output + "; DEBUG: thisType=" + thisType + " varName=" + varName + "\n"
+                        if thisType == "SeenLexer" and varName == "keywordManager" {
+                            output = output + "; DEBUG: Matched SeenLexer.keywordManager!\n"
+                            let thisPtrReg = getNextReg()
+                            output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                            let gepReg = getNextReg()
+                            output = output + "  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n"
+                            receiverReg = getNextReg()
+                            output = output + "  " + receiverReg + " = load ptr, ptr " + gepReg + "\n"
+                            receiverType = "KeywordManager"
+                            output = output + "; DEBUG: receiverReg=" + receiverReg + " receiverType=" + receiverType + "\n"
+                        }
+                    }
+                }
             }
         }
 
         // Generate arguments BEFORE allocating result register to keep numbers in order
         if methodName == "length" {
-            let resultReg = getNextReg()
-            output = output + "  " + resultReg + " = call i64 @seen_length(%SeenString " + receiverReg + ")\n"
-            return resultReg
+            // Check if receiver is an array or string
+            if receiverType.startsWith("Array<") or receiverType == "Array" {
+                // For byval, store array in alloca and pass pointer
+                let arrayPtrReg = getNextReg()
+                output = output + "  " + arrayPtrReg + " = alloca %SeenArray, align 8\n"
+                output = output + "  store %SeenArray " + receiverReg + ", ptr " + arrayPtrReg + ", align 8\n"
+                let resultReg = getNextReg()
+                output = output + "  " + resultReg + " = call i64 @seen_arr_length(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ")\n"
+                return resultReg
+            } else {
+                let resultReg = getNextReg()
+                output = output + "  " + resultReg + " = call i64 @seen_length(%SeenString " + receiverReg + ")\n"
+                return resultReg
+            }
         } else if methodName == "toString" {
             let resultReg = getNextReg()
             output = output + "  " + resultReg + " = call %SeenString @seen_int_to_string(i64 " + receiverReg + ")\n"
@@ -562,10 +2130,178 @@ class LLVMIRGenerator {
             let resultReg = getNextReg()
             output = output + "  " + resultReg + " = call %SeenString @seen_substring(%SeenString " + receiverReg + ", i64 " + startReg + ", i64 " + endReg + ")\n"
             return resultReg
+        } else if methodName == "charAt" {
+            let indexReg = generateExpression(expr.arguments[0])
+            let resultReg = getNextReg()
+            output = output + "  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverReg + ", i64 " + indexReg + ")\n"
+            return resultReg
+        } else if methodName == "charCodeAt" {
+            let indexReg = generateExpression(expr.arguments[0])
+            let resultReg = getNextReg()
+            output = output + "  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverReg + ", i64 " + indexReg + ")\n"
+            return resultReg
+        } else if methodName == "push" {
+            // push needs pointer to array to modify in place
+            // Generate argument first
+            let argReg = generateExpression(expr.arguments[0])
+            let argType = inferExpressionType(expr.arguments[0])
+
+            // We need the field pointer, not the loaded value
+            var arrayPtrReg = ""
+
+            // First, check if receiver is a local variable - use its alloca directly
+            let varName = expr.literalValue
+            if varName != "" {
+                let varIdx = findVar(varName)
+                if varIdx >= 0 {
+                    // Local variable - use its alloca pointer directly
+                    arrayPtrReg = varRegs[varIdx]
+                } else {
+                    // Not a local variable - might be a field on 'this'
+                    let thisIdx = findVar("this")
+                    if thisIdx >= 0 {
+                        let thisReg = varRegs[thisIdx]
+                        let thisType = varTypes[thisIdx]
+                        let structIdx = findStruct(thisType)
+                        if structIdx >= 0 {
+                            let fieldIdx = getFieldInfo(thisType, varName)
+                            if fieldIdx >= 0 {
+                                // Load 'this' pointer and get field pointer
+                                let thisPtrReg = getNextReg()
+                                output = output + "  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n"
+                                arrayPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fall back to alloca if we still don't have a pointer
+            if arrayPtrReg == "" and (receiverType.startsWith("Array<") or receiverType == "Array") {
+                arrayPtrReg = getNextReg()
+                output = output + "  " + arrayPtrReg + " = alloca %SeenArray, align 8\n"
+                output = output + "  store %SeenArray " + receiverReg + ", ptr " + arrayPtrReg + ", align 8\n"
+            }
+
+            if arrayPtrReg != "" {
+                // Use type-specific push function for correct ABI
+                if argType == "String" {
+                    // For strings, use seen_arr_push_str which takes SeenString by value
+                    output = output + "  call void @seen_arr_push_str(ptr " + arrayPtrReg + ", %SeenString " + argReg + ")\n"
+                    return "0"  // void return
+                } else {
+                    // For pointer types, use Array_push
+                    let resultReg = getNextReg()
+                    output = output + "  " + resultReg + " = call i64 @Array_push(ptr " + arrayPtrReg + ", ptr " + argReg + ")\n"
+                    return resultReg
+                }
+            }
         }
 
-        // Generic method call - not supported yet
-        return "0"
+        // Check if this is a static method call (receiver is a class name, not a variable)
+        // BUT if we already set receiverReg from field access, this is NOT a static call
+        let isStatic = findVar(expr.literalValue) < 0 and receiverReg == ""
+
+        if isStatic {
+            // Static method call: LLVMIRGenerator.new() -> @LLVMIRGenerator_new()
+            let className = expr.literalValue
+            let funcName = className + "_" + methodName
+
+            // Generate arguments
+            var argRegs = Array<String>()
+            var argTypeStrs = Array<String>()
+            var argIdx = 0
+            while argIdx < expr.arguments.length() {
+                let argReg = generateExpression(expr.arguments[argIdx])
+                let argType = inferExpressionType(expr.arguments[argIdx])
+                argRegs.push(argReg)
+                argTypeStrs.push(mapType(argType))
+                argIdx = argIdx + 1
+            }
+
+            let resultReg = getNextReg()
+            // Static methods like .new() return a pointer to the struct
+            output = output + "  " + resultReg + " = call ptr @" + funcName + "("
+
+            argIdx = 0
+            while argIdx < argRegs.length() {
+                if argIdx > 0 {
+                    output = output + ", "
+                }
+                output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+                argIdx = argIdx + 1
+            }
+
+            output = output + ")\n"
+            return resultReg
+        }
+
+        // Instance method call: generator.generate(arg) -> @LLVMIRGenerator_generate(receiver, arg)
+        // Get the receiver's type to construct the function name
+        var instanceTypeName = receiverType
+        // Clean up type name - remove generic parameters if present
+        if instanceTypeName.contains("<") {
+            let ltIdx = instanceTypeName.indexOf("<")
+            instanceTypeName = instanceTypeName.substring(0, ltIdx)
+        }
+
+        let funcName = instanceTypeName + "_" + methodName
+
+        // Generate arguments
+        var argRegs = Array<String>()
+        var argTypeStrs = Array<String>()
+        var argIdx = 0
+        while argIdx < expr.arguments.length() {
+            let argReg = generateExpression(expr.arguments[argIdx])
+            let argType = inferExpressionType(expr.arguments[argIdx])
+            argRegs.push(argReg)
+            argTypeStrs.push(mapType(argType))
+            argIdx = argIdx + 1
+        }
+
+        // Infer return type from method name
+        let returnTypeStr = inferExpressionType(expr)
+        let llvmReturnType = mapType(returnTypeStr)
+
+        // Determine the receiver type for the call
+        // For primitive types (Int, Char, Bool), use their LLVM type directly
+        // For class/struct types, use ptr
+        var receiverLlvmType = "ptr"
+        if instanceTypeName == "Char" or instanceTypeName == "Int" or instanceTypeName == "Integer" {
+            receiverLlvmType = "i64"
+        } else if instanceTypeName == "Bool" or instanceTypeName == "Boolean" {
+            receiverLlvmType = "i1"
+        } else if instanceTypeName == "Float" {
+            receiverLlvmType = "double"
+        }
+
+        // Handle void return type - don't assign to a register
+        if llvmReturnType == "void" {
+            output = output + "  call void @" + funcName + "(" + receiverLlvmType + " " + receiverReg
+
+            argIdx = 0
+            while argIdx < argRegs.length() {
+                output = output + ", "
+                output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+                argIdx = argIdx + 1
+            }
+
+            output = output + ")\n"
+            return "0"  // Void calls return nothing
+        }
+
+        let resultReg = getNextReg()
+        output = output + "  " + resultReg + " = call " + llvmReturnType + " @" + funcName + "(" + receiverLlvmType + " " + receiverReg
+
+        argIdx = 0
+        while argIdx < argRegs.length() {
+            output = output + ", "
+            output = output + argTypeStrs[argIdx] + " " + argRegs[argIdx]
+            argIdx = argIdx + 1
+        }
+
+        output = output + ")\n"
+        return resultReg
     }
 
     fun generateUnary(expr: ParserExpressionNode) r: String {
@@ -598,6 +2334,9 @@ class LLVMIRGenerator {
     fun mapType(seenType: String) r: String {
         if seenType == "Int" {
             return "i64"
+        } else if seenType == "Char" {
+            // Char is represented as i64 (Unicode code point)
+            return "i64"
         } else if seenType == "Bool" or seenType == "Boolean" {
             return "i1"
         } else if seenType == "String" {
@@ -607,8 +2346,18 @@ class LLVMIRGenerator {
         } else if seenType == "Void" or seenType == "" {
             return "void"
         }
-        // Default to i64 for unknown types
-        return "i64"
+        // Class/struct types are stored as pointers
+        // Known class types that return structs/pointers
+        if seenType == "FrontendResult" or seenType == "CommandResult" or seenType == "LLVMIRGenerator" or seenType == "ProgramNode" or seenType == "FrontendDiagnostic" or seenType == "Point" {
+            return "ptr"
+        }
+        // Array types - handle both "Array<T>" and just "Array" (parser strips generic params)
+        if seenType.startsWith("Array<") or seenType == "Array" {
+            return "%SeenArray"
+        }
+        // Any other type is likely a struct/class, which is a pointer
+        // (primitive types Int, Bool, Float, String, Void are handled above)
+        return "ptr"
     }
 
     fun inferExpressionType(expr: ParserExpressionNode) r: String {
@@ -617,6 +2366,8 @@ class LLVMIRGenerator {
                 return "Int"
             } else if expr.literalType == "String" {
                 return "String"
+            } else if expr.literalType == "Char" {
+                return "Char"
             } else if expr.literalType == "Bool" or expr.literalType == "Boolean" {
                 return "Bool"
             } else if expr.literalType == "Float" {
@@ -626,6 +2377,18 @@ class LLVMIRGenerator {
             let idx = findVar(expr.variableName)
             if idx >= 0 {
                 return varTypes[idx]
+            }
+            // Variable not found - check if it's a field on 'this'
+            let thisIdx = findVar("this")
+            if thisIdx >= 0 {
+                let thisType = varTypes[thisIdx]
+                let structIdx = findStruct(thisType)
+                if structIdx >= 0 {
+                    let fieldIdx = getFieldInfo(thisType, expr.variableName)
+                    if fieldIdx >= 0 {
+                        return getSeenFieldType(thisType, expr.variableName)
+                    }
+                }
             }
         } else if expr.kind == "Binary" {
             if expr.operator == "==" or expr.operator == "!=" or expr.operator == "<" or expr.operator == ">" or expr.operator == "<=" or expr.operator == ">=" or expr.operator == "and" or expr.operator == "or" {
@@ -642,19 +2405,151 @@ class LLVMIRGenerator {
             }
             return "Int"
         } else if expr.kind == "MethodCall" {
+            // Check for static method calls - literalValue is the class name
+            if expr.callee == "new" {
+                // Static constructor - returns the class type
+                return expr.literalValue
+            }
             if expr.callee == "length" or expr.callee == "size" {
                 return "Int"
-            } else if expr.callee == "toString" or expr.callee == "substring" or expr.callee == "trim" or expr.callee == "generate" {
+            } else if expr.callee == "charAt" or expr.callee == "charCodeAt" {
+                return "Char"
+            } else if expr.callee == "toString" or expr.callee == "substring" or expr.callee == "trim" or expr.callee == "generate" or expr.callee == "generateMultiple" {
                 return "String"
-            } else if expr.callee == "startsWith" or expr.callee == "endsWith" or expr.callee == "contains" or expr.callee == "success" {
+            } else if expr.callee == "startsWith" or expr.callee == "endsWith" or expr.callee == "contains" or expr.callee == "success" or expr.callee == "isDynamic" or expr.callee == "isKeyword" or expr.callee == "hasTranslation" {
                 return "Bool"
+            } else if expr.callee == "getDiagnostics" {
+                return "Array<FrontendDiagnostic>"
+            } else if expr.callee == "getSources" or expr.callee == "getKeywordSources" {
+                return "Array<String>"
+            } else if expr.callee == "getKeywordCount" {
+                return "Int"
+            }
+
+            // Try to look up method return type from receiver's class
+            var receiverType = ""
+            if expr.operands.length() > 0 {
+                receiverType = inferExpressionType(expr.operands[0])
+            } else {
+                // Check if literalValue is a known variable
+                let varIdx = findVar(expr.literalValue)
+                if varIdx >= 0 {
+                    receiverType = varTypes[varIdx]
+                }
+            }
+
+            if receiverType != "" {
+                let methodRetType = getMethodReturnType(receiverType, expr.callee)
+                if methodRetType != "" {
+                    return methodRetType
+                }
             }
         } else if expr.kind == "Call" {
+            // Check for Array constructor - preserve generic parameter
+            if expr.callee.startsWith("Array<") {
+                return expr.callee  // Return full type like "Array<String>"
+            } else if expr.callee == "Array" {
+                return "Array"
+            }
+            // First check user-defined functions
+            let userRetType = getFunctionReturnType(expr.callee)
+            if userRetType != "" {
+                return userRetType
+            }
+            // Then hardcoded runtime functions
             if expr.callee == "readText" {
                 return "String"
             } else if expr.callee == "writeText" {
                 return "Bool"
+            } else if expr.callee == "run_frontend" {
+                return "FrontendResult"
+            } else if expr.callee == "runCommand" {
+                return "CommandResult"
+            } else if expr.callee == "commandWasSuccessful" {
+                return "Bool"
+            } else if expr.callee == "args" {
+                return "Array<String>"
+            } else if expr.callee == "printUsage" or expr.callee == "printFrontendDiagnostics" {
+                return "Void"
             }
+        } else if expr.kind == "MemberAccess" {
+            // Field access - infer type from known fields
+            var fieldName = expr.variableName
+
+            // Handle chained field names like "program.items" - use the last part
+            if fieldName.contains(".") {
+                var lastDot = 0
+                var fi = 0
+                while fi < fieldName.length() {
+                    if fieldName.substring(fi, fi + 1) == "." {
+                        lastDot = fi
+                    }
+                    fi = fi + 1
+                }
+                fieldName = fieldName.substring(lastDot + 1, fieldName.length())
+            }
+
+            if fieldName == "success" {
+                return "Bool"
+            } else if fieldName == "program" {
+                return "ProgramNode"
+            } else if fieldName == "diagnostics" {
+                return "Array<FrontendDiagnostic>"
+            } else if fieldName == "output" {
+                return "String"
+            } else if fieldName == "severity" or fieldName == "message" or fieldName == "file" {
+                return "String"
+            } else if fieldName == "line" or fieldName == "column" {
+                return "Int"
+            } else if fieldName == "x" or fieldName == "y" {
+                return "Int"
+            } else if fieldName == "items" {
+                return "Array<ItemNode>"
+            } else if fieldName == "itemType" {
+                return "String"
+            } else if fieldName == "function" {
+                return "FunctionNode"
+            } else if fieldName == "classNode" {
+                return "ClassNode"
+            } else if fieldName == "importPath" {
+                return "Array<String>"
+            }
+            // Try to get type from receiver
+            if expr.operands.length() > 0 {
+                let recvType = inferExpressionType(expr.operands[0])
+                let fieldType = getSeenFieldType(recvType, fieldName)
+                if fieldType != "Int" or fieldName == "length" or fieldName == "line" or fieldName == "column" {
+                    return fieldType
+                }
+            }
+        } else if expr.kind == "StructLiteral" {
+            // Struct literal - return the struct type name
+            return expr.literalType
+        } else if expr.kind == "IndexAccess" {
+            // Array indexing - return element type
+            let arrayType = inferExpressionType(expr.operands[0])
+            if arrayType == "Array<FrontendDiagnostic>" {
+                return "FrontendDiagnostic"
+            } else if arrayType == "Array<String>" {
+                return "String"
+            } else if arrayType == "Array<Int>" {
+                return "Int"
+            } else if arrayType == "Array<ItemNode>" {
+                return "ItemNode"
+            } else if arrayType == "Array<ProgramNode>" {
+                return "ProgramNode"
+            }
+            return "ptr"  // Default for unknown array types
+        } else if expr.kind == "ArrayLiteral" {
+            // Array literal - return "Array" (parser strips generic params)
+            return "Array"
+        } else if expr.kind == "Unary" {
+            // Unary operators
+            if expr.operator == "!" or expr.operator == "not" {
+                return "Bool"
+            }
+            // Unary minus returns same type as operand (default Int)
+            return "Int"
         }
         return "Int"
     }
@@ -667,7 +2562,8 @@ class LLVMIRGenerator {
             if c == "\\" {
                 result = result + "\\\\"
             } else if c == "\"" {
-                result = result + "\\\""
+                // LLVM IR uses hex escapes, not \" - quote is ASCII 34 = 0x22
+                result = result + "\\22"
             } else if c == "\n" {
                 result = result + "\\0A"
             } else if c == "\t" {
@@ -688,6 +2584,13 @@ class LLVMIRGenerator {
             let item = program.items[i]
             if item.itemType == "Function" {
                 collectStringConstantsFromBlock(item.function.body)
+            } else if item.itemType == "Class" {
+                // Collect strings from class method bodies
+                var mi = 0
+                while mi < item.classNode.methods.length() {
+                    collectStringConstantsFromBlock(item.classNode.methods[mi].body)
+                    mi = mi + 1
+                }
             }
             i = i + 1
         }
@@ -753,7 +2656,23 @@ class LLVMIRGenerator {
                 collectStringConstantsFromExpr(expr.operands[i])
                 i = i + 1
             }
+        } else if expr.kind == "StructLiteral" {
+            // Collect strings from struct field initializers
+            var i = 0
+            while i < expr.arguments.length() {
+                let fieldExpr = expr.arguments[i]
+                if fieldExpr.operands.length() > 0 {
+                    collectStringConstantsFromExpr(fieldExpr.operands[0])
+                }
+                i = i + 1
+            }
         } else if expr.kind == "Unary" {
+            if expr.operands.length() > 0 {
+                collectStringConstantsFromExpr(expr.operands[0])
+            }
+        } else if expr.kind == "Assignment" {
+            // Handle assignment expressions - collect from the right-hand side value
+            // Parser stores: variableName = target, operands[0] = value
             if expr.operands.length() > 0 {
                 collectStringConstantsFromExpr(expr.operands[0])
             }

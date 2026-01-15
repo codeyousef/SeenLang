@@ -16,6 +16,8 @@ static int g_argc = 0;
 static char** g_argv = NULL;
 
 void seen_runtime_init(int argc, char** argv) {
+    fprintf(stderr, "[DEBUG seen_runtime_init] argc=%d, argv=%p\n", argc, (void*)argv);
+    fflush(stderr);
     g_argc = argc;
     g_argv = argv;
 }
@@ -25,15 +27,23 @@ void seen_runtime_init(int argc, char** argv) {
 // ============================================================================
 
 SeenString readText(SeenString path) {
+    fprintf(stderr, "[DEBUG readText] path.len=%ld, path.data=%p\n", path.len, path.data);
+    fflush(stderr);
+
     // Null-terminate the path
     char* cpath = (char*)malloc(path.len + 1);
     memcpy(cpath, path.data, path.len);
     cpath[path.len] = 0;
 
+    fprintf(stderr, "[DEBUG readText] cpath='%s'\n", cpath);
+    fflush(stderr);
+
     FILE* f = fopen(cpath, "r");
     free(cpath);
 
     if (!f) {
+        fprintf(stderr, "[DEBUG readText] fopen failed, errno=%d\n", errno);
+        fflush(stderr);
         SeenString empty = { 0, "" };
         return empty;
     }
@@ -43,11 +53,17 @@ SeenString readText(SeenString path) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
+    fprintf(stderr, "[DEBUG readText] file size=%ld\n", size);
+    fflush(stderr);
+
     // Read content
     char* data = (char*)malloc(size + 1);
     size_t read = fread(data, 1, size, f);
     data[read] = 0;
     fclose(f);
+
+    fprintf(stderr, "[DEBUG readText] read %zu bytes, returning len=%zu\n", read, read);
+    fflush(stderr);
 
     SeenString result = { read, data };
     return result;
@@ -127,13 +143,23 @@ bool commandWasSuccessful(CommandResult result) {
 // ============================================================================
 
 SeenArray args(void) {
+    // Debug: print runtime init state
+    fprintf(stderr, "[DEBUG args] g_argc=%d, g_argv=%p\n", g_argc, (void*)g_argv);
+    fflush(stderr);
+
     SeenArray arr = seen_arr_new_str();
+    fprintf(stderr, "[DEBUG args] arr created, len=%ld, cap=%ld, data=%p\n", arr.len, arr.cap, arr.data);
+    fflush(stderr);
 
     for (int i = 0; i < g_argc; i++) {
+        fprintf(stderr, "[DEBUG args] processing arg[%d]=%s\n", i, g_argv[i]);
+        fflush(stderr);
         SeenString arg = seen_str_copy(g_argv[i]);
         seen_arr_push_str(&arr, arg);
     }
 
+    fprintf(stderr, "[DEBUG args] returning, final len=%ld\n", arr.len);
+    fflush(stderr);
     return arr;
 }
 
@@ -211,6 +237,75 @@ SeenString trim(SeenString text) {
 }
 
 // ============================================================================
+// Array Functions (implementations for LLVM backend linking)
+// ============================================================================
+
+SeenString seen_arr_get_str(SeenArray a, int64_t idx) {
+    if (idx < 0 || idx >= a.len) {
+        SeenString empty = { 0, "" };
+        return empty;
+    }
+    return ((SeenString*)a.data)[idx];
+}
+
+SeenArray seen_arr_new_str(void) {
+    fprintf(stderr, "[DEBUG seen_arr_new_str] enter\n");
+    fflush(stderr);
+    void* data = malloc(8 * sizeof(SeenString));
+    fprintf(stderr, "[DEBUG seen_arr_new_str] malloc returned %p\n", data);
+    fflush(stderr);
+    SeenArray arr = { 0, 8, data };
+    fprintf(stderr, "[DEBUG seen_arr_new_str] returning arr{len=%ld, cap=%ld, data=%p}\n", arr.len, arr.cap, arr.data);
+    fflush(stderr);
+    return arr;
+}
+
+void seen_arr_push_str(SeenArray* arr, SeenString s) {
+    if (arr->len >= arr->cap) {
+        // Handle initial capacity of 0
+        arr->cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        arr->data = realloc(arr->data, arr->cap * sizeof(SeenString));
+    }
+    ((SeenString*)arr->data)[arr->len++] = s;
+}
+
+// Generic push for pointer types (e.g., Array<Token>)
+void seen_arr_push_ptr(SeenArray* arr, void* p) {
+    if (arr->len >= arr->cap) {
+        // Handle initial capacity of 0
+        arr->cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        arr->data = realloc(arr->data, arr->cap * sizeof(void*));
+    }
+    ((void**)arr->data)[arr->len++] = p;
+}
+
+// Alias for Array_push used by generated code
+int64_t Array_push(SeenArray* arr, void* element) {
+    seen_arr_push_ptr(arr, element);
+    return arr->len;  // Return new length
+}
+
+FrontendDiagnostic seen_arr_get_diag(SeenArray a, int64_t idx) {
+    if (idx < 0 || idx >= a.len) {
+        FrontendDiagnostic empty = { { 0, "" }, { 0, "" }, 0, 0, { 0, "" } };
+        return empty;
+    }
+    return ((FrontendDiagnostic*)a.data)[idx];
+}
+
+// Generic getter for pointer types (e.g., Array<ItemNode>)
+void* seen_arr_get_ptr(SeenArray a, int64_t idx) {
+    if (idx < 0 || idx >= a.len) {
+        return NULL;
+    }
+    return ((void**)a.data)[idx];
+}
+
+int64_t seen_arr_length(SeenArray a) {
+    return a.len;
+}
+
+// ============================================================================
 // String Functions (implementations for LLVM backend linking)
 // ============================================================================
 
@@ -258,6 +353,59 @@ SeenString seen_int_to_string(int64_t n) {
     return result;
 }
 
+SeenString seen_char_to_str(int64_t c) {
+    // Convert a Unicode code point to a UTF-8 string
+    char* buf = (char*)malloc(8);  // Max 4 bytes for UTF-8 + null
+    int len = 0;
+    if (c < 0x80) {
+        buf[0] = (char)c;
+        len = 1;
+    } else if (c < 0x800) {
+        buf[0] = (char)(0xC0 | (c >> 6));
+        buf[1] = (char)(0x80 | (c & 0x3F));
+        len = 2;
+    } else if (c < 0x10000) {
+        buf[0] = (char)(0xE0 | (c >> 12));
+        buf[1] = (char)(0x80 | ((c >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (c & 0x3F));
+        len = 3;
+    } else {
+        buf[0] = (char)(0xF0 | (c >> 18));
+        buf[1] = (char)(0x80 | ((c >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((c >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (c & 0x3F));
+        len = 4;
+    }
+    buf[len] = '\0';
+    SeenString result = { len, buf };
+    return result;
+}
+
+int64_t seen_char_at(SeenString s, int64_t index) {
+    // Get character code point at index
+    // For now, just return the byte value (ASCII-compatible)
+    if (index < 0 || index >= s.len) {
+        return 0;  // Out of bounds
+    }
+    return (int64_t)(unsigned char)s.data[index];
+}
+
+int64_t Char_toInt(int64_t c) {
+    // Char is already stored as i64 code point, so this is identity
+    return c;
+}
+
+int64_t Int_unwrap(int64_t val) {
+    // Unwrap for Int - just identity since Int is non-optional
+    return val;
+}
+
+void* Optional_unwrap(void* ptr) {
+    // Unwrap for optional pointer types - return the pointer
+    // In a full implementation, this would check for null and panic
+    return ptr;
+}
+
 bool startsWith(SeenString text, SeenString prefix) {
     if (prefix.len > text.len) return false;
     return memcmp(text.data, prefix.data, prefix.len) == 0;
@@ -275,6 +423,16 @@ bool contains(SeenString text, SeenString needle) {
         if (memcmp(text.data + i, needle.data, needle.len) == 0) return true;
     }
     return false;
+}
+
+bool seen_str_eq_ss(SeenString a, SeenString b) {
+    if (a.len != b.len) return false;
+    if (a.len == 0) return true;
+    return memcmp(a.data, b.data, a.len) == 0;
+}
+
+bool seen_str_ne_ss(SeenString a, SeenString b) {
+    return !seen_str_eq_ss(a, b);
 }
 
 // ============================================================================
@@ -326,6 +484,26 @@ SeenString CGenerator_generate(void* gen, void* program) {
     // Stub implementation
     printf("ERROR: CGenerator_generate stub called - need full compiler implementation\n");
     SeenString empty = { 0, "" };
+    return empty;
+}
+
+// LLVM backend stubs
+void* LLVMIRGenerator_new(void) {
+    // Stub implementation - returns null pointer
+    printf("ERROR: LLVMIRGenerator_new stub called - need full compiler implementation\n");
+    return NULL;
+}
+
+SeenString LLVMIRGenerator_generate(void* gen, void* program) {
+    // Stub implementation - returns empty string
+    printf("ERROR: LLVMIRGenerator_generate stub called - need full compiler implementation\n");
+    SeenString empty = { 0, "" };
+    return empty;
+}
+
+SeenArray FrontendResult_getDiagnostics(void* result) {
+    // Stub implementation - returns empty array
+    SeenArray empty = { 0, 0, NULL };
     return empty;
 }
 

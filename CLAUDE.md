@@ -357,3 +357,62 @@ time ./matrix_multiply
 - **Performance Matters:** Target is 1.0x-1.5x Rust performance with 10x faster compilation
 - **Multi-Language:** Code should work in English, Arabic, and other languages
 - **Developer Experience:** Fast compilation, good error messages, modern tooling
+
+## Debugging Infrastructure
+
+The project has comprehensive debugging/tracing infrastructure. **Always use these tools instead of adding ad-hoc print statements.**
+
+### Environment Variables
+
+| Variable | Purpose | Values |
+|----------|---------|--------|
+| `SEEN_DEBUG_TYPES` | Type checker debugging | `1` to enable |
+| `SEEN_TRACE_LLVM` | LLVM backend tracing | `1`, `all`, `inst`, `values`, `types`, `ir`, `layouts`, `gep`, `boxing` |
+| `RUST_LOG` | Standard Rust logging | `warn`, `debug`, `trace` |
+
+### CLI Debug Flags
+
+```bash
+# Enable all debugging
+./target-wsl/release/seen_cli build source.seen output --debug
+
+# Specific debug modes
+./target-wsl/release/seen_cli build source.seen output --trace-llvm
+./target-wsl/release/seen_cli build source.seen output --dump-struct-layouts
+./target-wsl/release/seen_cli build source.seen output --runtime-debug
+```
+
+### Common Debugging Commands
+
+```bash
+# Debug type checking issues
+SEEN_DEBUG_TYPES=1 ./target-wsl/release/seen_cli build program.seen
+
+# Debug LLVM IR generation (all traces)
+SEEN_TRACE_LLVM=all ./target-wsl/release/seen_cli build program.seen
+
+# Debug struct field access (GEP operations)
+SEEN_TRACE_LLVM=gep ./target-wsl/release/seen_cli build program.seen
+
+# Dump LLVM IR to debug_ir.ll
+SEEN_TRACE_LLVM=ir ./target-wsl/release/seen_cli build program.seen
+
+# Debug boxing/unboxing for generics
+SEEN_TRACE_LLVM=boxing ./target-wsl/release/seen_cli build program.seen
+
+# Verbose Rust logging
+RUST_LOG=debug ./target-wsl/release/seen_cli build program.seen
+```
+
+### Bootstrap Verifier
+
+For multi-stage bootstrap verification, use `BootstrapVerifier` class in `compiler_seen/src/bootstrap/verifier.seen`:
+- Logs to stdout and `bootstrap_verification.log`
+- Tracks compilation stages, binary comparisons, hashes, and file sizes
+
+### Key Files for Debugging
+
+- `rust_backup/seen_ir/src/llvm_backend.rs` - LLVM trace options (`LlvmTraceOptions` struct)
+- `rust_backup/seen_typechecker/src/checker.rs` - Type debug output
+- `rust_backup/seen_cli/src/main.rs` - CLI flag parsing
+- `compiler_seen/src/bootstrap/verifier.seen` - Bootstrap verification logging

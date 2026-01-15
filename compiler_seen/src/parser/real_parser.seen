@@ -388,8 +388,8 @@ class RealParser {
                 let curType = curTok.getType().toString()
                 let rbStr = SeenTokenType.RightBrace.toString()
                 // trace + " rbCheck=(" + curType + "==" + rbStr + ")")
-                // Check for 'var' (field)
-                if matchTokenStr(SeenTokenType.KeywordVar) {
+                // Check for 'var' or 'let' (field)
+                if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
                     let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
                     consume(SeenTokenType.Colon, "Expected ':' after field name")
                     let fieldType = parseTypeNode()
@@ -455,8 +455,8 @@ class RealParser {
             while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
                 let curTok = peek()
                 let curType = curTok.getType().toString()
-                // Check for 'var' (field)
-                if matchTokenStr(SeenTokenType.KeywordVar) {
+                // Check for 'var' or 'let' (field)
+                if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
                     let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
                     consume(SeenTokenType.Colon, "Expected ':' after field name")
                     let fieldType = parseTypeNode()
@@ -679,13 +679,27 @@ class RealParser {
                     name = name + "." + advance().getValue()
                 } else { break }
             }
-            // Skip generic parameters <...>
+            // Parse generic parameters <...> and include them in the name
             if matchTokenStr(SeenTokenType.LessThan) {
+                name = name + "<"
                 var depth = 1
                 while depth > 0 and not isAtEnd() {
-                    if matchTokenStr(SeenTokenType.LessThan) { depth = depth + 1; continue }
-                    if matchTokenStr(SeenTokenType.GreaterThan) { depth = depth - 1; continue }
-                    advance()
+                    if checkToken(SeenTokenType.LessThan) {
+                        name = name + "<"
+                        advance()
+                        depth = depth + 1
+                    } else if checkToken(SeenTokenType.GreaterThan) {
+                        name = name + ">"
+                        advance()
+                        depth = depth - 1
+                    } else if checkToken(SeenTokenType.Identifier) {
+                        name = name + advance().getValue()
+                    } else if checkToken(SeenTokenType.Comma) {
+                        name = name + ","
+                        advance()
+                    } else {
+                        advance()
+                    }
                 }
             }
             typeNode.typeName = name
@@ -853,7 +867,8 @@ class RealParser {
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
             // trace
             // Direct assignment instead of parseExpressionIntoField (which passes by value)
-            lastStatement.returnValue = parseExpression()
+            let tempExpr = parseExpression()
+            lastStatement.returnValue = tempExpr
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
         // trace
@@ -1155,9 +1170,19 @@ class RealParser {
             }
             if exprResult.kind == "Binary" {
                 stmt.returnValue.operator = exprResult.operator
+                // Binary expressions need operands for OR/AND to work
+                // Copy element by element to avoid array reference issues
+                var opIdx = 0
+                while opIdx < exprResult.operands.length() {
+                    stmt.returnValue.operands.push(exprResult.operands[opIdx])
+                    opIdx = opIdx + 1
+                }
             }
             // trace
-            // Skip copying arrays to avoid memory corruption - most return expressions don't need them
+            // Copy arguments for calls
+            if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
+                stmt.returnValue.arguments = exprResult.arguments
+            }
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
         // trace
@@ -1206,7 +1231,7 @@ class RealParser {
     }
 
     fun parseAssignment() r: ParserExpressionNode {
-        let expr = parseEquality()
+        let expr = parseOr()
         if matchTokenStr(SeenTokenType.Equal) {
             let equals = previous()
             let value = parseAssignment()
@@ -1218,6 +1243,34 @@ class RealParser {
                 assign.operands.push(value) // [0] = rhs value
                 return assign
             }
+        }
+        return expr
+    }
+
+    fun parseOr() r: ParserExpressionNode {
+        var expr = parseAnd()
+        while matchTokenStr(SeenTokenType.LogicalOr) {
+            let right = parseAnd()
+            let newExpr = ParserExpressionNode.new()
+            newExpr.kind = "Binary"
+            newExpr.operands.push(expr)  // [0] = left
+            newExpr.operands.push(right) // [1] = right
+            newExpr.operator = "or"
+            expr = newExpr
+        }
+        return expr
+    }
+
+    fun parseAnd() r: ParserExpressionNode {
+        var expr = parseEquality()
+        while matchTokenStr(SeenTokenType.LogicalAnd) {
+            let right = parseEquality()
+            let newExpr = ParserExpressionNode.new()
+            newExpr.kind = "Binary"
+            newExpr.operands.push(expr)  // [0] = left
+            newExpr.operands.push(right) // [1] = right
+            newExpr.operator = "and"
+            expr = newExpr
         }
         return expr
     }
@@ -1399,6 +1452,12 @@ class RealParser {
             return makeLiteral(strValue, "String")
         }
 
+        // Character literal
+        if checkToken(SeenTokenType.CharLiteral) {
+            let token = advance()
+            return makeLiteral(token.getValue(), "Char")
+        }
+
         // Integer literal
         if checkToken(SeenTokenType.IntegerLiteral) {
             let token = advance()
@@ -1415,16 +1474,74 @@ class RealParser {
             return makeLiteral("false", "Bool")
         }
 
+        // Handle 'this' keyword as a variable reference
+        if checkToken(SeenTokenType.KeywordThis) {
+            advance()
+            return makeVariable("this")
+        }
+
         // Identifier (variable or function name or struct literal)
         let curTok = peek()
         // trace.toString() + " value=" + curTok.getValue())
         if checkToken(getIdentifierType()) {
             let token = advance()
-            let name = token.getValue()
+            var name = token.getValue()
             // trace
 
+            // Check for generic type syntax: Array<Type>() or Map<K,V>{}
+            // This needs to be handled before struct literal check
+            if checkToken(SeenTokenType.LessThan) {
+                // Look ahead to see if this is a generic type or a comparison
+                // Generic type pattern: Identifier<Type>() or Identifier<Type>{}
+                // We save position, try to parse generic, then decide
+                let savedPos = current
+                advance() // consume <
+
+                // Try to parse a type name
+                if checkToken(getIdentifierType()) {
+                    let typeParam = advance().getValue()
+
+                    // Handle nested generics like Array<Array<Int>>
+                    var fullTypeParam = typeParam
+                    if checkToken(SeenTokenType.LessThan) {
+                        advance() // consume inner <
+                        if checkToken(getIdentifierType()) {
+                            fullTypeParam = fullTypeParam + "<" + advance().getValue() + ">"
+                            if checkToken(SeenTokenType.GreaterThan) {
+                                advance() // consume inner >
+                            }
+                        }
+                    }
+
+                    // Check for closing >
+                    if checkToken(SeenTokenType.GreaterThan) {
+                        advance() // consume >
+
+                        // Now check if followed by () or {} to confirm generic type
+                        if checkToken(getLeftParenType()) or checkToken(SeenTokenType.LeftBrace) {
+                            // This IS a generic type - update name to include type param
+                            name = name + "<" + fullTypeParam + ">"
+                            // Continue to normal call/struct literal handling below
+                        } else {
+                            // Not followed by () or {} - backtrack, treat as comparison
+                            current = savedPos
+                        }
+                    } else {
+                        // No closing > - backtrack, treat as comparison
+                        current = savedPos
+                    }
+                } else {
+                    // Not an identifier after < - backtrack, treat as comparison
+                    current = savedPos
+                }
+            }
+
             // Check for struct literal: TypeName{ field: value, ... }
-            if checkToken(SeenTokenType.LeftBrace) {
+            // Only treat as struct literal if identifier starts with uppercase (type name convention)
+            // This prevents `if myVar { ... }` from being parsed as struct literal
+            let firstChar = name.charAt(0)
+            let isUppercase = firstChar >= "A" and firstChar <= "Z"
+            if isUppercase and checkToken(SeenTokenType.LeftBrace) {
                 advance() // consume {
                 let structExpr = ParserExpressionNode.new()
                 structExpr.kind = "StructLiteral"

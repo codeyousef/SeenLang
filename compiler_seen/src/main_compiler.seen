@@ -5,6 +5,80 @@ import io.file.{readText, writeText}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator}
+import parser.real_parser.{ProgramNode, ItemNode}
+
+// Helper to parse a module and return its program
+fun parseModule(path: String, lang: String) r: FrontendResult {
+    let source = readText(path)
+    if source == "" {
+        println("  ⚠️ Warning: could not read module " + path)
+    }
+    return run_frontend(source, path, lang)
+}
+
+// Resolve compiler_seen module path to actual file path
+fun resolveModulePath(modulePath: String) r: String {
+    // Module paths like "bootstrap.frontend" -> "compiler_seen/src/bootstrap/frontend.seen"
+    var filePath = "compiler_seen/src/"
+    var i = 0
+    while i < modulePath.length() {
+        let c = modulePath.substring(i, i + 1)
+        if c == "." {
+            filePath = filePath + "/"
+        } else {
+            filePath = filePath + c
+        }
+        i = i + 1
+    }
+    return filePath + ".seen"
+}
+
+// Resolve general module path relative to source file
+fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
+    // Convert import path segments to file path
+    // e.g., ["test_module"] -> "test_module/mod.seen" or "test_module.seen"
+    var filePath = sourceDir
+    if filePath != "" and not filePath.endsWith("/") {
+        filePath = filePath + "/"
+    }
+
+    var i = 0
+    while i < importPath.length() {
+        if i > 0 {
+            filePath = filePath + "/"
+        }
+        filePath = filePath + importPath[i]
+        i = i + 1
+    }
+
+    // Try module file first (foo/mod.seen), then direct file (foo.seen)
+    let modPath = filePath + "/mod.seen"
+    let directPath = filePath + ".seen"
+
+    // Check if module file exists by trying to read it
+    let modContent = readText(modPath)
+    if modContent != "" {
+        return modPath
+    }
+    return directPath
+}
+
+// Get directory part of file path
+fun getSourceDir(filePath: String) r: String {
+    var lastSlash = 0 - 1  // Workaround: -1 causes parser issue in Stage1
+    var i = 0
+    while i < filePath.length() {
+        let c = filePath.substring(i, i + 1)
+        if c == "/" {
+            lastSlash = i
+        }
+        i = i + 1
+    }
+    if lastSlash < 0 {
+        return ""
+    }
+    return filePath.substring(0, lastSlash)
+}
 
 fun compileCommand(inputFile: String, outputFile: String) r: Int {
     println("🚀 Stage1 compiling (LLVM path)")
@@ -22,9 +96,98 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
         return 1
     }
 
+    var programs = Array<ProgramNode>()
+    programs.push(frontend.program)
+
+    // Track which modules we've already processed to avoid duplicates
+    var processedPaths = Array<String>()
+    processedPaths.push(inputFile)
+
+    // Get directory of source file for relative imports
+    let sourceDir = getSourceDir(inputFile)
+
+    // Check if we're compiling main_compiler.seen (bootstrap mode)
+    let isBootstrap = inputFile.contains("main_compiler.seen")
+
+    // Process imports from the main program
+    var itemIdx = 0
+    while itemIdx < frontend.program.items.length() {
+        let item = frontend.program.items[itemIdx]
+        if item.itemType == "Import" {
+            // Resolve import path
+            let importFilePath = resolveImportPath(item.importPath, sourceDir)
+
+            // Check if we've already processed this module
+            var alreadyProcessed = false
+            var pi = 0
+            while pi < processedPaths.length() {
+                if processedPaths[pi] == importFilePath {
+                    alreadyProcessed = true
+                    pi = processedPaths.length()  // Break
+                }
+                pi = pi + 1
+            }
+
+            if not alreadyProcessed {
+                processedPaths.push(importFilePath)
+                let modFrontend = parseModule(importFilePath, "en")
+                if modFrontend.success {
+                    programs.push(modFrontend.program)
+                    println("  ✓ Imported: " + importFilePath)
+                } else {
+                    println("  ⚠️ Failed to import: " + importFilePath)
+                }
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+
+    if isBootstrap {
+        println("  📦 Bootstrap mode: compiling additional modules...")
+
+        // List of modules needed for bootstrap (in dependency order)
+        let modules = Array<String>()
+        modules.push("lexer.token")
+        modules.push("lexer.token_type")
+        modules.push("lexer.real_lexer")
+        modules.push("parser.real_parser")
+        modules.push("typechecker.interfaces")
+        modules.push("typechecker.typechecker")
+        modules.push("bootstrap.frontend")
+        modules.push("codegen.llvm_ir_gen")
+
+        var mi = 0
+        while mi < modules.length() {
+            let modPath = resolveModulePath(modules[mi])
+
+            // Check if we've already processed this module
+            var alreadyProcessed = false
+            var pi = 0
+            while pi < processedPaths.length() {
+                if processedPaths[pi] == modPath {
+                    alreadyProcessed = true
+                    pi = processedPaths.length()  // Break
+                }
+                pi = pi + 1
+            }
+
+            if not alreadyProcessed {
+                processedPaths.push(modPath)
+                let modFrontend = parseModule(modPath, "en")
+                if modFrontend.success {
+                    programs.push(modFrontend.program)
+                    println("  ✓ " + modules[mi])
+                } else {
+                    println("  ✗ " + modules[mi] + " (failed to parse)")
+                }
+            }
+            mi = mi + 1
+        }
+    }
+
     // Generate LLVM IR from AST
     let generator = LLVMIRGenerator.new()
-    let llvmIR = generator.generate(frontend.program)
+    let llvmIR = generator.generateMultiple(programs)
 
     // Write LLVM IR to file
     let irFilePath = "/tmp/seen_program.ll"
