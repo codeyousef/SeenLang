@@ -31,6 +31,8 @@ class LLVMIRGenerator {
     // Pre-allocated variable names and types (for hoisting allocas to entry block)
     var preAllocatedVars: Array<String>
     var preAllocatedTypes: Array<String>
+    // Module prefix for per-module compilation (empty for multi-module)
+    var stringConstantPrefix: String
 
     static fun new() r: LLVMIRGenerator {
         return LLVMIRGenerator{
@@ -54,8 +56,26 @@ class LLVMIRGenerator {
             currentFunctionReturnType: "",
             blockTerminated: false,
             preAllocatedVars: Array<String>(),
-            preAllocatedTypes: Array<String>()
+            preAllocatedTypes: Array<String>(),
+            stringConstantPrefix: ""
         }
+    }
+
+    // Reset generator state for per-module compilation (keeps struct/func registries)
+    fun reset() r: Void {
+        output = StringBuilder.new()
+        stringConstants = Array<String>()
+        varNames = Array<String>()
+        varRegs = Array<String>()
+        varTypes = Array<String>()
+        nextReg = 1
+        nextBlock = 0
+        currentFunctionReturnType = ""
+        blockTerminated = false
+        preAllocatedVars = Array<String>()
+        preAllocatedTypes = Array<String>()
+        stringConstantPrefix = ""
+        // Keep struct/func registries for cross-module references
     }
 
     // Register a user-defined function's return type
@@ -515,6 +535,7 @@ class LLVMIRGenerator {
     fun generateMultiple(programs: Array<ProgramNode>) r: String {
         output = StringBuilder.new()
         stringConstants = Array<String>()
+        stringConstantPrefix = ""  // No prefix for multi-module
 
         // First pass: collect string constants from all programs
         var pi = 0
@@ -604,6 +625,93 @@ class LLVMIRGenerator {
                 i = i + 1
             }
             pi = pi + 1
+        }
+
+        return output.toString()
+    }
+
+    // Generate IR for a single module (for per-module compilation)
+    fun generateSingle(program: ProgramNode, moduleIndex: Int) r: String {
+        // Reset per-module state
+        output = StringBuilder.new()
+        stringConstants = Array<String>()
+        varNames = Array<String>()
+        varRegs = Array<String>()
+        varTypes = Array<String>()
+        nextReg = 1
+        nextBlock = 0
+        preAllocatedVars = Array<String>()
+        preAllocatedTypes = Array<String>()
+        // Set module prefix for string constants (e.g., "M0.", "M1.", etc.)
+        stringConstantPrefix = "M" + moduleIndex.toString() + "."
+
+        // Collect string constants for THIS module only
+        collectStringConstants(program)
+
+        // Emit module header
+        emitPrologue()
+
+        // Emit class struct type definitions for THIS module
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Class" {
+                emitClassType(item.classNode)
+            }
+            i = i + 1
+        }
+
+        // Emit string constants with module prefix
+        emitStringConstantsWithPrefix(moduleIndex)
+
+        // Emit runtime declarations (all modules need these for linking)
+        emitRuntimeDeclarations()
+
+        // Emit functions (top-level) for THIS module
+        i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                let fnName = item.function.name
+                // Skip StringBuilder methods that were incorrectly parsed as standalone
+                if fnName == "clear" or fnName == "isEmpty" or fnName == "length" or fnName == "buildAndClear" or fnName == "toString" or fnName == "reduceToString" or fnName == "append" or fnName == "appendChar" or fnName == "appendLine" or fnName == "appendAll" {
+                    i = i + 1
+                    continue
+                }
+                // Skip string utility functions that use unsupported features
+                if fnName == "trimStart" or fnName == "trimEnd" or fnName == "trim" or fnName == "split" or fnName == "lines" or fnName == "words" or fnName == "splitWhitespace" {
+                    i = i + 1
+                    continue
+                }
+                if fnName == "replaceFirst" or fnName == "replaceAll" or fnName == "replace" or fnName == "indexOf" or fnName == "lastIndexOf" {
+                    i = i + 1
+                    continue
+                }
+                if fnName == "padStart" or fnName == "padEnd" or fnName == "repeat" or fnName == "join" or fnName == "mergeAdjacent" {
+                    i = i + 1
+                    continue
+                }
+                if fnName == "isBlank" or fnName == "isWhitespace" or fnName == "contains" or fnName == "startsWith" or fnName == "endsWith" {
+                    i = i + 1
+                    continue
+                }
+                if fnName == "removePrefix" or fnName == "removeSuffix" or fnName == "ensurePrefix" or fnName == "ensureSuffix" {
+                    i = i + 1
+                    continue
+                }
+                generateFunction(item.function)
+            }
+            i = i + 1
+        }
+
+        // Emit class methods for THIS module
+        i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Class" {
+                generateClass(item.classNode)
+            }
+            i = i + 1
         }
 
         return output.toString()
@@ -761,6 +869,22 @@ class LLVMIRGenerator {
             let escaped = escapeString(str)
             let len = str.length() + 1  // +1 for null terminator
             output.append("@.str." + i.toString() + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escaped + "\\00\"\n")
+            i = i + 1
+        }
+        if stringConstants.length() > 0 {
+            output.append("\n")
+        }
+    }
+
+    // Emit string constants with module prefix to avoid collisions in per-module compilation
+    fun emitStringConstantsWithPrefix(moduleIndex: Int) r: Void {
+        var i = 0
+        while i < stringConstants.length() {
+            let str = stringConstants[i]
+            let escaped = escapeString(str)
+            let len = str.length() + 1  // +1 for null terminator
+            // Module-prefixed name: @.str.M0.0, @.str.M1.0, etc.
+            output.append("@.str.M" + moduleIndex.toString() + "." + i.toString() + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escaped + "\\00\"\n")
             i = i + 1
         }
         if stringConstants.length() > 0 {
@@ -1883,7 +2007,7 @@ class LLVMIRGenerator {
             // Convert to SeenString
             let ptrReg = getNextReg()
             let strLen = expr.literalValue.length() + 1
-            output.append("  " + ptrReg + " = getelementptr [" + strLen.toString() + " x i8], ptr @.str." + idx.toString() + ", i64 0, i64 0\n")
+            output.append("  " + ptrReg + " = getelementptr [" + strLen.toString() + " x i8], ptr @.str." + stringConstantPrefix + idx.toString() + ", i64 0, i64 0\n")
 
             let strReg = getNextReg()
             output.append("  " + strReg + " = call %SeenString @seen_cstr_to_str(ptr " + ptrReg + ")\n")

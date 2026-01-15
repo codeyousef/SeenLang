@@ -250,32 +250,56 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
         }
     }
 
-    // Generate LLVM IR from AST
-    println("  [3] Generating LLVM IR for " + programs.length().toString() + " programs...")
+    // Generate LLVM IR and compile each module separately (memory-efficient)
+    println("  [3] Compiling " + programs.length().toString() + " modules...")
     let generator = LLVMIRGenerator.new()
-    let llvmIR = generator.generateMultiple(programs)
-    println("  [3] Generated " + llvmIR.length().toString() + " chars of IR")
+    var objectFiles = Array<String>()
+    var moduleIndex = 0
 
-    // Write LLVM IR to file
-    println("  [4] Writing LLVM IR to file...")
-    let irFilePath = "/tmp/seen_program.ll"
-    if not writeText(irFilePath, llvmIR) {
-        println("❌ Failed to write LLVM IR file: " + irFilePath)
-        return 1
+    while moduleIndex < programs.length() {
+        let program = programs[moduleIndex]
+
+        // Generate IR for this module
+        let llvmIR = generator.generateSingle(program, moduleIndex)
+        println("    [" + moduleIndex.toString() + "] Generated " + llvmIR.length().toString() + " chars of IR")
+
+        // Write to module-specific file
+        let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
+        let objFile = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+
+        if not writeText(llFile, llvmIR) {
+            println("❌ Failed to write IR file: " + llFile)
+            return 1
+        }
+
+        // Compile to object file
+        let llcResult: CommandResult = runCommand("llc -filetype=obj -O3 -relocation-model=pic " + llFile + " -o " + objFile)
+        if not commandWasSuccessful(llcResult) {
+            println("❌ llc failed for module " + moduleIndex.toString())
+            println(llcResult.output)
+            return 1
+        }
+
+        objectFiles.push(objFile)
+
+        // Reset generator state for next module (release memory)
+        generator.reset()
+
+        moduleIndex = moduleIndex + 1
     }
-    println("  [4] Done writing IR")
 
-    // Compile LLVM IR to object file using llc
-    let objFilePath = "/tmp/seen_program.o"
-    let llcResult: CommandResult = runCommand("llc -filetype=obj -O3 -relocation-model=pic " + irFilePath + " -o " + objFilePath)
-    if not commandWasSuccessful(llcResult) {
-        println("❌ llc compilation failed")
-        println(llcResult.output)
-        return 1
+    println("  [4] Linking " + objectFiles.length().toString() + " object files...")
+
+    // Build link command with all object files
+    var linkCmd = "clang -O3 -I seen_runtime "
+    var oi = 0
+    while oi < objectFiles.length() {
+        linkCmd = linkCmd + objectFiles[oi] + " "
+        oi = oi + 1
     }
+    linkCmd = linkCmd + "seen_runtime/seen_runtime.c -o " + outputFile + " -lm"
 
-    // Link with seen_runtime using clang
-    let linkResult: CommandResult = runCommand("clang -O3 -I seen_runtime " + objFilePath + " seen_runtime/seen_runtime.c -o " + outputFile + " -lm")
+    let linkResult: CommandResult = runCommand(linkCmd)
     if commandWasSuccessful(linkResult) {
         println("✅ Build succeeded -> " + outputFile)
         return 0
