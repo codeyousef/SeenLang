@@ -435,6 +435,17 @@ impl IRGenerator {
         &mut self,
         expr: &Expression,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        // Debug: Log expression variant for tracking Array constructor path
+        let variant_name = match expr {
+            Expression::Call { callee, .. } => format!("Call(callee={:?})", callee),
+            Expression::Identifier { name, type_args, .. } => format!("Identifier(name={}, type_args={:?})", name, type_args),
+            Expression::Let { name, .. } => format!("Let(name={})", name),
+            _ => "other".to_string(),
+        };
+        if variant_name.contains("Array") || variant_name.contains("arr") {
+            eprintln!("[DEBUG generate_expression] {}", variant_name);
+        }
+
         let result = match expr {
             Expression::Import {
                 ..
@@ -554,6 +565,9 @@ impl IRGenerator {
         function: &Expression,
         arguments: &[Expression],
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        // Debug: print all call expressions to understand what's being generated
+        eprintln!("[DEBUG generate_call_expression] function={:?}", function);
+
         let mut instructions = Vec::new();
         let mut arg_values = Vec::new();
 
@@ -598,7 +612,9 @@ impl IRGenerator {
         }
 
         // Handle Array<T>() constructor calls - these need to become __ArrayNew calls
+        // eprintln!("[DEBUG IR] generate_call function type: {:?}", std::any::type_name_of_val(function));
         if let Expression::Identifier { name, type_args, .. } = function {
+            eprintln!("[DEBUG IR] Function identifier name='{}', type_args={:?}", name, type_args);
             if name == "Array" {
                 if arguments.is_empty() {
                     // Array<T>() constructor call - turn this into __ArrayNew(sizeof(T), 0)
@@ -828,6 +844,21 @@ impl IRGenerator {
             // Fallback: call a free function named after the member; first arg is receiver
             let mut final_args = Vec::with_capacity(1 + arg_values.len());
             final_args.push(obj_val.clone());
+
+            // For methods that transfer ownership (push, insert, etc.), mark variable arguments as moved
+            // This prevents the Vale-style cleanup from deallocating values that were moved into containers
+            if member == "push" || member == "insert" || member == "add" || member == "append" {
+                for arg_val in &arg_values {
+                    if let IRValue::Variable(var_name) = arg_val {
+                        // Check if this variable is heap-allocated (struct/class instance)
+                        // If so, mark it as moved so it won't be deallocated at function end
+                        if self.context.heap_allocated.contains(var_name) {
+                            self.context.mark_moved(var_name);
+                        }
+                    }
+                }
+            }
+
             final_args.extend(arg_values.into_iter());
 
             let result_reg = self.context.allocate_register();
@@ -857,25 +888,16 @@ impl IRGenerator {
                     }
                 }
             } else if member == "get" {
-                // Vec<T>.get() returns Option<T> - track both the Option type and the inner type T
-                // Array<T>.get() returns T directly
+                // Both Vec<T>.get() and Array<T>.get() return T directly in Seen
+                // (The Vec.get() implementation throws on out-of-bounds, not returns Option)
                 if let Some(elem_type) = &receiver_element_type {
                     // Track the element type for container_element_types
                     self.context.container_element_types.insert(format!("reg_{}", result_reg), elem_type.clone());
-                    
-                    // For Vec.get(), set the register type
-                    // If elem_type is already Optional, don't double-wrap
-                    // Otherwise, wrap in Option since Vec.get() returns Option<T>
-                    if obj_type_name.as_deref() == Some("Vec") {
-                        // Check if elem_type is already Optional
-                        let result_type = if matches!(elem_type, IRType::Optional(_)) {
-                            // Element type is already Optional - use as-is
-                            elem_type.clone()
-                        } else {
-                            // Wrap in Option since Vec.get() returns Option<T>
-                            IRType::Optional(Box::new(elem_type.clone()))
-                        };
-                        self.context.set_register_type(result_reg, result_type.clone());
+
+                    // For Vec.get() and Array.get(), set the register type to the element type T
+                    if obj_type_name.as_deref() == Some("Vec") || obj_type_name.as_deref() == Some("Array") {
+                        eprintln!("[DEBUG codegen] Setting register {} type to {:?}", result_reg, elem_type);
+                        self.context.set_register_type(result_reg, elem_type.clone());
                         type_set_specially = true;
                     }
                 }

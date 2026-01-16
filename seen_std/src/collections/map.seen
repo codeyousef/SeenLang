@@ -5,11 +5,6 @@
 import collections.vec.{Vec}
 import core.option.{Option, Some, None}
 
-extern fun __Print(s: String)
-extern fun __PrintInt(n: Int)
-extern fun __PtrToInt<T>(ptr: T) r: Int
-extern fun __Println(s: String)
-
 class Map<K, V> {
     var keys: Vec<K>
     var values: Vec<V>

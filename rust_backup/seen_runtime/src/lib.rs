@@ -370,6 +370,7 @@ fn take_file_error(fd: i64) -> SeenString {
 pub struct SeenArray {
     pub len: i64,
     pub cap: i64,
+    pub element_size: i64,
     pub data: *mut u8,
 }
 
@@ -439,9 +440,11 @@ pub extern "C" fn __GetCommandLineArgsHelper(argc: i32, argv: *const *const u8) 
     std::mem::forget(args); // Don't drop the vector, but we need to construct a new array for Seen
     
     // Construct SeenArray on heap
+    // element_size = sizeof(SeenString) = 16 bytes (i64 len + ptr data)
     let array = Box::new(SeenArray {
         len: argc as i64,
         cap: argc as i64,
+        element_size: std::mem::size_of::<SeenString>() as i64,
         data: args_ptr as *mut u8,
     });
     Box::into_raw(array)
@@ -698,9 +701,10 @@ pub extern "C" fn __WriteFileBytes(fd: i64, bytes: SeenArray) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __ReadFileBytes(fd: i64, size: i64) -> SeenArray {
+    // element_size = 8 (i64 for each byte value)
     if size <= 0 {
         clear_file_error(fd);
-        return SeenArray { len: 0, cap: 0, data: ptr::null_mut() };
+        return SeenArray { len: 0, cap: 0, element_size: 8, data: ptr::null_mut() };
     }
 
     let mut map = get_file_map().lock().unwrap();
@@ -708,7 +712,7 @@ pub extern "C" fn __ReadFileBytes(fd: i64, size: i64) -> SeenArray {
         Some(f) => f,
         None => {
             set_file_error(fd, "invalid fd");
-            return SeenArray { len: 0, cap: 0, data: ptr::null_mut() };
+            return SeenArray { len: 0, cap: 0, element_size: 8, data: ptr::null_mut() };
         }
     };
 
@@ -720,7 +724,7 @@ pub extern "C" fn __ReadFileBytes(fd: i64, size: i64) -> SeenArray {
         }
         Err(e) => {
             set_file_error(fd, format!("read failed: {}", e));
-            return SeenArray { len: 0, cap: 0, data: ptr::null_mut() };
+            return SeenArray { len: 0, cap: 0, element_size: 8, data: ptr::null_mut() };
         }
     }
 
@@ -734,7 +738,7 @@ pub extern "C" fn __ReadFileBytes(fd: i64, size: i64) -> SeenArray {
         raw as *mut u8
     };
 
-    SeenArray { len, cap: len, data: ptr }
+    SeenArray { len, cap: len, element_size: 8, data: ptr }
 }
 
 #[repr(C)]
@@ -1123,11 +1127,14 @@ pub extern "C" fn __await(_handle: *mut SeenTaskHandle) -> i32 {
 /// Returns pointer to Array<T> struct on heap
 #[unsafe(no_mangle)]
 pub extern "C" fn __ArrayNew(element_size: i64, capacity: i64) -> *mut SeenArray {
+    eprintln!("[DEBUG __ArrayNew] element_size={}, capacity={}", element_size, capacity);
     if element_size <= 0 || capacity < 0 {
+        eprintln!("[DEBUG __ArrayNew] INVALID: element_size={}, capacity={}", element_size, capacity);
         return ptr::null_mut();
     }
 
     let byte_capacity = (element_size * capacity) as usize;
+    eprintln!("[DEBUG __ArrayNew] byte_capacity={}", byte_capacity);
     let data_ptr = if byte_capacity > 0 {
         unsafe {
             let layout = std::alloc::Layout::from_size_align_unchecked(byte_capacity, 8);
@@ -1141,11 +1148,14 @@ pub extern "C" fn __ArrayNew(element_size: i64, capacity: i64) -> *mut SeenArray
         ptr::null_mut()
     };
 
-    Box::into_raw(Box::new(SeenArray {
+    let arr_ptr = Box::into_raw(Box::new(SeenArray {
         len: 0,
         cap: capacity,
+        element_size,
         data: data_ptr,
-    }))
+    }));
+    eprintln!("[DEBUG __ArrayNew] returning arr_ptr={:p}, data_ptr={:p}, element_size={}", arr_ptr, data_ptr, element_size);
+    arr_ptr
 }
 
 /// Allocate array with initial length set to capacity (filled with zeros)
@@ -1181,12 +1191,15 @@ pub extern "C" fn __ArrayFree(arr_ptr: *mut SeenArray, element_size: i64) {
 /// Returns 0 on success, -1 on failure
 #[unsafe(no_mangle)]
 pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, element_size: i64) -> i32 {
+    eprintln!("[DEBUG __ArrayPush] arr_ptr={:p}, element_ptr={:p}, element_size={}", arr_ptr, element_ptr, element_size);
     if arr_ptr.is_null() || element_ptr.is_null() || element_size <= 0 {
+        eprintln!("[DEBUG __ArrayPush] INVALID ARGS: null={}, null={}, size_valid={}", arr_ptr.is_null(), element_ptr.is_null(), element_size > 0);
         return -1;
     }
 
     unsafe {
         let arr = &mut *arr_ptr;
+        eprintln!("[DEBUG __ArrayPush] arr.len={}, arr.cap={}, arr.data={:p}", arr.len, arr.cap, arr.data);
         
         // Grow if needed
         if arr.len >= arr.cap {
@@ -1221,7 +1234,8 @@ pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, e
         let dest = arr.data.offset(offset);
         std::ptr::copy_nonoverlapping(element_ptr, dest, element_size as usize);
         arr.len += 1;
-        
+        eprintln!("[DEBUG __ArrayPush] After push: arr.len={}, arr.cap={}", arr.len, arr.cap);
+
         0
     }
 }

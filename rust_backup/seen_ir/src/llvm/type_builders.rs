@@ -14,7 +14,7 @@ pub trait TypeBuilders<'ctx> {
     /// Build the LLVM string type: { i64 len, ptr data }.
     fn ty_string(&self) -> StructType<'ctx>;
 
-    /// Build an array type: { i64 len, i64 cap, ptr data }.
+    /// Build an array type: { i64 len, i64 cap, i64 element_size, ptr data }.
     fn ty_array(&self, elem_ty: BasicTypeEnum<'ctx>) -> StructType<'ctx>;
 
     /// Build a string array type: { i64 len, ptr to ptr }.
@@ -46,9 +46,10 @@ impl<'ctx> TypeBuilders<'ctx> for LlvmBackend<'ctx> {
     fn ty_array(&self, _elem_ty: BasicTypeEnum<'ctx>) -> StructType<'ctx> {
         self.ctx.struct_type(
             &[
-                self.i64_t.into(), // len
-                self.i64_t.into(), // cap
-                self.ctx.ptr_type(AddressSpace::default()).into(), // data
+                self.i64_t.into(), // len (index 0)
+                self.i64_t.into(), // cap (index 1)
+                self.i64_t.into(), // element_size (index 2) - stored at creation for runtime use
+                self.ctx.ptr_type(AddressSpace::default()).into(), // data (index 3)
             ],
             false,
         )
@@ -129,12 +130,13 @@ mod tests {
         let backend = LlvmBackend::new();
         let arr_ty = backend.ty_array(backend.i64_t.into());
         let fields = arr_ty.get_field_types();
-        assert_eq!(fields.len(), 3);
-        // len, cap are i64
+        assert_eq!(fields.len(), 4);
+        // len, cap, element_size are i64
         assert!(fields[0].into_int_type().get_bit_width() == 64);
         assert!(fields[1].into_int_type().get_bit_width() == 64);
+        assert!(fields[2].into_int_type().get_bit_width() == 64);
         // data is pointer
-        assert!(fields[2].is_pointer_type());
+        assert!(fields[3].is_pointer_type());
     }
 
     #[test]

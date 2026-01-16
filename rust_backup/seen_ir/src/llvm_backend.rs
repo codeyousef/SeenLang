@@ -1122,10 +1122,12 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRType::Boolean => self.bool_t.into(),
             IRType::Char => self.ctx.i8_type().into(),
             IRType::String => self.ty_string().into(),
-            IRType::Array(elem_ty) => {
-                // Array is a struct { i64 len, i64 cap, ptr data }
-                // This is 24 bytes, not just a pointer!
-                self.ty_array(self.ir_type_to_llvm(elem_ty)).into()
+            IRType::Array(_elem_ty) => {
+                // Arrays are heap-allocated via __ArrayNew which returns a pointer
+                // Variables and struct fields holding Array<T> store the POINTER (8 bytes)
+                // NOT the inline struct (32 bytes). The struct layout is only used
+                // when allocating/accessing the array data.
+                self.i8_ptr_t.into()
             }
             IRType::Function {
                 parameters,
@@ -1160,8 +1162,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                 } else if let Some((st, _)) = self.struct_types.get(name) {
                     (*st).into()
                 } else {
-                    // Use i8* as a placeholder pointer to struct if not found
-                    self.i8_ptr_t.into()
+                    // Check if this looks like a generic type parameter (single uppercase letter)
+                    // Generic type params T, K, V, E should be represented as i64 (boxed/tagged value)
+                    // This allows storing both primitive values (Int, Float) and class pointers (ptr-as-int)
+                    let is_generic_param = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                    if is_generic_param {
+                        self.i64_t.into()
+                    } else {
+                        // Use i8* as a placeholder pointer to struct if not found
+                        self.i8_ptr_t.into()
+                    }
                 }
             }
             IRType::Enum { .. } => self.i64_t.into(),
@@ -1382,10 +1392,23 @@ impl<'ctx> LlvmBackend<'ctx> {
     
     /// Convert IR type to LLVM type for function parameters.
     /// Struct types are passed as pointers (consistent with C ABI and call sites).
+    /// Exception: generic type parameters (T, K, V, E) are passed as i64 (boxed values).
     fn ir_type_to_llvm_param(&self, t: &IRType) -> BasicTypeEnum<'ctx> {
         match t {
-            // Struct parameters are passed as pointers for ABI compatibility
-            IRType::Struct { .. } => self.i8_ptr_t.into(),
+            // Struct parameters are passed as pointers for ABI compatibility,
+            // EXCEPT for generic type parameters (single uppercase letter with no fields)
+            // which are passed as i64 (boxed values)
+            IRType::Struct { name, fields } => {
+                let is_generic_param = name.len() == 1
+                    && name.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+                    && fields.is_empty();
+                if is_generic_param {
+                    // Generic type params T, K, V, E are i64 (boxed/tagged value)
+                    self.i64_t.into()
+                } else {
+                    self.i8_ptr_t.into()
+                }
+            }
             // All other types use the standard conversion
             _ => self.ir_type_to_llvm(t),
         }
@@ -2025,6 +2048,12 @@ impl<'ctx> LlvmBackend<'ctx> {
                 result,
                 ..
             } => {
+                // Debug: trace all Call instructions starting with __
+                if let IRValue::Variable(name) = target {
+                    if name.starts_with("__") {
+                        eprintln!("[DEBUG Instruction::Call] target={}, args.len()={}", name, args.len());
+                    }
+                }
                 self.emit_call(target, args, result, fn_map)?;
             }
             Instruction::Print(v) => {
@@ -2275,6 +2304,27 @@ impl<'ctx> LlvmBackend<'ctx> {
                 
                 self.assign_value(result, ptr_as_int.as_basic_value_enum())?;
             }
+            Instruction::Deallocate { pointer } => {
+                // Handle deallocation - convert i64 back to pointer and call free()
+                let ptr_val = self.eval_value(pointer, fn_map)?;
+
+                let actual_ptr = if ptr_val.is_int_value() {
+                    // Our ABI stores pointers as i64, convert back to pointer
+                    self.builder.build_int_to_ptr(
+                        ptr_val.into_int_value(),
+                        self.i8_ptr_t,
+                        "dealloc_ptr"
+                    )?
+                } else if ptr_val.is_pointer_value() {
+                    ptr_val.into_pointer_value()
+                } else {
+                    // Can't deallocate non-pointer/non-int values, skip
+                    return Ok(());
+                };
+
+                let free_fn = self.get_free();
+                self.builder.build_call(free_fn, &[actual_ptr.into()], "")?;
+            }
             _ => {
                 // Many IR ops are not required for bootstrap subset; ignore nops etc.
             }
@@ -2426,9 +2476,20 @@ impl<'ctx> LlvmBackend<'ctx> {
             IRValue::Void => Ok(self.i64_t.const_zero().as_basic_value_enum()),
             IRValue::SizeOf(ty) => {
                 let llvm_ty = self.ir_type_to_llvm(ty);
-                let size = llvm_ty.size_of().unwrap_or(self.i64_t.const_int(8, false));
+                eprintln!("[DEBUG SizeOf] ty={:?}, llvm_ty={:?}", ty, llvm_ty);
+                let size = llvm_ty.size_of();
+                eprintln!("[DEBUG SizeOf] size_of() returned: {:?}", size);
+                let size_val = size.unwrap_or_else(|| {
+                    eprintln!("[DEBUG SizeOf] size_of() was None, using default 8");
+                    self.i64_t.const_int(8, false)
+                });
                 // Ensure it's i64
-                let size_i64 = self.builder.build_int_z_extend(size, self.i64_t, "sizeof_ext")?;
+                let size_i64 = self.builder.build_int_z_extend(size_val, self.i64_t, "sizeof_ext")?;
+                if let Some(const_val) = size_i64.get_zero_extended_constant() {
+                    eprintln!("[DEBUG SizeOf] final size_i64 = {}", const_val);
+                } else {
+                    eprintln!("[DEBUG SizeOf] final size_i64 is not a constant");
+                }
                 Ok(size_i64.as_basic_value_enum())
             }
             IRValue::Register(r) => {
@@ -2538,33 +2599,37 @@ impl<'ctx> LlvmBackend<'ctx> {
                     self.builder.build_store(slot, v)?;
                 }
                 
-                // Allocate Array Struct {len, cap, data}
+                // Allocate Array Struct {len, cap, element_size, data}
                 // Use i8 for generic data ptr in struct type to match malloc
                 let struct_ty = self.ty_array(self.ctx.i8_type().into());
                 let struct_size = struct_ty.size_of().unwrap();
                 let struct_size_i64 = self.builder.build_int_z_extend(struct_size, self.i64_t, "struct_sz")?;
-                
+
                 let arr_ptr = self.builder
                     .build_call(malloc_fn, &[struct_size_i64.into()], "malloc_arr")?
                     .try_as_basic_value()
                     .left()
                     .unwrap()
                     .into_pointer_value();
-                    
+
                 let arr_ptr_typed = self.builder.build_pointer_cast(arr_ptr, self.ctx.ptr_type(AddressSpace::default()), "arr_ptr_typed")?;
-                
-                // Set len
+
+                // Set len (index 0)
                 let len_ptr = self.build_struct_gep_checked(struct_ty, arr_ptr_typed, 0, "len_ptr")?;
                 self.builder.build_store(len_ptr, self.i64_t.const_int(len, false))?;
-                
-                // Set cap
+
+                // Set cap (index 1)
                 let cap_ptr = self.build_struct_gep_checked(struct_ty, arr_ptr_typed, 1, "cap_ptr")?;
                 self.builder.build_store(cap_ptr, self.i64_t.const_int(cap, false))?;
-                
-                // Set data
-                let data_field_ptr = self.build_struct_gep_checked(struct_ty, arr_ptr_typed, 2, "data_ptr")?;
+
+                // Set element_size (index 2) - CRITICAL for generic push operations
+                let elem_size_ptr = self.build_struct_gep_checked(struct_ty, arr_ptr_typed, 2, "elem_size_ptr")?;
+                self.builder.build_store(elem_size_ptr, elem_size_i64)?;
+
+                // Set data (index 3)
+                let data_field_ptr = self.build_struct_gep_checked(struct_ty, arr_ptr_typed, 3, "data_ptr")?;
                 self.builder.build_store(data_field_ptr, data_ptr)?;
-                
+
                 Ok(arr_ptr.as_basic_value_enum())
             }
             IRValue::ByteArray(data) => self.byte_array_ptr(data),
@@ -3509,6 +3574,33 @@ impl<'ctx> LlvmBackend<'ctx> {
         
         if val.is_int_value() {
              let iv = val.into_int_value();
+
+             // Check if this i64 is actually a boxed String pointer from a generic method
+             // (Generic methods return String as i64 = pointer-as-int)
+             let is_boxed_string = match ir_val {
+                 IRValue::Register(id) => {
+                     // Check if the register has a String-related struct type
+                     self.reg_struct_types.get(id).map(|t| {
+                         t == "String" || t == "T" || t == "K" || t == "V" || t == "E"
+                     }).unwrap_or(false)
+                 }
+                 IRValue::Variable(name) => {
+                     // Check var_struct_types for boxed String variables
+                     self.var_struct_types.get(name).map(|t| {
+                         t == "String" || t == "T" || t == "K" || t == "V" || t == "E"
+                     }).unwrap_or(false)
+                 }
+                 _ => false,
+             };
+
+             if is_boxed_string && iv.get_type().get_bit_width() == 64 {
+                 // This is a boxed String pointer - convert i64 to pointer and load the String struct
+                 let str_ptr = self.builder.build_int_to_ptr(iv, self.ctx.ptr_type(AddressSpace::default()), "unbox_str_ptr")?;
+                 let str_ty = self.ty_string();
+                 let str_struct = self.builder.build_load(str_ty, str_ptr, "unbox_str")?;
+                 return Ok(str_struct);
+             }
+
              // Check if it's a boolean (i1 type) - needs special handling
              if iv.get_type().get_bit_width() == 1 {
                  // Inline bool-to-string: convert bool to "true" or "false" string struct
@@ -3721,9 +3813,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         
         // String struct type: { i64 len, ptr data }
         let string_ty = self.ty_string();
-        // Array struct type: { i64 len, i64 cap, ptr data }
+        // Array struct type: { i64 len, i64 cap, i64 element_size, ptr data }
         let array_ty = self.ctx.struct_type(
-            &[i64_t.into(), i64_t.into(), self.ctx.ptr_type(AddressSpace::default()).into()],
+            &[i64_t.into(), i64_t.into(), i64_t.into(), self.ctx.ptr_type(AddressSpace::default()).into()],
             false,
         );
         let ret_ty = self.ctx.ptr_type(AddressSpace::default());
@@ -3764,7 +3856,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             "data_ptr_typed"
         ).unwrap();
         
-        // Store len = argc, cap = argc, data = data_ptr
+        // Store len = argc, cap = argc, element_size = sizeof(String), data = data_ptr
         let len_ptr = self
             .build_struct_gep_checked(array_ty, array_ptr_typed, 0, "len_ptr")
             .unwrap();
@@ -3773,8 +3865,15 @@ impl<'ctx> LlvmBackend<'ctx> {
             .build_struct_gep_checked(array_ty, array_ptr_typed, 1, "cap_ptr")
             .unwrap();
         self.builder.build_store(cap_ptr, argc64).unwrap();
+        // Store element_size (String size = 16 bytes) at index 2
+        let elem_size_ptr = self
+            .build_struct_gep_checked(array_ty, array_ptr_typed, 2, "elem_size_ptr")
+            .unwrap();
+        let string_size_i64 = self.builder.build_int_z_extend(string_size, i64_t, "string_size_i64").unwrap();
+        self.builder.build_store(elem_size_ptr, string_size_i64).unwrap();
+        // Store data_ptr at index 3
         let data_ptr_ptr = self
-            .build_struct_gep_checked(array_ty, array_ptr_typed, 2, "data_ptr_ptr")
+            .build_struct_gep_checked(array_ty, array_ptr_typed, 3, "data_ptr_ptr")
             .unwrap();
         self.builder.build_store(data_ptr_ptr, data_ptr_typed).unwrap();
         

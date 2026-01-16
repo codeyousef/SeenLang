@@ -86,10 +86,16 @@ impl IRGenerator {
         let saved_variable_types = std::mem::take(&mut self.context.variable_types);
         let saved_register_types = std::mem::take(&mut self.context.register_types);
         let saved_result_inner_types = std::mem::take(&mut self.context.result_inner_types);
+        // Save Vale-style memory tracking
+        let saved_scope_allocations = std::mem::take(&mut self.context.scope_allocations);
+        let saved_heap_allocated = std::mem::take(&mut self.context.heap_allocated);
+        let saved_moved_variables = std::mem::take(&mut self.context.moved_variables);
 
         // Set up function context
         self.context.current_function = Some(name.to_string());
         self.context.register_counter = 0; // Reset for this function
+        // Reset scope tracking for Vale-style memory management
+        self.context.reset_scope_tracking();
 
         // Add parameters to context as variables
         for param in params {
@@ -127,6 +133,17 @@ impl IRGenerator {
             matches!(inst, Instruction::Return(_))
         });
         if !ends_with_return {
+            // Generate cleanup for remaining allocations (Vale-style memory management)
+            // But DON'T deallocate variables being transferred in the return value
+            let transferred_vars = crate::generator::statements::collect_variables_in_value_static(&result_value);
+            let active_allocs = self.context.get_all_active_allocations();
+            for var_name in active_allocs {
+                if !transferred_vars.contains(&var_name) {
+                    instructions.push(Instruction::Deallocate {
+                        pointer: IRValue::Variable(var_name),
+                    });
+                }
+            }
             instructions.push(Instruction::Return(Some(result_value)));
         }
 
@@ -148,6 +165,10 @@ impl IRGenerator {
         self.context.variable_types = saved_variable_types;
         self.context.register_types = saved_register_types;
         self.context.result_inner_types = saved_result_inner_types;
+        // Restore Vale-style memory tracking
+        self.context.scope_allocations = saved_scope_allocations;
+        self.context.heap_allocated = saved_heap_allocated;
+        self.context.moved_variables = saved_moved_variables;
 
         Ok(function)
     }
@@ -168,10 +189,16 @@ impl IRGenerator {
         let saved_variable_types = std::mem::take(&mut self.context.variable_types);
         let saved_register_types = std::mem::take(&mut self.context.register_types);
         let saved_result_inner_types = std::mem::take(&mut self.context.result_inner_types);
+        // Save Vale-style memory tracking
+        let saved_scope_allocations = std::mem::take(&mut self.context.scope_allocations);
+        let saved_heap_allocated = std::mem::take(&mut self.context.heap_allocated);
+        let saved_moved_variables = std::mem::take(&mut self.context.moved_variables);
 
         // Set up function context
         self.context.current_function = Some(name.to_string());
         self.context.register_counter = 0;
+        // Reset scope tracking for Vale-style memory management
+        self.context.reset_scope_tracking();
 
         // Methods optionally include an explicit receiver as the first parameter.
         // If absent, treat as a static method (no receiver) for bootstrap resilience.
@@ -235,15 +262,26 @@ impl IRGenerator {
             matches!(inst, crate::instruction::Instruction::Return(_))
         });
         if !ends_with_return {
+            // Generate cleanup for remaining allocations (Vale-style memory management)
+            // But DON'T deallocate variables being transferred in the return value
+            let transferred_vars = crate::generator::statements::collect_variables_in_value_static(&body_value);
+            let active_allocs = self.context.get_all_active_allocations();
+            for var_name in active_allocs {
+                if !transferred_vars.contains(&var_name) {
+                    instructions.push(Instruction::Deallocate {
+                        pointer: IRValue::Variable(var_name),
+                    });
+                }
+            }
             instructions.push(crate::instruction::Instruction::Return(Some(body_value)));
         }
 
         // Build proper CFG from instruction list
         let cfg = crate::cfg_builder::build_cfg_from_instructions(instructions);
         ir_function.cfg = cfg;
-        
+
         ir_function.register_count = self.context.register_counter;
-        
+
         // Add locals to function
         ir_function.locals = self.context.local_variables.clone();
 
@@ -255,6 +293,10 @@ impl IRGenerator {
         self.context.variable_types = saved_variable_types;
         self.context.register_types = saved_register_types;
         self.context.result_inner_types = saved_result_inner_types;
+        // Restore Vale-style memory tracking
+        self.context.scope_allocations = saved_scope_allocations;
+        self.context.heap_allocated = saved_heap_allocated;
+        self.context.moved_variables = saved_moved_variables;
 
         Ok(ir_function)
     }

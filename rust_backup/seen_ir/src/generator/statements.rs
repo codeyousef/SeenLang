@@ -56,6 +56,41 @@ impl IRGenerator {
         })
     }
 
+    /// Check if an expression creates a new owned allocation (constructor, array literal, etc.)
+    /// vs just borrowing an existing value (field access, variable reference)
+    fn is_owning_expression(expr: &Expression) -> bool {
+        match expr {
+            // Constructor/method calls that create new objects
+            Expression::Call { callee, .. } => {
+                // Check if this is a constructor call (ClassName.new(), etc.)
+                // or a static method that creates a new object
+                if let Expression::MemberAccess { member, .. } = callee.as_ref() {
+                    // Type.new(), Type.withCapacity(), Vec.new(), etc.
+                    matches!(member.as_str(), "new" | "withCapacity" | "from" | "create")
+                        || member.starts_with("new")
+                } else {
+                    // Regular function calls could return new objects
+                    // Be conservative and assume they do
+                    true
+                }
+            }
+            // Struct/class literal construction
+            Expression::StructLiteral { .. } => true,
+            // Array literal
+            Expression::ArrayLiteral { .. } => true,
+            // String literal (new allocation)
+            Expression::StringLiteral { .. } => true,
+            // Field access - this is BORROWING, not owning
+            Expression::MemberAccess { .. } => false,
+            // Variable reference - this is BORROWING, not owning
+            Expression::Identifier { .. } => false,
+            // Index access - borrowing
+            Expression::IndexAccess { .. } => false,
+            // Other expressions - be conservative and assume not owning
+            _ => false,
+        }
+    }
+
     // ==================== Public Generation Methods ====================
 
     /// Generate IR for let bindings
@@ -102,6 +137,25 @@ impl IRGenerator {
         }
 
         self.generate_binding_core(name, value_val.clone(), &mut instructions);
+
+        // Track heap allocations for Vale-style memory management
+        // ONLY track variables that OWN their allocation (constructor calls, array literals, etc.)
+        // NOT for variables that BORROW values (field accesses, variable references)
+        let is_owning_expression = Self::is_owning_expression(value);
+        if is_owning_expression {
+            if let Some(var_type) = self.context.get_variable_type(name) {
+                let is_heap_allocated = match var_type {
+                    crate::value::IRType::Array(_) => true,
+                    crate::value::IRType::String => true,
+                    crate::value::IRType::Struct { .. } => true,
+                    _ => false,
+                };
+                if is_heap_allocated {
+                    self.context.track_heap_allocation(name.to_string());
+                }
+            }
+        }
+
         Ok((value_val, instructions))
     }
 
@@ -263,17 +317,72 @@ impl IRGenerator {
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let mut instructions = Vec::new();
 
+        // IMPORTANT: Generate the return expression FIRST, before any cleanup.
+        // This ensures variables being transferred into the return value are not freed.
         if let Some(expr) = value {
             let (ret_val, expr_instructions) = self.generate_expression(expr)?;
             instructions.extend(expr_instructions);
+
+            // Collect variables that are being transferred in the return value
+            // These should NOT be deallocated
+            let transferred_vars = self.collect_variables_in_value(&ret_val);
+
+            // Generate cleanup for active allocations NOT being transferred (Vale-style)
+            let active_allocs = self.context.get_all_active_allocations();
+            for var_name in active_allocs {
+                if !transferred_vars.contains(&var_name) {
+                    instructions.push(Instruction::Deallocate {
+                        pointer: IRValue::Variable(var_name),
+                    });
+                }
+            }
+
             instructions.push(Instruction::Return(Some(ret_val.clone())));
             Ok((ret_val, instructions))
         } else {
+            // No return value - deallocate everything
+            let active_allocs = self.context.get_all_active_allocations();
+            for var_name in active_allocs {
+                instructions.push(Instruction::Deallocate {
+                    pointer: IRValue::Variable(var_name),
+                });
+            }
             instructions.push(Instruction::Return(None));
             Ok((IRValue::Void, instructions))
         }
     }
 
+    /// Collect all variable names referenced in an IRValue (for ownership transfer tracking)
+    fn collect_variables_in_value(&self, value: &IRValue) -> std::collections::HashSet<String> {
+        collect_variables_in_value_static(value)
+    }
+}
+
+/// Static version of collect_variables_in_value for use outside the impl block
+pub fn collect_variables_in_value_static(value: &IRValue) -> std::collections::HashSet<String> {
+    let mut vars = std::collections::HashSet::new();
+    collect_variables_recursive_static(value, &mut vars);
+    vars
+}
+
+fn collect_variables_recursive_static(value: &IRValue, vars: &mut std::collections::HashSet<String>) {
+    match value {
+        IRValue::Variable(name) => {
+            vars.insert(name.clone());
+        }
+        IRValue::Struct { fields, .. } => {
+            for field_val in fields.values() {
+                collect_variables_recursive_static(field_val, vars);
+            }
+        }
+        IRValue::AddressOf(inner) => {
+            collect_variables_recursive_static(inner, vars);
+        }
+        _ => {}
+    }
+}
+
+impl IRGenerator {
     /// Generate IR for move expressions
     pub(crate) fn generate_move_expression(
         &mut self,

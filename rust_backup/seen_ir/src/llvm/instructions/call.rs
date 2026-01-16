@@ -376,6 +376,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             // Normalize method names using helper from instructions module
             let base_normalized = normalize_method_name(name);
 
+            // Debug: log all function calls that start with __Array
+            if name.starts_with("__Array") {
+                eprintln!("[DEBUG CALL] name='{}', base_normalized='{}'", name, base_normalized);
+            }
+
             match base_normalized {
                 "toFloat" => {
                     // Convert integer to float
@@ -1292,9 +1297,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 }
                 "__ArrayNew" => {
                     // Create a new dynamic array with given capacity
-                    // Array layout: { i64 len, i64 capacity, i8* data_ptr }
+                    // Array layout: { i64 len, i64 capacity, i64 element_size, i8* data_ptr }
                     // args: [element_size, capacity]
-                    
+
+                    eprintln!("[DEBUG __ArrayNew] args.len()={}, args={:?}", args.len(), args);
+
                     // Use capacity from second argument if available, otherwise first (legacy/fallback)
                     let cap_arg = if args.len() >= 2 {
                         &args[1]
@@ -1310,36 +1317,45 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     let is_zero = self.builder.build_int_compare(inkwell::IntPredicate::EQ, cap_i64, self.i64_t.const_zero(), "is_zero")?;
                     let alloc_cap = self.builder.build_select(is_zero, min_cap.as_basic_value_enum(), cap_i64.as_basic_value_enum(), "alloc_cap")?.into_int_value();
 
-                        // Allocate header (24 bytes)
-                        let header_size = self.i64_t.const_int(24, false);
+                        // Allocate header (32 bytes for { len, cap, element_size, data_ptr })
+                        let header_size = self.i64_t.const_int(32, false);
                         let malloc = self.get_malloc();
                         let header_ptr = self.builder.build_call(malloc, &[header_size.into()], "arr_header_alloc")?
                             .try_as_basic_value().left()
                             .ok_or_else(|| anyhow!("malloc returned void"))?
                             .into_pointer_value();
-                        
-                        // Allocate data buffer
+
+                        // Get element size from first argument
                         let elem_size = if args.len() >= 2 {
                             let sz_val = self.eval_value(&args[0], fn_map)?;
+                            // Debug: check what the SizeOf evaluated to
+                            if let Some(const_val) = sz_val.into_int_value().get_zero_extended_constant() {
+                                eprintln!("[DEBUG __ArrayNew] element_size constant = {}", const_val);
+                            } else {
+                                eprintln!("[DEBUG __ArrayNew] element_size is not a constant");
+                            }
                             self.as_i64(sz_val)?
                         } else {
+                            eprintln!("[DEBUG __ArrayNew] using default element_size=8");
                             self.i64_t.const_int(8, false)
                         };
+
+                        // Allocate data buffer
                         let data_size = self.builder.build_int_mul(alloc_cap, elem_size, "data_size")?;
                         let data_ptr = self.builder.build_call(malloc, &[data_size.into()], "arr_data_alloc")?
                             .try_as_basic_value().left()
                             .ok_or_else(|| anyhow!("malloc returned void"))?
                             .into_pointer_value();
 
-                        // Store length = 0
+                        // Store length = 0 at index 0
                         let len_ptr = self.builder.build_pointer_cast(
                             header_ptr,
                             self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                             "len_ptr"
                         )?;
                         self.builder.build_store(len_ptr, self.i64_t.const_zero())?;
-                        
-                        // Store capacity
+
+                        // Store capacity at index 1
                         let cap_ptr = unsafe {
                             self.builder.build_gep(
                                 self.i64_t,
@@ -1350,12 +1366,24 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         };
                         self.builder.build_store(cap_ptr, alloc_cap)?;
 
-                        // Store data pointer
-                        let data_ptr_ptr = unsafe {
+                        // Store element_size at index 2 - CRITICAL for generic push operations
+                        let elem_size_ptr = unsafe {
                             self.builder.build_gep(
                                 self.i64_t,
                                 len_ptr,
                                 &[self.i64_t.const_int(2, false)],
+                                "elem_size_ptr"
+                            )?
+                        };
+                        self.builder.build_store(elem_size_ptr, elem_size)?;
+                        eprintln!("[DEBUG __ArrayNew] stored element_size at index 2");
+
+                        // Store data pointer at index 3
+                        let data_ptr_ptr = unsafe {
+                            self.builder.build_gep(
+                                self.i64_t,
+                                len_ptr,
+                                &[self.i64_t.const_int(3, false)],
                                 "data_ptr_ptr"
                             )?
                         };
@@ -1365,7 +1393,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             "data_ptr_ptr_casted"
                         )?;
                         self.builder.build_store(data_ptr_ptr_casted, data_ptr)?;
-                        
+
                         if let Some(r) = result {
                             self.assign_value(r, header_ptr.as_basic_value_enum())?;
                         }
@@ -1381,39 +1409,40 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     // of the array variable, NOT a loaded copy of the array value.
                     if args.len() == 2 {
                         let value = self.eval_value(&args[1], fn_map)?;
-                        eprintln!("DEBUG Array_push: args[0]={:?}, value_type={}", args[0], 
-                            if value.is_struct_value() { "struct" } 
+                        eprintln!("DEBUG List_push: args[0]={:?}, value_type={}", args[0],
+                            if value.is_struct_value() { "struct" }
                             else if value.is_int_value() { "int" }
                             else if value.is_pointer_value() { "pointer" }
                             else if value.is_float_value() { "float" }
                             else { "unknown" });
-                        
+
                         // Try to get the slot pointer for the array variable directly
                         // This is necessary because push needs to modify the array in-place
-                        let arr_ptr = match &args[0] {
+                        // Track whether we have a slot (needs load) or direct pointer (no load)
+                        let (arr_ptr, is_slot) = match &args[0] {
                             IRValue::Variable(var_name) => {
                                 // Use the variable's slot pointer directly
                                 if let Some(slot) = self.var_slots.get(var_name).copied() {
-                                    eprintln!("DEBUG Array_push: using var_slot for {}", var_name);
-                                    slot
+                                    eprintln!("DEBUG List_push: using var_slot for {}", var_name);
+                                    (slot, true)  // slot contains array pointer - needs load
                                 } else {
                                     // Fallback to eval_value if no slot (shouldn't happen for local arrays)
                                     let arr_val = self.eval_value(&args[0], fn_map)?;
                                     if arr_val.is_pointer_value() {
-                                        arr_val.into_pointer_value()
+                                        (arr_val.into_pointer_value(), false)  // direct pointer - no load
                                     } else if arr_val.is_struct_value() {
                                         // This path LOSES the modification!
-                                        eprintln!("WARNING: Array_push on struct value - modification may be lost!");
+                                        eprintln!("WARNING: List_push on struct value - modification may be lost!");
                                         let sv = arr_val.into_struct_value();
                                         let spill = self.builder.build_alloca(sv.get_type(), "vec_spill")?;
                                         self.builder.build_store(spill, sv)?;
-                                        spill
+                                        (spill, false)
                                     } else {
-                                        self.builder.build_int_to_ptr(
+                                        (self.builder.build_int_to_ptr(
                                             arr_val.into_int_value(),
                                             self.i8_ptr_t,
                                             "arr_ptr"
-                                        )?
+                                        )?, false)
                                     }
                                 }
                             }
@@ -1422,31 +1451,31 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 // If so, use the field pointer directly to enable in-place modification
                                 if let Some((struct_ptr, field_idx, struct_ty)) = self.reg_field_access_info.get(reg_id).copied() {
                                     if self.trace_options.trace_boxing {
-                                        eprintln!("[BOXING] Array_push using field pointer for Register({}) - struct_ptr={:?}, field_idx={}", reg_id, struct_ptr, field_idx);
+                                        eprintln!("[BOXING] List_push using field pointer for Register({}) - struct_ptr={:?}, field_idx={}", reg_id, struct_ptr, field_idx);
                                     }
                                     // Get a pointer to the array field in the struct
-                                    self.builder.build_struct_gep(struct_ty, struct_ptr, field_idx, "arr_field_ptr")?
+                                    (self.builder.build_struct_gep(struct_ty, struct_ptr, field_idx, "arr_field_ptr")?, true)  // field slot - needs load
                                 } else {
                                     if self.trace_options.trace_boxing {
-                                        eprintln!("[BOXING] Array_push fallback for Register({}) - no field access info", reg_id);
+                                        eprintln!("[BOXING] List_push fallback for Register({}) - no field access info", reg_id);
                                     }
                                     // Not from a field access - evaluate normally
                                     let arr_val = self.eval_value(&args[0], fn_map)?;
                                     if arr_val.is_pointer_value() {
-                                        arr_val.into_pointer_value()
+                                        (arr_val.into_pointer_value(), false)  // direct pointer - no load
                                     } else if arr_val.is_struct_value() {
                                         // This path LOSES the modification!
-                                        eprintln!("WARNING: Array_push on Register struct value - modification may be lost! reg={}", reg_id);
+                                        eprintln!("WARNING: List_push on Register struct value - modification may be lost! reg={}", reg_id);
                                         let sv = arr_val.into_struct_value();
                                         let spill = self.builder.build_alloca(sv.get_type(), "vec_spill")?;
                                         self.builder.build_store(spill, sv)?;
-                                        spill
+                                        (spill, false)
                                     } else {
-                                        self.builder.build_int_to_ptr(
+                                        (self.builder.build_int_to_ptr(
                                             arr_val.into_int_value(),
                                             self.i8_ptr_t,
                                             "arr_ptr"
-                                        )?
+                                        )?, false)
                                     }
                                 }
                             }
@@ -1454,27 +1483,39 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                 // Not a variable - evaluate normally
                                 let arr_val = self.eval_value(&args[0], fn_map)?;
                                 if arr_val.is_pointer_value() {
-                                    arr_val.into_pointer_value()
+                                    (arr_val.into_pointer_value(), false)  // direct pointer - no load
                                 } else if arr_val.is_struct_value() {
                                     // This path LOSES the modification!
-                                    eprintln!("WARNING: Array_push on non-variable struct - modification may be lost!");
+                                    eprintln!("WARNING: List_push on non-variable struct - modification may be lost!");
                                     let sv = arr_val.into_struct_value();
                                     let spill = self.builder.build_alloca(sv.get_type(), "vec_spill")?;
                                     self.builder.build_store(spill, sv)?;
-                                    spill
+                                    (spill, false)
                                 } else {
-                                    self.builder.build_int_to_ptr(
+                                    (self.builder.build_int_to_ptr(
                                         arr_val.into_int_value(),
                                         self.i8_ptr_t,
                                         "arr_ptr"
-                                    )?
+                                    )?, false)
                                 }
                             }
                         };
-                        
-                        // Load current length
+
+                        // Get the actual array pointer:
+                        // - If arr_ptr is a slot, load the pointer from it
+                        // - If arr_ptr is already the array pointer, use it directly
+                        let actual_arr_ptr = if is_slot {
+                            eprintln!("[DEBUG List_push] loading actual_arr_ptr from slot");
+                            self.builder.build_load(self.i8_ptr_t, arr_ptr, "actual_arr_ptr")?
+                                .into_pointer_value()
+                        } else {
+                            eprintln!("[DEBUG List_push] using arr_ptr directly (not a slot)");
+                            arr_ptr
+                        };
+
+                        // Load current length from the actual array
                         let len_ptr = self.builder.build_pointer_cast(
-                            arr_ptr,
+                            actual_arr_ptr,
                             self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
                             "len_ptr"
                         )?;
@@ -1491,12 +1532,23 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         };
                         let cap = self.builder.build_load(self.i64_t, cap_ptr, "cap")?.into_int_value();
 
-                        // Load data pointer
-                        let data_ptr_ptr = unsafe {
+                        // Load stored element_size from index 2
+                        let elem_size_ptr = unsafe {
                             self.builder.build_gep(
                                 self.i64_t,
                                 len_ptr,
                                 &[self.i64_t.const_int(2, false)],
+                                "elem_size_ptr"
+                            )?
+                        };
+                        let stored_elem_size = self.builder.build_load(self.i64_t, elem_size_ptr, "stored_elem_size")?.into_int_value();
+
+                        // Load data pointer from index 3
+                        let data_ptr_ptr = unsafe {
+                            self.builder.build_gep(
+                                self.i64_t,
+                                len_ptr,
+                                &[self.i64_t.const_int(3, false)],
                                 "data_ptr_ptr"
                             )?
                         };
@@ -1528,27 +1580,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             "new_cap"
                         )?.into_int_value();
 
-                        // Get element size without consuming the value
-                        let elem_byte_size = match &value {
-                            BasicValueEnum::StructValue(sv) => {
-                                // Get actual struct size from LLVM
-                                let struct_ty = sv.get_type();
-                                let size_of = struct_ty.size_of().map(|sz| {
-                                    // Try to extract constant value
-                                    if let Some(const_val) = sz.get_zero_extended_constant() {
-                                        const_val
-                                    } else {
-                                        // If not constant, use a safe default for typical structs
-                                        // Token has ~56 bytes, String has 16 bytes
-                                        64
-                                    }
-                                }).unwrap_or(64);
-                                size_of
-                            }
-                            BasicValueEnum::FloatValue(_) => 8,
-                            _ => 8,  // Default to 8 bytes for i64/pointers
-                        };
-                        let elem_size = self.i64_t.const_int(elem_byte_size, false);
+                        // Use the stored element_size from the array struct
+                        // This is CRITICAL for generic push operations where compile-time type info is lost
+                        let elem_size = stored_elem_size;
                         let new_size = self.builder.build_int_mul(new_cap, elem_size, "new_size")?;
                         
                         let realloc = self.get_realloc();
@@ -2455,15 +2489,16 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     if self.trace_options.trace_boxing {
                         eprintln!("[BOXING] Array_push handler for name='{}'", name);
                     }
-                    
+
                     // Get array pointer - handle Variables specially to get their address
-                    let arr_ptr = if let IRValue::Variable(var_name) = &args[0] {
+                    // Track whether arr_ptr is a slot (needs load) or direct pointer (no load)
+                    let (arr_ptr, is_slot) = if let IRValue::Variable(var_name) = &args[0] {
                         if let Some(slot) = self.var_slots.get(var_name).copied() {
-                            slot
+                            (slot, true)  // slot contains the array pointer - needs load
                         } else {
                             let val = self.eval_value(&args[0], fn_map)?;
                             if val.is_pointer_value() {
-                                val.into_pointer_value()
+                                (val.into_pointer_value(), false)  // direct pointer - no load
                             } else {
                                 return Err(anyhow!("Array_push: variable '{}' is not a pointer", var_name));
                             }
@@ -2471,13 +2506,13 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     } else if let IRValue::Register(reg_id) = &args[0] {
                         if let Some((struct_ptr, field_idx, struct_ty)) = self.reg_field_access_info.get(reg_id).copied() {
                             // Re-calculate GEP to get the pointer to the field
-                            self.builder.build_struct_gep(struct_ty, struct_ptr, field_idx, "arr_field_ptr")?
+                            (self.builder.build_struct_gep(struct_ty, struct_ptr, field_idx, "arr_field_ptr")?, true)  // field slot - needs load
                         } else {
                             let arr_val = self.eval_value(&args[0], fn_map)?;
                             if arr_val.is_pointer_value() {
-                                arr_val.into_pointer_value()
+                                (arr_val.into_pointer_value(), false)  // direct pointer - no load
                             } else if arr_val.is_int_value() {
-                                self.builder.build_int_to_ptr(arr_val.into_int_value(), self.i8_ptr_t, "arr_ptr")?
+                                (self.builder.build_int_to_ptr(arr_val.into_int_value(), self.i8_ptr_t, "arr_ptr")?, false)  // direct pointer - no load
                             } else {
                                  return Err(anyhow!("Array_push: invalid array argument (register {})", reg_id));
                             }
@@ -2485,9 +2520,9 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     } else {
                         let arr_val = self.eval_value(&args[0], fn_map)?;
                         if arr_val.is_pointer_value() {
-                            arr_val.into_pointer_value()
+                            (arr_val.into_pointer_value(), false)  // direct pointer - no load
                         } else if arr_val.is_int_value() {
-                            self.builder.build_int_to_ptr(arr_val.into_int_value(), self.i8_ptr_t, "arr_ptr")?
+                            (self.builder.build_int_to_ptr(arr_val.into_int_value(), self.i8_ptr_t, "arr_ptr")?, false)  // direct pointer - no load
                         } else {
                              return Err(anyhow!("Array_push: invalid array argument"));
                         }
@@ -2514,8 +2549,15 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         .unwrap_or(false);
 
                     // Get item pointer and size
+                    eprintln!("[DEBUG Array_push] element_struct_type={:?}, is_non_class_struct={}, item_val_type={}",
+                        element_struct_type, is_non_class_struct,
+                        if item_val.is_struct_value() { "struct" }
+                        else if item_val.is_pointer_value() { "pointer" }
+                        else if item_val.is_int_value() { "int" }
+                        else { "other" });
                     let (item_ptr, item_size_val) = if item_val.is_struct_value() {
                          let size = item_val.get_type().size_of().unwrap();
+                         eprintln!("[DEBUG Array_push] struct_value path, size={:?}", size);
                          let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
                          self.builder.build_store(tmp, item_val)?;
                          (tmp, size)
@@ -2539,35 +2581,123 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                              (tmp, size)
                          }
                     } else if item_val.is_pointer_value() {
-                         let size = self.i64_t.const_int(8, false);
-                         let tmp = self.alloca_for_type(self.i64_t.into(), "item_tmp")?;
+                         // Check if element type is String - String is 16 bytes ({ i64 len, ptr data })
+                         // and should be stored by value, not as a pointer
+                         let is_string_element = element_struct_type.as_ref()
+                             .map(|t| t == "String")
+                             .unwrap_or(false);
 
-                         if is_boxed_param {
+                         // Also detect String from pointer type when element_struct_type is unknown
+                         // This handles the case inside generic functions like Vec<String>.push()
+                         // where the element type tracking doesn't propagate through field accesses
+                         let points_to_string = if !is_string_element && element_struct_type.is_none() {
+                             // Check if the pointer points to a String-like struct
+                             // by trying to load it as a String and seeing if it matches
+                             // Heuristic: if arg[1] comes from a variable that was tracked as String
+                             match &args[1] {
+                                 IRValue::Variable(name) => {
+                                     self.var_array_element_struct.get(name).map(|t| t == "String").unwrap_or(false)
+                                         || self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false)
+                                 }
+                                 IRValue::Register(reg_id) => {
+                                     self.reg_array_element_struct.get(reg_id).map(|t| t == "String").unwrap_or(false)
+                                         || self.reg_struct_types.get(reg_id).map(|t| t == "String").unwrap_or(false)
+                                 }
+                                 _ => false,
+                             }
+                         } else {
+                             false
+                         };
+
+                         if is_string_element || points_to_string {
+                             // String elements: load the String struct and store by value (16 bytes)
+                             let string_ty = self.ty_string();
+                             let size = string_ty.size_of().unwrap();
+                             eprintln!("[DEBUG Array_push] String element path (is_string_element={}, points_to_string={}), loading struct (size={:?})", is_string_element, points_to_string, size);
+                             let loaded = self.builder.build_load(string_ty, item_val.into_pointer_value(), "load_string")?;
+                             let tmp = self.alloca_for_type(string_ty.into(), "item_tmp")?;
+                             self.builder.build_store(tmp, loaded)?;
+                             (tmp, size)
+                         } else if is_boxed_param {
                              // For boxed generic parameters, the pointer points to a box containing
                              // an i64 value. We need to load the i64 and store it.
+                             let size = self.i64_t.const_int(8, false);
+                             let tmp = self.alloca_for_type(self.i64_t.into(), "item_tmp")?;
                              if self.trace_options.trace_boxing {
                                  eprintln!("[BOXING] Array_push: loading i64 from boxed param");
                              }
                              let i64_val = self.builder.build_load(self.i64_t, item_val.into_pointer_value(), "unbox_load")?;
                              self.builder.build_store(tmp, i64_val)?;
+                             (tmp, size)
                          } else {
-                             // For direct pointer values (e.g., class types, String pointer from literal),
+                             // For direct pointer values (e.g., class types),
                              // convert the pointer to i64 using ptrtoint.
+                             let size = self.i64_t.const_int(8, false);
+                             let tmp = self.alloca_for_type(self.i64_t.into(), "item_tmp")?;
                              let ptr_as_int = self.builder.build_ptr_to_int(item_val.into_pointer_value(), self.i64_t, "ptr2i")?;
                              self.builder.build_store(tmp, ptr_as_int)?;
+                             (tmp, size)
                          }
-                         (tmp, size)
                     } else {
-                         // Int/Float/Bool - direct value
-                         let size = self.i64_t.const_int(8, false);
+                         // Int/Float/Bool - or pointer-as-int for struct elements
+                         // Check if this array holds struct elements and use actual struct size
+                         // CRITICAL: CLASS types are stored as 8-byte pointers, not inline structs!
+                         let elem_size = if let Some(elem_struct_name) = &element_struct_type {
+                             // Check if this is a CLASS type - if so, use 8 bytes (pointer)
+                             if self.class_types.contains(elem_struct_name) {
+                                 eprintln!("[DEBUG Array_push] element type '{}' is CLASS, using 8-byte pointer size", elem_struct_name);
+                                 self.i64_t.const_int(8, false)
+                             } else if let Some((struct_ty, _)) = self.struct_types.get(elem_struct_name).cloned() {
+                                 // Non-class struct: use actual struct size
+                                 struct_ty.size_of().map(|sz| {
+                                     self.builder.build_int_z_extend(sz, self.i64_t, "struct_sz").ok()
+                                 }).flatten().unwrap_or_else(|| self.i64_t.const_int(8, false))
+                             } else {
+                                 self.i64_t.const_int(8, false)
+                             }
+                         } else {
+                             self.i64_t.const_int(8, false)
+                         };
                          let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
                          self.builder.build_store(tmp, item_val)?;
-                         (tmp, size)
+                         (tmp, elem_size)
                     };
                     
                     // Cast item_ptr to i8*
                     let item_ptr_i8 = self.builder.build_pointer_cast(item_ptr, self.i8_ptr_t, "item_ptr_i8")?;
-                    
+
+                    // Get the actual array pointer:
+                    // - If arr_ptr is a slot (alloca or field), we need to LOAD the array pointer from it
+                    // - If arr_ptr is already the array pointer, use it directly
+                    let actual_arr_ptr = if is_slot {
+                        eprintln!("[DEBUG Array_push] loading actual_arr_ptr from variable slot");
+                        self.builder.build_load(self.i8_ptr_t, arr_ptr, "actual_arr_ptr")?
+                            .into_pointer_value()
+                    } else {
+                        eprintln!("[DEBUG Array_push] using arr_ptr directly (not a slot)");
+                        arr_ptr
+                    };
+
+                    // Read element_size from the array struct at index 2
+                    // This is CRITICAL for generic push operations where compile-time type info is lost
+                    // Array layout: { i64 len, i64 cap, i64 element_size, ptr data }
+                    let elem_size_ptr = unsafe {
+                        self.builder.build_gep(
+                            self.i64_t,
+                            actual_arr_ptr,
+                            &[self.i64_t.const_int(2, false)],  // index 2 = element_size
+                            "elem_size_ptr"
+                        )?
+                    };
+                    let stored_elem_size = self.builder.build_load(self.i64_t, elem_size_ptr, "stored_elem_size")?
+                        .into_int_value();
+                    eprintln!("[DEBUG Array_push] reading stored element_size from actual array at index 2");
+
+                    // Use the STORED element size, not the compile-time computed one
+                    // This fixes generic push operations where T evaluates to 8 bytes at compile time
+                    // but the actual element (e.g., String) is 16 bytes
+                    let final_elem_size = stored_elem_size;
+
                     // Declare __ArrayPush if needed
                     let array_push_fn = self.module.get_function("__ArrayPush").unwrap_or_else(|| {
                         let fn_type = self.ctx.i32_type().fn_type(&[
@@ -2577,9 +2707,10 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         ], false);
                         self.module.add_function("__ArrayPush", fn_type, None)
                     });
-                    
-                    self.builder.build_call(array_push_fn, &[arr_ptr.into(), item_ptr_i8.into(), item_size_val.into()], "push_res")?;
-                    
+
+                    // Pass the actual array pointer (not the variable slot) to __ArrayPush
+                    self.builder.build_call(array_push_fn, &[actual_arr_ptr.into(), item_ptr_i8.into(), final_elem_size.into()], "push_res")?;
+
                     return Ok(());
                 }
                 // Handle push for List/Vec - forward to Vec_push
@@ -3426,13 +3557,23 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // Or spill Int to stack and pass pointer to it?
                         // The current ABI for generics seems to be "pointer to data".
                         // So we should spill Int.
-                        
+
                         // BUT, legacy code might expect Int cast to Ptr?
                         // Let's check if it's a collection/generic method that needs boxing
                         let is_collection = fn_name.starts_with("Vec_") || fn_name.starts_with("Map_") || fn_name.starts_with("List_");
 
                         // Some() and Option_Store take generic T values that need boxing
                         let is_generic_option_fn = fn_name == "Some" || fn_name == "Option_Store" || fn_name == "Option_Replace";
+
+                        // Check if the target function has a generic parameter at this index
+                        // This handles user-defined generic classes like SimpleVec<T>
+                        let param_is_generic = self.fn_generic_param_indices
+                            .get(fn_name)
+                            .map(|indices| indices.contains(&i))
+                            .unwrap_or(false);
+                        if self.trace_options.trace_boxing && param_is_generic {
+                            eprintln!("[BOXING] Target fn '{}' has generic param at index {} (int value case)", fn_name, i);
+                        }
 
                         // CRITICAL: The first argument to collection methods is the 'this' pointer,
                         // which is stored as i64 but represents a heap pointer. This should be cast
@@ -3442,10 +3583,10 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         // For Option_Store/Replace, arg0 is 'this', arg1 is the value.
                         let is_this_arg = (i == 0 && is_collection) || (i == 0 && (fn_name == "Option_Store" || fn_name == "Option_Replace"));
                         if self.trace_options.trace_boxing {
-                            eprintln!("[BOXING] Vec arg i={}, is_collection={}, is_generic_option_fn={}, is_this_arg={}, v.is_int_value={}", i, is_collection, is_generic_option_fn, is_this_arg, v.is_int_value());
+                            eprintln!("[BOXING] Vec arg i={}, is_collection={}, is_generic_option_fn={}, param_is_generic={}, is_this_arg={}, v.is_int_value={}", i, is_collection, is_generic_option_fn, param_is_generic, is_this_arg, v.is_int_value());
                         }
 
-                        if (is_collection || is_generic_option_fn) && !is_this_arg {
+                        if (is_collection || is_generic_option_fn || param_is_generic) && !is_this_arg {
                             // Spill Int to stack for generic T value arguments (collections and Option constructors)
                             if self.trace_options.trace_boxing {
                                 eprintln!("[BOXING] Collection arg {} spill to stack", i);

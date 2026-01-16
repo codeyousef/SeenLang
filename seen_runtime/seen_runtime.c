@@ -254,8 +254,9 @@ SeenArray seen_arr_new_str(void) {
     void* data = malloc(8 * sizeof(SeenString));
     fprintf(stderr, "[DEBUG seen_arr_new_str] malloc returned %p\n", data);
     fflush(stderr);
-    SeenArray arr = { 0, 8, data };
-    fprintf(stderr, "[DEBUG seen_arr_new_str] returning arr{len=%ld, cap=%ld, data=%p}\n", arr.len, arr.cap, arr.data);
+    // element_size = sizeof(SeenString) = 16 bytes
+    SeenArray arr = { 0, 8, sizeof(SeenString), data };
+    fprintf(stderr, "[DEBUG seen_arr_new_str] returning arr{len=%ld, cap=%ld, element_size=%ld, data=%p}\n", arr.len, arr.cap, arr.element_size, arr.data);
     fflush(stderr);
     return arr;
 }
@@ -621,6 +622,7 @@ SeenArray Map_keys(void* m) {
     SeenArray result;
     result.len = map->size;
     result.cap = map->size;
+    result.element_size = sizeof(SeenString);
     result.data = malloc(sizeof(SeenString) * map->size);
 
     for (int64_t i = 0; i < map->size; i++) {
@@ -636,6 +638,7 @@ SeenArray Map_values(void* m) {
     SeenArray result;
     result.len = map->size;
     result.cap = map->size;
+    result.element_size = sizeof(int64_t);
     result.data = malloc(sizeof(int64_t) * map->size);
 
     for (int64_t i = 0; i < map->size; i++) {
@@ -657,6 +660,7 @@ FrontendResult* run_frontend(SeenString source, SeenString filename, SeenString 
     result.success = false;
     result.diagnostics.len = 0;
     result.diagnostics.cap = 0;
+    result.diagnostics.element_size = sizeof(FrontendDiagnostic);
     result.diagnostics.data = NULL;
     result.program = NULL;
 
@@ -697,7 +701,7 @@ SeenString LLVMIRGenerator_generate(void* gen, void* program) {
 
 SeenArray FrontendResult_getDiagnostics(void* result) {
     // Stub implementation - returns empty array
-    SeenArray empty = { 0, 0, NULL };
+    SeenArray empty = { 0, 0, sizeof(FrontendDiagnostic), NULL };
     return empty;
 }
 

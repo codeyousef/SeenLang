@@ -43,9 +43,21 @@ fn try_load_string_from_ptr<'ctx>(backend: &mut LlvmBackend<'ctx>, val: BasicVal
     // Check if this is a boxed generic PARAMETER or a register from a generic field access
     // VARIABLES (function parameters) use the ptr -> i64 -> ptr -> String representation
     // REGISTERS can also be boxed generic when loaded from a field of generic type (T, K, V, E)
+    // Also check var_struct_types/reg_struct_types for generic type markers (T, K, V, E, Option)
+    // which indicate the value might be a ptr-as-int String
     let is_boxed_generic = match ir_val {
-        Some(IRValue::Variable(name)) => backend.var_is_boxed_generic.contains(name),
-        Some(IRValue::Register(reg_id)) => backend.reg_is_boxed_generic.contains(reg_id),
+        Some(IRValue::Variable(name)) => {
+            backend.var_is_boxed_generic.contains(name) ||
+            backend.var_struct_types.get(name).map(|t| {
+                t == "T" || t == "K" || t == "V" || t == "E" || t == "Option"
+            }).unwrap_or(false)
+        }
+        Some(IRValue::Register(reg_id)) => {
+            backend.reg_is_boxed_generic.contains(reg_id) ||
+            backend.reg_struct_types.get(reg_id).map(|t| {
+                t == "T" || t == "K" || t == "V" || t == "E" || t == "Option"
+            }).unwrap_or(false)
+        }
         _ => false,
     };
 
@@ -91,17 +103,19 @@ fn try_load_string_from_ptr<'ctx>(backend: &mut LlvmBackend<'ctx>, val: BasicVal
 /// When Vec.get returns a value with generic type T, the LLVM value is an i64,
 /// not a pointer. This function detects that case and loads the String struct.
 fn try_load_string_from_generic_i64<'ctx>(backend: &mut LlvmBackend<'ctx>, val: BasicValueEnum<'ctx>, trace: bool, ir_val: &IRValue) -> Option<BasicValueEnum<'ctx>> {
-    // Only handle registers with generic types
-    let reg_id = match ir_val {
-        IRValue::Register(id) => *id,
-        _ => return None,
-    };
-
-    // Check if this register has a generic type marker
-    let is_generic = if let Some(struct_type) = backend.reg_struct_types.get(&reg_id) {
-        struct_type == "T" || struct_type == "K" || struct_type == "V" || struct_type == "E"
-    } else {
-        false
+    // Handle both registers and variables with generic types
+    let is_generic = match ir_val {
+        IRValue::Register(id) => {
+            backend.reg_struct_types.get(id).map(|t| {
+                t == "T" || t == "K" || t == "V" || t == "E" || t == "String"
+            }).unwrap_or(false)
+        }
+        IRValue::Variable(name) => {
+            backend.var_struct_types.get(name).map(|t| {
+                t == "T" || t == "K" || t == "V" || t == "E" || t == "String"
+            }).unwrap_or(false)
+        }
+        _ => false,
     };
 
     if !is_generic {
@@ -116,10 +130,6 @@ fn try_load_string_from_generic_i64<'ctx>(backend: &mut LlvmBackend<'ctx>, val: 
     let i64_val = val.into_int_value();
     if i64_val.get_type().get_bit_width() != 64 {
         return None;
-    }
-
-    if trace {
-        eprintln!("[TRACE binary] try_load_string_from_generic_i64: reg {} has generic type, i64 value", reg_id);
     }
 
     // Convert i64 to pointer
@@ -252,7 +262,7 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                     BinaryOp::Equal => inkwell::IntPredicate::EQ,
                     _ => inkwell::IntPredicate::NE,
                 };
-                
+
                 // Handle null comparison specially
                 // For Option<T> types, we compare hasValue field (first field) to check if it has a value
                 // For other types, we do pointer comparison
@@ -366,9 +376,57 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 let l_is_llvm_str = is_llvm_string_struct(self, l.clone(), trace);
                 let r_is_llvm_str = is_llvm_string_struct(self, r.clone(), trace);
 
+                // Check if either side is a literal Int/Integer value
+                // We should NOT try to load as String if comparing against a literal Int
+                let l_is_literal_int = matches!(left, IRValue::Integer(_));
+                let r_is_literal_int = matches!(right, IRValue::Integer(_));
+
+                // Check if either side has a "String" type hint in its struct_types
+                let l_has_string_hint = match left {
+                    IRValue::Variable(name) => self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false),
+                    IRValue::Register(id) => self.reg_struct_types.get(id).map(|t| t == "String").unwrap_or(false),
+                    _ => false,
+                };
+                let r_has_string_hint = match right {
+                    IRValue::Variable(name) => self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false),
+                    IRValue::Register(id) => self.reg_struct_types.get(id).map(|t| t == "String").unwrap_or(false),
+                    _ => false,
+                };
+
+                // Check if either side has a generic type (T, K, V, E)
+                let l_is_generic = match left {
+                    IRValue::Variable(name) => self.var_struct_types.get(name).map(|t| {
+                        t == "T" || t == "K" || t == "V" || t == "E"
+                    }).unwrap_or(false),
+                    IRValue::Register(id) => self.reg_struct_types.get(id).map(|t| {
+                        t == "T" || t == "K" || t == "V" || t == "E"
+                    }).unwrap_or(false),
+                    _ => false,
+                };
+                let r_is_generic = match right {
+                    IRValue::Variable(name) => self.var_struct_types.get(name).map(|t| {
+                        t == "T" || t == "K" || t == "V" || t == "E"
+                    }).unwrap_or(false),
+                    IRValue::Register(id) => self.reg_struct_types.get(id).map(|t| {
+                        t == "T" || t == "K" || t == "V" || t == "E"
+                    }).unwrap_or(false),
+                    _ => false,
+                };
+
+                // We might be doing a String comparison if:
+                // - One side is already known to be String (IR or LLVM level)
+                // - One side has explicit "String" type hint
+                // - Both sides are generic types (might be comparing String generics)
+                // BUT NOT if one side is a literal Int (then it's definitely Int comparison)
+                let might_be_string_comparison =
+                    !l_is_literal_int && !r_is_literal_int &&
+                    (l_is_ir_str || r_is_ir_str || l_is_llvm_str || r_is_llvm_str ||
+                     l_has_string_hint || r_has_string_hint ||
+                     (l_is_generic && r_is_generic));
+
                 // For generic registers holding i64 (ptr-as-int from Vec.get), convert to String
                 // This must be checked BEFORE pointer check since these are i64 values, not pointers
-                let (l_final, l_loaded_str) = if !l_is_ir_str && !l_is_llvm_str {
+                let (l_final, l_loaded_str) = if !l_is_ir_str && !l_is_llvm_str && might_be_string_comparison {
                     // First try: generic i64 (from Vec.get with type T)
                     if let Some(loaded) = try_load_string_from_generic_i64(self, l.clone(), trace, left) {
                         if is_llvm_string_struct(self, loaded.clone(), trace) {
@@ -394,7 +452,7 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                     (l.clone(), false)
                 };
 
-                let (r_final, r_loaded_str) = if !r_is_ir_str && !r_is_llvm_str {
+                let (r_final, r_loaded_str) = if !r_is_ir_str && !r_is_llvm_str && might_be_string_comparison {
                     // First try: generic i64 (from Vec.get with type T)
                     if let Some(loaded) = try_load_string_from_generic_i64(self, r.clone(), trace, right) {
                         if is_llvm_string_struct(self, loaded.clone(), trace) {

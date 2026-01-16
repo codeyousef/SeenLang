@@ -99,8 +99,8 @@ impl IRType {
             IRType::Float => 8,   // 64-bit floats
             IRType::Boolean => 1,
             IRType::Char => 1,            // Single byte character
-            IRType::String => 8,          // Pointer to string data
-            IRType::Array(_) => 8,        // Pointer to array data
+            IRType::String => 16,         // Struct { i64 len, ptr data } = 8 + 8 = 16 bytes
+            IRType::Array(_) => 8,        // Arrays are heap-allocated, stored as pointer (8 bytes)
             IRType::Function { .. } => 8, // Function pointer
             IRType::Vector { lanes, lane_type } => {
                 lane_type.size_bytes().saturating_mul(*lanes as usize)

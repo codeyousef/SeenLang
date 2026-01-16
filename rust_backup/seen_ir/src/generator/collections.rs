@@ -146,18 +146,16 @@ impl IRGenerator {
             
             if let Some(field_type) = field_type_opt.clone() {
                 self.context.set_register_type(result_reg, field_type.clone());
-                
+
                 // Track container element types for Vec<T>, Option<T>, etc.
                 // This allows Vec.get() and Option.unwrap() to resolve inner types
                 match &field_type {
                     IRType::Array(inner) => {
-                        // For Vec<T>, track the element type T
+                        // For builtin Array<T>, track the element type T
                         self.context.container_element_types.insert(
                             format!("reg_{}", result_reg),
                             (**inner).clone()
                         );
-                        eprintln!("DEBUG IR: Field access {}.{} - tracking Vec element type {:?}", 
-                            type_name, member, inner);
                     }
                     IRType::Optional(inner) => {
                         // For Option<T>, track the inner type T
@@ -165,6 +163,33 @@ impl IRGenerator {
                             format!("reg_{}", result_reg),
                             (**inner).clone()
                         );
+                    }
+                    IRType::Struct { name: struct_name, .. } if struct_name == "Vec" => {
+                        // For Vec<T>, the minimal IRType doesn't contain the generic info.
+                        // Look up the full type definition from the parent struct to get the element type.
+                        if let Some(type_def) = self.context.type_definitions.get(&type_name) {
+                            if let IRType::Struct { fields: def_fields, .. } = type_def {
+                                if let Some((_, full_field_type)) = def_fields.iter().find(|(n, _)| n == member) {
+                                    if let IRType::Struct { fields: vec_fields, .. } = full_field_type {
+                                        // Look for chunks: Array<VecChunk<T>>
+                                        if let Some((_, chunks_type)) = vec_fields.iter().find(|(n, _)| n == "chunks") {
+                                            if let IRType::Array(vec_chunk_type) = chunks_type {
+                                                if let IRType::Struct { fields: chunk_fields, .. } = vec_chunk_type.as_ref() {
+                                                    if let Some((_, values_type)) = chunk_fields.iter().find(|(n, _)| n == "values") {
+                                                        if let IRType::Array(elem_type) = values_type {
+                                                            self.context.container_element_types.insert(
+                                                                format!("reg_{}", result_reg),
+                                                                (**elem_type).clone()
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }

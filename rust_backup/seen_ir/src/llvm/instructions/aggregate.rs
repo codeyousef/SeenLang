@@ -178,8 +178,8 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
 
             self.assign_value(result, char_val.as_basic_value_enum())?;
         } else if arr_v.is_pointer_value() || arr_v.is_int_value() {
-            // Dynamic array with layout { i64 len, i64 cap, i8* data_ptr }
-            // Data pointer is at offset 16
+            // Dynamic array with layout { i64 len, i64 cap, i64 element_size, i8* data_ptr }
+            // Data pointer is at offset 24 (index 3)
             let arr_ptr = if arr_v.is_pointer_value() {
                 arr_v.into_pointer_value()
             } else if arr_v.is_struct_value() {
@@ -197,13 +197,13 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     )
                     .map_err(|e| anyhow!("{e:?}"))?
             };
-            
-            // Load data pointer from offset 16
+
+            // Load data pointer from offset 24 (index 3)
             let data_ptr_ptr = unsafe {
                 self.builder.build_gep(
                     self.i64_t,
                     self.builder.build_pointer_cast(arr_ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
-                    &[self.i64_t.const_int(2, false)],
+                    &[self.i64_t.const_int(3, false)],
                     "data_ptr_ptr"
                 )?
             };
@@ -227,8 +227,11 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             // Check if we're accessing a struct array
             if let Some(ref struct_type_name) = element_struct_type {
                 // Check if this is a class type (heap-allocated, stored as pointer)
-                // Treat String as class (pointer) to match Vec<T> behavior where T=Generic=ptr
-                let is_class = self.class_types.contains(struct_type_name) || struct_type_name == "String";
+                // Note: String is NOT treated as a class here because Array<String> stores
+                // String structs inline (16 bytes each), not as pointers.
+                // The confusion was from Vec<T> where T=String, which IS stored as pointers,
+                // but that's handled via generic type tracking, not here.
+                let is_class = self.class_types.contains(struct_type_name);
                 eprintln!("DEBUG ArrayAccess struct array: element_struct_type={}, is_class={}", struct_type_name, is_class);
                 
                 // Handle generic type parameters (T, E, K, V, etc.)
@@ -277,21 +280,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         // Load the pointer-as-i64 and return it directly
                         // This way, field access will dereference the pointer
                         let ptr_as_int = self.builder.build_load(self.i64_t, elem_ptr, "class_ptr_int")?.into_int_value();
-                        
+
                         // Cast back to pointer for consistency with Generic types
                         let ptr = self.builder.build_int_to_ptr(ptr_as_int, self.i8_ptr_t, "class_ptr")?;
-                        
+
                         // Assign the pointer to result (NOT the dereferenced struct)
-                        if struct_type_name == "String" {
-                            // String is stored as pointer in Vec/Array<String> (when treated as class/generic)
-                            // But the value type is the struct itself.
-                            // So we must dereference the pointer to get the String struct.
-                            let struct_ptr = self.builder.build_pointer_cast(ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "str_ptr")?;
-                            let struct_val = self.builder.build_load(self.ty_string(), struct_ptr, "str_load")?;
-                            self.assign_value(result, struct_val)?;
-                        } else {
-                            self.assign_value(result, ptr.as_basic_value_enum())?;
-                        }
+                        self.assign_value(result, ptr.as_basic_value_enum())?;
                         
                         // Track struct type for subsequent field access
                         if let IRValue::Register(reg_id) = result {
@@ -397,12 +391,12 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             let elem = self.builder.build_load(self.i64_t, elem_ptr, "elem")?;
             self.assign_value(result, elem.as_basic_value_enum())?;
         } else if arr_v.is_struct_value() {
-            // Handle struct value - this is an array struct loaded by value { len, cap, data }
-            // Extract the data pointer from the struct (field 2)
-            // Note: in opaque pointer mode, field 2 is a ptr type, not i64
+            // Handle struct value - this is an array struct loaded by value { len, cap, element_size, data }
+            // Extract the data pointer from the struct (field 3)
+            // Note: in opaque pointer mode, field 3 is a ptr type, not i64
             eprintln!("DEBUG ArrayAccess struct_value path: array={:?}, element_struct_type={:?}", array, element_struct_type);
             let arr_struct = arr_v.into_struct_value();
-            let data_ptr = self.builder.build_extract_value(arr_struct, 2, "data_ptr")?
+            let data_ptr = self.builder.build_extract_value(arr_struct, 3, "data_ptr")?
                 .into_pointer_value();
             
             let idx_bv = self.eval_value(index, fn_map)?;
@@ -546,11 +540,11 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         
         // Get data pointer and array length - handle struct value (array loaded by value) or pointer/int
         let (data_ptr, len) = if arr_v.is_struct_value() {
-            // Array struct loaded by value { len, cap, data_ptr }
+            // Array struct loaded by value { len, cap, element_size, data_ptr }
             let arr_struct = arr_v.into_struct_value();
             let len_val = self.builder.build_extract_value(arr_struct, 0, "len")?
                 .into_int_value();
-            let data_ptr = self.builder.build_extract_value(arr_struct, 2, "data_ptr")?
+            let data_ptr = self.builder.build_extract_value(arr_struct, 3, "data_ptr")?
                 .into_pointer_value();
             (data_ptr, len_val)
         } else {
@@ -568,13 +562,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             
             // Get length from array pointer
             let len = self.get_array_len(arr_ptr)?;
-            
-            // Get pointer to data section (offset 16)
+
+            // Get pointer to data section (offset 24, index 3)
+            // Array layout: { i64 len, i64 cap, i64 element_size, ptr data }
             let data_ptr_ptr = unsafe {
                 self.builder.build_gep(
                     self.i64_t,
                     self.builder.build_pointer_cast(arr_ptr, self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)), "cast")?,
-                    &[self.i64_t.const_int(2, false)],
+                    &[self.i64_t.const_int(3, false)],
                     "data_ptr_ptr"
                 )?
             };
@@ -1247,7 +1242,9 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     eprintln!("DEBUG FieldSet: field '{}' is struct type, val is pointer -> loading struct", field);
                     self.builder.build_load(field_ty.into_struct_type(), val.into_pointer_value(), "load_arr_struct")?.as_basic_value_enum()
                 } else {
-                    eprintln!("DEBUG FieldSet: field '{}' type check - is_struct={}, val_is_ptr={}", field, field_ty.is_struct_type(), val.is_pointer_value());
+                    eprintln!("DEBUG FieldSet: field '{}' type check - is_struct={}, val_is_ptr={}, val_is_int={}, val_is_struct={}",
+                        field, field_ty.is_struct_type(), val.is_pointer_value(), val.is_int_value(), val.is_struct_value());
+                    eprintln!("DEBUG FieldSet: val type = {:?}", val.get_type());
                     val
                 };
                 

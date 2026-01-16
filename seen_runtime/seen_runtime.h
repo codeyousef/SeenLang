@@ -22,6 +22,7 @@ typedef struct {
 typedef struct {
     int64_t len;
     int64_t cap;
+    int64_t element_size;
     void* data;
 } SeenArray;
 

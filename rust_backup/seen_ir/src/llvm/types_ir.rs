@@ -140,7 +140,7 @@ pub fn ty_string<'ctx>(
     ctx.struct_type(&[i64_t.into(), i8_ptr_t.into()], false)
 }
 
-/// Build the Seen Array type: `{ i64 len, i64 cap, T* data }`
+/// Build the Seen Array type: `{ i64 len, i64 cap, i64 element_size, T* data }`
 pub fn ty_array<'ctx>(
     ctx: &'ctx LlvmContext,
     i64_t: IntType<'ctx>,
@@ -148,9 +148,10 @@ pub fn ty_array<'ctx>(
 ) -> StructType<'ctx> {
     ctx.struct_type(
         &[
-            i64_t.into(), // len
-            i64_t.into(), // cap
-            ctx.ptr_type(AddressSpace::default()).into(), // data
+            i64_t.into(), // len (index 0)
+            i64_t.into(), // cap (index 1)
+            i64_t.into(), // element_size (index 2) - stored at creation for runtime use
+            ctx.ptr_type(AddressSpace::default()).into(), // data (index 3)
         ],
         false,
     )
@@ -219,9 +220,9 @@ mod tests {
     fn test_array_type_layout() {
         let ctx = LlvmContext::create();
         let i64_t = ctx.i64_type();
-        
+
         let arr_ty = ty_array(&ctx, i64_t, i64_t.into());
-        assert_eq!(arr_ty.count_fields(), 3);
+        assert_eq!(arr_ty.count_fields(), 4);
     }
 
     #[test]

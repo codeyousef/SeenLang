@@ -4,6 +4,7 @@ use crate::{
     value::{IRType, IRValue},
 };
 use indexmap::IndexMap;
+use std::collections::HashSet;
 
 // Deterministic maps to keep codegen stable
 pub(crate) type HashMap<K, V> = IndexMap<K, V>;
@@ -28,6 +29,11 @@ pub struct GenerationContext {
     pub(crate) current_type_definition: Option<String>, // Name of type currently being defined
     pub(crate) result_inner_types: HashMap<String, IRType>, // Track inner type T for Result<T, E> variables
     pub(crate) container_element_types: HashMap<String, IRType>, // Track element type T for Vec<T>, Option<T>, etc.
+
+    // Vale-style memory management: scope-based deallocation tracking
+    pub(crate) scope_allocations: Vec<Vec<String>>,  // Stack of allocations per scope (var names to deallocate)
+    pub(crate) heap_allocated: HashSet<String>,       // Track which variables are heap-allocated
+    pub(crate) moved_variables: HashSet<String>,      // Track moved variables (to avoid double-free)
 }
 
 impl GenerationContext {
@@ -50,6 +56,9 @@ impl GenerationContext {
             current_type_definition: None,
             result_inner_types: HashMap::new(),
             container_element_types: HashMap::new(),
+            scope_allocations: vec![Vec::new()], // Start with one scope (global/function level)
+            heap_allocated: HashSet::new(),
+            moved_variables: HashSet::new(),
         }
     }
 
@@ -217,6 +226,62 @@ impl GenerationContext {
             let local = LocalVariable::new(name, var_type);
             self.local_variables.push(local);
         }
+    }
+
+    // ============================================================================
+    // Vale-style Memory Management: Scope-based Deallocation
+    // ============================================================================
+
+    /// Enter a new scope (block, loop body, etc.) - allocations tracked separately
+    pub fn enter_scope(&mut self) {
+        self.scope_allocations.push(Vec::new());
+    }
+
+    /// Exit current scope and return list of variables that need deallocation.
+    /// Only returns variables that are heap-allocated and haven't been moved.
+    pub fn exit_scope(&mut self) -> Vec<String> {
+        let scope_vars = self.scope_allocations.pop().unwrap_or_default();
+        scope_vars
+            .into_iter()
+            .filter(|var| {
+                self.heap_allocated.contains(var) && !self.moved_variables.contains(var)
+            })
+            .collect()
+    }
+
+    /// Track a heap allocation for a variable (called when constructing objects, arrays, etc.)
+    pub fn track_heap_allocation(&mut self, var_name: String) {
+        self.heap_allocated.insert(var_name.clone());
+        if let Some(scope) = self.scope_allocations.last_mut() {
+            scope.push(var_name);
+        }
+    }
+
+    /// Mark a variable as moved (ownership transferred, skip deallocation)
+    pub fn mark_moved(&mut self, var_name: &str) {
+        self.moved_variables.insert(var_name.to_string());
+    }
+
+    /// Check if a variable needs deallocation (heap-allocated and not moved)
+    pub fn needs_deallocation(&self, var_name: &str) -> bool {
+        self.heap_allocated.contains(var_name) && !self.moved_variables.contains(var_name)
+    }
+
+    /// Get all heap-allocated variables across all scopes (for cleanup on early return)
+    pub fn get_all_active_allocations(&self) -> Vec<String> {
+        self.scope_allocations
+            .iter()
+            .flat_map(|scope| scope.iter())
+            .filter(|var| self.heap_allocated.contains(*var) && !self.moved_variables.contains(*var))
+            .cloned()
+            .collect()
+    }
+
+    /// Reset scope tracking for a new function
+    pub fn reset_scope_tracking(&mut self) {
+        self.scope_allocations = vec![Vec::new()];
+        // Note: We don't clear heap_allocated or moved_variables here as they
+        // may contain globals. Clear them explicitly if needed.
     }
 }
 

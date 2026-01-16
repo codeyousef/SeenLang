@@ -3,10 +3,6 @@
 
 // Runtime-provided default initializer for generic T (handled as intrinsic in backend).
 extern fun __default<T>() r: T
-extern fun __Print(s: String)
-extern fun __PrintInt(n: Int)
-extern fun __PtrToInt<T>(ptr: T) r: Int
-extern fun __Println(s: String)
 
 class VecChunk<T> {
     var values: Array<T>
@@ -162,15 +158,15 @@ class Vec<T> {
         var chunksArr = this.chunks
         chunksArr.push(chunk)
         this.chunks = chunksArr
-        
+
         var capsArr = this.capacities
         capsArr.push(this.nextChunkSize)
         this.capacities = capsArr
-        
+
         var usageArr = this.usage
         usageArr.push(0)
         this.usage = usageArr
-        
+
         this.totalCapacity = this.totalCapacity + this.nextChunkSize
         this.nextChunkSize = this.nextChunkSize * 2
     }

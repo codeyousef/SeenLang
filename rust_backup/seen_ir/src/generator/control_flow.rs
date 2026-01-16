@@ -584,6 +584,9 @@ impl IRGenerator {
         &mut self,
         expressions: &[Expression],
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
+        // Enter new scope for Vale-style memory management
+        self.context.enter_scope();
+
         let mut instructions = Vec::new();
         let mut result_value = IRValue::Void;
 
@@ -591,6 +594,14 @@ impl IRGenerator {
             let (val, expr_instructions) = self.generate_expression(expr)?;
             instructions.extend(expr_instructions);
             result_value = val;
+        }
+
+        // Exit scope and generate cleanup (Deallocate) instructions
+        let scope_vars = self.context.exit_scope();
+        for var_name in scope_vars {
+            instructions.push(Instruction::Deallocate {
+                pointer: IRValue::Variable(var_name),
+            });
         }
 
         Ok((result_value, instructions))
