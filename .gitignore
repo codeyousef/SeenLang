@@ -82,9 +82,14 @@ target/
 # Seen bootstrap artifacts
 stage1.c
 stage1_*.c
+stage1_*
+stage2_*
 stage*.seen
 simple_test_out.c
 simple_test_exe
+
+# Static libraries
+*.a
 
 # Generated wrappers and platform launchers
 compiler_seen/target/

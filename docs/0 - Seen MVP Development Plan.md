@@ -1,7 +1,7 @@
 # Seen Language — Unified **MVP** Plan
 
-**Last Updated:** 2026-01-11  
-**Core Principle:** Safety by default, nondeterminism explicitly opt-in via annotation.  
+**Last Updated:** 2026-01-16
+**Core Principle:** Safety by default, nondeterminism explicitly opt-in via annotation.
 **Target Platforms:** Linux, Windows, RISC-V, UWW-Compatible WASM
 
 ---
@@ -45,6 +45,19 @@
 2. **Build:** ✅ `BangEqual` → `NotEqual` fixed in real_parser.seen.
 3. **Parser:** ✅ Nested block state corruption fixed (currentBlock/lastStatement save/restore).
 4. **LLVM:** ✅ toString interception fixed (user-defined methods now called correctly).
+5. **LLVM:** ✅ Generic type comparison fixed (Map<String, Int> and Vec operations now work correctly).
+
+**Recent Progress (2026-01-16):**
+1. **[FIXED]** Map<String, Int> comparison crash - added smart detection logic in `binary.rs` for when to load generic types as Strings vs treat as integers
+2. **[FIXED]** Added `might_be_string_comparison` check that considers:
+   - Whether either side is a literal Integer (skip String loading)
+   - Whether both sides are generic types T/K/V/E (try String loading - might be String generics)
+   - Explicit String type hints in struct_types
+3. **[FIXED]** Vec.get() return type was incorrectly wrapping in Optional - now returns T directly as per Seen semantics
+4. **[NEW]** Added element type tracking for Vec field accesses in `collections.rs`
+5. **[IMPROVED]** Boxed generic detection in `try_load_string_from_ptr` now checks var_struct_types for generic markers
+6. **[VERIFIED]** Map<String, Int> operations work correctly: put(), get(), size(), IsSome(), Unwrap(), and Int comparison with unwrapped values
+7. **[VERIFIED]** Stage1 IR build succeeds; LLVM build has separate pre-existing issue with generic type 'E' struct registration
 
 **Recent Progress (2026-01-13):**
 1. **[FIXED]** LLVM backend was intercepting ALL `*_toString` calls - modified match guard to check `fn_map` first, allowing user-defined toString methods (like `StringBuilder.toString()`) to work correctly
