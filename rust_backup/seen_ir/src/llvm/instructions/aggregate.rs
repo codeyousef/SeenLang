@@ -1015,6 +1015,23 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
 
                 return Ok(());
             } else {
+                // Check if this is a generic type placeholder (T, K, V, E)
+                // Generic placeholders are not registered as concrete types - handle them as boxed values
+                let is_generic_placeholder = matches!(type_name.as_str(), "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B");
+                if is_generic_placeholder {
+                    if self.trace_options.trace_boxing {
+                        eprintln!("[BOXING] FieldAccess on generic placeholder '{}' - treating as boxed value", type_name);
+                    }
+                    // For generic types, the value is stored as a boxed pointer (i64)
+                    // Field access on unresolved generics should not happen in well-typed code,
+                    // but if it does, we return the value itself as the result (it's a pointer to the actual data)
+                    self.assign_value(result, sv)?;
+                    if let IRValue::Register(reg_id) = result {
+                        self.reg_is_boxed_generic.insert(*reg_id);
+                    }
+                    return Ok(());
+                }
+
                 // Struct type name is known but not registered - this is a bug
                 return Err(anyhow!(
                     "Struct type '{}' is referenced but not registered in module.types. \
