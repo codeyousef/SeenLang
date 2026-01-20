@@ -3560,7 +3560,15 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
 
                         // BUT, legacy code might expect Int cast to Ptr?
                         // Let's check if it's a collection/generic method that needs boxing
-                        let is_collection = fn_name.starts_with("Vec_") || fn_name.starts_with("Map_") || fn_name.starts_with("List_");
+                        // Include Option_, Result_, StringHashMap_ since they are also class types
+                        // whose 'this' pointer is stored as i64 but needs ptr conversion
+                        let is_collection = fn_name.starts_with("Vec_")
+                            || fn_name.starts_with("Map_")
+                            || fn_name.starts_with("List_")
+                            || fn_name.starts_with("Option_")
+                            || fn_name.starts_with("Result_")
+                            || fn_name.starts_with("StringHashMap_")
+                            || fn_name.starts_with("HashEntry_");
 
                         // Some() and Option_Store take generic T values that need boxing
                         let is_generic_option_fn = fn_name == "Some" || fn_name == "Option_Store" || fn_name == "Option_Replace";
