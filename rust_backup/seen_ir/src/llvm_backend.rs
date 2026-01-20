@@ -2065,9 +2065,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                 struct_val,
                 field,
                 result,
+                field_type,
                 ..
             } => {
-                self.emit_field_access(struct_val, field, result, fn_map)?;
+                self.emit_field_access(struct_val, field, result, fn_map, field_type.as_ref())?;
             }
             Instruction::FieldSet {
                 struct_val,

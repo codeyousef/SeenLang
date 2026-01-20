@@ -43,6 +43,7 @@ pub trait AggregateOps<'ctx> {
         field: &str,
         result: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
+        instruction_field_type: Option<&crate::value::IRType>,
     ) -> Result<()>;
 
     fn emit_field_set(
@@ -830,6 +831,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         field: &str,
         result: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
+        instruction_field_type: Option<&crate::value::IRType>,
     ) -> Result<()> {
         let cur_fn = self.current_fn.map(|f| f.get_name().to_string_lossy().into_owned()).unwrap_or_else(|| "unknown".to_string());
         if field == "totalCapacity" || field == "capacity" {
@@ -930,7 +932,30 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 let field_ty = llvm_struct_ty.get_field_types()[field_idx];
                 let loaded = self.builder.build_load(field_ty, gep, &format!("load_{}", field))?;
                 self.assign_value(result, loaded.as_basic_value_enum())?;
-                
+
+                // Track struct type from instruction's field_type (primary source of type info)
+                // This is critical for nested field access + method calls like `this.keys.get(i)`
+                // where `keys` is a Vec<K> field - we need to track that the result is a "Vec"
+                if let Some(IRType::Struct { name: inst_field_struct_name, fields: inst_struct_fields }) = instruction_field_type {
+                    if let IRValue::Register(reg_id) = result {
+                        if self.trace_options.trace_boxing {
+                            eprintln!("[BOXING] FieldAccess {}.{} result Register({}) -> struct type '{}' (from instruction)",
+                                type_name, field, reg_id, inst_field_struct_name);
+                        }
+                        self.reg_struct_types.insert(*reg_id, inst_field_struct_name.clone());
+
+                        // Mark generic type fields (T, K, V, E with empty fields) as boxed generic
+                        let is_generic = matches!(inst_field_struct_name.as_str(), "T" | "K" | "V" | "E") && inst_struct_fields.is_empty();
+                        if is_generic {
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] FieldAccess {}.{} is generic type '{}' - marking Register({}) as boxed generic (from instruction)",
+                                    type_name, field, inst_field_struct_name, reg_id);
+                            }
+                            self.reg_is_boxed_generic.insert(*reg_id);
+                        }
+                    }
+                }
+
                 // For Array fields, store the field pointer info so Array_push can use it
                 // This enables in-place modification of arrays stored in struct fields
                 if let IRValue::Register(reg_id) = result {
