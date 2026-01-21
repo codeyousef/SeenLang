@@ -381,6 +381,77 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 eprintln!("[DEBUG CALL] name='{}', base_normalized='{}'", name, base_normalized);
             }
 
+            // Handle generic method calls before normalizing
+            // Patterns: Int_isNone, E_isSome, ParamNode_unwrap, etc.
+            // These are methods on Option<T> where T has been substituted
+            if name.contains('_') {
+                let parts: Vec<&str> = name.splitn(2, '_').collect();
+                if parts.len() == 2 {
+                    let method = parts[1];
+                    // Check if this is a known Option/Result method
+                    // Note: unwrapOr and UnwrapOr are excluded because they have complex generic parameter handling
+                    if ["isSome", "isNone", "unwrap", "Unwrap", "IsSome", "IsNone", "expect", "Expect"].contains(&method) {
+                        // Try to route to Option_method
+                        let concrete_types = ["Option", "Result"];
+                        for concrete_type in concrete_types {
+                            let underscore_name = format!("{}_{}", concrete_type, method);
+                            if let Some(func) = fn_map.get(&underscore_name).copied()
+                                .or_else(|| self.module.get_function(&underscore_name)) {
+                                let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
+                                let params = func.get_params();
+                                for (i, arg) in args.iter().enumerate() {
+                                    let val = self.eval_value(arg, fn_map)?;
+                                    if let Some(param) = params.get(i) {
+                                        let expected_ty = param.get_type();
+                                        if expected_ty.is_pointer_type() && val.is_int_value() {
+                                            let ptr = self.builder.build_int_to_ptr(
+                                                val.into_int_value(),
+                                                expected_ty.into_pointer_type(),
+                                                "generic_method_arg_cast"
+                                            )?;
+                                            call_args.push(ptr.into());
+                                        } else {
+                                            call_args.push(val.into());
+                                        }
+                                    } else {
+                                        call_args.push(val.into());
+                                    }
+                                }
+                                let call = self.builder.build_call(func, &call_args, "generic_method_call")?;
+                                if let Some(r) = result {
+                                    if let Some(val) = call.try_as_basic_value().left() {
+                                        self.assign_value(r, val)?;
+                                    }
+                                    // Propagate inner type for unwrap
+                                    if method == "unwrap" || method == "Unwrap" {
+                                        if let Some(container_arg) = args.get(0) {
+                                            let inner_type = match container_arg {
+                                                IRValue::Variable(var_name) => {
+                                                    self.var_option_inner_type.get(var_name).cloned()
+                                                }
+                                                IRValue::Register(reg_id) => {
+                                                    self.reg_option_inner_type.get(reg_id).cloned()
+                                                }
+                                                _ => None,
+                                            };
+                                            if let Some(inner_type) = inner_type {
+                                                if let IRValue::Register(reg_id) = r {
+                                                    if self.trace_options.trace_boxing {
+                                                        eprintln!("[BOXING] Generic unwrap propagating inner type '{}' to reg {}", inner_type, reg_id);
+                                                    }
+                                                    self.reg_struct_types.insert(*reg_id, inner_type);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+
             match base_normalized {
                 "toFloat" => {
                     // Convert integer to float
@@ -1132,10 +1203,25 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     return Ok(());
                 }
-                // Handle any other T_* generic method calls
-                name if name.starts_with("T_") => {
+                // Handle generic method calls with various type prefixes
+                // Patterns: T_*, E_*, K_*, V_*, Int_*, ParamNode_*, etc.
+                name if name.contains('_') && {
+                    // Match if it looks like a generic type prefix followed by a method name
+                    let parts: Vec<&str> = name.splitn(2, '_').collect();
+                    if parts.len() == 2 {
+                        let prefix = parts[0];
+                        let method = parts[1];
+                        // Single uppercase letter (T, E, K, V), or known method patterns
+                        (prefix.len() == 1 && prefix.chars().all(|c| c.is_ascii_uppercase())) ||
+                        // Option/Result methods that might be prefixed with a type
+                        ["isSome", "isNone", "unwrap", "Unwrap", "IsSome", "IsNone", "expect", "Expect", "unwrapOr", "UnwrapOr"].contains(&method)
+                    } else {
+                        false
+                    }
+                } => {
                     // Try to find a concrete implementation by checking common types
-                    let method_name = &name[2..]; // Strip "T_" prefix
+                    let parts: Vec<&str> = name.splitn(2, '_').collect();
+                    let method_name = parts.get(1).copied().unwrap_or("");
                     let concrete_types = ["File", "String", "Vec", "Map", "Result", "Option"];
                     
                     for concrete_type in concrete_types {
@@ -1147,14 +1233,54 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             .or_else(|| self.module.get_function(&underscore_name))
                             .or_else(|| self.module.get_function(&dot_name)) {
                             let mut call_args: Vec<BasicMetadataValueEnum> = Vec::new();
-                            for arg in args {
+                            let params = func.get_params();
+                            for (i, arg) in args.iter().enumerate() {
                                 let val = self.eval_value(arg, fn_map)?;
-                                call_args.push(val.into());
+                                // Check if we need to convert i64 to ptr for 'this' argument
+                                if let Some(param) = params.get(i) {
+                                    let expected_ty = param.get_type();
+                                    if expected_ty.is_pointer_type() && val.is_int_value() {
+                                        // Convert i64 (class pointer as int) to ptr
+                                        let ptr = self.builder.build_int_to_ptr(
+                                            val.into_int_value(),
+                                            expected_ty.into_pointer_type(),
+                                            "generic_arg_cast"
+                                        )?;
+                                        call_args.push(ptr.into());
+                                    } else {
+                                        call_args.push(val.into());
+                                    }
+                                } else {
+                                    call_args.push(val.into());
+                                }
                             }
                             let call = self.builder.build_call(func, &call_args, "generic_call")?;
                             if let Some(r) = result {
                                 if let Some(val) = call.try_as_basic_value().left() {
                                     self.assign_value(r, val)?;
+                                }
+
+                                // Propagate inner type for unwrap calls through generic T_* handler
+                                if method_name == "unwrap" || method_name == "Unwrap" {
+                                    if let Some(container_arg) = args.get(0) {
+                                        let inner_type = match container_arg {
+                                            IRValue::Variable(var_name) => {
+                                                self.var_option_inner_type.get(var_name).cloned()
+                                            }
+                                            IRValue::Register(reg_id) => {
+                                                self.reg_option_inner_type.get(reg_id).cloned()
+                                            }
+                                            _ => None,
+                                        };
+                                        if let Some(inner_type) = inner_type {
+                                            if let IRValue::Register(reg_id) = r {
+                                                if self.trace_options.trace_boxing {
+                                                    eprintln!("[BOXING] T_unwrap propagating inner type '{}' to reg {}", inner_type, reg_id);
+                                                }
+                                                self.reg_struct_types.insert(*reg_id, inner_type);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             return Ok(());
@@ -3872,27 +3998,63 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 else if expected_ty.is_int_type() {
                     let expected_int_ty = expected_ty.into_int_type();
                     let expected_bits = expected_int_ty.get_bit_width();
-                    
+
                     if v.is_struct_value() {
-                        // Struct -> Int (Extract first field or Spill & Cast)
+                        // Struct -> Int: Need to determine if this is a generic function parameter
+                        // that requires ptr-as-int boxing, or a regular int parameter
                         let sv = v.into_struct_value();
-                        // Try to extract first field if it's an int (optimization)
-                        let first = self.builder.build_extract_value(sv, 0, "struct_first");
-                        if let Ok(first_val) = first {
-                            if first_val.is_int_value() {
-                                let int_val = first_val.into_int_value();
-                                let actual_bits = int_val.get_type().get_bit_width();
-                                // Truncate or extend to match expected size
-                                if actual_bits > expected_bits {
-                                    let truncated = self.builder.build_int_truncate(int_val, expected_int_ty, "int_trunc")?;
-                                    call_args.push(truncated.into());
-                                } else if actual_bits < expected_bits {
-                                    let extended = self.builder.build_int_z_extend(int_val, expected_int_ty, "int_ext")?;
-                                    call_args.push(extended.into());
-                                } else {
-                                    call_args.push(int_val.into());
+
+                        // Check if this is a generic container function parameter
+                        // These functions have i64 parameters but expect boxed structs (ptr-as-int)
+                        let is_generic_map_fn = matches!(fn_name,
+                            "Map_put" | "Map_get" | "Map_containsKey" | "Map_containsValue" | "Map_remove"
+                        );
+                        let is_generic_vec_fn = matches!(fn_name,
+                            "Vec_push" | "Vec_set" | "Array_push" | "ArraySet" | "HashMap_get" | "HashMap_put"
+                        );
+                        let param_is_generic = self.fn_generic_param_indices
+                            .get(fn_name)
+                            .map(|indices| indices.contains(&i))
+                            .unwrap_or(false);
+
+                        // For generic parameters (not the 'this' pointer at i==0), use ptr-as-int boxing
+                        let needs_generic_boxing = (is_generic_map_fn || is_generic_vec_fn || param_is_generic) && i > 0;
+
+                        if needs_generic_boxing {
+                            // Always print this for debugging the double free issue
+                            let struct_ty = sv.get_type();
+                            eprintln!("[BOXING-DEBUG] Struct to i64: fn='{}' arg={}, struct_fields={}, struct_type={:?}",
+                                fn_name, i, struct_ty.count_fields(), struct_ty);
+                            // Box the entire struct: malloc, store, ptrtoint
+                            let malloc_ptr = self.builder.build_malloc(struct_ty, "gen_box")?;
+                            self.builder.build_store(malloc_ptr, sv)?;
+                            let as_i64 = self.builder.build_ptr_to_int(malloc_ptr, self.i64_t, "gen_ptr2int")?;
+                            if expected_bits < 64 {
+                                let truncated = self.builder.build_int_truncate(as_i64, expected_int_ty, "gen_trunc")?;
+                                call_args.push(truncated.into());
+                            } else {
+                                call_args.push(as_i64.into());
+                            }
+                            pushed = true;
+                        } else {
+                            // Not a generic parameter: try to extract first field if it's an int
+                            let first = self.builder.build_extract_value(sv, 0, "struct_first");
+                            if let Ok(first_val) = first {
+                                if first_val.is_int_value() {
+                                    let int_val = first_val.into_int_value();
+                                    let actual_bits = int_val.get_type().get_bit_width();
+                                    // Truncate or extend to match expected size
+                                    if actual_bits > expected_bits {
+                                        let truncated = self.builder.build_int_truncate(int_val, expected_int_ty, "int_trunc")?;
+                                        call_args.push(truncated.into());
+                                    } else if actual_bits < expected_bits {
+                                        let extended = self.builder.build_int_z_extend(int_val, expected_int_ty, "int_ext")?;
+                                        call_args.push(extended.into());
+                                    } else {
+                                        call_args.push(int_val.into());
+                                    }
+                                    pushed = true;
                                 }
-                                pushed = true;
                             }
                         }
                         if !pushed {
@@ -4329,7 +4491,11 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     
                     // Special handling for Option/Result unwrap: propagate inner type
-                    if name == "Option_unwrap" || name == "Option_Unwrap" || name == "Result_unwrap" || name == "unwrap" || name == "Unwrap" {
+                    // Also handle generic type prefixes like E_unwrap, T_unwrap (single uppercase letter)
+                    let is_unwrap_call = name == "Option_unwrap" || name == "Option_Unwrap"
+                        || name == "Result_unwrap" || name == "unwrap" || name == "Unwrap"
+                        || name.ends_with("_unwrap") || name.ends_with("_Unwrap");
+                    if is_unwrap_call {
                         if self.trace_options.trace_boxing {
                             eprintln!("[BOXING] unwrap special handling triggered for '{}', args: {:?}", name, args);
                         }

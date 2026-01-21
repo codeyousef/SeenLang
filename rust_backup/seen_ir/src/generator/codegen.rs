@@ -277,6 +277,18 @@ impl IRGenerator {
                             module.add_function(function);
                         }
                     } else {
+                        // Skip RealParser methods that were incorrectly parsed as standalone functions
+                        // These should be generated as class methods (RealParser_methodName)
+                        let misplaced_parser_methods = [
+                            "isAtEnd", "peek", "peekTokenType", "peekTokenTypeStr",
+                            "previous", "advance", "consume", "checkToken", "matchTokenStr",
+                            "skipExpression", "toArray"
+                        ];
+                        if misplaced_parser_methods.contains(&name.as_str()) {
+                            // Skip - will be generated as class method
+                            continue;
+                        }
+
                         // Generate the function and add to module
                         let function =
                             self.generate_function_definition(name, params, return_type, body)?;

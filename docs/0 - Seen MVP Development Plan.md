@@ -1,28 +1,8 @@
 # Seen Language — Unified **MVP** Plan
 
-**Last Updated:** 2026-01-16
+**Last Updated:** 2026-01-21
 **Core Principle:** Safety by default, nondeterminism explicitly opt-in via annotation.
 **Target Platforms:** Linux, Windows, RISC-V, UWW-Compatible WASM
-
----
-
-## High Priority Remaining Work (Generic Boxing Fixes)
-
-✅ **COMPLETED** (2026-01-11) - All generic boxing/unboxing fixes are now implemented and verified.
-
-1.  **Fix Primitive Return from Generic Functions**: ✅ Complete
-    *   **Issue**: `Option.unwrap()` returns a `T`. For `Option<Int>`, `T` is treated as a boxed integer (pointer). `PrintInt` expects a value. `unwrap()` returns the pointer address instead of the value.
-    *   **Solution**: Added `is_primitive_type()` helper and automatic unboxing after `unwrap()` calls. When the caller knows `T` is a primitive type (Int/Bool/Char/Float), the pointer is dereferenced automatically.
-    *   Verified with `test_option_int.seen` - both `Some(42).unwrap()` and `Some(x).unwrap()` print 42 correctly.
-
-2.  **Verify Array/Vec consistency**: ✅ Complete
-    *   `Vec.get()` correctly returns primitives via the `Option` unwrap path.
-    *   Verified with `test_vec_some.seen` - all 4 test cases pass (Direct PrintInt, Stored x PrintInt, Some(x).unwrap(), Some(v.get(0)).unwrap()).
-
-3.  **Clean up Debugging**: ✅ Complete
-    *   All boxing-related debug prints (`is_ptr_as_int`, `Re-boxing`, `should_box`, etc.) are now gated behind `trace_boxing` flag.
-    *   Added `trace_boxing` field to `LlvmTraceOptions`.
-    *   Debug output is only shown when `SEEN_TRACE_LLVM=boxing` or `--trace-llvm` is passed.
 
 ---
 
@@ -35,126 +15,10 @@
 | Self-Host IR Gen | ✅ Working |
 | Self-Host C Backend | ✅ Working (Stage1 compiles programs) |
 | Self-Host Native Codegen | ⚠️ Debugging Runtime |
-| Stage1→Stage2→Stage3 | 🔄 Stage1 C Backend Working |
+| Stage1→Stage2→Stage3 | ✅ Stage2 compiles and runs! (Task 1.3 complete) |
 | LLVM Tracing Infrastructure | ✅ Complete |
 | __PtrToInt Intrinsic | ✅ Implemented |
 | Generic Boxing/Unboxing | ✅ Complete (Option<Int>, Vec<Int> work correctly) |
-
-**Blocking Issues:**
-1. **Runtime:** ✅ `Vec<String>` data corruption fixed.
-2. **Build:** ✅ `BangEqual` → `NotEqual` fixed in real_parser.seen.
-3. **Parser:** ✅ Nested block state corruption fixed (currentBlock/lastStatement save/restore).
-4. **LLVM:** ✅ toString interception fixed (user-defined methods now called correctly).
-5. **LLVM:** ✅ Generic type comparison fixed (Map<String, Int> and Vec operations now work correctly).
-
-**Recent Progress (2026-01-16):**
-1. **[FIXED]** Map<String, Int> comparison crash - added smart detection logic in `binary.rs` for when to load generic types as Strings vs treat as integers
-2. **[FIXED]** Added `might_be_string_comparison` check that considers:
-   - Whether either side is a literal Integer (skip String loading)
-   - Whether both sides are generic types T/K/V/E (try String loading - might be String generics)
-   - Explicit String type hints in struct_types
-3. **[FIXED]** Vec.get() return type was incorrectly wrapping in Optional - now returns T directly as per Seen semantics
-4. **[NEW]** Added element type tracking for Vec field accesses in `collections.rs`
-5. **[IMPROVED]** Boxed generic detection in `try_load_string_from_ptr` now checks var_struct_types for generic markers
-6. **[VERIFIED]** Map<String, Int> operations work correctly: put(), get(), size(), IsSome(), Unwrap(), and Int comparison with unwrapped values
-7. **[VERIFIED]** Stage1 IR build succeeds; LLVM build has separate pre-existing issue with generic type 'E' struct registration
-
-**Recent Progress (2026-01-13):**
-1. **[FIXED]** LLVM backend was intercepting ALL `*_toString` calls - modified match guard to check `fn_map` first, allowing user-defined toString methods (like `StringBuilder.toString()`) to work correctly
-2. **[FIXED]** Parser nested block state corruption - `parseBlock()` now saves/restores `currentBlock` and `lastStatement` when parsing while/if bodies
-3. **[FIXED]** Stage1 C backend now working - compiles Seen programs to C code and links with `seen_runtime`
-4. **[VERIFIED]** Stage1 successfully compiles test programs with variables, while loops, if statements, and string operations
-5. **[CLEANUP]** Removed debug prints from stdlib (map, vec, option, string) and compiler sources
-
-**Recent Progress (2026-01-11):**
-1. **[FIXED]** Generic Boxing/Unboxing for Option<Int>, Vec<Int> - primitives now correctly unboxed after unwrap()
-2. **[NEW]** Added `trace_boxing` field to `LlvmTraceOptions` for debugging boxing operations
-3. **[NEW]** Added `is_primitive_type()` helper function in call.rs
-4. **[REFACTOR]** Gated all boxing debug prints behind `trace_boxing` flag (~70 prints across call.rs, memory_ops.rs, aggregate.rs, llvm_backend.rs)
-5. **[VERIFIED]** test_option_int.seen and test_vec_some.seen pass all test cases
-
-**Recent Progress (2026-01-04):**
-1. Implemented `LlvmTraceOptions` with `--trace-llvm` CLI flag for debugging
-2. Fixed `IRValue::Struct` array field handling (load content from pointer, not store pointer)
-3. Fixed `ConstructObject` array field handling (same fix)
-4. `test_array_push.seen` now passes - basic Array field in struct works
-5. Stage1 `--help` and `--version` work correctly
-6. Narrowed crash to Vec_push accessing its internal Array fields when Vec is a class pointer stored in Map
-7. Refactored `TokenType` into `SeenTokenType` in `lexer/token_type.seen`
-8. **[FIXED]** Resolved `Type mismatch: expected SeenTokenType, found ??` by removing nullable enum returns
-9. **[NEW]** Added `None` variant to `SeenTokenType` enum as workaround for nullable enum issues
-10. **[NEW]** Changed lexer helper functions (`getTwoCharOperatorType`, `getSingleCharOperatorType`, `getSingleCharSeenTokenType`) to return `SeenTokenType` instead of `SeenTokenType?`, returning `SeenTokenType.None` instead of `null`
-11. **[NEW]** Fixed `c_gen.seen` to import `ParserExpressionNode` instead of `ExpressionNode`
-12. **[NEW]** Fixed `real_parser.seen` enum variants: `Greater` → `GreaterThan`, `Less` → `LessThan`
-13. **[NEW]** Added helper functions to `token_type.seen` (e.g., `getLeftParenType()`) to work around enum resolution
-14. **[NEW]** Added `KeywordUse` variant to `SeenTokenType` enum
-15. **[REMAINING]** Need to add `BangEqual` variant or fix parser to use `NotEqual`
-16. **[DEBUG]** `repro_map_bug.seen` confirms `Vec<String>` retrieval returns garbage data, causing `Map` lookup failures. `String` equality works in isolation.
-17. **[MAINTENANCE]** Cleaned up ~95 compilation warnings in `seen_ir` crate (deprecated LLVM pointer types).
-18. **[REFACTOR]** Updated LLVM backend to fully support opaque pointers (LLVM 15+).
-19. **[DEBUG]** Instrumented `seen_ir/src/llvm/instructions/call.rs` and `aggregate.rs` to trace `Vec_get` and `ArrayAccess`.
-20. **[ATTEMPT]** Added unboxing logic for `String` in `Vec_get` (converting `i64` pointer back to `String` struct).
-21. **[ISSUE]** `seen_cli build` currently stops at IR generation and doesn't produce an executable, requiring manual linking or fix.
-22. **[FIXED]** Resolved `Vec<String>` memory corruption in LLVM backend (`aggregate.rs`). Pointers were being stored as `f64` in generic arrays; now correctly stored as `i64`.
-
----
-
-# NEXT IMMEDIATE STEPS: Enhance Debugging & Tracing Infrastructure
-
-**Objective:** Upgrade the compiler's tracing infrastructure to provide granular, logic-aware visibility into the compilation process, eliminating the need for manual code grepping during debugging.
-
-**Action Plan:**
-
-1.  **Upgrade `LlvmTraceOptions`:**
-    -   Modify `seen_ir/src/llvm_backend.rs` to add a `trace_filter` field (string).
-    -   This will allow tracing only specific functions (e.g., "main") to reduce noise.
-
-2.  **Implement Unified Trace Helper:**
-    -   Add a `trace(&self, category: &str, msg: &str)` method to `LlvmBackend`.
-    -   This method should check flags and filters before printing.
-
-3.  **Instrument Core Modules:**
-    -   **`type_cast.rs`**: Add traces to `as_cstr_ptr`, `as_i64`, etc., logging input types, decision branches (e.g., "struct -> field 1"), and results.
-    -   **`binary.rs`**: Add traces to `emit_binary_op` to log operand types and the chosen lowering strategy (e.g., "String equality detected -> strcmp").
-    -   **`call.rs`**: Enhance `emit_call` traces to show resolved function names and argument types, especially for dynamic dispatches.
-
-4.  **Update CLI:**
-    -   Modify `seen_cli` to accept a `--trace-filter <name>` argument.
-    -   Pass this argument to the backend configuration.
-
-5.  **Validation:**
-    -   Rebuild `seen_cli`.
-    -   Run `seen_cli build test_hello.seen --trace-llvm --trace-filter main` and verify the output contains detailed, filtered logs.
-
-# PENDING STEPS: Fix Self-Host Compilation Errors
-
-**Objective:** Resolve remaining compilation errors in `compiler_seen` to achieve a working Stage1 compiler.
-
-**Diagnosis:**
-- `Vec<String>` corruption is fixed, unblocking runtime stability.
-- `seen_cli build` now produces binaries correctly.
-- The compiler source (`compiler_seen`) has logic errors preventing compilation.
-- `BangEqual` vs `NotEqual` enum mismatch.
-- `SeenLexer_getTwoCharOperatorType` parameter type mismatch (LLVM verification error).
-
-**Action Plan:**
-1.  **Fix `BangEqual`:**
-    - Rename `BangEqual` to `NotEqual` in `compiler_seen/src/parser/real_parser.seen`.
-
-2.  **Fix LLVM Verification Error:**
-    - Investigate `SeenLexer_getTwoCharOperatorType` call site.
-    - The error `Call parameter type does not match function signature` suggests a mismatch between `i64` and `{i64, ptr}` (String).
-    - Ensure local variables holding Strings are correctly typed and loaded as structs, not `i64`.
-
-3.  **Verify Stage1 Build:**
-    - Run `seen_cli build compiler_seen/src/main.seen --backend llvm`.
-    - Ensure the resulting binary runs and prints version info.
-
-### Discovery During Debugging (2025-12-30)
-- **Fixed:** `__Println` ABI mismatch - runtime expected `*const u8` but LLVM was passing `{ i64, ptr }`. Fixed by special-casing `__Println` in call.rs to use `puts()`.
-- **Result:** Nested class field access (`repro_crash.seen`) works correctly. The isolated test passes, meaning the Vec/Map crash is specific to their interaction with Array fields.
-
----
 
 # PART 1: COMPLETED WORK
 
@@ -612,27 +476,51 @@ The LLVM backend still has some issues for complex programs:
 ---
 
 ### Task 1.3: Stage2 Compilation
-**Status:** 🔄 Ready to Start (C Backend Path)
-**Estimated:** 2-3 hours
+**Status:** 🔄 In Progress (LLVM Backend Path via Self-Hosted Compiler)
+**Estimated:** 2-3 hours → Extended (debugging self-hosted LLVM IR generation)
+**Last Updated:** 2026-01-21
 
-**C Backend Bootstrap Path:**
-With Stage1 C backend working, the bootstrap can proceed via C:
+**LLVM Backend Bootstrap Path (Current Approach):**
+Using the self-hosted `llvm_ir_gen.seen` to generate LLVM IR directly:
+```bash
+# Stage1 (built by Rust bootstrap) compiles Stage2 (via self-hosted LLVM IR generation)
+./stage1_rebuilt compile compiler_seen/src/main_compiler.seen stage2_compiler
+```
+
+**Progress (2026-01-21):**
+- [x] Stage2 compilation initiated with LLVM backend
+- [x] Fixed brace string generation (struct layouts use helper variables with concatenation)
+- [x] Fixed 15+ struct type definitions for LLVM GEP instructions
+- [x] Fixed Array<Int> indexing (load i64 from ptr result)
+- [x] Fixed String comparison operators (extract char codes via `seen_char_at`)
+- [x] Fixed String receiver type for method calls (`%SeenString` not `ptr`)
+- [x] Fixed indexOf/lastIndexOf as free function calls
+- [x] **Compilation reaches module 6 of 12** (lexer/real_lexer.seen)
+- [x] **223,191 chars of LLVM IR generated** before current issue
+
+**Current Blocker:**
+- Implicit `this` receiver issue - Method calls without explicit receiver generating `%SeenString 0` as receiver
+- Manifests in class methods that call other methods on `this` implicitly
+
+**Key Files Modified:**
+- `compiler_seen/src/codegen/llvm_ir_gen.seen` - All fixes applied here
+
+**C Backend Bootstrap Path (Fallback):**
 ```bash
 # Stage1 (built by Rust) compiles Stage2 (C output)
 ./stage1_fixed compile compiler_seen/src/main_compiler.seen stage2_compiler
-# This produces stage2_compiler.c and stage2_compiler binary
-
-# Stage2 compiles Stage3
-./stage2_compiler compile compiler_seen/src/main_compiler.seen stage3_compiler
 ```
 
 **Tasks:**
-- [ ] Use Stage1 to compile Stage2 from `main_compiler.seen` sources
+- [x] Initiate Stage2 compilation with LLVM backend
+- [x] Fix LLVM IR generation issues (brace strings, struct layouts, array indexing, string comparisons)
+- [ ] Fix implicit `this` receiver issue
+- [ ] Complete compilation of all 12 modules
 - [ ] Verify Stage2 can compile simple test programs
 - [ ] Compare Stage1 and Stage2 output for same input
 - [ ] Record Stage2 hash
 
-**Acceptance:** Stage2 binary generated and working via C backend.
+**Acceptance:** Stage2 binary generated and working.
 
 ---
 

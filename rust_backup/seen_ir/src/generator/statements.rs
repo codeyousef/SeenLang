@@ -63,11 +63,19 @@ impl IRGenerator {
             // Constructor/method calls that create new objects
             Expression::Call { callee, .. } => {
                 // Check if this is a constructor call (ClassName.new(), etc.)
-                // or a static method that creates a new object
+                // or a method call that returns a new allocation
                 if let Expression::MemberAccess { member, .. } = callee.as_ref() {
-                    // Type.new(), Type.withCapacity(), Vec.new(), etc.
-                    matches!(member.as_str(), "new" | "withCapacity" | "from" | "create")
-                        || member.starts_with("new")
+                    // Constructor patterns
+                    if matches!(member.as_str(), "new" | "withCapacity" | "from" | "create")
+                        || member.starts_with("new") {
+                        return true;
+                    }
+                    // Methods that return new owned strings
+                    if matches!(member.as_str(), "toString" | "getValue" | "substring" | "trim") {
+                        return true;
+                    }
+                    // Other method calls - be conservative, don't assume they allocate
+                    false
                 } else {
                     // Regular function calls could return new objects
                     // Be conservative and assume they do
@@ -101,6 +109,14 @@ impl IRGenerator {
         type_annotation: Option<&seen_parser::ast::Type>,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let (value_val, mut instructions) = self.generate_expression(value)?;
+
+        // Mark source variable as moved if initializing from a heap-allocated variable
+        // This prevents double-free when both source and new variable hold the same pointer
+        if let Expression::Identifier { name: source_name, .. } = value {
+            if self.context.heap_allocated.contains(source_name) {
+                self.context.mark_moved(source_name);
+            }
+        }
 
         // If there's an explicit type annotation, use that type for the variable
         if let Some(ty) = type_annotation {
@@ -189,6 +205,14 @@ impl IRGenerator {
         op: AssignmentOperator,
     ) -> IRResult<(IRValue, Vec<Instruction>)> {
         let (rhs_val, mut instructions) = self.generate_expression(value)?;
+
+        // Mark source variable as moved if it's heap-allocated (Vale-style ownership transfer)
+        // This prevents double-free when both source and destination hold the same pointer
+        if let Expression::Identifier { name: source_name, .. } = value {
+            if self.context.heap_allocated.contains(source_name) {
+                self.context.mark_moved(source_name);
+            }
+        }
 
         match target {
             Expression::Identifier { name, .. } => {

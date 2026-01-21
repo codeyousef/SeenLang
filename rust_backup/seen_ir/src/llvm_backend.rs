@@ -1180,10 +1180,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                 .ptr_type(AddressSpace::default())
                 .into(),
             IRType::Optional(_inner) => {
-                // Use pointer to inner where practical
-                self.ctx
-                    .ptr_type(AddressSpace::default())
-                    .into()
+                // Option is a class type - represented as i64 (pointer-to-int) like other classes
+                // This ensures proper type compatibility when passing Option instances to methods
+                // like Option_isSome, Option_unwrap, etc.
+                self.i64_t.into()
             }
             IRType::Generic(_) => self.i8_ptr_t.into(),
         }
@@ -2305,26 +2305,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 
                 self.assign_value(result, ptr_as_int.as_basic_value_enum())?;
             }
-            Instruction::Deallocate { pointer } => {
-                // Handle deallocation - convert i64 back to pointer and call free()
-                let ptr_val = self.eval_value(pointer, fn_map)?;
-
-                let actual_ptr = if ptr_val.is_int_value() {
-                    // Our ABI stores pointers as i64, convert back to pointer
-                    self.builder.build_int_to_ptr(
-                        ptr_val.into_int_value(),
-                        self.i8_ptr_t,
-                        "dealloc_ptr"
-                    )?
-                } else if ptr_val.is_pointer_value() {
-                    ptr_val.into_pointer_value()
-                } else {
-                    // Can't deallocate non-pointer/non-int values, skip
-                    return Ok(());
-                };
-
-                let free_fn = self.get_free();
-                self.builder.build_call(free_fn, &[actual_ptr.into()], "")?;
+            Instruction::Deallocate { pointer: _ } => {
+                // DISABLED: Deallocation is currently disabled to avoid double-free issues.
+                // The Vale-style ownership tracking in the IR generator has edge cases where
+                // two variables point to the same memory and both get deallocated.
+                // This needs to be fixed by improving the ownership tracking:
+                // 1. Track ownership per allocation, not per variable name
+                // 2. Handle all ownership transfer patterns (assignment, return, array push)
+                // 3. Properly handle loop iterations where variables are reused
+                // For now, compiled programs will leak memory but won't crash.
             }
             _ => {
                 // Many IR ops are not required for bootstrap subset; ignore nops etc.

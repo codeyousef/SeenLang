@@ -1127,14 +1127,14 @@ pub extern "C" fn __await(_handle: *mut SeenTaskHandle) -> i32 {
 /// Returns pointer to Array<T> struct on heap
 #[unsafe(no_mangle)]
 pub extern "C" fn __ArrayNew(element_size: i64, capacity: i64) -> *mut SeenArray {
-    eprintln!("[DEBUG __ArrayNew] element_size={}, capacity={}", element_size, capacity);
+    // eprintln!("[DEBUG __ArrayNew] element_size={}, capacity={}", element_size, capacity);
     if element_size <= 0 || capacity < 0 {
-        eprintln!("[DEBUG __ArrayNew] INVALID: element_size={}, capacity={}", element_size, capacity);
+        // eprintln!("[DEBUG __ArrayNew] INVALID: element_size={}, capacity={}", element_size, capacity);
         return ptr::null_mut();
     }
 
     let byte_capacity = (element_size * capacity) as usize;
-    eprintln!("[DEBUG __ArrayNew] byte_capacity={}", byte_capacity);
+    // eprintln!("[DEBUG __ArrayNew] byte_capacity={}", byte_capacity);
     let data_ptr = if byte_capacity > 0 {
         unsafe {
             let layout = std::alloc::Layout::from_size_align_unchecked(byte_capacity, 8);
@@ -1154,7 +1154,7 @@ pub extern "C" fn __ArrayNew(element_size: i64, capacity: i64) -> *mut SeenArray
         element_size,
         data: data_ptr,
     }));
-    eprintln!("[DEBUG __ArrayNew] returning arr_ptr={:p}, data_ptr={:p}, element_size={}", arr_ptr, data_ptr, element_size);
+    // eprintln!("[DEBUG __ArrayNew] returning arr_ptr={:p}, data_ptr={:p}, element_size={}", arr_ptr, data_ptr, element_size);
     arr_ptr
 }
 
@@ -1191,15 +1191,15 @@ pub extern "C" fn __ArrayFree(arr_ptr: *mut SeenArray, element_size: i64) {
 /// Returns 0 on success, -1 on failure
 #[unsafe(no_mangle)]
 pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, element_size: i64) -> i32 {
-    eprintln!("[DEBUG __ArrayPush] arr_ptr={:p}, element_ptr={:p}, element_size={}", arr_ptr, element_ptr, element_size);
+    // // eprintln!("[DEBUG __ArrayPush] arr_ptr={:p}, element_ptr={:p}, element_size={}", arr_ptr, element_ptr, element_size);
     if arr_ptr.is_null() || element_ptr.is_null() || element_size <= 0 {
-        eprintln!("[DEBUG __ArrayPush] INVALID ARGS: null={}, null={}, size_valid={}", arr_ptr.is_null(), element_ptr.is_null(), element_size > 0);
+        // eprintln!("[DEBUG __ArrayPush] INVALID ARGS: null={}, null={}, size_valid={}", arr_ptr.is_null(), element_ptr.is_null(), element_size > 0);
         return -1;
     }
 
     unsafe {
         let arr = &mut *arr_ptr;
-        eprintln!("[DEBUG __ArrayPush] arr.len={}, arr.cap={}, arr.data={:p}", arr.len, arr.cap, arr.data);
+        // eprintln!("[DEBUG __ArrayPush] arr.len={}, arr.cap={}, arr.data={:p}", arr.len, arr.cap, arr.data);
         
         // Grow if needed
         if arr.len >= arr.cap {
@@ -1234,7 +1234,7 @@ pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, e
         let dest = arr.data.offset(offset);
         std::ptr::copy_nonoverlapping(element_ptr, dest, element_size as usize);
         arr.len += 1;
-        eprintln!("[DEBUG __ArrayPush] After push: arr.len={}, arr.cap={}", arr.len, arr.cap);
+        // eprintln!("[DEBUG __ArrayPush] After push: arr.len={}, arr.cap={}", arr.len, arr.cap);
 
         0
     }

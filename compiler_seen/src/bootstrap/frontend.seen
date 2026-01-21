@@ -45,19 +45,25 @@ class FrontendResult {
     }
 
     fun hasErrors() r: Bool {
-        for diag in diagnostics {
+        var i = 0
+        while i < diagnostics.length() {
+            let diag = diagnostics[i]
             if diag.severity == "error" {
                 return true
             }
+            i = i + 1
         }
         return false
     }
 
     fun hasWarnings() r: Bool {
-        for diag in diagnostics {
+        var i = 0
+        while i < diagnostics.length() {
+            let diag = diagnostics[i]
             if diag.severity == "warning" {
                 return true
             }
+            i = i + 1
         }
         return false
     }
@@ -110,13 +116,12 @@ fun diagnostic_from_type_error(error: TypeError, fileLabel: String) r: FrontendD
     let expected = error.getExpected()
     let actual = error.getActual()
 
-    let context = if error.getContext() != "" {
-        " [{error.getContext()}]"
-    } else {
-        ""
+    var context = ""
+    if error.getContext() != "" {
+        context = " [" + error.getContext() + "]"
     }
 
-    let message = "{error.getMessage()}{context} (expected {expected.name}, got {actual.name})"
+    let message = error.getMessage() + context + " (expected " + expected.name + ", got " + actual.name + ")"
     return FrontendDiagnostic.new(
         fileLabel,
         location.line,

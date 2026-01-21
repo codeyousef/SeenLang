@@ -1,1 +1,5 @@
-fun main() { println("Hello") }
+fun main() {
+    println("Hello from Stage1!")
+    let x = 42
+    println(x.toString())
+}

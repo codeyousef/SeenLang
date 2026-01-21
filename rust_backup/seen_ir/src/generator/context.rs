@@ -251,6 +251,9 @@ impl GenerationContext {
 
     /// Track a heap allocation for a variable (called when constructing objects, arrays, etc.)
     pub fn track_heap_allocation(&mut self, var_name: String) {
+        // When tracking a new allocation for a variable, clear any "moved" status
+        // This handles the case where the same variable name is reused in a loop
+        self.moved_variables.remove(&var_name);
         self.heap_allocated.insert(var_name.clone());
         if let Some(scope) = self.scope_allocations.last_mut() {
             scope.push(var_name);
