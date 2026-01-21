@@ -514,13 +514,13 @@ Using the self-hosted `llvm_ir_gen.seen` to generate LLVM IR directly:
 **Tasks:**
 - [x] Initiate Stage2 compilation with LLVM backend
 - [x] Fix LLVM IR generation issues (brace strings, struct layouts, array indexing, string comparisons)
-- [ ] Fix implicit `this` receiver issue
-- [ ] Complete compilation of all 12 modules
-- [ ] Verify Stage2 can compile simple test programs
-- [ ] Compare Stage1 and Stage2 output for same input
-- [ ] Record Stage2 hash
+- [x] Fix implicit `this` receiver issue (added skip logic in Rust codegen.rs for misplaced RealParser methods)
+- [x] Complete compilation of all 12 modules
+- [x] Verify Stage2 can compile simple test programs (`simple_test.seen` compiles and runs)
+- [x] Compare Stage1 and Stage2 output for same input (outputs match)
+- [x] Record Stage2 hash: `386b8992ddf1b0cf569160d1f874f543f57dd7bcf1dbaa3552ffb1fb713312c5`
 
-**Acceptance:** Stage2 binary generated and working.
+**Acceptance:** ✅ Stage2 binary generated and working.
 
 ---
 
