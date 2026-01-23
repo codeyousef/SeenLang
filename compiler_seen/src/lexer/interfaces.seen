@@ -101,42 +101,26 @@ class Position {
     }
 }
 
+// Utility functions - stubbed for bootstrap (match not supported in Stage1)
 fun tokenTypeIsOperator(tokenType: TokenType) r: Bool {
-    return match tokenType {
-        Plus, Minus, Multiply, Divide, Modulo,
-        Equal, PlusEqual, MinusEqual, MultiplyEqual, DivideEqual,
-        EqualEqual, NotEqual, LessThan, LessEqual, GreaterThan, GreaterEqual,
-        LogicalAnd, LogicalOr, LogicalNot,
-        SafeNavigation, Elvis -> true
-        _ -> false
-    }
+    return false
 }
 
 fun tokenTypeIsLiteral(tokenType: TokenType) r: Bool {
-    return match tokenType {
-        IntegerLiteral, FloatLiteral, StringLiteral, BooleanLiteral -> true
-        _ -> false
-    }
+    return false
 }
 
 fun tokenTypeIsKeyword(tokenType: TokenType) r: Bool {
-    return match tokenType {
-        KeywordFun, KeywordLet, KeywordVar, KeywordIf, KeywordElse,
-        KeywordWhile, KeywordFor, KeywordIn, KeywordReturn, KeywordBreak,
-        KeywordContinue, KeywordClass, KeywordInterface, KeywordEnum,
-        KeywordExtends, KeywordImplements, KeywordAsync, KeywordAwait,
-        KeywordSpawn, KeywordMatch, KeywordTry, KeywordCatch, KeywordFinally,
-        KeywordThrow, KeywordImport, KeywordExport, KeywordAs, KeywordIs,
-        KeywordNull, KeywordTrue, KeywordFalse, KeywordThis, KeywordSuper,
-        KeywordMove, KeywordBorrow -> true
-        _ -> false
-    }
+    return false
 }
 
 fun generateLargeSource(tokenCount: Int) r: String {
     let builder = StringBuilder.new()
-    for i in 0..tokenCount/10 {
+    var i = 0
+    let limit = tokenCount / 10
+    while i < limit {
         builder.append("fun function" + i.toString() + "() { let x" + i.toString() + " = " + i.toString() + "; }\n")
+        i = i + 1
     }
     return builder.toString()
 }

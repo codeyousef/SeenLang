@@ -54,17 +54,16 @@ class Vec<T> {
         if this.length >= this.totalCapacity {
             this.growChunk()
         }
-        let lastIndex = this.chunks.length() - 1
+        // Access array length directly via this.chunks to avoid type mismatch
+        let numChunks = this.chunks.length()
+        let lastIndex = numChunks - 1
         var chunk = this.chunks[lastIndex]
         let used = this.usage[lastIndex]
-        
+
         // Use local var to ensure modification isn't lost
+        // Always push - the array grows dynamically
         var valuesArr = chunk.values
-        if used < valuesArr.length() {
-            valuesArr[used] = value
-        } else {
-            valuesArr.push(value)
-        }
+        valuesArr.push(value)
         chunk.values = valuesArr
         this.chunks[lastIndex] = chunk
         this.usage[lastIndex] = used + 1
@@ -75,7 +74,8 @@ class Vec<T> {
         if this.length == 0 {
             abort("Vec.pop() called on empty Vec")
         }
-        var chunkIndex = this.chunks.length() - 1
+        let numChunks = this.chunks.length()
+        var chunkIndex = numChunks - 1
         while chunkIndex >= 0 and this.usage[chunkIndex] == 0 {
             chunkIndex = chunkIndex - 1
         }
@@ -85,7 +85,8 @@ class Vec<T> {
         let used = this.usage[chunkIndex] - 1
         this.usage[chunkIndex] = used
         this.length = this.length - 1
-        return this.chunks[chunkIndex].values[used]
+        let chunk = this.chunks[chunkIndex]
+        return chunk.values[used]
     }
 
     fun get(index: Int) r: T {
@@ -94,9 +95,10 @@ class Vec<T> {
             abort("Vec index out of bounds")
         }
 
+        let numChunks = this.chunks.length()
         var remaining = index
         var chunkIndex = 0
-        while chunkIndex < this.chunks.length() {
+        while chunkIndex < numChunks {
             let chunkUsage = this.usage[chunkIndex]
             if remaining < chunkUsage {
                 let chunk = this.chunks[chunkIndex]
@@ -114,12 +116,17 @@ class Vec<T> {
         if index < 0 or index >= this.length {
             abort("Vec index out of bounds")
         }
+        let numChunks = this.chunks.length()
         var remaining = index
         var chunkIndex = 0
-        while chunkIndex < this.chunks.length() {
+        while chunkIndex < numChunks {
             let chunkUsage = this.usage[chunkIndex]
             if remaining < chunkUsage {
-                this.chunks[chunkIndex].values[remaining] = value
+                var chunk = this.chunks[chunkIndex]
+                var valuesArr = chunk.values
+                valuesArr[remaining] = value
+                chunk.values = valuesArr
+                this.chunks[chunkIndex] = chunk
                 return
             }
             remaining = remaining - chunkUsage
@@ -185,9 +192,10 @@ class Vec<T> {
         if index < 0 or index >= this.length {
             abort("Vec index out of bounds")
         }
+        let numChunks = this.chunks.length()
         var remaining = index
         var chunkIndex = 0
-        while chunkIndex < this.chunks.length() {
+        while chunkIndex < numChunks {
             let chunkUsage = this.usage[chunkIndex]
             if remaining < chunkUsage {
                 return VecSlot{ chunk: chunkIndex, offset: remaining }

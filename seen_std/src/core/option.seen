@@ -59,10 +59,9 @@ class Option<T> {
     }
 
     fun Replace(value: T) r: Option<T> {
-        let previous = if this.hasValue {
-            Some(this.value)
-        } else {
-            None()
+        var previous: Option<T> = None()
+        if this.hasValue {
+            previous = Some(this.value)
         }
         this.Store(value)
         return previous

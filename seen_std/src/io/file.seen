@@ -36,51 +36,53 @@ class FsFile {
     }
     
     fun readContent() r: Result<String, String> {
-        let content = __ReadFile(this.fd)
-        if content == "" and __FileError(this.fd) != "" {
+        let content: String = __ReadFile(this.fd)
+        let errMsg: String = __FileError(this.fd)
+        if content == "" and errMsg != "" {
             return Err<String, String>("Failed to read file")
         }
         return Ok<String, String>(content)
     }
     
     fun read_bytes(size: Int) r: Result<Array<Int>, String> {
-        let bytes = __ReadFileBytes(this.fd, size)
-        if bytes.len() == 0 and __FileError(this.fd) != "" {
+        let bytes: Array<Int> = __ReadFileBytes(this.fd, size)
+        let errMsg: String = __FileError(this.fd)
+        if bytes.len() == 0 and errMsg != "" {
             return Err("Failed to read file")
         }
-        Ok(bytes)
+        return Ok(bytes)
     }
     
     fun writeContent(content: String) r: Result<Int, String> {
-        let written = __WriteFile(this.fd, content)
+        let written: Int = __WriteFile(this.fd, content)
         if written < 0 {
             return Err("Failed to write to file")
         }
-        Ok(written)
+        return Ok(written)
     }
     
     fun write_bytes(bytes: Array<Int>) r: Result<Int, String> {
-        let written = __WriteFileBytes(this.fd, bytes)
+        let written: Int = __WriteFileBytes(this.fd, bytes)
         if written < 0 {
             return Err("Failed to write bytes to file")
         }
-        Ok(written)
+        return Ok(written)
     }
     
     fun closeFile() r: Result<Unit, String> {
-        let result = __CloseFile(this.fd)
+        let result: Int = __CloseFile(this.fd)
         if result < 0 {
             return Err("Failed to close file")
         }
-        Ok(Unit{})
+        return Ok(Unit{})
     }
     
     fun size() r: Result<Int, String> {
-        let size = __FileSize(this.fd)
-        if size < 0 {
+        let fileSize: Int = __FileSize(this.fd)
+        if fileSize < 0 {
             return Err("Failed to get file size")
         }
-        Ok(size)
+        return Ok(fileSize)
     }
 }
 
@@ -137,17 +139,17 @@ fun write_string(path: String, content: String) r: Result<Unit, String> {
 }
 
 fun readText(path: String) r: String {
-    let fd = __OpenFile(path, "r")
+    let fd: Int = __OpenFile(path, "r")
     if fd < 0 {
         return ""
     }
-    
-    let content = __ReadFile(fd)
-    let err = __FileError(fd)
-    let _ = __CloseFile(fd)
-    
-    let contentLen = content.len()
-    let errLen = err.len()
+
+    let content: String = __ReadFile(fd)
+    let err: String = __FileError(fd)
+    let closeResult: Int = __CloseFile(fd)
+
+    let contentLen: Int = content.len()
+    let errLen: Int = err.len()
     if contentLen == 0 and errLen > 0 {
          return ""
     }
@@ -166,12 +168,12 @@ fun writeText(path: String, content: String) r: Bool {
 }
 
 fun appendText(path: String, content: String) r: Bool {
-    let fd = __OpenFile(path, "a")
+    let fd: Int = __OpenFile(path, "a")
     if fd < 0 {
         return false
     }
-    let written = __WriteFile(fd, content)
-    let _ = __CloseFile(fd)
+    let written: Int = __WriteFile(fd, content)
+    let closeResult: Int = __CloseFile(fd)
     return written >= 0
 }
 

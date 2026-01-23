@@ -474,6 +474,96 @@ class LLVMIRGenerator {
         return "i64"  // Default
     }
 
+    // Get the ordinal value for SeenTokenType enum members
+    // Enum values are 0-indexed based on declaration order in token_type.seen
+    fun getSeenTokenTypeValue(memberName: String) r: Int {
+        if memberName == "IntegerLiteral" { return 0 }
+        if memberName == "FloatLiteral" { return 1 }
+        if memberName == "StringLiteral" { return 2 }
+        if memberName == "CharLiteral" { return 3 }
+        if memberName == "BooleanLiteral" { return 4 }
+        if memberName == "KeywordFalse" { return 5 }
+        if memberName == "Identifier" { return 6 }
+        if memberName == "KeywordFun" { return 7 }
+        if memberName == "KeywordLet" { return 8 }
+        if memberName == "KeywordVar" { return 9 }
+        if memberName == "KeywordIf" { return 10 }
+        if memberName == "KeywordElse" { return 11 }
+        if memberName == "KeywordWhile" { return 12 }
+        if memberName == "KeywordFor" { return 13 }
+        if memberName == "KeywordIn" { return 14 }
+        if memberName == "KeywordReturn" { return 15 }
+        if memberName == "KeywordBreak" { return 16 }
+        if memberName == "KeywordContinue" { return 17 }
+        if memberName == "KeywordClass" { return 18 }
+        if memberName == "KeywordInterface" { return 19 }
+        if memberName == "KeywordEnum" { return 20 }
+        if memberName == "KeywordExtends" { return 21 }
+        if memberName == "KeywordImplements" { return 22 }
+        if memberName == "KeywordAsync" { return 23 }
+        if memberName == "KeywordAwait" { return 24 }
+        if memberName == "KeywordSpawn" { return 25 }
+        if memberName == "KeywordMatch" { return 26 }
+        if memberName == "KeywordTry" { return 27 }
+        if memberName == "KeywordCatch" { return 28 }
+        if memberName == "KeywordFinally" { return 29 }
+        if memberName == "KeywordThrow" { return 30 }
+        if memberName == "KeywordImport" { return 31 }
+        if memberName == "KeywordUse" { return 32 }
+        if memberName == "KeywordExport" { return 33 }
+        if memberName == "KeywordAs" { return 34 }
+        if memberName == "KeywordIs" { return 35 }
+        if memberName == "KeywordNull" { return 36 }
+        if memberName == "KeywordTrue" { return 37 }
+        if memberName == "KeywordThis" { return 38 }
+        if memberName == "KeywordSuper" { return 39 }
+        if memberName == "KeywordMove" { return 40 }
+        if memberName == "KeywordBorrow" { return 41 }
+        if memberName == "Plus" { return 42 }
+        if memberName == "Minus" { return 43 }
+        if memberName == "Multiply" { return 44 }
+        if memberName == "Divide" { return 45 }
+        if memberName == "Modulo" { return 46 }
+        if memberName == "Equal" { return 47 }
+        if memberName == "PlusEqual" { return 48 }
+        if memberName == "MinusEqual" { return 49 }
+        if memberName == "MultiplyEqual" { return 50 }
+        if memberName == "DivideEqual" { return 51 }
+        if memberName == "EqualEqual" { return 52 }
+        if memberName == "NotEqual" { return 53 }
+        if memberName == "LessThan" { return 54 }
+        if memberName == "LessEqual" { return 55 }
+        if memberName == "GreaterThan" { return 56 }
+        if memberName == "GreaterEqual" { return 57 }
+        if memberName == "LogicalAnd" { return 58 }
+        if memberName == "LogicalOr" { return 59 }
+        if memberName == "LogicalNot" { return 60 }
+        if memberName == "SafeNavigation" { return 61 }
+        if memberName == "Elvis" { return 62 }
+        if memberName == "Question" { return 63 }
+        if memberName == "LeftParen" { return 64 }
+        if memberName == "RightParen" { return 65 }
+        if memberName == "LeftBrace" { return 66 }
+        if memberName == "RightBrace" { return 67 }
+        if memberName == "LeftBracket" { return 68 }
+        if memberName == "RightBracket" { return 69 }
+        if memberName == "Comma" { return 70 }
+        if memberName == "Semicolon" { return 71 }
+        if memberName == "Colon" { return 72 }
+        if memberName == "Dot" { return 73 }
+        if memberName == "Arrow" { return 74 }
+        if memberName == "InterpolatedStringStart" { return 75 }
+        if memberName == "InterpolatedStringMiddle" { return 76 }
+        if memberName == "InterpolatedStringEnd" { return 77 }
+        if memberName == "Newline" { return 78 }
+        if memberName == "Whitespace" { return 79 }
+        if memberName == "Comment" { return 80 }
+        if memberName == "Error" { return 81 }
+        if memberName == "EndOfFile" { return 82 }
+        if memberName == "None" { return 83 }
+        return 0  // Unknown member - fallback
+    }
+
     // Get field Seen type (not LLVM type) from registered struct
     fun getSeenFieldType(structName: String, fieldName: String) r: String {
         let idx = findStruct(structName)
@@ -505,8 +595,10 @@ class LLVMIRGenerator {
                 if fieldName == "exitCode" { return "Int" }
             } else if structName == "TypeInferenceResult" {
                 if fieldName == "success" { return "Bool" }
+                if fieldName == "type" { return "Type" }
                 if fieldName == "errors" { return "Array<TypeError>" }
                 if fieldName == "warnings" { return "Array<String>" }
+                if fieldName == "environment" { return "Environment" }
             } else if structName == "FsFileResult" {
                 if fieldName == "isOk" { return "Bool" }
                 if fieldName == "file" { return "FsFile" }
@@ -536,6 +628,9 @@ class LLVMIRGenerator {
                 if fieldName == "paramType" { return "TypeNode" }
             } else if structName == "BlockNode" {
                 if fieldName == "statements" { return "Array<StatementNode>" }
+            } else if structName == "ImportPathInfo" {
+                if fieldName == "text" { return "String" }
+                if fieldName == "segments" { return "Array<String>" }
             } else if structName == "StatementNode" {
                 if fieldName == "kind" { return "String" }
                 if fieldName == "variableName" { return "String" }
@@ -555,6 +650,28 @@ class LLVMIRGenerator {
                 if fieldName == "literalType" { return "String" }
                 if fieldName == "operands" { return "Array<ParserExpressionNode>" }
                 if fieldName == "arguments" { return "Array<ParserExpressionNode>" }
+            } else if structName == "Type" {
+                if fieldName == "name" { return "String" }
+                if fieldName == "isNullable" { return "Bool" }
+            } else if structName == "FunctionType" {
+                if fieldName == "parameters" { return "Array<Type>" }
+                if fieldName == "returnType" { return "Type" }
+                if fieldName == "isAsync" { return "Bool" }
+            } else if structName == "ClassType" {
+                if fieldName == "name" { return "String" }
+            } else if structName == "InterfaceType" {
+                if fieldName == "name" { return "String" }
+            } else if structName == "Location" {
+                if fieldName == "line" { return "Int" }
+                if fieldName == "column" { return "Int" }
+                if fieldName == "file" { return "String" }
+            } else if structName == "TypeError" {
+                if fieldName == "location" { return "Location" }
+                if fieldName == "expected" { return "Type" }
+                if fieldName == "actual" { return "Type" }
+                if fieldName == "context" { return "String" }
+            } else if structName == "Environment" {
+                if fieldName == "parent" { return "Environment" }
             }
             return "Int"  // Default
         }
@@ -684,6 +801,18 @@ class LLVMIRGenerator {
 
     // Get method return type from registered struct
     fun getMethodReturnType(structName: String, methodName: String) r: String {
+        // Fallback for well-known types that may not have methods registered
+        if structName == "Environment" {
+            if methodName == "lookup" { return "Type" }
+            if methodName == "lookupFunction" { return "FunctionType" }
+            if methodName == "lookupClass" { return "ClassType" }
+            if methodName == "define" or methodName == "defineFunction" or methodName == "defineClass" { return "Void" }
+        } else if structName == "Type" {
+            if methodName == "getName" or methodName == "toString" { return "String" }
+        } else if structName == "TypeInferenceResult" {
+            if methodName == "getVariableType" { return "Type" }
+        }
+
         let idx = findStruct(structName)
         if idx < 0 {
             return ""  // Not found
@@ -813,6 +942,11 @@ class LLVMIRGenerator {
                         i = i + 1
                         continue
                     }
+                    // Skip 'new' - it's always a class method, never a standalone function
+                    if fnName == "new" {
+                        i = i + 1
+                        continue
+                    }
                     generateFunction(item.function)
                 }
                 i = i + 1
@@ -932,6 +1066,12 @@ class LLVMIRGenerator {
                     i = i + 1
                     continue
                 }
+                // Skip 'new' - it's always a class method, never a standalone function
+                // (Parser may incorrectly extract it from classes with 'extends')
+                if fnName == "new" {
+                    i = i + 1
+                    continue
+                }
                 generateFunction(item.function)
             }
             i = i + 1
@@ -957,7 +1097,8 @@ class LLVMIRGenerator {
 
         // Type definitions
         output.append("%SeenString = type { i64, ptr }\n")
-        output.append("%SeenArray = type { i64, i64, ptr }\n\n")
+        // SeenArray: { len: i64, cap: i64, element_size: i64, data: ptr }
+        output.append("%SeenArray = type { i64, i64, i64, ptr }\n\n")
     }
 
     fun emitClassType(classNode: ClassNode) r: Void {
@@ -1193,6 +1334,7 @@ class LLVMIRGenerator {
         output.append("declare i64 @Char_toInt(i64)\n")
         output.append("declare i64 @Int_unwrap(i64)\n")
         output.append("declare ptr @Optional_unwrap(ptr)\n")
+        output.append("declare i64 @SeenTokenType_unwrap(i64)\n")
         output.append("declare ptr @Some(ptr)\n")
         output.append("declare ptr @None()\n")
         output.append("declare i1 @seen_str_eq_ss(%SeenString, %SeenString)\n")
@@ -1205,7 +1347,9 @@ class LLVMIRGenerator {
         }
 
         // Array functions - use byval for SeenArray (> 16 bytes)
+        output.append("declare %SeenArray @seen_arr_new_str()\n")
         output.append("declare i64 @seen_arr_length(ptr byval(%SeenArray) align 8)\n")
+        output.append("declare i64 @seen_arr_length_ptr(ptr)\n")
         output.append("declare %SeenString @seen_arr_get_str(ptr byval(%SeenArray) align 8, i64)\n")
         output.append("declare ptr @seen_arr_get_diag(ptr byval(%SeenArray) align 8, i64)\n")
         output.append("declare ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8, i64)\n")
@@ -1215,6 +1359,32 @@ class LLVMIRGenerator {
         if not isFuncDefinedInModule("args", definedFuncs) {
             output.append("declare void @args(ptr sret(%SeenArray) align 8)\n")
         }
+
+        // C runtime primitive functions (extern fun __*) for stdlib
+        // File I/O primitives
+        output.append("declare i64 @__OpenFile(%SeenString, %SeenString)\n")
+        output.append("declare %SeenString @__ReadFile(i64)\n")
+        output.append("declare %SeenArray @__ReadFileBytes(i64, i64)\n")
+        output.append("declare i64 @__WriteFile(i64, %SeenString)\n")
+        output.append("declare i64 @__WriteFileBytes(i64, %SeenArray)\n")
+        output.append("declare i64 @__CloseFile(i64)\n")
+        output.append("declare i64 @__FileSize(i64)\n")
+        output.append("declare %SeenString @__FileError(i64)\n")
+        output.append("declare i1 @__FileExists(%SeenString)\n")
+        output.append("declare i1 @__DeleteFile(%SeenString)\n")
+        output.append("declare i1 @__CreateDirectory(%SeenString)\n")
+        // Process primitives
+        output.append("declare i64 @__ExecuteProgram(%SeenString)\n")
+        output.append("declare { i1, %SeenString } @__ExecuteCommand(%SeenString)\n")
+        // Environment primitives
+        output.append("declare %SeenArray @__GetCommandLineArgs()\n")
+        output.append("declare i1 @__HasEnv(%SeenString)\n")
+        output.append("declare %SeenString @__GetEnv(%SeenString)\n")
+        output.append("declare i1 @__SetEnv(%SeenString, %SeenString)\n")
+        output.append("declare i1 @__RemoveEnv(%SeenString)\n")
+        // Print primitives
+        output.append("declare void @__Print(%SeenString)\n")
+        output.append("declare void @__PrintInt(i64)\n")
 
         // Command execution (conditionally declared)
         if not isFuncDefinedInModule("runCommand", definedFuncs) {
@@ -1285,8 +1455,535 @@ class LLVMIRGenerator {
         if not isFuncDefinedInModule("RealParser_parse", definedFuncs) {
             output.append("declare ptr @RealParser_parse(ptr)\n")
         }
+        // RealParser utility methods (may be in different module)
+        if not isFuncDefinedInModule("RealParser_advance", definedFuncs) {
+            output.append("declare ptr @RealParser_advance(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_peek", definedFuncs) {
+            output.append("declare ptr @RealParser_peek(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_previous", definedFuncs) {
+            output.append("declare ptr @RealParser_previous(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_isAtEnd", definedFuncs) {
+            output.append("declare i1 @RealParser_isAtEnd(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_consume", definedFuncs) {
+            output.append("declare ptr @RealParser_consume(ptr, i64, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_matchTokenStr", definedFuncs) {
+            output.append("declare i1 @RealParser_matchTokenStr(ptr, i64)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_checkToken", definedFuncs) {
+            output.append("declare i1 @RealParser_checkToken(ptr, i64)\n")
+        }
+        // RealParser parse methods that may be in different modules
+        if not isFuncDefinedInModule("RealParser_parseExpressionStatementField", definedFuncs) {
+            output.append("declare i64 @RealParser_parseExpressionStatementField(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseIfStatementInto", definedFuncs) {
+            output.append("declare void @RealParser_parseIfStatementInto(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseExpressionInto", definedFuncs) {
+            output.append("declare void @RealParser_parseExpressionInto(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_makeImportSymbol", definedFuncs) {
+            output.append("declare ptr @RealParser_makeImportSymbol(ptr, %SeenString, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_inferVisibility", definedFuncs) {
+            output.append("declare %SeenString @RealParser_inferVisibility(ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_peekTokenType", definedFuncs) {
+            output.append("declare i64 @RealParser_peekTokenType(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_peekTokenTypeStr", definedFuncs) {
+            output.append("declare %SeenString @RealParser_peekTokenTypeStr(ptr)\n")
+        }
+        // RealParser parse statement field methods (return void as i64)
+        if not isFuncDefinedInModule("RealParser_parseWhileStatementField", definedFuncs) {
+            output.append("declare i64 @RealParser_parseWhileStatementField(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseLetStatementField", definedFuncs) {
+            output.append("declare i64 @RealParser_parseLetStatementField(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseVarStatementField", definedFuncs) {
+            output.append("declare i64 @RealParser_parseVarStatementField(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseReturnStatementField", definedFuncs) {
+            output.append("declare i64 @RealParser_parseReturnStatementField(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseIfStatementField", definedFuncs) {
+            output.append("declare i64 @RealParser_parseIfStatementField(ptr)\n")
+        }
+        // RealParser parse Into methods (return void as i64)
+        if not isFuncDefinedInModule("RealParser_parseStatementInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseStatementInto(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseLetStatementInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseLetStatementInto(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseVarStatementInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseVarStatementInto(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseReturnStatementInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseReturnStatementInto(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseWhileStatementInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseWhileStatementInto(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseExpressionStatementInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseExpressionStatementInto(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseFunctionItemInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseFunctionItemInto(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseClassItemInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseClassItemInto(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseEnumItemInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseEnumItemInto(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseImportItemInto", definedFuncs) {
+            output.append("declare i64 @RealParser_parseImportItemInto(ptr)\n")
+        }
+        // RealParser parse methods returning objects
+        if not isFuncDefinedInModule("RealParser_parseFunctionItem", definedFuncs) {
+            output.append("declare ptr @RealParser_parseFunctionItem(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseClassItem", definedFuncs) {
+            output.append("declare ptr @RealParser_parseClassItem(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseEnumItem", definedFuncs) {
+            output.append("declare ptr @RealParser_parseEnumItem(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseImportItem", definedFuncs) {
+            output.append("declare ptr @RealParser_parseImportItem(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseBlock", definedFuncs) {
+            output.append("declare ptr @RealParser_parseBlock(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseStatement", definedFuncs) {
+            output.append("declare ptr @RealParser_parseStatement(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseLetStatement", definedFuncs) {
+            output.append("declare ptr @RealParser_parseLetStatement(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseVarStatement", definedFuncs) {
+            output.append("declare ptr @RealParser_parseVarStatement(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseReturnStatement", definedFuncs) {
+            output.append("declare ptr @RealParser_parseReturnStatement(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseIfStatement", definedFuncs) {
+            output.append("declare ptr @RealParser_parseIfStatement(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseWhileStatement", definedFuncs) {
+            output.append("declare ptr @RealParser_parseWhileStatement(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseExpressionStatement", definedFuncs) {
+            output.append("declare ptr @RealParser_parseExpressionStatement(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseExpression", definedFuncs) {
+            output.append("declare ptr @RealParser_parseExpression(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseAssignment", definedFuncs) {
+            output.append("declare ptr @RealParser_parseAssignment(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseOr", definedFuncs) {
+            output.append("declare ptr @RealParser_parseOr(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseAnd", definedFuncs) {
+            output.append("declare ptr @RealParser_parseAnd(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseEquality", definedFuncs) {
+            output.append("declare ptr @RealParser_parseEquality(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseComparison", definedFuncs) {
+            output.append("declare ptr @RealParser_parseComparison(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseTerm", definedFuncs) {
+            output.append("declare ptr @RealParser_parseTerm(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseFactor", definedFuncs) {
+            output.append("declare ptr @RealParser_parseFactor(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseUnary", definedFuncs) {
+            output.append("declare ptr @RealParser_parseUnary(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseCall", definedFuncs) {
+            output.append("declare ptr @RealParser_parseCall(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parsePrimary", definedFuncs) {
+            output.append("declare ptr @RealParser_parsePrimary(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseParam", definedFuncs) {
+            output.append("declare ptr @RealParser_parseParam(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseTypeNode", definedFuncs) {
+            output.append("declare ptr @RealParser_parseTypeNode(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseOptionalTypeAnnotation", definedFuncs) {
+            output.append("declare ptr @RealParser_parseOptionalTypeAnnotation(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseOptionalReturnType", definedFuncs) {
+            output.append("declare ptr @RealParser_parseOptionalReturnType(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseImportPath", definedFuncs) {
+            output.append("declare ptr @RealParser_parseImportPath(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseImportSymbols", definedFuncs) {
+            output.append("declare %SeenArray @RealParser_parseImportSymbols(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseParameterList", definedFuncs) {
+            output.append("declare i64 @RealParser_parseParameterList(ptr, ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseParameterListField", definedFuncs) {
+            output.append("declare i64 @RealParser_parseParameterListField(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseExpressionIntoField", definedFuncs) {
+            output.append("declare i64 @RealParser_parseExpressionIntoField(ptr, ptr)\n")
+        }
+        // ByIdx methods
+        if not isFuncDefinedInModule("RealParser_parseLetStatementByIdx", definedFuncs) {
+            output.append("declare i64 @RealParser_parseLetStatementByIdx(ptr, i64)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseVarStatementByIdx", definedFuncs) {
+            output.append("declare i64 @RealParser_parseVarStatementByIdx(ptr, i64)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseReturnStatementByIdx", definedFuncs) {
+            output.append("declare i64 @RealParser_parseReturnStatementByIdx(ptr, i64)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseIfStatementByIdx", definedFuncs) {
+            output.append("declare i64 @RealParser_parseIfStatementByIdx(ptr, i64)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseWhileStatementByIdx", definedFuncs) {
+            output.append("declare i64 @RealParser_parseWhileStatementByIdx(ptr, i64)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_parseExpressionStatementByIdx", definedFuncs) {
+            output.append("declare i64 @RealParser_parseExpressionStatementByIdx(ptr, i64)\n")
+        }
+        // Other RealParser utility methods
+        if not isFuncDefinedInModule("RealParser_skipExpression", definedFuncs) {
+            output.append("declare i64 @RealParser_skipExpression(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_toArray", definedFuncs) {
+            output.append("declare %SeenArray @RealParser_toArray(ptr)\n")
+        }
+        if not isFuncDefinedInModule("RealParser_joinSegments", definedFuncs) {
+            output.append("declare %SeenString @RealParser_joinSegments(ptr, %SeenArray, %SeenString)\n")
+        }
         if not isFuncDefinedInModule("SeenLexer_tokenize", definedFuncs) {
             output.append("declare %SeenArray @SeenLexer_tokenize(ptr)\n")
+        }
+
+        // Token class methods
+        if not isFuncDefinedInModule("Token_new", definedFuncs) {
+            output.append("declare ptr @Token_new(i64, %SeenString, i64, i64, i64, i64)\n")
+        }
+        if not isFuncDefinedInModule("Token_getType", definedFuncs) {
+            output.append("declare i64 @Token_getType(ptr)\n")
+        }
+        if not isFuncDefinedInModule("Token_getValue", definedFuncs) {
+            output.append("declare %SeenString @Token_getValue(ptr)\n")
+        }
+        if not isFuncDefinedInModule("Token_getLine", definedFuncs) {
+            output.append("declare i64 @Token_getLine(ptr)\n")
+        }
+        if not isFuncDefinedInModule("Token_getColumn", definedFuncs) {
+            output.append("declare i64 @Token_getColumn(ptr)\n")
+        }
+        if not isFuncDefinedInModule("Token_getLength", definedFuncs) {
+            output.append("declare i64 @Token_getLength(ptr)\n")
+        }
+        if not isFuncDefinedInModule("Token_getFileId", definedFuncs) {
+            output.append("declare i64 @Token_getFileId(ptr)\n")
+        }
+        // Free-standing Token functions
+        if not isFuncDefinedInModule("getType", definedFuncs) {
+            output.append("declare i64 @getType(ptr)\n")
+        }
+        if not isFuncDefinedInModule("getValue", definedFuncs) {
+            output.append("declare %SeenString @getValue(ptr)\n")
+        }
+        // Position class methods (from lexer.interfaces module)
+        if not isFuncDefinedInModule("Position_new", definedFuncs) {
+            output.append("declare ptr @Position_new(i64, i64, i64)\n")
+        }
+        if not isFuncDefinedInModule("Position_getLine", definedFuncs) {
+            output.append("declare i64 @Position_getLine(ptr)\n")
+        }
+        if not isFuncDefinedInModule("Position_getColumn", definedFuncs) {
+            output.append("declare i64 @Position_getColumn(ptr)\n")
+        }
+        if not isFuncDefinedInModule("Position_getFileId", definedFuncs) {
+            output.append("declare i64 @Position_getFileId(ptr)\n")
+        }
+        // LexerError class methods
+        if not isFuncDefinedInModule("LexerError_new", definedFuncs) {
+            output.append("declare ptr @LexerError_new(%SeenString, ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("LexerError_getPosition", definedFuncs) {
+            output.append("declare ptr @LexerError_getPosition(ptr)\n")
+        }
+        if not isFuncDefinedInModule("LexerError_getCharacter", definedFuncs) {
+            output.append("declare %SeenString @LexerError_getCharacter(ptr)\n")
+        }
+        // Token type helper functions (from token_type module)
+        if not isFuncDefinedInModule("getLeftParenType", definedFuncs) {
+            output.append("declare i64 @getLeftParenType()\n")
+        }
+        if not isFuncDefinedInModule("getRightParenType", definedFuncs) {
+            output.append("declare i64 @getRightParenType()\n")
+        }
+        if not isFuncDefinedInModule("getSemicolonType", definedFuncs) {
+            output.append("declare i64 @getSemicolonType()\n")
+        }
+        if not isFuncDefinedInModule("getDotType", definedFuncs) {
+            output.append("declare i64 @getDotType()\n")
+        }
+        if not isFuncDefinedInModule("getLeftBraceType", definedFuncs) {
+            output.append("declare i64 @getLeftBraceType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordAsType", definedFuncs) {
+            output.append("declare i64 @getKeywordAsType()\n")
+        }
+        if not isFuncDefinedInModule("getIdentifierType", definedFuncs) {
+            output.append("declare i64 @getIdentifierType()\n")
+        }
+        if not isFuncDefinedInModule("getColonType", definedFuncs) {
+            output.append("declare i64 @getColonType()\n")
+        }
+        if not isFuncDefinedInModule("getRightBraceType", definedFuncs) {
+            output.append("declare i64 @getRightBraceType()\n")
+        }
+        if not isFuncDefinedInModule("getCommaType", definedFuncs) {
+            output.append("declare i64 @getCommaType()\n")
+        }
+        if not isFuncDefinedInModule("getEndOfFileType", definedFuncs) {
+            output.append("declare i64 @getEndOfFileType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordFunType", definedFuncs) {
+            output.append("declare i64 @getKeywordFunType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordImportType", definedFuncs) {
+            output.append("declare i64 @getKeywordImportType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordUseType", definedFuncs) {
+            output.append("declare i64 @getKeywordUseType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordClassType", definedFuncs) {
+            output.append("declare i64 @getKeywordClassType()\n")
+        }
+        if not isFuncDefinedInModule("getLeftBracketType", definedFuncs) {
+            output.append("declare i64 @getLeftBracketType()\n")
+        }
+        if not isFuncDefinedInModule("getRightBracketType", definedFuncs) {
+            output.append("declare i64 @getRightBracketType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordLetType", definedFuncs) {
+            output.append("declare i64 @getKeywordLetType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordVarType", definedFuncs) {
+            output.append("declare i64 @getKeywordVarType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordIfType", definedFuncs) {
+            output.append("declare i64 @getKeywordIfType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordElseType", definedFuncs) {
+            output.append("declare i64 @getKeywordElseType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordWhileType", definedFuncs) {
+            output.append("declare i64 @getKeywordWhileType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordForType", definedFuncs) {
+            output.append("declare i64 @getKeywordForType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordReturnType", definedFuncs) {
+            output.append("declare i64 @getKeywordReturnType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordBreakType", definedFuncs) {
+            output.append("declare i64 @getKeywordBreakType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordContinueType", definedFuncs) {
+            output.append("declare i64 @getKeywordContinueType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordEnumType", definedFuncs) {
+            output.append("declare i64 @getKeywordEnumType()\n")
+        }
+        if not isFuncDefinedInModule("getKeywordStaticType", definedFuncs) {
+            output.append("declare i64 @getKeywordStaticType()\n")
+        }
+        if not isFuncDefinedInModule("getArrowType", definedFuncs) {
+            output.append("declare i64 @getArrowType()\n")
+        }
+        if not isFuncDefinedInModule("getEqualsType", definedFuncs) {
+            output.append("declare i64 @getEqualsType()\n")
+        }
+        if not isFuncDefinedInModule("getPlusType", definedFuncs) {
+            output.append("declare i64 @getPlusType()\n")
+        }
+        if not isFuncDefinedInModule("getMinusType", definedFuncs) {
+            output.append("declare i64 @getMinusType()\n")
+        }
+        if not isFuncDefinedInModule("getStarType", definedFuncs) {
+            output.append("declare i64 @getStarType()\n")
+        }
+        if not isFuncDefinedInModule("getSlashType", definedFuncs) {
+            output.append("declare i64 @getSlashType()\n")
+        }
+        if not isFuncDefinedInModule("getLessThanType", definedFuncs) {
+            output.append("declare i64 @getLessThanType()\n")
+        }
+        if not isFuncDefinedInModule("getGreaterThanType", definedFuncs) {
+            output.append("declare i64 @getGreaterThanType()\n")
+        }
+        // KeywordManager class methods
+        if not isFuncDefinedInModule("KeywordManager_new", definedFuncs) {
+            output.append("declare ptr @KeywordManager_new(%SeenString)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_getKeywordCount", definedFuncs) {
+            output.append("declare i64 @KeywordManager_getKeywordCount(ptr)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_isKeyword", definedFuncs) {
+            output.append("declare i1 @KeywordManager_isKeyword(ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_getKeywordType", definedFuncs) {
+            output.append("declare i64 @KeywordManager_getKeywordType(ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_initTokenNameMap", definedFuncs) {
+            output.append("declare void @KeywordManager_initTokenNameMap(ptr)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_loadEnglishKeywords", definedFuncs) {
+            output.append("declare void @KeywordManager_loadEnglishKeywords(ptr)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_trim", definedFuncs) {
+            output.append("declare %SeenString @KeywordManager_trim(ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_split", definedFuncs) {
+            output.append("declare %SeenArray @KeywordManager_split(ptr, %SeenString, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_loadFromToml", definedFuncs) {
+            output.append("declare void @KeywordManager_loadFromToml(ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_getAllKeywords", definedFuncs) {
+            output.append("declare %SeenArray @KeywordManager_getAllKeywords(ptr)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_isDynamic", definedFuncs) {
+            output.append("declare i1 @KeywordManager_isDynamic(ptr)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_getSources", definedFuncs) {
+            output.append("declare %SeenArray @KeywordManager_getSources(ptr)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_hasTranslation", definedFuncs) {
+            output.append("declare i1 @KeywordManager_hasTranslation(ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("KeywordManager_getEnglishKeywordType", definedFuncs) {
+            output.append("declare i64 @KeywordManager_getEnglishKeywordType(ptr, %SeenString)\n")
+        }
+
+        // Environment class methods
+        if not isFuncDefinedInModule("Environment_new", definedFuncs) {
+            output.append("declare ptr @Environment_new()\n")
+        }
+        if not isFuncDefinedInModule("Environment_lookup", definedFuncs) {
+            output.append("declare ptr @Environment_lookup(ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("Environment_define", definedFuncs) {
+            output.append("declare i64 @Environment_define(ptr, %SeenString, ptr)\n")
+        }
+        if not isFuncDefinedInModule("Environment_defineFunction", definedFuncs) {
+            output.append("declare i64 @Environment_defineFunction(ptr, %SeenString, ptr)\n")
+        }
+        if not isFuncDefinedInModule("Environment_lookupFunction", definedFuncs) {
+            output.append("declare ptr @Environment_lookupFunction(ptr, %SeenString)\n")
+        }
+        if not isFuncDefinedInModule("Environment_defineClass", definedFuncs) {
+            output.append("declare i64 @Environment_defineClass(ptr, %SeenString, ptr)\n")
+        }
+        if not isFuncDefinedInModule("Environment_lookupClass", definedFuncs) {
+            output.append("declare ptr @Environment_lookupClass(ptr, %SeenString)\n")
+        }
+        // Type-related functions
+        if not isFuncDefinedInModule("Type_new", definedFuncs) {
+            output.append("declare ptr @Type_new(%SeenString, i1)\n")
+        }
+        if not isFuncDefinedInModule("typeInt", definedFuncs) {
+            output.append("declare ptr @typeInt()\n")
+        }
+        if not isFuncDefinedInModule("typeFloat", definedFuncs) {
+            output.append("declare ptr @typeFloat()\n")
+        }
+        if not isFuncDefinedInModule("typeString", definedFuncs) {
+            output.append("declare ptr @typeString()\n")
+        }
+        if not isFuncDefinedInModule("typeBool", definedFuncs) {
+            output.append("declare ptr @typeBool()\n")
+        }
+        if not isFuncDefinedInModule("typeVoid", definedFuncs) {
+            output.append("declare ptr @typeVoid()\n")
+        }
+        if not isFuncDefinedInModule("typeUnit", definedFuncs) {
+            output.append("declare ptr @typeUnit()\n")
+        }
+        if not isFuncDefinedInModule("typeAny", definedFuncs) {
+            output.append("declare ptr @typeAny()\n")
+        }
+        if not isFuncDefinedInModule("typeNever", definedFuncs) {
+            output.append("declare ptr @typeNever()\n")
+        }
+        if not isFuncDefinedInModule("typeUnknown", definedFuncs) {
+            output.append("declare ptr @typeUnknown()\n")
+        }
+        // Typechecker class constructors (used as plain function calls)
+        if not isFuncDefinedInModule("ClassType", definedFuncs) {
+            output.append("declare ptr @ClassType()\n")
+        }
+        if not isFuncDefinedInModule("FunctionType", definedFuncs) {
+            output.append("declare ptr @FunctionType()\n")
+        }
+        if not isFuncDefinedInModule("InterfaceType", definedFuncs) {
+            output.append("declare ptr @InterfaceType()\n")
+        }
+        if not isFuncDefinedInModule("Location", definedFuncs) {
+            output.append("declare ptr @Location()\n")
+        }
+        if not isFuncDefinedInModule("TypeError", definedFuncs) {
+            output.append("declare ptr @TypeError()\n")
+        }
+        if not isFuncDefinedInModule("Environment", definedFuncs) {
+            output.append("declare ptr @Environment()\n")
+        }
+
+        // AST node constructors (from parser module)
+        if not isFuncDefinedInModule("ImportSymbolNode_new", definedFuncs) {
+            output.append("declare ptr @ImportSymbolNode_new()\n")
+        }
+        if not isFuncDefinedInModule("ItemNode_new", definedFuncs) {
+            output.append("declare ptr @ItemNode_new()\n")
+        }
+        if not isFuncDefinedInModule("FunctionNode_new", definedFuncs) {
+            output.append("declare ptr @FunctionNode_new()\n")
+        }
+        if not isFuncDefinedInModule("ClassNode_new", definedFuncs) {
+            output.append("declare ptr @ClassNode_new()\n")
+        }
+        if not isFuncDefinedInModule("EnumNode_new", definedFuncs) {
+            output.append("declare ptr @EnumNode_new()\n")
+        }
+        if not isFuncDefinedInModule("BlockNode_new", definedFuncs) {
+            output.append("declare ptr @BlockNode_new()\n")
+        }
+        if not isFuncDefinedInModule("StatementNode_new", definedFuncs) {
+            output.append("declare ptr @StatementNode_new()\n")
+        }
+        if not isFuncDefinedInModule("ParamNode_new", definedFuncs) {
+            output.append("declare ptr @ParamNode_new()\n")
+        }
+        if not isFuncDefinedInModule("TypeNode_new", definedFuncs) {
+            output.append("declare ptr @TypeNode_new()\n")
+        }
+        if not isFuncDefinedInModule("ParserExpressionNode_new", definedFuncs) {
+            output.append("declare ptr @ParserExpressionNode_new()\n")
         }
 
         // TypeError method declarations
@@ -1342,6 +2039,13 @@ class LLVMIRGenerator {
         let skipAsMisplacedClassMethod = fn.name == "isAtEnd" or fn.name == "peek" or fn.name == "peekTokenType" or fn.name == "peekTokenTypeStr" or fn.name == "previous" or fn.name == "advance" or fn.name == "consume" or fn.name == "checkToken" or fn.name == "matchTokenStr" or fn.name == "skipExpression" or fn.name == "toArray"
         if skipAsMisplacedClassMethod {
             output.append("; SKIPPED: " + fn.name + " (misplaced class method - use RealParser_" + fn.name + " instead)\n")
+            return
+        }
+
+        // Skip extern functions (C runtime primitives) - they have empty bodies and names starting with __
+        // These should be declared, not defined - the C runtime provides the implementation
+        if fn.name.startsWith("__") and fn.body.statements.length() == 0 {
+            output.append("; SKIPPED: " + fn.name + " (extern C function - declared by runtime)\n")
             return
         }
 
@@ -1834,18 +2538,46 @@ class LLVMIRGenerator {
         // operands[0] = array expression
         // operands[1] = index expression
         output.append("; DEBUG generateIndexAccess: operands[0].kind=" + expr.operands[0].kind + " variableName=" + expr.operands[0].variableName + " literalValue=" + expr.operands[0].literalValue + "\n")
-        let arrayReg = generateExpression(expr.operands[0])
+        var arrayReg = generateExpression(expr.operands[0])
         output.append("; DEBUG arrayReg=" + arrayReg + "\n")
         let indexReg = generateExpression(expr.operands[1])
+
+        // Workaround: if arrayReg is 0 and the variable name is 'statements',
+        // try to find a BlockNode variable with that field
+        if arrayReg == "0" and expr.operands[0].variableName == "statements" {
+            output.append("; DEBUG trying to find BlockNode for statements\n")
+            // Look for any local variable of type BlockNode
+            var blockIdx = 0
+            while blockIdx < varTypes.length() {
+                if varTypes[blockIdx] == "BlockNode" {
+                    let blockVarReg = varRegs[blockIdx]
+                    // Load the block pointer
+                    let blockPtrReg = getNextReg()
+                    output.append("  " + blockPtrReg + " = load ptr, ptr " + blockVarReg + "\n")
+                    // Access the statements field
+                    arrayReg = generateFieldAccess(blockPtrReg, "BlockNode", "statements")
+                    output.append("; DEBUG found BlockNode, arrayReg=" + arrayReg + "\n")
+                    blockIdx = varTypes.length()  // break
+                }
+                blockIdx = blockIdx + 1
+            }
+        }
 
         // Infer the element type from the array type
         let arrayType = inferExpressionType(expr.operands[0])
         output.append("; DEBUG arrayType=" + arrayType + "\n")
 
-        // For byval, we need to store the array in an alloca and pass the pointer
-        let arrayPtrReg = getNextReg()
-        output.append("  " + arrayPtrReg + " = alloca %SeenArray, align 8\n")
-        output.append("  store %SeenArray " + arrayReg + ", ptr " + arrayPtrReg + ", align 8\n")
+        // For List<T> types, arrayReg is already a ptr - use it directly
+        var arrayPtrReg = ""
+        if arrayType.startsWith("List<") {
+            // List types are ptr - use directly
+            arrayPtrReg = arrayReg
+        } else {
+            // For byval arrays, we need to store the array in an alloca and pass the pointer
+            arrayPtrReg = getNextReg()
+            output.append("  " + arrayPtrReg + " = alloca %SeenArray, align 8\n")
+            output.append("  store %SeenArray " + arrayReg + ", ptr " + arrayPtrReg + ", align 8\n")
+        }
 
         var resultReg = ""
 
@@ -1882,6 +2614,12 @@ class LLVMIRGenerator {
         // variableName = field/member name
         let receiverName = expr.literalValue
         let fieldName = expr.variableName
+
+        // Handle enum member access: SeenTokenType.KeywordImport -> integer value
+        if receiverName == "SeenTokenType" {
+            let enumValue = getSeenTokenTypeValue(fieldName)
+            return enumValue.toString()
+        }
 
         // Check if receiver has an operand (chained expression like func().field)
         if expr.operands.length() > 0 {
@@ -2065,6 +2803,30 @@ class LLVMIRGenerator {
             }
         }
 
+        // Handle field of 'this' - if receiverName isn't a local variable, check if it's a field on 'this'
+        let thisIdx = findVar("this")
+        if thisIdx >= 0 {
+            let thisReg = varRegs[thisIdx]
+            let thisType = varTypes[thisIdx]
+
+            // Check if receiverName is a field of thisType
+            let fieldIdx = getFieldInfo(thisType, receiverName)
+            if fieldIdx >= 0 {
+                // Load 'this' pointer and access the field chain
+                let ptrReg = getNextReg()
+                output.append("  " + ptrReg + " = load ptr, ptr " + thisReg + "\n")
+
+                // Access the intermediate field (e.g., 'currentBlock')
+                let intermediateReg = generateFieldAccess(ptrReg, thisType, receiverName)
+                let intermediateType = getSeenFieldType(thisType, receiverName)
+
+                output.append("; DEBUG this field access: thisType=" + thisType + " receiverName=" + receiverName + " intermediateType=" + intermediateType + " fieldName=" + fieldName + "\n")
+
+                // Now access the final field (e.g., 'statements')
+                return generateFieldAccess(intermediateReg, intermediateType, fieldName)
+            }
+        }
+
         return "0"
     }
 
@@ -2126,14 +2888,22 @@ class LLVMIRGenerator {
 
         // Try registry first
         let structIdx = findStruct(structType)
+        var registryHasLayout = false
         if structIdx >= 0 {
-            structLayout = structLayouts[structIdx]
-            let regFieldIdx = getFieldInfo(structType, fieldName)
-            if regFieldIdx >= 0 {
-                fieldIndex = regFieldIdx
-                fieldType = getFieldType(structType, fieldName)
+            let registeredLayout = structLayouts[structIdx]
+            // Check if the registered layout is not empty (has fields)
+            // Use length check to avoid brace literal comparison issues
+            if registeredLayout.length() > 5 {
+                structLayout = registeredLayout
+                let regFieldIdx = getFieldInfo(structType, fieldName)
+                if regFieldIdx >= 0 {
+                    fieldIndex = regFieldIdx
+                    fieldType = getFieldType(structType, fieldName)
+                    registryHasLayout = true
+                }
             }
-        } else {
+        }
+        if not registryHasLayout {
             // Fallback to hardcoded layouts for well-known types
             if structType == "FrontendResult" {
                 // FrontendResult { success: Bool, diagnostics: SeenArray, program: ptr }
@@ -2199,6 +2969,16 @@ class LLVMIRGenerator {
                     fieldIndex = 0
                     fieldType = "i64"
                 }
+            } else if structType == "ImportPathInfo" {
+                // ImportPathInfo { text: String, segments: Array<String> }
+                structLayout = lb + " %SeenString, " + seenArr + " " + rb
+                if fieldName == "text" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                } else if fieldName == "segments" {
+                    fieldIndex = 1
+                    fieldType = "%SeenArray"
+                }
             } else if structType == "ProgramNode" {
                 // ProgramNode { items: SeenArray }
                 structLayout = lb + " " + seenArr + " " + rb
@@ -2207,20 +2987,32 @@ class LLVMIRGenerator {
                     fieldType = "%SeenArray"
                 }
             } else if structType == "ItemNode" {
-                // ItemNode { itemType: String, function: ptr, classNode: ptr, importPath: SeenArray, ... }
-                structLayout = lb + " %SeenString, ptr, ptr, " + seenArr + " " + rb
+                // ItemNode { itemType: String, name: String, visibility: String, importPath: Array, importSymbols: Array, function: ptr, classNode: ptr, enumNode: ptr }
+                structLayout = lb + " %SeenString, %SeenString, %SeenString, " + seenArr + ", " + seenArr + ", ptr, ptr, ptr " + rb
                 if fieldName == "itemType" {
                     fieldIndex = 0
                     fieldType = "%SeenString"
-                } else if fieldName == "function" {
+                } else if fieldName == "name" {
                     fieldIndex = 1
-                    fieldType = "ptr"
-                } else if fieldName == "classNode" {
+                    fieldType = "%SeenString"
+                } else if fieldName == "visibility" {
                     fieldIndex = 2
-                    fieldType = "ptr"
+                    fieldType = "%SeenString"
                 } else if fieldName == "importPath" {
                     fieldIndex = 3
                     fieldType = "%SeenArray"
+                } else if fieldName == "importSymbols" {
+                    fieldIndex = 4
+                    fieldType = "%SeenArray"
+                } else if fieldName == "function" {
+                    fieldIndex = 5
+                    fieldType = "ptr"
+                } else if fieldName == "classNode" {
+                    fieldIndex = 6
+                    fieldType = "ptr"
+                } else if fieldName == "enumNode" {
+                    fieldIndex = 7
+                    fieldType = "ptr"
                 }
             } else if structType == "TypeInferenceResult" {
                 // TypeInferenceResult { success: Bool, type: Type, errors: Array<TypeError>, warnings: Array<String>, environment: Environment }
@@ -2358,6 +3150,79 @@ class LLVMIRGenerator {
                     fieldIndex = 7
                     fieldType = "%SeenArray"
                 }
+            } else if structType == "Type" {
+                // Type { name: String, isNullable: Bool }
+                structLayout = lb + " %SeenString, i1 " + rb
+                if fieldName == "name" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                } else if fieldName == "isNullable" {
+                    fieldIndex = 1
+                    fieldType = "i1"
+                }
+            } else if structType == "FunctionType" {
+                // FunctionType { parameters: Array<Type>, returnType: Type, isAsync: Bool }
+                structLayout = lb + " " + seenArr + ", ptr, i1 " + rb
+                if fieldName == "parameters" {
+                    fieldIndex = 0
+                    fieldType = "%SeenArray"
+                } else if fieldName == "returnType" {
+                    fieldIndex = 1
+                    fieldType = "ptr"
+                } else if fieldName == "isAsync" {
+                    fieldIndex = 2
+                    fieldType = "i1"
+                }
+            } else if structType == "ClassType" {
+                // ClassType { name: String }
+                structLayout = lb + " %SeenString " + rb
+                if fieldName == "name" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                }
+            } else if structType == "InterfaceType" {
+                // InterfaceType { name: String }
+                structLayout = lb + " %SeenString " + rb
+                if fieldName == "name" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                }
+            } else if structType == "Location" {
+                // Location { line: Int, column: Int, file: String }
+                structLayout = lb + " i64, i64, %SeenString " + rb
+                if fieldName == "line" {
+                    fieldIndex = 0
+                    fieldType = "i64"
+                } else if fieldName == "column" {
+                    fieldIndex = 1
+                    fieldType = "i64"
+                } else if fieldName == "file" {
+                    fieldIndex = 2
+                    fieldType = "%SeenString"
+                }
+            } else if structType == "TypeError" {
+                // TypeError { location: Location, expected: Type, actual: Type, context: String }
+                structLayout = lb + " ptr, ptr, ptr, %SeenString " + rb
+                if fieldName == "location" {
+                    fieldIndex = 0
+                    fieldType = "ptr"
+                } else if fieldName == "expected" {
+                    fieldIndex = 1
+                    fieldType = "ptr"
+                } else if fieldName == "actual" {
+                    fieldIndex = 2
+                    fieldType = "ptr"
+                } else if fieldName == "context" {
+                    fieldIndex = 3
+                    fieldType = "%SeenString"
+                }
+            } else if structType == "Environment" {
+                // Environment { parent: Environment? }
+                structLayout = lb + " ptr " + rb
+                if fieldName == "parent" {
+                    fieldIndex = 0
+                    fieldType = "ptr"
+                }
             }
         }
 
@@ -2434,6 +3299,14 @@ class LLVMIRGenerator {
             } else if structName == "Counter" {
                 structSize = 8
                 structLayout = lb + " i64 " + rb
+            } else if structName == "ItemNode" {
+                // ItemNode { itemType: String, name: String, visibility: String, importPath: Array<String>, importSymbols: Array<ImportSymbolNode>, function: ptr, classNode: ptr, enumNode: ptr }
+                structSize = 120  // %SeenString(16) * 3 + %SeenArray(24) * 2 + ptr(8) * 3 = 48 + 48 + 24 = 120
+                structLayout = lb + " %SeenString, %SeenString, %SeenString, %SeenArray, %SeenArray, ptr, ptr, ptr " + rb
+            } else if structName == "ImportPathInfo" {
+                // ImportPathInfo { text: String, segments: Array<String> }
+                structSize = 40  // %SeenString(16) + %SeenArray(24)
+                structLayout = lb + " %SeenString, %SeenArray " + rb
             } else {
                 // Generic struct: estimate based on field count
                 structSize = expr.arguments.length() * 16  // Conservative: 16 bytes per field
@@ -2500,6 +3373,40 @@ class LLVMIRGenerator {
                     } else if fieldName == "y" {
                         gepIndex = 1
                         fieldType = "i64"
+                    }
+                } else if structName == "ItemNode" {
+                    if fieldName == "itemType" {
+                        gepIndex = 0
+                        fieldType = "%SeenString"
+                    } else if fieldName == "name" {
+                        gepIndex = 1
+                        fieldType = "%SeenString"
+                    } else if fieldName == "visibility" {
+                        gepIndex = 2
+                        fieldType = "%SeenString"
+                    } else if fieldName == "importPath" {
+                        gepIndex = 3
+                        fieldType = "%SeenArray"
+                    } else if fieldName == "importSymbols" {
+                        gepIndex = 4
+                        fieldType = "%SeenArray"
+                    } else if fieldName == "function" {
+                        gepIndex = 5
+                        fieldType = "ptr"
+                    } else if fieldName == "classNode" {
+                        gepIndex = 6
+                        fieldType = "ptr"
+                    } else if fieldName == "enumNode" {
+                        gepIndex = 7
+                        fieldType = "ptr"
+                    }
+                } else if structName == "ImportPathInfo" {
+                    if fieldName == "text" {
+                        gepIndex = 0
+                        fieldType = "%SeenString"
+                    } else if fieldName == "segments" {
+                        gepIndex = 1
+                        fieldType = "%SeenArray"
                     }
                 }
             }
@@ -3020,25 +3927,11 @@ class LLVMIRGenerator {
         // Special case: Array<Type>() constructor - creates empty array
         // NOTE: Must check BEFORE stripping generic parameters
         if funcName.startsWith("Array<") or funcName == "Array" {
-            // Allocate empty SeenArray structure: { length: 0, capacity: 0, data: null }
-            let ptrReg = getNextReg()
-            output.append("  " + ptrReg + " = call ptr @malloc(i64 24)\n")
-            // Store length = 0
-            let lenPtr = getNextReg()
-            output.append("  " + lenPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 0\n")
-            output.append("  store i64 0, ptr " + lenPtr + "\n")
-            // Store capacity = 0
-            let capPtr = getNextReg()
-            output.append("  " + capPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 1\n")
-            output.append("  store i64 0, ptr " + capPtr + "\n")
-            // Store data = null
-            let dataPtr = getNextReg()
-            output.append("  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n")
-            output.append("  store ptr null, ptr " + dataPtr + "\n")
-            // Load the array structure
-            let resultReg = getNextReg()
-            output.append("  " + resultReg + " = load %SeenArray, ptr " + ptrReg + ", align 8\n")
-            return resultReg
+            // Call seen_arr_new_str() to get a properly initialized array
+            // This sets up the correct structure: { len=0, cap=8, element_size=16, data=malloc(...) }
+            let arrReg = getNextReg()
+            output.append("  " + arrReg + " = call %SeenArray @seen_arr_new_str()\n")
+            return arrReg
         }
 
         // Strip generic parameters from function name (e.g., "Err<String, String>" -> "Err")
@@ -3120,7 +4013,7 @@ class LLVMIRGenerator {
 
             // Special handling for misplaced RealParser class methods
             // These methods were incorrectly parsed as standalone functions but should be class methods
-            let isMisplacedMethod = funcName == "isAtEnd" or funcName == "peek" or funcName == "peekTokenType" or funcName == "peekTokenTypeStr" or funcName == "previous" or funcName == "advance" or funcName == "consume" or funcName == "checkToken" or funcName == "matchTokenStr" or funcName == "skipExpression" or funcName == "toArray"
+            let isMisplacedMethod = funcName == "isAtEnd" or funcName == "peek" or funcName == "peekTokenType" or funcName == "peekTokenTypeStr" or funcName == "previous" or funcName == "advance" or funcName == "consume" or funcName == "checkToken" or funcName == "matchTokenStr" or funcName == "skipExpression" or funcName == "toArray" or funcName == "parseExpressionStatement" or funcName == "parseReturnStatement" or funcName == "parseIfStatement" or funcName == "parseWhileStatement" or funcName == "parseLetStatement" or funcName == "parseVarStatement" or funcName == "parseStatement" or funcName == "parseExpression" or funcName == "parseAssignment" or funcName == "parseOr" or funcName == "parseAnd" or funcName == "parseEquality" or funcName == "parseComparison" or funcName == "parseTerm" or funcName == "parseFactor" or funcName == "parseUnary" or funcName == "parseCall" or funcName == "parsePrimary" or funcName == "parseBlock" or funcName == "parseParam" or funcName == "parseTypeNode" or funcName == "parseOptionalTypeAnnotation" or funcName == "parseOptionalReturnType" or funcName == "parseImportPath" or funcName == "parseImportSymbols" or funcName == "parseParameterList" or funcName == "parseFunctionItem" or funcName == "parseClassItem" or funcName == "parseEnumItem" or funcName == "parseImportItem" or funcName == "makeImportSymbol" or funcName == "inferVisibility" or funcName == "joinSegments" or funcName == "parseExpressionStatementByIdx" or funcName == "parseReturnStatementByIdx" or funcName == "parseIfStatementByIdx" or funcName == "parseWhileStatementByIdx" or funcName == "parseLetStatementByIdx" or funcName == "parseVarStatementByIdx" or funcName == "parseStatementInto" or funcName == "parseExpressionStatementInto" or funcName == "parseReturnStatementInto" or funcName == "parseIfStatementInto" or funcName == "parseWhileStatementInto" or funcName == "parseLetStatementInto" or funcName == "parseVarStatementInto" or funcName == "parseExpressionInto" or funcName == "parseExpressionIntoField" or funcName == "parseLetStatementField" or funcName == "parseVarStatementField" or funcName == "parseReturnStatementField" or funcName == "parseIfStatementField" or funcName == "parseWhileStatementField" or funcName == "parseExpressionStatementField" or funcName == "parseParameterListField" or funcName == "parseFunctionItemInto" or funcName == "parseClassItemInto" or funcName == "parseEnumItemInto" or funcName == "parseImportItemInto"
             if isMisplacedMethod and thisType == "RealParser" {
                 // Generate call to the class method version
                 let thisReg = varRegs[thisIdx]
@@ -3141,8 +4034,13 @@ class LLVMIRGenerator {
                     misplacedRetType = "i1"
                 } else if funcName == "peekTokenType" {
                     misplacedRetType = "i64"
-                } else if funcName == "peekTokenTypeStr" {
+                } else if funcName == "peekTokenTypeStr" or funcName == "inferVisibility" or funcName == "joinSegments" {
                     misplacedRetType = "%SeenString"
+                } else if funcName == "parseParameterList" {
+                    // parseParameterList returns Void (use i64 for void-like)
+                    misplacedRetType = "i64"
+                } else if funcName == "parseImportSymbols" {
+                    misplacedRetType = "%SeenArray"
                 }
 
                 let methodFuncName = thisType + "_" + funcName
@@ -3279,9 +4177,7 @@ class LLVMIRGenerator {
             receiverReg = generateExpression(expr.operands[0])
             receiverType = inferExpressionType(expr.operands[0])
         } else if expr.literalValue.contains(".") {
-            // Chained field access like diag.line.toString()
-            // literalValue = "diag.line", callee = "toString"
-            // Need to parse and load the field
+            // Check for enum method calls like SeenTokenType.RightBrace.toString()
             let path = expr.literalValue
 
             // Find the dot index manually
@@ -3298,8 +4194,19 @@ class LLVMIRGenerator {
             let varName = path.substring(0, dotIdx)
             let fieldName = path.substring(dotIdx + 1, path.length())
 
-            let idx = findVar(varName)
-            if idx >= 0 {
+            // Handle enum method calls: SeenTokenType.RightBrace.toString()
+            if varName == "SeenTokenType" {
+                // Get the enum value as an integer
+                let enumValue = getSeenTokenTypeValue(fieldName)
+                receiverReg = enumValue.toString()
+                receiverType = "Int"  // Enum values are integers
+                // Continue to method call generation below (skip field access code)
+            } else {
+                // Chained field access like diag.line.toString()
+                // literalValue = "diag.line", callee = "toString"
+                // Need to parse and load the field
+                let idx = findVar(varName)
+                if idx >= 0 {
                 let varReg = varRegs[idx]
                 let varType = varTypes[idx]
 
@@ -3421,6 +4328,7 @@ class LLVMIRGenerator {
                             output.append("; DEBUG chainedFieldAccess: receiverType=" + receiverType + " receiverReg=" + receiverReg + "\n")
                         }
                     }
+                }
                 }
             }
         } else if expr.literalValue != "" {
@@ -3611,9 +4519,15 @@ class LLVMIRGenerator {
 
         // Generate arguments BEFORE allocating result register to keep numbers in order
         if methodName == "length" or methodName == "len" {
-            // Check if receiver is an array or string
-            if receiverType.startsWith("Array<") or receiverType == "Array" {
-                // For byval, store array in alloca and pass pointer
+            // Check if receiver is an array, list, or string
+            if receiverType.startsWith("Array<") or receiverType == "Array" or receiverType.startsWith("List<") or receiverType == "List" {
+                // For list/array, receiver is ptr - call seen_arr_length_ptr
+                if receiverType.startsWith("List<") or receiverType == "List" {
+                    let resultReg = getNextReg()
+                    output.append("  " + resultReg + " = call i64 @seen_arr_length_ptr(ptr " + receiverReg + ")\n")
+                    return resultReg
+                }
+                // For byval array, store array in alloca and pass pointer
                 let arrayPtrReg = getNextReg()
                 output.append("  " + arrayPtrReg + " = alloca %SeenArray, align 8\n")
                 output.append("  store %SeenArray " + receiverReg + ", ptr " + arrayPtrReg + ", align 8\n")
@@ -3904,7 +4818,7 @@ class LLVMIRGenerator {
         // For primitive types (Int, Char, Bool), use their LLVM type directly
         // For class/struct types, use ptr
         var receiverLlvmType = "ptr"
-        if instanceTypeName == "Char" or instanceTypeName == "Int" or instanceTypeName == "Integer" {
+        if instanceTypeName == "Char" or instanceTypeName == "Int" or instanceTypeName == "Integer" or instanceTypeName == "SeenTokenType" {
             receiverLlvmType = "i64"
         } else if instanceTypeName == "Bool" or instanceTypeName == "Boolean" {
             receiverLlvmType = "i1"
@@ -3991,7 +4905,7 @@ class LLVMIRGenerator {
         }
         // Class/struct types are stored as pointers
         // Known class types that return structs/pointers
-        if seenType == "FrontendResult" or seenType == "CommandResult" or seenType == "LLVMIRGenerator" or seenType == "ProgramNode" or seenType == "FrontendDiagnostic" or seenType == "Point" or seenType == "TypeInferenceResult" or seenType == "TypeChecker" or seenType == "RealParser" or seenType == "SeenLexer" or seenType == "TypeError" or seenType == "Location" or seenType == "Type" or seenType == "FsFileResult" or seenType == "FsFile" or seenType == "Result" or seenType == "Unit" or seenType == "Optional" {
+        if seenType == "FrontendResult" or seenType == "CommandResult" or seenType == "LLVMIRGenerator" or seenType == "ProgramNode" or seenType == "FrontendDiagnostic" or seenType == "Point" or seenType == "TypeInferenceResult" or seenType == "TypeChecker" or seenType == "RealParser" or seenType == "SeenLexer" or seenType == "TypeError" or seenType == "Location" or seenType == "Type" or seenType == "FsFileResult" or seenType == "FsFile" or seenType == "Result" or seenType == "Unit" or seenType == "Optional" or seenType == "TypeNode" or seenType == "ItemNode" or seenType == "FunctionNode" or seenType == "ClassNode" or seenType == "EnumNode" or seenType == "BlockNode" or seenType == "StatementNode" or seenType == "ParserExpressionNode" or seenType == "ParamNode" or seenType == "ImportNode" or seenType == "ImportSymbolNode" or seenType == "ImportPathInfo" or seenType == "FunctionType" or seenType == "ClassType" or seenType == "InterfaceType" or seenType == "Environment" {
             return "ptr"
         }
         // Array types - handle both "Array<T>" and just "Array" (parser strips generic params)
@@ -4072,7 +4986,7 @@ class LLVMIRGenerator {
                 return "Int"
             } else if expr.callee == "charAt" or expr.callee == "charCodeAt" {
                 return "Char"
-            } else if expr.callee == "toString" or expr.callee == "substring" or expr.callee == "trim" or expr.callee == "generate" or expr.callee == "generateMultiple" or expr.callee == "generateSingle" or expr.callee == "mapType" or expr.callee == "getNextReg" or expr.callee == "getNextBlock" or expr.callee == "getFieldType" or expr.callee == "getSeenFieldType" or expr.callee == "getFunctionReturnType" or expr.callee == "getMethodReturnType" or expr.callee == "resolveChainedPathType" or expr.callee == "hexToDecimal" or expr.callee == "escapeString" or expr.callee == "findVarType" or expr.callee == "peekTokenTypeStr" or expr.callee == "joinSegments" {
+            } else if expr.callee == "toString" or expr.callee == "substring" or expr.callee == "trim" or expr.callee == "generate" or expr.callee == "generateMultiple" or expr.callee == "generateSingle" or expr.callee == "mapType" or expr.callee == "getNextReg" or expr.callee == "getNextBlock" or expr.callee == "getFieldType" or expr.callee == "getSeenFieldType" or expr.callee == "getFunctionReturnType" or expr.callee == "getMethodReturnType" or expr.callee == "resolveChainedPathType" or expr.callee == "hexToDecimal" or expr.callee == "escapeString" or expr.callee == "findVarType" or expr.callee == "peekTokenTypeStr" or expr.callee == "joinSegments" or expr.callee == "getValue" {
                 return "String"
             } else if expr.callee == "startsWith" or expr.callee == "endsWith" or expr.callee == "contains" or expr.callee == "success" or expr.callee == "isDynamic" or expr.callee == "isKeyword" or expr.callee == "hasTranslation" or expr.callee == "containsKey" or expr.callee == "containsValue" or expr.callee == "isOkay" or expr.callee == "isErr" or expr.callee == "checkToken" or expr.callee == "matchTokenStr" or expr.callee == "isAtEnd" {
                 return "Bool"
@@ -4080,6 +4994,8 @@ class LLVMIRGenerator {
                 return "Token"
             } else if expr.callee == "peekTokenType" {
                 return "Int"
+            } else if expr.callee == "parseTypeNode" {
+                return "TypeNode"
             } else if expr.callee == "toArray" {
                 return "Array<Token>"
             } else if expr.callee == "getDiagnostics" {
@@ -4124,6 +5040,16 @@ class LLVMIRGenerator {
                 let varIdx = findVar(expr.literalValue)
                 if varIdx >= 0 {
                     receiverType = varTypes[varIdx]
+                } else {
+                    // Check if literalValue is a field on 'this'
+                    let thisIdx = findVar("this")
+                    if thisIdx >= 0 {
+                        let thisType = varTypes[thisIdx]
+                        let fieldType = getSeenFieldType(thisType, expr.literalValue)
+                        if fieldType != "Int" or expr.literalValue == "length" {
+                            receiverType = fieldType
+                        }
+                    }
                 }
             }
 
@@ -4196,6 +5122,53 @@ class LLVMIRGenerator {
                 return "Bool"
             } else if expr.callee == "inferExpressionType" {
                 return "String"
+            // RealParser utility methods (when called without explicit this.)
+            } else if expr.callee == "consume" or expr.callee == "advance" or expr.callee == "previous" or expr.callee == "peek" {
+                return "Token"
+            } else if expr.callee == "checkToken" or expr.callee == "matchTokenStr" or expr.callee == "isAtEnd" {
+                return "Bool"
+            } else if expr.callee == "peekTokenType" {
+                return "Int"
+            } else if expr.callee == "peekTokenTypeStr" or expr.callee == "joinSegments" {
+                return "String"
+            } else if expr.callee == "toArray" {
+                return "Array<Token>"
+            } else if expr.callee == "parseTypeNode" {
+                return "TypeNode"
+            } else if expr.callee == "parseFunctionItem" or expr.callee == "parseClassItem" or expr.callee == "parseEnumItem" or expr.callee == "parseImportItem" {
+                return "ItemNode"
+            } else if expr.callee == "parseStatement" or expr.callee == "parseBlock" or expr.callee == "parseIfStatement" or expr.callee == "parseWhileStatement" or expr.callee == "parseForStatement" or expr.callee == "parseExpressionStatement" or expr.callee == "parseLetStatement" or expr.callee == "parseVarStatement" or expr.callee == "parseReturnStatement" or expr.callee == "parseBreakStatement" or expr.callee == "parseContinueStatement" {
+                return "StatementNode"
+            } else if expr.callee == "parseExpression" or expr.callee == "parsePrimary" or expr.callee == "parseUnary" or expr.callee == "parseBinary" or expr.callee == "parseOr" or expr.callee == "parseAnd" or expr.callee == "parseEquality" or expr.callee == "parseComparison" or expr.callee == "parseTerm" or expr.callee == "parseFactor" or expr.callee == "parseCall" or expr.callee == "parsePostfix" or expr.callee == "parseAssignment" {
+                return "ParserExpressionNode"
+            } else if expr.callee == "parseParam" {
+                return "ParamNode"
+            } else if expr.callee == "parseImportPath" {
+                return "ImportPathInfo"
+            } else if expr.callee == "parseImportSymbols" {
+                return "Array<ImportSymbolNode>"
+            } else if expr.callee == "makeImportSymbol" {
+                return "ImportSymbolNode"
+            } else if expr.callee == "TypeError" {
+                return "TypeError"
+            } else if expr.callee == "FunctionType" {
+                return "FunctionType"
+            } else if expr.callee == "ClassType" {
+                return "ClassType"
+            } else if expr.callee == "InterfaceType" {
+                return "InterfaceType"
+            } else if expr.callee == "Location" {
+                return "Location"
+            } else if expr.callee == "Type" {
+                return "Type"
+            } else if expr.callee == "Environment" {
+                return "Environment"
+            } else if expr.callee == "lookup" or expr.callee == "typeInt" or expr.callee == "typeFloat" or expr.callee == "typeString" or expr.callee == "typeBool" or expr.callee == "typeVoid" or expr.callee == "typeUnit" or expr.callee == "typeAny" or expr.callee == "typeNever" or expr.callee == "typeUnknown" {
+                return "Type"
+            } else if expr.callee == "lookupFunction" {
+                return "FunctionType"
+            } else if expr.callee == "lookupClass" {
+                return "ClassType"
             }
         } else if expr.kind == "MemberAccess" {
             // Field access - infer type from known fields

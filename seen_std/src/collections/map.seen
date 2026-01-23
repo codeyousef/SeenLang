@@ -21,38 +21,41 @@ class Map<K, V> {
     }
 
     fun put(key: K, value: V) r: Void {
+        // Route through locals so the stage-1 type checker resolves Vec methods correctly
+        var keysVec: Vec<K> = this.keys
+        var valuesVec: Vec<V> = this.values
         // Check if key already exists
         var i = 0
         while i < this.length {
-            if this.keys.get(i) == key {
+            if keysVec.get(i) == key {
                 // Update existing value
-                this.values.set(i, value)
+                valuesVec.set(i, value)
+                this.values = valuesVec
                 return
             }
             i = i + 1
         }
         // Add new entry
-        // Route through locals so the stage-1 type checker resolves Vec.push correctly
-        var keysVec = this.keys
         keysVec.push(key)
         this.keys = keysVec
 
-        var valuesVec = this.values
         valuesVec.push(value)
         this.values = valuesVec
 
-        var hashesVec = this.hashes
+        var hashesVec: Vec<Int> = this.hashes
         hashesVec.push(0)
         this.hashes = hashesVec
         this.length = this.length + 1
     }
 
     fun get(key: K) r: Option<V> {
+        // Route through locals for proper type resolution
+        var keysVec: Vec<K> = this.keys
+        var valuesVec: Vec<V> = this.values
         var i = 0
         while i < this.length {
-            let k = this.keys.get(i)
-            if k == key {
-                return Some(this.values.get(i))
+            if keysVec.get(i) == key {
+                return Some(valuesVec.get(i))
             }
             i = i + 1
         }
@@ -60,9 +63,10 @@ class Map<K, V> {
     }
 
     fun containsKey(key: K) r: Bool {
+        var keysVec: Vec<K> = this.keys
         var i = 0
         while i < this.length {
-            if this.keys.get(i) == key {
+            if keysVec.get(i) == key {
                 return true
             }
             i = i + 1
@@ -71,9 +75,10 @@ class Map<K, V> {
     }
 
     fun containsValue(value: V) r: Bool {
+        var valuesVec: Vec<V> = this.values
         var i = 0
         while i < this.length {
-            if this.values.get(i) == value {
+            if valuesVec.get(i) == value {
                 return true
             }
             i = i + 1
@@ -82,52 +87,55 @@ class Map<K, V> {
     }
 
     fun keys() r: Vec<K> {
+        var keysVec: Vec<K> = this.keys
         // Return a copy of the keys
-        var result = Vec.new()
+        var result: Vec<K> = Vec.new()
         var i = 0
         while i < this.length {
-            result.push(this.keys.get(i))
+            result.push(keysVec.get(i))
             i = i + 1
         }
         return result
     }
 
     fun values() r: Vec<V> {
+        var valuesVec: Vec<V> = this.values
         // Return a copy of the values
-        var result = Vec.new()
+        var result: Vec<V> = Vec.new()
         var i = 0
         while i < this.length {
-            result.push(this.values.get(i))
+            result.push(valuesVec.get(i))
             i = i + 1
         }
         return result
     }
 
     fun remove(key: K) r: Option<V> {
+        var keysVec: Vec<K> = this.keys
+        var valuesVec: Vec<V> = this.values
+        var hashesVec: Vec<Int> = this.hashes
         var i = 0
         while i < this.length {
-            if this.keys.get(i) == key {
-                let value = this.values.get(i)
+            if keysVec.get(i) == key {
                 // Swap with last element and pop
                 let lastIdx = this.length - 1
+                // Create result from current value before modifying
+                let result: Option<V> = Some(valuesVec.get(i))
                 if i != lastIdx {
-                    this.keys.set(i, this.keys.get(lastIdx))
-                    this.values.set(i, this.values.get(lastIdx))
-                    this.hashes.set(i, this.hashes.get(lastIdx))
+                    keysVec.set(i, keysVec.get(lastIdx))
+                    valuesVec.set(i, valuesVec.get(lastIdx))
+                    hashesVec.set(i, hashesVec.get(lastIdx))
                 }
-                var keysVec = this.keys
                 keysVec.pop()
                 this.keys = keysVec
 
-                var valuesVec = this.values
                 valuesVec.pop()
                 this.values = valuesVec
 
-                var hashesVec = this.hashes
                 hashesVec.pop()
                 this.hashes = hashesVec
                 this.length = this.length - 1
-                return Some(value)
+                return result
             }
             i = i + 1
         }

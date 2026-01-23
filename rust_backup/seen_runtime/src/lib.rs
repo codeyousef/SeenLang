@@ -1451,14 +1451,23 @@ pub extern "C" fn __StringLength(s: *const u8) -> i64 {
 }
 
 /// Concatenate two strings (returns heap-allocated null-terminated string)
-/// Caller must free the returned pointer with __FreeString
+/// Uses Vale-style region tracking if inside a region, otherwise arena tracking
 #[unsafe(no_mangle)]
 pub extern "C" fn __StringConcat(a: *const u8, b: *const u8) -> *mut u8 {
     use std::ffi::CString;
 
     if a.is_null() && b.is_null() {
         return match CString::new("") {
-            Ok(c_str) => c_str.into_raw() as *mut u8,
+            Ok(c_str) => {
+                let ptr = c_str.into_raw() as *mut u8;
+                // Track in region if inside one, otherwise just count bytes
+                if in_region() {
+                    region_track(ptr);
+                } else {
+                    arena_track_bytes(1);
+                }
+                ptr
+            },
             Err(_) => ptr::null_mut(),
         };
     }
@@ -1477,11 +1486,148 @@ pub extern "C" fn __StringConcat(a: *const u8, b: *const u8) -> *mut u8 {
         };
 
         let result = format!("{}{}", str_a, str_b);
+        let len = result.len();
         match CString::new(result) {
-            Ok(c_str) => c_str.into_raw() as *mut u8,
+            Ok(c_str) => {
+                let ptr = c_str.into_raw() as *mut u8;
+                // Track in region if inside one, otherwise just count bytes
+                if in_region() {
+                    region_track(ptr);
+                } else {
+                    arena_track_bytes(len + 1);
+                }
+                ptr
+            },
             Err(_) => ptr::null_mut(),
         }
     }
+}
+
+// =============================================================================
+// STRING ARENA ALLOCATOR
+// =============================================================================
+
+/// Global counter for allocated bytes - auto-resets when threshold exceeded
+static ARENA_BYTES: AtomicI64 = AtomicI64::new(0);
+/// Threshold for auto-reset (500MB)
+const ARENA_THRESHOLD: i64 = 500 * 1024 * 1024;
+
+/// Track a string allocation - just counts bytes since we can't safely free
+/// individual CStrings without complex tracking
+fn arena_track_bytes(size: usize) {
+    let current = ARENA_BYTES.fetch_add(size as i64, Ordering::Relaxed);
+    // Auto-reset counter when threshold exceeded (actual memory will be
+    // reclaimed by OS when process exits or via explicit arena reset)
+    if current > ARENA_THRESHOLD {
+        ARENA_BYTES.store(0, Ordering::Relaxed);
+        // Note: We can't safely free the strings here because we don't know
+        // which ones are still in use. The arena just tracks allocation pressure.
+    }
+}
+
+/// Reset the string arena - just resets the counter
+/// (Actual memory is managed by the OS / process lifetime)
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_arena_reset() {
+    ARENA_BYTES.store(0, Ordering::Relaxed);
+}
+
+/// Get arena statistics
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_arena_stats(allocated: *mut usize, count: *mut usize) {
+    let bytes = ARENA_BYTES.load(Ordering::Relaxed) as usize;
+    if !allocated.is_null() {
+        unsafe { *allocated = bytes; }
+    }
+    if !count.is_null() {
+        unsafe { *count = 0; } // Count not tracked in simple implementation
+    }
+}
+
+/// Initialize the string arena - no-op (uses atomic)
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_arena_init(_capacity: usize) {
+    ARENA_BYTES.store(0, Ordering::Relaxed);
+}
+
+/// Cleanup the string arena - no-op
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_arena_cleanup() {
+    ARENA_BYTES.store(0, Ordering::Relaxed);
+}
+
+// =============================================================================
+// VALE-STYLE STRING REGIONS
+// =============================================================================
+// Regions allow bulk deallocation: allocate many strings, free them all at once.
+// This is the key to Vale-style memory management.
+
+use std::ffi::CString;
+
+/// String region - tracks allocated pointers for bulk deallocation
+struct StringRegion {
+    blocks: Vec<*mut u8>,
+}
+
+impl StringRegion {
+    fn new() -> Self {
+        StringRegion { blocks: Vec::with_capacity(1024) }
+    }
+
+    fn track(&mut self, ptr: *mut u8) {
+        self.blocks.push(ptr);
+    }
+
+    fn free_all(&mut self) {
+        for ptr in self.blocks.drain(..) {
+            if !ptr.is_null() {
+                unsafe {
+                    // Reclaim as CString to properly free
+                    let _ = CString::from_raw(ptr as *mut i8);
+                }
+            }
+        }
+    }
+}
+
+// Region stack - thread-local for safety
+thread_local! {
+    static REGION_STACK: RefCell<Vec<StringRegion>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Enter a new string region - all strings allocated after this will be tracked
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_region_enter() {
+    REGION_STACK.with(|stack| {
+        stack.borrow_mut().push(StringRegion::new());
+    });
+}
+
+/// Exit current region, freeing ALL strings allocated since region_enter
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_region_exit() {
+    REGION_STACK.with(|stack| {
+        if let Some(mut region) = stack.borrow_mut().pop() {
+            region.free_all();
+        }
+    });
+}
+
+/// Track a pointer in the current region (internal helper)
+fn region_track(ptr: *mut u8) {
+    REGION_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if let Some(region) = stack.last_mut() {
+            region.track(ptr);
+        }
+    });
+}
+
+/// Check if we're inside a region
+fn in_region() -> bool {
+    REGION_STACK.with(|stack| {
+        !stack.borrow().is_empty()
+    })
 }
 
 #[cfg(test)]

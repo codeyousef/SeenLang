@@ -196,6 +196,107 @@ class RealParser {
         }
     }
 
+    // ========== UTILITY METHODS (moved to top to ensure Stage1 generates them) ==========
+
+    fun matchTokenStr(tokenType: SeenTokenType) r: Bool {
+        if this.checkToken(tokenType) {
+            this.advance()
+            return true
+        }
+        return false
+    }
+
+    fun checkToken(tokenType: SeenTokenType) r: Bool {
+        if this.isAtEnd() {
+            return false
+        }
+        let tokTypeStr = this.peekTokenTypeStr()
+        let expectedStr = tokenType.toString()
+        return tokTypeStr == expectedStr
+    }
+
+    fun advance() r: Token {
+        if not this.isAtEnd() {
+            this.current = this.current + 1
+        }
+        return this.previous()
+    }
+
+    fun isAtEnd() r: Bool {
+        let len = this.tokens.length()
+        return this.current >= len - 1
+    }
+
+    fun peek() r: Token {
+        if this.current >= this.tokens.length() {
+            return this.tokens[this.tokens.length() - 1]
+        }
+        return this.tokens[this.current]
+    }
+
+    fun peekTokenType() r: SeenTokenType {
+        if this.current >= this.tokens.length() {
+            return this.tokens[this.tokens.length() - 1].getType()
+        }
+        return this.tokens[this.current].getType()
+    }
+
+    fun peekTokenTypeStr() r: String {
+        if this.current >= this.tokens.length() {
+            return this.tokens[this.tokens.length() - 1].getType().toString()
+        }
+        return this.tokens[this.current].getType().toString()
+    }
+
+    fun previous() r: Token {
+        if this.current == 0 {
+            return this.tokens[0]
+        }
+        return this.tokens[this.current - 1]
+    }
+
+    fun consume(tokenType: SeenTokenType, message: String) r: Token {
+        if this.checkToken(tokenType) {
+            return this.advance()
+        }
+        return this.peek()
+    }
+
+    fun toArray(raw: List<Token>) r: Array<Token> {
+        let buffer = Array<Token>()
+        var idx = 0
+        while idx < raw.length() {
+            buffer.push(raw[idx])
+            idx = idx + 1
+        }
+        return buffer
+    }
+
+    fun skipExpression() r: Void {
+        while not this.isAtEnd() {
+            let t = this.peek().getType()
+            if t == getCommaType() or t == getRightParenType() or t == getSemicolonType() {
+                break
+            }
+            this.advance()
+        }
+    }
+
+    fun joinSegments(values: Array<String>, separator: String) r: String {
+        if values.length() == 0 {
+            return ""
+        }
+        var result = values[0]
+        var index = 1
+        while index < values.length() {
+            result = result + separator + values[index]
+            index = index + 1
+        }
+        return result
+    }
+
+    // ========== END UTILITY METHODS ==========
+
     fun parse() r: ProgramNode {
         // Use currentProgram field to avoid returning/passing ProgramNode
         currentProgram = ProgramNode.new()
@@ -1773,108 +1874,6 @@ class RealParser {
         return if isUpper { "public" } else { "private" }
     }
 
-    fun skipExpression() r: Void {
-        // Skip tokens until we reach a comma, semicolon, or closing paren.
-        while not this.isAtEnd() {
-            let t = this.peek().getType()
-            if t == getCommaType() or t == getRightParenType() or t == getSemicolonType() {
-                break
-            }
-            this.advance()
-        }
-    }
-
-    fun joinSegments(values: Array<String>, separator: String) r: String {
-        if values.length() == 0 {
-            return ""
-        }
-        var result = values[0]
-        var index = 1
-        while index < values.length() {
-            result = result + separator + values[index]
-            index = index + 1
-        }
-        return result
-    }
-
-    fun matchTokenStr(tokenType: SeenTokenType) r: Bool {
-        if this.checkToken(tokenType) {
-            this.advance()
-            return true
-        }
-        return false
-    }
-    fun checkToken(tokenType: SeenTokenType) r: Bool {
-        // Minimal implementation - no tracing to reduce memory operations
-        if this.isAtEnd() {
-            return false
-        }
-        let tokTypeStr = this.peekTokenTypeStr()
-        let expectedStr = tokenType.toString()
-        return tokTypeStr == expectedStr
-    }
-    fun advance() r: Token {
-        if not this.isAtEnd() {
-            this.current = this.current + 1
-        }
-        return this.previous()
-    }
-
-    fun isAtEnd() r: Bool {
-        // Simple index check - don't access token to check type (avoids memory corruption)
-        // The lexer always ends with EOF token, so current >= length-1 means at end
-        let len = this.tokens.length()
-        // At or past the last token (which is EOF)
-        return this.current >= len - 1
-    }
-
-    fun peek() r: Token {
-        // Minimal implementation - no trace to avoid string allocations
-        if this.current >= this.tokens.length() {
-            return this.tokens[this.tokens.length() - 1]
-        }
-        return this.tokens[this.current]
-    }
-
-    // Returns token type without creating a full Token copy (avoids memory corruption)
-    fun peekTokenType() r: SeenTokenType {
-        // Removed trace to minimize string allocations
-        if this.current >= this.tokens.length() {
-            return this.tokens[this.tokens.length() - 1].getType()
-        }
-        return this.tokens[this.current].getType()
-    }
-
-    // Returns token type as string for comparison (avoids enum comparison issues)
-    fun peekTokenTypeStr() r: String {
-        // Removed trace to minimize string allocations
-        if this.current >= this.tokens.length() {
-            return this.tokens[this.tokens.length() - 1].getType().toString()
-        }
-        return this.tokens[this.current].getType().toString()
-    }
-
-    fun previous() r: Token {
-        if this.current == 0 {
-            return this.tokens[0]
-        }
-        return this.tokens[this.current - 1]
-    }
-
-    fun consume(tokenType: SeenTokenType, message: String) r: Token {
-        if this.checkToken(tokenType) {
-            return this.advance()
-        }
-        // Best-effort recovery: return current token.
-        return this.peek()
-    }
-    fun toArray(raw: List<Token>) r: Array<Token> {
-        let buffer = Array<Token>()
-        for token in raw {
-            buffer.push(token)
-        }
-        return buffer
-    }
 }
 
  

@@ -6,6 +6,7 @@
 #include "seen_runtime.h"
 #include <errno.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 // ============================================================================
@@ -16,91 +17,191 @@ static int g_argc = 0;
 static char** g_argv = NULL;
 
 void seen_runtime_init(int argc, char** argv) {
-    fprintf(stderr, "[DEBUG seen_runtime_init] argc=%d, argv=%p\n", argc, (void*)argv);
-    fflush(stderr);
     g_argc = argc;
     g_argv = argv;
 }
 
 // ============================================================================
-// File I/O Functions
+// File I/O Primitive Functions (used by Seen stdlib io.file)
 // ============================================================================
 
-SeenString readText(SeenString path) {
-    fprintf(stderr, "[DEBUG readText] path.len=%ld, path.data=%p\n", path.len, path.data);
-    fflush(stderr);
-
-    // Null-terminate the path
+// Open file and return file descriptor (or -1 on error)
+int64_t __OpenFile(SeenString path, SeenString mode) {
     char* cpath = (char*)malloc(path.len + 1);
     memcpy(cpath, path.data, path.len);
     cpath[path.len] = 0;
 
-    fprintf(stderr, "[DEBUG readText] cpath='%s'\n", cpath);
-    fflush(stderr);
+    char* cmode = (char*)malloc(mode.len + 1);
+    memcpy(cmode, mode.data, mode.len);
+    cmode[mode.len] = 0;
 
-    FILE* f = fopen(cpath, "r");
+    FILE* f = fopen(cpath, cmode);
     free(cpath);
+    free(cmode);
 
     if (!f) {
-        fprintf(stderr, "[DEBUG readText] fopen failed, errno=%d\n", errno);
-        fflush(stderr);
+        return -1;
+    }
+    return (int64_t)(intptr_t)f;
+}
+
+// Read entire file content
+SeenString __ReadFile(int64_t fd) {
+    FILE* f = (FILE*)(intptr_t)fd;
+    if (!f) {
         SeenString empty = { 0, "" };
         return empty;
     }
 
-    // Get file size
+    // Get current position and file size
+    long cur = ftell(f);
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    fseek(f, cur, SEEK_SET);  // Restore position
 
-    fprintf(stderr, "[DEBUG readText] file size=%ld\n", size);
-    fflush(stderr);
-
-    // Read content
-    char* data = (char*)malloc(size + 1);
-    size_t read = fread(data, 1, size, f);
+    // For full file read, read from current position
+    long remaining = size - cur;
+    char* data = (char*)malloc(remaining + 1);
+    size_t read = fread(data, 1, remaining, f);
     data[read] = 0;
-    fclose(f);
-
-    fprintf(stderr, "[DEBUG readText] read %zu bytes, returning len=%zu\n", read, read);
-    fflush(stderr);
 
     SeenString result = { read, data };
     return result;
 }
 
-bool writeText(SeenString path, SeenString content) {
-    // Null-terminate the path
+// Read bytes from file
+SeenArray __ReadFileBytes(int64_t fd, int64_t size) {
+    SeenArray arr = seen_arr_new_ptr();
+    FILE* f = (FILE*)(intptr_t)fd;
+    if (!f) return arr;
+
+    for (int64_t i = 0; i < size; i++) {
+        int c = fgetc(f);
+        if (c == EOF) break;
+        int64_t* val = (int64_t*)malloc(sizeof(int64_t));
+        *val = c;
+        seen_arr_push_ptr(&arr, val);
+    }
+    return arr;
+}
+
+// Write string to file
+int64_t __WriteFile(int64_t fd, SeenString content) {
+    FILE* f = (FILE*)(intptr_t)fd;
+    if (!f) return -1;
+
+    size_t written = fwrite(content.data, 1, content.len, f);
+    return (int64_t)written;
+}
+
+// Write bytes to file
+int64_t __WriteFileBytes(int64_t fd, SeenArray bytes) {
+    FILE* f = (FILE*)(intptr_t)fd;
+    if (!f) return -1;
+
+    for (int64_t i = 0; i < bytes.len; i++) {
+        int64_t* val = (int64_t*)((char*)bytes.data + i * sizeof(int64_t));
+        fputc((int)*val, f);
+    }
+    return bytes.len;
+}
+
+// Close file
+int64_t __CloseFile(int64_t fd) {
+    FILE* f = (FILE*)(intptr_t)fd;
+    if (!f) return -1;
+    return fclose(f);
+}
+
+// Get file size
+int64_t __FileSize(int64_t fd) {
+    FILE* f = (FILE*)(intptr_t)fd;
+    if (!f) return -1;
+
+    long cur = ftell(f);
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, cur, SEEK_SET);
+    return size;
+}
+
+// Get file error message (empty if no error)
+SeenString __FileError(int64_t fd) {
+    FILE* f = (FILE*)(intptr_t)fd;
+    if (!f || ferror(f)) {
+        return seen_str_copy(strerror(errno));
+    }
+    SeenString empty = { 0, "" };
+    return empty;
+}
+
+// Check if file exists
+bool __FileExists(SeenString path) {
     char* cpath = (char*)malloc(path.len + 1);
     memcpy(cpath, path.data, path.len);
     cpath[path.len] = 0;
 
-    FILE* f = fopen(cpath, "w");
+    FILE* f = fopen(cpath, "r");
     free(cpath);
-
-    if (!f) {
-        return false;
+    if (f) {
+        fclose(f);
+        return true;
     }
+    return false;
+}
 
-    size_t written = fwrite(content.data, 1, content.len, f);
-    fclose(f);
+// Delete file
+bool __DeleteFile(SeenString path) {
+    char* cpath = (char*)malloc(path.len + 1);
+    memcpy(cpath, path.data, path.len);
+    cpath[path.len] = 0;
 
-    return written == (size_t)content.len;
+    int result = remove(cpath);
+    free(cpath);
+    return result == 0;
+}
+
+// Create directory
+bool __CreateDirectory(SeenString path) {
+    char* cpath = (char*)malloc(path.len + 1);
+    memcpy(cpath, path.data, path.len);
+    cpath[path.len] = 0;
+
+    int result = mkdir(cpath, 0755);
+    free(cpath);
+    return result == 0;
 }
 
 // ============================================================================
-// Process Functions
+// Process Primitive Functions (used by Seen stdlib process.process)
 // ============================================================================
 
-CommandResult runCommand(SeenString cmd) {
-    CommandResult result = { false, { 0, "" }, -1 };
+// Result type for command execution (matches Seen's CommandResult data type)
+typedef struct {
+    bool success;
+    SeenString output;
+} SeenCommandResult;
 
-    // Null-terminate the command
+// Execute program by path and return exit code
+int64_t __ExecuteProgram(SeenString path) {
+    char* cpath = (char*)malloc(path.len + 1);
+    memcpy(cpath, path.data, path.len);
+    cpath[path.len] = 0;
+
+    int status = system(cpath);
+    free(cpath);
+
+    return WEXITSTATUS(status);
+}
+
+// Execute command and capture output
+SeenCommandResult __ExecuteCommand(SeenString cmd) {
+    SeenCommandResult result = { false, { 0, "" } };
+
     char* ccmd = (char*)malloc(cmd.len + 1);
     memcpy(ccmd, cmd.data, cmd.len);
     ccmd[cmd.len] = 0;
 
-    // Run command and capture output
     FILE* pipe = popen(ccmd, "r");
     free(ccmd);
 
@@ -108,7 +209,6 @@ CommandResult runCommand(SeenString cmd) {
         return result;
     }
 
-    // Read output
     char* output = (char*)malloc(4096);
     size_t capacity = 4096;
     size_t length = 0;
@@ -126,41 +226,79 @@ CommandResult runCommand(SeenString cmd) {
     output[length] = 0;
 
     int status = pclose(pipe);
-    result.exitCode = WEXITSTATUS(status);
-    result.success = (result.exitCode == 0);
+    result.success = (WEXITSTATUS(status) == 0);
     result.output.len = length;
     result.output.data = output;
 
     return result;
 }
 
-bool commandWasSuccessful(CommandResult result) {
-    return result.success;
-}
-
 // ============================================================================
-// Environment Functions
+// Environment Primitive Functions (used by Seen stdlib env.env)
 // ============================================================================
 
-SeenArray args(void) {
-    // Debug: print runtime init state
-    fprintf(stderr, "[DEBUG args] g_argc=%d, g_argv=%p\n", g_argc, (void*)g_argv);
-    fflush(stderr);
-
+// Get command line arguments
+SeenArray __GetCommandLineArgs(void) {
     SeenArray arr = seen_arr_new_str();
-    fprintf(stderr, "[DEBUG args] arr created, len=%ld, cap=%ld, data=%p\n", arr.len, arr.cap, arr.data);
-    fflush(stderr);
-
     for (int i = 0; i < g_argc; i++) {
-        fprintf(stderr, "[DEBUG args] processing arg[%d]=%s\n", i, g_argv[i]);
-        fflush(stderr);
         SeenString arg = seen_str_copy(g_argv[i]);
         seen_arr_push_str(&arr, arg);
     }
-
-    fprintf(stderr, "[DEBUG args] returning, final len=%ld\n", arr.len);
-    fflush(stderr);
     return arr;
+}
+
+// Check if environment variable exists
+bool __HasEnv(SeenString name) {
+    char* cname = (char*)malloc(name.len + 1);
+    memcpy(cname, name.data, name.len);
+    cname[name.len] = 0;
+
+    char* val = getenv(cname);
+    free(cname);
+    return val != NULL;
+}
+
+// Get environment variable value
+SeenString __GetEnv(SeenString name) {
+    char* cname = (char*)malloc(name.len + 1);
+    memcpy(cname, name.data, name.len);
+    cname[name.len] = 0;
+
+    char* val = getenv(cname);
+    free(cname);
+
+    if (val) {
+        return seen_str_copy(val);
+    }
+    SeenString empty = { 0, "" };
+    return empty;
+}
+
+// Set environment variable
+bool __SetEnv(SeenString name, SeenString value) {
+    char* cname = (char*)malloc(name.len + 1);
+    memcpy(cname, name.data, name.len);
+    cname[name.len] = 0;
+
+    char* cvalue = (char*)malloc(value.len + 1);
+    memcpy(cvalue, value.data, value.len);
+    cvalue[value.len] = 0;
+
+    int result = setenv(cname, cvalue, 1);
+    free(cname);
+    free(cvalue);
+    return result == 0;
+}
+
+// Remove environment variable
+bool __RemoveEnv(SeenString name) {
+    char* cname = (char*)malloc(name.len + 1);
+    memcpy(cname, name.data, name.len);
+    cname[name.len] = 0;
+
+    int result = unsetenv(cname);
+    free(cname);
+    return result == 0;
 }
 
 // ============================================================================
@@ -249,15 +387,15 @@ SeenString seen_arr_get_str(SeenArray a, int64_t idx) {
 }
 
 SeenArray seen_arr_new_str(void) {
-    fprintf(stderr, "[DEBUG seen_arr_new_str] enter\n");
-    fflush(stderr);
     void* data = malloc(8 * sizeof(SeenString));
-    fprintf(stderr, "[DEBUG seen_arr_new_str] malloc returned %p\n", data);
-    fflush(stderr);
     // element_size = sizeof(SeenString) = 16 bytes
     SeenArray arr = { 0, 8, sizeof(SeenString), data };
-    fprintf(stderr, "[DEBUG seen_arr_new_str] returning arr{len=%ld, cap=%ld, element_size=%ld, data=%p}\n", arr.len, arr.cap, arr.element_size, arr.data);
-    fflush(stderr);
+    return arr;
+}
+
+SeenArray seen_arr_new_ptr(void) {
+    void* data = malloc(8 * sizeof(void*));
+    SeenArray arr = { 0, 8, sizeof(void*), data };
     return arr;
 }
 
@@ -304,6 +442,11 @@ void* seen_arr_get_ptr(SeenArray a, int64_t idx) {
 
 int64_t seen_arr_length(SeenArray a) {
     return a.len;
+}
+
+int64_t seen_arr_length_ptr(SeenArray* a) {
+    if (!a) return 0;
+    return a->len;
 }
 
 // ============================================================================
@@ -460,6 +603,7 @@ void println_str(SeenString s) {
 
 void println(SeenString s) {
     printf("%.*s\n", (int)s.len, s.data);
+    fflush(stdout);
 }
 
 // ============================================================================
@@ -650,60 +794,122 @@ SeenArray Map_values(void* m) {
 
 // ============================================================================
 // Bootstrap Stub Functions
-// These are placeholders for the actual compiler implementation
-// In a full bootstrap, these would be replaced with compiled Seen code
+// These are placeholders for functionality not yet fully compiled
+// The actual implementations are now compiled from Seen source code
 // ============================================================================
 
-FrontendResult* run_frontend(SeenString source, SeenString filename, SeenString lang) {
-    // Stub implementation - returns failure
-    static FrontendResult result;
-    result.success = false;
-    result.diagnostics.len = 0;
-    result.diagnostics.cap = 0;
-    result.diagnostics.element_size = sizeof(FrontendDiagnostic);
-    result.diagnostics.data = NULL;
-    result.program = NULL;
-
-    // For now, print that we need the real implementation
-    printf("ERROR: run_frontend stub called - need full compiler implementation\n");
-    printf("  Source length: %ld bytes\n", (long)source.len);
-    printf("  Filename: %.*s\n", (int)filename.len, filename.data);
-
-    return &result;
-}
-
+// C Generator stubs (unused for LLVM backend but kept for future)
 void* CGenerator_new(void) {
-    // Stub implementation
-    printf("ERROR: CGenerator_new stub called - need full compiler implementation\n");
+    printf("ERROR: CGenerator_new stub called - C backend not implemented\n");
     return NULL;
 }
 
 SeenString CGenerator_generate(void* gen, void* program) {
-    // Stub implementation
-    printf("ERROR: CGenerator_generate stub called - need full compiler implementation\n");
+    printf("ERROR: CGenerator_generate stub called - C backend not implemented\n");
     SeenString empty = { 0, "" };
     return empty;
 }
 
-// LLVM backend stubs
-void* LLVMIRGenerator_new(void) {
-    // Stub implementation - returns null pointer
-    printf("ERROR: LLVMIRGenerator_new stub called - need full compiler implementation\n");
-    return NULL;
+// ============================================================================
+// Result/Option Type Stubs
+// ============================================================================
+
+void* Ok(void* value) { return value; }
+void* Err(SeenString message) { return NULL; }
+void* Some(void* value) { return value; }
+void* None(void) { return NULL; }
+bool Result_isOkay(void* result) { return result != NULL; }
+SeenString Result_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
+void* FsFileResult_unwrap(void* result) { return result; }
+SeenString FsFileResult_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
+
+// SeenTokenType is actually i64 (enum), unwrap just returns the value
+int64_t SeenTokenType_unwrap(int64_t value) { return value; }
+
+// ============================================================================
+// Typechecker Type Stubs
+// ============================================================================
+
+void* TypeError(void) { return malloc(64); }
+void* FunctionType(void) { return malloc(64); }
+void* ClassType(void) { return malloc(64); }
+void* InterfaceType(void) { return malloc(64); }
+void* Location(void) { return malloc(32); }
+
+void* TypeError_getLocation(void* e) { return malloc(32); }
+void* TypeError_getExpected(void* e) { return malloc(32); }
+void* TypeError_getActual(void* e) { return malloc(32); }
+SeenString TypeError_getContext(void* e) { return (SeenString){ 0, "" }; }
+SeenString TypeError_getMessage(void* e) { return (SeenString){ 5, "error" }; }
+
+// ============================================================================
+// Parser Node Constructor Stubs
+// ============================================================================
+
+void* TypeNode_new(void) {
+    // Simple struct with name field
+    void* node = malloc(64);
+    memset(node, 0, 64);
+    return node;
 }
 
-SeenString LLVMIRGenerator_generate(void* gen, void* program) {
-    // Stub implementation - returns empty string
-    printf("ERROR: LLVMIRGenerator_generate stub called - need full compiler implementation\n");
-    SeenString empty = { 0, "" };
-    return empty;
+void* ItemNode_new(void) {
+    void* node = malloc(256);
+    memset(node, 0, 256);
+    return node;
 }
 
-SeenArray FrontendResult_getDiagnostics(void* result) {
-    // Stub implementation - returns empty array
-    SeenArray empty = { 0, 0, sizeof(FrontendDiagnostic), NULL };
-    return empty;
+void* ParamNode_new(void) {
+    void* node = malloc(128);
+    memset(node, 0, 128);
+    return node;
 }
+
+void* ImportSymbolNode_new(void) {
+    void* node = malloc(64);
+    memset(node, 0, 64);
+    return node;
+}
+
+// ============================================================================
+// String/StringBuilder Stubs
+// ============================================================================
+
+int64_t indexOf(SeenString text, SeenString needle, int64_t start) {
+    if (needle.len == 0) return start;
+    if (text.len < needle.len + start) return -1;
+
+    for (int64_t i = start; i <= text.len - needle.len; i++) {
+        bool found = true;
+        for (int64_t j = 0; j < needle.len; j++) {
+            if (text.data[i + j] != needle.data[j]) {
+                found = false;
+                break;
+            }
+        }
+        if (found) return i;
+    }
+    return -1;
+}
+
+int64_t StringBuilder_appendChar(void* sb, int64_t ch) {
+    // Stub - StringBuilder should handle this properly
+    return 0;
+}
+
+// ============================================================================
+// RealParser Method Stubs
+// These return empty/default values to allow linking
+// ============================================================================
+
+void RealParser_parseWhileStatementField(void* parser) {}
+void RealParser_parseExpressionStatementField(void* parser) {}
+void RealParser_parseWhileStatementByIdx(void* parser, int64_t idx) {}
+void RealParser_parseExpressionStatementByIdx(void* parser, int64_t idx) {}
+void RealParser_parseWhileStatementInto(void* parser, void* stmt) {}
+void RealParser_parseExpressionStatementInto(void* parser, void* stmt) {}
+void* RealParser_parseWhileStatement(void* parser) { return malloc(256); }
+void* RealParser_parseExpressionStatement(void* parser) { return malloc(256); }
 
 // ============================================================================
 // Main wrapper

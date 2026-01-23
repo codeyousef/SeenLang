@@ -474,6 +474,12 @@ impl IRGenerator {
         name: &str,
         methods: &[Method],
     ) -> IRResult<()> {
+        eprintln!("[DEBUG generate_class_methods] class='{}' method_count={}", name, methods.len());
+        for (i, m) in methods.iter().enumerate() {
+            if name == "LLVMIRGenerator" {
+                eprintln!("  [{}] method name='{}' is_static={}", i, m.name, m.is_static);
+            }
+        }
         // Set the current type definition so method bodies can resolve bare method calls
         let old_type_definition = self.context.current_type_definition.clone();
         self.context.current_type_definition = Some(name.to_string());
@@ -528,12 +534,21 @@ impl IRGenerator {
             }
 
             let mangled_name = format!("{}_{}", name, method.name);
-            let mut function = self.generate_method_function(
+            if name == "LLVMIRGenerator" {
+                eprintln!("[DEBUG] Generating method: {}", mangled_name);
+            }
+            let mut function = match self.generate_method_function(
                 &mangled_name,
                 &effective_params,
                 &method.return_type,
                 &method.body,
-            )?;
+            ) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("[ERROR] Failed to generate method {}: {:?}", mangled_name, e);
+                    return Err(e);
+                }
+            };
             
             // For factory constructors, add 'this' as a local variable
             if is_factory_constructor {

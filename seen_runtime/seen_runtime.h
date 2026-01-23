@@ -165,6 +165,9 @@ SeenString seen_arr_get_str(SeenArray a, int64_t idx);
 // Create empty string array
 SeenArray seen_arr_new_str(void);
 
+// Create empty pointer array
+SeenArray seen_arr_new_ptr(void);
+
 // Push string to array
 void seen_arr_push_str(SeenArray* arr, SeenString s);
 
