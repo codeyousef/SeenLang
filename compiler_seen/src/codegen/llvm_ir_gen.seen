@@ -308,13 +308,15 @@ class LLVMIRGenerator {
         }
     }
 
-    // Get size of a Seen type in bytes
+    // Get size of a Seen type in bytes (aligned for struct layout)
     fun getTypeSize(typeName: String) r: Int {
         if typeName == "Int" {
             return 8
         }
         if typeName == "Bool" or typeName == "Boolean" {
-            return 1  // But aligned to 8 in structs typically
+            // Bool is i1 but takes 8 bytes in struct layout due to alignment
+            // (next field will be aligned to 8 bytes anyway)
+            return 8
         }
         if typeName == "Float" {
             return 8
@@ -323,7 +325,7 @@ class LLVMIRGenerator {
             return 16  // %SeenString = { i64, ptr } = 8 + 8
         }
         if typeName.startsWith("Array<") {
-            return 24  // %SeenArray = { i64, i64, ptr } = 8 + 8 + 8
+            return 32  // %SeenArray = { i64, i64, i64, ptr } = 8 + 8 + 8 + 8 (len, cap, element_size, data)
         }
         // All other types (classes, structs) are pointers = 8 bytes
         return 8
@@ -1398,6 +1400,7 @@ class LLVMIRGenerator {
         output.append("declare ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8, i64)\n")
         output.append("declare i64 @Array_push(ptr, ptr)\n")
         output.append("declare void @seen_arr_push_str(ptr, %SeenString)\n")
+        output.append("declare void @seen_arr_push_i64(ptr, i64)\n")
         // Note: args() returns via sret because SeenArray > 16 bytes
         if not this.isFuncDefinedInModule("args", definedFuncs) {
             output.append("declare void @args(ptr sret(%SeenArray) align 8)\n")
@@ -1418,7 +1421,7 @@ class LLVMIRGenerator {
         output.append("declare i1 @__CreateDirectory(%SeenString)\n")
         // Process primitives
         output.append("declare i64 @__ExecuteProgram(%SeenString)\n")
-        output.append("declare { i1, %SeenString } @__ExecuteCommand(%SeenString)\n")
+        output.append("declare ptr @__ExecuteCommand(%SeenString)\n")
         // Environment primitives
         output.append("declare %SeenArray @__GetCommandLineArgs()\n")
         output.append("declare i1 @__HasEnv(%SeenString)\n")
@@ -2800,28 +2803,31 @@ class LLVMIRGenerator {
     }
 
     fun generateArrayLiteral(expr: ParserExpressionNode) r: String {
-        // Allocate empty SeenArray structure: { length: 0, capacity: 0, data: null }
+        // Allocate SeenArray structure: { len: i64, cap: i64, element_size: i64, data: ptr }
+        // Total size = 32 bytes (4 fields of 8 bytes each)
         let ptrReg = this.getNextReg()
-        output.append("  " + ptrReg + " = call ptr @malloc(i64 24)\n")
+        output.append("  " + ptrReg + " = call ptr @malloc(i64 32)\n")
         // Store length = number of elements
         let lenPtr = this.getNextReg()
-        output.append("  " + lenPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 0\n")
+        output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + ptrReg + ", i32 0, i32 0\n")
         output.append("  store i64 " + expr.arguments.length().toString() + ", ptr " + lenPtr + "\n")
         // Store capacity = length (or 0 for empty)
         let capPtr = this.getNextReg()
-        output.append("  " + capPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 1\n")
+        output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + ptrReg + ", i32 0, i32 1\n")
         output.append("  store i64 " + expr.arguments.length().toString() + ", ptr " + capPtr + "\n")
-        // For empty array, store null pointer
+        // Store element_size (default to sizeof(ptr) = 8)
+        let elemSizePtr = this.getNextReg()
+        output.append("  " + elemSizePtr + " = getelementptr inbounds %SeenArray, ptr " + ptrReg + ", i32 0, i32 2\n")
+        output.append("  store i64 8, ptr " + elemSizePtr + "\n")
+        // Store data pointer (null for empty, or allocate and fill for non-empty)
+        let dataPtr = this.getNextReg()
+        output.append("  " + dataPtr + " = getelementptr inbounds %SeenArray, ptr " + ptrReg + ", i32 0, i32 3\n")
         if expr.arguments.length() == 0 {
-            let dataPtr = this.getNextReg()
-            output.append("  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n")
             output.append("  store ptr null, ptr " + dataPtr + "\n")
         }
         if expr.arguments.length() != 0 {
             // For non-empty arrays, we need to allocate data and store elements
             // TODO: Support non-empty array literals
-            let dataPtr = this.getNextReg()
-            output.append("  " + dataPtr + " = getelementptr inbounds { i64, i64, ptr }, ptr " + ptrReg + ", i32 0, i32 2\n")
             output.append("  store ptr null, ptr " + dataPtr + "\n")
         }
         // Load the array structure
@@ -3475,13 +3481,13 @@ class LLVMIRGenerator {
             }
             if not resolvedLayout and structName == "ItemNode" {
                 // ItemNode { itemType: String, name: String, visibility: String, importPath: Array<String>, importSymbols: Array<ImportSymbolNode>, function: ptr, classNode: ptr, enumNode: ptr }
-                structSize = 120  // %SeenString(16) * 3 + %SeenArray(24) * 2 + ptr(8) * 3 = 48 + 48 + 24 = 120
+                structSize = 136  // %SeenString(16) * 3 + %SeenArray(32) * 2 + ptr(8) * 3 = 48 + 64 + 24 = 136
                 structLayout = lb + " %SeenString, %SeenString, %SeenString, %SeenArray, %SeenArray, ptr, ptr, ptr " + rb
                 resolvedLayout = true
             }
             if not resolvedLayout and structName == "ImportPathInfo" {
                 // ImportPathInfo { text: String, segments: Array<String> }
-                structSize = 40  // %SeenString(16) + %SeenArray(24)
+                structSize = 48  // %SeenString(16) + %SeenArray(32) = 48
                 structLayout = lb + " %SeenString, %SeenArray " + rb
                 resolvedLayout = true
             }
@@ -4988,13 +4994,10 @@ class LLVMIRGenerator {
                     return "0"  // void return
                 }
                 if argType == "Int" or receiverType == "Array<Int>" {
-                    // For Int arrays, allocate the Int on the stack and pass a pointer
-                    let intPtrReg = this.getNextReg()
-                    output.append("  " + intPtrReg + " = alloca i64\n")
-                    output.append("  store i64 " + argReg + ", ptr " + intPtrReg + "\n")
-                    let resultReg = this.getNextReg()
-                    output.append("  " + resultReg + " = call i64 @Array_push(ptr " + arrayPtrReg + ", ptr " + intPtrReg + ")\n")
-                    return resultReg
+                    // For Int arrays, pass the value directly (not a stack pointer)
+                    // Using seen_arr_push_i64 which takes i64 by value
+                    output.append("  call void @seen_arr_push_i64(ptr " + arrayPtrReg + ", i64 " + argReg + ")\n")
+                    return "0"  // void return
                 }
                 if argType != "String" and argType != "Int" and receiverType != "Array<Int>" {
                     // For pointer types, use Array_push

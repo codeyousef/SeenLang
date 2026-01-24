@@ -195,8 +195,12 @@ int64_t __ExecuteProgram(SeenString path) {
 }
 
 // Execute command and capture output
-SeenCommandResult __ExecuteCommand(SeenString cmd) {
-    SeenCommandResult result = { false, { 0, "" } };
+// Returns a pointer to a malloc'd SeenCommandResult (to avoid ABI issues with large struct returns)
+SeenCommandResult* __ExecuteCommand(SeenString cmd) {
+    SeenCommandResult* result = (SeenCommandResult*)malloc(sizeof(SeenCommandResult));
+    result->success = false;
+    result->output.len = 0;
+    result->output.data = "";
 
     char* ccmd = (char*)malloc(cmd.len + 1);
     memcpy(ccmd, cmd.data, cmd.len);
@@ -226,9 +230,9 @@ SeenCommandResult __ExecuteCommand(SeenString cmd) {
     output[length] = 0;
 
     int status = pclose(pipe);
-    result.success = (WEXITSTATUS(status) == 0);
-    result.output.len = length;
-    result.output.data = output;
+    result->success = (WEXITSTATUS(status) == 0);
+    result->output.len = length;
+    result->output.data = output;
 
     return result;
 }
@@ -406,6 +410,15 @@ void seen_arr_push_str(SeenArray* arr, SeenString s) {
         arr->data = realloc(arr->data, arr->cap * sizeof(SeenString));
     }
     ((SeenString*)arr->data)[arr->len++] = s;
+}
+
+// Push i64 by value (not pointer) - for Array<Int>
+void seen_arr_push_i64(SeenArray* arr, int64_t val) {
+    if (arr->len >= arr->cap) {
+        arr->cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        arr->data = realloc(arr->data, arr->cap * sizeof(int64_t));
+    }
+    ((int64_t*)arr->data)[arr->len++] = val;
 }
 
 // Generic push for pointer types (e.g., Array<Token>)
@@ -820,8 +833,14 @@ void* Some(void* value) { return value; }
 void* None(void) { return NULL; }
 bool Result_isOkay(void* result) { return result != NULL; }
 SeenString Result_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
-void* FsFileResult_unwrap(void* result) { return result; }
-SeenString FsFileResult_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
+// FsFileResult = { i1 isOk (padded to 8 bytes), ptr file, SeenString error }
+// file is at offset 8, error is at offset 16
+void* FsFileResult_unwrap(void* result) {
+    return *((void**)((char*)result + 8));
+}
+SeenString FsFileResult_unwrapErr(void* result) {
+    return *((SeenString*)((char*)result + 16));
+}
 
 // SeenTokenType is actually i64 (enum), unwrap just returns the value
 int64_t SeenTokenType_unwrap(int64_t value) { return value; }

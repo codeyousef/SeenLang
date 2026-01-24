@@ -21,18 +21,20 @@ impl<'ctx> TypeSystem<'ctx> {
             AstType::Simple(name) => self.get_type_by_name(name),
             AstType::Array(element_type) => {
                 let element_llvm_type = self.convert_type(element_type)?;
-                
+
                 // Dynamic array implementation with runtime-determined size
                 // Arrays are allocated on heap with size tracked at runtime
+                // Layout must match SeenArray in seen_runtime.h: { len, cap, element_size, data }
                 let array_struct_type = self.context.struct_type(
                     &[
-                        self.context.i64_type().into(), // size field
-                        self.context.i64_type().into(), // capacity field
+                        self.context.i64_type().into(), // len field
+                        self.context.i64_type().into(), // cap field
+                        self.context.i64_type().into(), // element_size field
                         self.context.ptr_type(0.into()).into(), // data pointer
                     ],
                     false,
                 );
-                
+
                 Ok(array_struct_type.into())
             },
             AstType::Struct(struct_name) => {

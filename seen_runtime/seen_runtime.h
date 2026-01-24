@@ -171,6 +171,9 @@ SeenArray seen_arr_new_ptr(void);
 // Push string to array
 void seen_arr_push_str(SeenArray* arr, SeenString s);
 
+// Push i64 by value (not pointer) - for Array<Int>
+void seen_arr_push_i64(SeenArray* arr, int64_t val);
+
 // Generic push for pointer types
 void seen_arr_push_ptr(SeenArray* arr, void* p);
 
