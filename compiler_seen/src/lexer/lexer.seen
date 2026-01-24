@@ -37,65 +37,113 @@ class SeenLexer {
         line = 1
         column = 1
         tokens = Array<Token>()
-        
-        // println("[trace tokenize] source.length()=" + source.length().toString())
-        
+
+        println("[lexer] tokenize start, source.length=" + source.length().toString())
+
         // Main tokenization loop
+        var loopIter = 0
         while position < source.length() {
+            loopIter = loopIter + 1
+            if loopIter > 500000 {
+                println("[lexer] Safety break at iter=" + loopIter.toString() + " pos=" + position.toString())
+                break
+            }
+
             let char = this.getCurrentChar()
-            // println("[trace loop] pos=" + position.toString() + " char code=" + char.toInt().toString())
-            
+            let startPos = position
+
+            // Debug: print occasionally
+            if loopIter == 1 or loopIter == 10000 or loopIter == 50000 or loopIter == 100000 or loopIter == 200000 {
+                println("[lexer] iter=" + loopIter.toString() + " pos=" + position.toString() + " char=" + char.toString())
+            }
+
             // Skip whitespace (except newlines for position tracking)
             if this.isWhitespace(char) {
                 this.handleWhitespace(char)
+                if position == startPos {
+                    println("[lexer] BUG: handleWhitespace didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
-            
+
             // Handle comments
             if char == '/' and this.peekChar(1) == '/' {
                 this.handleSingleLineComment()
+                if position == startPos {
+                    println("[lexer] BUG: handleSingleLineComment didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
-            
+
             if char == '/' and this.peekChar(1) == '*' {
                 this.handleMultiLineComment()
+                if position == startPos {
+                    println("[lexer] BUG: handleMultiLineComment didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
-            
+
             // Handle string literals
             if char == '"' {
                 this.handleStringLiteral()
+                if position == startPos {
+                    println("[lexer] BUG: handleStringLiteral didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
 
             // Handle character literals (single-quoted)
             if char == '\'' {
                 this.handleCharLiteral()
+                if position == startPos {
+                    println("[lexer] BUG: handleCharLiteral didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
 
             // Handle numeric literals
             if this.isDigit(char) {
                 this.handleNumericLiteral()
+                if position == startPos {
+                    println("[lexer] BUG: handleNumericLiteral didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
-            
+
             // Handle identifiers and keywords
             if this.isAlpha(char) or char == '_' {
                 this.handleIdentifierOrKeyword()
+                if position == startPos {
+                    println("[lexer] BUG: handleIdentifierOrKeyword didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
-            
+
             // Handle operators and punctuation
             if this.handleOperator() {
+                if position == startPos {
+                    println("[lexer] BUG: handleOperator didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
-            
+
             // Handle single-character tokens
             if this.handleSingleCharToken() {
+                if position == startPos {
+                    println("[lexer] BUG: handleSingleCharToken didn't advance at pos=" + position.toString())
+                    position = position + 1
+                }
                 continue
             }
-            
+
             // Unknown character
             if errorRecoveryMode {
                 this.emitErrorToken(char)
@@ -109,7 +157,8 @@ class SeenLexer {
         
         // Add EOF token
         this.emitToken(SeenTokenType.EndOfFile, "", 0)
-        
+
+        println("[lexer] tokenize complete, tokens=" + tokens.length().toString())
         return tokens
     }
     
@@ -165,12 +214,12 @@ class SeenLexer {
     fun advance() r: Void {
         if position < source.length() {
             if source.charAt(position) == '\n' {
-                line += 1
+                line = line + 1
                 column = 1
             } else {
-                column += 1
+                column = column + 1
             }
-            position += 1
+            position = position + 1
         }
     }
     
@@ -262,7 +311,7 @@ class SeenLexer {
                 valueBuilder.append(this.handleEscapeSequence(escaped))
                 this.advance()
             } else if char == '{' and !this.isInInterpolation() {
-                // Check for escaped brace {{ -> { OR single { at end of string
+                // Check for escaped brace {{ -> { OR single { followed by non-identifier
                 this.advance()
                 if position < source.length() and this.getCurrentChar() == '{' {
                     // Escaped brace - add single { to value
@@ -272,9 +321,16 @@ class SeenLexer {
                     // Single { at end of string - just add it
                     valueBuilder.append("{")
                 } else {
-                    // Start of string interpolation
-                    hasInterpolation = true
-                    break
+                    // Check if what follows looks like the start of an expression
+                    let nextChar = this.getCurrentChar()
+                    let isIdentStart = this.isAlpha(nextChar) or nextChar == '_'
+                    if isIdentStart {
+                        // Start of string interpolation
+                        hasInterpolation = true
+                        break
+                    }
+                    // Not an identifier - treat { as literal
+                    valueBuilder.append("{")
                 }
             } else if char == '}' {
                 // Check for escaped brace }} -> }
@@ -390,16 +446,16 @@ class SeenLexer {
                 // Parse the expression inside braces
                 this.parseInterpolationExpression()
             } else if char == '}' and inExpression {
-                braceLevel -= 1
+                braceLevel = braceLevel - 1
                 if braceLevel == 0 {
                     inExpression = false
                 }
                 this.advance()
             } else if char == '{' and inExpression {
-                braceLevel += 1
+                braceLevel = braceLevel + 1
                 this.advance()
             } else {
-                currentPart += char.toString()
+                currentPart = currentPart + char.toString()
                 this.advance()
             }
         }
@@ -593,7 +649,32 @@ class SeenLexer {
             this.emitToken(SeenTokenType.Arrow, "->", 2)
             return true
         }
-        
+        // Compound assignment operators
+        if char == '+' and nextChar == '=' {
+            this.advance()
+            this.advance()
+            this.emitToken(SeenTokenType.PlusEqual, "+=", 2)
+            return true
+        }
+        if char == '-' and nextChar == '=' {
+            this.advance()
+            this.advance()
+            this.emitToken(SeenTokenType.MinusEqual, "-=", 2)
+            return true
+        }
+        if char == '*' and nextChar == '=' {
+            this.advance()
+            this.advance()
+            this.emitToken(SeenTokenType.MultiplyEqual, "*=", 2)
+            return true
+        }
+        if char == '/' and nextChar == '=' {
+            this.advance()
+            this.advance()
+            this.emitToken(SeenTokenType.DivideEqual, "/=", 2)
+            return true
+        }
+
         // Single-character operators
         let singleCharType = this.getSingleCharOperatorType(char)
         if singleCharType != SeenTokenType.None {

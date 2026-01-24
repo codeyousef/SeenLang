@@ -893,23 +893,11 @@ int64_t indexOf(SeenString text, SeenString needle, int64_t start) {
 }
 
 int64_t StringBuilder_appendChar(void* sb, int64_t ch) {
-    // Stub - StringBuilder should handle this properly
+    StringBuilder* s = (StringBuilder*)sb;
+    SeenString charStr = seen_char_to_str(ch);
+    StringBuilder_append_value(s, charStr);
     return 0;
 }
-
-// ============================================================================
-// RealParser Method Stubs
-// These return empty/default values to allow linking
-// ============================================================================
-
-void RealParser_parseWhileStatementField(void* parser) {}
-void RealParser_parseExpressionStatementField(void* parser) {}
-void RealParser_parseWhileStatementByIdx(void* parser, int64_t idx) {}
-void RealParser_parseExpressionStatementByIdx(void* parser, int64_t idx) {}
-void RealParser_parseWhileStatementInto(void* parser, void* stmt) {}
-void RealParser_parseExpressionStatementInto(void* parser, void* stmt) {}
-void* RealParser_parseWhileStatement(void* parser) { return malloc(256); }
-void* RealParser_parseExpressionStatement(void* parser) { return malloc(256); }
 
 // ============================================================================
 // Main wrapper

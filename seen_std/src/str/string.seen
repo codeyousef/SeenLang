@@ -24,7 +24,7 @@ class StringBuilder {
 
     fun appendChar(ch: Char) r: Void {
         this.totalLength = this.totalLength + 1
-        this.parts.push("{ch}")
+        this.parts.push(ch.toString())
     }
 
     fun appendLine(text: String = "") r: Void {

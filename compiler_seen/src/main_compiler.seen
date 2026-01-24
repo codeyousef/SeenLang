@@ -21,10 +21,15 @@ fun parseModule(path: String, lang: String) r: FrontendResult {
     return result
 }
 
-// Resolve compiler_seen module path to actual file path
+// Resolve module path to actual file path
 fun resolveModulePath(modulePath: String) r: String {
-    // Module paths like "bootstrap.frontend" -> "compiler_seen/src/bootstrap/frontend.seen"
-    var filePath = "compiler_seen/src/"
+    // Determine base path: stdlib modules go to seen_std/src/, compiler modules to compiler_seen/src/
+    var basePath = "compiler_seen/src/"
+    if modulePath.startsWith("str.") or modulePath.startsWith("ffi.") or modulePath.startsWith("core.") or modulePath.startsWith("collections.") or modulePath.startsWith("io.") or modulePath.startsWith("process.") or modulePath.startsWith("env.") {
+        basePath = "seen_std/src/"
+    }
+
+    var filePath = basePath
     var i = 0
     while i < modulePath.length() {
         let c = modulePath.substring(i, i + 1)
