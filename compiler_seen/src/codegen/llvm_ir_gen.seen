@@ -3201,7 +3201,7 @@ class LLVMIRGenerator {
         // Helper vars for building layout strings with braces (avoid parser issues with literal braces in strings)
         let lb = "{"
         let rb = "}"
-        let seenArr = lb + " i64, i64, ptr " + rb  // %SeenArray inline layout
+        let seenArr = lb + " i64, i64, i64, ptr " + rb  // %SeenArray: { len, cap, element_size, data }
 
         // Try registry first
         let structIdx = this.findStruct(structType)

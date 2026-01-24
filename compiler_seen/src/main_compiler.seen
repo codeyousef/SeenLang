@@ -137,11 +137,17 @@ fun getSourceDir(filePath: String) r: String {
     return filePath.substring(0, lastSlash)
 }
 
-// Check if a path is in the array
+// Check if a path is in the array (handles absolute vs relative paths)
 fun containsPath(paths: Array<String>, path: String) r: Bool {
     var i = 0
     while i < paths.length() {
-        if paths[i] == path {
+        let existing = paths[i]
+        // Direct match
+        if existing == path {
+            return true
+        }
+        // Handle absolute vs relative: check if one ends with the other
+        if existing.endsWith(path) or path.endsWith(existing) {
             return true
         }
         i = i + 1
