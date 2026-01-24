@@ -221,6 +221,10 @@ fun compileCommand(inputFile: String, outputFile: String) r: Int {
     // Create generator - registries will persist across both passes
     let generator = LLVMIRGenerator.new()
 
+    // Set type header path for ABI compatibility with Rust bootstrap compiler
+    // The header file is generated with: seen_cli build <file> --emit-type-header seen_types.ll
+    generator.setTypeHeaderPath("seen_types.ll")
+
     // ============================================================
     // PASS 1: Collect module paths and register all declarations
     // ============================================================

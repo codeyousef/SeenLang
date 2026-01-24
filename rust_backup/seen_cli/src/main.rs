@@ -248,6 +248,12 @@ enum Commands {
         /// This injects __seen_push_frame/__seen_pop_frame calls and installs signal handlers.
         #[arg(long = "runtime-debug")]
         runtime_debug: bool,
+
+        /// Emit LLVM type declarations to a header file for use by the Seen compiler.
+        /// This generates a .ll file containing all struct type definitions that can be
+        /// included verbatim in Seen-generated LLVM IR to ensure ABI compatibility.
+        #[arg(long = "emit-type-header")]
+        emit_type_header: Option<PathBuf>,
     },
 
     /// Generate IR twice and compare SHA-256 hashes (determinism check)
@@ -829,6 +835,7 @@ fn main() -> SeenResult<()> {
             dump_struct_layouts,
             debug_mode,
             runtime_debug,
+            emit_type_header,
         }) => {
             // --debug implies all debug flags
             let trace_llvm = trace_llvm || debug_mode;
@@ -912,6 +919,7 @@ fn main() -> SeenResult<()> {
                         trace_llvm,
                         dump_struct_layouts,
                         runtime_debug,
+                        emit_type_header.as_ref(),
                     )?;
                 }
                 Backend::Ir => {
@@ -1843,6 +1851,7 @@ fn compile_file_llvm(
     trace_llvm: bool,
     dump_struct_layouts: bool,
     runtime_debug: bool,
+    emit_type_header: Option<&PathBuf>,
 ) -> SeenResult<()> {
     println!(
         "Compiling {} with optimization level {} (LLVM)",
@@ -2060,7 +2069,29 @@ fn compile_file_llvm(
             backend.set_runtime_debug(true);
             eprintln!("[RUNTIME DEBUG] Function call tracing and signal handlers enabled");
         }
-        
+
+        // Handle --emit-type-header: emit type declarations and exit early
+        if let Some(header_path) = emit_type_header {
+            // Lower the IR to register all struct types
+            backend.lower_program(&optimized_ir).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Ir,
+                    format!("Failed to lower IR for type header: {:?}", err),
+                )
+            })?;
+
+            // Emit the type header
+            backend.emit_type_header(header_path).map_err(|err| {
+                SeenError::new(
+                    SeenErrorKind::Io,
+                    format!("Failed to emit type header to {}: {}", header_path.display(), err),
+                )
+            })?;
+
+            println!("Emitted type header to: {}", header_path.display());
+            return Ok(());
+        }
+
         let default_target = if emit_ll {
             PathBuf::from("a.ll")
         } else {
@@ -3976,6 +4007,7 @@ fn run_file_llvm(
         false, // no tracing for run command
         false, // no struct layout dump for run command
         false, // no runtime debug for run command (use --debug to enable)
+        None,  // no type header emission for run command
     )?;
     let mut cmd = Command::new(&artifact);
     if let Some(parent) = input.parent() {
