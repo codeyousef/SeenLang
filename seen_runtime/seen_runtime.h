@@ -29,20 +29,19 @@ typedef struct {
 typedef struct {
     bool success;
     SeenString output;
-    int exitCode;
 } CommandResult;
 
 typedef struct {
     bool success;
-    SeenArray diagnostics;
+    SeenArray* diagnostics;
     void* program;  // Opaque pointer to parsed program
 } FrontendResult;
 
 typedef struct {
-    SeenString severity;
     SeenString file;
     int64_t line;
     int64_t column;
+    SeenString severity;
     SeenString message;
 } FrontendDiagnostic;
 
@@ -168,6 +167,15 @@ SeenArray seen_arr_new_str(void);
 // Create empty pointer array
 SeenArray seen_arr_new_ptr(void);
 
+// Create heap-allocated string array
+SeenArray* seen_arr_new_str_ptr(void);
+
+// Create heap-allocated pointer array
+SeenArray* seen_arr_new_ptr_ptr(void);
+
+// Create array with custom element_size (for data types)
+SeenArray* seen_arr_new_with_size_ptr(int64_t element_size);
+
 // Push string to array
 void seen_arr_push_str(SeenArray* arr, SeenString s);
 
@@ -181,10 +189,13 @@ void seen_arr_push_ptr(SeenArray* arr, void* p);
 int64_t Array_push(SeenArray* arr, void* element);
 
 // Get FrontendDiagnostic from array
-FrontendDiagnostic seen_arr_get_diag(SeenArray a, int64_t idx);
+FrontendDiagnostic* seen_arr_get_diag(SeenArray a, int64_t idx);
 
-// Generic get for pointer types
+// Generic get for pointer types (arrays of pointers - class types)
 void* seen_arr_get_ptr(SeenArray a, int64_t idx);
+
+// Generic get for inline elements (data types stored by value)
+void* seen_arr_get_element(SeenArray a, int64_t idx);
 
 // ============================================================================
 // Print Functions
@@ -234,7 +245,7 @@ void seen_runtime_init(int argc, char** argv);
 // ============================================================================
 
 typedef struct {
-    SeenArray parts;
+    SeenArray* parts;
     int64_t totalLength;
 } StringBuilder;
 
@@ -248,14 +259,14 @@ void StringBuilder_clear_impl(void* sb);
 
 // Helper inline version for code that uses value-based StringBuilder
 static inline StringBuilder StringBuilder_new_value(void) {
-    StringBuilder sb = { seen_arr_new_str(), 0 };
+    StringBuilder sb = { seen_arr_new_str_ptr(), 0 };
     return sb;
 }
 
 static inline void StringBuilder_append_value(StringBuilder* sb, SeenString text) {
     if (text.len == 0) return;
     sb->totalLength += text.len;
-    seen_arr_push_str(&sb->parts, text);
+    seen_arr_push_str(sb->parts, text);
 }
 
 static inline void StringBuilder_appendLine(StringBuilder* sb, SeenString text) {
@@ -264,15 +275,15 @@ static inline void StringBuilder_appendLine(StringBuilder* sb, SeenString text) 
 }
 
 static inline void StringBuilder_clear(StringBuilder* sb) {
-    sb->parts.len = 0;
+    sb->parts->len = 0;
     sb->totalLength = 0;
 }
 
 static inline SeenString StringBuilder_toString_value(StringBuilder* sb) {
     char* data = (char*)malloc(sb->totalLength + 1);
     char* ptr = data;
-    for (int64_t i = 0; i < sb->parts.len; i++) {
-        SeenString part = ((SeenString*)sb->parts.data)[i];
+    for (int64_t i = 0; i < sb->parts->len; i++) {
+        SeenString part = ((SeenString*)sb->parts->data)[i];
         memcpy(ptr, part.data, part.len);
         ptr += part.len;
     }

@@ -140,11 +140,20 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             _ => None
         }.or_else(|| {
             // Use element_type from instruction as fallback
-            if let Some(IRType::Struct { name, .. }) = instruction_element_type {
-                eprintln!("DEBUG ArrayAccess: using instruction_element_type fallback: {}", name);
-                Some(name.clone())
-            } else {
-                None
+            match instruction_element_type {
+                Some(IRType::Struct { name, .. }) => {
+                    eprintln!("DEBUG ArrayAccess: using instruction_element_type fallback: {}", name);
+                    Some(name.clone())
+                }
+                Some(IRType::Enum { name, .. }) => {
+                    eprintln!("DEBUG ArrayAccess: using instruction_element_type fallback: {}", name);
+                    Some(name.clone())
+                }
+                Some(IRType::String) => {
+                    eprintln!("DEBUG ArrayAccess: using instruction_element_type fallback: String");
+                    Some("String".to_string())
+                }
+                _ => None,
             }
         });
         
@@ -237,7 +246,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 
                 // Handle generic type parameters (T, E, K, V, etc.)
                 // These are unresolved at codegen time, so we need to use a fallback strategy
-                let is_generic_param = struct_type_name.len() == 1 && struct_type_name.chars().next().map_or(false, |c| c.is_uppercase());
+                let base_type = struct_type_name
+                    .rsplit(&['.', ':'][..])
+                    .find(|part| !part.is_empty())
+                    .unwrap_or(struct_type_name);
+                let is_generic_param = matches!(
+                    base_type,
+                    "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B"
+                );
                 
                 // Resolve the LLVM struct type, handling the built-in String explicitly
                 let llvm_struct_ty = if struct_type_name == "String" {
@@ -945,7 +961,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                         self.reg_struct_types.insert(*reg_id, inst_field_struct_name.clone());
 
                         // Mark generic type fields (T, K, V, E with empty fields) as boxed generic
-                        let is_generic = matches!(inst_field_struct_name.as_str(), "T" | "K" | "V" | "E") && inst_struct_fields.is_empty();
+                        let base_inst_field = inst_field_struct_name
+                            .rsplit(&['.', ':'][..])
+                            .find(|part| !part.is_empty())
+                            .unwrap_or(inst_field_struct_name.as_str());
+                        let is_generic = matches!(
+                            base_inst_field,
+                            "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B"
+                        ) && inst_struct_fields.is_empty();
                         if is_generic {
                             if self.trace_options.trace_boxing {
                                 eprintln!("[BOXING] FieldAccess {}.{} is generic type '{}' - marking Register({}) as boxed generic (from instruction)",
@@ -992,7 +1015,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
 
                                 // Mark generic type fields (T, K, V, E with empty fields) as boxed generic
                                 // These are stored as ptr-as-int and need unboxing on use
-                                let is_generic = matches!(field_struct_name.as_str(), "T" | "K" | "V" | "E") && struct_fields.is_empty();
+                                let base_field_type = field_struct_name
+                                    .rsplit(&['.', ':'][..])
+                                    .find(|part| !part.is_empty())
+                                    .unwrap_or(field_struct_name.as_str());
+                                let is_generic = matches!(
+                                    base_field_type,
+                                    "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B"
+                                ) && struct_fields.is_empty();
                                 if is_generic {
                                     if self.trace_options.trace_boxing {
                                         eprintln!("[BOXING] FieldAccess {}.{} is generic type '{}' - marking Register({}) as boxed generic", type_name, field, field_struct_name, reg_id);
@@ -1042,7 +1072,15 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             } else {
                 // Check if this is a generic type placeholder (T, K, V, E)
                 // Generic placeholders are not registered as concrete types - handle them as boxed values
-                let is_generic_placeholder = matches!(type_name.as_str(), "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B");
+                let base_type = type_name
+                    .rsplit(&['.', ':'][..])
+                    .find(|part| !part.is_empty())
+                    .unwrap_or(type_name)
+                    .trim();
+                let is_generic_placeholder = matches!(
+                    base_type,
+                    "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B"
+                );
                 if is_generic_placeholder {
                     if self.trace_options.trace_boxing {
                         eprintln!("[BOXING] FieldAccess on generic placeholder '{}' - treating as boxed value", type_name);

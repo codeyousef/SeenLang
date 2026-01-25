@@ -611,7 +611,7 @@ class CGenerator {
                     arrayName = arrayExpr.variableName
                 }
                 if arrayName == "diagnostics" {
-                    sb.append("seen_arr_get_diag(")
+                    sb.append("*seen_arr_get_diag(")
                 } else {
                     sb.append("seen_arr_get_str(")
                 }

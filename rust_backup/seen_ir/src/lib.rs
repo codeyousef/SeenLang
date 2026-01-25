@@ -27,6 +27,7 @@ pub mod llvm;
 pub mod module;
 pub mod monomorphize;
 pub mod optimizer;
+pub mod runtime_decls;
 pub mod value;
 
 // Re-export main types

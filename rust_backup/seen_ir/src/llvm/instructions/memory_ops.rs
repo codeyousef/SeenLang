@@ -98,10 +98,28 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
                     }
                     // Propagate array element struct type info
                     if let Some(elem_struct) = self.reg_array_element_struct.get(reg_id) {
-                        if self.trace_options.trace_boxing {
-                            eprintln!("[BOXING] emit_store propagating array element type '{}' from reg {} to var '{}'", elem_struct, reg_id, var_name);
+                        let is_generic_name = |type_name: &str| {
+                            let base = type_name
+                                .rsplit(&['.', ':'][..])
+                                .find(|part| !part.is_empty())
+                                .unwrap_or(type_name);
+                            matches!(
+                                base,
+                                "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B"
+                            )
+                        };
+                        let is_generic_new = is_generic_name(elem_struct);
+                        let keep_existing = self
+                            .var_array_element_struct
+                            .get(var_name)
+                            .map(|existing| !is_generic_name(existing) && is_generic_new)
+                            .unwrap_or(false);
+                        if !keep_existing {
+                            if self.trace_options.trace_boxing {
+                                eprintln!("[BOXING] emit_store propagating array element type '{}' from reg {} to var '{}'", elem_struct, reg_id, var_name);
+                            }
+                            self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
                         }
-                        self.var_array_element_struct.insert(var_name.clone(), elem_struct.clone());
                     }
                     // Propagate Option inner type info
                     // This applies in two cases:
@@ -184,6 +202,24 @@ impl<'ctx> MemoryOps<'ctx> for LlvmBackend<'ctx> {
         dest: &IRValue,
         fn_map: &HashMap<String, FunctionValue<'ctx>>,
     ) -> Result<()> {
+        // Propagate array/struct type info when loading a variable into a register.
+        if let (IRValue::Variable(src_name), IRValue::Register(reg_id)) = (source, dest) {
+            if let Some(struct_name) = self.var_struct_types.get(src_name) {
+                self.reg_struct_types.insert(*reg_id, struct_name.clone());
+            }
+            if let Some(elem_struct) = self.var_array_element_struct.get(src_name) {
+                self.reg_array_element_struct.insert(*reg_id, elem_struct.clone());
+            }
+            if self.var_is_int_array.contains(src_name) {
+                self.reg_is_int_array.insert(*reg_id);
+            }
+            if let Some(inner_type) = self.var_option_inner_type.get(src_name) {
+                self.reg_option_inner_type.insert(*reg_id, inner_type.clone());
+            }
+            if self.var_is_boxed_generic.contains(src_name) {
+                self.reg_is_boxed_generic.insert(*reg_id);
+            }
+        }
         let v = self.eval_value(source, fn_map)?;
         self.assign_value(dest, v)?;
         Ok(())

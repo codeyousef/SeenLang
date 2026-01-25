@@ -1,28 +1,15 @@
 import collections.map.{Map}
+import core.option.{Option}
 
-extern fun __Print(s: String)
-extern fun __PrintInt(n: Int)
-
-fun main() {
-    __Print("Step 1: creating map\n")
-    var m = Map<String, Int>.new()
-    __Print("Step 2: map created\n")
-    
-    __Print("Step 3: putting key\n")
-    m.put("hello", 42)
-    __Print("Step 4: put done\n")
-    
-    __Print("Step 5: getting key\n")
-    let v = m.get("hello")
-    __Print("Step 6: get done\n")
-    
-    if v.isSome {
-        __Print("Got: ")
-        __PrintInt(v.unwrap())
-        __Print("\n")
-    } else {
-        __Print("Not found\n")
-    }
-    
-    __Print("Done!\n")
+fun main() r: Int {
+    println("Creating map...")
+    var map: Map<String, Int> = Map.new()
+    println("Adding entries...")
+    map.put("hello", 1)
+    println("Added 1")
+    map.put("world", 2)
+    println("Added 2")
+    let len = map.size()
+    println("Map size: " + len.toString())
+    return 0
 }

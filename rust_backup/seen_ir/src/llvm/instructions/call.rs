@@ -1421,110 +1421,6 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     // self.builder.build_unreachable()?;
                     return Ok(());
                 }
-                "__ArrayNew" => {
-                    // Create a new dynamic array with given capacity
-                    // Array layout: { i64 len, i64 capacity, i64 element_size, i8* data_ptr }
-                    // args: [element_size, capacity]
-
-                    eprintln!("[DEBUG __ArrayNew] args.len()={}, args={:?}", args.len(), args);
-
-                    // Use capacity from second argument if available, otherwise first (legacy/fallback)
-                    let cap_arg = if args.len() >= 2 {
-                        &args[1]
-                    } else {
-                        args.get(0).ok_or_else(|| anyhow!("__ArrayNew requires arguments"))?
-                    };
-
-                    let capacity = self.eval_value(cap_arg, fn_map)?;
-                    let cap_i64 = self.as_i64(capacity)?;
-
-                    // Ensure minimum capacity of 4 to avoid malloc(0) and reduce reallocs
-                    let min_cap = self.i64_t.const_int(4, false);
-                    let is_zero = self.builder.build_int_compare(inkwell::IntPredicate::EQ, cap_i64, self.i64_t.const_zero(), "is_zero")?;
-                    let alloc_cap = self.builder.build_select(is_zero, min_cap.as_basic_value_enum(), cap_i64.as_basic_value_enum(), "alloc_cap")?.into_int_value();
-
-                        // Allocate header (32 bytes for { len, cap, element_size, data_ptr })
-                        let header_size = self.i64_t.const_int(32, false);
-                        let malloc = self.get_malloc();
-                        let header_ptr = self.builder.build_call(malloc, &[header_size.into()], "arr_header_alloc")?
-                            .try_as_basic_value().left()
-                            .ok_or_else(|| anyhow!("malloc returned void"))?
-                            .into_pointer_value();
-
-                        // Get element size from first argument
-                        let elem_size = if args.len() >= 2 {
-                            let sz_val = self.eval_value(&args[0], fn_map)?;
-                            // Debug: check what the SizeOf evaluated to
-                            if let Some(const_val) = sz_val.into_int_value().get_zero_extended_constant() {
-                                eprintln!("[DEBUG __ArrayNew] element_size constant = {}", const_val);
-                            } else {
-                                eprintln!("[DEBUG __ArrayNew] element_size is not a constant");
-                            }
-                            self.as_i64(sz_val)?
-                        } else {
-                            eprintln!("[DEBUG __ArrayNew] using default element_size=8");
-                            self.i64_t.const_int(8, false)
-                        };
-
-                        // Allocate data buffer
-                        let data_size = self.builder.build_int_mul(alloc_cap, elem_size, "data_size")?;
-                        let data_ptr = self.builder.build_call(malloc, &[data_size.into()], "arr_data_alloc")?
-                            .try_as_basic_value().left()
-                            .ok_or_else(|| anyhow!("malloc returned void"))?
-                            .into_pointer_value();
-
-                        // Store length = 0 at index 0
-                        let len_ptr = self.builder.build_pointer_cast(
-                            header_ptr,
-                            self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "len_ptr"
-                        )?;
-                        self.builder.build_store(len_ptr, self.i64_t.const_zero())?;
-
-                        // Store capacity at index 1
-                        let cap_ptr = unsafe {
-                            self.builder.build_gep(
-                                self.i64_t,
-                                len_ptr,
-                                &[self.i64_t.const_int(1, false)],
-                                "cap_ptr"
-                            )?
-                        };
-                        self.builder.build_store(cap_ptr, alloc_cap)?;
-
-                        // Store element_size at index 2 - CRITICAL for generic push operations
-                        let elem_size_ptr = unsafe {
-                            self.builder.build_gep(
-                                self.i64_t,
-                                len_ptr,
-                                &[self.i64_t.const_int(2, false)],
-                                "elem_size_ptr"
-                            )?
-                        };
-                        self.builder.build_store(elem_size_ptr, elem_size)?;
-                        eprintln!("[DEBUG __ArrayNew] stored element_size at index 2");
-
-                        // Store data pointer at index 3
-                        let data_ptr_ptr = unsafe {
-                            self.builder.build_gep(
-                                self.i64_t,
-                                len_ptr,
-                                &[self.i64_t.const_int(3, false)],
-                                "data_ptr_ptr"
-                            )?
-                        };
-                        let data_ptr_ptr_casted = self.builder.build_pointer_cast(
-                            data_ptr_ptr,
-                            self.ctx.ptr_type(inkwell::AddressSpace::from(0u16)),
-                            "data_ptr_ptr_casted"
-                        )?;
-                        self.builder.build_store(data_ptr_ptr_casted, data_ptr)?;
-
-                        if let Some(r) = result {
-                            self.assign_value(r, header_ptr.as_basic_value_enum())?;
-                        }
-                        return Ok(());
-                }
                 // Note: Vec_push must NOT be handled here - Vec has a different layout
                 // than Array ({ chunks, capacities, usage, length, totalCapacity, nextChunkSize }
                 // vs { length, capacity, data }). Vec_push must call the actual Vec_push function.
@@ -2665,11 +2561,43 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
 
                     // Check if we're pushing a non-class struct (data struct)
                     // These should be stored by value, not as pointers
-                    let element_struct_type = match &args[0] {
+                    let mut element_struct_type = match &args[0] {
                         IRValue::Variable(var_name) => self.var_array_element_struct.get(var_name).cloned(),
                         IRValue::Register(reg_id) => self.reg_array_element_struct.get(reg_id).cloned(),
                         _ => None,
                     };
+                    // If element type is unknown but we're pushing a String, record it now.
+                    if element_struct_type.is_none() {
+                        let is_string_arg = match &args[1] {
+                            IRValue::String(_) => true,
+                            IRValue::Variable(name) => {
+                                self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false)
+                            }
+                            IRValue::Register(reg_id) => {
+                                self.reg_struct_types.get(reg_id).map(|t| t == "String").unwrap_or(false)
+                            }
+                            _ => false,
+                        };
+                        if is_string_arg {
+                            if let IRValue::Variable(var_name) = &args[0] {
+                                self.var_array_element_struct.insert(var_name.clone(), "String".to_string());
+                            }
+                            if let IRValue::Register(reg_id) = &args[0] {
+                                self.reg_array_element_struct.insert(*reg_id, "String".to_string());
+                            }
+                            element_struct_type = Some("String".to_string());
+                        }
+                    }
+                    let is_generic_elem = element_struct_type.as_ref().map(|t| {
+                        let base = t
+                            .rsplit(&['.', ':'][..])
+                            .find(|part| !part.is_empty())
+                            .unwrap_or(t.as_str());
+                        matches!(
+                            base,
+                            "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B"
+                        )
+                    }).unwrap_or(false);
                     let is_non_class_struct = element_struct_type.as_ref()
                         .map(|t| !self.class_types.contains(t) && self.struct_types.contains_key(t))
                         .unwrap_or(false);
@@ -2682,11 +2610,32 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         else if item_val.is_int_value() { "int" }
                         else { "other" });
                     let (item_ptr, item_size_val) = if item_val.is_struct_value() {
-                         let size = item_val.get_type().size_of().unwrap();
-                         eprintln!("[DEBUG Array_push] struct_value path, size={:?}", size);
-                         let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
-                         self.builder.build_store(tmp, item_val)?;
-                         (tmp, size)
+                         if is_generic_elem {
+                             // Generic arrays store pointers-as-int. Box the struct and push the pointer.
+                             let ty = item_val.get_type().as_basic_type_enum();
+                             let size = ty.size_of().unwrap();
+                             let malloc = self.get_malloc();
+                             let heap_ptr = self.builder.build_call(malloc, &[size.into()], "generic_box_alloc")?
+                                 .try_as_basic_value().left()
+                                 .ok_or_else(|| anyhow!("malloc returned void"))?
+                                 .into_pointer_value();
+                             let typed_ptr = self.builder.build_pointer_cast(
+                                 heap_ptr,
+                                 self.ctx.ptr_type(AddressSpace::default()),
+                                 "generic_box_ptr",
+                             )?;
+                             self.builder.build_store(typed_ptr, item_val)?;
+                             let ptr_as_int = self.builder.build_ptr_to_int(heap_ptr, self.i64_t, "generic_box_ptr2i")?;
+                             let tmp = self.alloca_for_type(self.i64_t.into(), "item_tmp")?;
+                             self.builder.build_store(tmp, ptr_as_int)?;
+                             (tmp, self.i64_t.const_int(8, false))
+                         } else {
+                             let size = item_val.get_type().size_of().unwrap();
+                             eprintln!("[DEBUG Array_push] struct_value path, size={:?}", size);
+                             let tmp = self.alloca_for_type(item_val.get_type().as_basic_type_enum(), "item_tmp")?;
+                             self.builder.build_store(tmp, item_val)?;
+                             (tmp, size)
+                         }
                     } else if item_val.is_pointer_value() && is_non_class_struct {
                          // For non-class structs (data structs), load the struct from pointer
                          // and store by value
@@ -2789,6 +2738,32 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                          (tmp, elem_size)
                     };
                     
+                    // If element type is generic/unknown, box struct values when array stores pointers (size 8)
+                    let mut boxed_item_ptr: Option<inkwell::values::PointerValue<'ctx>> = None;
+                    if element_struct_type.is_none() && item_val.is_struct_value() {
+                        let struct_val = item_val.into_struct_value();
+                        let struct_ty = struct_val.get_type();
+                        let struct_size = struct_ty.size_of().unwrap();
+                        let struct_size_i64 = self.builder.build_int_z_extend(struct_size, self.i64_t, "boxed_sz")?;
+                        let malloc = self.get_malloc();
+                        let heap_ptr = self.builder
+                            .build_call(malloc, &[struct_size_i64.into()], "boxed_alloc")?
+                            .try_as_basic_value()
+                            .left()
+                            .ok_or_else(|| anyhow!("boxed_alloc returned void"))?
+                            .into_pointer_value();
+                        let heap_ptr_typed = self.builder.build_pointer_cast(
+                            heap_ptr,
+                            struct_ty.ptr_type(AddressSpace::default()),
+                            "boxed_ptr",
+                        )?;
+                        self.builder.build_store(heap_ptr_typed, struct_val)?;
+                        let ptr_as_int = self.builder.build_ptr_to_int(heap_ptr, self.i64_t, "boxed_ptr2i")?;
+                        let tmp = self.alloca_for_type(self.i64_t.into(), "boxed_tmp")?;
+                        self.builder.build_store(tmp, ptr_as_int)?;
+                        boxed_item_ptr = Some(self.builder.build_pointer_cast(tmp, self.i8_ptr_t, "boxed_item_ptr")?);
+                    }
+
                     // Cast item_ptr to i8*
                     let item_ptr_i8 = self.builder.build_pointer_cast(item_ptr, self.i8_ptr_t, "item_ptr_i8")?;
 
@@ -2824,6 +2799,24 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     // but the actual element (e.g., String) is 16 bytes
                     let final_elem_size = stored_elem_size;
 
+                    let final_item_ptr = if let Some(boxed_ptr) = boxed_item_ptr {
+                        let is_size_8 = self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ,
+                            stored_elem_size,
+                            self.i64_t.const_int(8, false),
+                            "is_elem_size_8",
+                        )?;
+                        let selected = self.builder.build_select(
+                            is_size_8,
+                            boxed_ptr.as_basic_value_enum(),
+                            item_ptr_i8.as_basic_value_enum(),
+                            "item_ptr_sel",
+                        )?;
+                        selected.into_pointer_value()
+                    } else {
+                        item_ptr_i8
+                    };
+
                     // Declare __ArrayPush if needed
                     let array_push_fn = self.module.get_function("__ArrayPush").unwrap_or_else(|| {
                         let fn_type = self.ctx.i32_type().fn_type(&[
@@ -2835,7 +2828,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     });
 
                     // Pass the actual array pointer (not the variable slot) to __ArrayPush
-                    self.builder.build_call(array_push_fn, &[actual_arr_ptr.into(), item_ptr_i8.into(), final_elem_size.into()], "push_res")?;
+                    self.builder.build_call(array_push_fn, &[actual_arr_ptr.into(), final_item_ptr.into(), final_elem_size.into()], "push_res")?;
 
                     return Ok(());
                 }
@@ -3992,6 +3985,16 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         let loaded = self.builder.build_load(expected_ty, ptr, "struct_load")?;
                         call_args.push(loaded.into());
                         pushed = true;
+                    } else if v.is_int_value() {
+                        // Int (ptr-as-int) -> Struct (Load)
+                        let ptr = self.builder.build_int_to_ptr(
+                            v.into_int_value(),
+                            self.ctx.ptr_type(AddressSpace::default()),
+                            "struct_ptr",
+                        )?;
+                        let loaded = self.builder.build_load(expected_ty, ptr, "struct_load")?;
+                        call_args.push(loaded.into());
+                        pushed = true;
                     }
                 }
                 // Case 3: Function expects Int (Legacy Vec support or standard int arg)
@@ -4388,6 +4391,30 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                 }
                 
                 if let Some(name) = func_name {
+                    if name == "__ArrayNew" {
+                        let elem_struct = args.get(0).and_then(|arg| {
+                            if let IRValue::SizeOf(ty) = arg {
+                                match ty {
+                                    crate::value::IRType::String => Some("String".to_string()),
+                                    crate::value::IRType::Struct { name, .. } => Some(name.clone()),
+                                    crate::value::IRType::Enum { name, .. } => Some(name.clone()),
+                                    crate::value::IRType::Generic(name) => Some(name.clone()),
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(elem_struct) = elem_struct {
+                            // Track element type so ArrayAccess loads the correct element layout.
+                            if let IRValue::Register(reg_id) = r {
+                                self.reg_array_element_struct.insert(*reg_id, elem_struct);
+                            } else if let IRValue::Variable(var_name) = r {
+                                self.var_array_element_struct.insert(var_name.clone(), elem_struct);
+                            }
+                        }
+                    }
+
                     // Try both underscore and dot naming conventions
                     // Calls use TypeName_method but definitions might use TypeName.method
                     let alt_name = if name.contains('_') {
@@ -4453,7 +4480,25 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         .or_else(|| alt_name.as_ref().and_then(|alt| self.fn_return_array_element_struct.get(alt).cloned()));
                     if let Some(elem_struct) = elem_struct {
                         if let IRValue::Register(reg_id) = r {
-                            self.reg_array_element_struct.insert(*reg_id, elem_struct.clone());
+                            let is_generic_name = |type_name: &str| {
+                                let base = type_name
+                                    .rsplit(&['.', ':'][..])
+                                    .find(|part| !part.is_empty())
+                                    .unwrap_or(type_name);
+                                matches!(
+                                    base,
+                                    "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B"
+                                )
+                            };
+                            let is_generic_new = is_generic_name(&elem_struct);
+                            let keep_existing = self
+                                .reg_array_element_struct
+                                .get(reg_id)
+                                .map(|existing| !is_generic_name(existing) && is_generic_new)
+                                .unwrap_or(false);
+                            if !keep_existing {
+                                self.reg_array_element_struct.insert(*reg_id, elem_struct.clone());
+                            }
                         }
                     }
                     
@@ -4533,8 +4578,14 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                     self.reg_struct_types.insert(*reg_id, inner_type.clone());
 
                                     // Check if this is a generic type parameter (single uppercase letter or common generics)
-                                    let is_generic_param = matches!(inner_type.as_str(),
-                                        "T" | "V" | "K" | "T1" | "T2" | "U" | "R" | "E" | "A" | "B");
+                                    let inner_base = inner_type
+                                        .rsplit(&['.', ':'][..])
+                                        .find(|part| !part.is_empty())
+                                        .unwrap_or(inner_type.as_str());
+                                    let is_generic_param = matches!(
+                                        inner_base,
+                                        "T" | "V" | "K" | "T1" | "T2" | "U" | "R" | "E" | "A" | "B"
+                                    );
 
                                     // Check if this is an enum type
                                     let is_enum_type = self.enum_types.contains_key(&inner_type);

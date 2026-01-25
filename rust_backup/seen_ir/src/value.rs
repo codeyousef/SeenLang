@@ -93,6 +93,14 @@ impl IRType {
 
     /// Get the size in bytes of this type (for code generation)
     pub fn size_bytes(&self) -> usize {
+        fn align_up(value: usize, align: usize) -> usize {
+            if align <= 1 {
+                value
+            } else {
+                (value + align - 1) & !(align - 1)
+            }
+        }
+
         match self {
             IRType::Void => 0,
             IRType::Integer => 8, // 64-bit integers
@@ -106,31 +114,88 @@ impl IRType {
                 lane_type.size_bytes().saturating_mul(*lanes as usize)
             }
             IRType::Struct { fields, .. } => {
-                // Calculate actual struct size from field types
-                fields
-                    .iter()
-                    .map(|(_, field_type)| field_type.size_bytes())
-                    .sum()
+                let mut size = 0usize;
+                let mut max_align = 1usize;
+                for (_, field_type) in fields {
+                    let align = field_type.align_bytes();
+                    max_align = max_align.max(align);
+                    size = align_up(size, align);
+                    size = size.saturating_add(field_type.size_bytes());
+                }
+                align_up(size, max_align)
             }
             IRType::Enum { variants, .. } => {
-                // Calculate enum size as tag + largest variant
-                let tag_size = 8; // Discriminant tag
-                let largest_variant = variants
-                    .iter()
-                    .map(|(_, fields)| {
-                        fields
-                            .as_ref()
-                            .map(|f| f.iter().map(|t| t.size_bytes()).sum())
-                            .unwrap_or(0)
-                    })
-                    .max()
-                    .unwrap_or(0);
-                tag_size + largest_variant
+                let tag_size = 8usize;
+                let tag_align = 8usize;
+                let mut variant_size = 0usize;
+                let mut variant_align = 1usize;
+                for (_, fields) in variants {
+                    if let Some(field_types) = fields {
+                        let mut v_size = 0usize;
+                        let mut v_align = 1usize;
+                        for t in field_types {
+                            let align = t.align_bytes();
+                            v_align = v_align.max(align);
+                            v_size = align_up(v_size, align);
+                            v_size = v_size.saturating_add(t.size_bytes());
+                        }
+                        v_size = align_up(v_size, v_align);
+                        if v_size > variant_size {
+                            variant_size = v_size;
+                        }
+                        if v_align > variant_align {
+                            variant_align = v_align;
+                        }
+                    }
+                }
+                let mut size = 0usize;
+                size = align_up(size, tag_align);
+                size = size.saturating_add(tag_size);
+                size = align_up(size, variant_align);
+                size = size.saturating_add(variant_size);
+                align_up(size, tag_align.max(variant_align))
             }
             IRType::Pointer(_) => 8,
             IRType::Reference(_) => 8,
-            IRType::Optional(_) => 9, // 8 bytes for value + 1 byte for null flag
+            IRType::Optional(inner) => {
+                let tag_size = 1usize;
+                let tag_align = 1usize;
+                let val_align = inner.align_bytes();
+                let mut size = 0usize;
+                size = align_up(size, tag_align);
+                size = size.saturating_add(tag_size);
+                size = align_up(size, val_align);
+                size = size.saturating_add(inner.size_bytes());
+                align_up(size, tag_align.max(val_align))
+            }
             IRType::Generic(_) => 8,  // Default size for generic types
+        }
+    }
+
+    fn align_bytes(&self) -> usize {
+        match self {
+            IRType::Void => 1,
+            IRType::Boolean | IRType::Char => 1,
+            IRType::Integer | IRType::Float | IRType::String | IRType::Array(_) | IRType::Function { .. } => 8,
+            IRType::Vector { lane_type, .. } => lane_type.align_bytes(),
+            IRType::Struct { fields, .. } => fields
+                .iter()
+                .map(|(_, field_type)| field_type.align_bytes())
+                .max()
+                .unwrap_or(1),
+            IRType::Enum { variants, .. } => {
+                let mut align = 8usize;
+                for (_, fields) in variants {
+                    if let Some(field_types) = fields {
+                        for t in field_types {
+                            align = align.max(t.align_bytes());
+                        }
+                    }
+                }
+                align
+            }
+            IRType::Pointer(_) | IRType::Reference(_) | IRType::Generic(_) => 8,
+            IRType::Optional(inner) => inner.align_bytes(),
         }
     }
 

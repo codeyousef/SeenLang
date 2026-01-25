@@ -383,6 +383,10 @@ SeenString trim(SeenString text) {
 // ============================================================================
 
 SeenString seen_arr_get_str(SeenArray a, int64_t idx) {
+    if (a.element_size != (int64_t)sizeof(SeenString)) {
+        fprintf(stderr, "seen_arr_get_str: element_size mismatch (%ld)\n", (long)a.element_size);
+        abort();
+    }
     if (idx < 0 || idx >= a.len) {
         SeenString empty = { 0, "" };
         return empty;
@@ -403,10 +407,59 @@ SeenArray seen_arr_new_ptr(void) {
     return arr;
 }
 
+// Heap-allocated versions that return ptr for LLVM ABI compatibility
+SeenArray* seen_arr_new_str_ptr(void) {
+    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    arr->data = malloc(8 * sizeof(SeenString));
+    arr->len = 0;
+    arr->cap = 8;
+    arr->element_size = sizeof(SeenString);
+    return arr;
+}
+
+SeenArray* seen_arr_new_ptr_ptr(void) {
+    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    arr->data = malloc(8 * sizeof(void*));
+    arr->len = 0;
+    arr->cap = 8;
+    arr->element_size = sizeof(void*);
+    return arr;
+}
+
+// Create array with custom element_size (for data types like ItemNode)
+SeenArray* seen_arr_new_with_size_ptr(int64_t element_size) {
+    SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
+    if (element_size <= 0 || element_size > 4096) {
+        fprintf(stderr, "seen_arr_new_with_size_ptr: invalid element_size=%ld\n", (long)element_size);
+        abort();
+    }
+    if (element_size != 16 && element_size != 24 && element_size != 32 && element_size != 48 && element_size != 88) {
+        fprintf(stderr, "seen_arr_new_with_size_ptr: unexpected element_size=%ld\n", (long)element_size);
+    }
+    arr->data = malloc(8 * element_size);
+    arr->len = 0;
+    arr->cap = 8;
+    arr->element_size = element_size;
+    return arr;
+}
+
 void seen_arr_push_str(SeenArray* arr, SeenString s) {
+    if (arr->element_size != (int64_t)sizeof(SeenString)) {
+        fprintf(stderr, "seen_arr_push_str: element_size mismatch (%ld)\n", (long)arr->element_size);
+        abort();
+    }
+    if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) {
+        fprintf(stderr, "seen_arr_push_str: invalid len/cap (len=%ld cap=%ld)\n", (long)arr->len, (long)arr->cap);
+        abort();
+    }
     if (arr->len >= arr->cap) {
         // Handle initial capacity of 0
-        arr->cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        int64_t new_cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        if (new_cap < arr->cap) {
+            fprintf(stderr, "seen_arr_push_str: capacity overflow (cap=%ld)\n", (long)arr->cap);
+            abort();
+        }
+        arr->cap = new_cap;
         arr->data = realloc(arr->data, arr->cap * sizeof(SeenString));
     }
     ((SeenString*)arr->data)[arr->len++] = s;
@@ -414,8 +467,21 @@ void seen_arr_push_str(SeenArray* arr, SeenString s) {
 
 // Push i64 by value (not pointer) - for Array<Int>
 void seen_arr_push_i64(SeenArray* arr, int64_t val) {
+    if (arr->element_size != (int64_t)sizeof(int64_t)) {
+        fprintf(stderr, "seen_arr_push_i64: element_size mismatch (%ld)\n", (long)arr->element_size);
+        abort();
+    }
+    if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) {
+        fprintf(stderr, "seen_arr_push_i64: invalid len/cap (len=%ld cap=%ld)\n", (long)arr->len, (long)arr->cap);
+        abort();
+    }
     if (arr->len >= arr->cap) {
-        arr->cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        int64_t new_cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        if (new_cap < arr->cap) {
+            fprintf(stderr, "seen_arr_push_i64: capacity overflow (cap=%ld)\n", (long)arr->cap);
+            abort();
+        }
+        arr->cap = new_cap;
         arr->data = realloc(arr->data, arr->cap * sizeof(int64_t));
     }
     ((int64_t*)arr->data)[arr->len++] = val;
@@ -423,34 +489,107 @@ void seen_arr_push_i64(SeenArray* arr, int64_t val) {
 
 // Generic push for pointer types (e.g., Array<Token>)
 void seen_arr_push_ptr(SeenArray* arr, void* p) {
+    if (arr->element_size != (int64_t)sizeof(void*)) {
+        fprintf(stderr, "seen_arr_push_ptr: element_size mismatch (%ld)\n", (long)arr->element_size);
+        abort();
+    }
+    if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) {
+        fprintf(stderr, "seen_arr_push_ptr: invalid len/cap (len=%ld cap=%ld)\n", (long)arr->len, (long)arr->cap);
+        abort();
+    }
     if (arr->len >= arr->cap) {
         // Handle initial capacity of 0
-        arr->cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        int64_t new_cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        if (new_cap < arr->cap) {
+            fprintf(stderr, "seen_arr_push_ptr: capacity overflow (cap=%ld)\n", (long)arr->cap);
+            abort();
+        }
+        arr->cap = new_cap;
         arr->data = realloc(arr->data, arr->cap * sizeof(void*));
     }
     ((void**)arr->data)[arr->len++] = p;
 }
 
-// Alias for Array_push used by generated code
+// Generic push that copies element using element_size (for data types like ItemNode)
+// This is the proper version for inline structs
 int64_t Array_push(SeenArray* arr, void* element) {
-    seen_arr_push_ptr(arr, element);
+    if (!arr) return 0;
+    if (arr->element_size <= 0) {
+        fprintf(stderr, "Array_push: invalid element_size=%ld\n", (long)arr->element_size);
+        abort();
+    }
+    if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) {
+        fprintf(stderr, "Array_push: invalid len/cap (len=%ld cap=%ld)\n", (long)arr->len, (long)arr->cap);
+        abort();
+    }
+
+    // Ensure capacity
+    if (arr->len >= arr->cap) {
+        int64_t new_cap = (arr->cap == 0) ? 8 : arr->cap * 2;
+        if (new_cap < arr->cap) {
+            fprintf(stderr, "Array_push: capacity overflow (cap=%ld)\n", (long)arr->cap);
+            abort();
+        }
+        if ((uint64_t)new_cap > (uint64_t)SIZE_MAX / (uint64_t)arr->element_size) {
+            fprintf(stderr, "Array_push: allocation overflow (cap=%ld elem=%ld)\n", (long)new_cap, (long)arr->element_size);
+            abort();
+        }
+        size_t new_size = (size_t)new_cap * (size_t)arr->element_size;
+        void* new_data = realloc(arr->data, new_size);
+        if (!new_data && new_size != 0) {
+            fprintf(stderr, "Array_push: realloc failed (bytes=%zu)\n", new_size);
+            abort();
+        }
+        arr->data = new_data;
+        arr->cap = new_cap;
+    }
+
+    // Copy element using element_size (correct for both data types and pointers)
+    // For data types: copies full struct (e.g., 88 bytes for ItemNode)
+    // For pointer arrays: element_size is 8, copies 8-byte pointer
+    if ((uint64_t)arr->len > (uint64_t)SIZE_MAX / (uint64_t)arr->element_size) {
+        fprintf(stderr, "Array_push: offset overflow (len=%ld elem=%ld)\n", (long)arr->len, (long)arr->element_size);
+        abort();
+    }
+    void* dest = (char*)arr->data + (arr->len * arr->element_size);
+    memcpy(dest, element, arr->element_size);
+    arr->len++;
+
     return arr->len;  // Return new length
 }
 
-FrontendDiagnostic seen_arr_get_diag(SeenArray a, int64_t idx) {
+FrontendDiagnostic* seen_arr_get_diag(SeenArray a, int64_t idx) {
     if (idx < 0 || idx >= a.len) {
-        FrontendDiagnostic empty = { { 0, "" }, { 0, "" }, 0, 0, { 0, "" } };
-        return empty;
+        static FrontendDiagnostic empty = { { 0, "" }, 0, 0, { 0, "" }, { 0, "" } };
+        return &empty;
     }
-    return ((FrontendDiagnostic*)a.data)[idx];
+    return ((FrontendDiagnostic**)a.data)[idx];
 }
 
-// Generic getter for pointer types (e.g., Array<ItemNode>)
+// Generic getter for pointer types (arrays of pointers - class types)
 void* seen_arr_get_ptr(SeenArray a, int64_t idx) {
+    if (a.element_size != (int64_t)sizeof(void*)) {
+        fprintf(stderr, "seen_arr_get_ptr: element_size mismatch (%ld)\n", (long)a.element_size);
+        abort();
+    }
     if (idx < 0 || idx >= a.len) {
         return NULL;
     }
     return ((void**)a.data)[idx];
+}
+
+// Generic getter for inline elements (data types stored by value)
+// Returns a pointer to the element at the given index, using element_size for offset
+void* seen_arr_get_element(SeenArray a, int64_t idx) {
+    if (a.element_size <= 0) {
+        fprintf(stderr, "seen_arr_get_element: invalid element_size (%ld)\n", (long)a.element_size);
+        abort();
+    }
+    if (idx < 0 || idx >= a.len) {
+        return NULL;
+    }
+    // Calculate offset using element_size for inline structs
+    return (char*)a.data + (idx * a.element_size);
 }
 
 int64_t seen_arr_length(SeenArray a) {
@@ -663,14 +802,27 @@ void StringBuilder_clear_impl(void* s) {
 #define MAP_INITIAL_CAPACITY 32
 
 typedef struct {
+    uint64_t magic;
     SeenString* keys;
     int64_t* values;
     int64_t size;
     int64_t capacity;
 } SeenMap;
 
+static void Map_check(SeenMap* map, const char* fn) {
+    if (!map || map->magic != 0x5345454E4D4150ULL) {
+        fprintf(stderr, "%s: invalid map pointer\n", fn);
+        abort();
+    }
+    if (map->capacity <= 0 || map->size < 0 || map->size > map->capacity || !map->keys || !map->values) {
+        fprintf(stderr, "%s: corrupt map state (size=%ld cap=%ld)\n", fn, (long)map->size, (long)map->capacity);
+        abort();
+    }
+}
+
 void* Map_new(void) {
     SeenMap* map = (SeenMap*)malloc(sizeof(SeenMap));
+    map->magic = 0x5345454E4D4150ULL;
     map->capacity = MAP_INITIAL_CAPACITY;
     map->size = 0;
     map->keys = (SeenString*)malloc(sizeof(SeenString) * map->capacity);
@@ -679,6 +831,7 @@ void* Map_new(void) {
 }
 
 static void Map_grow(SeenMap* map) {
+    Map_check(map, "Map_grow");
     int64_t new_capacity = map->capacity * 2;
     SeenString* new_keys = (SeenString*)malloc(sizeof(SeenString) * new_capacity);
     int64_t* new_values = (int64_t*)malloc(sizeof(int64_t) * new_capacity);
@@ -697,6 +850,7 @@ static void Map_grow(SeenMap* map) {
 
 int64_t Map_put(void* m, SeenString key, int64_t value) {
     SeenMap* map = (SeenMap*)m;
+    Map_check(map, "Map_put");
 
     // Check if key already exists
     for (int64_t i = 0; i < map->size; i++) {
@@ -732,6 +886,7 @@ int64_t Map_set(void* m, SeenString key, int64_t value) {
 
 int64_t Map_get(void* m, SeenString key) {
     SeenMap* map = (SeenMap*)m;
+    Map_check(map, "Map_get");
 
     for (int64_t i = 0; i < map->size; i++) {
         if (map->keys[i].len == key.len &&
@@ -745,11 +900,13 @@ int64_t Map_get(void* m, SeenString key) {
 
 int64_t Map_size(void* m) {
     SeenMap* map = (SeenMap*)m;
+    Map_check(map, "Map_size");
     return map->size;
 }
 
 bool Map_containsKey(void* m, SeenString key) {
     SeenMap* map = (SeenMap*)m;
+    Map_check(map, "Map_containsKey");
 
     for (int64_t i = 0; i < map->size; i++) {
         if (map->keys[i].len == key.len &&
@@ -763,6 +920,7 @@ bool Map_containsKey(void* m, SeenString key) {
 
 bool Map_containsValue(void* m, int64_t value) {
     SeenMap* map = (SeenMap*)m;
+    Map_check(map, "Map_containsValue");
 
     for (int64_t i = 0; i < map->size; i++) {
         if (map->values[i] == value) {
@@ -775,6 +933,7 @@ bool Map_containsValue(void* m, int64_t value) {
 
 SeenArray Map_keys(void* m) {
     SeenMap* map = (SeenMap*)m;
+    Map_check(map, "Map_keys");
 
     SeenArray result;
     result.len = map->size;
@@ -791,6 +950,7 @@ SeenArray Map_keys(void* m) {
 
 SeenArray Map_values(void* m) {
     SeenMap* map = (SeenMap*)m;
+    Map_check(map, "Map_values");
 
     SeenArray result;
     result.len = map->size;
