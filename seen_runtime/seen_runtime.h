@@ -187,6 +187,8 @@ void seen_arr_push_ptr(SeenArray* arr, void* p);
 
 // Generic Array_push (for generated code)
 int64_t Array_push(SeenArray* arr, void* element);
+// Generic Array_set (for generated code)
+void Array_set(SeenArray* arr, int64_t index, void* element);
 
 // Get FrontendDiagnostic from array
 FrontendDiagnostic* seen_arr_get_diag(SeenArray a, int64_t idx);

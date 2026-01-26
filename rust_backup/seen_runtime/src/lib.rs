@@ -1187,24 +1187,129 @@ pub extern "C" fn __ArrayFree(arr_ptr: *mut SeenArray, element_size: i64) {
     }
 }
 
+fn log_array_push_issue(
+    arr_ptr: *mut SeenArray,
+    element_ptr: *const u8,
+    element_size: i64,
+    reason: &str,
+) {
+    eprintln!("[SEEN DEBUG] __ArrayPush: {}", reason);
+    eprintln!(
+        "[SEEN DEBUG] arr_ptr={:p} element_ptr={:p} element_size={}",
+        arr_ptr, element_ptr, element_size
+    );
+    unsafe {
+        if !arr_ptr.is_null() {
+            let arr = &*arr_ptr;
+            eprintln!(
+                "[SEEN DEBUG] arr.len={} arr.cap={} arr.element_size={} arr.data={:p}",
+                arr.len, arr.cap, arr.element_size, arr.data
+            );
+        }
+    }
+    if DEBUG_MODE_ENABLED.load(Ordering::Relaxed) {
+        __seen_print_stack_trace();
+    }
+}
+
+fn checked_mul_to_usize(
+    arr_ptr: *mut SeenArray,
+    element_ptr: *const u8,
+    element_size: i64,
+    a: i64,
+    b: i64,
+    reason: &str,
+) -> Option<usize> {
+    let value = match a.checked_mul(b) {
+        Some(v) => v,
+        None => {
+            log_array_push_issue(arr_ptr, element_ptr, element_size, reason);
+            return None;
+        }
+    };
+    match usize::try_from(value) {
+        Ok(v) => Some(v),
+        Err(_) => {
+            log_array_push_issue(arr_ptr, element_ptr, element_size, reason);
+            None
+        }
+    }
+}
+
 /// Push element to end of array (grows if needed)
 /// Returns 0 on success, -1 on failure
 #[unsafe(no_mangle)]
 pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, element_size: i64) -> i32 {
     // // eprintln!("[DEBUG __ArrayPush] arr_ptr={:p}, element_ptr={:p}, element_size={}", arr_ptr, element_ptr, element_size);
-    if arr_ptr.is_null() || element_ptr.is_null() || element_size <= 0 {
-        // eprintln!("[DEBUG __ArrayPush] INVALID ARGS: null={}, null={}, size_valid={}", arr_ptr.is_null(), element_ptr.is_null(), element_size > 0);
+    if arr_ptr.is_null() || element_ptr.is_null() {
+        log_array_push_issue(arr_ptr, element_ptr, element_size, "null pointer argument");
         return -1;
     }
 
     unsafe {
         let arr = &mut *arr_ptr;
         // eprintln!("[DEBUG __ArrayPush] arr.len={}, arr.cap={}, arr.data={:p}", arr.len, arr.cap, arr.data);
+        if arr.len < 0 || arr.cap < 0 || arr.len > arr.cap {
+            log_array_push_issue(arr_ptr, element_ptr, element_size, "invalid len/cap");
+            return -1;
+        }
+        if arr.element_size <= 0 {
+            log_array_push_issue(arr_ptr, element_ptr, element_size, "invalid array element_size");
+            return -1;
+        }
+        if arr.cap > 0 && arr.data.is_null() {
+            log_array_push_issue(arr_ptr, element_ptr, element_size, "null data with nonzero capacity");
+            return -1;
+        }
+        if element_size <= 0 {
+            log_array_push_issue(
+                arr_ptr,
+                element_ptr,
+                element_size,
+                "caller element_size <= 0; using header element_size",
+            );
+        } else if element_size != arr.element_size {
+            log_array_push_issue(
+                arr_ptr,
+                element_ptr,
+                element_size,
+                "caller element_size mismatch; using header element_size",
+            );
+        }
+
+        let elem_size = arr.element_size;
+        let elem_size_usize = match usize::try_from(elem_size) {
+            Ok(v) => v,
+            Err(_) => {
+                log_array_push_issue(arr_ptr, element_ptr, element_size, "element_size does not fit usize");
+                return -1;
+            }
+        };
         
         // Grow if needed
         if arr.len >= arr.cap {
-            let new_capacity = if arr.cap == 0 { 8 } else { arr.cap * 2 };
-            let new_byte_capacity = (element_size * new_capacity) as usize;
+            let new_capacity = if arr.cap == 0 {
+                8
+            } else {
+                match arr.cap.checked_mul(2) {
+                    Some(v) => v,
+                    None => {
+                        log_array_push_issue(arr_ptr, element_ptr, element_size, "capacity overflow");
+                        return -1;
+                    }
+                }
+            };
+            let new_byte_capacity = match checked_mul_to_usize(
+                arr_ptr,
+                element_ptr,
+                element_size,
+                elem_size,
+                new_capacity,
+                "new byte capacity overflow",
+            ) {
+                Some(v) => v,
+                None => return -1,
+            };
             let new_layout = std::alloc::Layout::from_size_align_unchecked(new_byte_capacity, 8);
             let new_data = std::alloc::alloc_zeroed(new_layout);
             
@@ -1214,12 +1319,32 @@ pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, e
 
             // Copy old data
             if !arr.data.is_null() && arr.len > 0 {
-                let old_byte_size = (element_size * arr.len) as usize;
+                let old_byte_size = match checked_mul_to_usize(
+                    arr_ptr,
+                    element_ptr,
+                    element_size,
+                    elem_size,
+                    arr.len,
+                    "old byte size overflow",
+                ) {
+                    Some(v) => v,
+                    None => return -1,
+                };
                 std::ptr::copy_nonoverlapping(arr.data, new_data, old_byte_size);
                 
                 // Free old data
                 if arr.cap > 0 {
-                    let old_byte_capacity = (element_size * arr.cap) as usize;
+                    let old_byte_capacity = match checked_mul_to_usize(
+                        arr_ptr,
+                        element_ptr,
+                        element_size,
+                        elem_size,
+                        arr.cap,
+                        "old byte capacity overflow",
+                    ) {
+                        Some(v) => v,
+                        None => return -1,
+                    };
                     let old_layout = std::alloc::Layout::from_size_align_unchecked(old_byte_capacity, 8);
                     std::alloc::dealloc(arr.data, old_layout);
                 }
@@ -1230,13 +1355,52 @@ pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, e
         }
 
         // Copy element to end
-        let offset = (arr.len * element_size) as isize;
-        let dest = arr.data.offset(offset);
-        std::ptr::copy_nonoverlapping(element_ptr, dest, element_size as usize);
+        let offset_bytes = match checked_mul_to_usize(
+            arr_ptr,
+            element_ptr,
+            element_size,
+            elem_size,
+            arr.len,
+            "offset overflow",
+        ) {
+            Some(v) => v,
+            None => return -1,
+        };
+        let dest = arr.data.add(offset_bytes);
+        std::ptr::copy_nonoverlapping(element_ptr, dest, elem_size_usize);
         arr.len += 1;
         // eprintln!("[DEBUG __ArrayPush] After push: arr.len={}, arr.cap={}", arr.len, arr.cap);
 
         0
+    }
+}
+
+/// Set element at index (copies element_size bytes from element_ptr).
+#[unsafe(no_mangle)]
+pub extern "C" fn Array_set(arr_ptr: *mut SeenArray, index: i64, element_ptr: *const u8) {
+    if arr_ptr.is_null() || element_ptr.is_null() {
+        return;
+    }
+
+    unsafe {
+        let arr = &mut *arr_ptr;
+        let elem_size = arr.element_size;
+        if elem_size <= 0 || index < 0 {
+            return;
+        }
+        if index == arr.len {
+            __ArrayPush(arr_ptr, element_ptr, elem_size);
+            return;
+        }
+        if index > arr.len {
+            return;
+        }
+        let offset = match index.checked_mul(elem_size) {
+            Some(val) => val,
+            None => return,
+        };
+        let dest = arr.data.offset(offset as isize);
+        std::ptr::copy_nonoverlapping(element_ptr, dest, elem_size as usize);
     }
 }
 

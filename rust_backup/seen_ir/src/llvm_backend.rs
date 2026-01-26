@@ -1064,11 +1064,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             self.module.add_function("__WriteFileToPath", ty, None);
         }
         
-        // __ExecuteCommand: (CommandResult*, SeenString*) -> void
+        // __ExecuteCommand: (SeenString) -> ptr
+        // Returns pointer to malloc'd CommandResult, takes SeenString by value
         if self.module.get_function("__ExecuteCommand").is_none() {
-             let result_ptr_ty = self.ctx.ptr_type(AddressSpace::default());
-             let str_ptr_ty = self.ctx.ptr_type(AddressSpace::default());
-             let ty = self.ctx.void_type().fn_type(&[result_ptr_ty.into(), str_ptr_ty.into()], false);
+             let ret_ptr_ty = self.ctx.ptr_type(AddressSpace::default());
+             let ty = ret_ptr_ty.fn_type(&[self.ty_string().into()], false);
              self.module.add_function("__ExecuteCommand", ty, None);
         }
 

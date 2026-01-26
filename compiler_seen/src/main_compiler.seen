@@ -194,6 +194,7 @@ fun collectModulePaths(inputFile: String) r: Array<String> {
         modules.push("lexer.interfaces")
         modules.push("lexer.keyword_manager")
         modules.push("lexer.lexer")
+        modules.push("trace")
         modules.push("lexer.real_lexer")
         modules.push("parser.real_parser")
         modules.push("typechecker.interfaces")

@@ -127,3 +127,4 @@ test_if_out
 test_if_out.c
 test_simple.seen
 test_if.seen
+/.claude/

@@ -177,6 +177,11 @@ pub const RUNTIME_DECLS: &[RuntimeDecl] = &[
         category: "Array",
     },
     RuntimeDecl {
+        name: "Array_set",
+        signature: "declare void @Array_set(ptr, i64, ptr)",
+        category: "Array",
+    },
+    RuntimeDecl {
         name: "seen_arr_push_str",
         signature: "declare void @seen_arr_push_str(ptr, %SeenString)",
         category: "Array",
@@ -184,6 +189,11 @@ pub const RUNTIME_DECLS: &[RuntimeDecl] = &[
     RuntimeDecl {
         name: "seen_arr_push_i64",
         signature: "declare void @seen_arr_push_i64(ptr, i64)",
+        category: "Array",
+    },
+    RuntimeDecl {
+        name: "seen_arr_push_ptr",
+        signature: "declare void @seen_arr_push_ptr(ptr, ptr)",
         category: "Array",
     },
     // NOTE: args() is NOT included here - it may be defined in user code

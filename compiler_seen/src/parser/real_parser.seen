@@ -1220,6 +1220,14 @@ class RealParser {
                     opIdx = opIdx + 1
                 }
             }
+            if exprResult.kind == "Unary" {
+                stmt.returnValue.operator = exprResult.operator
+                var opIdx = 0
+                while opIdx < exprResult.operands.length() {
+                    stmt.returnValue.operands.push(exprResult.operands[opIdx])
+                    opIdx = opIdx + 1
+                }
+            }
             // trace
             // Copy arguments for calls
             if exprResult.kind == "Call" or exprResult.kind == "MethodCall" {
@@ -1418,6 +1426,25 @@ class RealParser {
         return expr
     }
     fun parseUnary() r: ParserExpressionNode {
+        // Handle unary minus/plus
+        if matchTokenStr(SeenTokenType.Minus) {
+            let operator = "-"
+            let operand = parseUnary()
+            let expr = ParserExpressionNode.new()
+            expr.kind = "Unary"
+            expr.operator = operator
+            expr.operands.push(operand)
+            return expr
+        }
+        if matchTokenStr(SeenTokenType.Plus) {
+            let operator = "+"
+            let operand = parseUnary()
+            let expr = ParserExpressionNode.new()
+            expr.kind = "Unary"
+            expr.operator = operator
+            expr.operands.push(operand)
+            return expr
+        }
         // Handle 'not' keyword or '!' for negation
         if matchTokenStr(SeenTokenType.LogicalNot) {
             let operator = "!"

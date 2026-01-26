@@ -13,9 +13,10 @@
 | Rust Compiler | ✅ Production Ready |
 | Self-Host Type-Check | ✅ Working |
 | Self-Host IR Gen | ✅ Working |
+| Type Header (Struct + Runtime Decls) | ✅ Emitted + consumed by self-hosted LLVM IR gen |
 | Self-Host C Backend | ✅ Working (Stage1 compiles programs) |
-| Self-Host Native Codegen | ⚠️ Debugging Runtime |
-| Stage1→Stage2→Stage3 | ✅ Stage2 compiles and runs! (Task 1.3 complete) |
+| Self-Host Native Codegen | ⚠️ Stage3 crash in LLVM bootstrap (Array_push/ABI) |
+| Stage1→Stage2→Stage3 | ⚠️ Stage1+Stage2 OK; Stage3 crash in pass1 (LLVM) |
 | LLVM Tracing Infrastructure | ✅ Complete |
 | __PtrToInt Intrinsic | ✅ Implemented |
 | Generic Boxing/Unboxing | ✅ Complete (Option<Int>, Vec<Int> work correctly) |
@@ -254,6 +255,7 @@ All tasks below are ✅ complete and verified.
 - `SEEN_ENABLE_MANIFEST_MODULES` env flag
 - Dependency resolution working
 - Cross-module function visibility solved
+- `--emit-type-header` now includes runtime declarations; self-hosted LLVM IR gen consumes header and guards stdlib duplicates
 
 ### 7.2 Type System Fixes ✅
 - Stale type problem resolved (multi-pass deep type fixup)
@@ -373,7 +375,7 @@ All 10 benchmarks implemented in `benchmarks/production/`:
 
 # PART 2: REMAINING WORK
 
-All tasks below are ⏳ pending and listed in sequential execution order.
+All tasks below are listed in sequential execution order; statuses reflect current progress.
 
 ---
 
@@ -399,7 +401,7 @@ Type error: Undefined variable 'seen_std.env.env.args' at 706:8
 ---
 
 ### Task 1.2: Stage1 Native Binary Generation
-**Status:** ✅ C Backend Working, 🔄 LLVM Backend In Progress
+**Status:** ✅ C Backend Working, ✅ LLVM Backend Stage1/Stage2
 **Estimated:** 2-3 hours → Extended
 **Last Updated:** 2026-01-13
 
@@ -453,30 +455,16 @@ The Stage1 compiler can now compile Seen programs via the C backend:
 - `compiler_seen/src/main_compiler.seen`:
   - Updated gcc command to link with seen_runtime
 
-**LLVM Backend - Remaining Issues:**
-The LLVM backend still has some issues for complex programs:
+**LLVM Backend - Remaining Issues (current):**
+- [ ] Stage3 crash in pass1: heap corruption in `Array_push` during self-hosted LLVM bootstrap (see Task 1.4)
+- [ ] Align remaining hardcoded struct layouts with emitted type header (offset/size parity)
 
-1. **Parameter Type Mismatch (LLVM Verification Error):**
-   ```
-   Call parameter type does not match function signature!
-     %load_twoChar = load i64, ptr %var_twoChar, align 4
-    { i64, ptr }  %call9 = call i64 @SeenLexer_getTwoCharOperatorType(ptr %arg_cast8, i64 %load_twoChar)
-   ```
-   The lexer's `twoChar` variable (String type = `{i64, ptr}`) is being loaded as i64 instead of the proper String struct.
-
-2. **Root Cause:** Type inference is not properly tracking String types for local variables.
-
-**Next Steps (LLVM Backend):**
-- [ ] Fix String type inference for local variables (i64 vs {i64, ptr} struct)
-- [ ] Track variable types through assignment chains
-- [ ] Ensure `var_slot_types` correctly records String variables
-
-**Acceptance:** ✅ Stage1 C backend compiles valid Seen source files. LLVM backend still in progress.
+**Acceptance:** ✅ Stage1 C backend compiles valid Seen source files. ✅ LLVM backend builds Stage1/Stage2; Stage3 tracked in Task 1.4.
 
 ---
 
 ### Task 1.3: Stage2 Compilation
-**Status:** 🔄 In Progress (LLVM Backend Path via Self-Hosted Compiler)
+**Status:** ✅ Complete (LLVM Backend Path via Self-Hosted Compiler)
 **Estimated:** 2-3 hours → Extended (debugging self-hosted LLVM IR generation)
 **Last Updated:** 2026-01-21
 
@@ -495,15 +483,18 @@ Using the self-hosted `llvm_ir_gen.seen` to generate LLVM IR directly:
 - [x] Fixed String comparison operators (extract char codes via `seen_char_at`)
 - [x] Fixed String receiver type for method calls (`%SeenString` not `ptr`)
 - [x] Fixed indexOf/lastIndexOf as free function calls
-- [x] **Compilation reaches module 6 of 12** (lexer/real_lexer.seen)
-- [x] **223,191 chars of LLVM IR generated** before current issue
+- [x] Compilation completes all 12 modules
+- [x] Stage2 binary generated and working
+- [x] Type header emission includes runtime declarations; self-hosted `llvm_ir_gen.seen` consumes header and skips stdlib duplicates
+- [x] Stage1 + Stage2 LLVM bootstrap succeeds (Stage3 tracked in Task 1.4)
 
-**Current Blocker:**
-- Implicit `this` receiver issue - Method calls without explicit receiver generating `%SeenString 0` as receiver
-- Manifests in class methods that call other methods on `this` implicitly
+**Current Status:**
+- ✅ Stage2 LLVM bootstrap complete; Stage3 crash tracked in Task 1.4 (Array_push/ABI)
 
 **Key Files Modified:**
-- `compiler_seen/src/codegen/llvm_ir_gen.seen` - All fixes applied here
+- `rust_backup/seen_ir/src/runtime_decls.rs` - Runtime decls emitted in type header
+- `rust_backup/seen_ir/src/llvm_backend.rs` - Emit header runtime decl section
+- `compiler_seen/src/codegen/llvm_ir_gen.seen` - Header detection, runtime decl gating, LLVM IR fixes
 
 **C Backend Bootstrap Path (Fallback):**
 ```bash
@@ -525,13 +516,18 @@ Using the self-hosted `llvm_ir_gen.seen` to generate LLVM IR directly:
 ---
 
 ### Task 1.4: Stage3 and Determinism Verification
-**Status:** ⏳ Blocked on Task 1.3
-**Estimated:** 1-2 hours
+**Status:** 🔄 In Progress (Stage3 crash in LLVM bootstrap pass1)
+**Estimated:** 1-2 hours → Extended (debugging runtime heap corruption)
+
+**Current Blocker:**
+- Heap corruption in `Array_push` during pass1 while parsing `compiler_seen/src/codegen/llvm_ir_gen.seen` (pointer arrays still routed through `Array_push`)
 
 **Tasks:**
+- [ ] Route pointer-array pushes to `seen_arr_push_ptr` in array literals and any remaining push paths (class types, raw ptrs)
+- [ ] Fix generic placeholder detection in `rust_backup/seen_ir/src/llvm/instructions/aggregate.rs` (qualified names like `Result::E`)
+- [ ] Validate struct layout parity vs emitted type header (remove/override hardcoded layouts if needed)
 - [ ] Use Stage2 to compile Stage3 (`stage3.out`)
-- [ ] Verify Stage2 == Stage3 (hash equality)
-- [ ] Record hashes in documentation
+- [ ] Verify Stage2 == Stage3 (hash equality) and record hashes in documentation
 - [ ] Update `validate_d2_determinism.sh`
 
 **Acceptance:** Stage2 and Stage3 are byte-identical.
@@ -975,4 +971,3 @@ MVP is complete when:
 10. ⏳ All nondeterministic features explicitly annotated and opt-in
 11. ⏳ Framework decorators (`@component`, `@store`, etc.) production-ready
 12. ⏳ Test suite passes with >90% coverage on all platforms
-

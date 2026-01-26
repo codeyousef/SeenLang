@@ -558,6 +558,36 @@ int64_t Array_push(SeenArray* arr, void* element) {
     return arr->len;  // Return new length
 }
 
+// Set element at index (copies element_size bytes)
+void Array_set(SeenArray* arr, int64_t index, void* element) {
+    if (!arr || !element) {
+        fprintf(stderr, "Array_set: invalid args (arr=%p element=%p)\n", (void*)arr, element);
+        abort();
+    }
+    if (arr->element_size <= 0) {
+        fprintf(stderr, "Array_set: invalid element_size=%ld\n", (long)arr->element_size);
+        abort();
+    }
+    if (index < 0) {
+        fprintf(stderr, "Array_set: index out of bounds (idx=%ld len=%ld)\n", (long)index, (long)arr->len);
+        abort();
+    }
+    if (index == arr->len) {
+        (void)Array_push(arr, element);
+        return;
+    }
+    if (index > arr->len) {
+        fprintf(stderr, "Array_set: index out of bounds (idx=%ld len=%ld)\n", (long)index, (long)arr->len);
+        abort();
+    }
+    if ((uint64_t)index > (uint64_t)SIZE_MAX / (uint64_t)arr->element_size) {
+        fprintf(stderr, "Array_set: offset overflow (idx=%ld elem=%ld)\n", (long)index, (long)arr->element_size);
+        abort();
+    }
+    void* dest = (char*)arr->data + (index * arr->element_size);
+    memcpy(dest, element, arr->element_size);
+}
+
 FrontendDiagnostic* seen_arr_get_diag(SeenArray a, int64_t idx) {
     if (idx < 0 || idx >= a.len) {
         static FrontendDiagnostic empty = { { 0, "" }, 0, 0, { 0, "" }, { 0, "" } };
@@ -993,14 +1023,6 @@ void* Some(void* value) { return value; }
 void* None(void) { return NULL; }
 bool Result_isOkay(void* result) { return result != NULL; }
 SeenString Result_unwrapErr(void* result) { return (SeenString){ 0, "" }; }
-// FsFileResult = { i1 isOk (padded to 8 bytes), ptr file, SeenString error }
-// file is at offset 8, error is at offset 16
-void* FsFileResult_unwrap(void* result) {
-    return *((void**)((char*)result + 8));
-}
-SeenString FsFileResult_unwrapErr(void* result) {
-    return *((SeenString*)((char*)result + 16));
-}
 
 // SeenTokenType is actually i64 (enum), unwrap just returns the value
 int64_t SeenTokenType_unwrap(int64_t value) { return value; }

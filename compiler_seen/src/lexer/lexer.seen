@@ -5,6 +5,7 @@ import lexer.interfaces.{Token, Position, LexerError}
 import lexer.token_type.{SeenTokenType}
 import lexer.keyword_manager.{KeywordManager}
 import str.string.{StringBuilder}
+import trace.{traceLex, traceLexVerbose, isLexerTracingEnabled, isLexerTraceVerboseEnabled}
 
 class SeenLexer {
     let source: String
@@ -37,31 +38,33 @@ class SeenLexer {
         line = 1
         column = 1
         tokens = Array<Token>()
-
-        println("[lexer] tokenize start, source.length=" + source.length().toString())
+        let traceEnabled = isLexerTracingEnabled()
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceEnabled {
+            traceLex("tokenize start fileId=" + fileId.toString() + " len=" + source.length().toString())
+        }
 
         // Main tokenization loop
         var loopIter = 0
         while position < source.length() {
             loopIter = loopIter + 1
             if loopIter > 500000 {
-                println("[lexer] Safety break at iter=" + loopIter.toString() + " pos=" + position.toString())
                 break
             }
 
             let char = this.getCurrentChar()
             let startPos = position
-
-            // Debug: print occasionally
-            if loopIter == 1 or loopIter == 10000 or loopIter == 50000 or loopIter == 100000 or loopIter == 200000 {
-                println("[lexer] iter=" + loopIter.toString() + " pos=" + position.toString() + " char=" + char.toString())
+            if traceVerbose {
+                traceLexVerbose("loop pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString() + " code=" + char.toInt().toString())
             }
 
             // Skip whitespace (except newlines for position tracking)
             if this.isWhitespace(char) {
+                if traceVerbose {
+                    traceLexVerbose("whitespace pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                }
                 this.handleWhitespace(char)
                 if position == startPos {
-                    println("[lexer] BUG: handleWhitespace didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
@@ -69,18 +72,22 @@ class SeenLexer {
 
             // Handle comments
             if char == '/' and this.peekChar(1) == '/' {
+                if traceVerbose {
+                    traceLexVerbose("single-line comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 this.handleSingleLineComment()
                 if position == startPos {
-                    println("[lexer] BUG: handleSingleLineComment didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
             }
 
             if char == '/' and this.peekChar(1) == '*' {
+                if traceVerbose {
+                    traceLexVerbose("multi-line comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 this.handleMultiLineComment()
                 if position == startPos {
-                    println("[lexer] BUG: handleMultiLineComment didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
@@ -88,9 +95,14 @@ class SeenLexer {
 
             // Handle string literals
             if char == '"' {
+                if traceVerbose {
+                    traceLexVerbose("string literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 this.handleStringLiteral()
+                if traceVerbose {
+                    traceLexVerbose("string literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 if position == startPos {
-                    println("[lexer] BUG: handleStringLiteral didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
@@ -98,9 +110,14 @@ class SeenLexer {
 
             // Handle character literals (single-quoted)
             if char == '\'' {
+                if traceVerbose {
+                    traceLexVerbose("char literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 this.handleCharLiteral()
+                if traceVerbose {
+                    traceLexVerbose("char literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 if position == startPos {
-                    println("[lexer] BUG: handleCharLiteral didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
@@ -108,9 +125,14 @@ class SeenLexer {
 
             // Handle numeric literals
             if this.isDigit(char) {
+                if traceVerbose {
+                    traceLexVerbose("number literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 this.handleNumericLiteral()
+                if traceVerbose {
+                    traceLexVerbose("number literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 if position == startPos {
-                    println("[lexer] BUG: handleNumericLiteral didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
@@ -118,9 +140,14 @@ class SeenLexer {
 
             // Handle identifiers and keywords
             if this.isAlpha(char) or char == '_' {
+                if traceVerbose {
+                    traceLexVerbose("identifier start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                }
                 this.handleIdentifierOrKeyword()
+                if traceVerbose {
+                    traceLexVerbose("identifier end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
                 if position == startPos {
-                    println("[lexer] BUG: handleIdentifierOrKeyword didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
@@ -128,8 +155,10 @@ class SeenLexer {
 
             // Handle operators and punctuation
             if this.handleOperator() {
+                if traceVerbose {
+                    traceLexVerbose("operator handled pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                }
                 if position == startPos {
-                    println("[lexer] BUG: handleOperator didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
@@ -137,8 +166,10 @@ class SeenLexer {
 
             // Handle single-character tokens
             if this.handleSingleCharToken() {
+                if traceVerbose {
+                    traceLexVerbose("single-char token handled pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                }
                 if position == startPos {
-                    println("[lexer] BUG: handleSingleCharToken didn't advance at pos=" + position.toString())
                     position = position + 1
                 }
                 continue
@@ -149,7 +180,19 @@ class SeenLexer {
                 this.emitErrorToken(char)
                 this.advance()
             } else {
-                println("Fatal Lexer Error: Unexpected character: " + char)
+                let errLine = line
+                let errCol = column
+                var start = position - 16
+                if start < 0 {
+                    start = 0
+                }
+                var end = position + 16
+                if end > source.length() {
+                    end = source.length()
+                }
+                let snippet = source.substring(start, end)
+                println("Fatal Lexer Error: Unexpected character: " + char + " at " + errLine.toString() + ":" + errCol.toString())
+                println("  context: " + snippet)
                 this.emitErrorToken(char)
                 return tokens
             }
@@ -157,8 +200,9 @@ class SeenLexer {
         
         // Add EOF token
         this.emitToken(SeenTokenType.EndOfFile, "", 0)
-
-        println("[lexer] tokenize complete, tokens=" + tokens.length().toString())
+        if traceEnabled {
+            traceLex("tokenize end tokens=" + tokens.length().toString())
+        }
         return tokens
     }
     
@@ -210,6 +254,21 @@ class SeenLexer {
         }
         return source.charAt(peekPos)
     }
+
+    fun getCurrentCharString() r: String {
+        if position >= source.length() {
+            return ""
+        }
+        return source.substring(position, position + 1)
+    }
+
+    fun peekCharString(offset: Int = 1) r: String {
+        let peekPos = position + offset
+        if peekPos >= source.length() {
+            return ""
+        }
+        return source.substring(peekPos, peekPos + 1)
+    }
     
     fun advance() r: Void {
         if position < source.length() {
@@ -241,13 +300,15 @@ class SeenLexer {
     }
     
     fun isDigit(char: Char) r: Bool {
-        return char >= '0' and char <= '9'
+        let isDigit = char >= '0' and char <= '9'
+        return isDigit
     }
     
     fun isAlpha(char: Char) r: Bool {
-        return (char >= 'a' and char <= 'z') or 
-               (char >= 'A' and char <= 'Z') or
-               this.isUnicodeAlpha(char)
+        let isLower = char >= 'a' and char <= 'z'
+        let isUpper = char >= 'A' and char <= 'Z'
+        let isAlpha = isLower or isUpper or this.isUnicodeAlpha(char)
+        return isAlpha
     }
     
     fun isAlphaNumeric(char: Char) r: Bool {
@@ -255,18 +316,8 @@ class SeenLexer {
     }
     
     fun isUnicodeAlpha(char: Char) r: Bool {
-        // Support for Unicode identifier characters
-        // This would need proper Unicode category detection
-        // For now, simple check for common non-ASCII letters
-        let code = char.toInt()
-        return (code >= 0x00C0 and code <= 0x00D6) or   // Latin-1 Supplement
-               (code >= 0x00D8 and code <= 0x00F6) or   // Latin-1 Supplement
-               (code >= 0x00F8 and code <= 0x00FF) or   // Latin-1 Supplement
-               (code >= 0x0100 and code <= 0x017F) or   // Latin Extended-A
-               (code >= 0x0180 and code <= 0x024F) or   // Latin Extended-B
-               (code >= 0x0590 and code <= 0x05FF) or   // Hebrew
-               (code >= 0x0600 and code <= 0x06FF) or   // Arabic
-               (code >= 0x4E00 and code <= 0x9FFF)      // CJK Unified Ideographs
+        // Disable Unicode alpha until Char-to-int comparisons are reliable.
+        return false
     }
     
     fun handleWhitespace(char: Char) r: Void {
@@ -296,21 +347,41 @@ class SeenLexer {
     
     fun handleStringLiteral() r: Void {
         let startPos = position
+        let startLine = line
+        let startCol = column
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceVerbose {
+            traceLexVerbose("handleStringLiteral enter pos=" + startPos.toString() + " line=" + startLine.toString() + " col=" + startCol.toString())
+        }
         this.advance() // Skip opening quote
 
         let valueBuilder = StringBuilder.new()
         var hasInterpolation = false
 
-        while position < source.length() and this.getCurrentChar() != '"' {
-            let char = this.getCurrentChar()
+        while position < source.length() {
+            let ch = this.getCurrentChar()
+            if ch == '"' {
+                break
+            }
+            if traceVerbose {
+                traceLexVerbose("string char pos=" + position.toString() + " char=" + ch.toString() + " code=" + ch.toInt().toString())
+            }
 
-            if char == '\\' {
-                // Handle escape sequences
-                this.advance()
-                let escaped = this.getCurrentChar()
+            if ch == '\\' {
+                if position + 1 >= source.length() {
+                    throw LexerError.new("Unterminated string literal", this.getCurrentPosition(), "")
+                }
+                let escaped = this.peekChar(1)
+                if traceVerbose {
+                    traceLexVerbose("string escape pos=" + position.toString() + " escaped=" + escaped.toString() + " code=" + escaped.toInt().toString())
+                }
                 valueBuilder.append(this.handleEscapeSequence(escaped))
                 this.advance()
-            } else if char == '{' and !this.isInInterpolation() {
+                this.advance()
+                continue
+            }
+
+            if ch == '{' and !this.isInInterpolation() {
                 // Check for escaped brace {{ -> { OR single { followed by non-identifier
                 this.advance()
                 if position < source.length() and this.getCurrentChar() == '{' {
@@ -332,7 +403,7 @@ class SeenLexer {
                     // Not an identifier - treat { as literal
                     valueBuilder.append("{")
                 }
-            } else if char == '}' {
+            } else if ch == '}' {
                 // Check for escaped brace }} -> }
                 this.advance()
                 if position < source.length() and this.getCurrentChar() == '}' {
@@ -344,7 +415,7 @@ class SeenLexer {
                     valueBuilder.append("}")
                 }
             } else {
-                valueBuilder.append(char.toString())
+                valueBuilder.appendChar(ch)
                 this.advance()
             }
         }
@@ -363,31 +434,40 @@ class SeenLexer {
         let length = position - startPos
         let value = valueBuilder.toString()
         this.emitToken(SeenTokenType.StringLiteral, value, length)
+        if traceVerbose {
+            traceLexVerbose("handleStringLiteral exit pos=" + position.toString() + " len=" + length.toString())
+        }
     }
 
     fun handleCharLiteral() r: Void {
         let startPos = position
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceVerbose {
+            traceLexVerbose("handleCharLiteral enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+        }
         this.advance() // Skip opening single quote
 
         var value = ""
         if position < source.length() {
-            let char = this.getCurrentChar()
-            let charStr = char.toString()
-            if charStr == "\\" {
+            let ch = this.getCurrentChar()
+            if ch == '\\' {
                 // Handle escape sequences
-                this.advance()
-                let escaped = this.getCurrentChar()
+                if position + 1 >= source.length() {
+                    throw LexerError.new("Unterminated character literal", this.getCurrentPosition(), "")
+                }
+                let escaped = this.peekChar(1)
                 value = this.handleEscapeSequence(escaped)
                 this.advance()
+                this.advance()
             } else {
-                value = charStr
+                value = ch.toString()
                 this.advance()
             }
         }
 
         // Consume closing single quote
-        let closingChar = this.getCurrentChar().toString()
-        if closingChar == "'" {
+        let closingChar = this.getCurrentChar()
+        if closingChar == '\'' {
             this.advance()
         } else {
             throw LexerError.new("Unterminated character literal", this.getCurrentPosition(), "")
@@ -396,18 +476,20 @@ class SeenLexer {
         let length = position - startPos
         // Emit as a character literal
         this.emitToken(SeenTokenType.CharLiteral, value, length)
+        if traceVerbose {
+            traceLexVerbose("handleCharLiteral exit pos=" + position.toString() + " len=" + length.toString())
+        }
     }
 
-    fun handleEscapeSequence(char: Char) r: String {
-        let c = char.toString()
-        if c == "n" { return "\n" }
-        if c == "t" { return "\t" }
-        if c == "r" { return "\r" }
-        if c == "\\" { return "\\" }
-        if c == "\"" { return "\"" }
-        if c == "'" { return "'" }
-        if c == "0" { return "" }  // Null character - simplified for bootstrap
-        return c
+    fun handleEscapeSequence(escaped: Char) r: String {
+        if escaped == 'n' { return "\n" } // n -> newline
+        if escaped == 't' { return "\t" } // t -> tab
+        if escaped == 'r' { return "\r" } // r -> carriage return
+        if escaped == '\\' { return "\\" }  // backslash
+        if escaped == '"' { return "\"" }  // double quote
+        if escaped == '\'' { return "'" }   // single quote
+        if escaped == '0' { return "" }  // null character - simplified for bootstrap
+        return escaped.toString()
     }
     
     fun isInInterpolation() r: Bool {
@@ -426,14 +508,32 @@ class SeenLexer {
         
         this.emitToken(SeenTokenType.InterpolatedStringStart, "", 1)
         
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceVerbose {
+            traceLexVerbose("handleInterpolatedString enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+        }
         var currentPart = ""
         var inExpression = false
         var braceLevel = 0
         
-        while position < source.length() and this.getCurrentChar() != '"' {
-            let char = this.getCurrentChar()
-            
-            if char == '{' and !inExpression {
+        while position < source.length() {
+            let ch = this.getCurrentChar()
+            if ch == '"' {
+                break
+            }
+
+            if not inExpression and ch == '\\' {
+                if position + 1 >= source.length() {
+                    throw LexerError.new("Unterminated string literal", this.getCurrentPosition(), "")
+                }
+                let escaped = this.peekChar(1)
+                currentPart = currentPart + this.handleEscapeSequence(escaped)
+                this.advance()
+                this.advance()
+                continue
+            }
+
+            if ch == '{' and !inExpression {
                 // Start of interpolation expression
                 if currentPart.length() > 0 {
                     this.emitToken(SeenTokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
@@ -445,17 +545,23 @@ class SeenLexer {
                 
                 // Parse the expression inside braces
                 this.parseInterpolationExpression()
-            } else if char == '}' and inExpression {
+                continue
+            }
+            if ch == '}' and inExpression {
                 braceLevel = braceLevel - 1
                 if braceLevel == 0 {
                     inExpression = false
                 }
                 this.advance()
-            } else if char == '{' and inExpression {
+                continue
+            }
+            if ch == '{' and inExpression {
                 braceLevel = braceLevel + 1
                 this.advance()
             } else {
-                currentPart = currentPart + char.toString()
+                if not inExpression {
+                    currentPart = currentPart + ch.toString()
+                }
                 this.advance()
             }
         }
@@ -469,6 +575,9 @@ class SeenLexer {
         }
         
         this.emitToken(SeenTokenType.InterpolatedStringEnd, "", 1)
+        if traceVerbose {
+            traceLexVerbose("handleInterpolatedString exit pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+        }
     }
     
     fun parseInterpolationExpression() r: Void {
@@ -476,11 +585,15 @@ class SeenLexer {
         // For now, tokenize it as regular tokens
         let saved_position = position
 
-        while position < source.length() and this.getCurrentChar() != '}' and this.getCurrentChar() != '"' {
+        while position < source.length() {
+            let ch = this.getCurrentChar()
+            if ch == '}' or ch == '"' {
+                break
+            }
             // Recursively tokenize the expression
-            if this.isAlpha(this.getCurrentChar()) or this.getCurrentChar() == '_' {
+            if this.isAlpha(ch) or ch == '_' {
                 this.handleIdentifierOrKeyword()
-            } else if this.isDigit(this.getCurrentChar()) {
+            } else if this.isDigit(ch) {
                 this.handleNumericLiteral()
             } else if this.handleOperator() {
                 continue
@@ -494,6 +607,10 @@ class SeenLexer {
     
     fun handleNumericLiteral() r: Void {
         let startPos = position
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceVerbose {
+            traceLexVerbose("handleNumericLiteral enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+        }
         let valueBuilder = StringBuilder.new()
         var isFloat = false
 
@@ -566,6 +683,9 @@ class SeenLexer {
         }
         let value = valueBuilder.toString()
         this.emitToken(tokenType, value, length)
+        if traceVerbose {
+            traceLexVerbose("handleNumericLiteral exit pos=" + position.toString() + " len=" + length.toString() + " value=" + value)
+        }
     }
     
     fun isHexDigit(char: Char) r: Bool {
@@ -579,9 +699,13 @@ class SeenLexer {
     fun handleIdentifierOrKeyword() r: Void {
         let startPos = position
         let valueBuilder = StringBuilder.new()
+        let traceVerbose = isLexerTraceVerboseEnabled()
 
         // First character (already validated as alpha or underscore)
         let c1 = this.getCurrentChar()
+        if traceVerbose {
+            traceLexVerbose("handleIdentifier enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + c1.toString())
+        }
         valueBuilder.append(c1.toString())
 
         this.advance()
@@ -589,7 +713,8 @@ class SeenLexer {
         // Subsequent characters
         while position < source.length() {
             let c = this.getCurrentChar()
-            if this.isAlphaNumeric(c) or c == '_' {
+            let isIdentChar = this.isAlphaNumeric(c) or c == '_'
+            if isIdentChar {
                 valueBuilder.append(c.toString())
                 this.advance()
             } else {
@@ -599,6 +724,9 @@ class SeenLexer {
 
         let length = position - startPos
         let value = valueBuilder.toString()
+        if traceVerbose {
+            traceLexVerbose("handleIdentifier value=" + value + " len=" + length.toString())
+        }
 
         // Check if it's a keyword
         let keywordType = keywordManager.getKeywordType(value)
@@ -611,39 +739,48 @@ class SeenLexer {
         } else {
             this.emitToken(SeenTokenType.Identifier, value, length)
         }
+        if traceVerbose {
+            traceLexVerbose("handleIdentifier exit pos=" + position.toString())
+        }
     }
     
     fun handleOperator() r: Bool {
         let char = this.getCurrentChar()
         let nextChar = this.peekChar(1)
+        let traceVerbose = isLexerTraceVerboseEnabled()
 
         // Two-character operators - check specific combinations directly
         // This avoids potential string concatenation issues
         if char == '=' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched ==") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.EqualEqual, "==", 2)
             return true
         }
         if char == '!' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched !=") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.NotEqual, "!=", 2)
             return true
         }
         if char == '<' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched <=") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.LessEqual, "<=", 2)
             return true
         }
         if char == '>' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched >=") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.GreaterEqual, ">=", 2)
             return true
         }
         if char == '-' and nextChar == '>' {
+            if traceVerbose { traceLexVerbose("handleOperator matched ->") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.Arrow, "->", 2)
@@ -651,24 +788,28 @@ class SeenLexer {
         }
         // Compound assignment operators
         if char == '+' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched +=") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.PlusEqual, "+=", 2)
             return true
         }
         if char == '-' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched -=") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.MinusEqual, "-=", 2)
             return true
         }
         if char == '*' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched *=") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.MultiplyEqual, "*=", 2)
             return true
         }
         if char == '/' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched /=") }
             this.advance()
             this.advance()
             this.emitToken(SeenTokenType.DivideEqual, "/=", 2)
@@ -678,6 +819,7 @@ class SeenLexer {
         // Single-character operators
         let singleCharType = this.getSingleCharOperatorType(char)
         if singleCharType != SeenTokenType.None {
+            if traceVerbose { traceLexVerbose("handleOperator matched single '" + char.toString() + "'") }
             this.advance()
             this.emitToken(singleCharType, char.toString(), 1)
             return true
@@ -718,8 +860,10 @@ class SeenLexer {
     fun handleSingleCharToken() r: Bool {
         let char = this.getCurrentChar()
         let tokenType = this.getSingleCharSeenTokenType(char)
+        let traceVerbose = isLexerTraceVerboseEnabled()
         
         if tokenType != SeenTokenType.None {
+            if traceVerbose { traceLexVerbose("handleSingleCharToken matched '" + char.toString() + "'") }
             this.advance()
             this.emitToken(tokenType, char.toString(), 1)
             return true

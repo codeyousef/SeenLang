@@ -32,6 +32,17 @@ fn is_primitive_type(type_name: &str) -> bool {
     matches!(type_name, "Int" | "Bool" | "Char" | "Float" | "Integer" | "Boolean" | "i64" | "i1" | "i8" | "f64")
 }
 
+/// Check if a type name is a generic type parameter placeholder.
+/// Handles qualified names like "Result::E", "Option::T" by extracting the base name.
+fn is_generic_type_param(type_name: &str) -> bool {
+    // Extract the base name after any path separators (. or ::)
+    let base = type_name
+        .rsplit(&['.', ':'][..])
+        .find(|part| !part.is_empty())
+        .unwrap_or(type_name);
+    matches!(base, "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B")
+}
+
 /// Operations for handling function calls
 pub trait CallOps<'ctx> {
     fn emit_call(
@@ -2609,6 +2620,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         else if item_val.is_pointer_value() { "pointer" }
                         else if item_val.is_int_value() { "int" }
                         else { "other" });
+                    let mut direct_item_ptr: Option<inkwell::values::PointerValue<'ctx>> = None;
                     let (item_ptr, item_size_val) = if item_val.is_struct_value() {
                          if is_generic_elem {
                              // Generic arrays store pointers-as-int. Box the struct and push the pointer.
@@ -2705,6 +2717,13 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                              self.builder.build_store(tmp, i64_val)?;
                              (tmp, size)
                          } else {
+                             if !is_boxed_param {
+                                 direct_item_ptr = Some(self.builder.build_pointer_cast(
+                                     item_val.into_pointer_value(),
+                                     self.i8_ptr_t,
+                                     "direct_item_ptr",
+                                 )?);
+                             }
                              // For direct pointer values (e.g., class types),
                              // convert the pointer to i64 using ptrtoint.
                              let size = self.i64_t.const_int(8, false);
@@ -2799,7 +2818,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                     // but the actual element (e.g., String) is 16 bytes
                     let final_elem_size = stored_elem_size;
 
-                    let final_item_ptr = if let Some(boxed_ptr) = boxed_item_ptr {
+                    let mut final_item_ptr = if let Some(boxed_ptr) = boxed_item_ptr {
                         let is_size_8 = self.builder.build_int_compare(
                             inkwell::IntPredicate::EQ,
                             stored_elem_size,
@@ -2817,18 +2836,106 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         item_ptr_i8
                     };
 
-                    // Declare __ArrayPush if needed
-                    let array_push_fn = self.module.get_function("__ArrayPush").unwrap_or_else(|| {
-                        let fn_type = self.ctx.i32_type().fn_type(&[
-                            self.i8_ptr_t.into(), // arr_ptr
-                            self.i8_ptr_t.into(), // element_ptr
-                            self.i64_t.into()     // element_size
-                        ], false);
-                        self.module.add_function("__ArrayPush", fn_type, None)
-                    });
+                    if let Some(direct_ptr) = direct_item_ptr {
+                        let is_size_8 = self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ,
+                            stored_elem_size,
+                            self.i64_t.const_int(8, false),
+                            "is_elem_size_8_direct",
+                        )?;
+                        let selected = self.builder.build_select(
+                            is_size_8,
+                            final_item_ptr.as_basic_value_enum(),
+                            direct_ptr.as_basic_value_enum(),
+                            "item_ptr_sel_direct",
+                        )?;
+                        final_item_ptr = selected.into_pointer_value();
+                    }
 
-                    // Pass the actual array pointer (not the variable slot) to __ArrayPush
-                    self.builder.build_call(array_push_fn, &[actual_arr_ptr.into(), final_item_ptr.into(), final_elem_size.into()], "push_res")?;
+                    // Route to type-specific push function based on element type
+                    // This ensures ABI compatibility between Rust bootstrap and self-hosted compiler
+                    let is_string_elem = element_struct_type.as_ref().map(|t| t == "String").unwrap_or(false);
+                    let is_int_or_char = element_struct_type.as_ref()
+                        .map(|t| t == "Int" || t == "Char" || t == "Integer" || t == "i64")
+                        .unwrap_or(false);
+                    let is_class_elem = element_struct_type.as_ref()
+                        .map(|t| self.class_types.contains(t))
+                        .unwrap_or(false);
+                    let is_data_struct = element_struct_type.as_ref()
+                        .map(|t| !self.class_types.contains(t) && self.struct_types.contains_key(t) && t != "String")
+                        .unwrap_or(false);
+
+                    eprintln!("[DEBUG Array_push] routing: elem_type={:?}, is_string={}, is_int_char={}, is_class={}, is_data_struct={}",
+                        element_struct_type, is_string_elem, is_int_or_char, is_class_elem, is_data_struct);
+
+                    if is_string_elem {
+                        // String: use seen_arr_push_str(ptr, %SeenString)
+                        let push_str_fn = self.module.get_function("seen_arr_push_str").unwrap_or_else(|| {
+                            let string_ty = self.ty_string();
+                            let fn_type = self.ctx.void_type().fn_type(&[
+                                self.i8_ptr_t.into(),     // arr_ptr
+                                string_ty.into(),         // string value
+                            ], false);
+                            self.module.add_function("seen_arr_push_str", fn_type, None)
+                        });
+                        // Load the String struct from the item pointer
+                        let string_ty = self.ty_string();
+                        let string_val = self.builder.build_load(string_ty, final_item_ptr, "push_str_val")?;
+                        self.builder.build_call(push_str_fn, &[actual_arr_ptr.into(), string_val.into()], "push_str_res")?;
+                        eprintln!("[DEBUG Array_push] used seen_arr_push_str");
+                    } else if is_int_or_char {
+                        // Int/Char: use seen_arr_push_i64(ptr, i64)
+                        let push_i64_fn = self.module.get_function("seen_arr_push_i64").unwrap_or_else(|| {
+                            let fn_type = self.ctx.void_type().fn_type(&[
+                                self.i8_ptr_t.into(),     // arr_ptr
+                                self.i64_t.into(),         // i64 value
+                            ], false);
+                            self.module.add_function("seen_arr_push_i64", fn_type, None)
+                        });
+                        // Load the i64 value from the item pointer
+                        let i64_val = self.builder.build_load(self.i64_t, final_item_ptr, "push_i64_val")?;
+                        self.builder.build_call(push_i64_fn, &[actual_arr_ptr.into(), i64_val.into()], "push_i64_res")?;
+                        eprintln!("[DEBUG Array_push] used seen_arr_push_i64");
+                    } else if is_data_struct {
+                        // Data struct: use Array_push(ptr, ptr) - copies bytes based on element_size stored in array
+                        let arr_push_fn = self.module.get_function("Array_push").unwrap_or_else(|| {
+                            let fn_type = self.i64_t.fn_type(&[
+                                self.i8_ptr_t.into(),     // arr_ptr
+                                self.i8_ptr_t.into(),     // element_ptr
+                            ], false);
+                            self.module.add_function("Array_push", fn_type, None)
+                        });
+                        self.builder.build_call(arr_push_fn, &[actual_arr_ptr.into(), final_item_ptr.into()], "push_data_res")?;
+                        eprintln!("[DEBUG Array_push] used Array_push for data struct");
+                    } else if is_class_elem {
+                        // Class/pointer: use seen_arr_push_ptr(ptr, ptr)
+                        let push_ptr_fn = self.module.get_function("seen_arr_push_ptr").unwrap_or_else(|| {
+                            let fn_type = self.ctx.void_type().fn_type(&[
+                                self.i8_ptr_t.into(),     // arr_ptr
+                                self.i8_ptr_t.into(),     // element_ptr (pointer to push)
+                            ], false);
+                            self.module.add_function("seen_arr_push_ptr", fn_type, None)
+                        });
+                        // For class types, the item is already a pointer (stored as ptr-as-int in final_item_ptr)
+                        // Load the ptr-as-int and convert back to pointer
+                        let ptr_as_int = self.builder.build_load(self.i64_t, final_item_ptr, "push_ptr_int")?;
+                        let ptr_val = self.builder.build_int_to_ptr(ptr_as_int.into_int_value(), self.i8_ptr_t, "push_ptr_val")?;
+                        self.builder.build_call(push_ptr_fn, &[actual_arr_ptr.into(), ptr_val.into()], "push_ptr_res")?;
+                        eprintln!("[DEBUG Array_push] used seen_arr_push_ptr for class");
+                    } else {
+                        // Generic/unknown: fall back to __ArrayPush with element size
+                        // This handles generic type parameters and unknown types
+                        let array_push_fn = self.module.get_function("__ArrayPush").unwrap_or_else(|| {
+                            let fn_type = self.ctx.i32_type().fn_type(&[
+                                self.i8_ptr_t.into(), // arr_ptr
+                                self.i8_ptr_t.into(), // element_ptr
+                                self.i64_t.into()     // element_size
+                            ], false);
+                            self.module.add_function("__ArrayPush", fn_type, None)
+                        });
+                        self.builder.build_call(array_push_fn, &[actual_arr_ptr.into(), final_item_ptr.into(), final_elem_size.into()], "push_generic_res")?;
+                        eprintln!("[DEBUG Array_push] used __ArrayPush for generic/unknown type");
+                    }
 
                     return Ok(());
                 }
@@ -3335,47 +3442,48 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
             return Ok(());
         }
 
-        // Handle __ExecuteCommand specially (manual sret)
+        // Handle __ExecuteCommand specially
+        // C signature: SeenCommandResult* __ExecuteCommand(SeenString cmd)
+        // - Takes SeenString by value (struct in registers on x86_64)
+        // - Returns pointer to malloc'd SeenCommandResult
         if func_name.as_deref() == Some("__ExecuteCommand") {
             let f = self.module.get_function("__ExecuteCommand").expect("__ExecuteCommand not found");
             let cmd_arg = args.get(0).expect("missing command arg");
             let cmd_val = self.eval_value(cmd_arg, fn_map)?;
-            
-            // Allocate result struct on stack
-            let result_ty = self.ty_cmd_result().as_basic_type_enum();
-            let result_ptr = self.alloca_for_type(result_ty, "cmd_result")?;
-            
-            // Spill command string to stack to pass by pointer
-            let cmd_ptr = if cmd_val.is_pointer_value() {
-                cmd_val.into_pointer_value()
-            } else if cmd_val.is_struct_value() {
-                let tmp = self.alloca_for_type(self.ty_string().as_basic_type_enum(), "cmd_spill")?;
-                self.builder.build_store(tmp, cmd_val)?;
-                tmp
+
+            // Get the command string value (by value, not by pointer)
+            let cmd_struct = if cmd_val.is_struct_value() {
+                cmd_val.into_struct_value()
+            } else if cmd_val.is_pointer_value() {
+                // If it's a pointer, load the struct
+                let ptr = cmd_val.into_pointer_value();
+                self.builder.build_load(self.ty_string(), ptr, "cmd_load")?.into_struct_value()
             } else {
                 return Err(anyhow!("Invalid command value type: {:?}", cmd_val));
             };
-            
-            // Call: __ExecuteCommand(result_ptr, cmd_ptr)
-            self.builder.build_call(f, &[result_ptr.into(), cmd_ptr.into()], "call_exec")?;
-            
-            // Load result from stack
+
+            // Call: ptr = __ExecuteCommand(SeenString)
+            let call_val = self.builder.build_call(f, &[cmd_struct.into()], "call_exec")?;
+            let result_ptr = call_val.try_as_basic_value().left().expect("expected ptr return").into_pointer_value();
+
+            // Load result struct from the returned pointer
+            let result_ty = self.ty_cmd_result().as_basic_type_enum();
             let loaded = self.builder.build_load(result_ty, result_ptr, "loaded_result")?;
-            
+
             if let Some(r) = result {
                 // Convert ABI struct {i8, String} to IR struct {i1, String}
                 let loaded_sv = loaded.into_struct_value();
                 let success_i8 = self.builder.build_extract_value(loaded_sv, 0, "success_i8")?.into_int_value();
                 let success_i1 = self.builder.build_int_truncate(success_i8, self.bool_t, "success_i1")?;
                 let output = self.builder.build_extract_value(loaded_sv, 1, "output")?;
-                
+
                 let ir_struct_ty = self.ctx.struct_type(&[self.bool_t.into(), self.ty_string().into()], false);
                 let mut val = ir_struct_ty.get_undef();
                 val = self.builder.build_insert_value(val, success_i1, 0, "s_success")?.into_struct_value();
                 val = self.builder.build_insert_value(val, output, 1, "s_output")?.into_struct_value();
-                
+
                 self.assign_value(r, val.as_basic_value_enum())?;
-                
+
                 // Propagate return struct type info
                 if let IRValue::Register(reg_id) = r {
                     self.reg_struct_types.insert(*reg_id, "CommandResult".to_string());
@@ -3810,8 +3918,8 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             let struct_type = self.var_struct_types.get(name);
                             let elem_type = self.var_array_element_struct.get(name);
 
-                            // Check for generic type markers
-                            let is_generic = struct_type.map(|t| t == "T" || t == "E" || t == "K" || t == "V").unwrap_or(false);
+                            // Check for generic type markers (handles qualified names like Result::E)
+                            let is_generic = struct_type.map(|t| is_generic_type_param(t)).unwrap_or(false);
 
                             // Check for primitive from Vec.get (has elem_type set to primitive)
                             // Also check if struct_type is "Option" but elem_type is primitive - this happens
@@ -3829,7 +3937,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             let struct_type = self.reg_struct_types.get(reg_id);
                             let elem_type = self.reg_array_element_struct.get(reg_id);
 
-                            let is_generic = struct_type.map(|t| t == "T" || t == "E" || t == "K" || t == "V").unwrap_or(false);
+                            let is_generic = struct_type.map(|t| is_generic_type_param(t)).unwrap_or(false);
                             let is_vec_get_primitive = elem_type.map(|t| is_primitive_type(t)).unwrap_or(false);
 
                             if self.trace_options.trace_boxing {
@@ -4455,7 +4563,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                             // Also don't overwrite if we have an array element type (from Vec.get returning primitives)
                             let existing = self.reg_struct_types.get(reg_id).cloned();
                             let has_elem_type = self.reg_array_element_struct.contains_key(reg_id);
-                            let is_generic = struct_name == "T" || struct_name == "V" || struct_name == "E" || struct_name == "K";
+                            let is_generic = is_generic_type_param(&struct_name);
                             if (existing.is_none() && !has_elem_type) || !is_generic {
                                 if self.trace_options.trace_boxing {
                                     eprintln!("[BOXING] Setting reg {} struct type to '{}' from call to '{}'", reg_id, struct_name, name);

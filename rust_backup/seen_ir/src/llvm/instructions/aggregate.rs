@@ -608,8 +608,8 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         // Check if we're setting a struct array element
         if let Some(ref struct_type_name) = element_struct_type {
             // Check if this is a class type (heap-allocated, stored as pointer)
-            // Treat String as class (pointer) to match Vec<T> behavior where T=Generic=ptr
-            let is_class = self.class_types.contains(struct_type_name) || struct_type_name == "String";
+            // String is stored inline for Array<String> and should not be treated as a class here.
+            let is_class = self.class_types.contains(struct_type_name) && struct_type_name != "String";
             eprintln!("DEBUG ArraySet: struct_type={}, is_class={}, val_v={:?}", struct_type_name, is_class, val_v);
             
             let llvm_struct_ty = if struct_type_name == "String" {
@@ -686,6 +686,14 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 } else if val_v.is_pointer_value() {
                     // Load struct from pointer
                     self.builder.build_load(llvm_struct_ty, val_v.into_pointer_value(), "load_struct")?.into_struct_value()
+                } else if val_v.is_int_value() {
+                    // Pointer-as-int: convert to pointer and load the struct.
+                    let ptr = self.builder.build_int_to_ptr(
+                        val_v.into_int_value(),
+                        llvm_struct_ty.ptr_type(inkwell::AddressSpace::from(0u16)),
+                        "struct_int_to_ptr",
+                    )?;
+                    self.builder.build_load(llvm_struct_ty, ptr, "load_struct_int")?.into_struct_value()
                 } else {
                     return Err(anyhow!("ArraySet struct: expected struct value"));
                 };
@@ -888,7 +896,19 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 struct_type_name, self.struct_types.contains_key("Vec"));
         }
         if let Some(type_name) = &struct_type_name {
-            if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(type_name).cloned() {
+            let base_type_name = type_name
+                .rsplit(&['.', ':'][..])
+                .find(|part| !part.is_empty())
+                .unwrap_or(type_name.as_str())
+                .trim();
+            let lookup_type_name = if self.struct_types.contains_key(type_name)
+                || self.struct_definitions.contains_key(type_name)
+            {
+                type_name.as_str()
+            } else {
+                base_type_name
+            };
+            if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(lookup_type_name).cloned() {
                 // Find field index
                 let field_idx = field_names.iter().position(|n| n == field)
                     .ok_or_else(|| {
@@ -903,9 +923,9 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     })?;
                 
                 // [GEP TRACE] output for debugging struct layout issues
-                let trace_option = type_name == "Option";
+                let trace_option = lookup_type_name == "Option";
                 if self.trace_options.trace_gep || trace_option {
-                    eprintln!("[GEP TRACE] accessing member '{}' of struct '{}'", field, type_name);
+                    eprintln!("[GEP TRACE] accessing member '{}' of struct '{}'", field, lookup_type_name);
                     eprintln!("[GEP TRACE]   - Base Pointer Type: {:?}", llvm_struct_ty);
                     eprintln!("[GEP TRACE]   - Calculated Field Index: {}", field_idx);
                     eprintln!("[GEP TRACE]   - LLVM struct fields: {:?}", llvm_struct_ty.get_field_types());
@@ -983,7 +1003,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 // This enables in-place modification of arrays stored in struct fields
                 if let IRValue::Register(reg_id) = result {
                     // Check if this field is an Array type by looking at the struct definition
-                    let is_array_field = if let Some(fields) = self.struct_definitions.get(type_name) {
+                    let is_array_field = if let Some(fields) = self.struct_definitions.get(lookup_type_name) {
                         fields.iter().any(|(n, t)| n == field && matches!(t, IRType::Array(_)))
                     } else {
                         // Fallback: check LLVM type structure (Array is { i64, i64, ptr })
@@ -1003,7 +1023,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                 }
                 
                 // Check if the field is an array of structs and record it for the result register
-                if let Some(fields) = self.struct_definitions.get(type_name) {
+                if let Some(fields) = self.struct_definitions.get(lookup_type_name) {
                     if let Some((_, field_type)) = fields.iter().find(|(n, _)| n == field) {
                         // Track struct fields for nested field access
                         if let IRType::Struct { name: field_struct_name, fields: struct_fields } = field_type {
@@ -1032,7 +1052,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
 
                                 // Special handling for known container types with generic parameters
                                 // StringHashMap.entries is Vec<Option<HashEntry>> - element type is Option<HashEntry>
-                                if type_name == "StringHashMap" && field == "entries" {
+                                if lookup_type_name == "StringHashMap" && field == "entries" {
                                     if self.trace_options.trace_boxing {
                                         eprintln!("[BOXING] FieldAccess StringHashMap.entries - tracking Option<HashEntry> element type");
                                     }
@@ -1072,11 +1092,7 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
             } else {
                 // Check if this is a generic type placeholder (T, K, V, E)
                 // Generic placeholders are not registered as concrete types - handle them as boxed values
-                let base_type = type_name
-                    .rsplit(&['.', ':'][..])
-                    .find(|part| !part.is_empty())
-                    .unwrap_or(type_name)
-                    .trim();
+                let base_type = base_type_name;
                 let is_generic_placeholder = matches!(
                     base_type,
                     "T" | "K" | "V" | "E" | "T1" | "T2" | "U" | "R" | "A" | "B"
@@ -1179,26 +1195,38 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
         
         // Check if we have a registered struct type
         if let Some(type_name) = struct_type_name {
-            if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(&type_name).cloned() {
+            let base_type_name = type_name
+                .rsplit(&['.', ':'][..])
+                .find(|part| !part.is_empty())
+                .unwrap_or(type_name.as_str())
+                .trim();
+            let lookup_type_name = if self.struct_types.contains_key(&type_name)
+                || self.struct_definitions.contains_key(&type_name)
+            {
+                type_name.as_str()
+            } else {
+                base_type_name
+            };
+            if let Some((llvm_struct_ty, field_names)) = self.struct_types.get(lookup_type_name).cloned() {
                 // Find field index
                 let trace_boxing = self.trace_options.trace_boxing;
                 let field_idx = field_names.iter().position(|n| n == field)
                     .ok_or_else(|| {
                         if trace_boxing {
-                            eprintln!("[BOXING] FieldSet: Field '{}' not found in struct '{}'. Available fields: {:?}", field, type_name, field_names);
+                            eprintln!("[BOXING] FieldSet: Field '{}' not found in struct '{}'. Available fields: {:?}", field, lookup_type_name, field_names);
                         }
-                        anyhow!("Field '{}' not found in struct '{}'", field, type_name)
+                        anyhow!("Field '{}' not found in struct '{}'", field, lookup_type_name)
                     })?;
                 
                 // [GEP TRACE] output for debugging struct layout issues
                 if self.trace_options.trace_gep {
-                    eprintln!("[GEP TRACE] setting member '{}' of struct '{}'", field, type_name);
+                    eprintln!("[GEP TRACE] setting member '{}' of struct '{}'", field, lookup_type_name);
                     eprintln!("[GEP TRACE]   - Base Pointer Type: {:?}", llvm_struct_ty);
                     eprintln!("[GEP TRACE]   - Calculated Field Index: {}", field_idx);
                 }
                 
                 let ptr = if let IRValue::Variable(name) = struct_val {
-                     eprintln!("DEBUG FieldSet: var_name='{}', field='{}', type_name='{}'", name, field, type_name);
+                     eprintln!("DEBUG FieldSet: var_name='{}', field='{}', type_name='{}'", name, field, lookup_type_name);
                      if let Some(slot) = self.var_slots.get(name).copied() {
                          let slot_ty = self.var_slot_types.get(name).unwrap();
                          eprintln!("DEBUG FieldSet: slot found, slot_ty={:?}, is_struct={}, is_pointer={}, is_int={}", 
