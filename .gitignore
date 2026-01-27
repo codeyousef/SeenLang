@@ -119,6 +119,12 @@ stage1_test
 stage2_test
 stage2_test.c
 stage2_compiler.c
+stage3_*
+stage4_*
+*.out
+
+# Test binaries and temp test files
+test_*
 
 # Test outputs
 test_out
@@ -127,4 +133,18 @@ test_if_out
 test_if_out.c
 test_simple.seen
 test_if.seen
+
+# Log files
+*.log
+
+# Backup/temp files
+*.modified
+
+# One-off test binaries
+llvm_rust_test
+
+# Symlinks to build dirs
+rust_backup/target-wsl
+rust_backup/*.ir
+
 /.claude/

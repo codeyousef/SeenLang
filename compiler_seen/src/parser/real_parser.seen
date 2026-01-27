@@ -1426,62 +1426,125 @@ class RealParser {
         return expr
     }
 
+    // NOTE: parseEquality, parseComparison, parseTerm, parseFactor use
+    // sequential if checks instead of 'or' chains because Stage1 compiles
+    // 'or' without short-circuit evaluation — all matchTokenStr() calls
+    // execute even when the first one matches, consuming extra tokens.
+
     fun parseEquality() r: ParserExpressionNode {
         var expr = parseComparison()
-        while matchTokenStr(SeenTokenType.EqualEqual) or matchTokenStr(SeenTokenType.NotEqual) {
-            let operator = previous().getValue()
-            let right = parseComparison()
-            let newExpr = ParserExpressionNode.new()
-            newExpr.kind = "Binary"
-            newExpr.operands.push(expr)  // [0] = left
-            newExpr.operands.push(right) // [1] = right
-            newExpr.operator = operator
-            expr = newExpr
+        var matched = true
+        while matched {
+            matched = false
+            if matchTokenStr(SeenTokenType.EqualEqual) {
+                matched = true
+            }
+            if not matched {
+                if matchTokenStr(SeenTokenType.NotEqual) {
+                    matched = true
+                }
+            }
+            if matched {
+                let operator = previous().getValue()
+                let right = parseComparison()
+                let newExpr = ParserExpressionNode.new()
+                newExpr.kind = "Binary"
+                newExpr.operands.push(expr)  // [0] = left
+                newExpr.operands.push(right) // [1] = right
+                newExpr.operator = operator
+                expr = newExpr
+            }
         }
         return expr
     }
 
     fun parseComparison() r: ParserExpressionNode {
         var expr = parseTerm()
-        while matchTokenStr(SeenTokenType.GreaterThan) or matchTokenStr(SeenTokenType.GreaterEqual) or matchTokenStr(SeenTokenType.LessThan) or matchTokenStr(SeenTokenType.LessEqual) {
-            let operator = previous().getValue()
-            let right = parseTerm()
-            let newExpr = ParserExpressionNode.new()
-            newExpr.kind = "Binary"
-            newExpr.operands.push(expr)  // [0] = left
-            newExpr.operands.push(right) // [1] = right
-            newExpr.operator = operator
-            expr = newExpr
+        var matched = true
+        while matched {
+            matched = false
+            if matchTokenStr(SeenTokenType.GreaterThan) {
+                matched = true
+            }
+            if not matched {
+                if matchTokenStr(SeenTokenType.GreaterEqual) {
+                    matched = true
+                }
+            }
+            if not matched {
+                if matchTokenStr(SeenTokenType.LessThan) {
+                    matched = true
+                }
+            }
+            if not matched {
+                if matchTokenStr(SeenTokenType.LessEqual) {
+                    matched = true
+                }
+            }
+            if matched {
+                let operator = previous().getValue()
+                let right = parseTerm()
+                let newExpr = ParserExpressionNode.new()
+                newExpr.kind = "Binary"
+                newExpr.operands.push(expr)  // [0] = left
+                newExpr.operands.push(right) // [1] = right
+                newExpr.operator = operator
+                expr = newExpr
+            }
         }
         return expr
     }
 
     fun parseTerm() r: ParserExpressionNode {
         var expr = parseFactor()
-        while matchTokenStr(SeenTokenType.Plus) or matchTokenStr(SeenTokenType.Minus) {
-            let operator = previous().getValue()
-            let right = parseFactor()
-            let newExpr = ParserExpressionNode.new()
-            newExpr.kind = "Binary"
-            newExpr.operands.push(expr)  // [0] = left
-            newExpr.operands.push(right) // [1] = right
-            newExpr.operator = operator
-            expr = newExpr
+        var matched = true
+        while matched {
+            matched = false
+            if matchTokenStr(SeenTokenType.Plus) {
+                matched = true
+            }
+            if not matched {
+                if matchTokenStr(SeenTokenType.Minus) {
+                    matched = true
+                }
+            }
+            if matched {
+                let operator = previous().getValue()
+                let right = parseFactor()
+                let newExpr = ParserExpressionNode.new()
+                newExpr.kind = "Binary"
+                newExpr.operands.push(expr)  // [0] = left
+                newExpr.operands.push(right) // [1] = right
+                newExpr.operator = operator
+                expr = newExpr
+            }
         }
         return expr
     }
 
     fun parseFactor() r: ParserExpressionNode {
         var expr = parseUnary()
-        while matchTokenStr(SeenTokenType.Multiply) or matchTokenStr(SeenTokenType.Divide) {
-            let operator = previous().getValue()
-            let right = parseUnary()
-            let newExpr = ParserExpressionNode.new()
-            newExpr.kind = "Binary"
-            newExpr.operands.push(expr)
-            newExpr.operands.push(right)
-            newExpr.operator = operator
-            expr = newExpr
+        var matched = true
+        while matched {
+            matched = false
+            if matchTokenStr(SeenTokenType.Multiply) {
+                matched = true
+            }
+            if not matched {
+                if matchTokenStr(SeenTokenType.Divide) {
+                    matched = true
+                }
+            }
+            if matched {
+                let operator = previous().getValue()
+                let right = parseUnary()
+                let newExpr = ParserExpressionNode.new()
+                newExpr.kind = "Binary"
+                newExpr.operands.push(expr)
+                newExpr.operands.push(right)
+                newExpr.operator = operator
+                expr = newExpr
+            }
         }
         return expr
     }
@@ -1677,7 +1740,7 @@ class RealParser {
         // Identifier (variable or function name or struct literal)
         let curTok = peek()
         // trace.toString() + " value=" + curTok.getValue())
-        if checkToken(getIdentifierType()) {
+        if checkToken(SeenTokenType.Identifier) {
             let token = this.advance()
             var name = token.getValue()
             // trace
@@ -1693,14 +1756,14 @@ class RealParser {
                 var genericParsed = false
 
                 // Try to parse a type name
-                if checkToken(getIdentifierType()) {
+                if checkToken(SeenTokenType.Identifier) {
                     let typeParam = this.advance().getValue()
 
                     // Handle nested generics like Array<Array<Int>>
                     var fullTypeParam = typeParam
                     if checkToken(SeenTokenType.LessThan) {
                         this.advance() // consume inner <
-                        if checkToken(getIdentifierType()) {
+                        if checkToken(SeenTokenType.Identifier) {
                             fullTypeParam = fullTypeParam + "<" + this.advance().getValue() + ">"
                             if checkToken(SeenTokenType.GreaterThan) {
                                 this.advance() // consume inner >
@@ -1709,8 +1772,8 @@ class RealParser {
                     }
 
                     // Handle multiple type parameters like Map<K, V>
-                    while matchTokenStr(getCommaType()) {
-                        if checkToken(getIdentifierType()) {
+                    while matchTokenStr(SeenTokenType.Comma) {
+                        if checkToken(SeenTokenType.Identifier) {
                             fullTypeParam = fullTypeParam + ", " + this.advance().getValue()
                         }
                     }
@@ -1722,12 +1785,25 @@ class RealParser {
                         foundClosingGt = true
 
                         // Now check if followed by (), {}, or . to confirm generic type
+                        // NOTE: Use nested ifs instead of 'or' to ensure short-circuit (Stage1 bug workaround)
                         var isGenericType = false
-                        if checkToken(getLeftParenType()) or checkToken(SeenTokenType.LeftBrace) or checkToken(getDotType()) {
+                        if checkToken(SeenTokenType.LeftParen) {
+                            isGenericType = true
+                        }
+                        if not isGenericType {
+                            if checkToken(SeenTokenType.LeftBrace) {
+                                isGenericType = true
+                            }
+                        }
+                        if not isGenericType {
+                            if checkToken(SeenTokenType.Dot) {
+                                isGenericType = true
+                            }
+                        }
+                        if isGenericType {
                             // This IS a generic type - update name to include type param
                             name = name + "<" + fullTypeParam + ">"
                             // Continue to normal call/struct literal handling below
-                            isGenericType = true
                             genericParsed = true
                         }
                         if not isGenericType {
@@ -1762,7 +1838,7 @@ class RealParser {
                 // Parse field initializers
                 if not checkToken(SeenTokenType.RightBrace) {
                     // Parse first field
-                    if checkToken(getIdentifierType()) {
+                    if checkToken(SeenTokenType.Identifier) {
                         let fieldName = this.advance().getValue()
                         consume(SeenTokenType.Colon, "Expected ':' after field name")
                         let fieldValue = parseExpression()
@@ -1774,8 +1850,8 @@ class RealParser {
                         structExpr.arguments.push(fieldExpr)
                     }
 
-                    while matchTokenStr(getCommaType()) {
-                        if checkToken(getIdentifierType()) {
+                    while matchTokenStr(SeenTokenType.Comma) {
+                        if checkToken(SeenTokenType.Identifier) {
                             let fieldName = this.advance().getValue()
                             consume(SeenTokenType.Colon, "Expected ':' after field name")
                             let fieldValue = parseExpression()

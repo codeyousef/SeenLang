@@ -246,9 +246,9 @@ class LLVMIRGenerator {
         structMethodRetTypes.push("")
         // LLVMIRGenerator state (needed for accurate field typing during self-hosted codegen)
         structNames.push("LLVMIRGenerator")
-        structLayouts.push("{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, %SeenString }")
-        structFieldNames.push("output,stringConstants,nextReg,nextBlock,varNames,varRegs,varTypes,indent,structNames,structLayouts,structFieldNames,structFieldTypes,structLlvmFieldTypes,structSizes,structMethodNames,structMethodRetTypes,funcNames,funcRetTypes,currentFunctionReturnType,currentClassName,blockTerminated,currentLoopCondLabel,currentLoopEndLabel,preAllocatedVars,preAllocatedTypes,stringConstantPrefix,generatedFunctions,generatedClasses,typesLoadedFromHeader,runtimeDeclsLoaded,typeHeaderPath,pendingArrayLiteralType")
-        structFieldTypes.push("StringBuilder|Array<String>|Int|Int|Array<String>|Array<String>|Array<String>|Int|Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|Array<Int>|Array<String>|Array<String>|Array<String>|Array<String>|String|String|Bool|String|String|Array<String>|Array<String>|String|Array<String>|Array<String>|Bool|Bool|String|String")
+        structLayouts.push("{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, %SeenString, ptr }")
+        structFieldNames.push("output,stringConstants,nextReg,nextBlock,varNames,varRegs,varTypes,indent,structNames,structLayouts,structFieldNames,structFieldTypes,structLlvmFieldTypes,structSizes,structMethodNames,structMethodRetTypes,funcNames,funcRetTypes,currentFunctionReturnType,currentClassName,blockTerminated,currentLoopCondLabel,currentLoopEndLabel,preAllocatedVars,preAllocatedTypes,stringConstantPrefix,generatedFunctions,generatedClasses,typesLoadedFromHeader,runtimeDeclsLoaded,typeHeaderPath,pendingArrayLiteralType,classMethodBaseNames")
+        structFieldTypes.push("StringBuilder|Array<String>|Int|Int|Array<String>|Array<String>|Array<String>|Int|Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|Array<Int>|Array<String>|Array<String>|Array<String>|Array<String>|String|String|Bool|String|String|Array<String>|Array<String>|String|Array<String>|Array<String>|Bool|Bool|String|String|Array<String>")
         structLlvmFieldTypes.push("")
         structSizes.push(304)
         structMethodNames.push("")
@@ -2072,6 +2072,7 @@ class LLVMIRGenerator {
         if fieldName == "runtimeDeclsLoaded" { return 29 }
         if fieldName == "typeHeaderPath" { return 30 }
         if fieldName == "pendingArrayLiteralType" { return 31 }
+        if fieldName == "classMethodBaseNames" { return 32 }
         return -1
     }
 
@@ -2108,6 +2109,7 @@ class LLVMIRGenerator {
         if fieldName == "runtimeDeclsLoaded" { return "i1" }
         if fieldName == "typeHeaderPath" { return "%SeenString" }
         if fieldName == "pendingArrayLiteralType" { return "%SeenString" }
+        if fieldName == "classMethodBaseNames" { return "ptr" }
         return ""
     }
 
@@ -2236,6 +2238,7 @@ class LLVMIRGenerator {
             if fieldName == "runtimeDeclsLoaded" { return "Bool" }
             if fieldName == "typeHeaderPath" { return "String" }
             if fieldName == "pendingArrayLiteralType" { return "String" }
+            if fieldName == "classMethodBaseNames" { return "Array<String>" }
         }
         let idx = this.findStruct(structName)
         if structName == "FunctionNode" {
@@ -4337,8 +4340,8 @@ class LLVMIRGenerator {
                 let charValue = stmt.returnValue.literalValue
                 if charValue.length() == 1 {
                     // Get first character's code point
-                    let codePoint = charValue.charCodeAt(0)
-                    output.append("  ret i64 " + codePoint.toString() + "\n")
+                    let codeStr = this.charToCodeStr(charValue)
+                    output.append("  ret i64 " + codeStr + "\n")
                     blockTerminated = true
                     return
                 }
@@ -5614,7 +5617,7 @@ class LLVMIRGenerator {
         if not registryHasLayout {
             // Use hardcoded layouts for well-known types
             if structType == "LLVMIRGenerator" {
-                structLayout = lb + " i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, %SeenString " + rb
+                structLayout = lb + " i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, %SeenString, ptr " + rb
                 let llvmType = this.getLLVMIRGeneratorFieldType(fieldName)
                 let idx = this.getLLVMIRGeneratorFieldIndex(fieldName)
                 if idx >= 0 {
@@ -5909,7 +5912,7 @@ class LLVMIRGenerator {
             }
         }
         if structType == "LLVMIRGenerator" {
-            structLayout = lb + " i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, %SeenString " + rb
+            structLayout = lb + " i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, %SeenString, ptr " + rb
             let idx = this.getLLVMIRGeneratorFieldIndex(fieldName)
             if idx >= 0 {
                 fieldIndex = idx
@@ -6224,113 +6227,7 @@ class LLVMIRGenerator {
         }
         if expr.literalType == "Char" {
             // Character literal - return the code point as i64
-            // Note: charCodeAt is broken in Rust backend, so we parse manually
-            let val = expr.literalValue
-            if val.length() == 0 {
-                return "0"
-            }
-            // Handle common characters directly using flat if statements (no else-if chains)
-            if val == " " { return "32" }
-            if val == "\t" { return "9" }
-            if val == "\n" { return "10" }
-            if val == "\r" { return "13" }
-            if val == "0" { return "48" }
-            if val == "1" { return "49" }
-            if val == "2" { return "50" }
-            if val == "3" { return "51" }
-            if val == "4" { return "52" }
-            if val == "5" { return "53" }
-            if val == "6" { return "54" }
-            if val == "7" { return "55" }
-            if val == "8" { return "56" }
-            if val == "9" { return "57" }
-            if val == "a" { return "97" }
-            if val == "b" { return "98" }
-            if val == "c" { return "99" }
-            if val == "d" { return "100" }
-            if val == "e" { return "101" }
-            if val == "f" { return "102" }
-            if val == "g" { return "103" }
-            if val == "h" { return "104" }
-            if val == "i" { return "105" }
-            if val == "j" { return "106" }
-            if val == "k" { return "107" }
-            if val == "l" { return "108" }
-            if val == "m" { return "109" }
-            if val == "n" { return "110" }
-            if val == "o" { return "111" }
-            if val == "p" { return "112" }
-            if val == "q" { return "113" }
-            if val == "r" { return "114" }
-            if val == "s" { return "115" }
-            if val == "t" { return "116" }
-            if val == "u" { return "117" }
-            if val == "v" { return "118" }
-            if val == "w" { return "119" }
-            if val == "x" { return "120" }
-            if val == "y" { return "121" }
-            if val == "z" { return "122" }
-            if val == "A" { return "65" }
-            if val == "B" { return "66" }
-            if val == "C" { return "67" }
-            if val == "D" { return "68" }
-            if val == "E" { return "69" }
-            if val == "F" { return "70" }
-            if val == "G" { return "71" }
-            if val == "H" { return "72" }
-            if val == "I" { return "73" }
-            if val == "J" { return "74" }
-            if val == "K" { return "75" }
-            if val == "L" { return "76" }
-            if val == "M" { return "77" }
-            if val == "N" { return "78" }
-            if val == "O" { return "79" }
-            if val == "P" { return "80" }
-            if val == "Q" { return "81" }
-            if val == "R" { return "82" }
-            if val == "S" { return "83" }
-            if val == "T" { return "84" }
-            if val == "U" { return "85" }
-            if val == "V" { return "86" }
-            if val == "W" { return "87" }
-            if val == "X" { return "88" }
-            if val == "Y" { return "89" }
-            if val == "Z" { return "90" }
-            if val == "'" { return "39" }
-            if val == "\"" { return "34" }
-            if val == "\\" { return "92" }
-            if val == "/" { return "47" }
-            if val == "." { return "46" }
-            if val == "," { return "44" }
-            if val == ":" { return "58" }
-            if val == ";" { return "59" }
-            if val == "!" { return "33" }
-            if val == "?" { return "63" }
-            if val == "@" { return "64" }
-            if val == "#" { return "35" }
-            if val == "$" { return "36" }
-            if val == "%" { return "37" }
-            if val == "^" { return "94" }
-            if val == "&" { return "38" }
-            if val == "*" { return "42" }
-            if val == "(" { return "40" }
-            if val == ")" { return "41" }
-            if val == "[" { return "91" }
-            if val == "]" { return "93" }
-            if val == "{" { return "123" }
-            if val == "}" { return "125" }
-            if val == "<" { return "60" }
-            if val == ">" { return "62" }
-            if val == "=" { return "61" }
-            if val == "+" { return "43" }
-            if val == "-" { return "45" }
-            if val == "_" { return "95" }
-            if val == "|" { return "124" }
-            if val == "~" { return "126" }
-            if val == "`" { return "96" }
-            // Fallback: return 0 for unknown characters
-            output.append("; WARNING: unknown character literal '" + val + "'\n")
-            return "0"
+            return this.charToCodeStr(expr.literalValue)
         }
         if expr.literalType == "Bool" or expr.literalType == "Boolean" {
             if expr.literalValue == "true" {
@@ -6495,11 +6392,11 @@ class LLVMIRGenerator {
                 var rightVal = rightReg
                 if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
                     // Convert single-char string to its code point
-                    rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+                    rightVal = this.charToCodeStr(rightExpr.literalValue)
                 }
                 if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
                     // Convert single-char string to its code point
-                    leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+                    leftVal = this.charToCodeStr(leftExpr.literalValue)
                 }
                 output.append("  " + resultReg + " = icmp eq i64 " + leftVal + ", " + rightVal + "\n")
             }
@@ -6531,10 +6428,10 @@ class LLVMIRGenerator {
                 var leftVal = leftReg
                 var rightVal = rightReg
                 if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
-                    rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+                    rightVal = this.charToCodeStr(rightExpr.literalValue)
                 }
                 if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
-                    leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+                    leftVal = this.charToCodeStr(leftExpr.literalValue)
                 }
                 output.append("  " + resultReg + " = icmp ne i64 " + leftVal + ", " + rightVal + "\n")
             }
@@ -6565,10 +6462,10 @@ class LLVMIRGenerator {
             var leftVal = leftReg
             var rightVal = rightReg
             if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
-                rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+                rightVal = this.charToCodeStr(rightExpr.literalValue)
             }
             if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
-                leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+                leftVal = this.charToCodeStr(leftExpr.literalValue)
             }
             // Handle String vs String comparison by extracting first character codes
             if leftType == "String" and rightType == "String" {
@@ -6587,10 +6484,10 @@ class LLVMIRGenerator {
             var leftVal = leftReg
             var rightVal = rightReg
             if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
-                rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+                rightVal = this.charToCodeStr(rightExpr.literalValue)
             }
             if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
-                leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+                leftVal = this.charToCodeStr(leftExpr.literalValue)
             }
             // Handle String vs String comparison by extracting first character codes
             if leftType == "String" and rightType == "String" {
@@ -6609,10 +6506,10 @@ class LLVMIRGenerator {
             var leftVal = leftReg
             var rightVal = rightReg
             if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
-                rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+                rightVal = this.charToCodeStr(rightExpr.literalValue)
             }
             if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
-                leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+                leftVal = this.charToCodeStr(leftExpr.literalValue)
             }
             // Handle String vs String comparison by extracting first character codes
             if leftType == "String" and rightType == "String" {
@@ -6631,10 +6528,10 @@ class LLVMIRGenerator {
             var leftVal = leftReg
             var rightVal = rightReg
             if leftType == "Char" and rightType == "String" and rightExpr.kind == "Literal" and rightExpr.literalValue.length() == 1 {
-                rightVal = rightExpr.literalValue.charCodeAt(0).toString()
+                rightVal = this.charToCodeStr(rightExpr.literalValue)
             }
             if rightType == "Char" and leftType == "String" and leftExpr.kind == "Literal" and leftExpr.literalValue.length() == 1 {
-                leftVal = leftExpr.literalValue.charCodeAt(0).toString()
+                leftVal = this.charToCodeStr(leftExpr.literalValue)
             }
             // Handle String vs String comparison by extracting first character codes
             if leftType == "String" and rightType == "String" {
@@ -9023,6 +8920,109 @@ class LLVMIRGenerator {
             i = i + 1
         }
         return result
+    }
+
+    fun charToCodeStr(val: String) r: String {
+        if val.length() == 0 { return "0" }
+        if val == " " { return "32" }
+        if val == "\t" { return "9" }
+        if val == "\n" { return "10" }
+        if val == "\r" { return "13" }
+        if val == "0" { return "48" }
+        if val == "1" { return "49" }
+        if val == "2" { return "50" }
+        if val == "3" { return "51" }
+        if val == "4" { return "52" }
+        if val == "5" { return "53" }
+        if val == "6" { return "54" }
+        if val == "7" { return "55" }
+        if val == "8" { return "56" }
+        if val == "9" { return "57" }
+        if val == "a" { return "97" }
+        if val == "b" { return "98" }
+        if val == "c" { return "99" }
+        if val == "d" { return "100" }
+        if val == "e" { return "101" }
+        if val == "f" { return "102" }
+        if val == "g" { return "103" }
+        if val == "h" { return "104" }
+        if val == "i" { return "105" }
+        if val == "j" { return "106" }
+        if val == "k" { return "107" }
+        if val == "l" { return "108" }
+        if val == "m" { return "109" }
+        if val == "n" { return "110" }
+        if val == "o" { return "111" }
+        if val == "p" { return "112" }
+        if val == "q" { return "113" }
+        if val == "r" { return "114" }
+        if val == "s" { return "115" }
+        if val == "t" { return "116" }
+        if val == "u" { return "117" }
+        if val == "v" { return "118" }
+        if val == "w" { return "119" }
+        if val == "x" { return "120" }
+        if val == "y" { return "121" }
+        if val == "z" { return "122" }
+        if val == "A" { return "65" }
+        if val == "B" { return "66" }
+        if val == "C" { return "67" }
+        if val == "D" { return "68" }
+        if val == "E" { return "69" }
+        if val == "F" { return "70" }
+        if val == "G" { return "71" }
+        if val == "H" { return "72" }
+        if val == "I" { return "73" }
+        if val == "J" { return "74" }
+        if val == "K" { return "75" }
+        if val == "L" { return "76" }
+        if val == "M" { return "77" }
+        if val == "N" { return "78" }
+        if val == "O" { return "79" }
+        if val == "P" { return "80" }
+        if val == "Q" { return "81" }
+        if val == "R" { return "82" }
+        if val == "S" { return "83" }
+        if val == "T" { return "84" }
+        if val == "U" { return "85" }
+        if val == "V" { return "86" }
+        if val == "W" { return "87" }
+        if val == "X" { return "88" }
+        if val == "Y" { return "89" }
+        if val == "Z" { return "90" }
+        if val == "'" { return "39" }
+        if val == "\"" { return "34" }
+        if val == "\\" { return "92" }
+        if val == "/" { return "47" }
+        if val == "." { return "46" }
+        if val == "," { return "44" }
+        if val == ":" { return "58" }
+        if val == ";" { return "59" }
+        if val == "!" { return "33" }
+        if val == "?" { return "63" }
+        if val == "@" { return "64" }
+        if val == "#" { return "35" }
+        if val == "$" { return "36" }
+        if val == "%" { return "37" }
+        if val == "^" { return "94" }
+        if val == "&" { return "38" }
+        if val == "*" { return "42" }
+        if val == "(" { return "40" }
+        if val == ")" { return "41" }
+        if val == "[" { return "91" }
+        if val == "]" { return "93" }
+        if val == "{" { return "123" }
+        if val == "}" { return "125" }
+        if val == "<" { return "60" }
+        if val == ">" { return "62" }
+        if val == "=" { return "61" }
+        if val == "+" { return "43" }
+        if val == "-" { return "45" }
+        if val == "_" { return "95" }
+        if val == "|" { return "124" }
+        if val == "~" { return "126" }
+        if val == "`" { return "96" }
+        return "0"
     }
 
     fun collectStringConstants(program: ProgramNode) r: Void {

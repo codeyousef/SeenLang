@@ -230,9 +230,8 @@ fun indexOf(text: String, needle: String, startIndex: Int = 0) r: Int {
 }
 
 fun String_charCodeAt(s: String, index: Int) r: Int {
-    // Stub implementation to satisfy linker
-    // TODO: Implement proper char code access
-    return 0
+    let ch = s.charAt(index)
+    return ch.toInt()
 }
 
 fun lastIndexOf(text: String, needle: String) r: Int {

@@ -32,14 +32,6 @@ class FrontendResult {
     fun getDiagnostics() r: Array<FrontendDiagnostic> { return diagnostics }
     fun setSuccess(v: Bool) r: Void { success = v }
 
-    static fun new() r: FrontendResult {
-        return FrontendResult{
-            success: false,
-            diagnostics: Array<FrontendDiagnostic>(),
-            program: ProgramNode.new()
-        }
-    }
-
     fun addDiagnostic(diag: FrontendDiagnostic) r: Void {
         diagnostics.push(diag)
     }
@@ -66,6 +58,17 @@ class FrontendResult {
             i = i + 1
         }
         return false
+    }
+
+    // NOTE: new() must be LAST method in this class. Stage2's parser may exit
+    // the class body after parsing new() due to generic type constructor
+    // Array<FrontendDiagnostic>() causing a brace mismatch cascade.
+    static fun new() r: FrontendResult {
+        return FrontendResult{
+            success: false,
+            diagnostics: Array<FrontendDiagnostic>(),
+            program: ProgramNode.new()
+        }
     }
 }
 
