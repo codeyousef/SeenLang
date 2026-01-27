@@ -294,6 +294,14 @@ impl SeenString {
         if self.data.is_null() || self.len == 0 {
             return "";
         }
+        // Validate length before creating slice
+        if self.len < 0 || self.len > 100_000_000 {
+            eprintln!(
+                "[RUNTIME] SeenString::to_str: invalid len={}, data={:p}",
+                self.len, self.data
+            );
+            return "";
+        }
         unsafe {
             let slice = slice::from_raw_parts(self.data, self.len as usize);
             std::str::from_utf8(slice).unwrap_or("")
@@ -380,13 +388,26 @@ pub struct CommandResult {
     pub output: SeenString,
 }
 
+/// Execute a shell command and return the result.
+/// Signature matches C runtime: SeenCommandResult* __ExecuteCommand(SeenString cmd)
+/// Takes SeenString by value, returns heap-allocated CommandResult*.
 #[unsafe(no_mangle)]
-pub extern "C" fn __ExecuteCommand(result: *mut CommandResult, command: *const SeenString) {
-    let cmd_str = if command.is_null() {
+pub extern "C" fn __ExecuteCommand(command: SeenString) -> *mut CommandResult {
+    // Validate the command string
+    let cmd_str = if command.len < 0 || command.len > 100_000_000 {
+        eprintln!(
+            "[RUNTIME] __ExecuteCommand: invalid command string len={}, data={:p}",
+            command.len, command.data
+        );
+        ""
+    } else if command.len > 0 && command.data.is_null() {
+        eprintln!(
+            "[RUNTIME] __ExecuteCommand: NULL data with len={}",
+            command.len
+        );
         ""
     } else {
-        let cmd = unsafe { &*command };
-        cmd.to_str()
+        command.to_str()
     };
 
     let (success, output_str) = match std::process::Command::new("sh")
@@ -404,10 +425,10 @@ pub extern "C" fn __ExecuteCommand(result: *mut CommandResult, command: *const S
     };
 
     let output = leak_seen_string(output_str);
-    
-    unsafe {
-        *result = CommandResult { success, output };
-    }
+
+    // Allocate result on heap (caller is responsible for freeing)
+    let result = Box::new(CommandResult { success, output });
+    Box::into_raw(result)
 }
 
 #[unsafe(no_mangle)]
@@ -1401,6 +1422,268 @@ pub extern "C" fn Array_set(arr_ptr: *mut SeenArray, index: i64, element_ptr: *c
         };
         let dest = arr.data.offset(offset as isize);
         std::ptr::copy_nonoverlapping(element_ptr, dest, elem_size as usize);
+    }
+}
+
+// ============================================================================
+// Type-specific array push functions (for ABI compatibility with self-hosted compiler)
+// ============================================================================
+
+/// Push a string value to an array of strings
+/// The string is passed by value (copied into the array)
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_arr_push_str(arr_ptr: *mut SeenArray, s: SeenString) {
+    if arr_ptr.is_null() {
+        eprintln!("[RUNTIME] seen_arr_push_str: NULL array pointer");
+        return;
+    }
+
+    unsafe {
+        let arr = &mut *arr_ptr;
+        let expected_elem_size = std::mem::size_of::<SeenString>() as i64;
+
+        if arr.element_size != expected_elem_size {
+            eprintln!(
+                "[RUNTIME] seen_arr_push_str: element_size mismatch (got {}, expected {})",
+                arr.element_size, expected_elem_size
+            );
+            return;
+        }
+
+        // Validate input string
+        if s.len < 0 || s.len > 100_000_000 {
+            eprintln!(
+                "[RUNTIME] seen_arr_push_str: invalid string len={}",
+                s.len
+            );
+            return;
+        }
+
+        // Grow array if needed
+        if arr.len >= arr.cap {
+            let new_cap = if arr.cap == 0 { 8 } else { arr.cap * 2 };
+            if new_cap < arr.cap {
+                eprintln!("[RUNTIME] seen_arr_push_str: capacity overflow");
+                return;
+            }
+            let new_size = match new_cap.checked_mul(expected_elem_size) {
+                Some(val) => val as usize,
+                None => {
+                    eprintln!("[RUNTIME] seen_arr_push_str: size overflow");
+                    return;
+                }
+            };
+            let new_data = if arr.data.is_null() {
+                std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(new_size, 8))
+            } else {
+                let old_size = (arr.cap * expected_elem_size) as usize;
+                std::alloc::realloc(
+                    arr.data,
+                    std::alloc::Layout::from_size_align_unchecked(old_size, 8),
+                    new_size,
+                )
+            };
+            if new_data.is_null() {
+                eprintln!("[RUNTIME] seen_arr_push_str: allocation failed");
+                return;
+            }
+            arr.data = new_data;
+            arr.cap = new_cap;
+        }
+
+        // Copy string into array slot
+        let dest = arr.data.add((arr.len * expected_elem_size) as usize) as *mut SeenString;
+        *dest = s;
+        arr.len += 1;
+    }
+}
+
+/// Push an i64 value to an array of integers
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_arr_push_i64(arr_ptr: *mut SeenArray, val: i64) {
+    if arr_ptr.is_null() {
+        eprintln!("[RUNTIME] seen_arr_push_i64: NULL array pointer");
+        return;
+    }
+
+    unsafe {
+        let arr = &mut *arr_ptr;
+        let expected_elem_size = std::mem::size_of::<i64>() as i64;
+
+        if arr.element_size != expected_elem_size {
+            eprintln!(
+                "[RUNTIME] seen_arr_push_i64: element_size mismatch (got {}, expected {})",
+                arr.element_size, expected_elem_size
+            );
+            return;
+        }
+
+        // Grow array if needed
+        if arr.len >= arr.cap {
+            let new_cap = if arr.cap == 0 { 8 } else { arr.cap * 2 };
+            if new_cap < arr.cap {
+                eprintln!("[RUNTIME] seen_arr_push_i64: capacity overflow");
+                return;
+            }
+            let new_size = match new_cap.checked_mul(expected_elem_size) {
+                Some(val) => val as usize,
+                None => {
+                    eprintln!("[RUNTIME] seen_arr_push_i64: size overflow");
+                    return;
+                }
+            };
+            let new_data = if arr.data.is_null() {
+                std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(new_size, 8))
+            } else {
+                let old_size = (arr.cap * expected_elem_size) as usize;
+                std::alloc::realloc(
+                    arr.data,
+                    std::alloc::Layout::from_size_align_unchecked(old_size, 8),
+                    new_size,
+                )
+            };
+            if new_data.is_null() {
+                eprintln!("[RUNTIME] seen_arr_push_i64: allocation failed");
+                return;
+            }
+            arr.data = new_data;
+            arr.cap = new_cap;
+        }
+
+        // Copy value into array slot
+        let dest = arr.data.add((arr.len * expected_elem_size) as usize) as *mut i64;
+        *dest = val;
+        arr.len += 1;
+    }
+}
+
+/// Push a pointer value to an array of pointers (for class types stored as pointers)
+#[unsafe(no_mangle)]
+pub extern "C" fn seen_arr_push_ptr(arr_ptr: *mut SeenArray, p: *mut u8) {
+    if arr_ptr.is_null() {
+        eprintln!("[RUNTIME] seen_arr_push_ptr: NULL array pointer");
+        return;
+    }
+
+    unsafe {
+        let arr = &mut *arr_ptr;
+        let expected_elem_size = std::mem::size_of::<*mut u8>() as i64;
+
+        if arr.element_size != expected_elem_size {
+            eprintln!(
+                "[RUNTIME] seen_arr_push_ptr: element_size mismatch (got {}, expected {})",
+                arr.element_size, expected_elem_size
+            );
+            return;
+        }
+
+        // Grow array if needed
+        if arr.len >= arr.cap {
+            let new_cap = if arr.cap == 0 { 8 } else { arr.cap * 2 };
+            if new_cap < arr.cap {
+                eprintln!("[RUNTIME] seen_arr_push_ptr: capacity overflow");
+                return;
+            }
+            let new_size = match new_cap.checked_mul(expected_elem_size) {
+                Some(val) => val as usize,
+                None => {
+                    eprintln!("[RUNTIME] seen_arr_push_ptr: size overflow");
+                    return;
+                }
+            };
+            let new_data = if arr.data.is_null() {
+                std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(new_size, 8))
+            } else {
+                let old_size = (arr.cap * expected_elem_size) as usize;
+                std::alloc::realloc(
+                    arr.data,
+                    std::alloc::Layout::from_size_align_unchecked(old_size, 8),
+                    new_size,
+                )
+            };
+            if new_data.is_null() {
+                eprintln!("[RUNTIME] seen_arr_push_ptr: allocation failed");
+                return;
+            }
+            arr.data = new_data;
+            arr.cap = new_cap;
+        }
+
+        // Copy pointer into array slot
+        let dest = arr.data.add((arr.len * expected_elem_size) as usize) as *mut *mut u8;
+        *dest = p;
+        arr.len += 1;
+    }
+}
+
+/// Generic array push that copies element_size bytes from element pointer
+/// Used for data types (inline structs) where the full struct needs to be copied
+/// Returns the new length of the array
+#[unsafe(no_mangle)]
+pub extern "C" fn Array_push(arr_ptr: *mut SeenArray, element_ptr: *const u8) -> i64 {
+    if arr_ptr.is_null() || element_ptr.is_null() {
+        eprintln!("[RUNTIME] Array_push: NULL pointer (arr={:?}, element={:?})", arr_ptr, element_ptr);
+        return 0;
+    }
+
+    unsafe {
+        let arr = &mut *arr_ptr;
+        let elem_size = arr.element_size;
+
+        if elem_size <= 0 || elem_size > 256 {
+            eprintln!(
+                "[RUNTIME] Array_push: invalid element_size={}",
+                elem_size
+            );
+            return 0;
+        }
+
+        if arr.len < 0 || arr.cap < 0 || arr.len > arr.cap {
+            eprintln!(
+                "[RUNTIME] Array_push: invalid len/cap (len={}, cap={})",
+                arr.len, arr.cap
+            );
+            return 0;
+        }
+
+        // Grow array if needed
+        if arr.len >= arr.cap {
+            let new_cap = if arr.cap == 0 { 8 } else { arr.cap * 2 };
+            if new_cap < arr.cap {
+                eprintln!("[RUNTIME] Array_push: capacity overflow");
+                return 0;
+            }
+            let new_size = match new_cap.checked_mul(elem_size) {
+                Some(val) => val as usize,
+                None => {
+                    eprintln!("[RUNTIME] Array_push: size overflow");
+                    return 0;
+                }
+            };
+            let new_data = if arr.data.is_null() {
+                std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(new_size, 8))
+            } else {
+                let old_size = (arr.cap * elem_size) as usize;
+                std::alloc::realloc(
+                    arr.data,
+                    std::alloc::Layout::from_size_align_unchecked(old_size, 8),
+                    new_size,
+                )
+            };
+            if new_data.is_null() {
+                eprintln!("[RUNTIME] Array_push: allocation failed");
+                return 0;
+            }
+            arr.data = new_data;
+            arr.cap = new_cap;
+        }
+
+        // Copy element bytes into array slot
+        let dest = arr.data.add((arr.len * elem_size) as usize);
+        std::ptr::copy_nonoverlapping(element_ptr, dest, elem_size as usize);
+        arr.len += 1;
+
+        arr.len
     }
 }
 

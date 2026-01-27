@@ -192,8 +192,9 @@ impl IRGenerator {
                     // Handle external function declarations
                     if *is_external {
                         // Create an extern function declaration (no body)
+                        // Use underscore format to match call sites (Type_method)
                         let func_name = if let Some(recv) = receiver {
-                            format!("{}.{}", recv.type_name, name)
+                            format!("{}_{}", recv.type_name, name)
                         } else {
                             name.clone()
                         };
@@ -224,7 +225,8 @@ impl IRGenerator {
                     }
                     
                     if let Some(recv) = receiver {
-                        let func_name = format!("{}.{}", recv.type_name, name);
+                        // Use underscore format to match call sites (Type_method)
+                        let func_name = format!("{}_{}", recv.type_name, name);
                         let is_constructor = name == "new";
                         
                         // Set current_type_definition for data type methods

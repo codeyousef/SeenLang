@@ -345,7 +345,13 @@ class RealParser {
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         let func = FunctionNode.new()
-        func.name = nameToken.getValue()
+        // Handle data type method syntax: fun TypeName.methodName() -> TypeName_methodName
+        var funcName = nameToken.getValue()
+        if matchTokenStr(SeenTokenType.Dot) {
+            let methodToken = consume(SeenTokenType.Identifier, "Expected method name after dot")
+            funcName = funcName + "_" + methodToken.getValue()
+        }
+        func.name = funcName
         // trace
 
         parseParameterList(func)
@@ -392,7 +398,13 @@ class RealParser {
         let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         // Use class field to avoid local variable corruption
         lastFunction = FunctionNode.new()
-        lastFunction.name = nameToken.getValue()
+        // Handle data type method syntax: fun TypeName.methodName() -> TypeName_methodName
+        var funcName = nameToken.getValue()
+        if matchTokenStr(SeenTokenType.Dot) {
+            let methodToken = consume(SeenTokenType.Identifier, "Expected method name after dot")
+            funcName = funcName + "_" + methodToken.getValue()
+        }
+        lastFunction.name = funcName
 
         parseParameterListField()
         lastFunction.returnType = parseOptionalReturnType()

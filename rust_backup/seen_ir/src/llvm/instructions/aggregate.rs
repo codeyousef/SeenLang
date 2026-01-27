@@ -959,9 +959,11 @@ impl<'ctx> AggregateOps<'ctx> for LlvmBackend<'ctx> {
                     "struct_ptr_cast"
                 ).map_err(|e| anyhow!("{e:?}"))?;
 
-                if field == "totalCapacity" || field == "capacity" {
+                if field == "totalCapacity" || field == "capacity" || (type_name == "TypeNode" && field == "typeName") || (type_name == "FunctionNode" && field == "returnType") {
                     let cur_fn = self.current_fn.map(|f| f.get_name().to_string_lossy().into_owned()).unwrap_or_else(|| "unknown".to_string());
-                    eprintln!("DEBUG emit_field_access: fn={}, type={}, field_idx={}, struct_ptr={:?}", cur_fn, type_name, field_idx, struct_ptr);
+                    eprintln!("DEBUG emit_field_access: fn={}, type={}, field={}, field_idx={}, struct_ptr={:?}, llvm_struct_ty={:?}", cur_fn, type_name, field, field_idx, struct_ptr, llvm_struct_ty);
+                    eprintln!("  sv type: {:?}, is_struct_value={}, is_pointer={}, is_int={}", sv.get_type(), sv.is_struct_value(), sv.is_pointer_value(), sv.is_int_value());
+                    eprintln!("  field_ty at index {}: {:?}", field_idx, llvm_struct_ty.get_field_types().get(field_idx));
                 }
 
                 let gep = self.builder.build_struct_gep(llvm_struct_ty, struct_ptr, field_idx as u32, &format!("field_{}", field))?;

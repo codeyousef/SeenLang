@@ -381,14 +381,16 @@ impl<'ctx> BinaryOps<'ctx> for LlvmBackend<'ctx> {
                 let l_is_literal_int = matches!(left, IRValue::Integer(_));
                 let r_is_literal_int = matches!(right, IRValue::Integer(_));
 
-                // Check if either side has a "String" type hint in its struct_types
+                // Check if either side has a "String" type hint in its struct_types or is tracked as String
                 let l_has_string_hint = match left {
-                    IRValue::Variable(name) => self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false),
+                    IRValue::Variable(name) => self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false)
+                        || self.var_is_string.contains(name),
                     IRValue::Register(id) => self.reg_struct_types.get(id).map(|t| t == "String").unwrap_or(false),
                     _ => false,
                 };
                 let r_has_string_hint = match right {
-                    IRValue::Variable(name) => self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false),
+                    IRValue::Variable(name) => self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false)
+                        || self.var_is_string.contains(name),
                     IRValue::Register(id) => self.reg_struct_types.get(id).map(|t| t == "String").unwrap_or(false),
                     _ => false,
                 };

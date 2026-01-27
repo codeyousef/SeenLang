@@ -8,6 +8,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <execinfo.h>
 
 // ============================================================================
 // Global State
@@ -15,6 +16,17 @@
 
 static int g_argc = 0;
 static char** g_argv = NULL;
+
+// Debug counters
+static long g_substring_count = 0;
+static long g_concat_count = 0;
+static long g_length_count = 0;
+static long g_contains_count = 0;
+
+void seen_debug_print_counters(void) {
+    fprintf(stderr, "[RUNTIME DEBUG] substring=%ld concat=%ld length=%ld contains=%ld\n",
+            g_substring_count, g_concat_count, g_length_count, g_contains_count);
+}
 
 void seen_runtime_init(int argc, char** argv) {
     g_argc = argc;
@@ -382,16 +394,42 @@ SeenString trim(SeenString text) {
 // Array Functions (implementations for LLVM backend linking)
 // ============================================================================
 
+static long g_arr_get_str_count = 0;
 SeenString seen_arr_get_str(SeenArray a, int64_t idx) {
+    g_arr_get_str_count++;
     if (a.element_size != (int64_t)sizeof(SeenString)) {
-        fprintf(stderr, "seen_arr_get_str: element_size mismatch (%ld)\n", (long)a.element_size);
+        fprintf(stderr, "seen_arr_get_str: element_size mismatch (%ld, expected %ld) at count=%ld\n", (long)a.element_size, (long)sizeof(SeenString), g_arr_get_str_count);
+        fprintf(stderr, "  arr.len=%ld arr.cap=%ld arr.data=%p idx=%ld\n", (long)a.len, (long)a.cap, a.data, (long)idx);
+        // If element_size is 8, the array was created for pointers, not strings!
+        if (a.element_size == 8) {
+            fprintf(stderr, "  HINT: Array was created with element_size=8 (pointer array), but seen_arr_get_str expects element_size=16 (SeenString)\n");
+            fprintf(stderr, "  This suggests the code is using seen_arr_new_ptr_ptr() instead of seen_arr_new_str_ptr()\n");
+        }
         abort();
     }
     if (idx < 0 || idx >= a.len) {
         SeenString empty = { 0, "" };
         return empty;
     }
-    return ((SeenString*)a.data)[idx];
+    SeenString result = ((SeenString*)a.data)[idx];
+    // Validate the result string
+    if (result.len < 0 || result.len > 100000000) {
+        fprintf(stderr, "seen_arr_get_str: result has invalid len=%ld at count=%ld idx=%ld\n", (long)result.len, g_arr_get_str_count, (long)idx);
+        fprintf(stderr, "  arr.len=%ld arr.cap=%ld arr.element_size=%ld arr.data=%p\n", (long)a.len, (long)a.cap, (long)a.element_size, a.data);
+        fprintf(stderr, "  result.data=%p\n", (void*)result.data);
+        // Dump raw bytes to see what's actually stored
+        fprintf(stderr, "  Raw bytes at idx 0: ");
+        for (int i = 0; i < 24 && i < a.element_size; i++) {
+            fprintf(stderr, "%02x ", ((unsigned char*)a.data)[i]);
+        }
+        fprintf(stderr, "\n");
+        abort();
+    }
+    if (result.len > 0 && result.data == NULL) {
+        fprintf(stderr, "seen_arr_get_str: result has NULL data with len=%ld at count=%ld idx=%ld\n", (long)result.len, g_arr_get_str_count, (long)idx);
+        abort();
+    }
+    return result;
 }
 
 SeenArray seen_arr_new_str(void) {
@@ -408,7 +446,12 @@ SeenArray seen_arr_new_ptr(void) {
 }
 
 // Heap-allocated versions that return ptr for LLVM ABI compatibility
+static long g_arr_new_str_count = 0;
+static long g_arr_new_ptr_count = 0;
+static long g_arr_new_size_count = 0;
+
 SeenArray* seen_arr_new_str_ptr(void) {
+    g_arr_new_str_count++;
     SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
     arr->data = malloc(8 * sizeof(SeenString));
     arr->len = 0;
@@ -418,6 +461,10 @@ SeenArray* seen_arr_new_str_ptr(void) {
 }
 
 SeenArray* seen_arr_new_ptr_ptr(void) {
+    g_arr_new_ptr_count++;
+    if (g_arr_new_ptr_count <= 20) {
+        fprintf(stderr, "[RUNTIME] seen_arr_new_ptr_ptr: element_size=8 (call #%ld)\n", g_arr_new_ptr_count);
+    }
     SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
     arr->data = malloc(8 * sizeof(void*));
     arr->len = 0;
@@ -427,7 +474,12 @@ SeenArray* seen_arr_new_ptr_ptr(void) {
 }
 
 // Create array with custom element_size (for data types like ItemNode)
+static long g_new_with_size_count = 0;
 SeenArray* seen_arr_new_with_size_ptr(int64_t element_size) {
+    g_new_with_size_count++;
+    if (g_new_with_size_count <= 10) {
+        fprintf(stderr, "[RUNTIME] seen_arr_new_with_size_ptr: element_size=%ld (call #%ld)\n", (long)element_size, g_new_with_size_count);
+    }
     SeenArray* arr = (SeenArray*)malloc(sizeof(SeenArray));
     if (element_size <= 0 || element_size > 4096) {
         fprintf(stderr, "seen_arr_new_with_size_ptr: invalid element_size=%ld\n", (long)element_size);
@@ -443,13 +495,93 @@ SeenArray* seen_arr_new_with_size_ptr(int64_t element_size) {
     return arr;
 }
 
+static long g_push_str_count = 0;
+static SeenString g_last_strings[10];
+static int g_last_idx = 0;
 void seen_arr_push_str(SeenArray* arr, SeenString s) {
+    g_push_str_count++;
+    // Print every string near the crash point (around 260950+)
+    if (g_push_str_count >= 260950) {
+        // Only dereference if it looks like a valid pointer (above 0x1000)
+        if ((unsigned long)s.data > 0x1000 && s.len >= 0 && s.len < 1000000) {
+            fprintf(stderr, "[TRACE %ld] len=%ld data=%p first_char='%c' str='%.*s'\n",
+                g_push_str_count, (long)s.len, (void*)s.data,
+                (s.len > 0) ? s.data[0] : '?',
+                (int)(s.len > 50 ? 50 : s.len), s.data);
+        } else {
+            fprintf(stderr, "[TRACE %ld] INVALID: len=%ld (0x%lx) data=%p (0x%lx)\n",
+                g_push_str_count, (long)s.len, (unsigned long)s.len,
+                (void*)s.data, (unsigned long)s.data);
+            // Check if s.len looks like it could be a SeenString* (pointer to SeenString)
+            // If someone passed &str instead of str, we'd see the address in len
+            if (s.len > 0x10000 && s.len < 0x800000000000UL) {
+                SeenString* maybe_str = (SeenString*)s.len;
+                fprintf(stderr, "  [DEBUG] Treating len as ptr to SeenString at %p:\n", maybe_str);
+                fprintf(stderr, "    inner.len=%ld inner.data=%p\n", (long)maybe_str->len, (void*)maybe_str->data);
+                if (maybe_str->len > 0 && maybe_str->len < 1000 && (unsigned long)maybe_str->data > 0x10000) {
+                    fprintf(stderr, "    inner string: '%.*s'\n", (int)maybe_str->len, maybe_str->data);
+                }
+            }
+            // Also check addresses around the invalid data
+            fprintf(stderr, "  [DEBUG] Memory at s.len address if valid:\n");
+            if (s.len > 0x10000 && s.len < 0x800000000000UL) {
+                long* mem = (long*)s.len;
+                fprintf(stderr, "    [0]=%lx [1]=%lx [2]=%lx\n", mem[0], mem[1], mem[2]);
+            }
+        }
+    }
+    // Validate input string
+    if (s.len < 0 || s.len > 100000000) {
+        fprintf(stderr, "seen_arr_push_str: invalid input string len=%ld at count=%ld\n", (long)s.len, g_push_str_count);
+        fprintf(stderr, "  s.data=%p arr=%p arr.len=%ld arr.cap=%ld arr.elem_size=%ld\n",
+            (void*)s.data, (void*)arr, (long)arr->len, (long)arr->cap, (long)arr->element_size);
+        fprintf(stderr, "  Raw s bytes: len=0x%lx data=0x%lx\n", (unsigned long)s.len, (unsigned long)s.data);
+        // Try to dereference s.len as a pointer to see if it contains a valid SeenString
+        unsigned long* len_as_ptr = (unsigned long*)(s.len);
+        fprintf(stderr, "  If s.len were a pointer to SeenString at %p:\n", len_as_ptr);
+        if (s.len > 0x1000) {  // Only if it looks like a valid pointer
+            fprintf(stderr, "    Would-be len: 0x%lx (%ld)\n", len_as_ptr[0], (long)len_as_ptr[0]);
+            fprintf(stderr, "    Would-be data: %p\n", (void*)len_as_ptr[1]);
+            if (len_as_ptr[1] > 0x1000 && len_as_ptr[0] < 1000) {
+                fprintf(stderr, "    First chars: '%.20s'\n", (char*)len_as_ptr[1]);
+            }
+        }
+        // Print stack trace
+        void* buffer[32];
+        int nptrs = backtrace(buffer, 32);
+        fprintf(stderr, "  Stack trace (%d frames):\n", nptrs);
+        char** symbols = backtrace_symbols(buffer, nptrs);
+        if (symbols) {
+            for (int i = 0; i < nptrs && i < 15; i++) {
+                fprintf(stderr, "    [%d] %s\n", i, symbols[i]);
+            }
+            free(symbols);
+        }
+        fprintf(stderr, "  Last %d successful strings:\n", 10);
+        for (int i = 0; i < 10; i++) {
+            int idx = (g_last_idx + i) % 10;
+            if (g_last_strings[idx].data != NULL) {
+                fprintf(stderr, "    [%d] len=%ld first_char='%c' data=%p\n",
+                    idx, (long)g_last_strings[idx].len,
+                    g_last_strings[idx].len > 0 ? g_last_strings[idx].data[0] : '?',
+                    (void*)g_last_strings[idx].data);
+            }
+        }
+        abort();
+    }
+    g_last_strings[g_last_idx] = s;
+    g_last_idx = (g_last_idx + 1) % 10;
+    if (s.len > 0 && s.data == NULL) {
+        fprintf(stderr, "seen_arr_push_str: NULL data with len=%ld at count=%ld\n", (long)s.len, g_push_str_count);
+        abort();
+    }
     if (arr->element_size != (int64_t)sizeof(SeenString)) {
-        fprintf(stderr, "seen_arr_push_str: element_size mismatch (%ld)\n", (long)arr->element_size);
+        fprintf(stderr, "seen_arr_push_str: element_size mismatch (%ld, expected %ld) at count=%ld\n",
+            (long)arr->element_size, (long)sizeof(SeenString), g_push_str_count);
         abort();
     }
     if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) {
-        fprintf(stderr, "seen_arr_push_str: invalid len/cap (len=%ld cap=%ld)\n", (long)arr->len, (long)arr->cap);
+        fprintf(stderr, "seen_arr_push_str: invalid len/cap (len=%ld cap=%ld) at count=%ld\n", (long)arr->len, (long)arr->cap, g_push_str_count);
         abort();
     }
     if (arr->len >= arr->cap) {
@@ -487,14 +619,40 @@ void seen_arr_push_i64(SeenArray* arr, int64_t val) {
     ((int64_t*)arr->data)[arr->len++] = val;
 }
 
+static long g_push_ptr_count = 0;
+static long g_push_data_count = 0;
+static long g_malloc_count = 0;
+
+// Wrapper for malloc with tracking
+void* tracked_malloc(size_t size) {
+    g_malloc_count++;
+    void* ptr = malloc(size);
+    // Verify allocation worked
+    if (!ptr && size != 0) {
+        fprintf(stderr, "[RUNTIME] malloc(%zu) FAILED at count %ld\n", size, g_malloc_count);
+        abort();
+    }
+    return ptr;
+}
+
 // Generic push for pointer types (e.g., Array<Token>)
 void seen_arr_push_ptr(SeenArray* arr, void* p) {
+    g_push_ptr_count++;
+    // Minimal tracing
+    if (g_push_ptr_count % 10000 == 0) {
+        fprintf(stderr, "[RUNTIME] push_ptr count: %ld\n", g_push_ptr_count);
+    }
+    if (!arr) {
+        fprintf(stderr, "seen_arr_push_ptr: NULL array at count %ld\n", g_push_ptr_count);
+        abort();
+    }
     if (arr->element_size != (int64_t)sizeof(void*)) {
-        fprintf(stderr, "seen_arr_push_ptr: element_size mismatch (%ld)\n", (long)arr->element_size);
+        fprintf(stderr, "seen_arr_push_ptr: element_size mismatch (%ld) at count %ld\n", (long)arr->element_size, g_push_ptr_count);
+        fprintf(stderr, "  arr=%p, data=%p, len=%ld, cap=%ld\n", (void*)arr, arr->data, arr->len, arr->cap);
         abort();
     }
     if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) {
-        fprintf(stderr, "seen_arr_push_ptr: invalid len/cap (len=%ld cap=%ld)\n", (long)arr->len, (long)arr->cap);
+        fprintf(stderr, "seen_arr_push_ptr: invalid len/cap (len=%ld cap=%ld) at count %ld\n", (long)arr->len, (long)arr->cap, g_push_ptr_count);
         abort();
     }
     if (arr->len >= arr->cap) {
@@ -505,21 +663,39 @@ void seen_arr_push_ptr(SeenArray* arr, void* p) {
             abort();
         }
         arr->cap = new_cap;
-        arr->data = realloc(arr->data, arr->cap * sizeof(void*));
+        void* new_data = realloc(arr->data, arr->cap * sizeof(void*));
+        if (!new_data && arr->cap > 0) {
+            fprintf(stderr, "[RUNTIME] push_ptr realloc FAILED!\n");
+            abort();
+        }
+        arr->data = new_data;
     }
     ((void**)arr->data)[arr->len++] = p;
 }
 
 // Generic push that copies element using element_size (for data types like ItemNode)
 // This is the proper version for inline structs
+static long g_array_push_count = 0;
+
 int64_t Array_push(SeenArray* arr, void* element) {
+    g_array_push_count++;
+    g_push_data_count++;
+    // Minimal tracing
+    if (g_push_data_count % 10000 == 0) {
+        fprintf(stderr, "[RUNTIME] push_data count: %ld\n", g_push_data_count);
+    }
     if (!arr) return 0;
-    if (arr->element_size <= 0) {
-        fprintf(stderr, "Array_push: invalid element_size=%ld\n", (long)arr->element_size);
+    if (arr->element_size <= 0 || arr->element_size > 256) {
+        fprintf(stderr, "Array_push: invalid element_size=%ld at count %ld\n", (long)arr->element_size, g_push_data_count);
         abort();
     }
     if (arr->len < 0 || arr->cap < 0 || arr->len > arr->cap) {
-        fprintf(stderr, "Array_push: invalid len/cap (len=%ld cap=%ld)\n", (long)arr->len, (long)arr->cap);
+        fprintf(stderr, "Array_push: invalid len/cap (len=%ld cap=%ld) at count %ld\n", (long)arr->len, (long)arr->cap, g_push_data_count);
+        abort();
+    }
+    // Sanity check: element should not be NULL for data types
+    if (!element) {
+        fprintf(stderr, "Array_push: NULL element at count %ld\n", g_push_data_count);
         abort();
     }
 
@@ -645,10 +821,25 @@ int64_t seen_str_length(SeenString s) {
 }
 
 int64_t seen_length(SeenString s) {
+    g_length_count++;
     return s.len;
 }
 
 SeenString seen_substring(SeenString s, int64_t start, int64_t end) {
+    g_substring_count++;
+    if (g_substring_count % 1000000 == 0) {
+        seen_debug_print_counters();
+    }
+    // Validate input string
+    if (s.len < 0 || s.len > 100000000) {
+        fprintf(stderr, "[RUNTIME ERROR] seen_substring: invalid string len=%ld (count=%ld)\n", (long)s.len, g_substring_count);
+        fprintf(stderr, "  s.data=%p start=%ld end=%ld\n", (void*)s.data, (long)start, (long)end);
+        abort();
+    }
+    if (s.len > 0 && s.data == NULL) {
+        fprintf(stderr, "[RUNTIME ERROR] seen_substring: NULL data with len=%ld (count=%ld)\n", (long)s.len, g_substring_count);
+        abort();
+    }
     if (start < 0) start = 0;
     if (end > s.len) end = s.len;
     if (start >= end) {
@@ -664,6 +855,18 @@ SeenString seen_substring(SeenString s, int64_t start, int64_t end) {
 }
 
 SeenString seen_str_concat_ss(SeenString a, SeenString b) {
+    // Debug: check for NULL data pointers
+    if (a.data == NULL || b.data == NULL) {
+        fprintf(stderr, "[RUNTIME ERROR] seen_str_concat_ss: NULL data pointer!\n");
+        fprintf(stderr, "  a.len=%ld, a.data=%p\n", a.len, a.data);
+        fprintf(stderr, "  b.len=%ld, b.data=%p\n", b.len, b.data);
+        fflush(stderr);
+        // Print backtrace info if possible
+        void* bt[20];
+        int nptrs = backtrace(bt, 20);
+        backtrace_symbols_fd(bt, nptrs, 2);
+        abort();
+    }
     char* newdata = (char*)malloc(a.len + b.len + 1);
     memcpy(newdata, a.data, a.len);
     memcpy(newdata + a.len, b.data, b.len);
@@ -1045,28 +1248,29 @@ SeenString TypeError_getMessage(void* e) { return (SeenString){ 5, "error" }; }
 
 // ============================================================================
 // Parser Node Constructor Stubs
+// These have weak linkage so user-defined versions can override them
 // ============================================================================
 
-void* TypeNode_new(void) {
+__attribute__((weak)) void* TypeNode_new(void) {
     // Simple struct with name field
     void* node = malloc(64);
     memset(node, 0, 64);
     return node;
 }
 
-void* ItemNode_new(void) {
+__attribute__((weak)) void* ItemNode_new(void) {
     void* node = malloc(256);
     memset(node, 0, 256);
     return node;
 }
 
-void* ParamNode_new(void) {
+__attribute__((weak)) void* ParamNode_new(void) {
     void* node = malloc(128);
     memset(node, 0, 128);
     return node;
 }
 
-void* ImportSymbolNode_new(void) {
+__attribute__((weak)) void* ImportSymbolNode_new(void) {
     void* node = malloc(64);
     memset(node, 0, 64);
     return node;

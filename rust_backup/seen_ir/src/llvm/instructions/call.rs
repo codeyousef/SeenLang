@@ -2582,7 +2582,10 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                         let is_string_arg = match &args[1] {
                             IRValue::String(_) => true,
                             IRValue::Variable(name) => {
+                                // Check var_struct_types for "String" OR var_is_string set
+                                // String parameters are tracked in var_is_string, not var_struct_types
                                 self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false)
+                                    || self.var_is_string.contains(name)
                             }
                             IRValue::Register(reg_id) => {
                                 self.reg_struct_types.get(reg_id).map(|t| t == "String").unwrap_or(false)
@@ -2685,6 +2688,7 @@ impl<'ctx> CallOps<'ctx> for LlvmBackend<'ctx> {
                                  IRValue::Variable(name) => {
                                      self.var_array_element_struct.get(name).map(|t| t == "String").unwrap_or(false)
                                          || self.var_struct_types.get(name).map(|t| t == "String").unwrap_or(false)
+                                         || self.var_is_string.contains(name)
                                  }
                                  IRValue::Register(reg_id) => {
                                      self.reg_array_element_struct.get(reg_id).map(|t| t == "String").unwrap_or(false)

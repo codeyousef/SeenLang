@@ -249,6 +249,106 @@ class LLVMIRGenerator {
         structSizes.push(304)
         structMethodNames.push("")
         structMethodRetTypes.push("")
+        // Token { tokenType: SeenTokenType (i64), value: String, line: Int, column: Int, length: Int, fileId: Int }
+        structNames.push("Token")
+        structLayouts.push("{ i64, %SeenString, i64, i64, i64, i64 }")
+        structFieldNames.push("tokenType,value,line,column,length,fileId")
+        structFieldTypes.push("SeenTokenType|String|Int|Int|Int|Int")
+        structLlvmFieldTypes.push("")
+        structSizes.push(56)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // Position { line: Int, column: Int, fileId: Int }
+        structNames.push("Position")
+        structLayouts.push("{ i64, i64, i64 }")
+        structFieldNames.push("line,column,fileId")
+        structFieldTypes.push("Int|Int|Int")
+        structLlvmFieldTypes.push("")
+        structSizes.push(24)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // RealParser { tokens: Array<Token>, current: Int, currentProgram: ProgramNode, currentBlock: BlockNode, lastStatement: StatementNode, lastFunction: FunctionNode }
+        structNames.push("RealParser")
+        structLayouts.push("{ ptr, i64, i64, i64, i64, i64 }")
+        structFieldNames.push("tokens,current,currentProgram,currentBlock,lastStatement,lastFunction")
+        structFieldTypes.push("Array<Token>|Int|ProgramNode|BlockNode|StatementNode|FunctionNode")
+        structLlvmFieldTypes.push("")
+        structSizes.push(48)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // SeenLexer { source: String, fileId: Int, language: String, errorRecoveryMode: Bool, keywordManager: KeywordManager, position: Int, line: Int, column: Int, tokens: Array<Token> }
+        structNames.push("SeenLexer")
+        structLayouts.push("{ %SeenString, i64, %SeenString, i1, i64, i64, i64, i64, ptr }")
+        structFieldNames.push("source,fileId,language,errorRecoveryMode,keywordManager,position,line,column,tokens")
+        structFieldTypes.push("String|Int|String|Bool|KeywordManager|Int|Int|Int|Array<Token>")
+        structLlvmFieldTypes.push("")
+        structSizes.push(88)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // KeywordManager { language: String, keywords: Map, tokenNameMap: Map, sources: Array<String> }
+        structNames.push("KeywordManager")
+        structLayouts.push("{ %SeenString, i64, i64, ptr }")
+        structFieldNames.push("language,keywords,tokenNameMap,sources")
+        structFieldTypes.push("String|Map|Map|Array<String>")
+        structLlvmFieldTypes.push("")
+        structSizes.push(40)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // ProgramNode { items: Array<ItemNode> }
+        structNames.push("ProgramNode")
+        structLayouts.push("{ ptr }")
+        structFieldNames.push("items")
+        structFieldTypes.push("Array<ItemNode>")
+        structLlvmFieldTypes.push("")
+        structSizes.push(8)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // EnumNode { name: String, variants: Array<String> }
+        structNames.push("EnumNode")
+        structLayouts.push("{ %SeenString, ptr }")
+        structFieldNames.push("name,variants")
+        structFieldTypes.push("String|Array<String>")
+        structLlvmFieldTypes.push("")
+        structSizes.push(24)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // FrontendResult { success: Bool, diagnostics: Array<FrontendDiagnostic>, program: ProgramNode }
+        // Rust backend stores arrays as ptr, class types as i64 (pointer-as-int)
+        structNames.push("FrontendResult")
+        structLayouts.push("{ i1, ptr, i64 }")
+        structFieldNames.push("success,diagnostics,program")
+        structFieldTypes.push("Bool|Array<FrontendDiagnostic>|ProgramNode")
+        structLlvmFieldTypes.push("")
+        structSizes.push(24)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // FrontendDiagnostic { file: String, line: Int, column: Int, severity: String, message: String }
+        structNames.push("FrontendDiagnostic")
+        structLayouts.push("{ %SeenString, i64, i64, %SeenString, %SeenString }")
+        structFieldNames.push("file,line,column,severity,message")
+        structFieldTypes.push("String|Int|Int|String|String")
+        structLlvmFieldTypes.push("")
+        structSizes.push(72)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // TypeInferenceResult { success: Bool, type: Type, errors: Array<TypeError>, warnings: Array<String>, environment: Environment }
+        structNames.push("TypeInferenceResult")
+        structLayouts.push("{ i1, i64, ptr, ptr, i64 }")
+        structFieldNames.push("success,type,errors,warnings,environment")
+        structFieldTypes.push("Bool|Type|Array<TypeError>|Array<String>|Environment")
+        structLlvmFieldTypes.push("")
+        structSizes.push(40)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
+        // CommandResult { success: Bool, output: String }
+        structNames.push("CommandResult")
+        structLayouts.push("{ i1, %SeenString }")
+        structFieldNames.push("success,output")
+        structFieldTypes.push("Bool|String")
+        structLlvmFieldTypes.push("")
+        structSizes.push(24)
+        structMethodNames.push("")
+        structMethodRetTypes.push("")
         if structNames.length() > 0 {
             traceGen("registerKnownDataTypes: structNames[0]=" + structNames[0])
         }
@@ -290,6 +390,12 @@ class LLVMIRGenerator {
                     this.registerFunction(mangledName, method.returnType.typeName)
                     mi = mi + 1
                 }
+            }
+
+            // Data types use the same ClassNode structure for their fields
+            if item.itemType == "Data" {
+                // Register data type layout (fields)
+                this.registerStructLayout(item.classNode)
             }
 
             if item.itemType == "Function" {
@@ -785,6 +891,10 @@ class LLVMIRGenerator {
     fun findSubstring(value: String, needle: String) r: Int {
         let vlen = value.length()
         let nlen = needle.length()
+        if needle == " = type " and value.contains("FrontendDiagnostic") {
+            println("[DEBUG findSubstring] searching for ' = type ' in FrontendDiagnostic line")
+            println("[DEBUG findSubstring] vlen=" + vlen.toString() + " nlen=" + nlen.toString())
+        }
         if nlen == 0 {
             return 0
         }
@@ -795,17 +905,42 @@ class LLVMIRGenerator {
         while i <= vlen - nlen {
             var matched = true
             var j = 0
+            // Debug for i=19
+            if needle == " = type " and value.contains("FrontendDiagnostic") and i == 19 {
+                println("[DEBUG findSubstring] Starting char-by-char at i=19")
+            }
             while j < nlen {
-                if value.substring(i + j, i + j + 1) != needle.substring(j, j + 1) {
+                let vc = value.substring(i + j, i + j + 1)
+                let nc = needle.substring(j, j + 1)
+                // Debug for i=19
+                if needle == " = type " and value.contains("FrontendDiagnostic") and i == 19 {
+                    let vcLen = vc.length()
+                    let ncLen = nc.length()
+                    let idx1 = i + j
+                    let idx2 = i + j + 1
+                    println("[DEBUG findSubstring] j=" + j.toString() + " idx1=" + idx1.toString() + " idx2=" + idx2.toString())
+                    println("[DEBUG findSubstring] vc='" + vc + "' nc='" + nc + "' eq=" + (vc == nc).toString() + " vcLen=" + vcLen.toString() + " ncLen=" + ncLen.toString())
+                }
+                if vc != nc {
                     matched = false
                     j = nlen
                 }
                 j = j + 1
             }
+            // Debug for i=19
+            if needle == " = type " and value.contains("FrontendDiagnostic") and i == 19 {
+                println("[DEBUG findSubstring] After loop at i=19: matched=" + matched.toString())
+            }
             if matched {
+                if needle == " = type " and value.contains("FrontendDiagnostic") {
+                    println("[DEBUG findSubstring] FOUND ' = type ' at i=" + i.toString())
+                }
                 return i
             }
             i = i + 1
+        }
+        if needle == " = type " and value.contains("FrontendDiagnostic") {
+            println("[DEBUG findSubstring] NOT FOUND ' = type ' in FrontendDiagnostic line")
         }
         return -1
     }
@@ -881,10 +1016,17 @@ class LLVMIRGenerator {
         if idx < 0 {
             idx = this.ensureStructEntry(structName)
         }
+        if structName == "FrontendDiagnostic" {
+            println("[DEBUG updateStructLayoutFromHeader] FrontendDiagnostic before: idx=" + idx.toString() + " layout='" + structLayouts[idx] + "'")
+            println("[DEBUG updateStructLayoutFromHeader] FrontendDiagnostic setting to: '" + structLayout + "'")
+        }
         if structLayout != "" {
             structLayouts[idx] = structLayout + ""
             // Force size recomputation from the authoritative header layout.
             structSizes[idx] = 0
+        }
+        if structName == "FrontendDiagnostic" {
+            println("[DEBUG updateStructLayoutFromHeader] FrontendDiagnostic after: layout='" + structLayouts[idx] + "'")
         }
     }
 
@@ -933,6 +1075,9 @@ class LLVMIRGenerator {
                     let rawName = this.trimSpaces(entry.substring(0, colonIdx))
                     let rawType = this.trimSpaces(entry.substring(colonIdx + 1, entry.length()))
                     let normalizedType = this.normalizeHeaderType(rawType)
+                    if structName == "FrontendResult" {
+                        println("[DEBUG updateStructFieldsFromHeader] entry='" + entry + "' rawName='" + rawName + "' rawType='" + rawType + "' normalizedType='" + normalizedType + "'")
+                    }
                     if rawName != "" {
                         if namesOut != "" {
                             namesOut = namesOut + ","
@@ -940,6 +1085,9 @@ class LLVMIRGenerator {
                         }
                         namesOut = namesOut + rawName
                         llvmTypesOut = llvmTypesOut + normalizedType
+                        if structName == "FrontendResult" {
+                            println("[DEBUG updateStructFieldsFromHeader] after append: llvmTypesOut='" + llvmTypesOut + "'")
+                        }
                     }
                 }
                 entryStart = pos + 1
@@ -951,6 +1099,9 @@ class LLVMIRGenerator {
             return
         }
 
+        if structName == "FrontendResult" {
+            println("[DEBUG updateStructFieldsFromHeader] FrontendResult namesOut='" + namesOut + "' llvmTypesOut='" + llvmTypesOut + "'")
+        }
         structFieldNames[idx] = namesOut
         structLlvmFieldTypes[idx] = llvmTypesOut
 
@@ -978,9 +1129,11 @@ class LLVMIRGenerator {
     }
 
     fun applyTypeHeader(headerContent: String) r: Void {
+        println("[DEBUG applyTypeHeader] START, headerContent.length=" + headerContent.length().toString())
         var currentStruct = ""
         var lineStart = 0
         var pos = 0
+        var lineCount = 0
         while pos <= headerContent.length() {
             var isEnd = false
             var c = ""
@@ -993,16 +1146,32 @@ class LLVMIRGenerator {
             if isEnd or c == "\n" {
                 let line = headerContent.substring(lineStart, pos)
                 let trimmedLine = this.trimSpaces(line)
+                lineCount = lineCount + 1
                 if trimmedLine.startsWith("; Runtime Function Declarations") or trimmedLine.startsWith("; End of auto-generated type declarations") {
+                    println("[DEBUG applyTypeHeader] END at line " + lineCount.toString() + ", returning")
                     return
                 }
                 if trimmedLine.startsWith("%") and trimmedLine.contains("= type") {
-                    let eqIdx = this.findSubstring(trimmedLine, " = type ")
-                    if eqIdx > 0 {
-                        let name = trimmedLine.substring(1, eqIdx)
-                        let layout = trimmedLine.substring(eqIdx + 8, trimmedLine.length())
-                        currentStruct = name
-                        this.updateStructLayoutFromHeader(name, layout)
+                    // Parse "%NAME = type LAYOUT" by finding " = type " position
+                    // Since findSubstring is broken, find "=" and verify context
+                    var parseIdx = 1 // start after %
+                    var foundName = ""
+                    var foundLayout = ""
+                    while parseIdx < trimmedLine.length() - 7 {
+                        // Look for " = type {"
+                        if trimmedLine.substring(parseIdx, parseIdx + 9) == " = type {" {
+                            foundName = trimmedLine.substring(1, parseIdx)
+                            foundLayout = trimmedLine.substring(parseIdx + 8, trimmedLine.length())
+                            parseIdx = trimmedLine.length() // break
+                        }
+                        parseIdx = parseIdx + 1
+                    }
+                    if foundName != "" {
+                        if foundName == "FrontendDiagnostic" {
+                            println("[DEBUG applyTypeHeader] Parsed FrontendDiagnostic, layout='" + foundLayout + "'")
+                        }
+                        currentStruct = foundName
+                        this.updateStructLayoutFromHeader(foundName, foundLayout)
                     }
                 }
                 if trimmedLine.startsWith("; Size:") and currentStruct != "" {
@@ -1160,7 +1329,13 @@ class LLVMIRGenerator {
         }
     }
 
-    // Get size of a Seen type in bytes (aligned for struct layout)
+    // Get size of a Seen type in bytes when stored in a class/struct field
+    // This is the STORAGE size, not the full object size
+    // - Primitives: their natural size (aligned to 8)
+    // - String: 16 bytes (inline %SeenString struct)
+    // - Array: 8 bytes (ptr to heap-allocated SeenArray)
+    // - Classes: 8 bytes (i64 pointer-as-int)
+    // - Data types: their full inline size
     fun getTypeSize(typeName: String) r: Int {
         if typeName == "Int" {
             return 8
@@ -1174,12 +1349,17 @@ class LLVMIRGenerator {
             return 8
         }
         if typeName == "String" {
-            return 16  // %SeenString = { i64, ptr } = 8 + 8
+            return 16  // %SeenString = { i64, ptr } = 8 + 8 (stored inline)
         }
-        if typeName.startsWith("Array<") {
-            return 32  // %SeenArray = { i64, i64, i64, ptr } = 8 + 8 + 8 + 8 (len, cap, element_size, data)
+        if typeName.startsWith("Array<") or typeName.startsWith("List<") {
+            // Arrays are stored as ptr to heap-allocated SeenArray (NOT inline!)
+            return 8
         }
-        // All other types (classes, structs) are pointers = 8 bytes
+        // Check if this is a data type (stored inline)
+        if this.isDataType(typeName) {
+            return this.getDataTypeSize(typeName)
+        }
+        // All other types (classes) are stored as i64 (pointer-as-int) = 8 bytes
         return 8
     }
 
@@ -1245,7 +1425,11 @@ class LLVMIRGenerator {
         traceGen("registerStructLayout: " + classNode.name + " fieldNamesLen(before)=" + structFieldNames.length().toString())
         structFieldNames[structIdx] = fieldNames
         structFieldTypes[structIdx] = fieldTypes
-        structSizes[structIdx] = totalSize
+        // Only update size if not already set (preserve hardcoded sizes for data types)
+        // Class types always compute size from fields since their layout can vary
+        if structSizes[structIdx] == 0 or not this.isDataType(classNode.name) {
+            structSizes[structIdx] = totalSize
+        }
         structMethodNames[structIdx] = methodNames
         structMethodRetTypes[structIdx] = methodRetTypes
     }
@@ -1259,6 +1443,78 @@ class LLVMIRGenerator {
                 traceGen("FrontendResult fields=" + structFieldNames[idxCheck])
             }
         }
+
+        // CRITICAL: Check hardcoded field indices FIRST for known AST types
+        // This ensures correct indices even when registry is partially populated
+        // (e.g., when type header is loaded but source hasn't been fully parsed)
+        if structName == "FunctionNode" {
+            if fieldName == "name" { return 0 }
+            if fieldName == "params" { return 1 }
+            if fieldName == "returnType" { return 2 }
+            if fieldName == "body" { return 3 }
+            if fieldName == "isAsync" { return 4 }
+            if fieldName == "isInline" { return 5 }
+            if fieldName == "isStatic" { return 6 }
+        }
+        if structName == "ClassNode" {
+            if fieldName == "name" { return 0 }
+            if fieldName == "fields" { return 1 }
+            if fieldName == "methods" { return 2 }
+        }
+        if structName == "TypeNode" {
+            if fieldName == "typeName" { return 0 }
+            if fieldName == "isNullable" { return 1 }
+        }
+        if structName == "ParamNode" {
+            if fieldName == "name" { return 0 }
+            if fieldName == "paramType" { return 1 }
+            if fieldName == "isMutable" { return 2 }
+        }
+        if structName == "ItemNode" {
+            if fieldName == "itemType" { return 0 }
+            if fieldName == "name" { return 1 }
+            if fieldName == "visibility" { return 2 }
+            if fieldName == "importPath" { return 3 }
+            if fieldName == "importSymbols" { return 4 }
+            if fieldName == "function" { return 5 }
+            if fieldName == "classNode" { return 6 }
+            if fieldName == "enumNode" { return 7 }
+        }
+        if structName == "ProgramNode" {
+            if fieldName == "items" { return 0 }
+        }
+        if structName == "BlockNode" {
+            if fieldName == "statements" { return 0 }
+        }
+        if structName == "FrontendResult" {
+            if fieldName == "success" { return 0 }
+            if fieldName == "diagnostics" { return 1 }
+            if fieldName == "program" { return 2 }
+        }
+        if structName == "StatementNode" {
+            if fieldName == "kind" { return 0 }
+            if fieldName == "variableName" { return 1 }
+            if fieldName == "variableType" { return 2 }
+            if fieldName == "initializer" { return 3 }
+            if fieldName == "expression" { return 4 }
+            if fieldName == "condition" { return 5 }
+            if fieldName == "thenBranch" { return 6 }
+            if fieldName == "elseBranch" { return 7 }
+            if fieldName == "loopCondition" { return 8 }
+            if fieldName == "loopBody" { return 9 }
+            if fieldName == "returnValue" { return 10 }
+        }
+        if structName == "ParserExpressionNode" {
+            if fieldName == "kind" { return 0 }
+            if fieldName == "operands" { return 1 }
+            if fieldName == "operator" { return 2 }
+            if fieldName == "literalValue" { return 3 }
+            if fieldName == "literalType" { return 4 }
+            if fieldName == "variableName" { return 5 }
+            if fieldName == "callee" { return 6 }
+            if fieldName == "arguments" { return 7 }
+        }
+
         let idx = this.findStruct(structName)
         if idx < 0 {
             return -1  // Struct not found
@@ -1284,6 +1540,28 @@ class LLVMIRGenerator {
             }
             pos = pos + 1
         }
+
+        // Fallback hardcoded field indices for less common types (not covered above)
+        if structName == "FrontendDiagnostic" {
+            if fieldName == "file" { return 0 }
+            if fieldName == "line" { return 1 }
+            if fieldName == "column" { return 2 }
+            if fieldName == "severity" { return 3 }
+            if fieldName == "message" { return 4 }
+        }
+        if structName == "Token" {
+            if fieldName == "tokenType" { return 0 }
+            if fieldName == "value" { return 1 }
+            if fieldName == "line" { return 2 }
+            if fieldName == "column" { return 3 }
+        }
+        if structName == "FieldNode" {
+            if fieldName == "name" { return 0 }
+            if fieldName == "fieldType" { return 1 }
+            if fieldName == "isMutable" { return 2 }
+            if fieldName == "defaultValue" { return 3 }
+            if fieldName == "visibility" { return 4 }
+        }
         return -1  // Field not found
     }
 
@@ -1298,6 +1576,91 @@ class LLVMIRGenerator {
         let fieldNamesStr = structFieldNames[idx]
         let fieldTypesStr = structFieldTypes[idx]
         let llvmFieldTypesStr = structLlvmFieldTypes[idx]
+
+        // If struct was loaded from header with empty field names, use hardcoded fallbacks
+        if fieldNamesStr == "" {
+            if structName == "FunctionNode" {
+                if fieldName == "name" { return "%SeenString" }
+                if fieldName == "params" { return "ptr" }
+                if fieldName == "returnType" { return "%TypeNode" }
+                if fieldName == "body" { return "i64" }
+                if fieldName == "isAsync" { return "i1" }
+                if fieldName == "isInline" { return "i1" }
+                if fieldName == "isStatic" { return "i1" }
+            }
+            if structName == "ClassNode" {
+                if fieldName == "name" { return "%SeenString" }
+                if fieldName == "fields" { return "ptr" }
+                if fieldName == "methods" { return "ptr" }
+            }
+            if structName == "TypeNode" {
+                if fieldName == "typeName" { return "%SeenString" }
+                if fieldName == "isNullable" { return "i1" }
+            }
+            if structName == "ParamNode" {
+                if fieldName == "name" { return "%SeenString" }
+                if fieldName == "paramType" { return "%TypeNode" }
+                if fieldName == "defaultValue" { return "i64" }
+            }
+            if structName == "ItemNode" {
+                if fieldName == "itemType" { return "%SeenString" }
+                if fieldName == "name" { return "%SeenString" }
+                if fieldName == "visibility" { return "%SeenString" }
+                if fieldName == "importPath" { return "ptr" }
+                if fieldName == "importSymbols" { return "ptr" }
+                if fieldName == "function" { return "i64" }
+                if fieldName == "classNode" { return "i64" }
+                if fieldName == "enumNode" { return "i64" }
+            }
+            if structName == "ProgramNode" {
+                if fieldName == "items" { return "ptr" }
+            }
+            if structName == "BlockNode" {
+                if fieldName == "statements" { return "ptr" }
+            }
+            if structName == "FrontendResult" {
+                if fieldName == "success" { return "i1" }
+                if fieldName == "diagnostics" { return "ptr" }
+                if fieldName == "program" { return "i64" }
+            }
+            if structName == "FrontendDiagnostic" {
+                if fieldName == "file" { return "%SeenString" }
+                if fieldName == "line" { return "i64" }
+                if fieldName == "column" { return "i64" }
+                if fieldName == "severity" { return "%SeenString" }
+                if fieldName == "message" { return "%SeenString" }
+            }
+            if structName == "Token" {
+                if fieldName == "tokenType" { return "i64" }
+                if fieldName == "value" { return "%SeenString" }
+                if fieldName == "line" { return "i64" }
+                if fieldName == "column" { return "i64" }
+            }
+            if structName == "StatementNode" {
+                if fieldName == "kind" { return "%SeenString" }
+                if fieldName == "variableName" { return "%SeenString" }
+                if fieldName == "variableType" { return "%TypeNode" }
+                if fieldName == "initializer" { return "i64" }
+                if fieldName == "condition" { return "i64" }
+                if fieldName == "thenBranch" { return "i64" }
+                if fieldName == "elseBranch" { return "i64" }
+                if fieldName == "loopBody" { return "i64" }
+                if fieldName == "loopVariable" { return "%SeenString" }
+                if fieldName == "loopIterable" { return "i64" }
+                if fieldName == "returnValue" { return "i64" }
+                if fieldName == "expression" { return "i64" }
+            }
+            if structName == "ParserExpressionNode" {
+                if fieldName == "kind" { return "%SeenString" }
+                if fieldName == "variableName" { return "%SeenString" }
+                if fieldName == "literalValue" { return "%SeenString" }
+                if fieldName == "literalType" { return "%SeenString" }
+                if fieldName == "operator" { return "%SeenString" }
+                if fieldName == "operands" { return "ptr" }
+                if fieldName == "arguments" { return "ptr" }
+                if fieldName == "callee" { return "%SeenString" }
+            }
+        }
 
         // Parse to find matching field by index
         var fieldIdx = 0
@@ -1322,19 +1685,316 @@ class LLVMIRGenerator {
             pos = pos + 1
         }
 
+        // Hardcoded fallbacks for known structs (avoid string parsing bugs)
+        // Use %SeenString instead of { i64, ptr } for type compatibility
+        // NOTE: Check these BEFORE returning default i64 for unknown fields
+        if structName == "FrontendResult" {
+            if fieldName == "success" { return "i1" }
+            if fieldName == "diagnostics" { return "ptr" }
+            if fieldName == "program" { return "i64" }
+        }
+        if structName == "FrontendDiagnostic" {
+            if fieldName == "file" { return "%SeenString" }
+            if fieldName == "line" { return "i64" }
+            if fieldName == "column" { return "i64" }
+            if fieldName == "severity" { return "%SeenString" }
+            if fieldName == "message" { return "%SeenString" }
+        }
+        if structName == "CommandResult" {
+            if fieldName == "success" { return "i1" }
+            if fieldName == "output" { return "%SeenString" }
+        }
+        if structName == "FsFileResult" {
+            if fieldName == "isOk" { return "i1" }
+            if fieldName == "file" { return "i64" }
+            if fieldName == "error" { return "%SeenString" }
+        }
+        if structName == "ProgramNode" {
+            if fieldName == "items" { return "ptr" }
+        }
+        if structName == "ItemNode" {
+            if fieldName == "itemType" { return "%SeenString" }
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "visibility" { return "%SeenString" }
+            if fieldName == "importPath" { return "ptr" }
+            if fieldName == "importSymbols" { return "ptr" }
+            if fieldName == "function" { return "i64" }
+            if fieldName == "classNode" { return "i64" }
+            if fieldName == "enumNode" { return "i64" }
+        }
+        if structName == "FunctionNode" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "params" { return "ptr" }
+            if fieldName == "returnType" { return "%TypeNode" }
+            if fieldName == "body" { return "i64" }
+            if fieldName == "isPublic" { return "i1" }
+            if fieldName == "genericParams" { return "ptr" }
+            if fieldName == "isAsync" { return "i1" }
+            if fieldName == "isExtern" { return "i1" }
+            if fieldName == "isStatic" { return "i1" }
+            if fieldName == "isInline" { return "i1" }
+        }
+        if structName == "ClassNode" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "fields" { return "ptr" }
+            if fieldName == "methods" { return "ptr" }
+        }
+        if structName == "TypeInferenceResult" {
+            if fieldName == "success" { return "i1" }
+            if fieldName == "type" { return "i64" }
+            if fieldName == "program" { return "i64" }
+            if fieldName == "errors" { return "ptr" }
+            if fieldName == "warnings" { return "ptr" }
+            if fieldName == "environment" { return "i64" }
+            if fieldName == "typeTable" { return "i64" }
+        }
+        if structName == "Token" {
+            if fieldName == "kind" { return "%SeenString" }
+            if fieldName == "tokenType" { return "i64" }
+            if fieldName == "value" { return "%SeenString" }
+            if fieldName == "line" { return "i64" }
+            if fieldName == "column" { return "i64" }
+            if fieldName == "offset" { return "i64" }
+            if fieldName == "endOffset" { return "i64" }
+            if fieldName == "length" { return "i64" }
+            if fieldName == "fileId" { return "i64" }
+            if fieldName == "pos" { return "%Position" }
+        }
+        if structName == "Position" {
+            if fieldName == "line" { return "i64" }
+            if fieldName == "column" { return "i64" }
+            if fieldName == "offset" { return "i64" }
+            if fieldName == "fileId" { return "i64" }
+        }
+        if structName == "StatementNode" {
+            if fieldName == "kind" { return "%SeenString" }
+            if fieldName == "expression" { return "i64" }
+            if fieldName == "condition" { return "i64" }
+            if fieldName == "thenBlock" { return "i64" }
+            if fieldName == "thenBranch" { return "i64" }
+            if fieldName == "elseBlock" { return "i64" }
+            if fieldName == "elseBranch" { return "i64" }
+            if fieldName == "varName" { return "%SeenString" }
+            if fieldName == "varType" { return "%TypeNode" }
+            if fieldName == "isMutable" { return "i1" }
+            if fieldName == "initializer" { return "i64" }
+            if fieldName == "loopVar" { return "%SeenString" }
+            if fieldName == "iterableExpr" { return "i64" }
+            if fieldName == "loopBody" { return "i64" }
+            if fieldName == "whileCondition" { return "i64" }
+            if fieldName == "whileBody" { return "i64" }
+            if fieldName == "loopCondition" { return "i64" }
+            if fieldName == "matchExpr" { return "i64" }
+            if fieldName == "matchArms" { return "ptr" }
+            if fieldName == "returnExpr" { return "i64" }
+            if fieldName == "returnValue" { return "i64" }
+            if fieldName == "value" { return "i64" }
+            if fieldName == "target" { return "i64" }
+        }
+        if structName == "ParserExpressionNode" {
+            if fieldName == "kind" { return "%SeenString" }
+            if fieldName == "callee" { return "%SeenString" }
+            if fieldName == "literalValue" { return "%SeenString" }
+            if fieldName == "literalType" { return "%SeenString" }
+            if fieldName == "operands" { return "ptr" }
+            if fieldName == "operator" { return "%SeenString" }
+            if fieldName == "arguments" { return "ptr" }
+            if fieldName == "typeArgs" { return "ptr" }
+            if fieldName == "isNullable" { return "i1" }
+            if fieldName == "isSafeAccess" { return "i1" }
+            if fieldName == "receiverType" { return "%SeenString" }
+            if fieldName == "fieldName" { return "%SeenString" }
+            if fieldName == "inferredType" { return "%TypeNode" }
+            if fieldName == "lambdaParams" { return "ptr" }
+            if fieldName == "lambdaBody" { return "i64" }
+            if fieldName == "lambdaReturnType" { return "%TypeNode" }
+        }
+        if structName == "TypeNode" {
+            if fieldName == "typeName" { return "%SeenString" }
+            if fieldName == "isNullable" { return "i1" }
+        }
+        if structName == "ParamNode" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "paramType" { return "%TypeNode" }
+            if fieldName == "isMutable" { return "i1" }
+        }
+        if structName == "FieldNode" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "fieldType" { return "%TypeNode" }
+            if fieldName == "isMutable" { return "i1" }
+            if fieldName == "defaultValue" { return "i64" }
+        }
+        if structName == "MatchArm" {
+            if fieldName == "pattern" { return "i64" }
+            if fieldName == "body" { return "i64" }
+        }
+        if structName == "BlockNode" {
+            if fieldName == "statements" { return "ptr" }
+        }
+        if structName == "EnumNode" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "variants" { return "ptr" }
+        }
+        if structName == "EnumVariant" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "associatedTypes" { return "ptr" }
+        }
+        if structName == "Location" {
+            if fieldName == "line" { return "i64" }
+            if fieldName == "column" { return "i64" }
+            if fieldName == "file" { return "%SeenString" }
+        }
+        if structName == "TypeError" {
+            if fieldName == "message" { return "%SeenString" }
+            if fieldName == "location" { return "i64" }  // class type
+            if fieldName == "severity" { return "%SeenString" }
+        }
+        if structName == "LexerError" {
+            if fieldName == "message" { return "%SeenString" }
+            if fieldName == "line" { return "i64" }
+            if fieldName == "column" { return "i64" }
+        }
+        if structName == "ParseError" {
+            if fieldName == "message" { return "%SeenString" }
+            if fieldName == "line" { return "i64" }
+            if fieldName == "column" { return "i64" }
+        }
+        if structName == "SeenLexer" {
+            if fieldName == "source" { return "%SeenString" }
+            if fieldName == "fileId" { return "i64" }
+            if fieldName == "language" { return "%SeenString" }
+            if fieldName == "errorRecoveryMode" { return "i1" }
+            if fieldName == "keywordManager" { return "i64" }
+            if fieldName == "position" { return "i64" }
+            if fieldName == "line" { return "i64" }
+            if fieldName == "column" { return "i64" }
+            if fieldName == "tokens" { return "ptr" }
+            if fieldName == "pos" { return "i64" }
+            if fieldName == "errors" { return "ptr" }
+        }
+        if structName == "TypeChecker" {
+            if fieldName == "environment" { return "i64" }
+            if fieldName == "env" { return "i64" }
+            if fieldName == "errors" { return "ptr" }
+            if fieldName == "warnings" { return "ptr" }
+            if fieldName == "strictMode" { return "i1" }
+            if fieldName == "currentFunction" { return "i64" }
+            if fieldName == "currentClass" { return "i64" }
+            if fieldName == "classTypes" { return "ptr" }
+            if fieldName == "functionTypes" { return "ptr" }
+            if fieldName == "typeTable" { return "i64" }
+        }
+        if structName == "SeenTypeChecker" {
+            if fieldName == "smartCastContext" { return "i64" }
+            if fieldName == "strictMode" { return "i1" }
+            if fieldName == "environment" { return "i64" }
+            if fieldName == "errors" { return "ptr" }
+            if fieldName == "warnings" { return "ptr" }
+        }
+        if structName == "RealParser" {
+            if fieldName == "tokens" { return "ptr" }
+            if fieldName == "pos" { return "i64" }
+            if fieldName == "current" { return "i64" }
+            if fieldName == "currentProgram" { return "i64" }
+            if fieldName == "currentBlock" { return "i64" }
+            if fieldName == "lastStatement" { return "i64" }
+            if fieldName == "lastFunction" { return "i64" }
+            if fieldName == "errors" { return "ptr" }
+            if fieldName == "currentFile" { return "%SeenString" }
+        }
+        if structName == "ImportPathInfo" {
+            if fieldName == "isRelative" { return "i1" }
+            if fieldName == "segments" { return "ptr" }
+        }
+        if structName == "ImportSymbolNode" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "alias" { return "%SeenString" }
+        }
+        if structName == "FsFile" {
+            if fieldName == "fd" { return "i64" }
+            if fieldName == "path" { return "%SeenString" }
+        }
+        if structName == "StringHashMap" {
+            if fieldName == "entries" { return "ptr" }
+            if fieldName == "count" { return "i64" }
+            if fieldName == "capacity" { return "i64" }
+        }
+        if structName == "HashEntry" {
+            if fieldName == "key" { return "%SeenString" }
+            if fieldName == "value" { return "i64" }
+        }
+        if structName == "KeywordManager" {
+            if fieldName == "language" { return "%SeenString" }
+            if fieldName == "keywords" { return "i64" }  // StringHashMap (class)
+            if fieldName == "tokenNameMap" { return "i64" }
+            if fieldName == "sources" { return "ptr" }
+            if fieldName == "operators" { return "i64" }
+            if fieldName == "literalKeywords" { return "i64" }
+        }
+        if structName == "Environment" {
+            if fieldName == "parent" { return "i64" }
+            if fieldName == "variables" { return "i64" }
+            if fieldName == "types" { return "i64" }
+        }
+        if structName == "TypeTable" {
+            if fieldName == "types" { return "i64" }
+            if fieldName == "parent" { return "i64" }
+        }
+        if structName == "LLVMIRGenerator" {
+            return this.getLLVMIRGeneratorFieldType(fieldName)
+        }
+        if structName == "Type" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "isNullable" { return "i1" }
+        }
+        if structName == "FunctionType" {
+            if fieldName == "parameters" { return "ptr" }
+            if fieldName == "returnType" { return "i64" }
+            if fieldName == "isAsync" { return "i1" }
+        }
+        if structName == "ClassType" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "fields" { return "ptr" }
+            if fieldName == "methods" { return "ptr" }
+        }
+        if structName == "InterfaceType" {
+            if fieldName == "name" { return "%SeenString" }
+            if fieldName == "methods" { return "ptr" }
+        }
+        if structName == "StringBuilder" {
+            if fieldName == "data" { return "ptr" }
+            if fieldName == "length" { return "i64" }
+            if fieldName == "capacity" { return "i64" }
+        }
+        if structName == "SeenArray" {
+            if fieldName == "len" { return "i64" }
+            if fieldName == "cap" { return "i64" }
+            if fieldName == "element_size" { return "i64" }
+            if fieldName == "data" { return "ptr" }
+        }
+
+        // If field wasn't found in the field names list, return default
+        // (can't use fieldIdx if foundField is false)
         if not foundField {
             return "i64"
         }
 
         // Prefer LLVM field types from header if available
         if llvmFieldTypesStr != "" {
+            if structName == "FrontendResult" and fieldName == "success" {
+                println("[DEBUG getFieldType] FrontendResult.success: llvmFieldTypesStr='" + llvmFieldTypesStr + "' len=" + llvmFieldTypesStr.length().toString())
+            }
             var llvmTypeIdx = 0
             var llvmTypeStart = 0
             pos = 0
             while pos <= llvmFieldTypesStr.length() {
                 if pos == llvmFieldTypesStr.length() or llvmFieldTypesStr.substring(pos, pos + 1) == "|" {
                     if llvmTypeIdx == fieldIdx {
-                        return llvmFieldTypesStr.substring(llvmTypeStart, pos)
+                        let result = llvmFieldTypesStr.substring(llvmTypeStart, pos)
+                        if structName == "FrontendResult" and fieldName == "success" {
+                            println("[DEBUG getFieldType] returning: '" + result + "' len=" + result.length().toString())
+                        }
+                        return result
                     }
                     llvmTypeIdx = llvmTypeIdx + 1
                     llvmTypeStart = pos + 1
@@ -1698,6 +2358,89 @@ class LLVMIRGenerator {
         if structName == "FunctionNode" and fieldName == "returnType" {
             println("[DEBUG getSeenFieldType] FunctionNode fieldNamesStr=" + fieldNamesStr)
             println("[DEBUG getSeenFieldType] FunctionNode fieldTypesStr=" + fieldTypesStr)
+        }
+
+        // If struct was loaded from header but has no Seen field types, use hardcoded fallbacks
+        if fieldTypesStr == "" {
+            if structName == "FunctionNode" {
+                if fieldName == "name" { return "String" }
+                if fieldName == "params" { return "Array<ParamNode>" }
+                if fieldName == "returnType" { return "TypeNode" }
+                if fieldName == "body" { return "BlockNode" }
+                if fieldName == "isAsync" { return "Bool" }
+                if fieldName == "isInline" { return "Bool" }
+                if fieldName == "isStatic" { return "Bool" }
+            }
+            if structName == "ClassNode" {
+                if fieldName == "name" { return "String" }
+                if fieldName == "fields" { return "Array<ParamNode>" }
+                if fieldName == "methods" { return "Array<FunctionNode>" }
+            }
+            if structName == "TypeNode" {
+                if fieldName == "typeName" { return "String" }
+                if fieldName == "isNullable" { return "Bool" }
+            }
+            if structName == "ParamNode" {
+                if fieldName == "name" { return "String" }
+                if fieldName == "paramType" { return "TypeNode" }
+                if fieldName == "defaultValue" { return "ParserExpressionNode" }
+            }
+            if structName == "ItemNode" {
+                if fieldName == "itemType" { return "String" }
+                if fieldName == "function" { return "FunctionNode" }
+                if fieldName == "classNode" { return "ClassNode" }
+                if fieldName == "enumNode" { return "EnumNode" }
+                if fieldName == "importNode" { return "ImportNode" }
+                if fieldName == "importPath" { return "Array<String>" }
+            }
+            if structName == "ProgramNode" {
+                if fieldName == "items" { return "Array<ItemNode>" }
+            }
+            if structName == "BlockNode" {
+                if fieldName == "statements" { return "Array<StatementNode>" }
+            }
+            if structName == "StatementNode" {
+                if fieldName == "kind" { return "String" }
+                if fieldName == "variableName" { return "String" }
+                if fieldName == "variableType" { return "TypeNode" }
+                if fieldName == "initializer" { return "ParserExpressionNode" }
+                if fieldName == "condition" { return "ParserExpressionNode" }
+                if fieldName == "thenBranch" { return "BlockNode" }
+                if fieldName == "elseBranch" { return "BlockNode" }
+                if fieldName == "loopBody" { return "BlockNode" }
+                if fieldName == "loopVariable" { return "String" }
+                if fieldName == "loopIterable" { return "ParserExpressionNode" }
+                if fieldName == "returnValue" { return "ParserExpressionNode" }
+                if fieldName == "expression" { return "ParserExpressionNode" }
+            }
+            if structName == "ParserExpressionNode" {
+                if fieldName == "kind" { return "String" }
+                if fieldName == "variableName" { return "String" }
+                if fieldName == "literalValue" { return "String" }
+                if fieldName == "literalType" { return "String" }
+                if fieldName == "operator" { return "String" }
+                if fieldName == "operands" { return "Array<ParserExpressionNode>" }
+                if fieldName == "arguments" { return "Array<ParserExpressionNode>" }
+                if fieldName == "callee" { return "String" }
+            }
+            if structName == "FrontendResult" {
+                if fieldName == "success" { return "Bool" }
+                if fieldName == "diagnostics" { return "Array<FrontendDiagnostic>" }
+                if fieldName == "program" { return "ProgramNode" }
+            }
+            if structName == "FrontendDiagnostic" {
+                if fieldName == "severity" { return "String" }
+                if fieldName == "file" { return "String" }
+                if fieldName == "line" { return "Int" }
+                if fieldName == "column" { return "Int" }
+                if fieldName == "message" { return "String" }
+            }
+            if structName == "Token" {
+                if fieldName == "tokenType" { return "Int" }
+                if fieldName == "value" { return "String" }
+                if fieldName == "line" { return "Int" }
+                if fieldName == "column" { return "Int" }
+            }
         }
 
         // Parse to find matching field by index
@@ -2143,7 +2886,9 @@ class LLVMIRGenerator {
 
         // Try to read type declarations from header file (generated by Rust bootstrap compiler)
         // This ensures ABI compatibility between Rust and Seen compilers
+        println("[DEBUG emitPrologue] typeHeaderPath='" + typeHeaderPath + "'")
         if typeHeaderPath != "" and exists(typeHeaderPath) {
+            println("[DEBUG emitPrologue] loading header from " + typeHeaderPath)
             let headerContent = readText(typeHeaderPath)
             if headerContent != "" {
                 output.append("; Type declarations loaded from: " + typeHeaderPath + "\n")
@@ -2151,6 +2896,11 @@ class LLVMIRGenerator {
                 output.append("\n")
                 typesLoadedFromHeader = true
                 this.applyTypeHeader(headerContent)
+                println("[DEBUG emitPrologue] header applied, checking FrontendDiagnostic layout")
+                let fdIdx = this.findStruct("FrontendDiagnostic")
+                if fdIdx >= 0 {
+                    println("[DEBUG emitPrologue] FrontendDiagnostic layout after header='" + structLayouts[fdIdx] + "'")
+                }
                 this.computeMissingStructSizes()
                 // Check if header also contains runtime function declarations
                 if headerContent.contains("; Runtime Function Declarations") {
@@ -2178,13 +2928,6 @@ class LLVMIRGenerator {
     }
 
     fun emitClassType(classNode: ClassNode) r: Void {
-        // Skip if types were loaded from header file (they're already defined)
-        if typesLoadedFromHeader {
-            // Still register the struct layout for code generation
-            this.registerStructLayout(classNode)
-            return
-        }
-
         // Skip if already emitted in this module (deduplication)
         var classIdx = 0
         while classIdx < generatedClasses.length() {
@@ -2193,6 +2936,34 @@ class LLVMIRGenerator {
             }
             classIdx = classIdx + 1
         }
+
+        // Skip if types were loaded from header file AND this class has a layout from the header
+        // The header uses inline type syntax { i64, ptr } while our code uses %SeenString
+        // Key indicator: header uses "{ i64, ptr }" for SeenString, while we use "%SeenString"
+        if typesLoadedFromHeader {
+            let structIdx = this.findStruct(classNode.name)
+            if structIdx >= 0 {
+                let existingLayout = structLayouts[structIdx]
+                // Header layouts use inline SeenString: { i64, ptr }
+                // User-defined layouts would use named type: %SeenString
+                // If layout has "{ i64, ptr }" (inline SeenString), it's definitely from header
+                // If layout doesn't contain "%SeenString", it's from header
+                let usesInlineSeenString = existingLayout.contains("{ i64, ptr }")
+                let usesNamedSeenString = existingLayout.contains("%SeenString")
+                if classNode.name == "FrontendDiagnostic" or classNode.name == "FunctionNode" {
+                    println("[DEBUG emitClassType] " + classNode.name + " existingLayout='" + existingLayout + "'")
+                    println("[DEBUG emitClassType] usesInlineSeenString=" + usesInlineSeenString.toString() + " usesNamedSeenString=" + usesNamedSeenString.toString())
+                }
+                // If has inline SeenString pattern or non-empty without %SeenString, it's from header
+                if existingLayout != "" and (usesInlineSeenString or not usesNamedSeenString) {
+                    // Type is from header - just register layout and skip emit
+                    this.registerStructLayout(classNode)
+                    generatedClasses.push(classNode.name)
+                    return
+                }
+            }
+        }
+
         generatedClasses.push(classNode.name)
 
         // Register struct layout for code generation
@@ -2589,7 +3360,7 @@ class LLVMIRGenerator {
             output.append("declare void @args(ptr sret(%SeenArray) align 8)\n")
         }
         if not this.isFuncDefinedInModule("runCommand", definedFuncs) {
-            output.append("declare ptr @runCommand(%SeenString)\n")
+            output.append("declare %CommandResult @runCommand(%SeenString)\n")
         }
         if not this.isFuncDefinedInModule("commandWasSuccessful", definedFuncs) {
             output.append("declare i1 @commandWasSuccessful(ptr)\n")
@@ -3962,7 +4733,37 @@ class LLVMIRGenerator {
                             output.append("  " + ptrConvReg + " = inttoptr i64 " + intermediateValReg + " to ptr\n")
                             intermediatePtrReg = ptrConvReg
                         } else {
-                            intermediatePtrReg = this.generateFieldAccessPtr(basePtrReg, baseType, restPath)
+                            // Handle chained paths like "function.returnType" by walking through each segment
+                            if restPath.contains(".") {
+                                var chainPtr = basePtrReg
+                                var chainType = baseType
+                                var chainSegStart = 0
+                                var chainSegIdx = 0
+                                while chainSegIdx <= restPath.length() {
+                                    if chainSegIdx == restPath.length() or restPath.substring(chainSegIdx, chainSegIdx + 1) == "." {
+                                        if chainSegIdx > chainSegStart {
+                                            let chainField = restPath.substring(chainSegStart, chainSegIdx)
+                                            let chainFieldType = this.getSeenFieldType(chainType, chainField)
+                                            if this.isClassType(chainFieldType) {
+                                                let loadedVal = this.generateFieldAccess(chainPtr, chainType, chainField)
+                                                let convPtr = this.getNextReg()
+                                                output.append("  " + convPtr + " = inttoptr i64 " + loadedVal + " to ptr\n")
+                                                chainPtr = convPtr
+                                            } else if this.isDataType(chainFieldType) {
+                                                chainPtr = this.generateFieldAccessPtr(chainPtr, chainType, chainField)
+                                            } else {
+                                                chainPtr = this.generateFieldAccessPtr(chainPtr, chainType, chainField)
+                                            }
+                                            chainType = chainFieldType
+                                        }
+                                        chainSegStart = chainSegIdx + 1
+                                    }
+                                    chainSegIdx = chainSegIdx + 1
+                                }
+                                intermediatePtrReg = chainPtr
+                            } else {
+                                intermediatePtrReg = this.generateFieldAccessPtr(basePtrReg, baseType, restPath)
+                            }
                         }
 
                         let structIdx = this.findStruct(intermediateType)
@@ -4014,13 +4815,23 @@ class LLVMIRGenerator {
                     let structLayout = structLayouts[structIdx]
                     // Note: getFieldType already returns LLVM type
                     let llvmFieldType = this.getFieldType(varType, fieldName)
+                    let seenFieldType = this.getSeenFieldType(varType, fieldName)
 
                     // GEP to field
                     let fieldPtrReg = this.getNextReg()
                     output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + receiverPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
 
+                    // For inline data types from struct literals, valueReg is a ptr - need to load value first
+                    // But for method calls/function calls, valueReg is already the struct value
+                    var actualValueReg = valueReg
+                    if this.isDataType(seenFieldType) and value.kind == "StructLiteral" {
+                        let loadedVal = this.getNextReg()
+                        output.append("  " + loadedVal + " = load " + llvmFieldType + ", ptr " + valueReg + "\n")
+                        actualValueReg = loadedVal
+                    }
+
                     // Store
-                    output.append("  store " + llvmFieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n")
+                    output.append("  store " + llvmFieldType + " " + actualValueReg + ", ptr " + fieldPtrReg + "\n")
                     return
                 }
             }
@@ -4334,9 +5145,10 @@ class LLVMIRGenerator {
             handledArr = true
         }
         if not handledArr and arrayType == "Array<Int>" {
-            // Get pointer to int element and load the i64 value
+            // Get pointer to int element slot and load the i64 value
+            // Use seen_arr_get_element (returns ptr to element slot) not seen_arr_get_ptr (returns stored pointer value)
             let ptrReg = this.getNextReg()
-            output.append("  " + ptrReg + " = call ptr @seen_arr_get_ptr(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n")
+            output.append("  " + ptrReg + " = call ptr @seen_arr_get_element(ptr byval(%SeenArray) align 8 " + arrayPtrReg + ", i64 " + indexReg + ")\n")
             resultReg = this.getNextReg()
             output.append("  " + resultReg + " = load i64, ptr " + ptrReg + "\n")
             handledArr = true
@@ -4629,7 +5441,43 @@ class LLVMIRGenerator {
                         actualIntermediateReg = ptrConvReg
                     } else {
                         // Inline data types: get pointer to the field (don't load the value)
-                        actualIntermediateReg = this.generateFieldAccessPtr(ptrReg, baseType, restPath)
+                        // Handle chained paths like "function.returnType" by walking through each segment
+                        if restPath.contains(".") {
+                            // Walk through the chain, accessing each field in turn
+                            var chainPtr = ptrReg
+                            var chainType = baseType
+                            var chainSegStart = 0
+                            var chainSegIdx = 0
+                            while chainSegIdx <= restPath.length() {
+                                if chainSegIdx == restPath.length() or restPath.substring(chainSegIdx, chainSegIdx + 1) == "." {
+                                    if chainSegIdx > chainSegStart {
+                                        let chainField = restPath.substring(chainSegStart, chainSegIdx)
+                                        let chainFieldType = this.getSeenFieldType(chainType, chainField)
+                                        output.append("; DEBUG chained ptr access: chainType=" + chainType + " chainField=" + chainField + " chainFieldType=" + chainFieldType + "\n")
+                                        if this.isClassType(chainFieldType) {
+                                            // Class field: load i64 and convert to ptr
+                                            let loadedVal = this.generateFieldAccess(chainPtr, chainType, chainField)
+                                            let convPtr = this.getNextReg()
+                                            output.append("  " + convPtr + " = inttoptr i64 " + loadedVal + " to ptr\n")
+                                            chainPtr = convPtr
+                                        } else if this.isDataType(chainFieldType) {
+                                            // Data type field: get pointer to inline struct
+                                            chainPtr = this.generateFieldAccessPtr(chainPtr, chainType, chainField)
+                                        } else {
+                                            // Primitive or other: load value for intermediate, get ptr for final
+                                            chainPtr = this.generateFieldAccessPtr(chainPtr, chainType, chainField)
+                                        }
+                                        chainType = chainFieldType
+                                    }
+                                    chainSegStart = chainSegIdx + 1
+                                }
+                                chainSegIdx = chainSegIdx + 1
+                            }
+                            actualIntermediateReg = chainPtr
+                        } else {
+                            // Simple single field access
+                            actualIntermediateReg = this.generateFieldAccessPtr(ptrReg, baseType, restPath)
+                        }
                     }
                     return generateFieldAccess(actualIntermediateReg, intermediateType, fieldName)
                 }
@@ -4674,6 +5522,9 @@ class LLVMIRGenerator {
 
     fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
         output.append("; DEBUG generateFieldAccess: structType=" + structType + " fieldName=" + fieldName + "\n")
+        if structType == "TypeNode" and fieldName == "typeName" {
+            println("[DEBUG TypeNode.typeName] ptrReg=" + ptrReg)
+        }
         // Handle known chained field access patterns directly (avoid substring for reliability)
         if fieldName == "program.items" {
             // FrontendResult.program -> ProgramNode, then ProgramNode.items
@@ -4759,10 +5610,16 @@ class LLVMIRGenerator {
             if registeredLayout.length() > 5 {
                 structLayout = registeredLayout
                 let regFieldIdx = this.getFieldInfo(structType, fieldName)
+                if structType == "TypeNode" and fieldName == "typeName" {
+                    println("[DEBUG TypeNode.typeName] structIdx=" + structIdx.toString() + " regFieldIdx=" + regFieldIdx.toString() + " registeredLayout='" + registeredLayout + "'")
+                }
                 if regFieldIdx >= 0 {
                     fieldIndex = regFieldIdx
                     fieldType = this.getFieldType(structType, fieldName)
                     registryHasLayout = true
+                    if structType == "TypeNode" and fieldName == "typeName" {
+                        println("[DEBUG TypeNode.typeName] fieldIndex=" + fieldIndex.toString() + " fieldType='" + fieldType + "'")
+                    }
                 }
             }
         }
@@ -5134,13 +5991,59 @@ class LLVMIRGenerator {
                 resolvedLayout = true
             }
             if not resolvedLayout {
-                // Generic struct: estimate based on field count
-                structSize = expr.arguments.length() * 16  // Conservative: 16 bytes per field
+                // Generic struct: estimate based on field count and infer field types from expressions
+                let fieldCount = expr.arguments.length()
+                structSize = 0
+                var layoutFields = ""
+                var fieldI = 0
+                while fieldI < fieldCount {
+                    if fieldI > 0 {
+                        layoutFields = layoutFields + ", "
+                    }
+                    // Infer field type from the expression
+                    var inferredFieldType = "i64"
+                    if fieldI < expr.arguments.length() {
+                        let fieldExpr = expr.arguments[fieldI]
+                        if fieldExpr.operands.length() > 0 {
+                            let valueExpr = fieldExpr.operands[0]
+                            if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
+                                inferredFieldType = "%SeenString"
+                                structSize = structSize + 16
+                            } else if valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
+                                inferredFieldType = "ptr"
+                                structSize = structSize + 8
+                            } else if valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
+                                inferredFieldType = "i1"
+                                structSize = structSize + 8  // Aligned
+                            } else if valueExpr.kind == "StructLiteral" {
+                                // Inline data type - use %TypeName if available
+                                if valueExpr.literalType != "" {
+                                    inferredFieldType = "%" + valueExpr.literalType
+                                    structSize = structSize + 24  // Estimate
+                                } else {
+                                    structSize = structSize + 8
+                                }
+                            } else {
+                                structSize = structSize + 8
+                            }
+                        } else {
+                            structSize = structSize + 8
+                        }
+                    } else {
+                        structSize = structSize + 8
+                    }
+                    layoutFields = layoutFields + inferredFieldType
+                    fieldI = fieldI + 1
+                }
+                structLayout = lb + " " + layoutFields + " " + rb
+                println("[WARN] Unknown struct type '" + structName + "' - using inferred layout: " + structLayout + " size=" + structSize.toString())
             }
         }
 
         // Allocate memory for struct
         let mallocReg = this.getNextReg()
+        // DEBUG: Print struct allocation details
+        println("[DEBUG STRUCT] " + structName + " size=" + structSize.toString() + " registry=" + structIdx.toString())
         output.append("  " + mallocReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
 
         // Store each field
@@ -5275,6 +6178,34 @@ class LLVMIRGenerator {
                     gepIndex = 1
                     fieldType = "ptr"  // Pointer to array, not inline array
                     fieldResolved = true
+                }
+                // Infer field type from expression if not resolved by hardcoded mappings
+                if not fieldResolved and fieldExpr.operands.length() > 0 {
+                    let valueExpr = fieldExpr.operands[0]
+                    if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
+                        fieldType = "%SeenString"
+                        fieldResolved = true
+                    }
+                    if not fieldResolved and valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
+                        fieldType = "i1"
+                        fieldResolved = true
+                    }
+                    if not fieldResolved and valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
+                        fieldType = "ptr"
+                        fieldResolved = true
+                    }
+                    if not fieldResolved and valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
+                        fieldType = "%" + valueExpr.literalType
+                        fieldResolved = true
+                    }
+                    if not fieldResolved and valueExpr.kind == "MethodCall" {
+                        // For method calls that return data types, infer the type
+                        let calleeType = this.inferExpressionType(valueExpr)
+                        if this.isDataType(calleeType) {
+                            fieldType = "%" + calleeType
+                            fieldResolved = true
+                        }
+                    }
                 }
             }
 
@@ -5775,6 +6706,103 @@ class LLVMIRGenerator {
             return arrReg
         }
 
+        // Check if this is a class constructor call (e.g., Expr() creates new Expr instance)
+        if this.isClassType(funcName) {
+            // Generate inline constructor: malloc + initialize fields + return pointer-as-int
+            let structIdx = this.findStruct(funcName)
+            let ptrReg = this.getNextReg()
+
+            // Get struct size - use getDataTypeSize if we have field info, otherwise default
+            var structSize = 8
+            if structIdx >= 0 {
+                // Use the registered struct size
+                structSize = structSizes[structIdx]
+                if structSize == 0 {
+                    structSize = 16  // Default minimum for a class with at least one field
+                }
+            }
+
+            // Allocate memory for the object
+            output.append("  " + ptrReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
+
+            // Initialize fields to default values
+            if structIdx >= 0 {
+                let fieldNamesStr = structFieldNames[structIdx]
+                let fieldTypesStr = structFieldTypes[structIdx]
+
+                // Parse field names and types
+                var fieldIdx = 0
+                var fieldStart = 0
+                var typeStart = 0
+                var charIdx = 0
+
+                while charIdx <= fieldNamesStr.length() {
+                    let atEnd = charIdx == fieldNamesStr.length()
+                    let isSep = not atEnd and fieldNamesStr.substring(charIdx, charIdx + 1) == ","
+
+                    if isSep or atEnd {
+                        let fieldName = fieldNamesStr.substring(fieldStart, charIdx)
+
+                        // Find corresponding type
+                        var typeCharIdx = 0
+                        var typeFieldIdx = 0
+                        var typeFieldStart = 0
+                        var fieldType = ""
+                        while typeCharIdx <= fieldTypesStr.length() and fieldType == "" {
+                            let typeAtEnd = typeCharIdx == fieldTypesStr.length()
+                            let typeIsSep = not typeAtEnd and fieldTypesStr.substring(typeCharIdx, typeCharIdx + 1) == "|"
+
+                            if typeIsSep or typeAtEnd {
+                                if typeFieldIdx == fieldIdx {
+                                    fieldType = fieldTypesStr.substring(typeFieldStart, typeCharIdx)
+                                }
+                                typeFieldIdx = typeFieldIdx + 1
+                                typeFieldStart = typeCharIdx + 1
+                            }
+                            typeCharIdx = typeCharIdx + 1
+                        }
+
+                        // Initialize field based on type
+                        if fieldType == "String" {
+                            // String fields: store empty SeenString { 0, null }
+                            let fieldPtrReg = this.getNextReg()
+                            output.append("  " + fieldPtrReg + " = getelementptr inbounds %" + funcName + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
+                            output.append("  store %SeenString { i64 0, ptr null }, ptr " + fieldPtrReg + "\n")
+                        } else if fieldType == "Int" or fieldType == "Char" {
+                            // Int/Char fields: store 0
+                            let fieldPtrReg = this.getNextReg()
+                            output.append("  " + fieldPtrReg + " = getelementptr inbounds %" + funcName + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
+                            output.append("  store i64 0, ptr " + fieldPtrReg + "\n")
+                        } else if fieldType == "Bool" {
+                            // Bool fields: store false
+                            let fieldPtrReg = this.getNextReg()
+                            output.append("  " + fieldPtrReg + " = getelementptr inbounds %" + funcName + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
+                            output.append("  store i1 false, ptr " + fieldPtrReg + "\n")
+                        } else if fieldType.startsWith("Array<") {
+                            // Array fields: store null pointer (will be initialized separately)
+                            let fieldPtrReg = this.getNextReg()
+                            output.append("  " + fieldPtrReg + " = getelementptr inbounds %" + funcName + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
+                            output.append("  store ptr null, ptr " + fieldPtrReg + "\n")
+                        } else {
+                            // Other types (class pointers): store 0
+                            let fieldPtrReg = this.getNextReg()
+                            output.append("  " + fieldPtrReg + " = getelementptr inbounds %" + funcName + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
+                            output.append("  store i64 0, ptr " + fieldPtrReg + "\n")
+                        }
+
+                        fieldStart = charIdx + 1
+                        fieldIdx = fieldIdx + 1
+                    }
+                    charIdx = charIdx + 1
+                }
+            }
+
+            // Convert pointer to i64 (class types are stored as pointer-as-int)
+            let intReg = this.getNextReg()
+            output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
+            return intReg
+        }
+
         // Strip generic parameters from function name (e.g., "Err<String, String>" -> "Err")
         if funcName.contains("<") {
             var ltIdx = 0
@@ -6024,6 +7052,23 @@ class LLVMIRGenerator {
                 output.append(")\n")
                 return resultReg
             }
+        }
+
+        // Special handling for __ExecuteCommand - it returns ptr (pointer to CommandResult)
+        // that must be dereferenced to get the actual struct
+        if funcName == "__ExecuteCommand" {
+            // Generate argument
+            var argReg = ""
+            if expr.arguments.length() > 0 {
+                argReg = this.generateExpression(expr.arguments[0])
+            }
+            // Call __ExecuteCommand which returns ptr
+            let ptrReg = this.getNextReg()
+            output.append("  " + ptrReg + " = call ptr @__ExecuteCommand(%SeenString " + argReg + ")\n")
+            // Load the CommandResult struct from the pointer
+            let structReg = this.getNextReg()
+            output.append("  " + structReg + " = load %CommandResult, ptr " + ptrReg + "\n")
+            return structReg
         }
 
         // Generic function call - generate args first, then result reg
@@ -6578,7 +7623,29 @@ class LLVMIRGenerator {
             }
 
             // Fallback: use default value based on inferred type
-            output.append("; WARNING: receiver not resolved for " + methodName + ", using default\n")
+            output.append("; WARNING: receiver not resolved for " + methodName + ", receiverType='" + receiverType + "', using default\n")
+
+            // Special case: toString on unknown receiver type - return proper string
+            if methodName == "toString" {
+                // Always handle toString specially since we need a string result
+                let toStrReg = this.getNextReg()
+                if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
+                    output.append("  " + toStrReg + " = call %SeenString @seen_int_to_string(i64 " + receiverReg + ")\n")
+                } else if receiverType == "Bool" {
+                    output.append("  " + toStrReg + " = call %SeenString @seen_bool_to_string(i1 " + receiverReg + ")\n")
+                } else {
+                    output.append("  " + toStrReg + " = call %SeenString @seen_int_to_string(i64 0)\n")
+                }
+                return toStrReg
+            }
+
+            // Original fallback - only for non-toString methods
+            if methodName == "toString_disabled" and receiverType == "" {
+                let emptyStrReg = this.getNextReg()
+                output.append("  " + emptyStrReg + " = call %SeenString @seen_int_to_string(i64 0)\n")
+                return emptyStrReg
+            }
+
             var receiverFallbackResolved = false
             if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
                 receiverReg = "0"
@@ -7438,8 +8505,9 @@ class LLVMIRGenerator {
             if expr.callee == "charAt" or expr.callee == "charCodeAt" {
                 return "Char"
             }
-            // Note: 'getValue' removed from String returns - should use registry lookup above
-            if expr.callee == "toString" or expr.callee == "substring" or expr.callee == "trim" or expr.callee == "generate" or expr.callee == "generateMultiple" or expr.callee == "generateSingle" or expr.callee == "mapType" or expr.callee == "getNextReg" or expr.callee == "getNextBlock" or expr.callee == "getFieldType" or expr.callee == "getSeenFieldType" or expr.callee == "getFunctionReturnType" or expr.callee == "getMethodReturnType" or expr.callee == "resolveChainedPathType" or expr.callee == "hexToDecimal" or expr.callee == "escapeString" or expr.callee == "findVarType" or expr.callee == "peekTokenTypeStr" or expr.callee == "joinSegments" {
+            // Note: 'getValue' must be hardcoded because Token class methods aren't registered
+            // before parser module methods are compiled (module load order issue)
+            if expr.callee == "toString" or expr.callee == "substring" or expr.callee == "trim" or expr.callee == "generate" or expr.callee == "generateMultiple" or expr.callee == "generateSingle" or expr.callee == "mapType" or expr.callee == "getNextReg" or expr.callee == "getNextBlock" or expr.callee == "getFieldType" or expr.callee == "getSeenFieldType" or expr.callee == "getFunctionReturnType" or expr.callee == "getMethodReturnType" or expr.callee == "resolveChainedPathType" or expr.callee == "hexToDecimal" or expr.callee == "escapeString" or expr.callee == "findVarType" or expr.callee == "peekTokenTypeStr" or expr.callee == "joinSegments" or expr.callee == "getValue" {
                 return "String"
             }
             if expr.callee == "startsWith" or expr.callee == "endsWith" or expr.callee == "contains" or expr.callee == "success" or expr.callee == "isDynamic" or expr.callee == "isKeyword" or expr.callee == "hasTranslation" or expr.callee == "containsKey" or expr.callee == "containsValue" or expr.callee == "isOkay" or expr.callee == "isErr" or expr.callee == "checkToken" or expr.callee == "matchTokenStr" or expr.callee == "isAtEnd" {
@@ -7563,6 +8631,39 @@ class LLVMIRGenerator {
             let userRetType = this.getFunctionReturnType(expr.callee)
             if userRetType != "" {
                 return userRetType
+            }
+            // Explicit class constructor detection (hardcoded for reliability)
+            // AST node types
+            if expr.callee == "FunctionNode" or expr.callee == "ClassNode" or expr.callee == "EnumNode" or expr.callee == "BlockNode" or expr.callee == "StatementNode" or expr.callee == "ParserExpressionNode" {
+                return expr.callee
+            }
+            if expr.callee == "ProgramNode" or expr.callee == "ItemNode" or expr.callee == "ImportNode" {
+                return expr.callee
+            }
+            // Compiler infrastructure types
+            if expr.callee == "LLVMIRGenerator" or expr.callee == "RealParser" or expr.callee == "SeenLexer" or expr.callee == "TypeChecker" or expr.callee == "Environment" {
+                return expr.callee
+            }
+            if expr.callee == "FrontendResult" or expr.callee == "FrontendDiagnostic" or expr.callee == "TypeInferenceResult" or expr.callee == "TypeError" {
+                return expr.callee
+            }
+            // Data/utility types
+            if expr.callee == "Token" or expr.callee == "StringBuilder" or expr.callee == "KeywordManager" {
+                return expr.callee
+            }
+            if expr.callee == "Map" or expr.callee == "Vec" or expr.callee == "VecChunk" or expr.callee == "VecSlot" {
+                return expr.callee
+            }
+            if expr.callee == "FsFile" or expr.callee == "FsFileResult" or expr.callee == "Result" or expr.callee == "Optional" or expr.callee == "Option" {
+                return expr.callee
+            }
+            // Type system types
+            if expr.callee == "Type" or expr.callee == "FunctionType" or expr.callee == "ClassType" or expr.callee == "InterfaceType" or expr.callee == "Location" {
+                return expr.callee
+            }
+            // Check if callee is a class constructor (e.g., Expr() -> "Expr")
+            if this.isClassType(expr.callee) {
+                return expr.callee
             }
             // Result constructors (handle both "Err" and "Err<T, E>" forms)
             if expr.callee == "Err" or expr.callee == "Ok" or expr.callee.startsWith("Err<") or expr.callee.startsWith("Ok<") {
