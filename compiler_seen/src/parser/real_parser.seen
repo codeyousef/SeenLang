@@ -513,7 +513,19 @@ class RealParser {
                     if nextTok.getValue() == "static" {
                         this.advance() // consume 'static'
                         if matchTokenStr(SeenTokenType.KeywordFun) {
-                            let method = parseFunctionItem().function
+                            // Inline parse using lastFunction field to avoid memory corruption
+                            // from returning ItemNode by value via parseFunctionItem()
+                            let methodNameTok = consume(SeenTokenType.Identifier, "Expected method name")
+                            lastFunction = FunctionNode.new()
+                            lastFunction.name = methodNameTok.getValue()
+                            parseParameterListField()
+                            lastFunction.returnType = parseOptionalReturnType()
+                            if matchTokenStr(SeenTokenType.LeftBrace) {
+                                lastFunction.body = parseBlock()
+                            } else {
+                                lastFunction.body = BlockNode.new()
+                            }
+                            let method = lastFunction
                             method.isStatic = true
                             classNode.methods.push(method)
                             // trace
@@ -530,7 +542,18 @@ class RealParser {
                 // NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
                 if not classTokenHandled {
                     if matchTokenStr(SeenTokenType.KeywordFun) {
-                        let method = parseFunctionItem().function
+                        // Inline parse using lastFunction field to avoid memory corruption
+                        let methodNameTok2 = consume(SeenTokenType.Identifier, "Expected method name")
+                        lastFunction = FunctionNode.new()
+                        lastFunction.name = methodNameTok2.getValue()
+                        parseParameterListField()
+                        lastFunction.returnType = parseOptionalReturnType()
+                        if matchTokenStr(SeenTokenType.LeftBrace) {
+                            lastFunction.body = parseBlock()
+                        } else {
+                            lastFunction.body = BlockNode.new()
+                        }
+                        let method = lastFunction
                         method.isStatic = false
                         classNode.methods.push(method)
                         // trace
@@ -563,7 +586,7 @@ class RealParser {
         let nameToken = consume(SeenTokenType.Identifier, "Expected class name")
         let classNode = ClassNode.new()
         classNode.name = nameToken.getValue()
-        // trace
+        println("[TRACE CLASS] parsing class " + classNode.name)
 
         // Parse class body
         if matchTokenStr(SeenTokenType.LeftBrace) {
@@ -590,10 +613,21 @@ class RealParser {
                     if nextTok.getValue() == "static" {
                         this.advance() // consume 'static'
                         if matchTokenStr(SeenTokenType.KeywordFun) {
-                            let method = parseFunctionItem().function
+                            // Inline parse using lastFunction field to avoid memory corruption
+                            let methodNameTokInto = consume(SeenTokenType.Identifier, "Expected method name")
+                            lastFunction = FunctionNode.new()
+                            lastFunction.name = methodNameTokInto.getValue()
+                            parseParameterListField()
+                            lastFunction.returnType = parseOptionalReturnType()
+                            if matchTokenStr(SeenTokenType.LeftBrace) {
+                                lastFunction.body = parseBlock()
+                            } else {
+                                lastFunction.body = BlockNode.new()
+                            }
+                            let method = lastFunction
                             method.isStatic = true
                             classNode.methods.push(method)
-                            // trace
+                            println("[TRACE CLASS] parsed static method " + method.name + " in " + classNode.name)
                         }
                         wasStaticInto = true
                     }
@@ -606,10 +640,21 @@ class RealParser {
                 // NOTE: Use nested if instead of 'and' to ensure short-circuit (Stage1 bug workaround)
                 if not classIntoTokenHandled {
                     if matchTokenStr(SeenTokenType.KeywordFun) {
-                        let method = parseFunctionItem().function
+                        // Inline parse using lastFunction field to avoid memory corruption
+                        let methodNameTokInto2 = consume(SeenTokenType.Identifier, "Expected method name")
+                        lastFunction = FunctionNode.new()
+                        lastFunction.name = methodNameTokInto2.getValue()
+                        parseParameterListField()
+                        lastFunction.returnType = parseOptionalReturnType()
+                        if matchTokenStr(SeenTokenType.LeftBrace) {
+                            lastFunction.body = parseBlock()
+                        } else {
+                            lastFunction.body = BlockNode.new()
+                        }
+                        let method = lastFunction
                         method.isStatic = false
                         classNode.methods.push(method)
-                        // trace
+                        println("[TRACE CLASS] parsed instance method " + method.name + " in " + classNode.name)
                         classIntoTokenHandled = true
                     }
                 }
@@ -617,8 +662,11 @@ class RealParser {
                     this.advance()
                 }
             }
+            println("[TRACE CLASS] exiting class body loop for " + classNode.name + ", methods=" + classNode.methods.length().toString())
             consume(SeenTokenType.RightBrace, "Expected '}' after class body")
         }
+
+        println("[TRACE CLASS] class " + classNode.name + " complete, methods=" + classNode.methods.length().toString() + " fields=" + classNode.fields.length().toString())
 
         // Push directly to currentProgram instead of returning
         currentProgram.items.push(ItemNode{

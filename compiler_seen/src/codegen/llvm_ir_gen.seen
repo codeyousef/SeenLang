@@ -53,6 +53,9 @@ class LLVMIRGenerator {
     var typeHeaderPath: String
     // Expected array literal type (used to derive element type for [])
     var pendingArrayLiteralType: String
+    // Generic class method base names - populated during registerStructLayout
+    // Used to skip standalone functions that are actually class methods
+    var classMethodBaseNames: Array<String>
 
     static fun new() r: LLVMIRGenerator {
         return LLVMIRGenerator{
@@ -87,7 +90,8 @@ class LLVMIRGenerator {
             typesLoadedFromHeader: false,
             runtimeDeclsLoaded: false,
             typeHeaderPath: "",
-            pendingArrayLiteralType: ""
+            pendingArrayLiteralType: "",
+            classMethodBaseNames: Array<String>()
         }
     }
 
@@ -1413,6 +1417,19 @@ class LLVMIRGenerator {
             let method = classNode.methods[mi]
             methodNames = methodNames + method.name
             methodRetTypes = methodRetTypes + method.returnType.typeName
+            // Register base method name for generic class method skip detection
+            // Check if already registered to avoid duplicates
+            var alreadyRegistered = false
+            var cri = 0
+            while cri < classMethodBaseNames.length() {
+                if classMethodBaseNames[cri] == method.name {
+                    alreadyRegistered = true
+                }
+                cri = cri + 1
+            }
+            if not alreadyRegistered {
+                classMethodBaseNames.push(method.name)
+            }
             mi = mi + 1
         }
 
@@ -2684,41 +2701,21 @@ class LLVMIRGenerator {
                 let item = program.items[i]
                 if item.itemType == "Function" {
                     let fnName = item.function.name
-                    // Skip StringBuilder methods that were incorrectly parsed as standalone
-                    if fnName == "clear" or fnName == "isEmpty" or fnName == "length" or fnName == "buildAndClear" or fnName == "toString" or fnName == "reduceToString" or fnName == "append" or fnName == "appendChar" or fnName == "appendLine" or fnName == "appendAll" {
-                        i = i + 1
-                        continue
-                    }
-                    // Skip string utility functions that use unsupported features (break, for)
-                    // These could be provided by the C runtime instead
-                    if fnName == "trimStart" or fnName == "trimEnd" or fnName == "trim" or fnName == "split" or fnName == "lines" or fnName == "words" or fnName == "splitWhitespace" {
-                        i = i + 1
-                        continue
-                    }
-                    if fnName == "replaceFirst" or fnName == "replaceAll" or fnName == "replace" {
-                        i = i + 1
-                        continue
-                    }
-                    if fnName == "padStart" or fnName == "padEnd" or fnName == "repeat" or fnName == "join" or fnName == "mergeAdjacent" {
-                        i = i + 1
-                        continue
-                    }
-                    if fnName == "isBlank" or fnName == "isWhitespace" or fnName == "contains" or fnName == "startsWith" or fnName == "endsWith" {
-                        // These might use features we don't support yet
-                        i = i + 1
-                        continue
-                    }
-                    if fnName == "removePrefix" or fnName == "removeSuffix" or fnName == "ensurePrefix" or fnName == "ensureSuffix" {
-                        i = i + 1
-                        continue
-                    }
-                    // Skip RealParser methods that were incorrectly parsed as standalone functions
-                    if fnName == "isAtEnd" or fnName == "peek" or fnName == "peekTokenType" or fnName == "peekTokenTypeStr" or fnName == "previous" or fnName == "advance" or fnName == "consume" or fnName == "checkToken" or fnName == "matchTokenStr" or fnName == "skipExpression" or fnName == "toArray" {
-                        i = i + 1
-                        continue
-                    }
                     // Skip 'new' - it's always a class method, never a standalone function
                     if fnName == "new" {
+                        i = i + 1
+                        continue
+                    }
+                    // Skip functions that are registered class methods (generated via generateClass)
+                    var isClassMethodMulti = false
+                    var cmim = 0
+                    while cmim < classMethodBaseNames.length() {
+                        if classMethodBaseNames[cmim] == fnName {
+                            isClassMethodMulti = true
+                        }
+                        cmim = cmim + 1
+                    }
+                    if isClassMethodMulti {
                         i = i + 1
                         continue
                     }
@@ -2824,40 +2821,21 @@ class LLVMIRGenerator {
             if item.itemType == "Function" {
                 let fnName = item.function.name
                 println("[DEBUG EMIT] item.function.name = '" + fnName + "'")
-                // Skip StringBuilder methods that were incorrectly parsed as standalone
-                if fnName == "clear" or fnName == "isEmpty" or fnName == "length" or fnName == "buildAndClear" or fnName == "toString" or fnName == "reduceToString" or fnName == "append" or fnName == "appendChar" or fnName == "appendLine" or fnName == "appendAll" {
-                    i = i + 1
-                    continue
-                }
-                // Skip string utility functions that use unsupported features
-                if fnName == "trimStart" or fnName == "trimEnd" or fnName == "trim" or fnName == "split" or fnName == "lines" or fnName == "words" or fnName == "splitWhitespace" {
-                    i = i + 1
-                    continue
-                }
-                if fnName == "replaceFirst" or fnName == "replaceAll" or fnName == "replace" {
-                    i = i + 1
-                    continue
-                }
-                if fnName == "padStart" or fnName == "padEnd" or fnName == "repeat" or fnName == "join" or fnName == "mergeAdjacent" {
-                    i = i + 1
-                    continue
-                }
-                if fnName == "isBlank" or fnName == "isWhitespace" or fnName == "contains" or fnName == "startsWith" or fnName == "endsWith" {
-                    i = i + 1
-                    continue
-                }
-                if fnName == "removePrefix" or fnName == "removeSuffix" or fnName == "ensurePrefix" or fnName == "ensureSuffix" {
-                    i = i + 1
-                    continue
-                }
-                // Skip RealParser methods that were incorrectly parsed as standalone functions
-                if fnName == "isAtEnd" or fnName == "peek" or fnName == "peekTokenType" or fnName == "peekTokenTypeStr" or fnName == "previous" or fnName == "advance" or fnName == "consume" or fnName == "checkToken" or fnName == "matchTokenStr" or fnName == "skipExpression" or fnName == "toArray" {
-                    i = i + 1
-                    continue
-                }
                 // Skip 'new' - it's always a class method, never a standalone function
-                // (Parser may incorrectly extract it from classes with 'extends')
                 if fnName == "new" {
+                    i = i + 1
+                    continue
+                }
+                // Skip functions that are registered class methods (generated via generateClass)
+                var isClassMethodSingle = false
+                var cmis = 0
+                while cmis < classMethodBaseNames.length() {
+                    if classMethodBaseNames[cmis] == fnName {
+                        isClassMethodSingle = true
+                    }
+                    cmis = cmis + 1
+                }
+                if isClassMethodSingle {
                     i = i + 1
                     continue
                 }
@@ -4011,12 +3989,22 @@ class LLVMIRGenerator {
     }
 
     fun generateFunction(fn: FunctionNode) r: Void {
-        // Skip functions that should be class methods but were incorrectly parsed as standalone
-        // These functions access 'this' fields but don't have 'this' as a parameter
-        // They will be properly generated as class methods (e.g., RealParser_isAtEnd)
-        let skipAsMisplacedClassMethod = fn.name == "isAtEnd" or fn.name == "peek" or fn.name == "peekTokenType" or fn.name == "peekTokenTypeStr" or fn.name == "previous" or fn.name == "advance" or fn.name == "consume" or fn.name == "checkToken" or fn.name == "matchTokenStr" or fn.name == "skipExpression" or fn.name == "toArray"
-        if skipAsMisplacedClassMethod {
-            output.append("; SKIPPED: " + fn.name + " (misplaced class method - use RealParser_" + fn.name + " instead)\n")
+        // Skip functions that are registered class methods (generated via generateClass instead)
+        var isClassMethodGen = false
+        var cmig = 0
+        while cmig < classMethodBaseNames.length() {
+            if classMethodBaseNames[cmig] == fn.name {
+                isClassMethodGen = true
+            }
+            cmig = cmig + 1
+        }
+        if isClassMethodGen {
+            output.append("; SKIPPED: " + fn.name + " (class method, generated via generateClass)\n")
+            return
+        }
+        // Skip 'new' - always a class method
+        if fn.name == "new" {
+            output.append("; SKIPPED: new (class constructor)\n")
             return
         }
 
