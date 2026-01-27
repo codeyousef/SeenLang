@@ -1,5 +1,5 @@
 // Bootstrap Compiler Test - Real Performance Testing
-fun main() {
+fun main() r: Int {
     println("🚀 Seen Bootstrap Compiler - Real Performance Test");
     
     // Test arithmetic operations - using messages instead of raw values
@@ -28,6 +28,7 @@ fun main() {
     println("Testing function calls...");
     test_function_call();
     println("Function calls completed");
+    return 0;
 }
 
 fun test_function_call() {

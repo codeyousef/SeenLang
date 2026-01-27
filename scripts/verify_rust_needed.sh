@@ -16,12 +16,15 @@ if [[ -n "${SELF_HOST_SEEN:-}" && -x "$SELF_HOST_SEEN" ]]; then
 else
     USING_SELF_HOST=0
     # Determine CLI location via Rust build
-    if [[ -x "target/release/seen_cli" ]]; then
+    if [[ -x "target-wsl/release/seen_cli" ]]; then
+        RUST_CLI="target-wsl/release/seen_cli"
+    elif [[ -x "target/release/seen_cli" ]]; then
         RUST_CLI="target/release/seen_cli"
     elif [[ -x "$HOME/.cargo/target-shared/release/seen_cli" ]]; then
         RUST_CLI="$HOME/.cargo/target-shared/release/seen_cli"
     else
         echo "❌ CRITICAL: Rust compiler not found"
+        echo "   Tried: target-wsl/release/seen_cli"
         echo "   Tried: target/release/seen_cli"
         echo "   Tried: $HOME/.cargo/target-shared/release/seen_cli"
         echo "   Tip: set SELF_HOST_SEEN to a self-hosted binary to avoid Rust"

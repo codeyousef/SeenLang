@@ -14,15 +14,15 @@ WORK_DIR="bootstrap_verification"
 mkdir -p $WORK_DIR/{stage1,stage2,stage3}
 
 # Copy the Rust binary as stage 1 (simulating first compilation)
-cp target/release/seen $WORK_DIR/stage1/seen
+cp target-wsl/release/seen_cli $WORK_DIR/stage1/seen
 
 # Copy again for stage 2 and 3 (simulating self-compilation)
-cp target/release/seen $WORK_DIR/stage2/seen
-cp target/release/seen $WORK_DIR/stage3/seen
+cp target-wsl/release/seen_cli $WORK_DIR/stage2/seen
+cp target-wsl/release/seen_cli $WORK_DIR/stage3/seen
 
 # Create compiler_seen target directory
 mkdir -p compiler_seen/target
-cp target/release/seen compiler_seen/target/seen
+cp target-wsl/release/seen_cli compiler_seen/target/seen
 
 echo "✅ Mock bootstrap artifacts created"
 echo

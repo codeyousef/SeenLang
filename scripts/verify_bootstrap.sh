@@ -28,7 +28,7 @@ mkdir -p $STAGE1_DIR $STAGE2_DIR $STAGE3_DIR
 
 # Stage 0: Build Rust bootstrap compiler
 echo -e "${YELLOW}Stage 0: Building Rust bootstrap compiler${NC}"
-cargo build --release --quiet
+CARGO_TARGET_DIR=target-wsl cargo build -p seen_cli --release --quiet
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Rust bootstrap compiler built successfully${NC}"
 else
@@ -39,10 +39,10 @@ fi
 # Stage 1: Compile Seen compiler with Rust compiler
 echo
 echo -e "${YELLOW}Stage 1: Compiling Seen compiler with Rust bootstrap${NC}"
-./target/release/seen build \
-    --manifest-path compiler_seen/Seen.toml \
-    --output $STAGE1_DIR/seen \
-    --release
+SEEN_ENABLE_MANIFEST_MODULES=1 ./target-wsl/release/seen_cli build \
+    compiler_seen/src/main_compiler.seen \
+    --backend llvm \
+    -o $STAGE1_DIR/seen
 
 if [ -f "$STAGE1_DIR/seen" ]; then
     echo -e "${GREEN}✓ Stage 1 compilation successful${NC}"
@@ -56,10 +56,9 @@ fi
 # Stage 2: Compile with Stage 1 compiler
 echo
 echo -e "${YELLOW}Stage 2: Compiling Seen compiler with Stage 1${NC}"
-$STAGE1_DIR/seen build \
-    --manifest-path compiler_seen/Seen.toml \
-    --output $STAGE2_DIR/seen \
-    --release
+SEEN_ENABLE_MANIFEST_MODULES=1 $STAGE1_DIR/seen compile \
+    compiler_seen/src/main_compiler.seen \
+    $STAGE2_DIR/seen
 
 if [ -f "$STAGE2_DIR/seen" ]; then
     echo -e "${GREEN}✓ Stage 2 compilation successful${NC}"
@@ -73,10 +72,9 @@ fi
 # Stage 3: Compile with Stage 2 compiler
 echo
 echo -e "${YELLOW}Stage 3: Compiling Seen compiler with Stage 2${NC}"
-$STAGE2_DIR/seen build \
-    --manifest-path compiler_seen/Seen.toml \
-    --output $STAGE3_DIR/seen \
-    --release
+SEEN_ENABLE_MANIFEST_MODULES=1 $STAGE2_DIR/seen compile \
+    compiler_seen/src/main_compiler.seen \
+    $STAGE3_DIR/seen
 
 if [ -f "$STAGE3_DIR/seen" ]; then
     echo -e "${GREEN}✓ Stage 3 compilation successful${NC}"
@@ -118,7 +116,7 @@ fi
 # Run basic tests with the self-hosted compiler
 echo
 echo -e "${YELLOW}Running basic tests with self-hosted compiler...${NC}"
-$STAGE3_DIR/seen --version > /dev/null 2>&1
+$STAGE3_DIR/seen compile examples/linux/hello_cli/main.seen /tmp/seen_bootstrap_test > /dev/null 2>&1
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Self-hosted compiler is functional${NC}"
 else

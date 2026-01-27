@@ -1200,8 +1200,8 @@ pub extern "C" fn __ArrayFree(arr_ptr: *mut SeenArray, element_size: i64) {
 
     unsafe {
         let arr = Box::from_raw(arr_ptr);
-        if !arr.data.is_null() && arr.cap > 0 && element_size > 0 {
-            let byte_capacity = (element_size * arr.cap) as usize;
+        if !arr.data.is_null() && arr.cap > 0 && arr.element_size > 0 {
+            let byte_capacity = (arr.element_size * arr.cap) as usize;
             let layout = std::alloc::Layout::from_size_align_unchecked(byte_capacity, 8);
             std::alloc::dealloc(arr.data, layout);
         }
@@ -1287,15 +1287,17 @@ pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, e
                 arr_ptr,
                 element_ptr,
                 element_size,
-                "caller element_size <= 0; using header element_size",
+                "FATAL: caller element_size <= 0; aborting to prevent heap corruption",
             );
+            std::process::abort();
         } else if element_size != arr.element_size {
             log_array_push_issue(
                 arr_ptr,
                 element_ptr,
                 element_size,
-                "caller element_size mismatch; using header element_size",
+                "FATAL: caller element_size mismatch; aborting to prevent heap corruption",
             );
+            std::process::abort();
         }
 
         let elem_size = arr.element_size;
@@ -1331,44 +1333,31 @@ pub extern "C" fn __ArrayPush(arr_ptr: *mut SeenArray, element_ptr: *const u8, e
                 Some(v) => v,
                 None => return -1,
             };
-            let new_layout = std::alloc::Layout::from_size_align_unchecked(new_byte_capacity, 8);
-            let new_data = std::alloc::alloc_zeroed(new_layout);
-            
-            if new_data.is_null() {
-                return -1;
-            }
-
-            // Copy old data
-            if !arr.data.is_null() && arr.len > 0 {
-                let old_byte_size = match checked_mul_to_usize(
+            let new_data = if arr.data.is_null() || arr.cap == 0 {
+                std::alloc::alloc_zeroed(std::alloc::Layout::from_size_align_unchecked(new_byte_capacity, 8))
+            } else {
+                let old_byte_capacity = match checked_mul_to_usize(
                     arr_ptr,
                     element_ptr,
                     element_size,
                     elem_size,
-                    arr.len,
-                    "old byte size overflow",
+                    arr.cap,
+                    "old byte capacity overflow",
                 ) {
                     Some(v) => v,
                     None => return -1,
                 };
-                std::ptr::copy_nonoverlapping(arr.data, new_data, old_byte_size);
-                
-                // Free old data
-                if arr.cap > 0 {
-                    let old_byte_capacity = match checked_mul_to_usize(
-                        arr_ptr,
-                        element_ptr,
-                        element_size,
-                        elem_size,
-                        arr.cap,
-                        "old byte capacity overflow",
-                    ) {
-                        Some(v) => v,
-                        None => return -1,
-                    };
-                    let old_layout = std::alloc::Layout::from_size_align_unchecked(old_byte_capacity, 8);
-                    std::alloc::dealloc(arr.data, old_layout);
+                let old_layout = std::alloc::Layout::from_size_align_unchecked(old_byte_capacity, 8);
+                let ptr = std::alloc::realloc(arr.data, old_layout, new_byte_capacity);
+                if !ptr.is_null() {
+                    // Zero the newly allocated portion
+                    std::ptr::write_bytes(ptr.add(old_byte_capacity), 0, new_byte_capacity - old_byte_capacity);
                 }
+                ptr
+            };
+
+            if new_data.is_null() {
+                return -1;
             }
 
             arr.data = new_data;
@@ -1444,10 +1433,10 @@ pub extern "C" fn seen_arr_push_str(arr_ptr: *mut SeenArray, s: SeenString) {
 
         if arr.element_size != expected_elem_size {
             eprintln!(
-                "[RUNTIME] seen_arr_push_str: element_size mismatch (got {}, expected {})",
+                "[RUNTIME] FATAL seen_arr_push_str: element_size mismatch (got {}, expected {}); aborting to prevent heap corruption",
                 arr.element_size, expected_elem_size
             );
-            return;
+            std::process::abort();
         }
 
         // Validate input string
@@ -1512,10 +1501,10 @@ pub extern "C" fn seen_arr_push_i64(arr_ptr: *mut SeenArray, val: i64) {
 
         if arr.element_size != expected_elem_size {
             eprintln!(
-                "[RUNTIME] seen_arr_push_i64: element_size mismatch (got {}, expected {})",
+                "[RUNTIME] FATAL seen_arr_push_i64: element_size mismatch (got {}, expected {}); aborting to prevent heap corruption",
                 arr.element_size, expected_elem_size
             );
-            return;
+            std::process::abort();
         }
 
         // Grow array if needed
@@ -1571,10 +1560,10 @@ pub extern "C" fn seen_arr_push_ptr(arr_ptr: *mut SeenArray, p: *mut u8) {
 
         if arr.element_size != expected_elem_size {
             eprintln!(
-                "[RUNTIME] seen_arr_push_ptr: element_size mismatch (got {}, expected {})",
+                "[RUNTIME] FATAL seen_arr_push_ptr: element_size mismatch (got {}, expected {}); aborting to prevent heap corruption",
                 arr.element_size, expected_elem_size
             );
-            return;
+            std::process::abort();
         }
 
         // Grow array if needed
