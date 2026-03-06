@@ -1,0 +1,19 @@
+class Test {
+    value: Int
+    
+    fun new(v: Int) -> Test {
+        Test { value: v }
+    }
+}
+
+fun test_param(t: Test) -> Int {
+    t.value
+}
+
+fun main() -> Int {
+    let t = Test.new(100)
+    let result = test_param(t)
+    __PrintInt(result)
+    __Print("\n")
+    return 0
+}

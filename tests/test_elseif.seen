@@ -1,0 +1,195 @@
+// Test else-if chain parsing and codegen
+// Verifies the recursive else-if parser fix at real_parser.seen:2761-2836
+
+fun classify(x: Int) r: String {
+    if x < 0 {
+        return "negative"
+    } else if x == 0 {
+        return "zero"
+    } else {
+        return "positive"
+    }
+}
+
+fun grade(score: Int) r: String {
+    if score >= 90 {
+        return "A"
+    } else if score >= 80 {
+        return "B"
+    } else if score >= 70 {
+        return "C"
+    } else if score >= 60 {
+        return "D"
+    } else {
+        return "F"
+    }
+}
+
+fun nested_in_elseif(x: Int, y: Int) r: String {
+    if x > 0 {
+        if y > 0 {
+            return "both positive"
+        } else {
+            return "x positive, y not"
+        }
+    } else if x == 0 {
+        if y == 0 {
+            return "both zero"
+        } else {
+            return "x zero, y not"
+        }
+    } else {
+        return "x negative"
+    }
+}
+
+fun compound_cond(x: Int, y: Int) r: String {
+    if x > 0 and y > 0 {
+        return "both positive"
+    } else if x > 0 or y > 0 {
+        return "one positive"
+    } else {
+        return "none positive"
+    }
+}
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Simple 3-branch if/else if/else
+    if classify(-5) == "negative" {
+        println("PASS: classify(-5) = negative")
+        passed = passed + 1
+    } else {
+        println("FAIL: classify(-5) expected negative, got " + classify(-5))
+        failed = failed + 1
+    }
+
+    if classify(0) == "zero" {
+        println("PASS: classify(0) = zero")
+        passed = passed + 1
+    } else {
+        println("FAIL: classify(0) expected zero, got " + classify(0))
+        failed = failed + 1
+    }
+
+    if classify(42) == "positive" {
+        println("PASS: classify(42) = positive")
+        passed = passed + 1
+    } else {
+        println("FAIL: classify(42) expected positive, got " + classify(42))
+        failed = failed + 1
+    }
+
+    // Test 2: Deep chain (5 levels of else if)
+    if grade(95) == "A" {
+        println("PASS: grade(95) = A")
+        passed = passed + 1
+    } else {
+        println("FAIL: grade(95) expected A, got " + grade(95))
+        failed = failed + 1
+    }
+
+    if grade(85) == "B" {
+        println("PASS: grade(85) = B")
+        passed = passed + 1
+    } else {
+        println("FAIL: grade(85) expected B, got " + grade(85))
+        failed = failed + 1
+    }
+
+    if grade(75) == "C" {
+        println("PASS: grade(75) = C")
+        passed = passed + 1
+    } else {
+        println("FAIL: grade(75) expected C, got " + grade(75))
+        failed = failed + 1
+    }
+
+    if grade(65) == "D" {
+        println("PASS: grade(65) = D")
+        passed = passed + 1
+    } else {
+        println("FAIL: grade(65) expected D, got " + grade(65))
+        failed = failed + 1
+    }
+
+    if grade(50) == "F" {
+        println("PASS: grade(50) = F")
+        passed = passed + 1
+    } else {
+        println("FAIL: grade(50) expected F, got " + grade(50))
+        failed = failed + 1
+    }
+
+    // Test 3: Nested if inside else-if body
+    if nested_in_elseif(1, 1) == "both positive" {
+        println("PASS: nested(1,1) = both positive")
+        passed = passed + 1
+    } else {
+        println("FAIL: nested(1,1) expected 'both positive', got " + nested_in_elseif(1, 1))
+        failed = failed + 1
+    }
+
+    if nested_in_elseif(1, -1) == "x positive, y not" {
+        println("PASS: nested(1,-1) = x positive, y not")
+        passed = passed + 1
+    } else {
+        println("FAIL: nested(1,-1) expected 'x positive, y not', got " + nested_in_elseif(1, -1))
+        failed = failed + 1
+    }
+
+    if nested_in_elseif(0, 0) == "both zero" {
+        println("PASS: nested(0,0) = both zero")
+        passed = passed + 1
+    } else {
+        println("FAIL: nested(0,0) expected 'both zero', got " + nested_in_elseif(0, 0))
+        failed = failed + 1
+    }
+
+    if nested_in_elseif(0, 5) == "x zero, y not" {
+        println("PASS: nested(0,5) = x zero, y not")
+        passed = passed + 1
+    } else {
+        println("FAIL: nested(0,5) expected 'x zero, y not', got " + nested_in_elseif(0, 5))
+        failed = failed + 1
+    }
+
+    if nested_in_elseif(-3, 0) == "x negative" {
+        println("PASS: nested(-3,0) = x negative")
+        passed = passed + 1
+    } else {
+        println("FAIL: nested(-3,0) expected 'x negative', got " + nested_in_elseif(-3, 0))
+        failed = failed + 1
+    }
+
+    // Test 4: else-if with compound conditions (and/or)
+    if compound_cond(1, 1) == "both positive" {
+        println("PASS: compound(1,1) = both positive")
+        passed = passed + 1
+    } else {
+        println("FAIL: compound(1,1) expected 'both positive', got " + compound_cond(1, 1))
+        failed = failed + 1
+    }
+
+    if compound_cond(1, -1) == "one positive" {
+        println("PASS: compound(1,-1) = one positive")
+        passed = passed + 1
+    } else {
+        println("FAIL: compound(1,-1) expected 'one positive', got " + compound_cond(1, -1))
+        failed = failed + 1
+    }
+
+    if compound_cond(-1, -1) == "none positive" {
+        println("PASS: compound(-1,-1) = none positive")
+        passed = passed + 1
+    } else {
+        println("FAIL: compound(-1,-1) expected 'none positive', got " + compound_cond(-1, -1))
+        failed = failed + 1
+    }
+
+    println("")
+    println("Results: " + passed.toString() + " passed, " + failed.toString() + " failed")
+    return failed
+}

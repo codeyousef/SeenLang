@@ -1,0 +1,15 @@
+fun main() -> Int {
+    let hello = "Hello"
+    let world = " World"
+    let result = hello + world
+    __Print(result)
+    __Print("\n")
+    
+    let num = 42
+    let str = __IntToString(num)
+    let message = "The answer is: " + str
+    __Print(message)
+    __Print("\n")
+    
+    return 0
+}

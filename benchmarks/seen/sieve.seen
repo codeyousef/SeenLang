@@ -1,0 +1,106 @@
+// Sieve of Eratosthenes Benchmark
+// Segmented sieve with wheel factorization
+
+import seen_std.collections.vec { Vec }
+
+fun create_bit_array(size: Int) -> Vec<Int> {
+    let words = (size + 31) / 32;
+    let bits = Vec<Int>.withCapacity(words);
+    var i = 0;
+    while i < words {
+        bits.push(0xFFFFFFFF);
+        i = i + 1;
+    }
+    return bits;
+}
+
+fun is_set(bits: Vec<Int>, idx: Int) -> Bool {
+    let word = idx / 32;
+    let bit = idx % 32;
+    (bits.get(word) & (1 << bit)) != 0
+}
+
+fun clear_bit(bits: Vec<Int>, idx: Int) {
+    let word = idx / 32;
+    let bit = idx % 32;
+    let val = bits.get(word);
+    bits.set(word, val & ~(1 << bit));
+}
+
+fun sieve_of_eratosthenes(limit: Int) -> Vec<Int> {
+    let is_prime = create_bit_array(limit + 1);
+    
+    // 0 and 1 are not prime
+    clear_bit(is_prime, 0);
+    clear_bit(is_prime, 1);
+    
+    let sqrt_limit = (__Sqrt(limit as Float) as Int) + 1;
+    
+    // Start from 3, step by 2 (skip evens)
+    var i = 3;
+    while i < sqrt_limit {
+        if is_set(is_prime, i) {
+            var j = i * i;
+            let step = i * 2;
+            while j <= limit {
+                clear_bit(is_prime, j);
+                j = j + step;
+            }
+        }
+        i = i + 2;
+    }
+    
+    let primes = Vec<Int>.withCapacity(limit / 10);
+    primes.push(2); // 2 is the only even prime
+    
+    i = 3;
+    while i <= limit {
+        if is_set(is_prime, i) {
+            primes.push(i);
+        }
+        i = i + 2;
+    }
+    
+    return primes;
+}
+
+fun compute_checksum(primes: Vec<Int>) -> Int {
+    var sum = 0;
+    var i = 0;
+    let len = primes.len();
+    while i < len {
+        sum = sum + primes.get(i);
+        i = i + 1;
+    }
+    return sum;
+}
+
+fun main() {
+    let limit = 10000000;
+    
+    println("Sieve of Eratosthenes Benchmark");
+    println("Finding primes up to: {limit}");
+    
+    let warmup_runs = 3;
+    println("Warming up ({warmup_runs} runs)...");
+    var w = 0;
+    while w < warmup_runs {
+        let _ = sieve_of_eratosthenes(limit);
+        w = w + 1;
+    }
+    
+    println("Running measured iteration...");
+    let start = __GetTime();
+    let primes = sieve_of_eratosthenes(limit);
+    let end = __GetTime();
+    
+    let time_ms = (end - start) * 1000.0;
+    let prime_count = primes.len();
+    let checksum = compute_checksum(primes);
+    
+    println("Prime count: {prime_count}");
+    println("Checksum: {checksum}");
+    println("Time: {time_ms} ms");
+    let pps = (prime_count as Float) / (time_ms / 1000.0);
+    println("Primes per second: {pps}");
+}

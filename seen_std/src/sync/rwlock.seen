@@ -1,0 +1,38 @@
+// RwLock — Reader-writer lock backed by pthread_rwlock_t.
+// Multiple readers OR one writer at a time.
+
+extern fun seen_rwlock_new() r: Int
+extern fun seen_rwlock_read_lock(handle: Int) r: Void
+extern fun seen_rwlock_read_unlock(handle: Int) r: Void
+extern fun seen_rwlock_write_lock(handle: Int) r: Void
+extern fun seen_rwlock_write_unlock(handle: Int) r: Void
+extern fun seen_rwlock_destroy(handle: Int) r: Void
+
+class RwLock {
+    var handle: Int
+
+    fun new() r: RwLock {
+        let h = seen_rwlock_new()
+        return RwLock { handle: h }
+    }
+
+    fun readLock() r: Void {
+        seen_rwlock_read_lock(this.handle)
+    }
+
+    fun readUnlock() r: Void {
+        seen_rwlock_read_unlock(this.handle)
+    }
+
+    fun writeLock() r: Void {
+        seen_rwlock_write_lock(this.handle)
+    }
+
+    fun writeUnlock() r: Void {
+        seen_rwlock_write_unlock(this.handle)
+    }
+
+    fun destroy() r: Void {
+        seen_rwlock_destroy(this.handle)
+    }
+}

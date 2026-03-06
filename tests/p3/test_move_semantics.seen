@@ -1,0 +1,41 @@
+// : Move-only enforcement and @trivially_copyable
+// This test verifies that @move types null the source after assignment
+// and @trivially_copyable types are annotated in IR
+
+@move
+class GpuHandle {
+    var id: Int
+
+    static fun create(id: Int) r: GpuHandle {
+        var h = GpuHandle()
+        h.id = id
+        return h
+    }
+}
+
+@trivially_copyable
+class Vec2 {
+    var x: Int
+    var y: Int
+
+    static fun create(x: Int, y: Int) r: Vec2 {
+        var v = Vec2()
+        v.x = x
+        v.y = y
+        return v
+    }
+}
+
+fun main() r: Int {
+    // Test @trivially_copyable (bitwise copy)
+    let a = Vec2.create(10, 20)
+    let b = a  // Should have IR comment about trivially_copyable
+
+    // Test basic move (source gets nulled)
+    let handle1 = GpuHandle.create(42)
+    // After this assignment, handle1 should be nulled
+    let handle2 = handle1
+
+    println("PASS: Move semantics and trivially_copyable tests")
+    return 0
+}

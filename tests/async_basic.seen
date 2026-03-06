@@ -1,0 +1,29 @@
+// Basic async/await test — uses codegen-level coroutines directly
+// No runtime library dependency
+
+@async
+fun add(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+@async
+fun multiply(a: Int, b: Int) -> Int {
+    return a * b
+}
+
+fun main() {
+    // Test 1: simple await
+    let sum = await add(3, 4)
+    println("3 + 4 = " + sum.toString())
+
+    // Test 2: await in sequence
+    let product = await multiply(5, 6)
+    println("5 * 6 = " + product.toString())
+
+    // Test 3: nested async — await result used in another await
+    let a = await add(10, 20)
+    let b = await multiply(a, 2)
+    println("(10 + 20) * 2 = " + b.toString())
+
+    println("All async tests passed!")
+}

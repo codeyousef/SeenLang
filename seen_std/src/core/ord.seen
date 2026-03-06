@@ -1,0 +1,64 @@
+// Ordering utilities for comparable types
+// Used by BTreeMap, BTreeSet, and other sorted collections
+
+// Ordering represents the result of a comparison
+enum Ordering {
+    Less,
+    Equal,
+    Greater
+}
+
+// Compare two integers
+fun compareInt(a: Int, b: Int) r: Ordering {
+    if a < b {
+        return Ordering.Less
+    }
+    if a > b {
+        return Ordering.Greater
+    }
+    return Ordering.Equal
+}
+
+// Compare two strings lexicographically
+fun compareString(a: String, b: String) r: Ordering {
+    let lenA = a.length()
+    let lenB = b.length()
+    let minLen = if lenA < lenB { lenA } else { lenB }
+
+    var i = 0
+    while i < minLen {
+        let charA = a.charAt(i)
+        let charB = b.charAt(i)
+        if charA < charB {
+            return Ordering.Less
+        }
+        if charA > charB {
+            return Ordering.Greater
+        }
+        i = i + 1
+    }
+
+    // If all compared characters are equal, shorter string comes first
+    if lenA < lenB {
+        return Ordering.Less
+    }
+    if lenA > lenB {
+        return Ordering.Greater
+    }
+    return Ordering.Equal
+}
+
+// Check if ordering is Less
+fun isLess(ord: Ordering) r: Bool {
+    return ord == Ordering.Less
+}
+
+// Check if ordering is Equal
+fun isEqual(ord: Ordering) r: Bool {
+    return ord == Ordering.Equal
+}
+
+// Check if ordering is Greater
+fun isGreater(ord: Ordering) r: Bool {
+    return ord == Ordering.Greater
+}

@@ -1,0 +1,90 @@
+// Test Qm.n fixed-point type syntax
+// Tests the fixed{m}.{n} type annotation where m+n must be 32, 64, or 128
+
+import uww.fixed.{Fixed32, Fixed64, Fixed128}
+
+// Test 32-bit fixed-point types (m + n = 32)
+fun test32bit() r: Void {
+    // fixed8.24 = 8 bits integer, 24 bits fractional (default Fixed32 format)
+    var x: fixed8.24 = Fixed32.zero()
+    var y: fixed16.16 = Fixed32.fromInt(42)
+    var z: fixed24.8 = Fixed32.one()
+
+    println("32-bit fixed-point types work")
+    println("x (8.24) = " + x.toString())
+    println("y (16.16) = " + y.toString())
+    println("z (24.8) = " + z.toString())
+}
+
+// Test 64-bit fixed-point types (m + n = 64)
+fun test64bit() r: Void {
+    // fixed32.32 = 32 bits integer, 32 bits fractional (default Fixed64 format)
+    var a: fixed32.32 = Fixed64.zero()
+    var b: fixed8.56 = Fixed64.fromInt(100)
+    var c: fixed16.48 = Fixed64.one()
+    var d: fixed48.16 = Fixed64.fromFraction(355, 113)  // Approximation of pi
+
+    println("64-bit fixed-point types work")
+    println("a (32.32) = " + a.toString())
+    println("b (8.56) = " + b.toString())
+    println("c (16.48) = " + c.toString())
+    println("d (48.16) = " + d.toString())
+}
+
+// Test 128-bit fixed-point types (m + n = 128)
+fun test128bit() r: Void {
+    // fixed64.64 = 64 bits integer, 64 bits fractional (default Fixed128 format)
+    var p: fixed64.64 = Fixed128.zero()
+    var q: fixed32.96 = Fixed128.fromInt(1000)
+    var r2: fixed96.32 = Fixed128.one()
+
+    println("128-bit fixed-point types work")
+    println("p (64.64) = " + p.toString())
+    println("q (32.96) = " + q.toString())
+    println("r2 (96.32) = " + r2.toString())
+}
+
+// Test fixed-point arithmetic
+fun testArithmetic() r: Void {
+    // Use fixed32.32 (Fixed64) for arithmetic tests
+    var a: fixed32.32 = Fixed64.fromInt(10)
+    var b: fixed32.32 = Fixed64.fromInt(3)
+
+    // Addition
+    let sum: fixed32.32 = a.add(b)
+    println("10 + 3 = " + sum.toString())
+
+    // Subtraction
+    let diff: fixed32.32 = a.sub(b)
+    println("10 - 3 = " + diff.toString())
+
+    // Multiplication
+    let prod: fixed32.32 = a.mul(b)
+    println("10 * 3 = " + prod.toString())
+
+    // Division
+    let quot: fixed32.32 = a.div(b)
+    println("10 / 3 = " + quot.toString())
+
+    println("Fixed-point arithmetic works")
+}
+
+fun main() r: Int {
+    println("=== Qm.n Fixed-Point Type Syntax Tests ===")
+    println("")
+
+    test32bit()
+    println("")
+
+    test64bit()
+    println("")
+
+    test128bit()
+    println("")
+
+    testArithmetic()
+    println("")
+
+    println("=== All Qm.n tests passed! ===")
+    return 0
+}

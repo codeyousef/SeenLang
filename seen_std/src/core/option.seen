@@ -1,0 +1,114 @@
+// seen_std.core.option
+// Array-backed Option<T> for proper polymorphic storage of all types including String.
+
+class Option<T> {
+    var hasValue: Bool
+    var storage: Array<T>
+
+    static fun New() r: Option<T> {
+        let opt = Option{
+            hasValue: false,
+            storage: Array<T>()
+        }
+        return opt
+    }
+
+    static fun WithValue(v: T) r: Option<T> {
+        let arr = Array<T>()
+        arr.push(v)
+        return Option{
+            hasValue: true,
+            storage: arr
+        }
+    }
+
+    fun Store(value: T) r: Void {
+        if this.hasValue {
+            // Replace existing value
+            this.storage[0] = value
+        } else {
+            // First value - push into array
+            this.storage.push(value)
+            this.hasValue = true
+        }
+    }
+
+    fun IsSome() r: Bool {
+        return this.hasValue
+    }
+
+    fun IsNone() r: Bool {
+        return not this.hasValue
+    }
+
+    fun Unwrap() r: T {
+        if not this.hasValue {
+            abort("called unwrap() on None option")
+        }
+        return this.storage[0]
+    }
+
+    fun Expect(message: String) r: T {
+        if this.hasValue {
+            return this.storage[0]
+        }
+        abort(message)
+        return this.Unwrap()
+    }
+
+    fun UnwrapOr(defaultValue: T) r: T {
+        if this.hasValue {
+            return this.storage[0]
+        }
+        return defaultValue
+    }
+
+    fun Replace(value: T) r: Option<T> {
+        var previous: Option<T> = None()
+        if this.hasValue {
+            previous = Some(this.storage[0])
+        }
+        this.Store(value)
+        return previous
+    }
+
+    fun Clear() r: Void {
+        this.hasValue = false
+        this.storage = Array<T>()
+    }
+
+    // Lowercase aliases for compatibility
+    fun isSome() r: Bool {
+        return this.IsSome()
+    }
+
+    fun isNone() r: Bool {
+        return this.IsNone()
+    }
+
+    fun unwrap() r: T {
+        return this.Unwrap()
+    }
+
+    fun expect(message: String) r: T {
+        return this.Expect(message)
+    }
+
+    fun unwrapOr(defaultValue: T) r: T {
+        return this.UnwrapOr(defaultValue)
+    }
+}
+
+fun Some<T>(value: T) r: Option<T> {
+    let option = Option.New()
+    option.Store(value)
+    return option
+}
+
+fun None<T>() r: Option<T> {
+    return Option.New()
+}
+
+fun UnwrapOr<T>(option: Option<T>, defaultValue: T) r: T {
+    return option.UnwrapOr(defaultValue)
+}

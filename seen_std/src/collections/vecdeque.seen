@@ -1,0 +1,195 @@
+// VecDeque - Double-ended queue with O(1) push/pop at both ends
+// Deterministic FIFO/LIFO operations for async task scheduling
+
+// VecDeque implementation using a circular buffer
+class VecDeque<T> {
+    var data: Array<T>
+    var head: Int      // Index of first element
+    var tail: Int      // Index after last element
+    var capacity: Int  // Total capacity
+    var count: Int     // Number of elements
+
+    static fun new() r: VecDeque<T> {
+        let initialCapacity = 16
+        return VecDeque<T>{
+            data: Array<T>(),
+            head: 0,
+            tail: 0,
+            capacity: initialCapacity,
+            count: 0
+        }
+    }
+
+    static fun withCapacity(cap: Int) r: VecDeque<T> {
+        return VecDeque<T>{
+            data: Array<T>(),
+            head: 0,
+            tail: 0,
+            capacity: cap,
+            count: 0
+        }
+    }
+
+    // Get number of elements
+    fun len() r: Int {
+        return count
+    }
+
+    // Check if empty
+    fun isEmpty() r: Bool {
+        return count == 0
+    }
+
+    // Check if full
+    fun isFull() r: Bool {
+        return count >= capacity
+    }
+
+    // Push to back (enqueue)
+    fun pushBack(value: T) r: Void {
+        data.push(value)
+        count = count + 1
+        tail = count
+    }
+
+    // Push to front
+    fun pushFront(value: T) r: Void {
+        // For simplicity, we implement this by shifting
+        // A full circular buffer would be more efficient
+        var newData = Array<T>()
+        newData.push(value)
+        var i = 0
+        while i < data.length() {
+            newData.push(data[i])
+            i = i + 1
+        }
+        data = newData
+        count = count + 1
+        tail = count
+    }
+
+    // Pop from front (dequeue) - FIFO
+    fun popFront() r: Option<T> {
+        if count == 0 {
+            return None()
+        }
+        let value = data[0]
+        // Shift all elements left
+        var newData = Array<T>()
+        var i = 1
+        while i < data.length() {
+            newData.push(data[i])
+            i = i + 1
+        }
+        data = newData
+        count = count - 1
+        tail = count
+        return Some(value)
+    }
+
+    // Pop from back - LIFO
+    fun popBack() r: Option<T> {
+        if count == 0 {
+            return None()
+        }
+        let lastIdx = count - 1
+        let value = data[lastIdx]
+        // Remove last element
+        var newData = Array<T>()
+        var i = 0
+        while i < lastIdx {
+            newData.push(data[i])
+            i = i + 1
+        }
+        data = newData
+        count = count - 1
+        tail = count
+        return Some(value)
+    }
+
+    // Peek at front without removing
+    fun front() r: Option<T> {
+        if count == 0 {
+            return None()
+        }
+        return Some(data[0])
+    }
+
+    // Peek at back without removing
+    fun back() r: Option<T> {
+        if count == 0 {
+            return None()
+        }
+        return Some(data[count - 1])
+    }
+
+    // Get element at index
+    fun get(index: Int) r: Option<T> {
+        if index < 0 or index >= count {
+            return None()
+        }
+        return Some(data[index])
+    }
+
+    // Clear all elements
+    fun clear() r: Void {
+        data = Array<T>()
+        head = 0
+        tail = 0
+        count = 0
+    }
+}
+
+// Specialized VecDeque for Int (avoids generic complexity)
+class IntVecDeque {
+    var data: Array<Int>
+    var count: Int
+
+    static fun new() r: IntVecDeque {
+        return IntVecDeque{
+            data: Array<Int>(),
+            count: 0
+        }
+    }
+
+    fun len() r: Int {
+        return count
+    }
+
+    fun isEmpty() r: Bool {
+        return count == 0
+    }
+
+    fun pushBack(value: Int) r: Void {
+        data.push(value)
+        count = count + 1
+    }
+
+    fun popFront() r: Option<Int> {
+        if count == 0 {
+            return None()
+        }
+        let value = data[0]
+        var newData = Array<Int>()
+        var i = 1
+        while i < data.length() {
+            newData.push(data[i])
+            i = i + 1
+        }
+        data = newData
+        count = count - 1
+        return Some(value)
+    }
+
+    fun front() r: Option<Int> {
+        if count == 0 {
+            return None()
+        }
+        return Some(data[0])
+    }
+
+    fun clear() r: Void {
+        data = Array<Int>()
+        count = 0
+    }
+}

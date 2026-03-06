@@ -1,0 +1,102 @@
+[project]
+name = "seen_std"
+version = "0.1.0"
+language = "en"
+visibility = "explicit"
+description = "Core Seen standard library modules used by the self-hosted compiler"
+edition = "2025"
+modules = [
+    # Core modules
+    "src/core/intrinsics.seen",
+    "src/core/option.seen",
+    "src/core/result.seen",
+    "src/core/prelude.seen",
+    "src/core/unit.seen",
+    "src/core/ord.seen",
+
+    # Collections
+    "src/collections/list_utils.seen",
+    "src/collections/vec.seen",
+    "src/collections/btree_map.seen",
+    "src/collections/btree_set.seen",
+    "src/collections/std_string.seen",
+    "src/collections/string_hash_map.seen",
+    "src/collections/string_buffer.seen",
+
+    # I/O and filesystem
+    "src/io/file.seen",
+    "src/fs/path.seen",
+
+    # Environment and process
+    "src/env/env.seen",
+    "src/process/process.seen",
+
+    # Time and async
+    "src/time/time.seen",
+    "src/async/task.seen",
+
+    # FFI and strings
+    "src/ffi/cinterop.seen",
+    "src/str/string.seen",
+
+    # Math
+    "src/math/math.seen",
+
+    # Framework modules (deterministic UI/game primitives)
+    "src/framework/component.seen",
+    "src/framework/executor.seen",
+    "src/framework/store.seen",
+    "src/framework/middleware.seen",
+    "src/framework/hotreload.seen",
+    "src/framework/routing.seen",
+    "src/framework/vdom.seen",
+
+    # Platform modules - commented out to avoid linking issues
+    # These modules declare extern "C" functions that require platform libraries
+    # (SDL3, Vulkan, ALSA, PipeWire, libinput, evdev, Steam)
+    # Uncomment when building with platform library support
+
+    # Platform - Linux SDL3 and window management
+    # "src/platform/linux/sdl3.seen",
+    # "src/platform/linux/window.seen",
+
+    # Platform - Linux Vulkan graphics
+    # "src/platform/linux/vulkan.seen",
+
+    # Platform - Linux audio
+    # "src/platform/linux/pipewire.seen",
+    # "src/platform/linux/alsa.seen",
+
+    # Platform - Linux input
+    # "src/platform/linux/evdev.seen",
+    # "src/platform/linux/libinput.seen",
+
+    # Platform - Linux Steam integration
+    # "src/platform/linux/steam.seen",
+    # "src/platform/linux/steam_wrapper.seen",
+
+    # UWW (Universal World Wide) deterministic runtime
+    # These modules require a UWW host environment, comment out for native builds
+    # "src/uww/mod.seen",
+    # "src/uww/fixed.seen",
+
+    # Graphics abstraction (WIP - has parser issues with pointer generics)
+    # "src/graphics/renderer.seen",
+
+    # Audio abstraction (WIP - depends on platform modules above)
+    # "src/audio/audio.seen",
+
+    # Input abstraction (WIP - depends on renderer)
+    # "src/input/gamepad.seen"
+]
+
+[build]
+targets = ["native"]
+optimize = "speed"
+profile = "release"
+
+[dependencies]
+
+[metadata]
+visibility = "explicit"
+license = "Apache-2.0"

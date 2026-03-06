@@ -1,0 +1,9 @@
+fun apply(f: Int, x: Int) r: Int {
+    return f(x)
+}
+
+fun main() r: Int {
+    let double = |x| x * 2
+    let result = double(21)
+    return result
+}

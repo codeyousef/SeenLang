@@ -1,0 +1,23 @@
+class Point {
+    x: Int
+    y: Int
+    
+    fun new(x: Int, y: Int) -> Point {
+        Point { x: x, y: y }
+    }
+}
+
+fun test_fn(a: Point, b: Point, c: Point) -> Void {
+    __Print("In test_fn\n")
+}
+
+fun main() -> Int {
+    __Print("Creating points\n")
+    let a = Point.new(1, 2)
+    let b = Point.new(3, 4)
+    let c = Point.new(5, 6)
+    __Print("Calling test_fn\n")
+    test_fn(a, b, c)
+    __Print("Done\n")
+    return 0
+}

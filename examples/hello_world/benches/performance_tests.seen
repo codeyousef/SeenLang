@@ -1,0 +1,125 @@
+// Performance benchmarks for basic Seen operations
+// These benchmarks help validate performance targets
+
+func bench_arithmetic_operations() {
+    // Benchmark basic arithmetic
+    let a = 1000000;
+    let b = 999999;
+    
+    for i in 0..10000 {
+        let _ = a + b;
+        let _ = a - b;
+        let _ = a * b;
+        let _ = a / b;
+        let _ = a % b;
+    }
+}
+
+func bench_string_concatenation() {
+    let base = "Hello";
+    let suffix = " World";
+    
+    for i in 0..1000 {
+        let _ = base + suffix + "!";
+    }
+}
+
+func bench_array_operations() {
+    let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    
+    for i in 0..1000 {
+        let sum = 0;
+        for num in numbers {
+            sum = sum + num;
+        }
+        let _ = sum;
+    }
+}
+
+func bench_function_calls() {
+    for i in 0..10000 {
+        let _ = fibonacci(10);
+    }
+}
+
+func fibonacci(n: i32) -> i32 {
+    if n <= 1 {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+func bench_hash_map_operations() {
+    let map = HashMap::new();
+    
+    // Insert benchmark
+    for i in 0..1000 {
+        map.insert(i.to_string(), i);
+    }
+    
+    // Lookup benchmark
+    for i in 0..1000 {
+        let _ = map.get(&i.to_string());
+    }
+}
+
+func bench_vector_operations() {
+    let vec = Vec::new();
+    
+    // Push benchmark
+    for i in 0..10000 {
+        vec.push(i);
+    }
+    
+    // Access benchmark
+    for i in 0..10000 {
+        let _ = vec[i];
+    }
+}
+
+func bench_memory_allocation() {
+    // Test allocation and deallocation patterns
+    for i in 0..1000 {
+        let large_array = [0; 1000];
+        let _ = large_array;  // Will be deallocated
+    }
+}
+
+func bench_control_flow() {
+    let mut counter = 0;
+    
+    for i in 0..10000 {
+        if i % 2 == 0 {
+            counter = counter + 1;
+        } else if i % 3 == 0 {
+            counter = counter + 2;
+        } else {
+            counter = counter + 3;
+        }
+    }
+    
+    let _ = counter;
+}
+
+func bench_pattern_matching() {
+    for i in 0..10000 {
+        let category = match i % 10 {
+            0 => "zero",
+            1 | 2 | 3 => "low",
+            4 | 5 | 6 => "medium",
+            7 | 8 | 9 => "high",
+            _ => "unknown"
+        };
+        let _ = category;
+    }
+}
+
+func bench_closure_performance() {
+    let multiplier = |x: i32| x * 2;
+    let adder = |x: i32, y: i32| x + y;
+    
+    for i in 0..10000 {
+        let _ = multiplier(i);
+        let _ = adder(i, i + 1);
+    }
+}

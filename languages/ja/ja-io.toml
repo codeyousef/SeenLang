@@ -1,0 +1,12 @@
+name = "Japanese"
+description = "Japanese IO Standard Library"
+
+[std_lib]
+"テキスト読込" = "seen_std.io.file.readText"
+"テキスト書込" = "seen_std.io.file.writeText"
+"ファイル削除" = "seen_std.io.file.deleteFile"
+"存在" = "seen_std.io.file.exists"
+"テキスト追記" = "seen_std.io.file.appendText"
+"行読込" = "seen_std.io.file.readLine"
+"ディレクトリ作成" = "seen_std.io.file.createDirectory"
+"出力フラッシュ" = "seen_std.io.file.flushStdout"

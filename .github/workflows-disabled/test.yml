@@ -1,0 +1,139 @@
+name: Test
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+env:
+  SEEN_BUILD_PARALLEL: true
+  SEEN_OPTIMIZATION_LEVEL: debug
+
+jobs:
+  # Quick tests for faster feedback
+  quick-test:
+    name: Quick Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Seen compiler
+        run: |
+          # For cross-platform compatibility, check if binary exists and is executable
+          if [ -f "./compiler_seen/target/native/release/seen_compiler" ]; then
+            chmod +x ./compiler_seen/target/native/release/seen_compiler
+            echo "Using existing Seen compiler binary"
+          else
+            echo "Error: Seen compiler binary not found at ./compiler_seen/target/native/release/seen_compiler"
+            ls -la ./compiler_seen/target/native/release/ || echo "Release directory not found"
+            exit 1
+          fi
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ./target
+            ./compiler_seen/target
+          key: ${{ runner.os }}-seen-quick-${{ hashFiles('**/Seen.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-seen-quick-
+      - name: Run quick tests
+        run: ./compiler_seen/target/native/release/seen_compiler test --unit --quick
+
+  # Comprehensive test suite
+  full-test:
+    name: Full Test Suite
+    strategy:
+      matrix:
+        os: [ubuntu-latest] # Only Linux until cross-platform binaries are available
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ./target
+            ./compiler_seen/target
+          key: ${{ runner.os }}-seen-full-${{ hashFiles('**/Seen.toml') }}
+      - name: Run all tests
+        run: ./compiler_seen/target/native/release/seen_compiler test --all --verbose
+      - name: Run integration tests
+        run: ./compiler_seen/target/native/release/seen_compiler test --integration --verbose
+        continue-on-error: true
+
+  # Performance tests
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - name: Run performance benchmarks
+        run: ./compiler_seen/target/native/release/seen_compiler benchmark --all
+        continue-on-error: true
+
+  # Memory safety tests  
+  memory-safety:
+    name: Memory Safety Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - name: Run memory safety tests
+        run: ./compiler_seen/target/native/release/seen_compiler test --memory-safety --all
+        continue-on-error: true
+
+  # Cross-compilation tests
+  cross-compile:
+    name: Cross Compilation
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, riscv64gc-unknown-linux-gnu]
+    steps:
+      - uses: actions/checkout@v4  
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - name: Test cross compilation for ${{ matrix.target }}
+        run: ./compiler_seen/target/native/release/seen_compiler build --target ${{ matrix.target }} --check-only
+        continue-on-error: true
+
+  # Example programs test
+  examples:
+    name: Example Programs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Seen compiler
+        run: |
+          chmod +x ./compiler_seen/target/native/release/seen_compiler
+      - name: Test example programs
+        run: |
+          for example in test/examples/basic/*.seen test/examples/advanced/*.seen; do
+            echo "Testing $example"
+            ./compiler_seen/target/native/release/seen_compiler run "$example" || echo "Example $example failed"
+          done
+
+  # Notify on completion
+  notify:
+    name: Test Results
+    needs: [quick-test, full-test, performance, memory-safety, cross-compile, examples]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Test completion notification
+        run: |
+          echo "Test suite completed"
+          echo "Quick tests: ${{ needs.quick-test.result }}"
+          echo "Full tests: ${{ needs.full-test.result }}"
+          echo "Performance: ${{ needs.performance.result }}"
+          echo "Memory safety: ${{ needs.memory-safety.result }}"
+          echo "Cross compile: ${{ needs.cross-compile.result }}"
+          echo "Examples: ${{ needs.examples.result }}"

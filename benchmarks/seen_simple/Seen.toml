@@ -1,0 +1,10 @@
+[project]
+name = "simple_benchmarks"
+version = "0.1.0"
+description = "Simple benchmark for Seen"
+
+[build]
+target = "native"
+optimization_level = 3
+
+[dependencies]

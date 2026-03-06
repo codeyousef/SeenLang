@@ -1,0 +1,15 @@
+// Minimal test for Qm.n fixed-point type syntax
+
+fun main() r: Int {
+    // Test 32-bit fixed-point type annotation
+    var x: fixed8.24 = 0
+
+    // Test 64-bit fixed-point type annotation
+    var y: fixed32.32 = 0
+
+    // Test 128-bit fixed-point type annotation
+    var z: fixed64.64 = 0
+
+    println("Qm.n type syntax works!")
+    return 0
+}

@@ -1,0 +1,33 @@
+// MappedRegion — Memory-mapped file or anonymous mapping via mmap.
+// Flags: 0 = read-only file, 1 = read-write file, 2 = anonymous rw
+
+extern fun seen_mapped_new(path_len: Int, path_data: Int, size: Int, flags: Int) r: Int
+extern fun seen_mapped_data(handle: Int) r: Int
+extern fun seen_mapped_sync(handle: Int) r: Void
+extern fun seen_mapped_free(handle: Int) r: Void
+extern fun seen_mapped_length(handle: Int) r: Int
+
+class MappedRegion {
+    var handle: Int
+
+    fun anonymous(size: Int) r: MappedRegion {
+        let h = seen_mapped_new(0, 0, size, 2)
+        return MappedRegion { handle: h }
+    }
+
+    fun data() r: Int {
+        return seen_mapped_data(this.handle)
+    }
+
+    fun sync() r: Void {
+        seen_mapped_sync(this.handle)
+    }
+
+    fun free() r: Void {
+        seen_mapped_free(this.handle)
+    }
+
+    fun length() r: Int {
+        return seen_mapped_length(this.handle)
+    }
+}

@@ -1,0 +1,103 @@
+// Test blocked matrix multiply
+
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+    
+    fun get(row: Int, col: Int) -> Float {
+        this.data[row * this.cols + col]
+    }
+    
+    fun set(row: Int, col: Int, value: Float) -> Void {
+        this.data[row * this.cols + col] = value
+    }
+    
+    fun fill_random(seed: Int) -> Void {
+        var current_seed = seed
+        var i = 0
+        while i < this.data.length() {
+            current_seed = (current_seed * 1103515245 + 12345) & 0x7fffffff
+            let value = (current_seed % 10000) as Float / 10000.0
+            this.data[i] = value
+            i = i + 1
+        }
+    }
+}
+
+fun min(a: Int, b: Int) -> Int {
+    if a < b { a } else { b }
+}
+
+fun matrix_multiply_blocked(a: Matrix, b: Matrix, c: Matrix) -> Void {
+    __Print("Starting blocked multiply...\n")
+    let block_size = 64
+    
+    var ii = 0
+    while ii < a.rows {
+        __Print("Outer block ii=")
+        __PrintInt(ii)
+        __Print("\n")
+        
+        var jj = 0
+        while jj < b.cols {
+            var kk = 0
+            while kk < a.cols {
+                let i_end = min(ii + block_size, a.rows)
+                let j_end = min(jj + block_size, b.cols)
+                let k_end = min(kk + block_size, a.cols)
+                
+                var i = ii
+                while i < i_end {
+                    var j = jj
+                    while j < j_end {
+                        var sum = c.get(i, j)
+                        var k = kk
+                        while k < k_end {
+                            sum = sum + a.get(i, k) * b.get(k, j)
+                            k = k + 1
+                        }
+                        c.set(i, j, sum)
+                        j = j + 1
+                    }
+                    i = i + 1
+                }
+                
+                kk = kk + block_size
+            }
+            jj = jj + block_size
+        }
+        ii = ii + block_size
+    }
+    __Print("Done!\n")
+}
+
+fun main() -> Int {
+    let size = 512
+    
+    __Print("Creating matrices...\n")
+    let a = Matrix.new(size, size)
+    let b = Matrix.new(size, size)
+    let c = Matrix.new(size, size)
+    
+    __Print("Filling...\n")
+    a.fill_random(12345)
+    b.fill_random(67890)
+    
+    __Print("Multiplying...\n")
+    matrix_multiply_blocked(a, b, c)
+    
+    __Print("Success!\n")
+    return 0
+}

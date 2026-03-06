@@ -1,0 +1,36 @@
+name = "Chinese"
+description = "Chinese Builtin Names"
+
+[std_lib]
+# 类型名称
+"整数" = "seen_std.builtins.Int"
+"字符串" = "seen_std.builtins.String"
+"浮点" = "seen_std.builtins.Float"
+"布尔" = "seen_std.builtins.Bool"
+"无" = "seen_std.builtins.Void"
+"字符" = "seen_std.builtins.Char"
+
+# 输出函数
+"打印" = "seen_std.builtins.println"
+"输出" = "seen_std.builtins.print"
+"错误打印" = "seen_std.builtins.eprintln"
+
+# 入口点
+"主函数" = "seen_std.builtins.main"
+
+# 自身引用
+"此" = "seen_std.builtins.this"
+
+# 转换方法
+"转文本" = "seen_std.builtins.toString"
+"转浮点" = "seen_std.builtins.toFloat"
+"转整数" = "seen_std.builtins.toInt"
+
+# 集合方法
+"长度" = "seen_std.builtins.length"
+"添加" = "seen_std.builtins.push"
+"获取" = "seen_std.builtins.get"
+"放入" = "seen_std.builtins.put"
+
+# 构造函数
+"新建" = "seen_std.builtins.new"

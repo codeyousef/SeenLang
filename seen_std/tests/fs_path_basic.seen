@@ -1,0 +1,24 @@
+import fs.path.{normalize, join, basename, dirname, pathExtension, withoutExtension, isAbsolute}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    expect(normalize("/foo//bar/../baz") == "/foo/baz", "normalize should collapse segments")
+    expect(normalize("C:\\temp\\\\..\\logs") == "/C:/logs", "normalize should handle drive prefixes")
+    let parts = Array<String>()
+    parts.push("/usr")
+    parts.push("local")
+    parts.push("bin")
+    expect(join(parts) == "/usr/local/bin", "join should concatenate parts")
+    expect(basename("/usr/local/bin") == "bin", "basename mismatch")
+    expect(dirname("/usr/local/bin") == "/usr/local", "dirname mismatch")
+    expect(pathExtension("archive.tar.gz") == "gz", "extension should honor last segment")
+    expect(withoutExtension("archive.tar.gz") == "archive.tar", "withoutExtension mismatch")
+    expect(isAbsolute("/seen") and not isAbsolute("relative/path"), "isAbsolute should detect leading slash")
+
+    return 0
+}

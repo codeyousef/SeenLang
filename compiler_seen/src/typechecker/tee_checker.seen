@@ -1,0 +1,369 @@
+// TEE Checker - Validates @enclave decorator usage
+// Part of Seen's Trusted Execution Environment support (Task 5.3)
+
+import compiler_seen.src.parser.real_parser.FunctionNode
+import compiler_seen.src.parser.real_parser.ClassNode
+import compiler_seen.src.parser.real_parser.AnnotationNode
+
+// ============================================================================
+// TEE Check Result
+// ============================================================================
+
+data TEECheckResult {
+    isValid: Bool
+    errors: Array<String>
+    warnings: Array<String>
+    enclaveType: String      // "sgx" or "sev"
+    sealPolicy: String       // "mrenclave" or "mrsigner"
+    attestationType: String  // "local" or "remote"
+}
+
+fun TEECheckResult.new() r: TEECheckResult {
+    return TEECheckResult{
+        isValid: true,
+        errors: Array<String>(),
+        warnings: Array<String>(),
+        enclaveType: "sgx",       // Default to SGX
+        sealPolicy: "mrenclave",  // Default to MRENCLAVE
+        attestationType: "local"  // Default to local attestation
+    }
+}
+
+fun TEECheckResult.addError(msg: String) r: Void {
+    errors.push(msg)
+    isValid = false
+}
+
+fun TEECheckResult.addWarning(msg: String) r: Void {
+    warnings.push(msg)
+}
+
+// ============================================================================
+// TEE Checker Class
+// ============================================================================
+
+class TEEChecker {
+    static fun new() r: TEEChecker {
+        return TEEChecker{}
+    }
+
+    // Check a function's @enclave decorator
+    fun checkEnclave(fn: FunctionNode) r: TEECheckResult {
+        var result = TEECheckResult.new()
+
+        // Find the @enclave decorator
+        var decorator: AnnotationNode = AnnotationNode.new("")
+        var foundDecorator = false
+        var i = 0
+        while i < fn.decorators.length() {
+            if fn.decorators[i].name == "enclave" {
+                decorator = fn.decorators[i]
+                foundDecorator = true
+            }
+            i = i + 1
+        }
+
+        if not foundDecorator {
+            // No @enclave decorator, nothing to check
+            return result
+        }
+
+        // Parse and validate type argument
+        let typeArg = decorator.getNamedArg("type")
+        if typeArg != "" {
+            if typeArg != "sgx" and typeArg != "sev" {
+                result.addError("@enclave type must be 'sgx' or 'sev', got: '" + typeArg + "'")
+            } else {
+                result.enclaveType = typeArg
+            }
+        }
+
+        // Check for seal decorator on function
+        var hasSealDecorator = false
+        i = 0
+        while i < fn.decorators.length() {
+            if fn.decorators[i].name == "seal" {
+                hasSealDecorator = true
+
+                // Parse seal policy
+                let policyArg = fn.decorators[i].getNamedArg("policy")
+                if policyArg != "" {
+                    if policyArg != "mrenclave" and policyArg != "mrsigner" {
+                        result.addError("@seal policy must be 'mrenclave' or 'mrsigner', got: '" + policyArg + "'")
+                    } else {
+                        result.sealPolicy = policyArg
+
+                        // Warn about policy differences
+                        if policyArg == "mrsigner" {
+                            result.addWarning("@seal with policy='mrsigner' allows enclave updates but is less restrictive")
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+
+        // Check for attestation decorator
+        i = 0
+        while i < fn.decorators.length() {
+            if fn.decorators[i].name == "attestation" {
+                // Parse attestation type
+                let attTypeArg = fn.decorators[i].getNamedArg("type")
+                if attTypeArg != "" {
+                    if attTypeArg != "local" and attTypeArg != "remote" {
+                        result.addError("@attestation type must be 'local' or 'remote', got: '" + attTypeArg + "'")
+                    } else {
+                        result.attestationType = attTypeArg
+
+                        // Warn about remote attestation requirements
+                        if attTypeArg == "remote" {
+                            if result.enclaveType == "sgx" {
+                                result.addWarning("@attestation(type='remote') with SGX requires Intel Attestation Service (IAS) or DCAP setup")
+                            } else if result.enclaveType == "sev" {
+                                result.addWarning("@attestation(type='remote') with SEV requires AMD Key Distribution Service (KDS) setup")
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+
+        // Validate function constraints
+        if fn.isAsync {
+            result.addWarning("@enclave on async functions may have complex lifetime management")
+        }
+
+        // Warn about unsafe operations in enclave context
+        if hasUnsafeOperations(fn) {
+            result.addWarning("@enclave function contains potentially unsafe operations")
+        }
+
+        return result
+    }
+
+    // Check a class with @enclave decorator
+    fun checkEnclaveClass(cls: ClassNode) r: TEECheckResult {
+        var result = TEECheckResult.new()
+
+        // Find the @enclave decorator
+        var foundDecorator = false
+        var i = 0
+        while i < cls.decorators.length() {
+            if cls.decorators[i].name == "enclave" {
+                foundDecorator = true
+
+                // Parse type argument
+                let typeArg = cls.decorators[i].getNamedArg("type")
+                if typeArg != "" {
+                    if typeArg != "sgx" and typeArg != "sev" {
+                        result.addError("@enclave type must be 'sgx' or 'sev', got: '" + typeArg + "'")
+                    } else {
+                        result.enclaveType = typeArg
+                    }
+                }
+            }
+            i = i + 1
+        }
+
+        if not foundDecorator {
+            return result
+        }
+
+        // Check class methods for enclave compatibility
+        i = 0
+        while i < cls.methods.length() {
+            let method = cls.methods[i]
+
+            // Check for I/O operations that can't run in enclave
+            if hasIOOperations(method) {
+                result.addWarning("Method '" + method.name + "' contains I/O operations which cannot execute directly in enclave")
+            }
+
+            i = i + 1
+        }
+
+        // Check for required enclave entry points
+        if not hasMethod(cls, "enter") {
+            result.addWarning("@enclave class should have an 'enter()' method as entry point")
+        }
+
+        return result
+    }
+
+    // Check for unsafe operations in a function
+    fun hasUnsafeOperations(fn: FunctionNode) r: Bool {
+        // Simplified check - in a real implementation, would analyze function body
+        // Check for calls to known unsafe functions
+        let unsafeFunctions = [
+            "exec", "system", "popen",
+            "malloc", "free", "realloc",
+            "memcpy", "strcpy"
+        ]
+
+        // For now, return false (no detailed body analysis)
+        return false
+    }
+
+    // Check for I/O operations in a method
+    fun hasIOOperations(fn: FunctionNode) r: Bool {
+        // Simplified check
+        let ioFunctions = [
+            "print", "println", "read", "write",
+            "readFile", "writeFile",
+            "stdin", "stdout", "stderr",
+            "fetch", "httpGet", "httpPost"
+        ]
+
+        // For now, return false (no detailed body analysis)
+        return false
+    }
+
+    // Check if class has a specific method
+    fun hasMethod(cls: ClassNode, methodName: String) r: Bool {
+        var i = 0
+        while i < cls.methods.length() {
+            if cls.methods[i].name == methodName {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+// ============================================================================
+// Seal Checker - For @seal decorator
+// ============================================================================
+
+class SealChecker {
+    static fun new() r: SealChecker {
+        return SealChecker{}
+    }
+
+    fun checkSeal(fn: FunctionNode) r: TEECheckResult {
+        var result = TEECheckResult.new()
+
+        // Find the @seal decorator
+        var decorator: AnnotationNode = AnnotationNode.new("")
+        var foundDecorator = false
+        var i = 0
+        while i < fn.decorators.length() {
+            if fn.decorators[i].name == "seal" {
+                decorator = fn.decorators[i]
+                foundDecorator = true
+            }
+            i = i + 1
+        }
+
+        if not foundDecorator {
+            return result
+        }
+
+        // Parse policy argument
+        let policyArg = decorator.getNamedArg("policy")
+        if policyArg != "" {
+            if policyArg != "mrenclave" and policyArg != "mrsigner" {
+                result.addError("@seal policy must be 'mrenclave' or 'mrsigner', got: '" + policyArg + "'")
+            } else {
+                result.sealPolicy = policyArg
+            }
+        }
+
+        // @seal should be used with @enclave
+        var hasEnclaveDecorator = false
+        i = 0
+        while i < fn.decorators.length() {
+            if fn.decorators[i].name == "enclave" {
+                hasEnclaveDecorator = true
+            }
+            i = i + 1
+        }
+
+        if not hasEnclaveDecorator {
+            result.addWarning("@seal decorator is typically used with @enclave decorator")
+        }
+
+        return result
+    }
+}
+
+// ============================================================================
+// Attestation Checker - For @attestation decorator
+// ============================================================================
+
+class AttestationChecker {
+    static fun new() r: AttestationChecker {
+        return AttestationChecker{}
+    }
+
+    fun checkAttestation(fn: FunctionNode) r: TEECheckResult {
+        var result = TEECheckResult.new()
+
+        // Find the @attestation decorator
+        var decorator: AnnotationNode = AnnotationNode.new("")
+        var foundDecorator = false
+        var i = 0
+        while i < fn.decorators.length() {
+            if fn.decorators[i].name == "attestation" {
+                decorator = fn.decorators[i]
+                foundDecorator = true
+            }
+            i = i + 1
+        }
+
+        if not foundDecorator {
+            return result
+        }
+
+        // Parse type argument
+        let typeArg = decorator.getNamedArg("type")
+        if typeArg != "" {
+            if typeArg != "local" and typeArg != "remote" {
+                result.addError("@attestation type must be 'local' or 'remote', got: '" + typeArg + "'")
+            } else {
+                result.attestationType = typeArg
+            }
+        }
+
+        // @attestation should be used with @enclave
+        var hasEnclaveDecorator = false
+        i = 0
+        while i < fn.decorators.length() {
+            if fn.decorators[i].name == "enclave" {
+                hasEnclaveDecorator = true
+            }
+            i = i + 1
+        }
+
+        if not hasEnclaveDecorator {
+            result.addWarning("@attestation decorator is typically used with @enclave decorator")
+        }
+
+        return result
+    }
+}
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+fun checkTEEFunction(fn: FunctionNode) r: TEECheckResult {
+    let checker = TEEChecker.new()
+    return checker.checkEnclave(fn)
+}
+
+fun checkTEEClass(cls: ClassNode) r: TEECheckResult {
+    let checker = TEEChecker.new()
+    return checker.checkEnclaveClass(cls)
+}
+
+fun checkSealDecorator(fn: FunctionNode) r: TEECheckResult {
+    let checker = SealChecker.new()
+    return checker.checkSeal(fn)
+}
+
+fun checkAttestationDecorator(fn: FunctionNode) r: TEECheckResult {
+    let checker = AttestationChecker.new()
+    return checker.checkAttestation(fn)
+}

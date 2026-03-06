@@ -1,0 +1,29 @@
+// Lock-Free MPMC Atomic Queue — CAS ring buffer
+// Usage: let q = AtomicQueue.new(1024)
+//        q.push(42)    // returns 1 on success, 0 if full
+//        let v = q.pop()  // returns value or 0 if empty
+
+class AtomicQueue {
+    var handle: Int
+
+    fun new(capacity: Int) r: AtomicQueue {
+        return AtomicQueue { handle: seen_atomic_queue_new(capacity) }
+    }
+
+    fun push(value: Int) r: Int {
+        return seen_atomic_queue_push(this.handle, value)
+    }
+
+    fun pop() r: Int {
+        return seen_atomic_queue_pop(this.handle)
+    }
+
+    fun destroy() r: Void {
+        seen_atomic_queue_destroy(this.handle)
+    }
+}
+
+extern fun seen_atomic_queue_new(capacity: Int) r: Int
+extern fun seen_atomic_queue_push(handle: Int, value: Int) r: Int
+extern fun seen_atomic_queue_pop(handle: Int) r: Int
+extern fun seen_atomic_queue_destroy(handle: Int) r: Void

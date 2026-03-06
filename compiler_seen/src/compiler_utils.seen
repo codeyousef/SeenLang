@@ -1,0 +1,74 @@
+// Compiler utilities - thin adapters over seen_std modules.
+
+import io.file.{readText as stdReadText, writeText as stdWriteText, appendText as stdAppendText, exists as stdExists, size as stdFileSize, hash as stdFileHash, ensureParentDirectories as stdEnsureParents}
+import fs.path.{dirname as stdDirname}
+import process.process.{runProgram, runCommandOutput, shellQuote as stdShellQuote}
+import time.time.{nowSeconds}
+import str.string.{trim as stdTrim}
+
+fun readText(path: String) r: String {
+    return stdReadText(path)
+}
+
+fun writeText(path: String, contents: String) r: Bool {
+    println("[trace] compiler_utils.writeText: path=" + path)
+    let res = stdWriteText(path, contents)
+    println("[trace] compiler_utils.writeText: res=" + res.toString())
+    return res
+}
+
+fun appendText(path: String, contents: String) r: Bool {
+    return stdAppendText(path, contents)
+}
+
+fun FileExists(path: String) r: Bool {
+    return stdExists(path)
+}
+
+fun GetFileSize(path: String) r: Int {
+    return stdFileSize(path)
+}
+
+fun GetFileHash(path: String) r: String {
+    return stdFileHash(path)
+}
+
+fun getCurrentTime() r: Float {
+    return nowSeconds().toFloat()
+}
+
+fun runCommandStatus(command: String) r: Int {
+    return runProgram(command)
+}
+
+fun isExitSuccess(exitCode: Int) r: Bool {
+    return exitCode == 0
+}
+
+fun getCommandOutput(command: String) r: String {
+    return runCommandOutput(command)
+}
+
+fun shellQuote(arg: String) r: String {
+    return stdShellQuote(arg)
+}
+
+fun joinLines(lines: Array<String>) r: String {
+    if lines.length() == 0 {
+        return ""
+    }
+    let combined = lines.join("\n")
+    return combined + "\n"
+}
+
+fun ensureParentDirectories(path: String) r: Bool {
+    return stdEnsureParents(path)
+}
+
+fun dirname(path: String) r: String {
+    return stdDirname(path)
+}
+
+fun trim(value: String) r: String {
+    return stdTrim(value)
+}

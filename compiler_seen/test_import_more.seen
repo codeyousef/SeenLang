@@ -1,0 +1,15 @@
+// Test: imports like main.seen
+
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
+import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import io.file.{readText, writeText}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import env.env.{args}
+import collections.list_utils.{push}
+
+
+fun main() r: Int {
+    return 0
+}

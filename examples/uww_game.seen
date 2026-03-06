@@ -1,0 +1,154 @@
+// Example: UWW Deterministic Game State
+// Compile with: seen build examples/uww_game.seen -t uww
+// This program demonstrates deterministic computation for UWW runtime
+
+import uww.fixed.{Fixed64, fixed, fixedFrac, FIXED_PI}
+
+// Deterministic position using fixed-point math
+class Position {
+    var x: Fixed64
+    var y: Fixed64
+
+    fun new(x: Fixed64, y: Fixed64) r: Position {
+        x = x
+        y = y
+    }
+
+    fun move(dx: Fixed64, dy: Fixed64) r: Void {
+        x = x.add(dx)
+        y = y.add(dy)
+    }
+
+    fun distanceSquared(other: Position) r: Fixed64 {
+        let dx = x.sub(other.x)
+        let dy = y.sub(other.y)
+        return dx.mul(dx).add(dy.mul(dy))
+    }
+}
+
+// Deterministic game entity
+class Entity {
+    var pos: Position
+    var health: Int
+    var id: Int
+
+    fun new(id: Int, x: Fixed64, y: Fixed64) r: Entity {
+        id = id
+        pos = Position.new(x, y)
+        health = 100
+    }
+
+    fun takeDamage(amount: Int) r: Void {
+        health = health - amount
+        if health < 0 {
+            health = 0
+        }
+    }
+
+    fun isAlive() r: Bool {
+        return health > 0
+    }
+}
+
+// Deterministic random number generator (LCG)
+class DeterministicRNG {
+    var state: Int
+
+    fun new(seed: Int) r: DeterministicRNG {
+        state = seed
+    }
+
+    fun next() r: Int {
+        // LCG with MINSTD parameters
+        state = (state * 48271) % 2147483647
+        return state
+    }
+
+    fun nextInRange(max: Int) r: Int {
+        let value = next()
+        let positiveValue = if value < 0 { -value } else { value }
+        return positiveValue % max
+    }
+}
+
+// Game state - fully deterministic
+class GameState {
+    var entities: Array<Entity>
+    var rng: DeterministicRNG
+    var tick: Int
+    var score: Int
+
+    fun new(seed: Int) r: GameState {
+        entities = Array<Entity>()
+        rng = DeterministicRNG.new(seed)
+        tick = 0
+        score = 0
+    }
+
+    fun spawnEntity() r: Void {
+        let id = entities.length()
+        let x = fixed(rng.nextInRange(100))
+        let y = fixed(rng.nextInRange(100))
+        let entity = Entity.new(id, x, y)
+        entities.push(entity)
+    }
+
+    fun update() r: Void {
+        tick = tick + 1
+
+        // Move all entities deterministically
+        let dt = fixedFrac(1, 60)  // 1/60 second tick
+        var i = 0
+        while i < entities.length() {
+            let entity = entities[i]
+            if entity.isAlive() {
+                // Move in a deterministic pattern
+                let dx = fixedFrac(rng.nextInRange(10) - 5, 10)
+                let dy = fixedFrac(rng.nextInRange(10) - 5, 10)
+                entity.pos.move(dx.mul(dt), dy.mul(dt))
+            }
+            i = i + 1
+        }
+    }
+
+    fun getChecksum() r: Int {
+        // Compute a deterministic checksum of game state
+        var checksum = tick
+        var i = 0
+        while i < entities.length() {
+            let entity = entities[i]
+            checksum = checksum + entity.health
+            checksum = checksum + entity.pos.x.toInt()
+            checksum = checksum + entity.pos.y.toInt()
+            i = i + 1
+        }
+        return checksum
+    }
+}
+
+// Main entry point - deterministic execution
+fun main() r: Int {
+    // Fixed seed for deterministic behavior
+    let seed = 42
+
+    // Create game state
+    let game = GameState.new(seed)
+
+    // Spawn some entities
+    var i = 0
+    while i < 5 {
+        game.spawnEntity()
+        i = i + 1
+    }
+
+    // Run 100 ticks
+    i = 0
+    while i < 100 {
+        game.update()
+        i = i + 1
+    }
+
+    // Return deterministic checksum
+    // This should be identical across all UWW nodes
+    return game.getChecksum() % 256
+}

@@ -1,0 +1,38 @@
+// PoolRegion — Fixed-size block pool with O(1) alloc/free via free list.
+// All blocks are the same size. Ideal for entity/component allocation.
+
+extern fun seen_pool_region_new(block_size: Int, count: Int) r: Int
+extern fun seen_pool_region_alloc(handle: Int) r: Int
+extern fun seen_pool_region_free(handle: Int, ptr: Int) r: Void
+extern fun seen_pool_region_destroy(handle: Int) r: Void
+extern fun seen_pool_region_reset(handle: Int) r: Void
+extern fun seen_pool_region_available(handle: Int) r: Int
+
+class PoolRegion {
+    var handle: Int
+
+    fun new(block_size: Int, count: Int) r: PoolRegion {
+        let h = seen_pool_region_new(block_size, count)
+        return PoolRegion { handle: h }
+    }
+
+    fun alloc() r: Int {
+        return seen_pool_region_alloc(this.handle)
+    }
+
+    fun free(ptr: Int) r: Void {
+        seen_pool_region_free(this.handle, ptr)
+    }
+
+    fun reset() r: Void {
+        seen_pool_region_reset(this.handle)
+    }
+
+    fun destroy() r: Void {
+        seen_pool_region_destroy(this.handle)
+    }
+
+    fun available() r: Int {
+        return seen_pool_region_available(this.handle)
+    }
+}

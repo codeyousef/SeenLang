@@ -1,0 +1,136 @@
+import lexer.token_type.{SeenTokenType}
+import str.string.{StringBuilder}
+
+class Token {
+    let tokenType: SeenTokenType
+    let value: String
+    let line: Int
+    let column: Int
+    let length: Int
+    let fileId: Int
+
+    static fun new(tokenType: SeenTokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) r: Token {
+        // Note: toString() may not work correctly for enum values from generic containers
+        let tok = Token {
+            tokenType: tokenType,
+            value: value,
+            line: line,
+            column: column,
+            length: length,
+            fileId: fileId
+        }
+        return tok
+    }
+
+    fun getType() r: SeenTokenType {
+        return tokenType
+    }
+
+    fun getValue() r: String {
+        return value
+    }
+
+    fun getLine() r: Int {
+        return line
+    }
+
+    fun getColumn() r: Int {
+        return column
+    }
+
+    fun getLength() r: Int {
+        return length
+    }
+
+    fun getFileId() r: Int {
+        return fileId
+    }
+}
+
+fun getType(token: Token) r: SeenTokenType {
+    return token.getType()
+}
+
+fun getValue(token: Token) r: String {
+    return token.getValue()
+}
+
+class LexerError {
+    var message: String
+    var position: Position
+    var character: String
+
+    fun new(message: String, position: Position, character: String) r: LexerError {
+        let err = LexerError()
+        err.message = message
+        err.position = position
+        err.character = character
+        return err
+    }
+
+    fun getMessage() r: String {
+        return message
+    }
+
+    fun getPosition() r: Position {
+        return position
+    }
+
+    fun getCharacter() r: String {
+        return character
+    }
+}
+
+class Position {
+    let line: Int
+    let column: Int
+    let fileId: Int
+
+    static fun new(line: Int, column: Int, fileId: Int) r: Position {
+        return Position {
+            line: line,
+            column: column,
+            fileId: fileId
+        }
+    }
+
+    fun getLine() r: Int {
+        return line
+    }
+
+    fun getColumn() r: Int {
+        return column
+    }
+
+    fun getFileId() r: Int {
+        return fileId
+    }
+}
+
+// Utility functions - stubbed for bootstrap (match not supported in Stage1)
+fun tokenTypeIsOperator(tokenType: TokenType) r: Bool {
+    return false
+}
+
+fun tokenTypeIsLiteral(tokenType: TokenType) r: Bool {
+    return false
+}
+
+fun tokenTypeIsKeyword(tokenType: TokenType) r: Bool {
+    return false
+}
+
+fun generateLargeSource(tokenCount: Int) r: String {
+    let builder = StringBuilder.new()
+    var i = 0
+    let limit = tokenCount / 10
+    while i < limit {
+        builder.append("fun function" + i.toString() + "() { let x" + i.toString() + " = " + i.toString() + "; }\n")
+        i = i + 1
+    }
+    return builder.toString()
+}
+
+fun getCurrentTime() r: Int {
+    return 0
+}

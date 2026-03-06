@@ -1,0 +1,401 @@
+// translator.seen — Source-to-source translation between Seen's supported languages
+//
+// Hybrid scanner approach: scans source byte-by-byte, copies strings/comments
+// verbatim, and only translates identifier/keyword tokens that match the source
+// language's keyword or stdlib mappings.
+
+import io.file.{readText}
+
+// Load keyword pairs from a TOML file's [keywords] section into parallel arrays.
+// keys[] gets the text (e.g. "fun"), values[] gets the token type (e.g. "KeywordFun").
+fun loadKeywordTomlPairs(path: String, keys: Array<String>, values: Array<String>) r: Void {
+    let content = readText(path)
+    let len = content.length()
+    var pos = 0
+    var currentSection = ""
+
+    while pos < len {
+        var lineEnd = pos
+        while lineEnd < len {
+            if content.byteAt(lineEnd) == '\n' { break }
+            lineEnd = lineEnd + 1
+        }
+
+        var ls = pos
+        while ls < lineEnd {
+            var c = content.byteAt(ls)
+            if c != ' ' and c != '\t' and c != '\r' { break }
+            ls = ls + 1
+        }
+
+        var le = lineEnd
+        while le > ls {
+            var ct = content.byteAt(le - 1)
+            if ct != ' ' and ct != '\t' and ct != '\r' { break }
+            le = le - 1
+        }
+
+        if le > ls {
+            var firstChar = content.byteAt(ls)
+
+            if firstChar == '#' {
+                // skip comment
+            } else if firstChar == '[' {
+                var secEnd = ls + 1
+                while secEnd < le {
+                    if content.byteAt(secEnd) == ']' { break }
+                    secEnd = secEnd + 1
+                }
+                currentSection = content.substring(ls + 1, secEnd)
+            } else if firstChar == '"' and currentSection == "keywords" {
+                let q1 = ls
+                var q2 = q1 + 1
+                while q2 < le {
+                    if content.byteAt(q2) == '"' { break }
+                    q2 = q2 + 1
+                }
+                let key = content.substring(q1 + 1, q2)
+
+                var q3 = q2 + 1
+                while q3 < le {
+                    if content.byteAt(q3) == '"' { break }
+                    q3 = q3 + 1
+                }
+                var q4 = q3 + 1
+                while q4 < le {
+                    if content.byteAt(q4) == '"' { break }
+                    q4 = q4 + 1
+                }
+                let value = content.substring(q3 + 1, q4)
+
+                keys.push(key)
+                values.push(value)
+            }
+        }
+
+        pos = lineEnd + 1
+    }
+}
+
+// Load stdlib pairs from a TOML file's [std_lib] section into parallel arrays.
+// keys[] gets the text (e.g. "println"), values[] gets the canonical path.
+fun loadStdlibTomlPairs(path: String, keys: Array<String>, values: Array<String>) r: Void {
+    let content = readText(path)
+    let len = content.length()
+    var pos = 0
+    var currentSection = ""
+
+    while pos < len {
+        var lineEnd = pos
+        while lineEnd < len {
+            if content.byteAt(lineEnd) == '\n' { break }
+            lineEnd = lineEnd + 1
+        }
+
+        var ls = pos
+        while ls < lineEnd {
+            var c = content.byteAt(ls)
+            if c != ' ' and c != '\t' and c != '\r' { break }
+            ls = ls + 1
+        }
+
+        var le = lineEnd
+        while le > ls {
+            var ct = content.byteAt(le - 1)
+            if ct != ' ' and ct != '\t' and ct != '\r' { break }
+            le = le - 1
+        }
+
+        if le > ls {
+            var firstChar = content.byteAt(ls)
+
+            if firstChar == '#' {
+                // skip comment
+            } else if firstChar == '[' {
+                var secEnd = ls + 1
+                while secEnd < le {
+                    if content.byteAt(secEnd) == ']' { break }
+                    secEnd = secEnd + 1
+                }
+                currentSection = content.substring(ls + 1, secEnd)
+            } else if firstChar == '"' and currentSection == "std_lib" {
+                let q1 = ls
+                var q2 = q1 + 1
+                while q2 < le {
+                    if content.byteAt(q2) == '"' { break }
+                    q2 = q2 + 1
+                }
+                let key = content.substring(q1 + 1, q2)
+
+                var q3 = q2 + 1
+                while q3 < le {
+                    if content.byteAt(q3) == '"' { break }
+                    q3 = q3 + 1
+                }
+                var q4 = q3 + 1
+                while q4 < le {
+                    if content.byteAt(q4) == '"' { break }
+                    q4 = q4 + 1
+                }
+                let value = content.substring(q3 + 1, q4)
+
+                keys.push(key)
+                values.push(value)
+            }
+        }
+
+        pos = lineEnd + 1
+    }
+}
+
+// Load all keyword TOML files for a language into parallel arrays.
+fun loadAllKeywords(lang: String, texts: Array<String>, tokenTypes: Array<String>) r: Void {
+    let langDir = "languages/" + lang + "/"
+    let prefix = lang + "-keywords-"
+
+    loadKeywordTomlPairs(langDir + prefix + "control.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "vars.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "types.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "module.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "literals.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "async.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "modifiers.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "memory.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "meta.toml", texts, tokenTypes)
+    loadKeywordTomlPairs(langDir + prefix + "misc.toml", texts, tokenTypes)
+}
+
+// Load all stdlib TOML files for a language into parallel arrays.
+fun loadAllStdlib(lang: String, names: Array<String>, paths: Array<String>) r: Void {
+    let langDir = "languages/" + lang + "/"
+    let prefix = lang + "-"
+
+    loadStdlibTomlPairs(langDir + prefix + "builtins.toml", names, paths)
+    loadStdlibTomlPairs(langDir + prefix + "math.toml", names, paths)
+    loadStdlibTomlPairs(langDir + prefix + "collections.toml", names, paths)
+    loadStdlibTomlPairs(langDir + prefix + "io.toml", names, paths)
+    loadStdlibTomlPairs(langDir + prefix + "env.toml", names, paths)
+    loadStdlibTomlPairs(langDir + prefix + "str.toml", names, paths)
+}
+
+// Look up a source keyword text, find its token type, then find the target text
+// for that same token type. Returns "" if not found.
+fun translateKeyword(word: String, srcTexts: Array<String>, srcTypes: Array<String>, tgtTexts: Array<String>, tgtTypes: Array<String>) r: String {
+    // Find the token type for this word in source language
+    var srcTokenType = ""
+    var i = 0
+    while i < srcTexts.length() {
+        if srcTexts[i] == word {
+            srcTokenType = srcTypes[i]
+            break
+        }
+        i = i + 1
+    }
+
+    if srcTokenType == "" {
+        return ""
+    }
+
+    // Find the text for this token type in target language
+    var j = 0
+    while j < tgtTypes.length() {
+        if tgtTypes[j] == srcTokenType {
+            return tgtTexts[j]
+        }
+        j = j + 1
+    }
+
+    return ""
+}
+
+// Look up a source stdlib name, find its canonical path, then find the target name
+// for that same canonical path. Returns "" if not found.
+fun translateStdlib(word: String, srcNames: Array<String>, srcPaths: Array<String>, tgtNames: Array<String>, tgtPaths: Array<String>) r: String {
+    // Find the canonical path for this name in source language
+    var srcPath = ""
+    var i = 0
+    while i < srcNames.length() {
+        if srcNames[i] == word {
+            srcPath = srcPaths[i]
+            break
+        }
+        i = i + 1
+    }
+
+    if srcPath == "" {
+        return ""
+    }
+
+    // Find the name for this canonical path in target language
+    var j = 0
+    while j < tgtPaths.length() {
+        if tgtPaths[j] == srcPath {
+            return tgtNames[j]
+        }
+        j = j + 1
+    }
+
+    return ""
+}
+
+// Returns the byte length of a UTF-8 character starting at pos.
+fun utf8CharLen(source: String, pos: Int) r: Int {
+    let b = source.byteAt(pos)
+    if b < 128 {
+        return 1
+    }
+    if b >= 240 {
+        return 4
+    }
+    if b >= 224 {
+        return 3
+    }
+    if b >= 192 {
+        return 2
+    }
+    return 1
+}
+
+// Check if a byte is an ASCII letter or underscore.
+fun isAlphaOrUnderscore(b: Int) r: Int {
+    if b == 95 { return 1 }
+    if b >= 65 and b <= 90 { return 1 }
+    if b >= 97 and b <= 122 { return 1 }
+    return 0
+}
+
+// Check if a byte is an ASCII letter, digit, or underscore.
+fun isAlphaNumOrUnderscore(b: Int) r: Int {
+    if b == 95 { return 1 }
+    if b >= 48 and b <= 57 { return 1 }
+    if b >= 65 and b <= 90 { return 1 }
+    if b >= 97 and b <= 122 { return 1 }
+    return 0
+}
+
+// Translate Seen source code from one language to another.
+// Preserves all formatting, comments, and string contents.
+fun translateSource(source: String, fromLang: String, toLang: String) r: String {
+    // Load source language tables
+    var srcKwTexts = Array<String>()
+    var srcKwTypes = Array<String>()
+    loadAllKeywords(fromLang, srcKwTexts, srcKwTypes)
+
+    var srcStdNames = Array<String>()
+    var srcStdPaths = Array<String>()
+    loadAllStdlib(fromLang, srcStdNames, srcStdPaths)
+
+    // Load target language tables
+    var tgtKwTexts = Array<String>()
+    var tgtKwTypes = Array<String>()
+    loadAllKeywords(toLang, tgtKwTexts, tgtKwTypes)
+
+    var tgtStdNames = Array<String>()
+    var tgtStdPaths = Array<String>()
+    loadAllStdlib(toLang, tgtStdNames, tgtStdPaths)
+
+    let len = source.length()
+    var result = ""
+    var pos = 0
+
+    while pos < len {
+        let b = source.byteAt(pos)
+
+        // String literal: copy verbatim including escape sequences
+        if b == 34 {
+            var end = pos + 1
+            while end < len {
+                let sc = source.byteAt(end)
+                if sc == 92 {
+                    // Backslash escape — skip next byte
+                    end = end + 2
+                } else if sc == 34 {
+                    end = end + 1
+                    break
+                } else {
+                    end = end + 1
+                }
+            }
+            result = result + source.substring(pos, end)
+            pos = end
+        } else if b == 39 {
+            // Char literal: copy verbatim
+            var end = pos + 1
+            while end < len {
+                let sc = source.byteAt(end)
+                if sc == 92 {
+                    end = end + 2
+                } else if sc == 39 {
+                    end = end + 1
+                    break
+                } else {
+                    end = end + 1
+                }
+            }
+            result = result + source.substring(pos, end)
+            pos = end
+        } else if b == 47 and pos + 1 < len and source.byteAt(pos + 1) == 47 {
+            // Single-line comment: copy to end of line
+            var end = pos
+            while end < len {
+                if source.byteAt(end) == 10 { break }
+                end = end + 1
+            }
+            result = result + source.substring(pos, end)
+            pos = end
+        } else if b == 47 and pos + 1 < len and source.byteAt(pos + 1) == 42 {
+            // Multi-line comment: copy to */
+            var end = pos + 2
+            while end + 1 < len {
+                if source.byteAt(end) == 42 and source.byteAt(end + 1) == 47 {
+                    end = end + 2
+                    break
+                }
+                end = end + 1
+            }
+            if end >= len {
+                end = len
+            }
+            result = result + source.substring(pos, end)
+            pos = end
+        } else if isAlphaOrUnderscore(b) == 1 or b >= 128 {
+            // Identifier or keyword (ASCII alpha/underscore or UTF-8 multibyte)
+            var end = pos
+            while end < len {
+                let ib = source.byteAt(end)
+                if isAlphaNumOrUnderscore(ib) == 1 {
+                    end = end + 1
+                } else if ib >= 128 {
+                    // UTF-8 multibyte: advance by character length
+                    let clen = utf8CharLen(source, end)
+                    end = end + clen
+                } else {
+                    break
+                }
+            }
+            let word = source.substring(pos, end)
+
+            // Try keyword translation first
+            let kwResult = translateKeyword(word, srcKwTexts, srcKwTypes, tgtKwTexts, tgtKwTypes)
+            if kwResult != "" {
+                result = result + kwResult
+            } else {
+                // Try stdlib translation
+                let stdResult = translateStdlib(word, srcStdNames, srcStdPaths, tgtStdNames, tgtStdPaths)
+                if stdResult != "" {
+                    result = result + stdResult
+                } else {
+                    // Not a keyword or stdlib name — keep as-is
+                    result = result + word
+                }
+            }
+            pos = end
+        } else {
+            // Everything else: whitespace, operators, numbers, punctuation — copy verbatim
+            result = result + source.substring(pos, pos + 1)
+            pos = pos + 1
+        }
+    }
+
+    return result
+}

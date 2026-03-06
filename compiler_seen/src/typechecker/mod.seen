@@ -1,0 +1,44 @@
+// Type Checker Module - Real Implementation Entry Point
+// Exports the actual working implementations for TDD
+
+// Import all the interfaces and types
+// import interfaces.{Type, TypeKind, TypeError, Location, Environment, TypeInferenceResult, FunctionType, ClassType, InterfaceType, SmartCastContext}
+
+// Import the real implementation
+import typechecker.interfaces.{TypeChecker}
+import typechecker.determinism.{DeterminismChecker, DeterminismCheckResult, DeterminismError, checkDeterminism, printDeterminismErrors}
+// Capability checking - available via 'seen capability' command
+import typechecker.capability.{CapabilityChecker, CapabilityCheckResult, CapabilityError, checkCapabilities, printCapabilityErrors}
+import parser.real_parser.{ProgramNode}
+
+// Utility functions for tests
+fun createTypeChecker() r: TypeChecker {
+    return TypeChecker.new()
+}
+
+fun typeCheckAST(ast: ProgramNode) r: TypeInferenceResult {
+    let checker = TypeChecker.new()
+    return checker.check(ast)
+}
+
+fun createType(name: String, nullable: Bool = false) r: Type {
+    return Type.new(name, nullable)
+}
+
+// Determinism checking utilities
+fun createDeterminismChecker() r: DeterminismChecker {
+    return DeterminismChecker.new()
+}
+
+fun checkProgramDeterminism(program: ProgramNode, uwwMode: Bool = false) r: DeterminismCheckResult {
+    return checkDeterminism(program, uwwMode)
+}
+
+// Capability checking utilities - available via 'seen capability' command
+fun createCapabilityChecker() r: CapabilityChecker {
+    return CapabilityChecker.new()
+}
+
+fun checkProgramCapabilities(program: ProgramNode) r: CapabilityCheckResult {
+    return checkCapabilities(program)
+}

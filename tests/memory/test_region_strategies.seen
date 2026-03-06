@@ -1,0 +1,168 @@
+// Region Allocation Strategy Test
+// Tests different allocation strategies (AUTO, BUMP, STACK)
+// Expected: All strategies work correctly
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    println("Testing region allocation strategies...")
+
+    // Strategy constants (matching seen_region.h)
+    let STRATEGY_AUTO = 0
+    let STRATEGY_BUMP = 1
+    let STRATEGY_STACK = 2
+
+    // Test 1: AUTO strategy (default)
+    println("\n=== Test 1: AUTO Strategy ===")
+    let regionAuto = seen_region_create(8192, STRATEGY_AUTO)
+    if regionAuto != 0 {
+        let ptr1 = seen_region_alloc(regionAuto, 1024, 16)
+        if ptr1 != 0 {
+            println("PASS: AUTO strategy allocation works")
+            passed = passed + 1
+        } else {
+            println("FAIL: AUTO strategy allocation failed")
+            failed = failed + 1
+        }
+        seen_region_destroy(regionAuto)
+    } else {
+        println("FAIL: AUTO strategy region creation failed")
+        failed = failed + 1
+    }
+
+    // Test 2: BUMP allocator (fast, no individual free)
+    println("\n=== Test 2: BUMP Strategy ===")
+    let regionBump = seen_region_create(8192, STRATEGY_BUMP)
+    if regionBump != 0 {
+        // Bump allocator should be very fast for sequential allocations
+        var i = 0
+        var allSuccess = true
+        while i < 10 {
+            let ptr = seen_region_alloc(regionBump, 64, 8)
+            if ptr == 0 {
+                allSuccess = false
+            }
+            i = i + 1
+        }
+
+        if allSuccess {
+            println("PASS: BUMP strategy sequential allocations work")
+            passed = passed + 1
+        } else {
+            println("FAIL: BUMP strategy allocation failed")
+            failed = failed + 1
+        }
+
+        // Test bump allocator reset
+        let usedBefore = seen_region_used(regionBump)
+        seen_region_reset(regionBump)
+        let usedAfter = seen_region_used(regionBump)
+
+        if usedAfter == 0 and usedBefore > 0 {
+            println("PASS: BUMP strategy reset works")
+            passed = passed + 1
+        } else {
+            println("FAIL: BUMP strategy reset failed")
+            failed = failed + 1
+        }
+
+        seen_region_destroy(regionBump)
+    } else {
+        println("FAIL: BUMP strategy region creation failed")
+        failed = failed + 2
+    }
+
+    // Test 3: STACK strategy (LIFO free)
+    println("\n=== Test 3: STACK Strategy ===")
+    let regionStack = seen_region_create(8192, STRATEGY_STACK)
+    if regionStack != 0 {
+        let ptr1 = seen_region_alloc(regionStack, 512, 8)
+        let ptr2 = seen_region_alloc(regionStack, 512, 8)
+        let ptr3 = seen_region_alloc(regionStack, 512, 8)
+
+        if ptr1 != 0 and ptr2 != 0 and ptr3 != 0 {
+            println("PASS: STACK strategy allocations work")
+            passed = passed + 1
+        } else {
+            println("FAIL: STACK strategy allocation failed")
+            failed = failed + 1
+        }
+
+        seen_region_destroy(regionStack)
+    } else {
+        println("FAIL: STACK strategy region creation failed")
+        failed = failed + 1
+    }
+
+    // Test 4: Region overflow handling
+    println("\n=== Test 4: Region Overflow Safety ===")
+    let smallRegion = seen_region_create(128, STRATEGY_AUTO)  // Very small region
+    if smallRegion != 0 {
+        let ptr1 = seen_region_alloc(smallRegion, 64, 8)
+        let ptr2 = seen_region_alloc(smallRegion, 64, 8)
+        let ptr3 = seen_region_alloc(smallRegion, 64, 8)  // Should fail - not enough space
+
+        if ptr1 != 0 and ptr2 != 0 and ptr3 == 0 {
+            println("PASS: Region overflow returns null safely")
+            passed = passed + 1
+        } else {
+            println("FAIL: Region overflow not handled correctly")
+            failed = failed + 1
+        }
+
+        seen_region_destroy(smallRegion)
+    } else {
+        println("FAIL: Small region creation failed")
+        failed = failed + 1
+    }
+
+    // Test 5: Aligned allocations succeed
+    println("\n=== Test 5: Memory Alignment ===")
+    let regionAlign = seen_region_create(4096, STRATEGY_AUTO)
+    if regionAlign != 0 {
+        let ptr8 = seen_region_alloc(regionAlign, 100, 8)    // 8-byte aligned
+        let ptr16 = seen_region_alloc(regionAlign, 100, 16)  // 16-byte aligned
+        let ptr32 = seen_region_alloc(regionAlign, 100, 32)  // 32-byte aligned
+
+        // Verify all aligned allocations succeed and return distinct pointers
+        if ptr8 != 0 and ptr16 != 0 and ptr32 != 0 and ptr8 != ptr16 and ptr16 != ptr32 {
+            println("PASS: Aligned allocations succeed with distinct pointers")
+            passed = passed + 1
+        } else {
+            println("FAIL: Aligned allocations returned null or overlapping")
+            failed = failed + 1
+        }
+
+        seen_region_destroy(regionAlign)
+    } else {
+        println("FAIL: Alignment test region creation failed")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("\n==================================================")
+    println("Region Strategy Test Results:")
+    println("Passed: " + passed.toString() + "/" + (passed + failed).toString())
+    println("==================================================")
+
+    if failed > 0 {
+        println("\nFAIL: Some strategy tests failed")
+        return 1
+    }
+
+    println("\nPASS: All region strategies working correctly!")
+    println("✓ AUTO strategy (automatic selection)")
+    println("✓ BUMP strategy (fast sequential)")
+    println("✓ STACK strategy (LIFO)")
+    println("✓ Overflow protection")
+    println("✓ Alignment guarantees")
+    return 0
+}
+
+// External C runtime functions
+extern fun seen_region_create(size: Int, strategy: Int) r: Int
+extern fun seen_region_alloc(region: Int, size: Int, alignment: Int) r: Int
+extern fun seen_region_destroy(region: Int) r: Void
+extern fun seen_region_reset(region: Int) r: Void
+extern fun seen_region_used(region: Int) r: Int

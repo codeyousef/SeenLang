@@ -1,0 +1,20 @@
+class Point {
+    x: Int
+    y: Int
+}
+
+fun testPoint(p: Point) r: Int {
+    println("In testPoint")
+    return 42
+}
+
+fun main() r: Void {
+    println("Creating point")
+    var p = Point()
+    p.x = 5
+    p.y = 10
+    println("Calling testPoint")
+    let result = testPoint(p)
+    println("Back from testPoint")
+    println(result.toString())
+}

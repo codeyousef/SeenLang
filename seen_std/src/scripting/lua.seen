@@ -1,0 +1,495 @@
+/**
+ * Lua 5.4 C API bindings for the Seen language.
+ *
+ * Low-level bindings to Lua 5.4 via seen_lua_* shim functions.
+ * Provides state management, script execution, stack manipulation,
+ * type queries, and table operations. Handles are opaque Int values
+ * (pointers packed as i64).
+ *
+ * Link with: -llua
+ *
+ * Example:
+ *   var lua = LuaState.create()
+ *   lua.openLibs()
+ *   let status = lua.doString("print('hello from Lua')")
+ *   if status != LUA_OK {
+ *       println("Lua error")
+ *   }
+ *   lua.close()
+ */
+
+// ============================================================================
+// Type tag constants (lua_type return values)
+// ============================================================================
+
+let LUA_TNIL: Int = 0
+let LUA_TBOOLEAN: Int = 1
+let LUA_TLIGHTUSERDATA: Int = 2
+let LUA_TNUMBER: Int = 3
+let LUA_TSTRING: Int = 4
+let LUA_TTABLE: Int = 5
+let LUA_TFUNCTION: Int = 6
+let LUA_TUSERDATA: Int = 7
+let LUA_TTHREAD: Int = 8
+
+// ============================================================================
+// Status codes
+// ============================================================================
+
+let LUA_OK: Int = 0
+let LUA_YIELD: Int = 1
+let LUA_ERRRUN: Int = 2
+let LUA_ERRSYNTAX: Int = 3
+let LUA_ERRMEM: Int = 4
+let LUA_ERRERR: Int = 5
+
+// ============================================================================
+// Pseudo-indices
+// ============================================================================
+
+let LUA_REGISTRYINDEX: Int = -1001000
+let LUA_GLOBALSINDEX: Int = -1001001
+
+// ============================================================================
+// Stack size and multi-return constants
+// ============================================================================
+
+let LUA_MINSTACK: Int = 20
+let LUA_MULTRET: Int = -1
+
+// ============================================================================
+// Lua shim FFI declarations
+// ============================================================================
+
+// State management
+extern fun seen_lua_newstate() r: Int
+extern fun seen_lua_close(L: Int) r: Void
+extern fun seen_lua_openlibs(L: Int) r: Void
+
+// Script execution
+extern fun seen_lua_dostring(L: Int, code: String) r: Int
+extern fun seen_lua_dofile(L: Int, path: String) r: Int
+extern fun seen_lua_pcall(L: Int, nargs: Int, nresults: Int, msgh: Int) r: Int
+
+// Stack queries
+extern fun seen_lua_gettop(L: Int) r: Int
+extern fun seen_lua_settop(L: Int, idx: Int) r: Void
+
+// Push values onto the stack
+extern fun seen_lua_pushnil(L: Int) r: Void
+extern fun seen_lua_pushinteger(L: Int, n: Int) r: Void
+extern fun seen_lua_pushnumber(L: Int, n: Int) r: Void
+extern fun seen_lua_pushstring(L: Int, s: String) r: Void
+extern fun seen_lua_pushboolean(L: Int, b: Int) r: Void
+
+// Read values from the stack
+extern fun seen_lua_tointeger(L: Int, idx: Int) r: Int
+extern fun seen_lua_tostring(L: Int, idx: Int) r: String
+extern fun seen_lua_toboolean(L: Int, idx: Int) r: Int
+
+// Type queries
+extern fun seen_lua_type(L: Int, idx: Int) r: Int
+extern fun seen_lua_typename(L: Int, tp: Int) r: String
+extern fun seen_lua_isnil(L: Int, idx: Int) r: Int
+extern fun seen_lua_isinteger(L: Int, idx: Int) r: Int
+extern fun seen_lua_isstring(L: Int, idx: Int) r: Int
+
+// Stack manipulation
+extern fun seen_lua_pop(L: Int, n: Int) r: Void
+
+// Global variable access
+extern fun seen_lua_getglobal(L: Int, name: String) r: Int
+extern fun seen_lua_setglobal(L: Int, name: String) r: Void
+
+// Table operations
+extern fun seen_lua_createtable(L: Int, narr: Int, nrec: Int) r: Void
+extern fun seen_lua_settable(L: Int, idx: Int) r: Void
+extern fun seen_lua_gettable(L: Int, idx: Int) r: Int
+extern fun seen_lua_rawseti(L: Int, idx: Int, n: Int) r: Void
+extern fun seen_lua_rawgeti(L: Int, idx: Int, n: Int) r: Int
+extern fun seen_lua_next(L: Int, idx: Int) r: Int
+extern fun seen_lua_len(L: Int, idx: Int) r: Void
+extern fun seen_lua_getfield(L: Int, idx: Int, key: String) r: Int
+extern fun seen_lua_setfield(L: Int, idx: Int, key: String) r: Void
+
+// ============================================================================
+// LuaState wrapper class
+// ============================================================================
+
+/**
+ * High-level wrapper around a Lua 5.4 interpreter state.
+ *
+ * Manages a lua_State handle and provides safe methods for script execution,
+ * stack manipulation, and global variable access. The handle is an opaque Int
+ * (pointer packed as i64); 0 means invalid/closed.
+ *
+ * Example:
+ *   var lua = LuaState.create()
+ *   lua.openLibs()
+ *   lua.doString("x = 42")
+ *   lua.getGlobal("x")
+ *   let val = lua.getInt(-1)
+ *   lua.pop(1)
+ *   lua.close()
+ */
+class LuaState {
+    var handle: Int
+    var valid: Int
+
+    /**
+     * Create a new Lua state with standard allocator.
+     * Returns a LuaState with valid=1 on success, valid=0 on failure.
+     */
+    static fun create() r: LuaState {
+        let L = seen_lua_newstate()
+        var v = 0
+        if L != 0 {
+            v = 1
+        }
+        return LuaState {
+            handle: L,
+            valid: v
+        }
+    }
+
+    /**
+     * Close the Lua state and release all resources.
+     */
+    fun close(this) r: Void {
+        if this.valid == 1 {
+            seen_lua_close(this.handle)
+            this.handle = 0
+            this.valid = 0
+        }
+    }
+
+    /**
+     * Open all standard Lua libraries (base, table, string, math, io, etc.).
+     */
+    fun openLibs(this) r: Void {
+        if this.valid == 1 {
+            seen_lua_openlibs(this.handle)
+        }
+    }
+
+    /**
+     * Execute a Lua code string. Returns LUA_OK (0) on success.
+     */
+    fun doString(this, code: String) r: Int {
+        if this.valid == 0 {
+            return LUA_ERRMEM
+        }
+        return seen_lua_dostring(this.handle, code)
+    }
+
+    /**
+     * Execute a Lua script file. Returns LUA_OK (0) on success.
+     */
+    fun doFile(this, path: String) r: Int {
+        if this.valid == 0 {
+            return LUA_ERRMEM
+        }
+        return seen_lua_dofile(this.handle, path)
+    }
+
+    /**
+     * Protected call with nargs arguments and nresults return values.
+     * msgh is the stack index of an error handler (0 for default).
+     */
+    fun pcall(this, nargs: Int, nresults: Int, msgh: Int) r: Int {
+        if this.valid == 0 {
+            return LUA_ERRMEM
+        }
+        return seen_lua_pcall(this.handle, nargs, nresults, msgh)
+    }
+
+    // ========================================================================
+    // Stack push operations
+    // ========================================================================
+
+    /**
+     * Push nil onto the stack.
+     */
+    fun pushNil(this) r: Void {
+        if this.valid == 1 {
+            seen_lua_pushnil(this.handle)
+        }
+    }
+
+    /**
+     * Push an integer onto the stack.
+     */
+    fun pushInt(this, n: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_pushinteger(this.handle, n)
+        }
+    }
+
+    /**
+     * Push a number onto the stack (integer as fixed-point).
+     */
+    fun pushNumber(this, n: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_pushnumber(this.handle, n)
+        }
+    }
+
+    /**
+     * Push a string onto the stack.
+     */
+    fun pushString(this, s: String) r: Void {
+        if this.valid == 1 {
+            seen_lua_pushstring(this.handle, s)
+        }
+    }
+
+    /**
+     * Push a boolean onto the stack (1=true, 0=false).
+     */
+    fun pushBool(this, b: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_pushboolean(this.handle, b)
+        }
+    }
+
+    // ========================================================================
+    // Stack read operations
+    // ========================================================================
+
+    /**
+     * Get an integer from the stack at the given index.
+     */
+    fun getInt(this, idx: Int) r: Int {
+        if this.valid == 0 {
+            return 0
+        }
+        return seen_lua_tointeger(this.handle, idx)
+    }
+
+    /**
+     * Get a string from the stack at the given index.
+     */
+    fun getString(this, idx: Int) r: String {
+        if this.valid == 0 {
+            return ""
+        }
+        return seen_lua_tostring(this.handle, idx)
+    }
+
+    /**
+     * Get a boolean from the stack at the given index. Returns 1 or 0.
+     */
+    fun getBool(this, idx: Int) r: Int {
+        if this.valid == 0 {
+            return 0
+        }
+        return seen_lua_toboolean(this.handle, idx)
+    }
+
+    // ========================================================================
+    // Type queries
+    // ========================================================================
+
+    /**
+     * Get the type tag of the value at the given stack index.
+     * Returns one of the LUA_T* constants.
+     */
+    fun typeAt(this, idx: Int) r: Int {
+        if this.valid == 0 {
+            return LUA_TNIL
+        }
+        return seen_lua_type(this.handle, idx)
+    }
+
+    /**
+     * Get the human-readable type name for a type tag.
+     */
+    fun typeName(this, tp: Int) r: String {
+        if this.valid == 0 {
+            return "none"
+        }
+        return seen_lua_typename(this.handle, tp)
+    }
+
+    /**
+     * Check if the value at the given index is nil. Returns 1 if nil.
+     */
+    fun isNil(this, idx: Int) r: Int {
+        if this.valid == 0 {
+            return 1
+        }
+        return seen_lua_isnil(this.handle, idx)
+    }
+
+    /**
+     * Check if the value at the given index is an integer. Returns 1 if true.
+     */
+    fun isInteger(this, idx: Int) r: Int {
+        if this.valid == 0 {
+            return 0
+        }
+        return seen_lua_isinteger(this.handle, idx)
+    }
+
+    /**
+     * Check if the value at the given index is a string. Returns 1 if true.
+     */
+    fun isString(this, idx: Int) r: Int {
+        if this.valid == 0 {
+            return 0
+        }
+        return seen_lua_isstring(this.handle, idx)
+    }
+
+    // ========================================================================
+    // Stack manipulation
+    // ========================================================================
+
+    /**
+     * Pop n values from the stack.
+     */
+    fun pop(this, n: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_pop(this.handle, n)
+        }
+    }
+
+    /**
+     * Get the number of elements on the stack.
+     */
+    fun getTop(this) r: Int {
+        if this.valid == 0 {
+            return 0
+        }
+        return seen_lua_gettop(this.handle)
+    }
+
+    /**
+     * Set the stack top to the given index (truncates or extends with nil).
+     */
+    fun setTop(this, idx: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_settop(this.handle, idx)
+        }
+    }
+
+    // ========================================================================
+    // Global variable access
+    // ========================================================================
+
+    /**
+     * Push the value of a global variable onto the stack.
+     * Returns the type tag of the pushed value.
+     */
+    fun getGlobal(this, name: String) r: Int {
+        if this.valid == 0 {
+            return LUA_TNIL
+        }
+        return seen_lua_getglobal(this.handle, name)
+    }
+
+    /**
+     * Pop the top value from the stack and set it as a global variable.
+     */
+    fun setGlobal(this, name: String) r: Void {
+        if this.valid == 1 {
+            seen_lua_setglobal(this.handle, name)
+        }
+    }
+
+    // ========================================================================
+    // Table operations
+    // ========================================================================
+
+    /**
+     * Create a new empty table and push it onto the stack.
+     * narr is the hint for array part size, nrec for hash part size.
+     */
+    fun createTable(this, narr: Int, nrec: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_createtable(this.handle, narr, nrec)
+        }
+    }
+
+    /**
+     * Set a table field: t[key] = value.
+     * Pops both key and value from the stack. idx is the table's stack index.
+     */
+    fun setTable(this, idx: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_settable(this.handle, idx)
+        }
+    }
+
+    /**
+     * Get a table field: pushes t[key] onto the stack.
+     * Key must be on top of the stack (gets popped). Returns the type tag.
+     */
+    fun getTable(this, idx: Int) r: Int {
+        if this.valid == 0 {
+            return LUA_TNIL
+        }
+        return seen_lua_gettable(this.handle, idx)
+    }
+
+    /**
+     * Raw set: t[n] = value (pops value from stack).
+     * idx is the table's stack index, n is the integer key.
+     */
+    fun rawSetI(this, idx: Int, n: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_rawseti(this.handle, idx, n)
+        }
+    }
+
+    /**
+     * Raw get: pushes t[n] onto the stack.
+     * Returns the type tag of the pushed value.
+     */
+    fun rawGetI(this, idx: Int, n: Int) r: Int {
+        if this.valid == 0 {
+            return LUA_TNIL
+        }
+        return seen_lua_rawgeti(this.handle, idx, n)
+    }
+
+    /**
+     * Table iterator: pops key, pushes next key-value pair.
+     * Returns 1 if there is a next pair, 0 if iteration is done.
+     */
+    fun next(this, idx: Int) r: Int {
+        if this.valid == 0 {
+            return 0
+        }
+        return seen_lua_next(this.handle, idx)
+    }
+
+    /**
+     * Push the length of the value at idx onto the stack.
+     */
+    fun len(this, idx: Int) r: Void {
+        if this.valid == 1 {
+            seen_lua_len(this.handle, idx)
+        }
+    }
+
+    /**
+     * Get a table field by string key: pushes t[key] onto the stack.
+     * Returns the type tag of the pushed value.
+     */
+    fun getField(this, idx: Int, key: String) r: Int {
+        if this.valid == 0 {
+            return LUA_TNIL
+        }
+        return seen_lua_getfield(this.handle, idx, key)
+    }
+
+    /**
+     * Set a table field by string key: t[key] = top value (pops value).
+     */
+    fun setField(this, idx: Int, key: String) r: Void {
+        if this.valid == 1 {
+            seen_lua_setfield(this.handle, idx, key)
+        }
+    }
+}

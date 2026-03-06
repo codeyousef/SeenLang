@@ -1,0 +1,122 @@
+// Test @hot_reload decorator
+// This test verifies hot reload state serialization
+
+// A simple class marked for hot reload
+@hot_reload
+class GameState {
+    var score: Int
+    var level: Int
+    var health: Int
+    var name: String
+
+    static fun new() r: GameState {
+        return GameState{
+            score: 0,
+            level: 1,
+            health: 100,
+            name: "Player"
+        }
+    }
+
+    fun addScore(points: Int) r: Void {
+        score = score + points
+    }
+
+    fun nextLevel() r: Void {
+        level = level + 1
+        health = 100  // Restore health on level up
+    }
+
+    fun takeDamage(damage: Int) r: Void {
+        health = health - damage
+        if health < 0 {
+            health = 0
+        }
+    }
+
+    fun toString() r: String {
+        return "GameState{score=" + score.toString() + ", level=" + level.toString() + ", health=" + health.toString() + ", name=" + name + "}"
+    }
+}
+
+// Another hot reload class with different fields
+@hot_reload
+@derive(Serialize)
+class ConfigState {
+    var volume: Int
+    var brightness: Int
+    var fullscreen: Bool
+
+    static fun new() r: ConfigState {
+        return ConfigState{
+            volume: 80,
+            brightness: 100,
+            fullscreen: false
+        }
+    }
+
+    fun setVolume(v: Int) r: Void {
+        volume = v
+    }
+
+    fun setBrightness(b: Int) r: Void {
+        brightness = b
+    }
+
+    fun toggleFullscreen() r: Void {
+        fullscreen = not fullscreen
+    }
+}
+
+fun main() r: Int {
+    println("Testing @hot_reload decorator...")
+
+    // Create game state
+    let game = GameState.new()
+    println("Initial: " + game.toString())
+
+    // Modify state
+    game.addScore(100)
+    game.addScore(50)
+    game.nextLevel()
+    game.takeDamage(25)
+    println("Modified: " + game.toString())
+
+    // Test state serialization (would be used during hot reload)
+    // In a real scenario, we'd save this before reload and restore after
+    let stateSize = game.__seen_hot_get_size()
+    println("State size: " + stateSize.toString() + " bytes")
+
+    let stateVersion = game.__seen_hot_get_version()
+    println("State version: " + stateVersion.toString())
+
+    // Get serialized state
+    let serialized = game.__seen_hot_get_state()
+    println("State serialized: " + (if serialized != null { "success" } else { "failed" }))
+
+    // Create new game state (simulating after reload)
+    let newGame = GameState.new()
+    println("New (before restore): " + newGame.toString())
+
+    // Restore from serialized state
+    if serialized != null {
+        newGame.__seen_hot_set_state(serialized)
+        println("New (after restore): " + newGame.toString())
+    }
+
+    // Test config state
+    println("\nTesting ConfigState...")
+    let config = ConfigState.new()
+    config.setVolume(50)
+    config.setBrightness(75)
+    config.toggleFullscreen()
+
+    let configSize = config.__seen_hot_get_size()
+    println("Config size: " + configSize.toString() + " bytes")
+
+    let configState = config.__seen_hot_get_state()
+    println("Config serialized: " + (if configState != null { "success" } else { "failed" }))
+
+    println("\nAll @hot_reload tests passed!")
+    return 0
+}

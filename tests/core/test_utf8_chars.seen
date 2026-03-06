@@ -1,0 +1,124 @@
+// UTF-8 Character Roundtrip Test
+// Tests that UTF-8 characters preserve codepoint and string representation
+// Expected: All UTF-8 characters work correctly
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    println("Testing UTF-8 character support...")
+
+    // Test 1: ASCII characters
+    let asciiChar = 'A'
+    if asciiChar.toInt() == 65 {
+        println("PASS: ASCII char 'A' has codepoint 65")
+        passed = passed + 1
+    } else {
+        println("FAIL: ASCII char 'A' has wrong codepoint: " + asciiChar.toInt().toString())
+        failed = failed + 1
+    }
+
+    if asciiChar.toString() == "A" {
+        println("PASS: ASCII char 'A' converts to string \"A\"")
+        passed = passed + 1
+    } else {
+        println("FAIL: ASCII char 'A' converts to wrong string")
+        failed = failed + 1
+    }
+
+    // Test 2: Arabic character (ا = Alif, U+0627)
+    let arabicChar = 'ا'
+    if arabicChar.toInt() == 1575 {
+        println("PASS: Arabic char 'ا' has codepoint 1575")
+        passed = passed + 1
+    } else {
+        println("FAIL: Arabic char 'ا' has wrong codepoint: " + arabicChar.toInt().toString())
+        failed = failed + 1
+    }
+
+    if arabicChar.toString() == "ا" {
+        println("PASS: Arabic char 'ا' converts to string \"ا\"")
+        passed = passed + 1
+    } else {
+        println("FAIL: Arabic char 'ا' converts to wrong string")
+        failed = failed + 1
+    }
+
+    // Test 3: Chinese character (中 = middle, U+4E2D)
+    let chineseChar = '中'
+    if chineseChar.toInt() == 20013 {
+        println("PASS: Chinese char '中' has codepoint 20013")
+        passed = passed + 1
+    } else {
+        println("FAIL: Chinese char '中' has wrong codepoint: " + chineseChar.toInt().toString())
+        failed = failed + 1
+    }
+
+    if chineseChar.toString() == "中" {
+        println("PASS: Chinese char '中' converts to string \"中\"")
+        passed = passed + 1
+    } else {
+        println("FAIL: Chinese char '中' converts to wrong string")
+        failed = failed + 1
+    }
+
+    // Test 4: Emoji (🚀 = rocket, U+1F680)
+    let emojiChar = '🚀'
+    if emojiChar.toInt() == 128640 {
+        println("PASS: Emoji '🚀' has codepoint 128640")
+        passed = passed + 1
+    } else {
+        println("FAIL: Emoji '🚀' has wrong codepoint: " + emojiChar.toInt().toString())
+        failed = failed + 1
+    }
+
+    if emojiChar.toString() == "🚀" {
+        println("PASS: Emoji '🚀' converts to string \"🚀\"")
+        passed = passed + 1
+    } else {
+        println("FAIL: Emoji '🚀' converts to wrong string")
+        failed = failed + 1
+    }
+
+    // Test 5: String.charAt() returns correct codepoint
+    let testString = "A中🚀"
+    let char0 = testString.charAt(0)
+    if char0.toInt() == 65 {
+        println("PASS: String.charAt(0) returns 'A'")
+        passed = passed + 1
+    } else {
+        println("FAIL: String.charAt(0) wrong codepoint: " + char0.toInt().toString())
+        failed = failed + 1
+    }
+
+    let char1 = testString.charAt(1)
+    if char1.toInt() == 20013 {
+        println("PASS: String.charAt(1) returns '中'")
+        passed = passed + 1
+    } else {
+        println("FAIL: String.charAt(1) wrong codepoint: " + char1.toInt().toString())
+        failed = failed + 1
+    }
+
+    let char2 = testString.charAt(2)
+    if char2.toInt() == 128640 {
+        println("PASS: String.charAt(2) returns '🚀'")
+        passed = passed + 1
+    } else {
+        println("FAIL: String.charAt(2) wrong codepoint: " + char2.toInt().toString())
+        failed = failed + 1
+    }
+
+    // Summary
+    println("")
+    println("UTF-8 Test Results:")
+    println("Passed: " + passed.toString() + "/" + (passed + failed).toString())
+
+    if failed > 0 {
+        println("FAIL: Some UTF-8 tests failed")
+        return 1
+    }
+
+    println("PASS: All UTF-8 tests passed!")
+    return 0
+}

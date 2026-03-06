@@ -1,0 +1,36 @@
+name = "Japanese"
+description = "Japanese Builtin Names"
+
+[std_lib]
+# 型名
+"整数" = "seen_std.builtins.Int"
+"文字列" = "seen_std.builtins.String"
+"浮動小数" = "seen_std.builtins.Float"
+"真偽" = "seen_std.builtins.Bool"
+"無" = "seen_std.builtins.Void"
+"文字" = "seen_std.builtins.Char"
+
+# 出力関数
+"表示" = "seen_std.builtins.println"
+"出力" = "seen_std.builtins.print"
+"エラー表示" = "seen_std.builtins.eprintln"
+
+# エントリーポイント
+"メイン" = "seen_std.builtins.main"
+
+# 自己参照
+"これ" = "seen_std.builtins.this"
+
+# 変換メソッド
+"文字列化" = "seen_std.builtins.toString"
+"浮動小数化" = "seen_std.builtins.toFloat"
+"整数化" = "seen_std.builtins.toInt"
+
+# コレクションメソッド
+"長さ" = "seen_std.builtins.length"
+"追加" = "seen_std.builtins.push"
+"取得" = "seen_std.builtins.get"
+"設定" = "seen_std.builtins.put"
+
+# コンストラクタ
+"新規" = "seen_std.builtins.new"

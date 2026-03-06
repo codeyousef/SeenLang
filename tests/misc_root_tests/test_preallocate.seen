@@ -1,0 +1,95 @@
+// Test @preallocate decorator
+// This test verifies region-based memory allocation
+
+// Simple function with default preallocate settings
+@preallocate
+fun testDefaultPreallocate() r: Int {
+    // Allocations in this function use a 4KB region
+    var x = 42
+    var y = 100
+    return x + y
+}
+
+// Function with custom size
+@preallocate(size = 8192)
+fun testCustomSize() r: Int {
+    // Uses an 8KB region
+    var sum = 0
+    var i = 0
+    while i < 100 {
+        sum = sum + i
+        i = i + 1
+    }
+    return sum
+}
+
+// Function with custom strategy
+@preallocate(size = 16384, strategy = "bump")
+fun testBumpStrategy() r: Int {
+    // Uses bump allocation strategy
+    var result = 0
+    var j = 0
+    while j < 50 {
+        result = result + j * 2
+        j = j + 1
+    }
+    return result
+}
+
+// Function with stack strategy
+@preallocate(size = 4096, strategy = "stack")
+fun testStackStrategy() r: String {
+    let greeting = "Hello from preallocated region!"
+    return greeting
+}
+
+// Nested function calls with different preallocate settings
+@preallocate(size = 2048)
+fun innerFunction() r: Int {
+    return 100
+}
+
+@preallocate(size = 4096)
+fun outerFunction() r: Int {
+    let inner = innerFunction()
+    return inner + 200
+}
+
+// Multiple returns test
+@preallocate(size = 1024)
+fun testMultipleReturns(x: Int) r: Int {
+    if x < 0 {
+        return 0 - x  // Early return, region should be cleaned up
+    }
+    if x == 0 {
+        return 0  // Another early return
+    }
+    return x * 2  // Normal return
+}
+
+fun main() r: Int {
+    println("Testing @preallocate decorator...")
+
+    let result1 = testDefaultPreallocate()
+    println("Default preallocate: " + result1.toString())
+
+    let result2 = testCustomSize()
+    println("Custom size (8KB): " + result2.toString())
+
+    let result3 = testBumpStrategy()
+    println("Bump strategy: " + result3.toString())
+
+    let result4 = testStackStrategy()
+    println("Stack strategy: " + result4)
+
+    let result5 = outerFunction()
+    println("Nested preallocate: " + result5.toString())
+
+    let result6a = testMultipleReturns(-5)
+    let result6b = testMultipleReturns(0)
+    let result6c = testMultipleReturns(10)
+    println("Multiple returns: " + result6a.toString() + ", " + result6b.toString() + ", " + result6c.toString())
+
+    println("All @preallocate tests passed!")
+    return 0
+}

@@ -1,0 +1,136 @@
+// Synthetic: Hash table / key-value workload (int keys)
+// Represents: symbol tables, caches, config systems, databases
+// Uses integer keys to avoid String-in-array codegen limitations
+
+fun hashInt(key: Int) r: Int {
+    // Murmur-like integer hash
+    var h = key
+    h = h * 2654435761
+    if h < 0 { h = 0 - h }
+    return h
+}
+
+fun newTable(cap: Int, keys: Array<Int>, values: Array<Int>, occupied: Array<Int>) r: Void {
+    var i = 0
+    while i < cap {
+        keys.push(0)
+        values.push(0)
+        occupied.push(0)
+        i = i + 1
+    }
+}
+
+fun tablePut(keys: Array<Int>, values: Array<Int>, occupied: Array<Int>, capacity: Int, key: Int, value: Int) r: Void {
+    let h = hashInt(key)
+    var idx = h - (h / capacity) * capacity
+    var probes = 0
+    while probes < capacity {
+        if occupied[idx] == 0 {
+            keys[idx] = key
+            values[idx] = value
+            occupied[idx] = 1
+            return
+        }
+        if keys[idx] == key {
+            values[idx] = value
+            return
+        }
+        idx = idx + 1
+        if idx >= capacity { idx = 0 }
+        probes = probes + 1
+    }
+}
+
+fun tableGet(keys: Array<Int>, values: Array<Int>, occupied: Array<Int>, capacity: Int, key: Int) r: Int {
+    let h = hashInt(key)
+    var idx = h - (h / capacity) * capacity
+    var probes = 0
+    while probes < capacity {
+        if occupied[idx] == 0 { return 0 - 1 }
+        if keys[idx] == key { return values[idx] }
+        idx = idx + 1
+        if idx >= capacity { idx = 0 }
+        probes = probes + 1
+    }
+    return 0 - 1
+}
+
+fun tableSize(occupied: Array<Int>) r: Int {
+    var count = 0
+    var i = 0
+    while i < occupied.length() {
+        if occupied[i] == 1 {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fun main() r: Void {
+    let capacity = 10007
+    var keys = Array<Int>()
+    var values = Array<Int>()
+    var occupied = Array<Int>()
+    newTable(capacity, keys, values, occupied)
+
+    // Insert 5000 entries
+    var i = 0
+    while i < 5000 {
+        tablePut(keys, values, occupied, capacity, i * 7 + 3, i * 11 + 5)
+        i = i + 1
+    }
+    let size = tableSize(occupied)
+    println("Map size: " + size.toString())
+
+    // Lookup all entries (some will hit, some will miss)
+    var found = 0
+    var missed = 0
+    i = 0
+    while i < 7000 {
+        let key = i * 7 + 3
+        let val = tableGet(keys, values, occupied, capacity, key)
+        if val >= 0 {
+            found = found + 1
+        } else {
+            missed = missed + 1
+        }
+        i = i + 1
+    }
+    println("Found: " + found.toString())
+    println("Missed: " + missed.toString())
+
+    // Update entries (overwrite even-indexed keys)
+    i = 0
+    while i < 2500 {
+        let key = i * 2 * 7 + 3
+        tablePut(keys, values, occupied, capacity, key, 999)
+        i = i + 1
+    }
+    let sizeAfter = tableSize(occupied)
+    println("After updates, size: " + sizeAfter.toString())
+
+    // Count entries with value 999
+    var count999 = 0
+    i = 0
+    while i < capacity {
+        if occupied[i] == 1 {
+            if values[i] == 999 {
+                count999 = count999 + 1
+            }
+        }
+        i = i + 1
+    }
+    println("Entries with value 999: " + count999.toString())
+
+    // Random access pattern: lookup keys in shuffled order
+    var accessCount = 0
+    i = 0
+    while i < 10000 {
+        let key = (i * 2971 + 137) - ((i * 2971 + 137) / 50000) * 50000
+        let val = tableGet(keys, values, occupied, capacity, key)
+        if val >= 0 { accessCount = accessCount + 1 }
+        i = i + 1
+    }
+    println("Random access hits: " + accessCount.toString())
+}

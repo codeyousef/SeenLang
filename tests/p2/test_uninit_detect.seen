@@ -1,0 +1,7 @@
+fun main() r: Int {
+    var x = 0
+    x = 10
+    let y = x
+    println("PASS: uninit_detect")
+    return 0
+}

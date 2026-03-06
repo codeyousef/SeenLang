@@ -1,0 +1,166 @@
+// Cost Model for E-graph Extraction
+// Assigns real instruction costs for optimal code selection
+
+class CostModel {
+    fun new() r: CostModel {
+        return CostModel{}
+    }
+
+    // Get the cost of a single operation
+    fun opCost(op: String) r: Int {
+        // Constants are free
+        if startsWith(op, "const_") {
+            return 0
+        }
+        // Phi nodes are free (register allocation handles them)
+        if op == "phi" {
+            return 0
+        }
+        // Branches and jumps
+        if op == "br" {
+            return 1
+        }
+        if op == "jmp" {
+            return 1
+        }
+        // Bitwise operations (1 cycle)
+        if op == "and" {
+            return 1
+        }
+        if op == "or" {
+            return 1
+        }
+        if op == "xor" {
+            return 1
+        }
+        if op == "not" {
+            return 1
+        }
+        if op == "shl" {
+            return 1
+        }
+        if op == "shr" {
+            return 1
+        }
+        if op == "ashr" {
+            return 1
+        }
+        // Negation
+        if op == "neg" {
+            return 1
+        }
+        // Integer arithmetic
+        if op == "add" {
+            return 1
+        }
+        if op == "sub" {
+            return 1
+        }
+        if op == "mul" {
+            return 3
+        }
+        if op == "div" {
+            return 20
+        }
+        if op == "rem" {
+            return 20
+        }
+        // Floating point
+        if op == "fadd" {
+            return 3
+        }
+        if op == "fsub" {
+            return 3
+        }
+        if op == "fmul" {
+            return 5
+        }
+        if op == "fdiv" {
+            return 15
+        }
+        // Memory operations
+        if op == "load" {
+            return 4
+        }
+        if op == "store" {
+            return 4
+        }
+        // Function calls
+        if op == "call" {
+            return 10
+        }
+        // Comparisons
+        if op == "eq" {
+            return 1
+        }
+        if op == "ne" {
+            return 1
+        }
+        if op == "lt" {
+            return 1
+        }
+        if op == "gt" {
+            return 1
+        }
+        if op == "lte" {
+            return 1
+        }
+        if op == "gte" {
+            return 1
+        }
+        // Default cost for unknown operations
+        return 5
+    }
+
+    // Calculate total cost of a node in the e-graph (recursive)
+    fun nodeCost(graph: EGraph, nodeIdx: Int) r: Int {
+        let op = graph.nodeOp(nodeIdx)
+        var cost = opCost(op)
+
+        // Add children costs
+        let children = graph.nodeChildren(nodeIdx)
+        var i = 0
+        while i < children.length() {
+            let childNodes = graph.classNodes(children[i])
+            if childNodes.length() > 0 {
+                // Use cheapest node in child class
+                var minChildCost = 999999
+                var ci = 0
+                while ci < childNodes.length() {
+                    let childCost = opCost(graph.nodeOp(childNodes[ci]))
+                    if childCost < minChildCost {
+                        minChildCost = childCost
+                    }
+                    ci = ci + 1
+                }
+                cost = cost + minChildCost
+            }
+            i = i + 1
+        }
+
+        return cost
+    }
+
+    // Extract the cheapest node from an e-class
+    fun extractCheapest(graph: EGraph, classId: Int) r: Int {
+        let nodes = graph.classNodes(classId)
+        if nodes.length() == 0 {
+            return -1
+        }
+
+        var bestIdx = nodes[0]
+        var bestCost = nodeCost(graph, nodes[0])
+
+        var i = 1
+        while i < nodes.length() {
+            let cost = nodeCost(graph, nodes[i])
+            if cost < bestCost {
+                bestCost = cost
+                bestIdx = nodes[i]
+            }
+            i = i + 1
+        }
+
+        return bestIdx
+    }
+}

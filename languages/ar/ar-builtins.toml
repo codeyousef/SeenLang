@@ -1,0 +1,39 @@
+name = "Arabic"
+description = "Arabic Builtin Names"
+
+[std_lib]
+# أسماء الأنواع
+"عدد" = "seen_std.builtins.Int"
+"نص" = "seen_std.builtins.String"
+"عشري" = "seen_std.builtins.Float"
+"منطقي" = "seen_std.builtins.Bool"
+"فراغ" = "seen_std.builtins.Void"
+"حرف" = "seen_std.builtins.Char"
+
+# دوال الطباعة
+"اطبع" = "seen_std.builtins.println"
+"اطبع_نفس" = "seen_std.builtins.print"
+"اطبع_خطأ" = "seen_std.builtins.eprintln"
+
+# نقطة الدخول
+"رئيسية" = "seen_std.builtins.main"
+
+# مرجع الذات
+"هذا" = "seen_std.builtins.this"
+
+# تسمية نوع الإرجاع
+"ن" = "seen_std.builtins.r"
+
+# دوال التحويل
+"إلى_نص" = "seen_std.builtins.toString"
+"إلى_عشري" = "seen_std.builtins.toFloat"
+"إلى_عدد" = "seen_std.builtins.toInt"
+
+# دوال المجموعات
+"طول" = "seen_std.builtins.length"
+"أضف" = "seen_std.builtins.push"
+"احصل" = "seen_std.builtins.get"
+"ضع" = "seen_std.builtins.put"
+
+# المنشئ
+"جديد" = "seen_std.builtins.new"

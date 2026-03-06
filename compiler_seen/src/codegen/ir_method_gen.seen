@@ -1,0 +1,420 @@
+// ir_method_gen.seen — Method call codegen for primitive/built-in receiver types
+// Extracted from llvm_ir_gen.seen generateMethodCall() to follow SRP
+// Each impl function returns a result register string, or "" for fallthrough
+
+import codegen.ir_optimization.{getNextRegFn}
+import str.string.{StringBuilder}
+
+// emitToStringMethodImpl — toString dispatch for Float/Bool/Char/String/Class/Int
+// isClassReceiver: 1 if receiverType is a class type (pre-resolved by wrapper)
+fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String, isClassReceiver: Int) r: String {
+    if receiverType == "Float" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @seen_float_to_string(double " + receiverReg + ")\n")
+        return resultReg
+    }
+    if receiverType == "Bool" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @seen_bool_to_string(i1 " + receiverReg + ")\n")
+        return resultReg
+    }
+    if receiverType == "Char" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @seen_char_to_str(i64 " + receiverReg + ")\n")
+        return resultReg
+    }
+    if receiverType == "String" {
+        return receiverReg
+    }
+    if isClassReceiver == 1 {
+        let ptrConvReg = getNextRegFn(regBox)
+        output.append("  " + ptrConvReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @" + receiverType + "_toString(ptr " + ptrConvReg + ")\n")
+        return resultReg
+    }
+    // Default: Int.toString()
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call %SeenString @seen_int_to_string(i64 " + receiverReg + ")\n")
+    return resultReg
+}
+
+// emitToIntMethodImpl — toInt dispatch for Float/String/Int/Char
+// Returns "" for user-defined class types (fallthrough to class method call)
+fun emitToIntMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
+    if receiverType == "Float" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = fptosi double " + receiverReg + " to i64\n")
+        return resultReg
+    }
+    if receiverType == "String" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @String_toInt(%SeenString " + receiverReg + ")\n")
+        return resultReg
+    }
+    if receiverType == "Int" or receiverType == "Char" or receiverType == "" {
+        return receiverReg
+    }
+    return ""
+}
+
+// emitToFloatMethodImpl — toFloat dispatch for String/Int/Float
+fun emitToFloatMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
+    if receiverType == "String" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call double @String_toFloat(%SeenString " + receiverReg + ")\n")
+        return resultReg
+    }
+    if receiverType == "Int" or receiverType == "" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = sitofp i64 " + receiverReg + " to double\n")
+        return resultReg
+    }
+    return receiverReg
+}
+
+// emitNumericMethodImpl — abs/min/max/clamp/floor/ceil/round/sqrt/isNaN/isInfinite
+// arg0Reg/arg1Reg: pre-generated argument registers (for min/max/clamp)
+fun emitNumericMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, receiverType: String, arg0Reg: String, arg1Reg: String) r: String {
+    // Int.abs() - branchless absolute value
+    if methodName == "abs" and (receiverType == "Int" or receiverType == "") {
+        let shiftReg = getNextRegFn(regBox)
+        output.append("  " + shiftReg + " = ashr i64 " + receiverReg + ", 63\n")
+        let xorReg = getNextRegFn(regBox)
+        output.append("  " + xorReg + " = xor i64 " + receiverReg + ", " + shiftReg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = sub nsw i64 " + xorReg + ", " + shiftReg + "\n")
+        return resultReg
+    }
+    // Float.abs()
+    if methodName == "abs" and receiverType == "Float" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.fabs.f64(double " + receiverReg + ")\n")
+        return resultReg
+    }
+    // Int.min(other)
+    if methodName == "min" and (receiverType == "Int" or receiverType == "") {
+        let cmpReg = getNextRegFn(regBox)
+        output.append("  " + cmpReg + " = icmp slt i64 " + receiverReg + ", " + arg0Reg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = select i1 " + cmpReg + ", i64 " + receiverReg + ", i64 " + arg0Reg + "\n")
+        return resultReg
+    }
+    // Float.min(other)
+    if methodName == "min" and receiverType == "Float" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.minnum.f64(double " + receiverReg + ", double " + arg0Reg + ")\n")
+        return resultReg
+    }
+    // Int.max(other)
+    if methodName == "max" and (receiverType == "Int" or receiverType == "") {
+        let cmpReg = getNextRegFn(regBox)
+        output.append("  " + cmpReg + " = icmp sgt i64 " + receiverReg + ", " + arg0Reg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = select i1 " + cmpReg + ", i64 " + receiverReg + ", i64 " + arg0Reg + "\n")
+        return resultReg
+    }
+    // Float.max(other)
+    if methodName == "max" and receiverType == "Float" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.maxnum.f64(double " + receiverReg + ", double " + arg0Reg + ")\n")
+        return resultReg
+    }
+    // Int.clamp(low, high)
+    if methodName == "clamp" and (receiverType == "Int" or receiverType == "") {
+        let cmpLowReg = getNextRegFn(regBox)
+        output.append("  " + cmpLowReg + " = icmp sgt i64 " + receiverReg + ", " + arg0Reg + "\n")
+        let maxLowReg = getNextRegFn(regBox)
+        output.append("  " + maxLowReg + " = select i1 " + cmpLowReg + ", i64 " + receiverReg + ", i64 " + arg0Reg + "\n")
+        let cmpHighReg = getNextRegFn(regBox)
+        output.append("  " + cmpHighReg + " = icmp slt i64 " + maxLowReg + ", " + arg1Reg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = select i1 " + cmpHighReg + ", i64 " + maxLowReg + ", i64 " + arg1Reg + "\n")
+        return resultReg
+    }
+    // Float.floor()
+    if methodName == "floor" and (receiverType == "Float" or receiverType == "") {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.floor.f64(double " + receiverReg + ")\n")
+        return resultReg
+    }
+    // Float.ceil()
+    if methodName == "ceil" and (receiverType == "Float" or receiverType == "") {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.ceil.f64(double " + receiverReg + ")\n")
+        return resultReg
+    }
+    // Float.round()
+    if methodName == "round" and (receiverType == "Float" or receiverType == "") {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.round.f64(double " + receiverReg + ")\n")
+        return resultReg
+    }
+    // Float.sqrt()
+    if methodName == "sqrt" and (receiverType == "Float" or receiverType == "") {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.sqrt.f64(double " + receiverReg + ")\n")
+        return resultReg
+    }
+    // Float.isNaN() - NaN != NaN (must NOT use fast flag)
+    if methodName == "isNaN" and (receiverType == "Float" or receiverType == "") {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = fcmp une double " + receiverReg + ", " + receiverReg + "\n")
+        return resultReg
+    }
+    // Float.isInfinite() - |x| == +inf (must NOT use fast flag)
+    if methodName == "isInfinite" and (receiverType == "Float" or receiverType == "") {
+        let fabsReg = getNextRegFn(regBox)
+        output.append("  " + fabsReg + " = call double @llvm.fabs.f64(double " + receiverReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = fcmp oeq double " + fabsReg + ", 0x7FF0000000000000\n")
+        return resultReg
+    }
+    return ""
+}
+
+// emitSmallVecMethodImpl — SmallVec push/get/length/clear
+// argReg: pre-generated argument register (for push/get)
+fun emitSmallVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, receiverType: String, argReg: String) r: String {
+    var svElemSuffix = "_i64"
+    if receiverType.contains("String") {
+        svElemSuffix = "_str"
+    }
+    if receiverType.contains("Float") {
+        svElemSuffix = "_f64"
+    }
+    if methodName == "push" {
+        output.append("  call void @seen_small_vec_push" + svElemSuffix + "(i64 " + receiverReg + ", i64 " + argReg + ")\n")
+        return "0"
+    }
+    if methodName == "get" {
+        let svGetReg = getNextRegFn(regBox)
+        output.append("  " + svGetReg + " = call i64 @seen_small_vec_get" + svElemSuffix + "(i64 " + receiverReg + ", i64 " + argReg + ")\n")
+        return svGetReg
+    }
+    if methodName == "length" or methodName == "len" {
+        let svLenReg = getNextRegFn(regBox)
+        output.append("  " + svLenReg + " = call i64 @seen_small_vec_length(i64 " + receiverReg + ")\n")
+        return svLenReg
+    }
+    if methodName == "clear" {
+        output.append("  call void @seen_small_vec_clear(i64 " + receiverReg + ")\n")
+        return "0"
+    }
+    return ""
+}
+
+// emitArrayBasicMethodImpl — Array<T> len/get/push/set for simple variable receivers
+// arg0Reg/arg1Reg: pre-generated argument registers
+fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, receiverType: String, arg0Reg: String, arg1Reg: String) r: String {
+    let hasStringElem = receiverType.contains("<String>")
+    let hasFloatElem = receiverType.contains("<Float>")
+
+    if methodName == "len" or methodName == "length" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_arr_length_ptr(ptr " + receiverReg + ")\n")
+        return resultReg
+    }
+
+    if methodName == "dataPtr" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_arr_data_ptr(ptr " + receiverReg + ")\n")
+        return resultReg
+    }
+
+    if methodName == "get" {
+        if hasStringElem {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @seen_arr_get_str_ptr(ptr " + receiverReg + ", i64 " + arg0Reg + ")\n")
+            return resultReg
+        } else {
+            if hasFloatElem {
+                let tmpReg = getNextRegFn(regBox)
+                output.append("  " + tmpReg + " = call i64 @seen_arr_get_i64(ptr " + receiverReg + ", i64 " + arg0Reg + ")\n")
+                let resultReg = getNextRegFn(regBox)
+                output.append("  " + resultReg + " = bitcast i64 " + tmpReg + " to double\n")
+                return resultReg
+            } else {
+                let resultReg = getNextRegFn(regBox)
+                output.append("  " + resultReg + " = call i64 @seen_arr_get_i64(ptr " + receiverReg + ", i64 " + arg0Reg + ")\n")
+                return resultReg
+            }
+        }
+    }
+
+    if methodName == "push" {
+        if hasStringElem {
+            output.append("  call void @seen_arr_push_str(ptr " + receiverReg + ", %SeenString " + arg0Reg + ")\n")
+        } else {
+            if hasFloatElem {
+                output.append("  call void @seen_arr_push_f64(ptr " + receiverReg + ", double " + arg0Reg + ")\n")
+            } else {
+                output.append("  call void @seen_arr_push_i64(ptr " + receiverReg + ", i64 " + arg0Reg + ")\n")
+            }
+        }
+        return "0"
+    }
+
+    if methodName == "set" {
+        if hasStringElem {
+            output.append("  call void @seen_arr_set_str(ptr " + receiverReg + ", i64 " + arg0Reg + ", %SeenString " + arg1Reg + ")\n")
+        } else {
+            if hasFloatElem {
+                output.append("  call void @seen_arr_set_double(ptr " + receiverReg + ", i64 " + arg0Reg + ", double " + arg1Reg + ")\n")
+            } else {
+                output.append("  call void @seen_arr_set_i64(ptr " + receiverReg + ", i64 " + arg0Reg + ", i64 " + arg1Reg + ")\n")
+            }
+        }
+        return "0"
+    }
+    return ""
+}
+
+// emitLengthSizeMethodImpl — length/len/size dispatch for HashMap/LinkedList/Array/String
+// Handles types that don't need convertReceiverToPtr class method
+// Returns "" for types that need class method dispatch (Vec, Map, BTreeMap, List, StringBuilder)
+fun emitLengthSizeMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String) r: String {
+    // HashMap size
+    let isHashMapType = receiverType == "HashMap" or receiverType.startsWith("HashMap<")
+    if isHashMapType {
+        let mapPtrReg = getNextRegFn(regBox)
+        output.append("  " + mapPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        let hasStringKey = receiverType.contains("<String")
+        let hasStringValue = receiverType.contains(", String>") or receiverType.contains(",String>")
+        let resultReg = getNextRegFn(regBox)
+        if hasStringKey and hasStringValue {
+            output.append("  " + resultReg + " = call i64 @HashMap_size_str_str(ptr " + mapPtrReg + ")\n")
+        } else if hasStringKey {
+            output.append("  " + resultReg + " = call i64 @HashMap_size_str(ptr " + mapPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @HashMap_size(ptr " + mapPtrReg + ")\n")
+        }
+        return resultReg
+    }
+    // LinkedList size
+    let isLinkedListType = receiverType == "LinkedList" or receiverType.startsWith("LinkedList<")
+    if isLinkedListType {
+        let llPtrReg = getNextRegFn(regBox)
+        output.append("  " + llPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        let hasStringElement = receiverType.contains("<String")
+        let resultReg = getNextRegFn(regBox)
+        if hasStringElement {
+            output.append("  " + resultReg + " = call i64 @LinkedList_size_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_size(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+    // Array direct GEP length (most efficient — enables LICM)
+    let isArrayType = receiverType.startsWith("Array<") or receiverType == "Array"
+    if isArrayType {
+        let lenPtrReg = getNextRegFn(regBox)
+        output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + receiverReg + ", i32 0, i32 0\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
+        return resultReg
+    }
+    // String length fallback
+    if receiverType == "String" or receiverType == "" {
+        let resultReg = getNextRegFn(regBox)
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" {
+            receiverStrReg = "zeroinitializer"
+        }
+        output.append("  " + resultReg + " = call i64 @seen_length(%SeenString " + receiverStrReg + ")\n")
+        return resultReg
+    }
+    return ""
+}
+
+// emitTransmuteImpl — zero-cost type punning (bitcast / alloca+load)
+// srcLlvmType/dstLlvmType: pre-resolved LLVM types from mapType()
+fun emitTransmuteImpl(output: StringBuilder, regBox: Array<Int>, srcReg: String, srcLlvmType: String, dstLlvmType: String) r: String {
+    let tmResultReg = getNextRegFn(regBox)
+    // Same width reinterpret: use bitcast
+    if srcLlvmType == "i64" and dstLlvmType == "double" {
+        output.append("  " + tmResultReg + " = bitcast i64 " + srcReg + " to double\n")
+        return tmResultReg
+    }
+    if srcLlvmType == "double" and dstLlvmType == "i64" {
+        output.append("  " + tmResultReg + " = bitcast double " + srcReg + " to i64\n")
+        return tmResultReg
+    }
+    if srcLlvmType == "i32" and dstLlvmType == "float" {
+        output.append("  " + tmResultReg + " = bitcast i32 " + srcReg + " to float\n")
+        return tmResultReg
+    }
+    if srcLlvmType == "float" and dstLlvmType == "i32" {
+        output.append("  " + tmResultReg + " = bitcast float " + srcReg + " to i32\n")
+        return tmResultReg
+    }
+    // ptr <-> i64
+    if srcLlvmType == "ptr" and dstLlvmType == "i64" {
+        output.append("  " + tmResultReg + " = ptrtoint ptr " + srcReg + " to i64\n")
+        return tmResultReg
+    }
+    if srcLlvmType == "i64" and dstLlvmType == "ptr" {
+        output.append("  " + tmResultReg + " = inttoptr i64 " + srcReg + " to ptr\n")
+        return tmResultReg
+    }
+    // Fallback: alloca + store + load (works for any same-width types)
+    let tmSlot = getNextRegFn(regBox)
+    output.append("  " + tmSlot + " = alloca " + srcLlvmType + "\n")
+    output.append("  store " + srcLlvmType + " " + srcReg + ", ptr " + tmSlot + "\n")
+    output.append("  " + tmResultReg + " = load " + dstLlvmType + ", ptr " + tmSlot + "\n")
+    return tmResultReg
+}
+
+// emitPtrOpsImpl — pointer operation builtins (ptr_deref/store/add/is_null)
+// arg0/arg1/arg2: pre-generated argument registers
+fun emitPtrOpsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, arg0: String, arg1: String, arg2: String) r: String {
+    if funcName == "ptr_deref" {
+        let loadedReg = getNextRegFn(regBox)
+        output.append("  " + loadedReg + " = call i64 @seen_ptr_deref_i64(i64 " + arg0 + ")\n")
+        return loadedReg
+    }
+    if funcName == "ptr_deref_f64" {
+        let loadedReg = getNextRegFn(regBox)
+        output.append("  " + loadedReg + " = call double @seen_ptr_deref_f64(i64 " + arg0 + ")\n")
+        return loadedReg
+    }
+    if funcName == "ptr_store" {
+        output.append("  call void @seen_ptr_store_i64(i64 " + arg0 + ", i64 " + arg1 + ")\n")
+        return "0"
+    }
+    if funcName == "ptr_store_f64" {
+        output.append("  call void @seen_ptr_store_f64(i64 " + arg0 + ", double " + arg1 + ")\n")
+        return "0"
+    }
+    if funcName == "ptr_is_null" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_ptr_is_null(i64 " + arg0 + ")\n")
+        return resultReg
+    }
+    if funcName == "ptr_add" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_ptr_add(i64 " + arg0 + ", i64 " + arg1 + ", i64 " + arg2 + ")\n")
+        return resultReg
+    }
+    return ""
+}
+
+// emitStackAllocImpl — stack allocation, returns ptr as i64
+fun emitStackAllocImpl(output: StringBuilder, regBox: Array<Int>, allocCountReg: String) r: String {
+    let allocReg = getNextRegFn(regBox)
+    output.append("  " + allocReg + " = alloca i8, i64 " + allocCountReg + ", align 8\n")
+    let ptrIntReg = getNextRegFn(regBox)
+    output.append("  " + ptrIntReg + " = ptrtoint ptr " + allocReg + " to i64\n")
+    return ptrIntReg
+}
+
+// emitConstructAtImpl — placement construction at a raw pointer
+fun emitConstructAtImpl(output: StringBuilder, regBox: Array<Int>, ptrReg: String) r: String {
+    let caPtrReg = getNextRegFn(regBox)
+    output.append("  " + caPtrReg + " = inttoptr i64 " + ptrReg + " to ptr\n")
+    // Zero-initialize (avoids cross-module GEP bug, 64 bytes default class size)
+    output.append("  call void @llvm.memset.p0.i64(ptr " + caPtrReg + ", i8 0, i64 64, i1 false)\n")
+    let caResultReg = getNextRegFn(regBox)
+    output.append("  " + caResultReg + " = ptrtoint ptr " + caPtrReg + " to i64\n")
+    return caResultReg
+}

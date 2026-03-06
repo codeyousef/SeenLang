@@ -1,0 +1,51 @@
+// Test basic arithmetic operators
+
+fun main() r: Int {
+    println("Testing arithmetic operators...")
+
+    var a = 42
+    var b = 16
+
+    // Addition
+    let add = a + b
+    println("42 + 16 = " + add.toString())
+    if add != 58 {
+        println("FAIL: + expected 58")
+        return 1
+    }
+
+    // Subtraction
+    let sub = a - b
+    println("42 - 16 = " + sub.toString())
+    if sub != 26 {
+        println("FAIL: - expected 26")
+        return 1
+    }
+
+    // Multiplication
+    let mul = a * b
+    println("42 * 16 = " + mul.toString())
+    if mul != 672 {
+        println("FAIL: * expected 672")
+        return 1
+    }
+
+    // Division
+    let div = a / b
+    println("42 / 16 = " + div.toString())
+    if div != 2 {
+        println("FAIL: / expected 2")
+        return 1
+    }
+
+    // Modulo
+    let mod = a % b
+    println("42 % 16 = " + mod.toString())
+    if mod != 10 {
+        println("FAIL: % expected 10")
+        return 1
+    }
+
+    println("PASS: All arithmetic tests passed!")
+    return 0
+}

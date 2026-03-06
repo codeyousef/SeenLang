@@ -1,0 +1,49 @@
+// Minimal test for class method returns
+
+class SimpleInt {
+    var value: Int
+
+    static fun new(v: Int) r: SimpleInt {
+        return SimpleInt{value: v}
+    }
+
+    fun get() r: Int {
+        return value
+    }
+
+    fun add(x: Int) r: Int {
+        return value + x
+    }
+}
+
+fun main() r: Int {
+    println("Testing simple class methods...")
+
+    // Test construction
+    let obj = SimpleInt.new(42)
+    println("Created object")
+
+    // Test direct field access (if allowed)
+    // let directVal = obj.value  // may not work
+
+    // Test method call
+    let gotVal = obj.get()
+    println("Got value from get(): " + gotVal.toString())
+
+    if gotVal != 42 {
+        println("FAIL: expected 42, got " + gotVal.toString())
+        return 1
+    }
+
+    // Test method with parameter
+    let added = obj.add(10)
+    println("Got value from add(10): " + added.toString())
+
+    if added != 52 {
+        println("FAIL: expected 52, got " + added.toString())
+        return 1
+    }
+
+    println("PASS")
+    return 0
+}

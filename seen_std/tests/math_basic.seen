@@ -1,0 +1,240 @@
+import math.math.{
+    E,
+    EPSILON,
+    FRAC_1_PI,
+    FRAC_1_SQRT2,
+    FRAC_2_PI,
+    HALF_PI,
+    LN2,
+    LN10,
+    LOG2_E,
+    LOG10_E,
+    PI,
+    SQRT2,
+    TAU,
+    abs,
+    absInt,
+    acos,
+    acosh,
+    approxEqual,
+    asin,
+    asinh,
+    atan,
+    atan2,
+    atanh,
+    cbrt,
+    ceil,
+    checkedAdd,
+    checkedDiv,
+    checkedMul,
+    checkedSub,
+    clamp,
+    clamp01,
+    clampInt,
+    copysign,
+    cos,
+    cosh,
+    degToRad,
+    degrees,
+    exp,
+    exp2,
+    floor,
+    fmod,
+    gcd,
+    hypot,
+    isfinite,
+    isinf,
+    isnan,
+    lcm,
+    lerp,
+    ln,
+    log,
+    log2,
+    log10,
+    max,
+    min,
+    pow,
+    radToDeg,
+    radians,
+    remap,
+    saturatingAdd,
+    saturatingMul,
+    saturatingSub,
+    sign,
+    sin,
+    sinh,
+    smoothstep,
+    sqrt,
+    tan,
+    tanh,
+    wrappingAdd,
+    wrappingMul,
+    wrappingSub
+}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    // Use local constants since cross-module const resolution returns 0 in stage1.
+    // Use 0.0 - X instead of -X for negative float literals (codegen emits i64 sub otherwise).
+    let pi = 3.14159265358979323846
+    let tau = 6.28318530717958647692
+    let halfPi = 1.57079632679489661923
+    let e = 2.71828182845904523536
+    let neg5f = 0.0 - 5.0
+    let neg05f = 0.0 - 0.5
+    let neg1f = 0.0 - 1.0
+
+    // --- Original tests ---
+    expect(approxEqual(pi * 2.0, tau), "TAU should equal 2*PI")
+    expect(approxEqual(abs(neg5f), 5.0), "abs should return positive value")
+    expect(absInt(-3) == 3, "absInt should return positive value")
+    expect(approxEqual(min(1.0, neg5f), neg5f), "min mismatch")
+    expect(approxEqual(max(1.0, neg5f), 1.0), "max mismatch")
+    expect(approxEqual(clamp01(1.5), 1.0), "clamp01 mismatch")
+    expect(sign(neg05f) == -1, "sign negative mismatch")
+    expect(sign(0.0) == 0, "sign zero mismatch")
+
+    expect(approxEqual(sin(0.0), 0.0), "sin(0) should be 0")
+    expect(approxEqual(cos(0.0), 1.0), "cos(0) should be 1")
+    expect(approxEqual(tan(0.0), 0.0), "tan(0) should be 0")
+    expect(approxEqual(sin(halfPi), 1.0), "sin(PI/2) should be 1")
+
+    expect(approxEqual(sqrt(16.0), 4.0), "sqrt(16) should be 4")
+    expect(approxEqual(floor(3.9), 3.0), "floor mismatch")
+    expect(approxEqual(ceil(3.1), 4.0), "ceil mismatch")
+    expect(approxEqual(pow(2.0, 3.0), 8.0), "pow mismatch")
+    expect(approxEqual(exp(1.0), e), "exp(1) should equal E")
+    expect(approxEqual(ln(e), 1.0), "ln mismatch")
+    expect(approxEqual(log(10.0, 1000.0), 3.0), "log mismatch")
+    expect(approxEqual(clamp(5.0, 0.0, 3.0), 3.0), "clamp should limit to upper bound")
+    expect(clampInt(-2, 0, 10) == 0, "clampInt should limit to lower bound")
+
+    expect(approxEqual(degToRad(180.0), pi), "degToRad(180) == PI")
+    expect(approxEqual(radToDeg(pi), 180.0), "radToDeg(PI) == 180")
+    expect(approxEqual(radians(90.0), halfPi), "radians helper mismatch")
+    expect(approxEqual(degrees(halfPi), 90.0), "degrees helper mismatch")
+
+    // Int.max()/Int.min() emit ptr type in cross-module codegen; use large literals instead
+    let intMax = 9223372036854775807
+    let intMin = 0 - 9223372036854775807
+    expect(saturatingAdd(intMax, 10) == intMax, "saturatingAdd upper bound")
+    expect(saturatingSub(intMin, 10) == intMin, "saturatingSub lower bound")
+    expect(saturatingMul(intMax, 2) == intMax, "saturatingMul should clamp upper bound")
+
+    let wrap = wrappingAdd(intMax, 2)
+    expect(wrap < 0, "wrappingAdd should wrap around overflow")
+    expect(wrappingMul(intMax, 2) != 0, "wrappingMul should overflow via wrap")
+
+    expect(checkedAdd(10, 5) == 15, "checkedAdd should add values")
+    expect(checkedSub(10, 5) == 5, "checkedSub should subtract values")
+    expect(checkedMul(3, 4) == 12, "checkedMul should multiply values")
+    expect(checkedDiv(10, 2) == 5, "checkedDiv should divide values")
+    expect(approxEqual(lerp(0.0, 10.0, 0.25), 2.5), "lerp mismatch")
+    expect(approxEqual(remap(5.0, 0.0, 10.0, 0.0, 1.0), 0.5), "remap mismatch")
+    expect(approxEqual(smoothstep(0.0, 1.0, 0.0), 0.0), "smoothstep start mismatch")
+    expect(approxEqual(smoothstep(0.0, 1.0, 1.0), 1.0), "smoothstep end mismatch")
+
+    // --- New constant tests ---
+    let ln2 = 0.69314718055994530942
+    let ln10 = 2.30258509299404568402
+    let sqrt2 = 1.41421356237309504880
+    let frac1pi = 0.31830988618379067154
+    let frac1sqrt2 = 0.70710678118654752440
+    expect(approxEqual(ln2, ln(2.0), 0.001), "LN2 should equal ln(2)")
+    expect(approxEqual(ln10, ln(10.0), 0.001), "LN10 should equal ln(10)")
+    expect(approxEqual(sqrt2, sqrt(2.0), 0.001), "SQRT2 should equal sqrt(2)")
+    expect(approxEqual(frac1pi, 1.0 / pi), "FRAC_1_PI mismatch")
+    expect(approxEqual(frac1sqrt2, 1.0 / sqrt2), "FRAC_1_SQRT2 mismatch")
+
+    // --- Inverse trig ---
+    expect(approxEqual(atan(0.0), 0.0), "atan(0) should be 0")
+    expect(approxEqual(atan(1.0), pi / 4.0), "atan(1) should be PI/4")
+    let negPi4 = 0.0 - pi / 4.0
+    expect(approxEqual(atan(neg1f), negPi4), "atan(-1) should be -PI/4")
+
+    expect(approxEqual(atan2(1.0, 0.0), halfPi), "atan2(1,0) should be PI/2")
+    expect(approxEqual(atan2(0.0, neg1f), pi), "atan2(0,-1) should be PI")
+    let negHalfPi = 0.0 - halfPi
+    expect(approxEqual(atan2(neg1f, 0.0), negHalfPi), "atan2(-1,0) should be -PI/2")
+    expect(approxEqual(atan2(0.0, 1.0), 0.0), "atan2(0,1) should be 0")
+
+    expect(approxEqual(asin(0.0), 0.0), "asin(0) should be 0")
+    expect(approxEqual(asin(1.0), halfPi), "asin(1) should be PI/2")
+    expect(approxEqual(asin(neg1f), negHalfPi), "asin(-1) should be -PI/2")
+
+    expect(approxEqual(acos(0.0), halfPi), "acos(0) should be PI/2")
+    expect(approxEqual(acos(1.0), 0.0), "acos(1) should be 0")
+
+    // --- pow fix for fractional exponents ---
+    expect(approxEqual(pow(2.0, 0.5), sqrt2), "pow(2, 0.5) should be sqrt(2)")
+    expect(approxEqual(pow(27.0, 1.0 / 3.0), 3.0), "pow(27, 1/3) should be 3")
+    let negHalf = 0.0 - 0.5
+    expect(approxEqual(pow(4.0, negHalf), 0.5), "pow(4, -0.5) should be 0.5")
+
+    // --- Exp/Log convenience ---
+    expect(approxEqual(log2(8.0), 3.0), "log2(8) should be 3")
+    expect(approxEqual(log2(1.0), 0.0), "log2(1) should be 0")
+    expect(approxEqual(log10(1000.0), 3.0), "log10(1000) should be 3")
+    expect(approxEqual(log10(1.0), 0.0), "log10(1) should be 0")
+    expect(approxEqual(exp2(3.0), 8.0), "exp2(3) should be 8")
+    expect(approxEqual(exp2(0.0), 1.0), "exp2(0) should be 1")
+
+    // --- Special functions ---
+    expect(approxEqual(cbrt(27.0), 3.0), "cbrt(27) should be 3")
+    let neg8f = 0.0 - 8.0
+    let neg2f = 0.0 - 2.0
+    expect(approxEqual(cbrt(neg8f), neg2f), "cbrt(-8) should be -2")
+    expect(approxEqual(cbrt(0.0), 0.0), "cbrt(0) should be 0")
+
+    expect(approxEqual(hypot(3.0, 4.0), 5.0), "hypot(3,4) should be 5")
+    expect(approxEqual(hypot(0.0, 0.0), 0.0), "hypot(0,0) should be 0")
+    expect(approxEqual(hypot(5.0, 0.0), 5.0), "hypot(5,0) should be 5")
+
+    expect(approxEqual(fmod(5.3, 2.0), 1.3, 0.01), "fmod(5.3, 2.0) should be 1.3")
+    expect(approxEqual(fmod(7.0, 3.0), 1.0, 0.01), "fmod(7, 3) should be 1")
+
+    let neg3f = 0.0 - 3.0
+    expect(approxEqual(copysign(3.0, neg1f), neg3f), "copysign(3, -1) should be -3")
+    expect(approxEqual(copysign(neg3f, 1.0), 3.0), "copysign(-3, 1) should be 3")
+
+    // --- Hyperbolic functions ---
+    expect(approxEqual(sinh(0.0), 0.0), "sinh(0) should be 0")
+    expect(approxEqual(cosh(0.0), 1.0), "cosh(0) should be 1")
+    expect(approxEqual(tanh(0.0), 0.0), "tanh(0) should be 0")
+    expect(approxEqual(tanh(100.0), 1.0), "tanh(100) should be 1")
+    let neg100f = 0.0 - 100.0
+    expect(approxEqual(tanh(neg100f), neg1f), "tanh(-100) should be -1")
+    expect(approxEqual(sinh(1.0), 1.1752, 0.001), "sinh(1) should be ~1.1752")
+    expect(approxEqual(cosh(1.0), 1.5431, 0.001), "cosh(1) should be ~1.5431")
+
+    expect(approxEqual(asinh(0.0), 0.0), "asinh(0) should be 0")
+    expect(approxEqual(asinh(sinh(1.0)), 1.0, 0.001), "asinh(sinh(1)) should be 1")
+    expect(approxEqual(acosh(1.0), 0.0), "acosh(1) should be 0")
+    expect(approxEqual(acosh(cosh(2.0)), 2.0, 0.001), "acosh(cosh(2)) should be 2")
+    expect(approxEqual(atanh(0.0), 0.0), "atanh(0) should be 0")
+    expect(approxEqual(atanh(tanh(0.5)), 0.5, 0.001), "atanh(tanh(0.5)) should be 0.5")
+
+    // --- Classification ---
+    expect(isfinite(1.0), "1.0 should be finite")
+    expect(isfinite(0.0), "0.0 should be finite")
+    expect(not isnan(1.0), "1.0 should not be NaN")
+    expect(not isinf(1.0), "1.0 should not be Inf")
+
+    // --- Integer utilities ---
+    expect(gcd(12, 8) == 4, "gcd(12, 8) should be 4")
+    expect(gcd(7, 5) == 1, "gcd(7, 5) should be 1")
+    expect(gcd(0, 5) == 5, "gcd(0, 5) should be 5")
+    expect(gcd(100, 75) == 25, "gcd(100, 75) should be 25")
+
+    expect(lcm(4, 6) == 12, "lcm(4, 6) should be 12")
+    expect(lcm(3, 7) == 21, "lcm(3, 7) should be 21")
+    expect(lcm(0, 5) == 0, "lcm(0, 5) should be 0")
+
+    println("All math tests passed!")
+    return 0
+}

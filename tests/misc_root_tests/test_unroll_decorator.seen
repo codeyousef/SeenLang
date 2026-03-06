@@ -1,0 +1,41 @@
+// Test @unroll(N) loop decorator
+// Verify: compile with --emit-llvm, grep for 'llvm.loop.unroll.count'
+
+@unroll(4)
+fun sumArray(arr: Array<Int>) r: Int {
+    var total = 0
+    var i = 0
+    while i < arr.length() {
+        total = total + arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+@unroll(8)
+fun dotProduct(a: Array<Int>, b: Array<Int>) r: Int {
+    var total = 0
+    var i = 0
+    while i < a.length() {
+        total = total + a[i] * b[i]
+        i = i + 1
+    }
+    return total
+}
+
+fun main() r: Int {
+    let arr = Array<Int>(10, 5)
+    let sum = sumArray(arr)
+    println("Sum: " + sum.toString())
+
+    let a = Array<Int>(4, 3)
+    let b = Array<Int>(4, 2)
+    let dot = dotProduct(a, b)
+    println("Dot: " + dot.toString())
+
+    if sum != 50 { println("FAIL: sum"); return 1 }
+    if dot != 24 { println("FAIL: dot"); return 1 }
+
+    println("PASS: @unroll decorator compiled correctly")
+    return 0
+}

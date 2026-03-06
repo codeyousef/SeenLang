@@ -1,0 +1,6 @@
+// Test: Just import io.file
+import io.file.{writeText}
+
+fun main() r: Int {
+    return 0
+}

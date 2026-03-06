@@ -1,0 +1,77 @@
+// E2E Test: Miscellaneous Keywords (English)
+// Keywords tested: and, or, not, as, is
+
+fun main() r: Int {
+    // Test 1: and operator
+    var r1 = 0
+    if 1 == 1 and 2 == 2 {
+        r1 = 1
+    }
+    if r1 == 1 {
+        println("PASS: and operator")
+    } else {
+        println("FAIL: and operator")
+        return 1
+    }
+
+    // Test 2: or operator
+    var r2 = 0
+    if 1 == 2 or 3 == 3 {
+        r2 = 1
+    }
+    if r2 == 1 {
+        println("PASS: or operator")
+    } else {
+        println("FAIL: or operator")
+        return 1
+    }
+
+    // Test 3: not operator
+    var r3 = 0
+    if not false {
+        r3 = 1
+    }
+    if r3 == 1 {
+        println("PASS: not operator")
+    } else {
+        println("FAIL: not operator")
+        return 1
+    }
+
+    // Test 4: and + or combined
+    var r4 = 0
+    if 1 == 1 and 2 == 2 or 3 == 4 {
+        r4 = 1
+    }
+    if r4 == 1 {
+        println("PASS: and+or combined")
+    } else {
+        println("FAIL: and+or combined")
+        return 1
+    }
+
+    // Test 5: not with and
+    var r5 = 0
+    if not false and 1 == 1 {
+        r5 = 1
+    }
+    if r5 == 1 {
+        println("PASS: not+and combined")
+    } else {
+        println("FAIL: not+and combined")
+        return 1
+    }
+
+    // Test 6: as type cast (Int to Int — Float cast has known codegen bug)
+    let intVal = 42
+    let intVal2 = intVal as Int
+    if intVal2 == 42 {
+        println("PASS: as type cast")
+    } else {
+        println("FAIL: as type cast")
+        return 1
+    }
+
+    println("PASS: all misc keyword tests passed")
+    return 0
+}

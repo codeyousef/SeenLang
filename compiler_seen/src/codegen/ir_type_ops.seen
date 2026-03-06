@@ -1,0 +1,978 @@
+// Binary ops, SIMD, String, JSON, Option, StringBuilder method impls
+// Extracted from ir_type_tables.seen
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_type_info.{charToCodeStr}
+import codegen.ir_type_mapping.{mapTypeImpl, isSimdVectorTypeImpl, simdScalarTypeImpl, simdLlvmSuffixImpl, simdLaneCountImpl}
+
+// ============================================================
+// emitBinaryOpImpl — binary operator IR emission
+// Extracted from LLVMIRGenerator.generateBinary
+// Returns resultReg. cseClearSignal[0] set to 1 when cseClear needed.
+// ============================================================
+
+fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: Array<Int>,
+    cseClearSignal: Array<Int>,
+    operator: String, leftReg: String, rightReg: String,
+    leftType: String, rightType: String,
+    leftExprKind: String, leftLiteralValue: String, leftVariableName: String,
+    rightExprKind: String, rightLiteralValue: String,
+    panicOnOverflow: Int, inductionVarName: String,
+    leftMappedType: String) r: String {
+
+    if operator == "+" {
+        if leftType == "String" or rightType == "String" or leftType == "Char" or rightType == "Char" {
+            var leftStrReg = leftReg
+            var rightStrReg = rightReg
+            if leftType == "Char" {
+                leftStrReg = getNextRegFn(regBox)
+                output.append("  " + leftStrReg + " = call %SeenString @seen_char_to_str(i64 " + leftReg + ")\n")
+            }
+            if leftType != "Char" and leftType == "Int" {
+                leftStrReg = getNextRegFn(regBox)
+                output.append("  " + leftStrReg + " = call %SeenString @seen_int_to_string(i64 " + leftReg + ")\n")
+            }
+            if leftType == "Float" {
+                leftStrReg = getNextRegFn(regBox)
+                output.append("  " + leftStrReg + " = call %SeenString @seen_float_to_string(double " + leftReg + ")\n")
+            }
+            if rightType == "Char" {
+                rightStrReg = getNextRegFn(regBox)
+                output.append("  " + rightStrReg + " = call %SeenString @seen_char_to_str(i64 " + rightReg + ")\n")
+            }
+            if rightType != "Char" and rightType == "Int" {
+                rightStrReg = getNextRegFn(regBox)
+                output.append("  " + rightStrReg + " = call %SeenString @seen_int_to_string(i64 " + rightReg + ")\n")
+            }
+            if rightType == "Float" {
+                rightStrReg = getNextRegFn(regBox)
+                output.append("  " + rightStrReg + " = call %SeenString @seen_float_to_string(double " + rightReg + ")\n")
+            }
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")
+            if rightExprKind == "Literal" and rightLiteralValue == "" {
+                output.append("  ; COW candidate: string copy via concat with empty\n")
+            }
+            if leftExprKind == "Literal" and leftLiteralValue == "" {
+                output.append("  ; COW candidate: string copy via concat with empty\n")
+            }
+            return resultReg
+        }
+        let resultReg = getNextRegFn(regBox)
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = fadd fast double " + leftReg + ", " + rightReg + "\n")
+        } else {
+            var isInductionIncr = false
+            if inductionVarName != "" {
+                var leftVarName = leftLiteralValue
+                if leftVarName == "" { leftVarName = leftVariableName }
+                if (leftExprKind == "Variable" or leftExprKind == "VarExpr") and leftVarName == inductionVarName {
+                    if rightExprKind == "Literal" {
+                        isInductionIncr = true
+                    }
+                }
+            }
+            if isInductionIncr {
+                output.append("  " + resultReg + " = add nuw nsw i64 " + leftReg + ", " + rightReg + " ; induction var\n")
+            } else {
+                if panicOnOverflow == 1 {
+                    let lb = "{"
+                    let ovfTy = lb + "i64, i1}"
+                    let ovfResult = getNextRegFn(regBox)
+                    output.append("  " + ovfResult + " = call " + ovfTy + " @llvm.sadd.with.overflow.i64(i64 " + leftReg + ", i64 " + rightReg + ")\n")
+                    let ovfVal = getNextRegFn(regBox)
+                    output.append("  " + ovfVal + " = extractvalue " + ovfTy + " " + ovfResult + ", 0\n")
+                    let ovfFlag = getNextRegFn(regBox)
+                    output.append("  " + ovfFlag + " = extractvalue " + ovfTy + " " + ovfResult + ", 1\n")
+                    let ovfPanic = "ovf_panic_" + boundsLabelBox[0].toString()
+                    let ovfOk = "ovf_ok_" + boundsLabelBox[0].toString()
+                    boundsLabelBox[0] = boundsLabelBox[0] + 1
+                    output.append("  br i1 " + ovfFlag + ", label %" + ovfPanic + ", label %" + ovfOk + "\n")
+                    output.append(ovfPanic + ":\n")
+                    output.append("  call void @seen_checked_add(i64 " + leftReg + ", i64 " + rightReg + ")\n")
+                    output.append("  unreachable\n")
+                    output.append(ovfOk + ":\n")
+                    cseClearSignal[0] = 1
+                    output.append("  " + resultReg + " = add i64 " + ovfVal + ", 0 ; checked add\n")
+                } else {
+                    output.append("  " + resultReg + " = add nsw i64 " + leftReg + ", " + rightReg + "\n")
+                }
+            }
+        }
+        return resultReg
+    }
+
+    let resultReg = getNextRegFn(regBox)
+    var opHandled = false
+    if operator == "-" {
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = fsub fast double " + leftReg + ", " + rightReg + "\n")
+        } else {
+            var isInductionDecr = false
+            if inductionVarName != "" {
+                var subVarName = leftLiteralValue
+                if subVarName == "" { subVarName = leftVariableName }
+                if (leftExprKind == "Variable" or leftExprKind == "VarExpr") and subVarName == inductionVarName {
+                    if rightExprKind == "Literal" {
+                        isInductionDecr = true
+                    }
+                }
+            }
+            if isInductionDecr {
+                output.append("  " + resultReg + " = sub nsw i64 " + leftReg + ", " + rightReg + " ; induction var\n")
+            } else {
+                if panicOnOverflow == 1 {
+                    let slb = "{"
+                    let sovfTy = slb + "i64, i1}"
+                    let ovfSubResult = getNextRegFn(regBox)
+                    output.append("  " + ovfSubResult + " = call " + sovfTy + " @llvm.ssub.with.overflow.i64(i64 " + leftReg + ", i64 " + rightReg + ")\n")
+                    let ovfSubVal = getNextRegFn(regBox)
+                    output.append("  " + ovfSubVal + " = extractvalue " + sovfTy + " " + ovfSubResult + ", 0\n")
+                    let ovfSubFlag = getNextRegFn(regBox)
+                    output.append("  " + ovfSubFlag + " = extractvalue " + sovfTy + " " + ovfSubResult + ", 1\n")
+                    let ovfSubPanic = "ovf_panic_" + boundsLabelBox[0].toString()
+                    let ovfSubOk = "ovf_ok_" + boundsLabelBox[0].toString()
+                    boundsLabelBox[0] = boundsLabelBox[0] + 1
+                    output.append("  br i1 " + ovfSubFlag + ", label %" + ovfSubPanic + ", label %" + ovfSubOk + "\n")
+                    output.append(ovfSubPanic + ":\n")
+                    output.append("  call void @seen_checked_sub(i64 " + leftReg + ", i64 " + rightReg + ")\n")
+                    output.append("  unreachable\n")
+                    output.append(ovfSubOk + ":\n")
+                    cseClearSignal[0] = 1
+                    output.append("  " + resultReg + " = add i64 " + ovfSubVal + ", 0 ; checked sub\n")
+                } else {
+                    output.append("  " + resultReg + " = sub nsw i64 " + leftReg + ", " + rightReg + "\n")
+                }
+            }
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == "*" {
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = fmul fast double " + leftReg + ", " + rightReg + "\n")
+        } else {
+            if panicOnOverflow == 1 {
+                let mlb = "{"
+                let movfTy = mlb + "i64, i1}"
+                let ovfMulResult = getNextRegFn(regBox)
+                output.append("  " + ovfMulResult + " = call " + movfTy + " @llvm.smul.with.overflow.i64(i64 " + leftReg + ", i64 " + rightReg + ")\n")
+                let ovfMulVal = getNextRegFn(regBox)
+                output.append("  " + ovfMulVal + " = extractvalue " + movfTy + " " + ovfMulResult + ", 0\n")
+                let ovfMulFlag = getNextRegFn(regBox)
+                output.append("  " + ovfMulFlag + " = extractvalue " + movfTy + " " + ovfMulResult + ", 1\n")
+                let ovfMulPanic = "ovf_panic_" + boundsLabelBox[0].toString()
+                let ovfMulOk = "ovf_ok_" + boundsLabelBox[0].toString()
+                boundsLabelBox[0] = boundsLabelBox[0] + 1
+                output.append("  br i1 " + ovfMulFlag + ", label %" + ovfMulPanic + ", label %" + ovfMulOk + "\n")
+                output.append(ovfMulPanic + ":\n")
+                output.append("  call void @seen_checked_mul(i64 " + leftReg + ", i64 " + rightReg + ")\n")
+                output.append("  unreachable\n")
+                output.append(ovfMulOk + ":\n")
+                cseClearSignal[0] = 1
+                output.append("  " + resultReg + " = add i64 " + ovfMulVal + ", 0 ; checked mul\n")
+            } else {
+                output.append("  " + resultReg + " = mul nsw i64 " + leftReg + ", " + rightReg + "\n")
+            }
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == "/" {
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = fdiv fast double " + leftReg + ", " + rightReg + "\n")
+        } else {
+            output.append("  " + resultReg + " = sdiv i64 " + leftReg + ", " + rightReg + "\n")
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == "%" {
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = frem fast double " + leftReg + ", " + rightReg + "\n")
+        } else {
+            var modHandled = false
+            if rightReg == "2" {
+                output.append("  " + resultReg + " = and i64 " + leftReg + ", 1 ; srem %x, 2 -> and %x, 1\n")
+                modHandled = true
+            }
+            if not modHandled and rightReg == "4" {
+                output.append("  " + resultReg + " = and i64 " + leftReg + ", 3 ; srem %x, 4 -> and %x, 3\n")
+                modHandled = true
+            }
+            if not modHandled and rightReg == "8" {
+                output.append("  " + resultReg + " = and i64 " + leftReg + ", 7 ; srem %x, 8 -> and %x, 7\n")
+                modHandled = true
+            }
+            if not modHandled and rightReg == "16" {
+                output.append("  " + resultReg + " = and i64 " + leftReg + ", 15 ; srem %x, 16 -> and %x, 15\n")
+                modHandled = true
+            }
+            if not modHandled {
+                output.append("  " + resultReg + " = srem i64 " + leftReg + ", " + rightReg + "\n")
+            }
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == "==" {
+        if leftType == "Char" or rightType == "Char" {
+            var leftVal = leftReg
+            var rightVal = rightReg
+            if leftType == "Char" and rightType == "String" and rightExprKind == "Literal" and rightLiteralValue.length() == 1 {
+                rightVal = charToCodeStr(rightLiteralValue)
+            }
+            if rightType == "Char" and leftType == "String" and leftExprKind == "Literal" and leftLiteralValue.length() == 1 {
+                leftVal = charToCodeStr(leftLiteralValue)
+            }
+            output.append("  " + resultReg + " = icmp eq i64 " + leftVal + ", " + rightVal + "\n")
+        }
+        var eqIsChar = leftType == "Char" or rightType == "Char"
+        if not eqIsChar and (leftType == "String" or rightType == "String") {
+            var leftStrReg = leftReg
+            var rightStrReg = rightReg
+            if leftReg == "0" { leftStrReg = "zeroinitializer" }
+            if rightReg == "0" { rightStrReg = "zeroinitializer" }
+            output.append("  " + resultReg + " = call i1 @seen_str_eq_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")
+        }
+        if not eqIsChar and not (leftType == "String" or rightType == "String") {
+            if leftMappedType == "ptr" {
+                var rightNullVal = rightReg
+                if rightReg == "0" { rightNullVal = "null" }
+                output.append("  " + resultReg + " = icmp eq ptr " + leftReg + ", " + rightNullVal + "\n")
+            }
+            if leftMappedType != "ptr" {
+                output.append("  " + resultReg + " = icmp eq i64 " + leftReg + ", " + rightReg + "\n")
+            }
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == "!=" {
+        if leftType == "Char" or rightType == "Char" {
+            var leftVal = leftReg
+            var rightVal = rightReg
+            if leftType == "Char" and rightType == "String" and rightExprKind == "Literal" and rightLiteralValue.length() == 1 {
+                rightVal = charToCodeStr(rightLiteralValue)
+            }
+            if rightType == "Char" and leftType == "String" and leftExprKind == "Literal" and leftLiteralValue.length() == 1 {
+                leftVal = charToCodeStr(leftLiteralValue)
+            }
+            output.append("  " + resultReg + " = icmp ne i64 " + leftVal + ", " + rightVal + "\n")
+        }
+        var neIsChar = leftType == "Char" or rightType == "Char"
+        if not neIsChar and (leftType == "String" or rightType == "String") {
+            var leftStrReg = leftReg
+            var rightStrReg = rightReg
+            if leftReg == "0" { leftStrReg = "zeroinitializer" }
+            if rightReg == "0" { rightStrReg = "zeroinitializer" }
+            output.append("  " + resultReg + " = call i1 @seen_str_ne_ss(%SeenString " + leftStrReg + ", %SeenString " + rightStrReg + ")\n")
+        }
+        if not neIsChar and not (leftType == "String" or rightType == "String") {
+            if leftMappedType == "ptr" {
+                var rightNullVal = rightReg
+                if rightReg == "0" { rightNullVal = "null" }
+                output.append("  " + resultReg + " = icmp ne ptr " + leftReg + ", " + rightNullVal + "\n")
+            }
+            if leftMappedType != "ptr" {
+                output.append("  " + resultReg + " = icmp ne i64 " + leftReg + ", " + rightReg + "\n")
+            }
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == "<" {
+        var leftVal = leftReg
+        var rightVal = rightReg
+        if leftType == "Char" and rightType == "String" and rightExprKind == "Literal" and rightLiteralValue.length() == 1 {
+            rightVal = charToCodeStr(rightLiteralValue)
+        }
+        if rightType == "Char" and leftType == "String" and leftExprKind == "Literal" and leftLiteralValue.length() == 1 {
+            leftVal = charToCodeStr(leftLiteralValue)
+        }
+        if leftType == "String" and rightType == "String" {
+            var leftStrReg = leftReg
+            var rightStrReg = rightReg
+            if leftReg == "0" { leftStrReg = "zeroinitializer" }
+            if rightReg == "0" { rightStrReg = "zeroinitializer" }
+            let leftCharReg = getNextRegFn(regBox)
+            output.append("  " + leftCharReg + " = call i64 @seen_char_at(%SeenString " + leftStrReg + ", i64 0)\n")
+            let rightCharReg = getNextRegFn(regBox)
+            output.append("  " + rightCharReg + " = call i64 @seen_char_at(%SeenString " + rightStrReg + ", i64 0)\n")
+            let strCmpReg = getNextRegFn(regBox)
+            output.append("  " + strCmpReg + " = icmp slt i64 " + leftCharReg + ", " + rightCharReg + "\n")
+            return strCmpReg
+        }
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = fcmp olt double " + leftVal + ", " + rightVal + "\n")
+        } else {
+            output.append("  " + resultReg + " = icmp slt i64 " + leftVal + ", " + rightVal + "\n")
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == "<=" {
+        var leftVal = leftReg
+        var rightVal = rightReg
+        if leftType == "Char" and rightType == "String" and rightExprKind == "Literal" and rightLiteralValue.length() == 1 {
+            rightVal = charToCodeStr(rightLiteralValue)
+        }
+        if rightType == "Char" and leftType == "String" and leftExprKind == "Literal" and leftLiteralValue.length() == 1 {
+            leftVal = charToCodeStr(leftLiteralValue)
+        }
+        if leftType == "String" and rightType == "String" {
+            var leftStrReg = leftReg
+            var rightStrReg = rightReg
+            if leftReg == "0" { leftStrReg = "zeroinitializer" }
+            if rightReg == "0" { rightStrReg = "zeroinitializer" }
+            let leftCharReg = getNextRegFn(regBox)
+            output.append("  " + leftCharReg + " = call i64 @seen_char_at(%SeenString " + leftStrReg + ", i64 0)\n")
+            let rightCharReg = getNextRegFn(regBox)
+            output.append("  " + rightCharReg + " = call i64 @seen_char_at(%SeenString " + rightStrReg + ", i64 0)\n")
+            let strCmpReg = getNextRegFn(regBox)
+            output.append("  " + strCmpReg + " = icmp sle i64 " + leftCharReg + ", " + rightCharReg + "\n")
+            return strCmpReg
+        }
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = fcmp ole double " + leftVal + ", " + rightVal + "\n")
+        } else {
+            output.append("  " + resultReg + " = icmp sle i64 " + leftVal + ", " + rightVal + "\n")
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == ">" {
+        var leftVal = leftReg
+        var rightVal = rightReg
+        if leftType == "Char" and rightType == "String" and rightExprKind == "Literal" and rightLiteralValue.length() == 1 {
+            rightVal = charToCodeStr(rightLiteralValue)
+        }
+        if rightType == "Char" and leftType == "String" and leftExprKind == "Literal" and leftLiteralValue.length() == 1 {
+            leftVal = charToCodeStr(leftLiteralValue)
+        }
+        if leftType == "String" and rightType == "String" {
+            var leftStrReg = leftReg
+            var rightStrReg = rightReg
+            if leftReg == "0" { leftStrReg = "zeroinitializer" }
+            if rightReg == "0" { rightStrReg = "zeroinitializer" }
+            let leftCharReg = getNextRegFn(regBox)
+            output.append("  " + leftCharReg + " = call i64 @seen_char_at(%SeenString " + leftStrReg + ", i64 0)\n")
+            let rightCharReg = getNextRegFn(regBox)
+            output.append("  " + rightCharReg + " = call i64 @seen_char_at(%SeenString " + rightStrReg + ", i64 0)\n")
+            let strCmpReg = getNextRegFn(regBox)
+            output.append("  " + strCmpReg + " = icmp sgt i64 " + leftCharReg + ", " + rightCharReg + "\n")
+            return strCmpReg
+        }
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = fcmp ogt double " + leftVal + ", " + rightVal + "\n")
+        } else {
+            output.append("  " + resultReg + " = icmp sgt i64 " + leftVal + ", " + rightVal + "\n")
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == ">=" {
+        var leftVal = leftReg
+        var rightVal = rightReg
+        if leftType == "Char" and rightType == "String" and rightExprKind == "Literal" and rightLiteralValue.length() == 1 {
+            rightVal = charToCodeStr(rightLiteralValue)
+        }
+        if rightType == "Char" and leftType == "String" and leftExprKind == "Literal" and leftLiteralValue.length() == 1 {
+            leftVal = charToCodeStr(leftLiteralValue)
+        }
+        if leftType == "String" and rightType == "String" {
+            var leftStrReg = leftReg
+            var rightStrReg = rightReg
+            if leftReg == "0" { leftStrReg = "zeroinitializer" }
+            if rightReg == "0" { rightStrReg = "zeroinitializer" }
+            let leftCharReg = getNextRegFn(regBox)
+            output.append("  " + leftCharReg + " = call i64 @seen_char_at(%SeenString " + leftStrReg + ", i64 0)\n")
+            let rightCharReg = getNextRegFn(regBox)
+            output.append("  " + rightCharReg + " = call i64 @seen_char_at(%SeenString " + rightStrReg + ", i64 0)\n")
+            let strCmpReg = getNextRegFn(regBox)
+            output.append("  " + strCmpReg + " = icmp sge i64 " + leftCharReg + ", " + rightCharReg + "\n")
+            return strCmpReg
+        }
+        if leftType == "Float" or rightType == "Float" {
+            output.append("  " + resultReg + " = fcmp oge double " + leftVal + ", " + rightVal + "\n")
+        } else {
+            output.append("  " + resultReg + " = icmp sge i64 " + leftVal + ", " + rightVal + "\n")
+        }
+        opHandled = true
+    }
+    if not opHandled and operator == "<<" {
+        output.append("  " + resultReg + " = shl i64 " + leftReg + ", " + rightReg + "\n")
+        opHandled = true
+    }
+    if not opHandled and operator == ">>" {
+        output.append("  " + resultReg + " = ashr i64 " + leftReg + ", " + rightReg + "\n")
+        opHandled = true
+    }
+    if not opHandled and operator == "&" {
+        output.append("  " + resultReg + " = and i64 " + leftReg + ", " + rightReg + "\n")
+        opHandled = true
+    }
+    if not opHandled and operator == "|" {
+        output.append("  " + resultReg + " = or i64 " + leftReg + ", " + rightReg + "\n")
+        opHandled = true
+    }
+    if not opHandled and operator == "^" {
+        output.append("  " + resultReg + " = xor i64 " + leftReg + ", " + rightReg + "\n")
+        opHandled = true
+    }
+    return resultReg
+}
+
+// ============================================================
+// emitSimdReductionImpl — SIMD horizontal reduction ops
+// Returns resultReg or "" if not handled.
+// ============================================================
+
+fun emitSimdReductionImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String) r: String {
+    if isSimdVectorTypeImpl(receiverType) == 0 {
+        return ""
+    }
+    let simdMethLT = mapTypeImpl(receiverType, Array<String>(), "", "", 0, "")
+    let simdMethST = simdScalarTypeImpl(receiverType)
+    let simdMethIsFloat = receiverType.startsWith("f32") or receiverType.startsWith("f64")
+
+    if methodName == "reduce_add" {
+        let simdRedReg = getNextRegFn(regBox)
+        if simdMethIsFloat {
+            var initStr = "0.0"
+            if simdMethST == "double" { initStr = "0.000000e+00" }
+            let intrName = "@llvm.vector.reduce.fadd." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethST + " " + initStr + ", " + simdMethLT + " " + receiverReg + ")\n")
+        } else {
+            let intrName = "@llvm.vector.reduce.add." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        }
+        if simdMethST == "float" {
+            let fpReg = getNextRegFn(regBox)
+            output.append("  " + fpReg + " = fpext float " + simdRedReg + " to double\n")
+            return fpReg
+        }
+        if simdMethST == "i32" {
+            let sReg = getNextRegFn(regBox)
+            output.append("  " + sReg + " = sext i32 " + simdRedReg + " to i64\n")
+            return sReg
+        }
+        return simdRedReg
+    }
+    if methodName == "reduce_min" {
+        let simdRedReg = getNextRegFn(regBox)
+        if simdMethIsFloat {
+            let intrName = "@llvm.vector.reduce.fmin." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        } else {
+            let intrName = "@llvm.vector.reduce.smin." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        }
+        if simdMethST == "float" {
+            let fpReg = getNextRegFn(regBox)
+            output.append("  " + fpReg + " = fpext float " + simdRedReg + " to double\n")
+            return fpReg
+        }
+        if simdMethST == "i32" {
+            let sReg = getNextRegFn(regBox)
+            output.append("  " + sReg + " = sext i32 " + simdRedReg + " to i64\n")
+            return sReg
+        }
+        return simdRedReg
+    }
+    if methodName == "reduce_max" {
+        let simdRedReg = getNextRegFn(regBox)
+        if simdMethIsFloat {
+            let intrName = "@llvm.vector.reduce.fmax." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        } else {
+            let intrName = "@llvm.vector.reduce.smax." + simdLlvmSuffixImpl(receiverType)
+            output.append("  " + simdRedReg + " = call " + simdMethST + " " + intrName + "(" + simdMethLT + " " + receiverReg + ")\n")
+        }
+        if simdMethST == "float" {
+            let fpReg = getNextRegFn(regBox)
+            output.append("  " + fpReg + " = fpext float " + simdRedReg + " to double\n")
+            return fpReg
+        }
+        if simdMethST == "i32" {
+            let sReg = getNextRegFn(regBox)
+            output.append("  " + sReg + " = sext i32 " + simdRedReg + " to i64\n")
+            return sReg
+        }
+        return simdRedReg
+    }
+    return ""
+}
+
+// ============================================================
+// emitJsonValueMethodImpl — JsonValue method dispatch
+// Returns resultReg or "" if not handled.
+// ============================================================
+
+fun emitJsonValueMethodImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String) r: String {
+    if receiverType != "JsonValue" and receiverType != "ptr" and receiverType != "" {
+        return ""
+    }
+    if methodName == "getString" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @JsonValue_getString(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "getInt" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @JsonValue_getInt(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "getBool" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @JsonValue_getBool(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "getNumber" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call double @JsonValue_getNumber(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "isObject" or methodName == "isArray" or methodName == "isString" or methodName == "isNumber" or methodName == "isBool" or methodName == "isNull" {
+        var ptrReg = receiverReg
+        if receiverType == "JsonValue" {
+            ptrReg = getNextRegFn(regBox)
+            output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @JsonValue_" + methodName + "(ptr " + ptrReg + ")\n")
+        return resultReg
+    }
+    return ""
+}
+
+// ============================================================
+// emitStringMethodImpl — String/Char method dispatch
+// arg0/arg1: pre-generated argument registers from wrapper.
+// Returns resultReg or "" if not handled.
+// ============================================================
+
+fun emitStringMethodImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String,
+    arg0: String, arg1: String, argCount: Int) r: String {
+
+    if methodName == "startsWith" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @startsWith(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "endsWith" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @endsWith(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "contains" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i1 @contains(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "trim" {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @trim(%SeenString " + receiverReg + ")\n")
+            return resultReg
+        }
+        return ""
+    }
+    if methodName == "substring" {
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @seen_substring(%SeenString " + receiverStrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
+        return resultReg
+    }
+    if methodName == "charAt" {
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverStrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "charCodeAt" {
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_char_at(%SeenString " + receiverStrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "byteAt" {
+        var receiverStrReg = receiverReg
+        if receiverReg == "0" { receiverStrReg = "zeroinitializer" }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @seen_byte_at(%SeenString " + receiverStrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+    if methodName == "isDigit" or methodName == "isAlpha" or methodName == "isAlphanumeric" or methodName == "isUpperCase" or methodName == "isLowerCase" or methodName == "isWhitespace" {
+        if receiverType == "Char" or receiverType == "" {
+            let callReg = getNextRegFn(regBox)
+            output.append("  " + callReg + " = call i64 @Char_" + methodName + "(i64 " + receiverReg + ")\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = trunc i64 " + callReg + " to i1\n")
+            return resultReg
+        }
+    }
+    if methodName == "toUpperCase" or methodName == "toLowerCase" {
+        if receiverType == "Char" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @Char_" + methodName + "(i64 " + receiverReg + ")\n")
+            return resultReg
+        }
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @String_" + methodName + "(%SeenString " + receiverReg + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "reverse" {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @String_reverse(%SeenString " + receiverReg + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "isEmpty" {
+        if receiverType == "String" {
+            let callReg = getNextRegFn(regBox)
+            output.append("  " + callReg + " = call i64 @String_isEmpty(%SeenString " + receiverReg + ")\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = trunc i64 " + callReg + " to i1\n")
+            return resultReg
+        }
+    }
+    if methodName == "count" {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @String_count(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "replace" {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call %SeenString @String_replace(%SeenString " + receiverReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "split" and argCount > 0 {
+        if receiverType == "String" or receiverType == "" {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call ptr @String_split(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
+            return resultReg
+        }
+    }
+    if methodName == "indexOf" {
+        var startIdxReg = "0"
+        if argCount > 1 { startIdxReg = arg1 }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @indexOf(%SeenString " + receiverReg + ", %SeenString " + arg0 + ", i64 " + startIdxReg + ")\n")
+        return resultReg
+    }
+    if methodName == "lastIndexOf" {
+        var startIdxReg = "-1"
+        if argCount > 1 { startIdxReg = arg1 }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @lastIndexOf(%SeenString " + receiverReg + ", %SeenString " + arg0 + ", i64 " + startIdxReg + ")\n")
+        return resultReg
+    }
+    return ""
+}
+
+// Option method dispatch: isSome, isNone, unwrapOr
+// receiverReg is the i64 pointer-as-int, defaultReg is pre-generated default for unwrapOr
+fun emitOptionMethodImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>,
+    methodName: String, receiverReg: String, defaultReg: String) r: String {
+    let optPtrReg = getNextRegFn(regBox)
+    output.append("  " + optPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+
+    if methodName == "isSome" or methodName == "IsSome" {
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 0\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        return resultReg
+    }
+
+    if methodName == "isNone" or methodName == "IsNone" {
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 0\n")
+        let hasValueReg = getNextRegFn(regBox)
+        output.append("  " + hasValueReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = xor i1 " + hasValueReg + ", true\n")
+        return resultReg
+    }
+
+    if methodName == "unwrapOr" {
+        let hasValuePtrReg = getNextRegFn(regBox)
+        output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 0\n")
+        let hasValueReg = getNextRegFn(regBox)
+        output.append("  " + hasValueReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        let someLabel = getNextBlockFn(blockLabelBox)
+        let noneLabel = getNextBlockFn(blockLabelBox)
+        let mergeLabel = getNextBlockFn(blockLabelBox)
+        output.append("  br i1 " + hasValueReg + ", label %" + someLabel + ", label %" + noneLabel + "\n")
+        output.append(someLabel + ":\n")
+        let valuePtrReg = getNextRegFn(regBox)
+        output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 1\n")
+        let someValReg = getNextRegFn(regBox)
+        output.append("  " + someValReg + " = load i64, ptr " + valuePtrReg + "\n")
+        output.append("  br label %" + mergeLabel + "\n")
+        output.append(noneLabel + ":\n")
+        output.append("  br label %" + mergeLabel + "\n")
+        output.append(mergeLabel + ":\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = phi i64 [ " + someValReg + ", %" + someLabel + " ], [ " + defaultReg + ", %" + noneLabel + " ]\n")
+        return resultReg
+    }
+
+    return ""
+}
+
+// SIMD builtin dispatch: vector constructors, load/store, select, shuffle, gather, scatter
+// args/argTypes are pre-generated registers/types, constIndices for shuffle lane indices
+fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, args: Array<String>, argCount: Int,
+    argTypes: Array<String>, constIndices: Array<Int>, constIndexCount: Int) r: String {
+
+    // SIMD vector constructors: f32x4(a,b,c,d), f32x8(..), i32x4(..), etc.
+    if isSimdVectorTypeImpl(funcName) == 1 {
+        let simdLT = mapTypeImpl(funcName)
+        let simdST = simdScalarTypeImpl(funcName)
+        let simdLanes = simdLaneCountImpl(funcName)
+        var simdVec = "undef"
+        var simdArgIdx = 0
+        while simdArgIdx < argCount and simdArgIdx < simdLanes {
+            var simdFinalArg = args[simdArgIdx]
+            if simdST == "i32" {
+                let simdTruncReg = getNextRegFn(regBox)
+                output.append("  " + simdTruncReg + " = trunc i64 " + args[simdArgIdx] + " to i32\n")
+                simdFinalArg = simdTruncReg
+            }
+            let simdInsReg = getNextRegFn(regBox)
+            output.append("  " + simdInsReg + " = insertelement " + simdLT + " " + simdVec + ", " + simdST + " " + simdFinalArg + ", i32 " + simdArgIdx.toString() + "\n")
+            simdVec = simdInsReg
+            simdArgIdx = simdArgIdx + 1
+        }
+        return simdVec
+    }
+
+    // SIMD load
+    if funcName.startsWith("simd_load_") {
+        let simdLoadType = funcName.substring(10, funcName.length())
+        var simdLoadAlign = "16"
+        var simdLoadCleanType = simdLoadType
+        if simdLoadType.endsWith("_unaligned") {
+            simdLoadCleanType = simdLoadType.substring(0, simdLoadType.length() - 10)
+            simdLoadAlign = "1"
+        }
+        if isSimdVectorTypeImpl(simdLoadCleanType) == 1 {
+            let simdLoadLT = mapTypeImpl(simdLoadCleanType)
+            if simdLoadAlign != "1" {
+                if simdLoadCleanType == "f32x8" or simdLoadCleanType == "i32x8" or simdLoadCleanType == "f64x4" {
+                    simdLoadAlign = "32"
+                }
+            }
+            let ptrCastReg = getNextRegFn(regBox)
+            output.append("  " + ptrCastReg + " = inttoptr i64 " + args[0] + " to ptr\n")
+            let loadReg = getNextRegFn(regBox)
+            output.append("  " + loadReg + " = load " + simdLoadLT + ", ptr " + ptrCastReg + ", align " + simdLoadAlign + "\n")
+            return loadReg
+        }
+    }
+
+    // SIMD store
+    if funcName.startsWith("simd_store_") {
+        let simdStoreType = funcName.substring(11, funcName.length())
+        var simdStoreAlign = "16"
+        var simdStoreCleanType = simdStoreType
+        if simdStoreType.endsWith("_unaligned") {
+            simdStoreCleanType = simdStoreType.substring(0, simdStoreType.length() - 10)
+            simdStoreAlign = "1"
+        }
+        if isSimdVectorTypeImpl(simdStoreCleanType) == 1 {
+            let simdStoreLT = mapTypeImpl(simdStoreCleanType)
+            if simdStoreAlign != "1" {
+                if simdStoreCleanType == "f32x8" or simdStoreCleanType == "i32x8" or simdStoreCleanType == "f64x4" {
+                    simdStoreAlign = "32"
+                }
+            }
+            let ptrCastReg = getNextRegFn(regBox)
+            output.append("  " + ptrCastReg + " = inttoptr i64 " + args[1] + " to ptr\n")
+            output.append("  store " + simdStoreLT + " " + args[0] + ", ptr " + ptrCastReg + ", align " + simdStoreAlign + "\n")
+            return "0"
+        }
+    }
+
+    // SIMD masked select
+    if funcName == "simd_select" {
+        if argCount >= 3 {
+            let selVecType = argTypes[1]
+            let selVecLT = mapTypeImpl(selVecType)
+            let selMaskType = argTypes[0]
+            let selMaskLT = mapTypeImpl(selMaskType)
+            let selLanes = simdLaneCountImpl(selVecType)
+            let selI1Reg = getNextRegFn(regBox)
+            output.append("  " + selI1Reg + " = icmp ne " + selMaskLT + " " + args[0] + ", zeroinitializer\n")
+            let selResReg = getNextRegFn(regBox)
+            output.append("  " + selResReg + " = select <" + selLanes.toString() + " x i1> " + selI1Reg + ", " + selVecLT + " " + args[1] + ", " + selVecLT + " " + args[2] + "\n")
+            return selResReg
+        }
+    }
+
+    // SIMD shuffle
+    if funcName == "simd_shuffle" {
+        if argCount >= 2 {
+            let shufVecType = argTypes[0]
+            let shufVecLT = mapTypeImpl(shufVecType)
+            let shufLanes = simdLaneCountImpl(shufVecType)
+            var shufMask = "<"
+            var shufI = 0
+            while shufI < constIndexCount and shufI < shufLanes {
+                if shufI > 0 { shufMask = shufMask + ", " }
+                shufMask = shufMask + "i32 " + constIndices[shufI].toString()
+                shufI = shufI + 1
+            }
+            shufMask = shufMask + ">"
+            let shufResReg = getNextRegFn(regBox)
+            output.append("  " + shufResReg + " = shufflevector " + shufVecLT + " " + args[0] + ", " + shufVecLT + " " + args[1] + ", <" + shufLanes.toString() + " x i32> " + shufMask + "\n")
+            return shufResReg
+        }
+    }
+
+    // SIMD gather
+    if funcName == "simd_gather_f32x4" or funcName == "simd_gather_f64x2" or funcName == "simd_gather_i32x4" {
+        if argCount >= 2 {
+            var gatherElemType = "float"
+            var gatherVecType = "<4 x float>"
+            var gatherLanes = 4
+            if funcName == "simd_gather_f64x2" {
+                gatherElemType = "double"
+                gatherVecType = "<2 x double>"
+                gatherLanes = 2
+            }
+            if funcName == "simd_gather_i32x4" {
+                gatherElemType = "i32"
+                gatherVecType = "<4 x i32>"
+            }
+            let gatherBasePtr = getNextRegFn(regBox)
+            output.append("  " + gatherBasePtr + " = inttoptr i64 " + args[0] + " to ptr\n")
+            var gatherVec = "undef"
+            var gatherLane = 0
+            while gatherLane < gatherLanes {
+                let gatherExtIdx = getNextRegFn(regBox)
+                output.append("  " + gatherExtIdx + " = extractelement <" + gatherLanes.toString() + " x i32> " + args[1] + ", i32 " + gatherLane.toString() + "\n")
+                let gatherGep = getNextRegFn(regBox)
+                output.append("  " + gatherGep + " = getelementptr " + gatherElemType + ", ptr " + gatherBasePtr + ", i32 " + gatherExtIdx + "\n")
+                let gatherLoad = getNextRegFn(regBox)
+                output.append("  " + gatherLoad + " = load " + gatherElemType + ", ptr " + gatherGep + "\n")
+                let gatherIns = getNextRegFn(regBox)
+                output.append("  " + gatherIns + " = insertelement " + gatherVecType + " " + gatherVec + ", " + gatherElemType + " " + gatherLoad + ", i32 " + gatherLane.toString() + "\n")
+                gatherVec = gatherIns
+                gatherLane = gatherLane + 1
+            }
+            return gatherVec
+        }
+    }
+
+    // SIMD scatter
+    if funcName == "simd_scatter_f32x4" or funcName == "simd_scatter_f64x2" or funcName == "simd_scatter_i32x4" {
+        if argCount >= 3 {
+            var scatterElemType = "float"
+            var scatterVecType = "<4 x float>"
+            var scatterLanes = 4
+            if funcName == "simd_scatter_f64x2" {
+                scatterElemType = "double"
+                scatterVecType = "<2 x double>"
+                scatterLanes = 2
+            }
+            if funcName == "simd_scatter_i32x4" {
+                scatterElemType = "i32"
+                scatterVecType = "<4 x i32>"
+            }
+            let scatterBasePtr = getNextRegFn(regBox)
+            output.append("  " + scatterBasePtr + " = inttoptr i64 " + args[0] + " to ptr\n")
+            var scatterLane = 0
+            while scatterLane < scatterLanes {
+                let scatterExtIdx = getNextRegFn(regBox)
+                output.append("  " + scatterExtIdx + " = extractelement <" + scatterLanes.toString() + " x i32> " + args[1] + ", i32 " + scatterLane.toString() + "\n")
+                let scatterExtVal = getNextRegFn(regBox)
+                output.append("  " + scatterExtVal + " = extractelement " + scatterVecType + " " + args[2] + ", i32 " + scatterLane.toString() + "\n")
+                let scatterGep = getNextRegFn(regBox)
+                output.append("  " + scatterGep + " = getelementptr " + scatterElemType + ", ptr " + scatterBasePtr + ", i32 " + scatterExtIdx + "\n")
+                output.append("  store " + scatterElemType + " " + scatterExtVal + ", ptr " + scatterGep + "\n")
+                scatterLane = scatterLane + 1
+            }
+            return "0"
+        }
+    }
+
+    return ""
+}
+
+// StringBuilder method dispatch: append, appendInt, appendFloat, appendChar, clear, length, toString
+// receiverPtrReg must be pre-converted via convertReceiverToPtr
+// arg0 is pre-generated argument (or "" if none)
+// isFloatAppendFused: 1 if detected sb.append(__FloatToString(x)) pattern
+fun emitStringBuilderMethodImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverPtrReg: String, arg0: String,
+    isFloatAppendFused: Int) r: String {
+    if methodName == "append" {
+        if isFloatAppendFused == 1 {
+            let callRegF = getNextRegFn(regBox)
+            output.append("  " + callRegF + " = call i64 @StringBuilder_appendFloat(ptr " + receiverPtrReg + ", double " + arg0 + ")\n")
+            return "0"
+        }
+        let callReg = getNextRegFn(regBox)
+        output.append("  " + callReg + " = call i64 @StringBuilder_append(ptr " + receiverPtrReg + ", %SeenString " + arg0 + ")\n")
+        return "0"
+    }
+    if methodName == "appendInt" {
+        let callReg = getNextRegFn(regBox)
+        output.append("  " + callReg + " = call i64 @StringBuilder_appendInt(ptr " + receiverPtrReg + ", i64 " + arg0 + ")\n")
+        return "0"
+    }
+    if methodName == "appendFloat" {
+        let callReg = getNextRegFn(regBox)
+        output.append("  " + callReg + " = call i64 @StringBuilder_appendFloat(ptr " + receiverPtrReg + ", double " + arg0 + ")\n")
+        return "0"
+    }
+    if methodName == "appendChar" {
+        let callReg = getNextRegFn(regBox)
+        output.append("  " + callReg + " = call i64 @StringBuilder_appendChar(ptr " + receiverPtrReg + ", i64 " + arg0 + ")\n")
+        return "0"
+    }
+    if methodName == "clear" {
+        output.append("  call void @StringBuilder_clear_impl(ptr " + receiverPtrReg + ")\n")
+        return "0"
+    }
+    if methodName == "length" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @StringBuilder_length(ptr " + receiverPtrReg + ")\n")
+        return resultReg
+    }
+    if methodName == "toString" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call %SeenString @StringBuilder_toString(ptr " + receiverPtrReg + ")\n")
+        return resultReg
+    }
+    return ""
+}

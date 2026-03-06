@@ -1,0 +1,13 @@
+name = "Spanish"
+description = "Spanish Miscellaneous Keywords"
+
+[keywords]
+"es" = "KeywordIs"
+"como" = "KeywordAs"
+"por" = "KeywordBy"
+"y" = "KeywordAnd"
+"o" = "KeywordOr"
+"no" = "KeywordNot"
+"a" = "KeywordTo"
+"de" = "KeywordFrom"
+"efecto" = "KeywordEffect"

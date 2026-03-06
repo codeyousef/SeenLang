@@ -1,0 +1,15 @@
+// : OpenAL bindings — compile-only
+
+fun main() r: Int {
+    let AL_FORMAT_MONO16 = 4353
+    let AL_PLAYING = 4114
+    let AL_STOPPED = 4116
+
+    if AL_PLAYING != 4114 {
+        println("FAIL: AL_PLAYING constant")
+        return 1
+    }
+
+    println("PASS: OpenAL bindings test (compile-only)")
+    return 0
+}

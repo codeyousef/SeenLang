@@ -1,0 +1,20 @@
+import core.option.{Option, Some, None}
+
+// Basic Option test
+fun main() {
+    println("Testing Option basics...")
+
+    // Test None
+    let n: Option<Int> = None()
+    if n.isNone() {
+        println("None works!")
+    }
+
+    // Test Some
+    let s: Option<Int> = Some(42)
+    if s.isSome() {
+        println("Some works!")
+    }
+
+    println("Test completed!")
+}

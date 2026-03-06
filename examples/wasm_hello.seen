@@ -1,0 +1,27 @@
+// Example: Simple WASM program
+// Compile with: seen build examples/wasm_hello.seen -t wasm
+
+fun fibonacci(n: Int) r: Int {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+fun sum(arr: Array<Int>, len: Int) r: Int {
+    var total = 0
+    var i = 0
+    while i < len {
+        total = total + arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+fun main() r: Int {
+    // Calculate fibonacci(10) = 55
+    let fib10 = fibonacci(10)
+
+    // Return result
+    return fib10
+}

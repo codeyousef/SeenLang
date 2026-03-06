@@ -1,0 +1,18 @@
+name = "Arabic"
+description = "Arabic String Standard Library"
+
+[std_lib]
+"قسم" = "seen_std.str.string.split"
+"شذب" = "seen_std.str.string.trim"
+"يحتوي" = "seen_std.str.string.contains"
+"يبدأ_بـ" = "seen_std.str.string.startsWith"
+"ينتهي_بـ" = "seen_std.str.string.endsWith"
+"فهرس" = "seen_std.str.string.indexOf"
+"استبدل" = "seen_std.str.string.replace"
+"إلى_أحرف_كبيرة" = "seen_std.str.string.String_toUpperCase"
+"إلى_أحرف_صغيرة" = "seen_std.str.string.String_toLowerCase"
+"سطور" = "seen_std.str.string.lines"
+"كلمات" = "seen_std.str.string.words"
+"كرر" = "seen_std.str.string.repeat"
+"اربط" = "seen_std.str.string.join"
+"بناء_نص" = "StringBuilder"

@@ -1,0 +1,31 @@
+// Minimal ML model skeleton used during bootstrap.
+// Keeps book-keeping counters so higher level optimizers can compile.
+
+class MLModel {
+    var version: String
+    var accuracy: Float
+
+    fun new() r: MLModel {
+        return MLModel{
+            version: "bootstrap",
+            accuracy: 0.5
+        }
+    }
+
+    fun loadTrainedModel(path: String) r: MLModel {
+        println("Loading ML model from {path}")
+        return MLModel{
+            version: "loaded",
+            accuracy: 0.65
+        }
+    }
+
+    fun addTrainingData(input: IR, output: IR, performance: Float) r: Void {
+        // Simple moving average to simulate accuracy changes.
+        accuracy = (accuracy * 0.9) + performance * 0.1
+    }
+
+    fun updateVersion(tag: String) r: Void {
+        version = tag
+    }
+}

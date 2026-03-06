@@ -1,0 +1,54 @@
+name = "Chinese"
+description = "Chinese Math Standard Library"
+
+[std_lib]
+# 三角函数
+"正弦" = "seen_std.math.sin"
+"余弦" = "seen_std.math.cos"
+"正切" = "seen_std.math.tan"
+"反正弦" = "seen_std.math.asin"
+"反余弦" = "seen_std.math.acos"
+"反正切" = "seen_std.math.atan"
+"反正切2" = "seen_std.math.atan2"
+
+# 根与幂
+"平方根" = "seen_std.math.sqrt"
+"立方根" = "seen_std.math.cbrt"
+"幂" = "seen_std.math.pow"
+"斜边" = "seen_std.math.hypot"
+
+# 指数与对数
+"指数" = "seen_std.math.exp"
+"自然对数" = "seen_std.math.ln"
+"对数2" = "seen_std.math.log2"
+"对数10" = "seen_std.math.log10"
+
+# 取整
+"取整" = "seen_std.math.floor"
+"上取整" = "seen_std.math.ceil"
+"四舍五入" = "seen_std.math.round"
+
+# 基本
+"绝对值" = "seen_std.math.abs"
+"最小值" = "seen_std.math.min"
+"最大值" = "seen_std.math.max"
+"限制" = "seen_std.math.clamp"
+"符号" = "seen_std.math.sign"
+
+# 插值
+"线性插值" = "seen_std.math.lerp"
+"平滑步进" = "seen_std.math.smoothstep"
+
+# IEEE检查
+"是非数" = "seen_std.math.isnan"
+"是无穷" = "seen_std.math.isinf"
+"是有限" = "seen_std.math.isfinite"
+
+# 整数
+"最大公约数" = "seen_std.math.gcd"
+
+# 常量
+"圆周率" = "seen_std.math.PI"
+"TAU" = "seen_std.math.TAU"
+"自然常数" = "seen_std.math.E"
+"极小值" = "seen_std.math.EPSILON"

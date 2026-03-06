@@ -1,0 +1,39 @@
+name = "Russian"
+description = "Russian Builtin Names"
+
+[std_lib]
+# Имена типов
+"целое" = "seen_std.builtins.Int"
+"строка" = "seen_std.builtins.String"
+"дробное" = "seen_std.builtins.Float"
+"логическое" = "seen_std.builtins.Bool"
+"пусто" = "seen_std.builtins.Void"
+"символ" = "seen_std.builtins.Char"
+
+# Функции вывода
+"печать" = "seen_std.builtins.println"
+"вывод" = "seen_std.builtins.print"
+"печать_ошибка" = "seen_std.builtins.eprintln"
+
+# Точка входа
+"главная" = "seen_std.builtins.main"
+
+# Ссылка на себя
+"это" = "seen_std.builtins.this"
+
+# Метка типа возврата
+"р" = "seen_std.builtins.r"
+
+# Методы преобразования
+"в_строку" = "seen_std.builtins.toString"
+"в_дробное" = "seen_std.builtins.toFloat"
+"в_целое" = "seen_std.builtins.toInt"
+
+# Методы коллекций
+"длина" = "seen_std.builtins.length"
+"добавить" = "seen_std.builtins.push"
+"получить_элемент" = "seen_std.builtins.get"
+"положить" = "seen_std.builtins.put"
+
+# Конструктор
+"новый" = "seen_std.builtins.new"

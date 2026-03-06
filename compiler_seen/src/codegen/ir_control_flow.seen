@@ -1,0 +1,348 @@
+// ir_control_flow.seen — Loop analysis and control flow helpers
+// Extracted from llvm_ir_gen.seen generateWhileStatement() to reduce module 5 size
+// These are pure AST analysis functions (no generateExpression callbacks needed)
+
+import parser.real_parser.{StatementNode, ParserExpressionNode, BlockNode}
+import codegen.ir_optimization.{parseIntManual}
+
+// detectMemcpyPattern — Check if a while loop is a memcpy or memmove pattern
+// Returns: 0 = no pattern, 1 = memcpy (dest[i]=src[i]), 2 = memmove (arr[i]=arr[i+1])
+// mcLHSArrName/mcRHSArrName/mcIncrVarName: output parameters (pipe-delimited single entry)
+fun detectMemcpyPatternImpl(condition: ParserExpressionNode, body: BlockNode,
+    infoOut: Array<String>) r: Int {
+    // Check condition is i < N with large literal bound
+    if condition.kind != "Binary" or condition.operator != "<" {
+        return 0
+    }
+    if condition.operands.length() < 2 {
+        return 0
+    }
+    let mcBoundCheck = condition.operands[1]
+    if mcBoundCheck.kind != "Literal" or mcBoundCheck.literalType != "Int" {
+        return 0
+    }
+    let mcBoundVal = parseIntManual(mcBoundCheck.literalValue)
+    if mcBoundVal < 64 {
+        return 0
+    }
+    // Check body has exactly 2 statements
+    if body.statements.length() != 2 {
+        return 0
+    }
+    let mcStmt0 = body.statements[0]
+    let mcStmt1 = body.statements[1]
+    // Check stmt[0] is IndexAssignment: arr[i] = expr
+    var mcIsIdxAssign = 0
+    if mcStmt0.kind == "Expression" {
+        if mcStmt0.expression.kind == "IndexAssignment" {
+            mcIsIdxAssign = 1
+        }
+    }
+    if mcIsIdxAssign == 0 {
+        return 0
+    }
+    // Check stmt[1] is i = i + 1
+    var mcIsIncrement = 0
+    var mcIncrVarName = ""
+    if mcStmt1.kind == "Expression" {
+        if mcStmt1.expression.kind == "Assignment" {
+            mcIncrVarName = mcStmt1.expression.variableName
+            if mcStmt1.expression.operands.length() > 0 {
+                let mcIncrRHS = mcStmt1.expression.operands[0]
+                if mcIncrRHS.kind == "Binary" and mcIncrRHS.operator == "+" {
+                    if mcIncrRHS.operands.length() >= 2 {
+                        let mcIncrLeft = mcIncrRHS.operands[0]
+                        let mcIncrRight = mcIncrRHS.operands[1]
+                        var mcIncrLeftName = mcIncrLeft.literalValue
+                        if mcIncrLeftName == "" { mcIncrLeftName = mcIncrLeft.variableName }
+                        if mcIncrLeftName == mcIncrVarName and mcIncrRight.kind == "Literal" and mcIncrRight.literalValue == "1" {
+                            mcIsIncrement = 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if mcIsIncrement == 0 {
+        return 0
+    }
+    // Extract LHS array/index and RHS
+    let mcIdxAssign = mcStmt0.expression
+    let mcLHSAccess = mcIdxAssign.operands[0]
+    let mcRHSExpr = mcIdxAssign.operands[1]
+    let mcLHSArr = mcLHSAccess.operands[0]
+    let mcLHSIdx = mcLHSAccess.operands[1]
+    var mcLHSArrName = mcLHSArr.literalValue
+    if mcLHSArrName == "" { mcLHSArrName = mcLHSArr.variableName }
+    var mcLHSIdxName = mcLHSIdx.literalValue
+    if mcLHSIdxName == "" { mcLHSIdxName = mcLHSIdx.variableName }
+    // Get condition variable name (loop var)
+    var mcCondVarName = ""
+    let mcCondLeft = condition.operands[0]
+    mcCondVarName = mcCondLeft.literalValue
+    if mcCondVarName == "" { mcCondVarName = mcCondLeft.variableName }
+    // Verify index var matches loop induction var
+    if mcLHSIdxName != mcIncrVarName or mcCondVarName != mcIncrVarName {
+        return 0
+    }
+    // Check if RHS is IndexAccess with same index (memcpy) or index+1 (memmove)
+    if mcRHSExpr.kind != "IndexAccess" {
+        return 0
+    }
+    let mcRHSArr = mcRHSExpr.operands[0]
+    let mcRHSIdx = mcRHSExpr.operands[1]
+    var mcRHSArrName = mcRHSArr.literalValue
+    if mcRHSArrName == "" { mcRHSArrName = mcRHSArr.variableName }
+    // Check: is RHS index just the same variable? (memcpy pattern)
+    var mcRHSIdxName = ""
+    if mcRHSIdx.kind == "Variable" or mcRHSIdx.kind == "VarExpr" {
+        mcRHSIdxName = mcRHSIdx.literalValue
+        if mcRHSIdxName == "" { mcRHSIdxName = mcRHSIdx.variableName }
+    }
+    // Pattern 1: dest[i] = src[i] where dest != src
+    if mcRHSIdxName == mcIncrVarName and mcLHSArrName != mcRHSArrName {
+        infoOut.push(mcLHSArrName)
+        infoOut.push(mcRHSArrName)
+        infoOut.push(mcIncrVarName)
+        return 1
+    }
+    // Pattern 2: arr[i] = arr[i + 1] (shift-left by one) → memmove
+    if mcLHSArrName == mcRHSArrName and mcRHSIdx.kind == "Binary" {
+        if mcRHSIdx.operator == "+" and mcRHSIdx.operands.length() >= 2 {
+            let mcShiftLeft = mcRHSIdx.operands[0]
+            let mcShiftRight = mcRHSIdx.operands[1]
+            var mcShiftLeftName = mcShiftLeft.literalValue
+            if mcShiftLeftName == "" { mcShiftLeftName = mcShiftLeft.variableName }
+            if mcShiftLeftName == mcIncrVarName and mcShiftRight.kind == "Literal" and mcShiftRight.literalValue == "1" {
+                infoOut.push(mcLHSArrName)
+                infoOut.push(mcRHSArrName)
+                infoOut.push(mcIncrVarName)
+                return 2
+            }
+        }
+    }
+    return 0
+}
+
+// detectLoopBound — Extract literal loop bound from condition
+// Returns -1 if no literal bound
+fun detectLoopBoundImpl(condition: ParserExpressionNode) r: Int {
+    if condition.kind == "Binary" {
+        if condition.operator == "<" or condition.operator == "<=" {
+            if condition.operands.length() >= 2 {
+                let boundExpr = condition.operands[1]
+                if boundExpr.kind == "Literal" and boundExpr.literalType == "Int" {
+                    return parseIntManual(boundExpr.literalValue)
+                }
+            }
+        }
+    }
+    return -1
+}
+
+// computeLoopTileSize — Compute tiling unroll count for a loop with given bound
+// Returns 0 if no tiling needed (bound too small)
+fun computeLoopTileSizeImpl(loopBoundLiteral: Int, mlUnrollThreshold: Int) r: Int {
+    if loopBoundLiteral <= 64 {
+        return 0
+    }
+    var tileSize = loopBoundLiteral / 8
+    if tileSize > 32 { tileSize = 32 }
+    if tileSize < mlUnrollThreshold { tileSize = mlUnrollThreshold }
+    return tileSize
+}
+
+// detectReductionPattern — Check if loop body contains a reduction (acc = acc + x)
+// Returns reduction variable name, or "" if none
+fun detectReductionPatternImpl(body: BlockNode) r: String {
+    var riIdx = 0
+    while riIdx < body.statements.length() {
+        let riStmt = body.statements[riIdx]
+        if riStmt.kind == "Expression" and riStmt.expression.kind == "Assignment" {
+            let riAssignName = riStmt.expression.variableName
+            if riStmt.expression.operands.length() > 0 {
+                let riRHS = riStmt.expression.operands[0]
+                if riRHS.kind == "Binary" {
+                    if riRHS.operator == "+" or riRHS.operator == "*" {
+                        if riRHS.operands.length() >= 2 {
+                            let riLeft = riRHS.operands[0]
+                            var riLeftName = riLeft.literalValue
+                            if riLeftName == "" { riLeftName = riLeft.variableName }
+                            if (riLeft.kind == "Variable" or riLeft.kind == "VarExpr") and riLeftName == riAssignName {
+                                return riAssignName
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        riIdx = riIdx + 1
+    }
+    return ""
+}
+
+// detectInductionVar — Check if loop body contains i = i + 1 or i = i - 1
+// Returns induction variable name, or "" if none
+fun detectInductionVarImpl(body: BlockNode) r: String {
+    var ivIdx = 0
+    while ivIdx < body.statements.length() {
+        let ivStmt = body.statements[ivIdx]
+        if ivStmt.kind == "Expression" and ivStmt.expression.kind == "Assignment" {
+            let ivAssignName = ivStmt.expression.variableName
+            if ivStmt.expression.operands.length() > 0 {
+                let ivRHS = ivStmt.expression.operands[0]
+                if ivRHS.kind == "Binary" and (ivRHS.operator == "+" or ivRHS.operator == "-") {
+                    if ivRHS.operands.length() >= 2 {
+                        let ivLeft = ivRHS.operands[0]
+                        let ivRight = ivRHS.operands[1]
+                        var ivLeftName = ivLeft.literalValue
+                        if ivLeftName == "" { ivLeftName = ivLeft.variableName }
+                        if (ivLeft.kind == "Variable" or ivLeft.kind == "VarExpr") and ivLeftName == ivAssignName {
+                            if ivRight.kind == "Literal" and ivRight.literalValue == "1" {
+                                return ivAssignName
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ivIdx = ivIdx + 1
+    }
+    return ""
+}
+
+// detectBreakOnFlag — Check for break-on-flag pattern in loop body
+// Pattern: if flag == 0 { ... flag = 1 } inside a while loop
+// Returns flag variable name, or "" if none
+fun detectBreakOnFlagImpl(body: BlockNode) r: String {
+    if body.statements.length() < 2 {
+        return ""
+    }
+    var bfIdx = 0
+    while bfIdx < body.statements.length() {
+        let bfStmt = body.statements[bfIdx]
+        if bfStmt.kind == "If" and bfStmt.elseBranch.statements.length() == 0 {
+            if bfStmt.condition.kind == "Binary" and bfStmt.condition.operator == "==" {
+                if bfStmt.condition.operands.length() >= 2 {
+                    let bfRight = bfStmt.condition.operands[1]
+                    if bfRight.kind == "Literal" and bfRight.literalValue == "0" {
+                        let bfLeft = bfStmt.condition.operands[0]
+                        var bfLeftName = bfLeft.literalValue
+                        if bfLeftName == "" { bfLeftName = bfLeft.variableName }
+                        var bfSetsFlag = false
+                        var bfCheckIdx = 0
+                        while bfCheckIdx < bfStmt.thenBranch.statements.length() {
+                            let bfCheckSt = bfStmt.thenBranch.statements[bfCheckIdx]
+                            if bfCheckSt.kind == "Expression" and bfCheckSt.expression.kind == "Assignment" {
+                                if bfCheckSt.expression.variableName == bfLeftName {
+                                    if bfCheckSt.expression.operands.length() > 0 {
+                                        let bfVal = bfCheckSt.expression.operands[0]
+                                        if bfVal.kind == "Literal" and bfVal.literalValue == "1" {
+                                            bfSetsFlag = true
+                                        }
+                                    }
+                                }
+                            }
+                            if bfCheckSt.kind == "Assignment" and bfCheckSt.variableName == bfLeftName {
+                                if bfCheckSt.initializer.kind == "Literal" and bfCheckSt.initializer.literalValue == "1" {
+                                    bfSetsFlag = true
+                                }
+                            }
+                            bfCheckIdx = bfCheckIdx + 1
+                        }
+                        if bfSetsFlag and bfLeftName != "" {
+                            return bfLeftName
+                        }
+                    }
+                }
+            }
+        }
+        bfIdx = bfIdx + 1
+    }
+    return ""
+}
+
+// detectNestedLoop — Check if loop body contains a nested while/for loop
+// Returns true if nested loop found
+fun detectNestedLoopImpl(body: BlockNode) r: Bool {
+    var idx = 0
+    while idx < body.statements.length() {
+        let s = body.statements[idx]
+        if s.kind == "While" or s.kind == "For" or s.kind == "ForIn" {
+            return true
+        }
+        idx = idx + 1
+    }
+    return false
+}
+
+// detectGcdPattern — Check for GCD loop pattern: while Y > 0 with modulo in body
+// Returns true if GCD pattern detected
+fun detectGcdPatternImpl(condition: ParserExpressionNode, body: BlockNode) r: Bool {
+    if condition.kind != "Binary" or condition.operator != ">" {
+        return false
+    }
+    if condition.operands.length() < 2 {
+        return false
+    }
+    let gcdBound = condition.operands[1]
+    if gcdBound.kind != "Literal" or gcdBound.literalValue != "0" {
+        return false
+    }
+    var hasModuloAssign = false
+    var gcdIdx = 0
+    while gcdIdx < body.statements.length() {
+        let gcdStmt = body.statements[gcdIdx]
+        if gcdStmt.kind == "Expression" and gcdStmt.expression.kind == "Assignment" {
+            if gcdStmt.expression.operands.length() > 0 {
+                let gcdRHS = gcdStmt.expression.operands[0]
+                if gcdRHS.kind == "Binary" and gcdRHS.operator == "%" {
+                    hasModuloAssign = true
+                }
+            }
+        }
+        gcdIdx = gcdIdx + 1
+    }
+    return hasModuloAssign and body.statements.length() <= 5
+}
+
+// evaluateCfgPredicateImpl — Evaluate @cfg predicate for conditional compilation
+// Returns true if the function should be included
+fun evaluateCfgPredicateImpl(cfgPred: String, enabledFeatures: String) r: Bool {
+    if cfgPred == "linux" or cfgPred == "target_os_linux" {
+        return true
+    }
+    if cfgPred == "unix" {
+        return true
+    }
+    if cfgPred == "x86_64" or cfgPred == "target_arch_x86_64" {
+        return true
+    }
+    if cfgPred == "debug" {
+        return false
+    }
+    if cfgPred == "release" {
+        return true
+    }
+    // Feature flag predicates: @cfg(feature: "vulkan")
+    if cfgPred.startsWith("feature:") {
+        let featureName = cfgPred.substring(8, cfgPred.length())
+        // Trim spaces
+        var fStart = 0
+        while fStart < featureName.length() and featureName.substring(fStart, fStart + 1) == " " {
+            fStart = fStart + 1
+        }
+        var featureClean = featureName.substring(fStart, featureName.length())
+        // Strip quotes
+        if featureClean.startsWith("\"") {
+            featureClean = featureClean.substring(1, featureClean.length())
+        }
+        if featureClean.endsWith("\"") {
+            featureClean = featureClean.substring(0, featureClean.length() - 1)
+        }
+        if enabledFeatures.contains(featureClean + "|") {
+            return true
+        }
+    }
+    return false
+}

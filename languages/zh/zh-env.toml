@@ -1,0 +1,10 @@
+name = "Chinese"
+description = "Chinese Environment Standard Library"
+
+[std_lib]
+"参数" = "seen_std.env.env.args"
+"获取" = "seen_std.env.env.get"
+"设置" = "seen_std.env.env.set"
+"存在键" = "seen_std.env.env.has"
+"执行命令" = "seen_std.process.process.runCommand"
+"退出进程" = "seen_std.process.process.processExit"

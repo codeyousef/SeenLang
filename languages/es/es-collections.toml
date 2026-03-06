@@ -1,0 +1,14 @@
+name = "Spanish"
+description = "Spanish Collections Standard Library"
+
+[std_lib]
+"Vector" = "seen_std.collections.vec.Vec"
+"Arreglo" = "Array"
+"MapaHash" = "HashMap"
+"MapaHashCadena" = "seen_std.collections.string_hash_map.StringHashMap"
+"ConjuntoHash" = "HashSet"
+"MapaArbol" = "BTreeMap"
+"ListaEnlazada" = "LinkedList"
+"ColaDoble" = "VecDeque"
+"ConjuntoBits" = "BitSet"
+"Piscina" = "Pool"

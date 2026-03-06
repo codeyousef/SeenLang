@@ -1,0 +1,385 @@
+// seen_std.security.enclave
+// High-level Seen API for Trusted Execution Environment (TEE) operations
+// Supports Intel SGX and AMD SEV transparently
+// Part of UWW Infrastructure (Task 5.3)
+
+// ============================================================================
+// TEE Type Enumeration
+// ============================================================================
+
+// Represents the type of TEE available on the system
+class TEEType {
+    var value: Int
+
+    static let NONE: Int = 0     // No TEE available
+    static let SGX: Int = 1      // Intel SGX
+    static let SEV: Int = 2      // AMD SEV
+    static let TDX: Int = 3      // Intel TDX (future)
+    static let STUB: Int = 99    // Stub mode for development
+
+    static fun new(v: Int) r: TEEType {
+        return TEEType{value: v}
+    }
+
+    fun isNone() r: Bool { return value == 0 }
+    fun isSGX() r: Bool { return value == 1 }
+    fun isSEV() r: Bool { return value == 2 }
+    fun isStub() r: Bool { return value == 99 }
+
+    fun toString() r: String {
+        if value == 0 { return "None" }
+        if value == 1 { return "Intel SGX" }
+        if value == 2 { return "AMD SEV" }
+        if value == 3 { return "Intel TDX" }
+        if value == 99 { return "Stub (Development)" }
+        return "Unknown"
+    }
+}
+
+// ============================================================================
+// TEE Status Codes
+// ============================================================================
+
+class TEEStatus {
+    var code: Int
+    var message: String
+
+    static let SUCCESS: Int = 0
+    static let ERR_NOT_SUPPORTED: Int = -1
+    static let ERR_ENCLAVE_CREATE: Int = -2
+    static let ERR_ENCLAVE_ENTER: Int = -3
+    static let ERR_SEAL: Int = -5
+    static let ERR_UNSEAL: Int = -6
+    static let ERR_ATTESTATION: Int = -7
+
+    static fun new(c: Int, msg: String) r: TEEStatus {
+        return TEEStatus{code: c, message: msg}
+    }
+
+    static fun success() r: TEEStatus {
+        return TEEStatus{code: 0, message: "Success"}
+    }
+
+    fun isSuccess() r: Bool {
+        return code == 0
+    }
+
+    fun isError() r: Bool {
+        return code < 0
+    }
+
+    fun toString() r: String {
+        return "TEEStatus(" + code.toString() + "): " + message
+    }
+}
+
+// ============================================================================
+// Attestation Type
+// ============================================================================
+
+class AttestationType {
+    var value: Int
+
+    static let LOCAL: Int = 0   // Local attestation (same platform)
+    static let REMOTE: Int = 1  // Remote attestation (different platform)
+
+    static fun local() r: AttestationType {
+        return AttestationType{value: 0}
+    }
+
+    static fun remote() r: AttestationType {
+        return AttestationType{value: 1}
+    }
+
+    fun isLocal() r: Bool { return value == 0 }
+    fun isRemote() r: Bool { return value == 1 }
+}
+
+// ============================================================================
+// Seal Policy
+// ============================================================================
+
+class SealPolicy {
+    var value: Int
+
+    static let MRENCLAVE: Int = 0  // Seal to specific enclave measurement
+    static let MRSIGNER: Int = 1   // Seal to enclave signer (allows updates)
+
+    static fun mrenclave() r: SealPolicy {
+        return SealPolicy{value: 0}
+    }
+
+    static fun mrsigner() r: SealPolicy {
+        return SealPolicy{value: 1}
+    }
+
+    fun isMREnclave() r: Bool { return value == 0 }
+    fun isMRSigner() r: Bool { return value == 1 }
+}
+
+// ============================================================================
+// Enclave Handle
+// ============================================================================
+
+class EnclaveHandle {
+    var id: Int
+    var teeType: TEEType
+    var active: Bool
+
+    static fun new(enclaveId: Int, tee: TEEType) r: EnclaveHandle {
+        return EnclaveHandle{id: enclaveId, teeType: tee, active: true}
+    }
+
+    fun isActive() r: Bool {
+        return active
+    }
+
+    fun getId() r: Int {
+        return id
+    }
+}
+
+// ============================================================================
+// Attestation Report
+// ============================================================================
+
+class AttestationReport {
+    var teeType: TEEType
+    var attestType: AttestationType
+    var reportData: String      // Hex-encoded report data
+    var measurement: String     // Hex-encoded measurement
+    var timestamp: Int
+    var valid: Bool
+
+    static fun new() r: AttestationReport {
+        return AttestationReport{
+            teeType: TEEType.new(0),
+            attestType: AttestationType.local(),
+            reportData: "",
+            measurement: "",
+            timestamp: 0,
+            valid: false
+        }
+    }
+
+    fun isValid() r: Bool {
+        return valid
+    }
+
+    fun getMeasurement() r: String {
+        return measurement
+    }
+
+    fun toString() r: String {
+        return "AttestationReport(tee=" + teeType.toString() +
+               ", measurement=" + measurement + ", valid=" + valid.toString() + ")"
+    }
+}
+
+// ============================================================================
+// Sealed Data
+// ============================================================================
+
+class SealedData {
+    var teeType: TEEType
+    var policy: SealPolicy
+    var sealedHex: String       // Hex-encoded sealed data
+    var additionalData: String  // Additional authenticated data
+    var valid: Bool
+
+    static fun new() r: SealedData {
+        return SealedData{
+            teeType: TEEType.new(0),
+            policy: SealPolicy.mrenclave(),
+            sealedHex: "",
+            additionalData: "",
+            valid: false
+        }
+    }
+
+    fun isValid() r: Bool {
+        return valid
+    }
+
+    fun getSealed() r: String {
+        return sealedHex
+    }
+}
+
+// ============================================================================
+// TEE Runtime Interface (extern functions)
+// ============================================================================
+
+// Initialization
+extern fun __seen_tee_init() r: Int
+
+// TEE detection
+extern fun __seen_tee_get_type() r: Int
+extern fun __seen_tee_is_active() r: Int
+
+// Enclave operations
+extern fun __seen_enclave_enter(enclaveId: Int) r: Int
+extern fun __seen_enclave_exit() r: Int
+extern fun __seen_in_enclave() r: Int
+extern fun __seen_enclave_create(path: String, heapSize: Int, stackSize: Int) r: Int
+extern fun __seen_enclave_destroy(enclaveId: Int) r: Int
+
+// String-based API
+extern fun __seen_seal_string(plaintext: String, additionalData: String, policy: Int) r: String
+extern fun __seen_unseal_string(sealedHex: String, additionalData: String) r: String
+extern fun __seen_get_attestation_json(reportData: String, attestType: Int) r: String
+extern fun __seen_verify_attestation_json(reportJson: String, expectedMeasurement: String) r: Int
+
+// ============================================================================
+// TEE Class - Main Interface
+// ============================================================================
+
+class TEE {
+    var teeType: TEEType
+    var initialized: Bool
+
+    // Singleton instance
+    static var instance: TEE = TEE{teeType: TEEType.new(0), initialized: false}
+
+    // Initialize and get TEE instance
+    static fun init() r: TEE {
+        if not TEE.instance.initialized {
+            let status = __seen_tee_init()
+            if status == 0 {
+                let ttype = __seen_tee_get_type()
+                TEE.instance.teeType = TEEType.new(ttype)
+                TEE.instance.initialized = true
+            }
+        }
+        return TEE.instance
+    }
+
+    // Check if TEE is available
+    static fun isAvailable() r: Bool {
+        let tee = TEE.init()
+        return tee.initialized and not tee.teeType.isNone()
+    }
+
+    // Get TEE type
+    static fun getType() r: TEEType {
+        let tee = TEE.init()
+        return tee.teeType
+    }
+
+    // Check if currently inside enclave
+    static fun inEnclave() r: Bool {
+        return __seen_in_enclave() != 0
+    }
+
+    // Create an enclave
+    static fun createEnclave(path: String, heapSize: Int, stackSize: Int) r: EnclaveHandle {
+        let tee = TEE.init()
+        let eid = __seen_enclave_create(path, heapSize, stackSize)
+        return EnclaveHandle.new(eid, tee.teeType)
+    }
+
+    // Enter an enclave
+    static fun enterEnclave(handle: EnclaveHandle) r: TEEStatus {
+        let status = __seen_enclave_enter(handle.id)
+        if status == 0 {
+            return TEEStatus.success()
+        }
+        return TEEStatus.new(status, "Failed to enter enclave")
+    }
+
+    // Exit enclave
+    static fun exitEnclave() r: TEEStatus {
+        let status = __seen_enclave_exit()
+        if status == 0 {
+            return TEEStatus.success()
+        }
+        return TEEStatus.new(status, "Failed to exit enclave")
+    }
+
+    // Destroy an enclave
+    static fun destroyEnclave(handle: EnclaveHandle) r: TEEStatus {
+        let status = __seen_enclave_destroy(handle.id)
+        if status == 0 {
+            return TEEStatus.success()
+        }
+        return TEEStatus.new(status, "Failed to destroy enclave")
+    }
+
+    // Seal data
+    static fun seal(plaintext: String, policy: SealPolicy) r: SealedData {
+        return TEE.sealWithAAD(plaintext, "", policy)
+    }
+
+    // Seal data with additional authenticated data
+    static fun sealWithAAD(plaintext: String, additionalData: String, policy: SealPolicy) r: SealedData {
+        let result = SealedData.new()
+        let sealedHex = __seen_seal_string(plaintext, additionalData, policy.value)
+
+        if sealedHex.length() > 0 {
+            result.sealedHex = sealedHex
+            result.additionalData = additionalData
+            result.policy = policy
+            result.teeType = TEE.getType()
+            result.valid = true
+        }
+
+        return result
+    }
+
+    // Unseal data
+    static fun unseal(sealed: SealedData) r: String {
+        if not sealed.valid {
+            return ""
+        }
+        return __seen_unseal_string(sealed.sealedHex, sealed.additionalData)
+    }
+
+    // Get attestation report
+    static fun getAttestationReport(reportData: String, attestType: AttestationType) r: AttestationReport {
+        let result = AttestationReport.new()
+        let json = __seen_get_attestation_json(reportData, attestType.value)
+
+        if json.length() > 0 {
+            // Parse JSON (simplified - just mark as valid)
+            result.teeType = TEE.getType()
+            result.attestType = attestType
+            result.reportData = json
+            result.valid = true
+        }
+
+        return result
+    }
+
+    // Verify attestation report
+    static fun verifyAttestation(report: AttestationReport, expectedMeasurement: String) r: Bool {
+        if not report.valid {
+            return false
+        }
+        let result = __seen_verify_attestation_json(report.reportData, expectedMeasurement)
+        return result != 0
+    }
+}
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+// Seal data using default policy (MRENCLAVE)
+fun sealData(plaintext: String) r: SealedData {
+    return TEE.seal(plaintext, SealPolicy.mrenclave())
+}
+
+// Unseal data
+fun unsealData(sealed: SealedData) r: String {
+    return TEE.unseal(sealed)
+}
+
+// Get local attestation report
+fun getLocalAttestation(reportData: String) r: AttestationReport {
+    return TEE.getAttestationReport(reportData, AttestationType.local())
+}
+
+// Get remote attestation report
+fun getRemoteAttestation(reportData: String) r: AttestationReport {
+    return TEE.getAttestationReport(reportData, AttestationType.remote())
+}

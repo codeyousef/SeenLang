@@ -1,0 +1,257 @@
+// Seen Standard Library - GPU Compute API
+// Provides type-safe wrappers around seen_gpu_* runtime functions
+// Usage: import graphics.gpu.{GpuBuffer, GpuPipeline, gpuInit, gpuShutdown}
+
+// --- External Runtime Functions ---
+
+extern fun seen_gpu_init() r: Int
+extern fun seen_gpu_shutdown() r: Void
+extern fun seen_gpu_is_available() r: Int
+extern fun seen_gpu_buffer_create(size: Int, usage: Int) r: Int
+extern fun seen_gpu_buffer_write(handle: Int, data: Int, size: Int) r: Int
+extern fun seen_gpu_buffer_read(handle: Int, data: Int, size: Int) r: Int
+extern fun seen_gpu_buffer_destroy(handle: Int) r: Void
+extern fun seen_gpu_shader_load(path: String) r: Int
+extern fun seen_gpu_pipeline_create(shader: Int, bindingCount: Int) r: Int
+extern fun seen_gpu_pipeline_destroy(handle: Int) r: Void
+extern fun seen_gpu_dispatch(pipeline: Int, gx: Int, gy: Int, gz: Int, buffers: Int, count: Int) r: Int
+extern fun seen_gpu_dispatch_indirect(pipeline: Int, indirect: Int, buffers: Int, count: Int) r: Int
+extern fun seen_gpu_fence_create() r: Int
+extern fun seen_gpu_fence_wait(handle: Int, timeoutNs: Int) r: Int
+extern fun seen_gpu_fence_destroy(handle: Int) r: Void
+extern fun seen_gpu_device_wait_idle() r: Int
+
+// --- Module-Level API ---
+
+fun gpuInit() r: Bool {
+    let result = seen_gpu_init()
+    return result == 1
+}
+
+fun gpuShutdown() r: Void {
+    seen_gpu_shutdown()
+}
+
+fun gpuIsAvailable() r: Bool {
+    let result = seen_gpu_is_available()
+    return result == 1
+}
+
+fun gpuDeviceWaitIdle() r: Bool {
+    let result = seen_gpu_device_wait_idle()
+    return result == 1
+}
+
+// --- GpuBuffer Class ---
+
+class GpuBuffer {
+    var handle: Int
+    var size: Int
+    var count: Int
+    var elementSize: Int
+
+    static fun new(count: Int, elementSize: Int) r: GpuBuffer {
+        let totalSize = count * elementSize
+        let h = seen_gpu_buffer_create(totalSize, 0)
+        return GpuBuffer{
+            handle: h,
+            size: totalSize,
+            count: count,
+            elementSize: elementSize
+        }
+    }
+
+    static fun newStorage(size: Int) r: GpuBuffer {
+        let h = seen_gpu_buffer_create(size, 0)
+        return GpuBuffer{
+            handle: h,
+            size: size,
+            count: 0,
+            elementSize: 0
+        }
+    }
+
+    static fun newIndirect(size: Int) r: GpuBuffer {
+        let h = seen_gpu_buffer_create(size, 2)
+        return GpuBuffer{
+            handle: h,
+            size: size,
+            count: 0,
+            elementSize: 0
+        }
+    }
+
+    fun writeData(data: Array<Float>) r: Bool {
+        // Array data pointer is passed as Int handle
+        let dataSize = data.length() * 8
+        let result = seen_gpu_buffer_write(handle, 0, dataSize)
+        return result == 1
+    }
+
+    fun readData(data: Array<Float>) r: Bool {
+        let dataSize = data.length() * 8
+        let result = seen_gpu_buffer_read(handle, 0, dataSize)
+        return result == 1
+    }
+
+    fun destroy() r: Void {
+        if handle != 0 {
+            seen_gpu_buffer_destroy(handle)
+            handle = 0
+        }
+    }
+
+    fun isValid() r: Bool {
+        return handle != 0
+    }
+}
+
+// --- GpuUniform Class ---
+
+class GpuUniform {
+    var handle: Int
+    var size: Int
+
+    static fun new(size: Int) r: GpuUniform {
+        let h = seen_gpu_buffer_create(size, 1)
+        return GpuUniform{
+            handle: h,
+            size: size
+        }
+    }
+
+    fun update(data: Int, size: Int) r: Bool {
+        let result = seen_gpu_buffer_write(handle, data, size)
+        return result == 1
+    }
+
+    fun destroy() r: Void {
+        if handle != 0 {
+            seen_gpu_buffer_destroy(handle)
+            handle = 0
+        }
+    }
+
+    fun isValid() r: Bool {
+        return handle != 0
+    }
+}
+
+// --- GpuImage Class ---
+
+class GpuImage {
+    var handle: Int
+    var width: Int
+    var height: Int
+    var format: Int
+
+    static fun new(width: Int, height: Int, format: Int) r: GpuImage {
+        // Image backed by storage buffer (width * height * 4 channels * 4 bytes)
+        let size = width * height * 16
+        let h = seen_gpu_buffer_create(size, 0)
+        return GpuImage{
+            handle: h,
+            width: width,
+            height: height,
+            format: format
+        }
+    }
+
+    fun destroy() r: Void {
+        if handle != 0 {
+            seen_gpu_buffer_destroy(handle)
+            handle = 0
+        }
+    }
+
+    fun isValid() r: Bool {
+        return handle != 0
+    }
+}
+
+// --- GpuPipeline Class ---
+
+class GpuPipeline {
+    var handle: Int
+    var shaderModule: Int
+    var shaderPath: String
+    var bindingCount: Int
+
+    static fun load(spvPath: String, bindingCount: Int) r: GpuPipeline {
+        let shader = seen_gpu_shader_load(spvPath)
+        var pipeHandle = 0
+        if shader != 0 {
+            pipeHandle = seen_gpu_pipeline_create(shader, bindingCount)
+        }
+        return GpuPipeline{
+            handle: pipeHandle,
+            shaderModule: shader,
+            shaderPath: spvPath,
+            bindingCount: bindingCount
+        }
+    }
+
+    fun dispatch(gx: Int, gy: Int, gz: Int, buffers: Array<Int>) r: Bool {
+        if handle == 0 {
+            return false
+        }
+        let result = seen_gpu_dispatch(handle, gx, gy, gz, 0, buffers.length())
+        return result == 1
+    }
+
+    fun dispatchIndirect(indirectBuf: GpuBuffer, buffers: Array<Int>) r: Bool {
+        if handle == 0 {
+            return false
+        }
+        let result = seen_gpu_dispatch_indirect(handle, indirectBuf.handle, 0, buffers.length())
+        return result == 1
+    }
+
+    fun destroy() r: Void {
+        if handle != 0 {
+            seen_gpu_pipeline_destroy(handle)
+            handle = 0
+            shaderModule = 0
+        }
+    }
+
+    fun isValid() r: Bool {
+        return handle != 0
+    }
+}
+
+// --- GpuFence Class ---
+
+class GpuFence {
+    var handle: Int
+
+    static fun new() r: GpuFence {
+        let h = seen_gpu_fence_create()
+        return GpuFence{
+            handle: h
+        }
+    }
+
+    fun wait(timeoutNs: Int) r: Bool {
+        if handle == 0 {
+            return false
+        }
+        let result = seen_gpu_fence_wait(handle, timeoutNs)
+        return result == 1
+    }
+
+    fun waitForever() r: Bool {
+        return wait(9223372036854775807)
+    }
+
+    fun destroy() r: Void {
+        if handle != 0 {
+            seen_gpu_fence_destroy(handle)
+            handle = 0
+        }
+    }
+
+    fun isValid() r: Bool {
+        return handle != 0
+    }
+}

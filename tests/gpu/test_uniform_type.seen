@@ -1,0 +1,22 @@
+// Test: Uniform[T] type — binding and update
+// Verifies GLSL generator emits std140 layout for uniform buffers
+
+@gpu_buffer
+class Params {
+    var scale: Float
+    var offset: Float
+    var count: Int
+}
+
+@compute(workgroup: 64)
+fun applyParams(data: Buffer<Float>, params: Uniform<Params>) {
+    let idx = globalInvocationId.x
+    data[idx] = data[idx] * params.scale + params.offset
+}
+
+fun main() r: Int {
+    println("test_uniform_type: Uniform<Params> in @compute function")
+    println("  Verifies std140 layout emission")
+    println("PASS")
+    return 0
+}

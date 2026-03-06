@@ -1,0 +1,137 @@
+// Binary Trees Benchmark
+// Memory allocation stress test with tree creation
+
+class TreeNode {
+    var item: Int
+    var left_val: Int
+    var right_val: Int
+    var has_left: Int
+    var has_right: Int
+
+    fun new(item: Int) -> TreeNode {
+        return TreeNode {
+            item: item,
+            left_val: 0,
+            right_val: 0,
+            has_left: 0,
+            has_right: 0
+        }
+    }
+
+    fun with_children(item: Int, left_check: Int, right_check: Int) -> TreeNode {
+        return TreeNode {
+            item: item,
+            left_val: left_check,
+            right_val: right_check,
+            has_left: 1,
+            has_right: 1
+        }
+    }
+
+    fun check() -> Int {
+        var result = this.item
+        if this.has_left != 0 {
+            result = result + this.left_val
+        }
+        if this.has_right != 0 {
+            result = result - this.right_val
+        }
+        return result
+    }
+}
+
+fun power_of_two(n: Int) -> Int {
+    var result = 1
+    var i = 0
+    while i < n {
+        result = result * 2
+        i = i + 1
+    }
+    return result
+}
+
+fun make_tree(depth: Int) -> TreeNode {
+    if depth == 0 {
+        return TreeNode.new(0)
+    }
+    let left = make_tree(depth - 1)
+    let right = make_tree(depth - 1)
+    let left_check = left.check()
+    let right_check = right.check()
+    left.free()
+    right.free()
+    return TreeNode.with_children(0, left_check, right_check)
+}
+
+fun run_binary_trees(min_depth: Int, max_depth: Int) -> Int {
+    let stretch_depth = max_depth + 1
+
+    let stretch_tree = make_tree(stretch_depth)
+    let stretch_check = stretch_tree.check()
+    stretch_tree.free()
+
+    let long_lived_tree = make_tree(max_depth)
+
+    var total_check = stretch_check
+    var depth = min_depth
+    while depth <= max_depth {
+        let iterations = power_of_two(max_depth - depth + min_depth)
+        var check = 0
+
+        var i = 0
+        while i < iterations {
+            let temp_tree = make_tree(depth)
+            check = check + temp_tree.check()
+            temp_tree.free()
+            i = i + 1
+        }
+
+        total_check = total_check + check
+        depth = depth + 2
+    }
+
+    total_check = total_check + long_lived_tree.check()
+    long_lived_tree.free()
+    return total_check
+}
+
+fun main() -> Int {
+    let min_depth = 4
+    let max_depth = 20
+
+    __Print("Binary Trees Benchmark\n")
+    __Print("Max depth: ")
+    __PrintInt(max_depth)
+    __Print("\n")
+
+    // Warmup
+    __Print("Warming up (1 run at depth 16)...\n")
+    let warmup_check = run_binary_trees(min_depth, 16)
+
+    __Print("Running measured iterations...\n")
+    let iterations = 3
+    var min_time = 1000000.0
+    var result_check = 0
+
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let check = run_binary_trees(min_depth, max_depth)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_check = check
+        }
+        i = i + 1
+    }
+
+    __Print("Checksum: ")
+    __PrintInt(result_check)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+
+    return 0
+}

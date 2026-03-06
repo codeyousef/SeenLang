@@ -1,0 +1,12 @@
+@binary(big)
+class BigEndianData {
+    x: Int
+    y: Int
+}
+
+fun main() r: Int {
+    let d = BigEndianData(100, 200)
+    let buf = d.serialize()
+    println("PASS: binary_endian")
+    return 0
+}

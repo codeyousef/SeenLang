@@ -1,0 +1,164 @@
+// Deterministic ECS micro-simulation for MVP POST-2
+
+data Transform {
+    x: Float,
+    y: Float,
+}
+
+data Velocity {
+    x: Float,
+    y: Float,
+}
+
+data Entity {
+    id: Int,
+    name: String,
+    tag: String,
+    transform: Transform,
+    velocity: Velocity,
+    health: Int,
+}
+
+data SimulationConfig {
+    frames: Int,
+    delta_time: Float,
+}
+
+data EntityStep {
+    entity: Entity,
+    distance: Float,
+    destroyed: Bool,
+}
+
+data SimulationReport {
+    frames: Int,
+    survivors: Int,
+    casualties: Int,
+    total_distance: Float,
+}
+
+fun main() -> Int {
+    let config = SimulationConfig {
+        frames: 8,
+        delta_time: 0.016,
+    }
+
+    let world = bootstrap_world()
+    let report = run_simulation(world, config)
+
+    println("[seen-ecs-min] frames={report.frames} survivors={report.survivors} casualties={report.casualties}")
+    println("total_distance={report.total_distance}")
+
+    if report.casualties == 0 {
+        println("all entities survived the stress test")
+    } else {
+        println("{report.casualties} entities retired after the stress test")
+    }
+
+    return 0
+}
+
+fun run_simulation(entities: List<Entity>, config: SimulationConfig) -> SimulationReport {
+    var active = entities
+    var casualties = 0
+    var total_distance = 0.0
+
+    for _ in 0..config.frames {
+        let frame = simulate_frame(active, config.delta_time)
+        active = frame.survivors
+        casualties = casualties + frame.casualties
+        total_distance = total_distance + frame.distance
+    }
+
+    return SimulationReport {
+        frames: config.frames,
+        survivors: active.length(),
+        casualties: casualties,
+        total_distance: total_distance,
+    }
+}
+
+data FrameResult {
+    survivors: List<Entity>,
+    casualties: Int,
+    distance: Float,
+}
+
+fun simulate_frame(entities: List<Entity>, delta_time: Float) -> FrameResult {
+    var survivors: List<Entity> = []
+    var casualties = 0
+    var traveled = 0.0
+
+    for entity in entities {
+        let step = advance_entity(entity, delta_time)
+        traveled = traveled + step.distance
+        if step.destroyed {
+            casualties = casualties + 1
+        } else {
+            survivors.push(step.entity)
+        }
+    }
+
+    return FrameResult {
+        survivors: survivors,
+        casualties: casualties,
+        distance: traveled,
+    }
+}
+
+fun advance_entity(entity: Entity, delta_time: Float) -> EntityStep {
+    let dx = entity.velocity.x * delta_time
+    let dy = entity.velocity.y * delta_time
+    let next_health = entity.health - 1
+
+    let updated = Entity {
+        id: entity.id,
+        name: entity.name,
+        tag: entity.tag,
+        transform: Transform {
+            x: entity.transform.x + dx,
+            y: entity.transform.y + dy,
+        },
+        velocity: entity.velocity,
+        health: next_health,
+    }
+
+    let destroyed = next_health <= 0
+    let distance = manhattan_length(dx, dy)
+
+    return EntityStep {
+        entity: updated,
+        distance: distance,
+        destroyed: destroyed,
+    }
+}
+
+fun bootstrap_world() -> List<Entity> {
+    return [
+        spawn_entity(0, "Player", "player", 0.0, 0.0, 1.0, 0.0, 6),
+        spawn_entity(1, "Support", "npc", -0.5, 0.25, 0.5, 0.25, 4),
+        spawn_entity(2, "Drone", "ai", 0.75, -0.25, -0.25, 0.5, 3),
+    ]
+}
+
+fun spawn_entity(id: Int, name: String, tag: String, x: Float, y: Float, vx: Float, vy: Float, health: Int) -> Entity {
+    return Entity {
+        id: id,
+        name: name,
+        tag: tag,
+        transform: Transform { x: x, y: y },
+        velocity: Velocity { x: vx, y: vy },
+        health: health,
+    }
+}
+
+fun manhattan_length(dx: Float, dy: Float) -> Float {
+    return absolute(dx) + absolute(dy)
+}
+
+fun absolute(value: Float) -> Float {
+    if value < 0.0 {
+        return -value
+    }
+    return value
+}

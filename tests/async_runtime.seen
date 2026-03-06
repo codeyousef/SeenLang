@@ -1,0 +1,76 @@
+// Async runtime test — manual coroutine manipulation
+// done/promise use C wrappers (safe — just read memory)
+// resume/destroy use LLVM intrinsics via name mapping (required for fastcc)
+
+extern fun seen_coro_done(handle: ptr) -> Int
+extern fun llvm_coro_resume(handle: ptr) -> Void
+extern fun llvm_coro_destroy(handle: ptr) -> Void
+extern fun seen_coro_promise(handle: ptr) -> ptr
+
+@async
+fun compute(x: Int) -> Int {
+    return x * x + 1
+}
+
+@async
+fun greet(n: Int) -> Int {
+    return n + 100
+}
+
+fun main() {
+    // Test 1: Manual coroutine manipulation via C runtime wrappers
+    // spawn a coroutine (returns handle)
+    let handle = compute(7)
+
+    // Resume until done
+    var iters = 0
+    while seen_coro_done(handle) == 0 {
+        llvm_coro_resume(handle)
+        iters = iters + 1
+    }
+
+    // Extract result from promise (offset 16 in frame)
+    let promise_ptr = seen_coro_promise(handle)
+    // For now, use await to verify the value separately
+    println("Manual coro done after " + iters.toString() + " iteration(s)")
+
+    // Clean up
+    llvm_coro_destroy(handle)
+
+    // Test 2: Use await (codegen poll-loop) — should still work
+    let result = await compute(7)
+    println("compute(7) = " + result.toString())
+
+    // Test 3: Multiple coroutines scheduled manually
+    let h1 = greet(1)
+    let h2 = greet(2)
+    let h3 = greet(3)
+
+    // Resume all until done (round-robin)
+    var all_done = 0
+    while all_done == 0 {
+        if seen_coro_done(h1) == 0 {
+            llvm_coro_resume(h1)
+        }
+        if seen_coro_done(h2) == 0 {
+            llvm_coro_resume(h2)
+        }
+        if seen_coro_done(h3) == 0 {
+            llvm_coro_resume(h3)
+        }
+        // Check if all done
+        if seen_coro_done(h1) == 1 {
+            if seen_coro_done(h2) == 1 {
+                if seen_coro_done(h3) == 1 {
+                    all_done = 1
+                }
+            }
+        }
+    }
+
+    llvm_coro_destroy(h1)
+    llvm_coro_destroy(h2)
+    llvm_coro_destroy(h3)
+    println("3 concurrent coroutines completed")
+    println("All runtime tests passed!")
+}

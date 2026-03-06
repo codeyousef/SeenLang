@@ -1,0 +1,206 @@
+#!/usr/bin/env seen
+// Bootstrap Verification and Migration Script
+// Runs the complete self-hosting verification and Rust removal process
+
+import std.io.{println, stderr};
+import std.process.{exit, Command};
+import std.fs.{exists, create_dir_all};
+import std.path.Path;
+
+import compiler_seen.src.bootstrap.{BootstrapManager, BootstrapVerifier, RustRemover};
+
+fun main() {
+    println("=====================================");
+    println("Seen Language Self-Hosting Migration");
+    println("=====================================\n");
+    
+    let args = std.env.args();
+    let dry_run = args.contains("--dry-run");
+    let skip_tests = args.contains("--skip-tests");
+    let force = args.contains("--force");
+    
+    // Step 1: Build the Rust bootstrap compiler if needed
+    if !check_rust_compiler_exists() && !force {
+        println("Building Rust bootstrap compiler first...");
+        if !build_rust_compiler() {
+            stderr.println("Failed to build Rust bootstrap compiler");
+            exit(1);
+        }
+    }
+    
+    // Step 2: Run bootstrap verification
+    println("\n=== Phase 1: Bootstrap Verification ===");
+    let verifier = BootstrapVerifier::new()
+        .with_working_dir(Path::new("bootstrap_work"));
+    
+    println("Starting triple bootstrap verification...");
+    let verification_result = verifier.verify_self_hosting();
+    
+    if !verification_result.success {
+        stderr.println("\n❌ Bootstrap verification failed!");
+        stderr.println(format!("Error: {}", verification_result.message));
+        stderr.println("\nThe compiler is not ready for self-hosting.");
+        stderr.println("Please fix the issues and try again.");
+        exit(1);
+    }
+    
+    println("\n✅ Bootstrap verification successful!");
+    println("   • Stage 2 and Stage 3 compilers are byte-identical");
+    println("   • Compilation times:");
+    for (i, time) in verification_result.compilation_times.iter().enumerate() {
+        println(format!("     Stage {}: {:.2}s", i + 1, time.as_secs_f64()));
+    }
+    
+    if !verification_result.rust_free {
+        stderr.println("\n⚠️ Warning: Binary still contains Rust symbols");
+        if !force {
+            stderr.println("Cannot proceed with Rust removal.");
+            stderr.println("Use --force to override (not recommended)");
+            exit(1);
+        }
+    } else {
+        println("   • No Rust symbols detected in final binary");
+    }
+    
+    // Step 3: Run tests to ensure everything works
+    if !skip_tests {
+        println("\n=== Phase 2: Running Test Suite ===");
+        if !run_all_tests() {
+            stderr.println("\n❌ Test suite failed!");
+            stderr.println("Cannot proceed with migration.");
+            exit(1);
+        }
+        println("✅ All tests passed!");
+    }
+    
+    // Step 4: Remove Rust code
+    println("\n=== Phase 3: Rust Code Removal ===");
+    
+    if dry_run {
+        println("DRY RUN MODE - No files will be modified");
+    }
+    
+    let mut remover = RustRemover::new()
+        .with_backup_dir(Path::new("rust_backup_" + timestamp()));
+    
+    if dry_run {
+        remover = remover.dry_run_mode();
+    }
+    
+    println("Removing Rust code and updating build system...");
+    let removal_result = remover.remove_rust_code();
+    
+    if !removal_result.success {
+        stderr.println("\n❌ Rust removal failed!");
+        stderr.println(format!("Error: {}", removal_result.message));
+        exit(1);
+    }
+    
+    println("\n✅ Rust code removal completed!");
+    println(format!("   • {} files removed", removal_result.files_removed.len()));
+    println(format!("   • {} directories removed", removal_result.directories_removed.len()));
+    
+    // Step 5: Final verification
+    if !dry_run {
+        println("\n=== Phase 4: Final Verification ===");
+        if !verify_seen_only_build() {
+            stderr.println("\n❌ Final verification failed!");
+            stderr.println("The project may be in an inconsistent state.");
+            stderr.println("Restore from backup: rust_backup_*/");
+            exit(1);
+        }
+        println("✅ Project now builds with Seen compiler only!");
+    }
+    
+    // Success!
+    println("\n🎉 MIGRATION SUCCESSFUL! 🎉");
+    println("\nThe Seen compiler is now 100% self-hosted!");
+    println("\nNext steps:");
+    println("  1. Test the Seen-only build: seen build --release");
+    println("  2. Run the test suite: seen test");
+    println("  3. Commit the changes: git add -A && git commit -m 'Remove Rust - 100% self-hosted in Seen'");
+    println("  4. Continue with Alpha Phase optimizations");
+    
+    if dry_run {
+        println("\n⚠️ This was a dry run. Run without --dry-run to perform actual migration.");
+    }
+}
+
+// Check if Rust compiler exists
+fun check_rust_compiler_exists() -> Bool {
+    let rust_compiler = Path::new("target/release/seen_cli");
+    let seen_compiler = Path::new("compiler_seen/target/seen");
+    
+    return exists(rust_compiler) || exists(seen_compiler);
+}
+
+// Build the Rust bootstrap compiler
+fun build_rust_compiler() -> Bool {
+    let result = Command::new("cargo")
+        .arg("build")
+        .arg("--release")
+        .arg("--quiet")
+        .run();
+    
+    return result.exit_code() == 0;
+}
+
+// Run all tests
+fun run_all_tests() -> Bool {
+    println("Running bootstrap tests...");
+    let bootstrap_tests = Command::new("seen")
+        .arg("test")
+        .arg("compiler_seen/tests/bootstrap_test.seen")
+        .run();
+    
+    if bootstrap_tests.exit_code() != 0 {
+        return false;
+    }
+    
+    println("Running error system tests...");
+    let error_tests = Command::new("seen")
+        .arg("test")
+        .arg("compiler_seen/tests/error_system_test.seen")
+        .run();
+    
+    if error_tests.exit_code() != 0 {
+        return false;
+    }
+    
+    // Run any existing Rust tests one last time
+    println("Running existing test suite...");
+    let cargo_tests = Command::new("cargo")
+        .arg("test")
+        .arg("--quiet")
+        .run();
+    
+    return cargo_tests.exit_code() == 0;
+}
+
+// Verify Seen-only build works
+fun verify_seen_only_build() -> Bool {
+    println("Verifying Seen-only build...");
+    
+    // Try to build with Seen compiler
+    let result = Command::new("seen")
+        .arg("build")
+        .arg("--manifest-path")
+        .arg("compiler_seen/Seen.toml")
+        .run();
+    
+    if result.exit_code() != 0 {
+        return false;
+    }
+    
+    // Verify the built compiler works
+    let test_result = Command::new("compiler_seen/target/seen")
+        .arg("--version")
+        .run();
+    
+    return test_result.exit_code() == 0;
+}
+
+// Get current timestamp
+fun timestamp() -> String {
+    return std.time.now().format("%Y%m%d_%H%M%S");
+}

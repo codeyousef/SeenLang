@@ -1,0 +1,7 @@
+name = "Japanese"
+description = "Japanese Literal Keywords"
+
+[keywords]
+"真" = "KeywordTrue"
+"偽" = "KeywordFalse"
+"空" = "KeywordNull"

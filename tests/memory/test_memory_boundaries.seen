@@ -1,0 +1,242 @@
+// Memory Boundary Safety Test
+// Tests edge cases and boundary conditions
+// Verifies: proper bounds, overflow prevention, edge case handling
+
+fun testEmptyArray() r: Bool {
+    println("Test 1: Empty Array Safety")
+
+    let arr = Array<Int>()
+
+    if arr.length() == 0 {
+        println("  PASS: Empty array has correct length")
+        return true
+    }
+
+    println("  FAIL: Empty array length wrong")
+    return false
+}
+
+fun testSingleElement() r: Bool {
+    println("Test 2: Single Element Safety")
+
+    let arr = Array<Int>()
+    arr.push(42)
+
+    if arr.length() == 1 and arr[0] == 42 {
+        println("  PASS: Single element array safe")
+        return true
+    }
+
+    println("  FAIL: Single element corrupted")
+    return false
+}
+
+fun testGrowingArray() r: Bool {
+    println("Test 3: Array Growth Safety")
+
+    let arr = Array<Int>()
+
+    // Grow array dynamically
+    var i = 0
+    while i < 100 {
+        arr.push(i)
+
+        // Verify length matches
+        if arr.length() != i + 1 {
+            println("  FAIL: Length mismatch at i=" + i.toString())
+            return false
+        }
+
+        i = i + 1
+    }
+
+    // Verify all elements still correct
+    if arr[0] == 0 and arr[50] == 50 and arr[99] == 99 {
+        println("  PASS: Array growth preserved all elements")
+        return true
+    }
+
+    println("  FAIL: Array growth corrupted elements")
+    return false
+}
+
+fun testEmptyString() r: Bool {
+    println("Test 4: Empty String Safety")
+
+    let empty = ""
+
+    if empty.length() == 0 {
+        println("  PASS: Empty string handled safely")
+        return true
+    }
+
+    println("  FAIL: Empty string length wrong")
+    return false
+}
+
+fun testZeroValues() r: Bool {
+    println("Test 5: Zero Value Safety")
+
+    let arr = Array<Int>()
+    arr.push(0)
+    arr.push(0)
+    arr.push(0)
+
+    if arr[0] == 0 and arr[1] == 0 and arr[2] == 0 and arr.length() == 3 {
+        println("  PASS: Zero values stored and retrieved correctly")
+        return true
+    }
+
+    println("  FAIL: Zero value handling issue")
+    return false
+}
+
+fun testNegativeValues() r: Bool {
+    println("Test 6: Negative Value Safety")
+
+    let arr = Array<Int>()
+    arr.push(-1)
+    arr.push(-42)
+    arr.push(-999)
+
+    if arr[0] == -1 and arr[1] == -42 and arr[2] == -999 {
+        println("  PASS: Negative values handled correctly")
+        return true
+    }
+
+    println("  FAIL: Negative value corruption")
+    return false
+}
+
+fun testLargeValues() r: Bool {
+    println("Test 7: Large Value Safety")
+
+    let arr = Array<Int>()
+    arr.push(1000000)
+    arr.push(999999999)
+
+    if arr[0] == 1000000 and arr[1] == 999999999 {
+        println("  PASS: Large values stored correctly")
+        return true
+    }
+
+    println("  FAIL: Large value corruption")
+    return false
+}
+
+fun testRepeatedPushPop() r: Bool {
+    println("Test 8: Repeated Operations Safety")
+
+    let arr = Array<Int>()
+
+    // Push and pop repeatedly
+    var iteration = 0
+    while iteration < 10 {
+        arr.push(iteration)
+        arr.push(iteration + 100)
+
+        if arr.length() != (iteration + 1) * 2 {
+            println("  FAIL: Length tracking error")
+            return false
+        }
+
+        iteration = iteration + 1
+    }
+
+    // Verify final state
+    if arr.length() == 20 and arr[0] == 0 and arr[19] == 109 {
+        println("  PASS: Repeated operations safe")
+        return true
+    }
+
+    println("  FAIL: Repeated operation corruption")
+    return false
+}
+
+fun testStringBoundaries() r: Bool {
+    println("Test 9: String Boundary Safety")
+
+    let s1 = "a"
+    let s2 = "ab"
+    let s3 = "abc"
+
+    if s1.length() == 1 and s2.length() == 2 and s3.length() == 3 {
+        if s1 == "a" and s2 == "ab" and s3 == "abc" {
+            println("  PASS: String boundaries safe")
+            return true
+        }
+    }
+
+    println("  FAIL: String boundary issue")
+    return false
+}
+
+fun testConsecutiveAllocations() r: Bool {
+    println("Test 10: Consecutive Allocation Safety")
+
+    let a1 = Array<Int>()
+    let a2 = Array<Int>()
+    let a3 = Array<Int>()
+    let a4 = Array<Int>()
+    let a5 = Array<Int>()
+
+    a1.push(1)
+    a2.push(2)
+    a3.push(3)
+    a4.push(4)
+    a5.push(5)
+
+    if a1[0] == 1 and a2[0] == 2 and a3[0] == 3 and a4[0] == 4 and a5[0] == 5 {
+        println("  PASS: Consecutive allocations isolated")
+        return true
+    }
+
+    println("  FAIL: Consecutive allocation corruption")
+    return false
+}
+
+fun main() r: Int {
+    println("==================================================")
+    println("Memory Boundary Safety - Runtime Tests")
+    println("==================================================")
+
+    var passed = 0
+    var failed = 0
+
+    if testEmptyArray() { passed = passed + 1 } else { failed = failed + 1 }
+    if testSingleElement() { passed = passed + 1 } else { failed = failed + 1 }
+    if testGrowingArray() { passed = passed + 1 } else { failed = failed + 1 }
+    if testEmptyString() { passed = passed + 1 } else { failed = failed + 1 }
+    if testZeroValues() { passed = passed + 1 } else { failed = failed + 1 }
+    if testNegativeValues() { passed = passed + 1 } else { failed = failed + 1 }
+    if testLargeValues() { passed = passed + 1 } else { failed = failed + 1 }
+    if testRepeatedPushPop() { passed = passed + 1 } else { failed = failed + 1 }
+    if testStringBoundaries() { passed = passed + 1 } else { failed = failed + 1 }
+    if testConsecutiveAllocations() { passed = passed + 1 } else { failed = failed + 1 }
+
+    println("")
+    println("==================================================")
+    println("Results: " + passed.toString() + "/" + (passed + failed).toString() + " passed")
+    println("==================================================")
+
+    if failed > 0 {
+        println("FAIL: Boundary safety issues detected")
+        return 1
+    }
+
+    println("")
+    println("SUCCESS! Boundary Safety Verified:")
+    println("- Empty arrays handled correctly")
+    println("- Single elements safe")
+    println("- Dynamic growth works")
+    println("- Empty strings safe")
+    println("- Zero values work")
+    println("- Negative values work")
+    println("- Large values work")
+    println("- Repeated operations safe")
+    println("- String boundaries safe")
+    println("- Consecutive allocations isolated")
+    println("")
+
+    return 0
+}

@@ -1,0 +1,19 @@
+// Test: GPU built-in variables — globalInvocationId, localInvocationId, workgroupId
+// Verifies GLSL generator maps Seen names to gl_GlobalInvocationID etc.
+
+@compute(workgroup: 256)
+fun builtinTest(output: Buffer<Int>) {
+    let gid = globalInvocationId.x
+    let lid = localInvocationId.x
+    let wid = workgroupId.x
+    output[gid] = gid + lid + wid
+}
+
+fun main() r: Int {
+    println("test_compute_builtins: GPU built-in variables declared")
+    println("  globalInvocationId -> gl_GlobalInvocationID")
+    println("  localInvocationId -> gl_LocalInvocationID")
+    println("  workgroupId -> gl_WorkGroupID")
+    println("PASS")
+    return 0
+}

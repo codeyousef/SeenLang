@@ -1,0 +1,181 @@
+// Standard Input/Output Functions
+// Provides direct stdin reading and stdout writing for interactive programs (like LSP servers)
+
+import str.string.{trim}
+
+// External runtime functions
+extern fun __ReadStdinLine() r: String
+extern fun __ReadStdinBytes(count: Int) r: String
+extern fun __FlushStdout() r: Void
+extern fun __PrintRaw(s: String) r: Void
+
+// Read a single line from stdin (blocking)
+// Returns the line including newline character if present
+// Returns empty string on EOF
+fun readLine() r: String {
+    return __ReadStdinLine()
+}
+
+// Read exactly N bytes from stdin (blocking)
+// May return fewer bytes if EOF is reached before count
+fun readBytes(count: Int) r: String {
+    return __ReadStdinBytes(count)
+}
+
+// Flush the stdout buffer
+// Important for protocols like JSON-RPC where messages must be sent immediately
+fun flushStdout() r: Void {
+    __FlushStdout()
+}
+
+// Print a string to stdout without adding a newline
+// Useful for protocols like LSP that require exact output format
+fun printRaw(s: String) r: Void {
+    __PrintRaw(s)
+}
+
+// StdinReader class for line-by-line stdin reading
+class StdinReader {
+    var buffer: String
+    var eof: Int
+
+    // Read the next line from stdin
+    // Returns null on EOF
+    fun nextLine() r: String? {
+        if this.eof == 1 {
+            return null
+        }
+        let line = __ReadStdinLine()
+        if line.length() == 0 {
+            this.eof = 1
+            return null
+        }
+        return line
+    }
+
+    // Check if EOF has been reached
+    fun isEof() r: Int {
+        if this.eof == 1 {
+            return 1
+        }
+        return 0
+    }
+}
+
+// Free function (formerly static method on StdinReader)
+
+fun StdinReader_new() r: StdinReader {
+    let reader = StdinReader()
+    reader.buffer = ""
+    reader.eof = 0
+    return reader
+}
+
+// ContentLengthReader for JSON-RPC/LSP protocol
+// Reads Content-Length: N headers and then reads exactly N bytes of body
+class ContentLengthReader {
+    var lastError: String
+
+    // Read a complete LSP message (headers + body)
+    // Returns null on EOF or error
+    fun readMessage() r: String? {
+        // Read headers until we get an empty line
+        var contentLength = -1
+
+        while true {
+            let line = __ReadStdinLine()
+            if line.length() == 0 {
+                // EOF before headers complete
+                this.lastError = "Unexpected EOF while reading headers"
+                return null
+            }
+
+            // Trim the line (remove \r\n or \n)
+            var trimmedLine = line
+            var didTrim = 0
+            if line.endsWith("\r\n") {
+                trimmedLine = line.substring(0, line.length() - 2)
+                didTrim = 1
+            }
+            if didTrim == 0 {
+                if line.endsWith("\n") {
+                    trimmedLine = line.substring(0, line.length() - 1)
+                }
+            }
+
+            // Empty line marks end of headers
+            if trimmedLine.length() == 0 {
+                break
+            }
+
+            // Parse Content-Length header
+            if trimmedLine.startsWith("Content-Length:") {
+                let valueStr = trimmedLine.substring(15, trimmedLine.length())
+                let trimmedValue = valueStr.trim()
+                contentLength = parseInt(trimmedValue)
+            }
+            // Ignore other headers (like Content-Type)
+        }
+
+        if contentLength < 0 {
+            this.lastError = "Missing Content-Length header"
+            return null
+        }
+
+        // Read exactly contentLength bytes
+        let body = __ReadStdinBytes(contentLength)
+        if body.length() < contentLength {
+            this.lastError = "Incomplete message body"
+            return null
+        }
+
+        return body
+    }
+
+    // Get the last error message
+    fun getLastError() r: String {
+        return this.lastError
+    }
+}
+
+// Free function (formerly static method on ContentLengthReader)
+
+fun ContentLengthReader_new() r: ContentLengthReader {
+    let reader = ContentLengthReader()
+    reader.lastError = ""
+    return reader
+}
+
+// Helper function to parse integer from string
+fun parseInt(s: String) r: Int {
+    var result = 0
+    var i = 0
+    var negative = 0
+
+    // Skip leading whitespace
+    while i < s.length() and (s.charAt(i) == 32 or s.charAt(i) == 9) {
+        i = i + 1
+    }
+
+    // Check for negative sign
+    if i < s.length() and s.charAt(i) == 45 {
+        negative = 1
+        i = i + 1
+    }
+
+    // Parse digits
+    while i < s.length() {
+        let ch = s.charAt(i)
+        if ch >= 48 and ch <= 57 {
+            result = result * 10 + (ch - 48)
+        } else {
+            break
+        }
+        i = i + 1
+    }
+
+    if negative == 1 {
+        return 0 - result
+    }
+    return result
+}

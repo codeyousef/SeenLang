@@ -1,0 +1,31 @@
+// Prueba E2E: Analisis sintactico de palabras clave (Espanol)
+// COMPILE-ONLY
+// NOTA: estático función agrega campos fantasma void -- usar funciones libres
+// NOTA: Literales de constructor de clase ClassName { campo: val } retornan i64 no ptr
+//       -- usar asignacion de campos despues de ClassName()
+
+clase CajaSimple {
+    variable valor: entero
+
+    función obtenerValor() r: entero {
+        retornar esto.valor
+    }
+}
+
+// Funcion libre en vez de estático función (que agrega campos fantasma void)
+función crearCajaSimple(v: entero) r: CajaSimple {
+    variable caja = CajaSimple()
+    caja.valor = v
+    retornar caja
+}
+
+función principal() r: entero {
+    sea caja = crearCajaSimple(42)
+    si caja.obtenerValor() == 42 {
+        imprimir("EXITO: prueba de analisis de compilacion solamente")
+    } sino {
+        imprimir("FALLO: prueba de analisis de compilacion solamente")
+        retornar 1
+    }
+    retornar 0
+}

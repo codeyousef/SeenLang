@@ -1,0 +1,80 @@
+/**
+ * Safe window abstraction for macOS.
+ *
+ * Provides a Window class and event handling for macOS applications
+ * using SDL3 (cross-platform) or native AppKit via the platform shim.
+ * This module wraps SDL3's API with type-safe Seen classes
+ * for window management, input handling, and Metal surface creation.
+ *
+ * Link with: -lSDL3
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+/**
+ * Event types for the window event system.
+ */
+enum EventType {
+    Quit
+    KeyDown
+    KeyUp
+    MouseMove
+    MouseButtonDown
+    MouseButtonUp
+    MouseWheel
+    WindowResized
+    WindowCloseRequested
+    GamepadButtonDown
+    GamepadButtonUp
+    GamepadAxisMotion
+    Unknown
+}
+
+/**
+ * Window event data.
+ */
+class WindowEvent {
+    let eventType: EventType
+    let keyCode: Int
+    let mouseX: Int
+    let mouseY: Int
+    let scrollDelta: Float
+    let width: Int
+    let height: Int
+
+    fun new(eventType: EventType) r: WindowEvent {
+        return WindowEvent{
+            eventType: eventType,
+            keyCode: 0,
+            mouseX: 0,
+            mouseY: 0,
+            scrollDelta: 0.0,
+            width: 0,
+            height: 0
+        }
+    }
+}
+
+/**
+ * Window configuration.
+ */
+class WindowConfig {
+    let title: String
+    let width: Int
+    let height: Int
+    let resizable: Bool
+    let fullscreen: Bool
+    let metalEnabled: Bool
+
+    fun new(title: String, width: Int, height: Int) r: WindowConfig {
+        return WindowConfig{
+            title: title,
+            width: width,
+            height: height,
+            resizable: true,
+            fullscreen: false,
+            metalEnabled: true
+        }
+    }
+}

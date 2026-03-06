@@ -1,0 +1,214 @@
+// Preallocate Checker - Validates @preallocate decorator usage
+// Part of Seen's region-based memory management system
+
+import compiler_seen.src.parser.real_parser.FunctionNode
+import compiler_seen.src.parser.real_parser.AnnotationNode
+
+// Result of preallocate validation
+data PreallocateCheckResult {
+    isValid: Bool
+    errors: Array<String>
+    warnings: Array<String>
+    size: Int          // Parsed size value (default 4096)
+    strategy: String   // Parsed strategy (default "auto")
+    // VSD Pinning attributes (Task 5.5)
+    pinned: Bool       // Whether memory should be pinned
+    numaNode: Int      // NUMA node affinity (-1 = auto)
+    hugePages: Bool    // Use transparent huge pages
+    readOnly: Bool     // Mark read-only after initialization
+    prefault: Bool     // Prefault pages on allocation
+}
+
+fun PreallocateCheckResult.new() r: PreallocateCheckResult {
+    return PreallocateCheckResult{
+        isValid: true,
+        errors: Array<String>(),
+        warnings: Array<String>(),
+        size: 4096,       // Default 4KB
+        strategy: "auto",
+        // VSD Pinning defaults
+        pinned: false,
+        numaNode: -1,     // Auto
+        hugePages: false,
+        readOnly: false,
+        prefault: false
+    }
+}
+
+fun PreallocateCheckResult.addError(msg: String) r: Void {
+    errors.push(msg)
+    isValid = false
+}
+
+fun PreallocateCheckResult.addWarning(msg: String) r: Void {
+    warnings.push(msg)
+}
+
+class PreallocateChecker {
+    static fun new() r: PreallocateChecker {
+        return PreallocateChecker{}
+    }
+
+    // Check a function's @preallocate decorator
+    fun checkPreallocate(fn: FunctionNode) r: PreallocateCheckResult {
+        var result = PreallocateCheckResult.new()
+
+        // Find the @preallocate decorator
+        var decorator: AnnotationNode = AnnotationNode.new("")
+        var foundDecorator = false
+        var i = 0
+        while i < fn.decorators.length() {
+            if fn.decorators[i].name == "preallocate" {
+                decorator = fn.decorators[i]
+                foundDecorator = true
+            }
+            i = i + 1
+        }
+
+        if not foundDecorator {
+            // No @preallocate decorator, nothing to check
+            return result
+        }
+
+        // Parse size argument
+        let sizeArg = decorator.getNamedArg("size")
+        if sizeArg != "" {
+            let size = parseInt(sizeArg)
+            if size <= 0 {
+                result.addError("@preallocate size must be positive, got: " + sizeArg)
+            } else if size > 1073741824 {
+                // 1GB limit
+                result.addWarning("@preallocate size > 1GB may cause memory issues")
+            } else if size < 64 {
+                result.addWarning("@preallocate size < 64 bytes is unusually small")
+            }
+            result.size = size
+        }
+
+        // Parse strategy argument
+        let strategyArg = decorator.getNamedArg("strategy")
+        if strategyArg != "" {
+            // Validate strategy
+            if strategyArg != "auto" and strategyArg != "bump" and strategyArg != "stack" and strategyArg != "cxl_near" and strategyArg != "cxl_far" and strategyArg != "gpu" {
+                result.addError("@preallocate strategy must be one of: auto, bump, stack, cxl_near, cxl_far, gpu. Got: " + strategyArg)
+            }
+            result.strategy = strategyArg
+        }
+
+        // ==================================================================
+        // VSD Pinning attributes (Task 5.5)
+        // ==================================================================
+
+        // Parse pinned argument
+        let pinnedArg = decorator.getNamedArg("pinned")
+        if pinnedArg != "" {
+            if pinnedArg == "true" {
+                result.pinned = true
+            } else if pinnedArg == "false" {
+                result.pinned = false
+            } else {
+                result.addError("@preallocate pinned must be 'true' or 'false', got: " + pinnedArg)
+            }
+        }
+
+        // Parse numa_node argument
+        let numaArg = decorator.getNamedArg("numa_node")
+        if numaArg != "" {
+            let numaNode = parseInt(numaArg)
+            if numaNode < -1 {
+                result.addError("@preallocate numa_node must be -1 (auto) or >= 0, got: " + numaArg)
+            } else if numaNode > 255 {
+                result.addWarning("@preallocate numa_node > 255 is unusually high, verify system topology")
+            }
+            result.numaNode = numaNode
+        }
+
+        // Parse huge_pages argument
+        let hugePagesArg = decorator.getNamedArg("huge_pages")
+        if hugePagesArg != "" {
+            if hugePagesArg == "true" {
+                result.hugePages = true
+                // Warn if size is not aligned to huge page size (2MB)
+                if result.size < 2097152 {
+                    result.addWarning("@preallocate huge_pages works best with size >= 2MB (2097152 bytes)")
+                } else if (result.size % 2097152) != 0 {
+                    result.addWarning("@preallocate size is not aligned to 2MB huge page boundary")
+                }
+            } else if hugePagesArg == "false" {
+                result.hugePages = false
+            } else {
+                result.addError("@preallocate huge_pages must be 'true' or 'false', got: " + hugePagesArg)
+            }
+        }
+
+        // Parse read_only argument
+        let readOnlyArg = decorator.getNamedArg("read_only")
+        if readOnlyArg != "" {
+            if readOnlyArg == "true" {
+                result.readOnly = true
+            } else if readOnlyArg == "false" {
+                result.readOnly = false
+            } else {
+                result.addError("@preallocate read_only must be 'true' or 'false', got: " + readOnlyArg)
+            }
+        }
+
+        // Parse prefault argument
+        let prefaultArg = decorator.getNamedArg("prefault")
+        if prefaultArg != "" {
+            if prefaultArg == "true" {
+                result.prefault = true
+                // Prefault with pinning is a common pattern
+                if not result.pinned {
+                    result.addWarning("@preallocate prefault without pinned may have limited benefit")
+                }
+            } else if prefaultArg == "false" {
+                result.prefault = false
+            } else {
+                result.addError("@preallocate prefault must be 'true' or 'false', got: " + prefaultArg)
+            }
+        }
+
+        // ==================================================================
+        // General warnings
+        // ==================================================================
+
+        // Warn about potential issues
+        if fn.isAsync {
+            result.addWarning("@preallocate on async functions may have unexpected lifetime behavior")
+        }
+
+        // Warn about pinning without CAP_IPC_LOCK
+        if result.pinned {
+            result.addWarning("@preallocate pinned=true requires CAP_IPC_LOCK capability or sufficient RLIMIT_MEMLOCK")
+        }
+
+        return result
+    }
+
+    // Helper to parse integer from string
+    fun parseInt(s: String) r: Int {
+        var result = 0
+        var i = 0
+        var negative = false
+
+        // Handle negative sign
+        if s.length() > 0 and s.charAt(0) == '-' {
+            negative = true
+            i = 1
+        }
+
+        while i < s.length() {
+            let c = s.charAt(i)
+            if c >= '0' and c <= '9' {
+                result = result * 10 + (c.toInt() - '0'.toInt())
+            }
+            i = i + 1
+        }
+
+        if negative {
+            return 0 - result
+        }
+        return result
+    }
+}

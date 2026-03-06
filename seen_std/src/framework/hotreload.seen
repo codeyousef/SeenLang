@@ -1,0 +1,303 @@
+// Hot Reload Framework - High-level API for @hot_reload decorator
+// Provides module loading, function lookup, and state preservation
+
+// External runtime functions
+@extern
+extern fun __seen_hotreload_load(path: String) r: *Void
+
+@extern
+extern fun __seen_hotreload_load_named(path: String, name: String) r: *Void
+
+@extern
+extern fun __seen_hotreload_reload(module: *Void, path: String) r: Int
+
+@extern
+extern fun __seen_hotreload_unload(module: *Void) r: Void
+
+@extern
+extern fun __seen_hotreload_find(name: String) r: *Void
+
+@extern
+extern fun __seen_hotreload_get_function(module: *Void, name: String) r: *Void
+
+@extern
+extern fun __seen_hotreload_get_version(module: *Void) r: Int
+
+@extern
+extern fun __seen_hotreload_get_timestamp(module: *Void) r: Int
+
+@extern
+extern fun __seen_hotreload_is_active(module: *Void) r: Int
+
+@extern
+extern fun __seen_hotreload_get_error() r: String
+
+@extern
+extern fun __seen_hotreload_watch_file(path: String, callback: *Void, userData: *Void) r: Int
+
+@extern
+extern fun __seen_hotreload_stop_watch(watchId: Int) r: Void
+
+@extern
+extern fun __seen_hotreload_poll() r: Int
+
+@extern
+extern fun __seen_hotreload_serialize_state(state: *Void, size: Int) r: *Void
+
+@extern
+extern fun __seen_hotreload_deserialize_state(data: *Void) r: *Void
+
+// High-level module wrapper
+class HotModule {
+    var handle: *Void
+    var modulePath: String
+    var moduleName: String
+    var version: Int
+    var isLoaded: Bool
+
+    static fun load(path: String) r: Option<HotModule> {
+        let handle = __seen_hotreload_load(path)
+        if handle == null {
+            return None()
+        }
+
+        return Some(HotModule{
+            handle: handle,
+            modulePath: path,
+            moduleName: path,
+            version: 1,
+            isLoaded: true
+        })
+    }
+
+    static fun loadNamed(path: String, name: String) r: Option<HotModule> {
+        let handle = __seen_hotreload_load_named(path, name)
+        if handle == null {
+            return None()
+        }
+
+        return Some(HotModule{
+            handle: handle,
+            modulePath: path,
+            moduleName: name,
+            version: 1,
+            isLoaded: true
+        })
+    }
+
+    static fun find(name: String) r: Option<HotModule> {
+        let handle = __seen_hotreload_find(name)
+        if handle == null {
+            return None()
+        }
+
+        let ver = __seen_hotreload_get_version(handle)
+
+        return Some(HotModule{
+            handle: handle,
+            modulePath: "",
+            moduleName: name,
+            version: ver,
+            isLoaded: true
+        })
+    }
+
+    // Reload the module from its path (or a new path)
+    fun reload() r: Bool {
+        if not isLoaded or handle == null {
+            return false
+        }
+
+        let result = __seen_hotreload_reload(handle, modulePath)
+        if result != 0 {
+            version = __seen_hotreload_get_version(handle)
+            return true
+        }
+        return false
+    }
+
+    // Reload from a new path
+    fun reloadFrom(newPath: String) r: Bool {
+        if not isLoaded or handle == null {
+            return false
+        }
+
+        let result = __seen_hotreload_reload(handle, newPath)
+        if result != 0 {
+            modulePath = newPath
+            version = __seen_hotreload_get_version(handle)
+            return true
+        }
+        return false
+    }
+
+    // Unload the module
+    fun unload() r: Void {
+        if isLoaded and handle != null {
+            __seen_hotreload_unload(handle)
+            handle = null
+            isLoaded = false
+        }
+    }
+
+    // Get a function pointer by name
+    fun getFunction(name: String) r: *Void {
+        if not isLoaded or handle == null {
+            return null
+        }
+        return __seen_hotreload_get_function(handle, name)
+    }
+
+    // Get the current version (reload count)
+    fun getVersion() r: Int {
+        if handle == null {
+            return version
+        }
+        return __seen_hotreload_get_version(handle)
+    }
+
+    // Get the last load timestamp
+    fun getTimestamp() r: Int {
+        if handle == null {
+            return 0
+        }
+        return __seen_hotreload_get_timestamp(handle)
+    }
+
+    // Check if module is still active
+    fun isActive() r: Bool {
+        if handle == null {
+            return false
+        }
+        return __seen_hotreload_is_active(handle) != 0
+    }
+}
+
+// File watcher for automatic reload
+class HotReloadWatcher {
+    var watchedModules: Array<HotModule>
+    var watchIds: Array<Int>
+    var autoReload: Bool
+
+    static fun new() r: HotReloadWatcher {
+        return HotReloadWatcher{
+            watchedModules: Array<HotModule>(),
+            watchIds: Array<Int>(),
+            autoReload: true
+        }
+    }
+
+    // Watch a module's source file for changes
+    fun watch(module: HotModule) r: Bool {
+        if module.modulePath == "" {
+            return false
+        }
+
+        // Note: In a full implementation, we'd register a callback
+        // For now, we just track the module for manual polling
+        watchedModules.push(module)
+        watchIds.push(-1)  // No actual file watch for now
+
+        return true
+    }
+
+    // Stop watching a module
+    fun unwatch(module: HotModule) r: Void {
+        var i = 0
+        while i < watchedModules.length() {
+            if watchedModules[i].moduleName == module.moduleName {
+                if watchIds[i] >= 0 {
+                    __seen_hotreload_stop_watch(watchIds[i])
+                }
+                // Remove from arrays (simplified - would need proper removal)
+            }
+            i = i + 1
+        }
+    }
+
+    // Poll for changes and reload if needed
+    fun poll() r: Int {
+        let triggered = __seen_hotreload_poll()
+        return triggered
+    }
+
+    // Check all watched modules and reload if changed
+    fun checkAndReload() r: Int {
+        var reloadCount = 0
+        var i = 0
+        while i < watchedModules.length() {
+            let module = watchedModules[i]
+            if module.isActive() {
+                // Check if file has changed (would use poll in full impl)
+                // For now, just provide the reload API
+            }
+            i = i + 1
+        }
+        return reloadCount
+    }
+}
+
+// State snapshot for preserving data across reloads
+data StateSnapshot {
+    moduleVersion: Int
+    timestamp: Int
+    data: *Void
+    size: Int
+}
+
+fun StateSnapshot.new() r: StateSnapshot {
+    return StateSnapshot{
+        moduleVersion: 0,
+        timestamp: 0,
+        data: null,
+        size: 0
+    }
+}
+
+// Helper class for managing hot-reloadable state
+class HotState<T> {
+    var current: T
+    var snapshots: Array<StateSnapshot>
+
+    static fun new(initial: T) r: HotState<T> {
+        return HotState<T>{
+            current: initial,
+            snapshots: Array<StateSnapshot>()
+        }
+    }
+
+    // Take a snapshot of current state
+    fun snapshot(moduleVersion: Int, size: Int) r: Void {
+        let snap = StateSnapshot{
+            moduleVersion: moduleVersion,
+            timestamp: 0,  // Would use real timestamp
+            data: __seen_hotreload_serialize_state(current, size),
+            size: size
+        }
+        snapshots.push(snap)
+    }
+
+    // Restore from latest snapshot
+    fun restore() r: Bool {
+        if snapshots.length() == 0 {
+            return false
+        }
+        // Would deserialize and copy back
+        return true
+    }
+
+    // Get current value
+    fun get() r: T {
+        return current
+    }
+
+    // Set current value
+    fun set(value: T) r: Void {
+        current = value
+    }
+}
+
+// Get the last hot reload error message
+fun getHotReloadError() r: String {
+    return __seen_hotreload_get_error()
+}

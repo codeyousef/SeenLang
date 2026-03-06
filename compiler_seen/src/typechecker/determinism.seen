@@ -1,0 +1,694 @@
+// Determinism Checker for Seen Language
+// Validates @deterministic and @nondeterministic annotations
+// Ensures deterministic functions don't call nondeterministic functions
+
+import parser.real_parser.{ProgramNode, FunctionNode, ItemNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode}
+
+// Known nondeterministic TYPES from stdlib - require @nondeterministic annotation
+// to use in deterministic profile
+let NONDETERMINISTIC_TYPES: Array<String> = [
+    "HashMap",
+    "HashSet",
+    // Floating-point types are nondeterministic due to IEEE 754 implementation differences
+    // across platforms (rounding modes, extended precision, etc.)
+    // Use Fixed64/Fixed128 for deterministic numerics
+    "Float",
+    "f32",
+    "f64"
+]
+
+// Valid UWW syscall names - these are the only syscalls allowed with @syscall decorator
+let VALID_UWW_SYSCALLS: Array<String> = [
+    "uww::timestamp",      // Get current frame timestamp
+    "uww::random_seed",    // Get deterministic random seed
+    "uww::input_state",    // Get input state hash
+    "uww::host_log",       // Log to host console (debug only)
+    "uww::network_hash",   // Get network state hash
+    "uww::rollback_check"  // Check if in rollback
+]
+
+// Known nondeterministic functions from stdlib and runtime
+let NONDETERMINISTIC_FUNCTIONS: Array<String> = [
+    // Time functions
+    "time", "now", "timestamp", "getTime", "currentTimeMillis",
+    // Random functions
+    "random", "rand", "randomInt", "randomFloat", "shuffle",
+    // I/O functions
+    "read", "write", "readLine", "writeLine", "print", "println",
+    "readFile", "writeFile", "appendFile", "deleteFile",
+    "stdin", "stdout", "stderr",
+    // Network functions
+    "fetch", "httpGet", "httpPost", "socket", "connect", "listen",
+    // Environment functions
+    "getEnv", "setEnv", "getArgs", "exit",
+    // Process functions
+    "spawn", "exec", "fork", "wait",
+    // UWW nondeterministic (if not in UWW mode)
+    "uww_timestamp", "uww_deterministic_rand"
+]
+
+// Result of determinism checking
+class DeterminismCheckResult {
+    var success: Bool
+    var errors: Array<DeterminismError>
+    var warnings: Array<String>
+
+    static fun new() r: DeterminismCheckResult {
+        return DeterminismCheckResult{
+            success: true,
+            errors: Array<DeterminismError>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(error: DeterminismError) r: Void {
+        errors.push(error)
+        success = false
+    }
+
+    fun addWarning(warning: String) r: Void {
+        warnings.push(warning)
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+}
+
+// Determinism-specific error
+class DeterminismError {
+    var message: String
+    var functionName: String
+    var calledFunction: String
+    var line: Int
+    var column: Int
+
+    static fun new(message: String, functionName: String, calledFunction: String) r: DeterminismError {
+        return DeterminismError{
+            message: message,
+            functionName: functionName,
+            calledFunction: calledFunction,
+            line: 0,
+            column: 0
+        }
+    }
+
+    fun toString() r: String {
+        var result = "Determinism Error: " + message
+        if functionName != "" {
+            result = result + " in function '" + functionName + "'"
+        }
+        if calledFunction != "" {
+            result = result + " when calling '" + calledFunction + "'"
+        }
+        return result
+    }
+
+    fun getMessage() r: String {
+        return message
+    }
+
+    fun getFunctionName() r: String {
+        return functionName
+    }
+
+    fun getCalledFunction() r: String {
+        return calledFunction
+    }
+}
+
+// Determinism Checker
+class DeterminismChecker {
+    // Map from function name to its determinism status
+    var functionDeterminism: Map<String, Bool>
+    // Map from function name to whether it's explicitly marked nondeterministic
+    var explicitNondeterministic: Map<String, Bool>
+    // Map from class name to whether it's marked @nondeterministic
+    var classNondeterministic: Map<String, Bool>
+    // Whether we're in UWW mode (stricter checking)
+    var uwwMode: Bool
+    // Whether we're in deterministic profile mode (rejects nondeterministic types)
+    var deterministicProfile: Bool
+    // Current context: function or class name being checked
+    var currentContext: String
+    // Whether current context is marked @nondeterministic
+    var currentContextIsNondeterministic: Bool
+    // Results collection
+    var result: DeterminismCheckResult
+
+    static fun new() r: DeterminismChecker {
+        return DeterminismChecker{
+            functionDeterminism: Map<String, Bool>.new(),
+            explicitNondeterministic: Map<String, Bool>.new(),
+            classNondeterministic: Map<String, Bool>.new(),
+            uwwMode: false,
+            deterministicProfile: false,
+            currentContext: "",
+            currentContextIsNondeterministic: false,
+            result: DeterminismCheckResult.new()
+        }
+    }
+
+    fun setUWWMode(enabled: Bool) r: Void {
+        uwwMode = enabled
+    }
+
+    fun setDeterministicProfile(enabled: Bool) r: Void {
+        deterministicProfile = enabled
+    }
+
+    // Check a program for determinism violations
+    fun check(program: ProgramNode) r: DeterminismCheckResult {
+        result = DeterminismCheckResult.new()
+
+        // First pass: register all function and class determinism annotations
+        registerFunctionAnnotations(program)
+        registerClassAnnotations(program)
+
+        // Second pass: check each deterministic function for violations
+        checkDeterministicFunctions(program)
+
+        // Third pass: if in deterministic profile, check for nondeterministic type usage
+        if deterministicProfile {
+            checkAllTypeUsages(program)
+        }
+
+        // Fourth pass: validate @syscall decorators against whitelist
+        validateSyscallDecorators(program)
+
+        return result
+    }
+
+    // Validate @syscall decorators against the UWW syscall whitelist
+    // NOTE: Currently disabled during bootstrap due to type coercion issues
+    // with Array<String> element access. Enable when string array indexing is fixed.
+    fun validateSyscallDecorators(program: ProgramNode) r: Void {
+        // TODO: Re-enable syscall validation when Array<String> indexing works
+        // var i = 0
+        // while i < program.items.length() {
+        //     let item = program.items[i]
+        //     if item.itemType == "Function" {
+        //         let func = item.function
+        //         var di = 0
+        //         while di < func.decorators.length() {
+        //             let decorator = func.decorators[di]
+        //             if decorator.name == "syscall" {
+        //                 if decorator.arguments.length() > 0 {
+        //                     let syscallName = decorator.arguments[0]
+        //                     if not isValidUWWSyscall(syscallName) {
+        //                         let error = DeterminismError.new(
+        //                             "Invalid UWW syscall",
+        //                             func.name,
+        //                             ""
+        //                         )
+        //                         result.addError(error)
+        //                     }
+        //                 }
+        //             }
+        //             di = di + 1
+        //         }
+        //     }
+        //     i = i + 1
+        // }
+    }
+
+    // Check if a syscall name is in the valid UWW syscall whitelist
+    fun isValidUWWSyscall(syscallName: String) r: Bool {
+        if syscallName == "uww::timestamp" { return true }
+        if syscallName == "uww::random_seed" { return true }
+        if syscallName == "uww::input_state" { return true }
+        if syscallName == "uww::host_log" { return true }
+        if syscallName == "uww::network_hash" { return true }
+        if syscallName == "uww::rollback_check" { return true }
+        return false
+    }
+
+    // Register function annotations from the program
+    fun registerFunctionAnnotations(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                let func = item.function
+                registerFunction(func)
+            }
+            i = i + 1
+        }
+    }
+
+    // Register class annotations from the program
+    fun registerClassAnnotations(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Class" {
+                let cls = item.classNode
+                if cls.isNondeterministic {
+                    classNondeterministic.put(cls.name, true)
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    // Check if a type name is a known nondeterministic type
+    fun isNondeterministicType(typeName: String) r: Bool {
+        // Check known nondeterministic types (HashMap, HashSet)
+        if typeName == "HashMap" or typeName.startsWith("HashMap<") {
+            return true
+        }
+        if typeName == "HashSet" or typeName.startsWith("HashSet<") {
+            return true
+        }
+        // Floating-point types are nondeterministic due to IEEE 754 implementation
+        // differences (rounding modes, extended precision, FMA differences, etc.)
+        // Use Fixed64/Fixed128 for deterministic numerics
+        if typeName == "Float" or typeName == "f32" or typeName == "f64" {
+            return true
+        }
+        return false
+    }
+
+    // Check type usage and report error if nondeterministic in deterministic profile
+    fun checkTypeUsage(typeName: String, context: String, isContextNondeterministic: Bool) r: Void {
+        if not deterministicProfile {
+            return
+        }
+
+        // If current context is marked @nondeterministic, allow nondeterministic types
+        if isContextNondeterministic {
+            return
+        }
+
+        // Check if this type is nondeterministic
+        if isNondeterministicType(typeName) {
+            var suggestion = "Use BTreeMap/BTreeSet instead"
+            // Provide appropriate suggestion based on type
+            if typeName == "Float" or typeName == "f32" or typeName == "f64" {
+                suggestion = "Use Fixed64/Fixed128 for deterministic numerics"
+            }
+            let error = DeterminismError.new(
+                "Use of nondeterministic type '" + typeName + "' in deterministic profile. " + suggestion + ", or mark the function/class with @nondeterministic",
+                context,
+                typeName
+            )
+            result.addError(error)
+        }
+    }
+
+    // Check all variable declarations for nondeterministic type usage
+    fun checkAllTypeUsages(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                let func = item.function
+                currentContext = func.name
+                currentContextIsNondeterministic = func.isNondeterministic
+                checkFunctionTypeUsages(func)
+            }
+            if item.itemType == "Class" {
+                let cls = item.classNode
+                currentContext = cls.name
+                currentContextIsNondeterministic = cls.isNondeterministic
+                checkClassTypeUsages(cls)
+            }
+            i = i + 1
+        }
+    }
+
+    // Check a function's local variable types
+    fun checkFunctionTypeUsages(func: FunctionNode) r: Void {
+        // Check parameter types
+        var i = 0
+        while i < func.params.length() {
+            let param = func.params[i]
+            checkTypeUsage(param.paramType.typeName, func.name, func.isNondeterministic)
+            i = i + 1
+        }
+
+        // Check return type
+        checkTypeUsage(func.returnType.typeName, func.name, func.isNondeterministic)
+
+        // Check function body for variable declarations
+        checkBlockTypeUsages(func.body, func.name, func.isNondeterministic)
+    }
+
+    // Check a class's field types
+    fun checkClassTypeUsages(cls: ClassNode) r: Void {
+        // Check field types
+        var i = 0
+        while i < cls.fields.length() {
+            let field = cls.fields[i]
+            checkTypeUsage(field.paramType.typeName, cls.name, cls.isNondeterministic)
+            i = i + 1
+        }
+
+        // Check method types
+        i = 0
+        while i < cls.methods.length() {
+            let method = cls.methods[i]
+            // For methods, check if method or class is nondeterministic
+            let methodContext = cls.name + "." + method.name
+            let isNondet = cls.isNondeterministic or method.isNondeterministic
+
+            // Check method return type
+            checkTypeUsage(method.returnType.typeName, methodContext, isNondet)
+
+            // Check method parameters
+            var j = 0
+            while j < method.params.length() {
+                let param = method.params[j]
+                checkTypeUsage(param.paramType.typeName, methodContext, isNondet)
+                j = j + 1
+            }
+
+            // Check method body
+            checkBlockTypeUsages(method.body, methodContext, isNondet)
+
+            i = i + 1
+        }
+    }
+
+    // Check a block for variable declarations with nondeterministic types
+    fun checkBlockTypeUsages(block: BlockNode, context: String, isContextNondeterministic: Bool) r: Void {
+        var i = 0
+        while i < block.statements.length() {
+            let stmt = block.statements[i]
+            checkStatementTypeUsages(stmt, context, isContextNondeterministic)
+            i = i + 1
+        }
+    }
+
+    // Check a statement for type usages
+    fun checkStatementTypeUsages(stmt: StatementNode, context: String, isContextNondeterministic: Bool) r: Void {
+        // Check Let/Var declarations
+        if stmt.kind == "Let" or stmt.kind == "Var" {
+            checkTypeUsage(stmt.variableType.typeName, context, isContextNondeterministic)
+            // Also check initializer for type constructors like HashMap<K,V>.new()
+            checkExpressionTypeUsages(stmt.initializer, context, isContextNondeterministic)
+        }
+
+        // Check If branches
+        if stmt.kind == "If" {
+            checkBlockTypeUsages(stmt.thenBranch, context, isContextNondeterministic)
+            checkBlockTypeUsages(stmt.elseBranch, context, isContextNondeterministic)
+        }
+
+        // Check While body
+        if stmt.kind == "While" {
+            checkBlockTypeUsages(stmt.loopBody, context, isContextNondeterministic)
+        }
+    }
+
+    // Check an expression for nondeterministic type constructors (e.g., HashMap<K,V>.new())
+    fun checkExpressionTypeUsages(expr: ParserExpressionNode, context: String, isContextNondeterministic: Bool) r: Void {
+        // Handle null expressions
+        if expr.kind == "" {
+            return
+        }
+
+        // Check float literals - they are nondeterministic in deterministic profile
+        if expr.kind == "Literal" {
+            // Float literals contain a decimal point
+            if expr.literalValue.contains(".") {
+                // Check if it looks like a float literal (has digits)
+                let firstChar = expr.literalValue.substring(0, 1)
+                if firstChar == "0" or firstChar == "1" or firstChar == "2" or
+                   firstChar == "3" or firstChar == "4" or firstChar == "5" or
+                   firstChar == "6" or firstChar == "7" or firstChar == "8" or
+                   firstChar == "9" or firstChar == "-" {
+                    checkTypeUsage("Float", context, isContextNondeterministic)
+                }
+            }
+            return
+        }
+
+        // Check MethodCall - the callee might be a type constructor like HashMap<K,V>
+        if expr.kind == "MethodCall" or expr.kind == "Call" {
+            let callee = expr.callee
+            // Check if the callee is a nondeterministic type constructor
+            if callee.startsWith("HashMap") or callee.startsWith("HashSet") {
+                checkTypeUsage(callee, context, isContextNondeterministic)
+            }
+            // Also check the literalValue which might contain the type
+            if expr.literalValue.startsWith("HashMap") or expr.literalValue.startsWith("HashSet") {
+                checkTypeUsage(expr.literalValue, context, isContextNondeterministic)
+            }
+        }
+
+        // Recursively check operands
+        var i = 0
+        while i < expr.operands.length() {
+            checkExpressionTypeUsages(expr.operands[i], context, isContextNondeterministic)
+            i = i + 1
+        }
+
+        // Recursively check arguments
+        i = 0
+        while i < expr.arguments.length() {
+            checkExpressionTypeUsages(expr.arguments[i], context, isContextNondeterministic)
+            i = i + 1
+        }
+    }
+
+    // Register a single function's determinism status
+    fun registerFunction(func: FunctionNode) r: Void {
+        let name = func.name
+
+        // Check for @deterministic
+        if func.isDeterministic {
+            functionDeterminism.put(name, true)
+        }
+
+        // Check for @nondeterministic
+        if func.isNondeterministic {
+            explicitNondeterministic.put(name, true)
+            functionDeterminism.put(name, false)
+        }
+
+        // Default: unspecified functions are assumed deterministic unless they call nondeterministic code
+        if not func.isDeterministic and not func.isNondeterministic {
+            // Leave unset - will be inferred
+        }
+    }
+
+    // Check all deterministic functions for violations
+    fun checkDeterministicFunctions(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                let func = item.function
+                if func.isDeterministic {
+                    checkFunctionBody(func)
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    // Check a function body for nondeterministic calls
+    fun checkFunctionBody(func: FunctionNode) r: Void {
+        checkBlock(func.name, func.body)
+    }
+
+    // Check a block for nondeterministic calls
+    fun checkBlock(currentFuncName: String, block: BlockNode) r: Void {
+        var i = 0
+        while i < block.statements.length() {
+            let stmt = block.statements[i]
+            checkStatement(currentFuncName, stmt)
+            i = i + 1
+        }
+    }
+
+    // Check a statement for nondeterministic calls
+    fun checkStatement(currentFuncName: String, stmt: StatementNode) r: Void {
+        // Check the statement's expression if any
+        if stmt.kind == "Expression" or stmt.kind == "Return" {
+            checkExpression(currentFuncName, stmt.expression)
+            checkExpression(currentFuncName, stmt.returnValue)
+        }
+
+        // Check initializer for let/var
+        if stmt.kind == "Let" or stmt.kind == "Var" {
+            checkExpression(currentFuncName, stmt.initializer)
+        }
+
+        // Check condition and branches for if
+        if stmt.kind == "If" {
+            checkExpression(currentFuncName, stmt.condition)
+            checkBlock(currentFuncName, stmt.thenBranch)
+            checkBlock(currentFuncName, stmt.elseBranch)
+        }
+
+        // Check while loop
+        if stmt.kind == "While" {
+            checkExpression(currentFuncName, stmt.loopCondition)
+            checkBlock(currentFuncName, stmt.loopBody)
+        }
+    }
+
+    // Check an expression for nondeterministic calls
+    fun checkExpression(currentFuncName: String, expr: ParserExpressionNode) r: Void {
+        if expr.kind == "None" {
+            return
+        }
+
+        // Check function calls
+        if expr.kind == "Call" {
+            let calledName = expr.callee
+            if isNondeterministic(calledName) {
+                let error = DeterminismError.new(
+                    "Use of nondeterministic function in deterministic context",
+                    currentFuncName,
+                    calledName
+                )
+                result.addError(error)
+            }
+
+            // Check arguments
+            var i = 0
+            while i < expr.arguments.length() {
+                checkExpression(currentFuncName, expr.arguments[i])
+                i = i + 1
+            }
+        }
+
+        // Check binary operators
+        if expr.kind == "Binary" {
+            var i = 0
+            while i < expr.operands.length() {
+                checkExpression(currentFuncName, expr.operands[i])
+                i = i + 1
+            }
+        }
+
+        // Check method calls (member access + call)
+        if expr.kind == "MemberAccess" or expr.kind == "MethodCall" {
+            // The method name is in callee
+            let methodName = expr.callee
+            if isNondeterministic(methodName) {
+                let error = DeterminismError.new(
+                    "Use of nondeterministic method in deterministic context",
+                    currentFuncName,
+                    methodName
+                )
+                result.addError(error)
+            }
+        }
+    }
+
+    // Check if a function is nondeterministic
+    fun isNondeterministic(funcName: String) r: Bool {
+        // Check explicit annotations
+        let explicit = explicitNondeterministic.get(funcName)
+        if explicit != null {
+            return explicit.unwrap()
+        }
+
+        // Check known nondeterministic stdlib functions
+        if isKnownNondeterministic(funcName) {
+            return true
+        }
+
+        // Check if it's registered as deterministic
+        let registered = functionDeterminism.get(funcName)
+        if registered != null {
+            return not registered.unwrap()
+        }
+
+        // Default: assume deterministic if not explicitly marked
+        return false
+    }
+
+    // Check if a function name is in the known nondeterministic list
+    fun isKnownNondeterministic(funcName: String) r: Bool {
+        // Time functions
+        if funcName == "time" or funcName == "now" or funcName == "timestamp" or
+           funcName == "getTime" or funcName == "currentTimeMillis" {
+            return true
+        }
+        // Random functions
+        if funcName == "random" or funcName == "rand" or funcName == "randomInt" or
+           funcName == "randomFloat" or funcName == "shuffle" {
+            return true
+        }
+        // I/O functions
+        if funcName == "read" or funcName == "write" or funcName == "readLine" or
+           funcName == "writeLine" or funcName == "print" or funcName == "println" or
+           funcName == "readFile" or funcName == "writeFile" or funcName == "appendFile" or
+           funcName == "deleteFile" or funcName == "stdin" or funcName == "stdout" or
+           funcName == "stderr" {
+            return true
+        }
+        // Network functions
+        if funcName == "fetch" or funcName == "httpGet" or funcName == "httpPost" or
+           funcName == "socket" or funcName == "connect" or funcName == "listen" {
+            return true
+        }
+        // Environment functions
+        if funcName == "getEnv" or funcName == "setEnv" or funcName == "getArgs" or
+           funcName == "exit" {
+            return true
+        }
+        // Process functions
+        if funcName == "spawn" or funcName == "exec" or funcName == "fork" or
+           funcName == "wait" {
+            return true
+        }
+        // UWW nondeterministic (if not in UWW mode)
+        if funcName == "uww_timestamp" or funcName == "uww_deterministic_rand" {
+            return true
+        }
+        return false
+    }
+}
+
+// Convenience function to check a program for determinism
+fun checkDeterminism(program: ProgramNode, uwwMode: Bool = false) r: DeterminismCheckResult {
+    let checker = DeterminismChecker.new()
+    checker.setUWWMode(uwwMode)
+    return checker.check(program)
+}
+
+// Convenience function to check a program with deterministic profile
+fun checkDeterminismWithProfile(program: ProgramNode, deterministicProfile: Bool) r: DeterminismCheckResult {
+    let checker = DeterminismChecker.new()
+    checker.setDeterministicProfile(deterministicProfile)
+    return checker.check(program)
+}
+
+// Print determinism errors
+fun printDeterminismErrors(result: DeterminismCheckResult) r: Void {
+    if result.hasErrors() {
+        println("=== Determinism Check Errors ===")
+        var i = 0
+        while i < result.errors.length() {
+            let err: DeterminismError = result.errors[i]
+            // Use getter methods with explicit type annotations
+            let msg: String = err.getMessage()
+            let funcName: String = err.getFunctionName()
+            let called: String = err.getCalledFunction()
+            var errStr: String = "Determinism Error: " + msg
+            if funcName.length() > 0 {
+                errStr = errStr + " in function '" + funcName + "'"
+            }
+            if called.length() > 0 {
+                errStr = errStr + " when calling '" + called + "'"
+            }
+            println(errStr)
+            i = i + 1
+        }
+    }
+
+    if result.warnings.length() > 0 {
+        println("=== Determinism Check Warnings ===")
+        var i = 0
+        while i < result.warnings.length() {
+            println(result.warnings[i])
+            i = i + 1
+        }
+    }
+}

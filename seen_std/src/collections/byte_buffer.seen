@@ -1,0 +1,155 @@
+// ByteBuffer - Raw byte manipulation with lookup tables
+// Production-quality implementation for high-performance byte processing
+
+class ByteBuffer {
+    data: Array<Int>
+    len: Int
+    capacity: Int
+    
+    fun new(initialCapacity: Int): ByteBuffer {
+        let buf = ByteBuffer()
+        buf.data = Array<Int>(initialCapacity)
+        buf.len = 0
+        buf.capacity = initialCapacity
+        buf
+    }
+    
+    fun fromArray(bytes: Array<Int>): ByteBuffer {
+        let buf = ByteBuffer.new(bytes.length())
+        var i = 0
+        while i < bytes.length() {
+            buf.data.push(bytes[i])
+            i = i + 1
+        }
+        buf.len = bytes.length()
+        buf
+    }
+    
+    fun length(): Int {
+        this.len
+    }
+    
+    fun get(index: Int): Int {
+        if index < 0 or index >= this.len {
+            abort("ByteBuffer index out of bounds")
+        }
+        this.data[index]
+    }
+    
+    fun set(index: Int, value: Int) {
+        if index < 0 or index >= this.len {
+            abort("ByteBuffer index out of bounds")
+        }
+        this.data[index] = value and 255
+    }
+    
+    fun push(byte: Int) {
+        if this.len >= this.capacity {
+            this.grow()
+        }
+        this.data.push(byte and 255)
+        this.len = this.len + 1
+    }
+    
+    fun grow() {
+        let newCapacity = this.capacity * 2
+        if newCapacity < 16 {
+            newCapacity = 16
+        }
+        let newData = Array<Int>(newCapacity)
+        var i = 0
+        while i < this.len {
+            newData.push(this.data[i])
+            i = i + 1
+        }
+        this.data = newData
+        this.capacity = newCapacity
+    }
+    
+    fun clear() {
+        this.len = 0
+    }
+    
+    fun toArray(): Array<Int> {
+        let result = Array<Int>(this.len)
+        var i = 0
+        while i < this.len {
+            result.push(this.data[i])
+            i = i + 1
+        }
+        result
+    }
+    
+    fun slice(start: Int, end: Int): ByteBuffer {
+        if start < 0 or end > this.len or start > end {
+            abort("ByteBuffer slice out of bounds")
+        }
+        let result = ByteBuffer.new(end - start)
+        let i = start
+        while i < end {
+            result.push(this.data[i])
+            i = i + 1
+        }
+        result
+    }
+    
+    fun reverse() {
+        let left = 0
+        let right = this.len - 1
+        while left < right {
+            let temp = this.data[left]
+            this.data[left] = this.data[right]
+            this.data[right] = temp
+            left = left + 1
+            right = right - 1
+        }
+    }
+    
+    fun fill(value: Int) {
+        let byte = value and 255
+        var i = 0
+        while i < this.len {
+            this.data[i] = byte
+            i = i + 1
+        }
+    }
+}
+
+// Lookup table utilities
+class LookupTable {
+    fun createComplement(): Array<Int> {
+        let table = Array<Int>(256)
+        var i = 0
+        while i < 256 {
+            table.push(0)
+            i = i + 1
+        }
+        
+        table[65] = 84   // 'A' -> 'T'
+        table[84] = 65   // 'T' -> 'A'
+        table[67] = 71   // 'C' -> 'G'
+        table[71] = 67   // 'G' -> 'C'
+        table[97] = 116  // 'a' -> 't'
+        table[116] = 97  // 't' -> 'a'
+        table[99] = 103  // 'c' -> 'g'
+        table[103] = 99  // 'g' -> 'c'
+        
+        // Preserve newlines and other characters
+        table[10] = 10   // '\n'
+        table[13] = 13   // '\r'
+        table[62] = 62   // '>'
+        
+        table
+    }
+    
+    fun applyLookup(buffer: ByteBuffer, table: Array<Int>): ByteBuffer {
+        let result = ByteBuffer.new(buffer.length())
+        var i = 0
+        while i < buffer.length() {
+            let byte = buffer.get(i)
+            result.push(table[byte])
+            i = i + 1
+        }
+        result
+    }
+}

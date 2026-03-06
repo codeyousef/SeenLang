@@ -1,0 +1,35 @@
+import env.env.{args, tryGet, getOrDefault, set, remove, has}
+
+import core.option.{Option}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let programArgs = args()
+    expect(programArgs.length() >= 1, "args should include program name")
+
+    let varName = "SEEN_STD_ENV_TEST"
+    remove(varName)
+
+    expect(not has(varName), "fresh env variable should be absent")
+    expect(getOrDefault(varName, "missing") == "missing", "getOrDefault should fallback")
+
+    let optMissing = tryGet(varName)
+    expect(optMissing.isNone(), "tryGet should report missing variable")
+
+    expect(set(varName, "alpha"), "set should succeed")
+    expect(has(varName), "has should see new variable")
+    expect(getOrDefault(varName, "missing") == "alpha", "getOrDefault should read value")
+
+    let optValue = tryGet(varName)
+    expect(optValue.isSome(), "tryGet should be Some after set")
+
+    expect(remove(varName), "remove should succeed")
+    expect(not has(varName), "variable should be removed")
+
+    return 0
+}

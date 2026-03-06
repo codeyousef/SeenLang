@@ -1,0 +1,12 @@
+@binary
+class Message {
+    id: Int
+    text: String
+}
+
+fun main() r: Int {
+    let m = Message(1, "hello")
+    let buf = m.serialize()
+    println("PASS: binary_length_prefix")
+    return 0
+}

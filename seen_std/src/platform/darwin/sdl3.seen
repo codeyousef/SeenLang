@@ -1,0 +1,76 @@
+/**
+ * SDL3 FFI bindings for macOS.
+ *
+ * Cross-platform SDL3 bindings that work on both macOS and Linux.
+ * Provides window creation, input handling, and Metal/Vulkan surface support.
+ *
+ * Link with: -lSDL3
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// SDL init flags
+let SDL_INIT_VIDEO: Int = 0x00000020
+let SDL_INIT_AUDIO: Int = 0x00000010
+let SDL_INIT_EVENTS: Int = 0x00004000
+let SDL_INIT_GAMEPAD: Int = 0x00002000
+
+// SDL window flags
+let SDL_WINDOW_FULLSCREEN: Int = 0x00000001
+let SDL_WINDOW_RESIZABLE: Int = 0x00000020
+let SDL_WINDOW_HIDDEN: Int = 0x00000008
+let SDL_WINDOW_BORDERLESS: Int = 0x00000010
+let SDL_WINDOW_MAXIMIZED: Int = 0x00000080
+let SDL_WINDOW_METAL: Int = 0x20000000
+let SDL_WINDOW_VULKAN: Int = 0x10000000
+let SDL_WINDOW_HIGH_PIXEL_DENSITY: Int = 0x00002000
+
+// SDL event types
+let SDL_EVENT_QUIT: Int = 0x100
+let SDL_EVENT_KEY_DOWN: Int = 0x300
+let SDL_EVENT_KEY_UP: Int = 0x301
+let SDL_EVENT_MOUSE_MOTION: Int = 0x400
+let SDL_EVENT_MOUSE_BUTTON_DOWN: Int = 0x401
+let SDL_EVENT_MOUSE_BUTTON_UP: Int = 0x402
+let SDL_EVENT_MOUSE_WHEEL: Int = 0x403
+let SDL_EVENT_WINDOW_RESIZED: Int = 0x203
+let SDL_EVENT_WINDOW_CLOSE_REQUESTED: Int = 0x202
+let SDL_EVENT_GAMEPAD_BUTTON_DOWN: Int = 0x651
+let SDL_EVENT_GAMEPAD_BUTTON_UP: Int = 0x652
+let SDL_EVENT_GAMEPAD_AXIS_MOTION: Int = 0x650
+
+// SDL FFI declarations
+extern fun SDL_Init(flags: Int) r: Bool
+extern fun SDL_Quit() r: Void
+extern fun SDL_GetError() r: Int  // Returns const char*
+extern fun SDL_CreateWindow(title: Int, w: Int, h: Int, flags: Int) r: Int
+extern fun SDL_DestroyWindow(window: Int) r: Void
+extern fun SDL_GetTicks() r: Int
+extern fun SDL_Delay(ms: Int) r: Void
+extern fun SDL_PollEvent(event: Int) r: Bool
+extern fun SDL_GetWindowSize(window: Int, w: Int, h: Int) r: Void
+extern fun SDL_SetWindowSize(window: Int, w: Int, h: Int) r: Void
+extern fun SDL_SetWindowTitle(window: Int, title: Int) r: Void
+extern fun SDL_GetWindowTitle(window: Int) r: Int
+extern fun SDL_ShowWindow(window: Int) r: Void
+extern fun SDL_HideWindow(window: Int) r: Void
+extern fun SDL_MaximizeWindow(window: Int) r: Void
+extern fun SDL_MinimizeWindow(window: Int) r: Void
+extern fun SDL_SetWindowFullscreen(window: Int, fullscreen: Bool) r: Void
+extern fun SDL_GetWindowFlags(window: Int) r: Int
+extern fun SDL_GetMouseState(x: Int, y: Int) r: Int
+extern fun SDL_GetKeyboardState(numkeys: Int) r: Int
+extern fun SDL_GetModState() r: Int
+extern fun SDL_Metal_CreateView(window: Int) r: Int
+extern fun SDL_Metal_DestroyView(view: Int) r: Void
+extern fun SDL_Metal_GetLayer(view: Int) r: Int
+
+// Runtime function for C string to Seen String conversion
+extern fun seen_cstr_to_str(cstr: Int) r: String
+
+// Helper: convert C string pointer to Seen String
+fun cstr_to_string(cstr: Int) r: String {
+    if cstr == 0 { return "" }
+    return seen_cstr_to_str(cstr)
+}

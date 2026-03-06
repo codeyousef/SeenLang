@@ -1,0 +1,77 @@
+// Prueba E2E: Palabras clave miscelaneas (Espanol)
+// Palabras probadas: y, o, no, como, es
+
+función principal() r: entero {
+    // Prueba 1: y (and)
+    variable r1 = 0
+    si 1 == 1 y 2 == 2 {
+        r1 = 1
+    }
+    si r1 == 1 {
+        imprimir("EXITO: operador y")
+    } sino {
+        imprimir("FALLO: operador y")
+        retornar 1
+    }
+
+    // Prueba 2: o (or)
+    variable r2 = 0
+    si 1 == 2 o 3 == 3 {
+        r2 = 1
+    }
+    si r2 == 1 {
+        imprimir("EXITO: operador o")
+    } sino {
+        imprimir("FALLO: operador o")
+        retornar 1
+    }
+
+    // Prueba 3: no (not)
+    variable r3 = 0
+    si no falso {
+        r3 = 1
+    }
+    si r3 == 1 {
+        imprimir("EXITO: operador no")
+    } sino {
+        imprimir("FALLO: operador no")
+        retornar 1
+    }
+
+    // Prueba 4: y + o combinados
+    variable r4 = 0
+    si 1 == 1 y 2 == 2 o 3 == 4 {
+        r4 = 1
+    }
+    si r4 == 1 {
+        imprimir("EXITO: y+o combinados")
+    } sino {
+        imprimir("FALLO: y+o combinados")
+        retornar 1
+    }
+
+    // Prueba 5: no con y
+    variable r5 = 0
+    si no falso y 1 == 1 {
+        r5 = 1
+    }
+    si r5 == 1 {
+        imprimir("EXITO: no+y combinados")
+    } sino {
+        imprimir("FALLO: no+y combinados")
+        retornar 1
+    }
+
+    // Prueba 6: como (conversion de tipo — Int a Int; Float tiene bug de codegen)
+    sea valEntero = 42
+    sea valEntero2 = valEntero como entero
+    si valEntero2 == 42 {
+        imprimir("EXITO: conversion con como")
+    } sino {
+        imprimir("FALLO: conversion con como")
+        retornar 1
+    }
+
+    imprimir("EXITO: todas las pruebas miscelaneas pasaron")
+    retornar 0
+}

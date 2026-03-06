@@ -1,0 +1,10 @@
+name = "Japanese"
+description = "Japanese Variable Declaration Keywords"
+
+[keywords]
+"定数" = "KeywordLet"
+"可変" = "KeywordMut"
+"定義" = "KeywordConst"
+"静的" = "KeywordStatic"
+"値" = "KeywordVal"
+"変数" = "KeywordVar"

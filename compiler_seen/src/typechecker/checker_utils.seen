@@ -1,0 +1,140 @@
+// Shared utility functions for typechecker modules
+// Provides common helpers for checking class structure
+
+import parser.real_parser.{ClassNode, FunctionNode, FieldNode, AnnotationNode}
+
+// Check if a class has a field with the given name
+fun hasFieldNamed(cls: ClassNode, fieldName: String) r: Bool {
+    var i = 0
+    while i < cls.fields.length() {
+        if cls.fields[i].name == fieldName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Get field type by name, returns empty string if not found
+fun getFieldType(cls: ClassNode, fieldName: String) r: String {
+    var i = 0
+    while i < cls.fields.length() {
+        if cls.fields[i].name == fieldName {
+            return cls.fields[i].paramType.typeName
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// Get a field by name, returns None if not found
+fun getField(cls: ClassNode, fieldName: String) r: Option<FieldNode> {
+    var i = 0
+    while i < cls.fields.length() {
+        if cls.fields[i].name == fieldName {
+            return Some(cls.fields[i])
+        }
+        i = i + 1
+    }
+    return None()
+}
+
+// Check if a class has a method with the given name
+fun hasMethod(cls: ClassNode, methodName: String) r: Bool {
+    var i = 0
+    while i < cls.methods.length() {
+        if cls.methods[i].name == methodName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Get a method by name, returns None if not found
+fun getMethod(cls: ClassNode, methodName: String) r: Option<FunctionNode> {
+    var i = 0
+    while i < cls.methods.length() {
+        if cls.methods[i].name == methodName {
+            return Some(cls.methods[i])
+        }
+        i = i + 1
+    }
+    return None()
+}
+
+// Check if a class has a specific decorator
+fun hasDecorator(cls: ClassNode, decoratorName: String) r: Bool {
+    var i = 0
+    while i < cls.decorators.length() {
+        if cls.decorators[i].name == decoratorName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Find a decorator by name on a class, returns None if not found
+fun findClassDecorator(cls: ClassNode, decoratorName: String) r: Option<AnnotationNode> {
+    var i = 0
+    while i < cls.decorators.length() {
+        if cls.decorators[i].name == decoratorName {
+            return Some(cls.decorators[i])
+        }
+        i = i + 1
+    }
+    return None()
+}
+
+// Find a decorator by name in an array of annotations
+fun findDecorator(decorators: Array<AnnotationNode>, decoratorName: String) r: Option<AnnotationNode> {
+    var i = 0
+    while i < decorators.length() {
+        if decorators[i].name == decoratorName {
+            return Some(decorators[i])
+        }
+        i = i + 1
+    }
+    return None()
+}
+
+// Check if a function has a specific decorator
+fun functionHasDecorator(func: FunctionNode, decoratorName: String) r: Bool {
+    var i = 0
+    while i < func.decorators.length() {
+        if func.decorators[i].name == decoratorName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Check if a type name represents a deterministic collection type
+fun isDeterministicCollectionType(typeName: String) r: Bool {
+    if typeName == "Vec" or typeName.startsWith("Vec<") {
+        return true
+    }
+    if typeName == "Array" or typeName.startsWith("Array<") {
+        return true
+    }
+    if typeName == "VecDeque" or typeName.startsWith("VecDeque<") {
+        return true
+    }
+    return false
+}
+
+// Check if a type name represents a FIFO-compatible type
+fun isFifoType(typeName: String) r: Bool {
+    if typeName == "VecDeque" or typeName.startsWith("VecDeque<") {
+        return true
+    }
+    if typeName == "Array" or typeName.startsWith("Array<") {
+        return true
+    }
+    if typeName == "Vec" or typeName.startsWith("Vec<") {
+        return true
+    }
+    return false
+}

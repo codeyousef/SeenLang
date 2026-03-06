@@ -1,0 +1,227 @@
+/**
+ * E2E tests for Steam FFI bindings.
+ * Tests constants for Steamworks SDK integration.
+ */
+
+import platform.linux.steam.{
+    k_iSteamUserCallbacks, k_iSteamGameServerCallbacks, k_iSteamFriendsCallbacks,
+    k_iSteamBillingCallbacks, k_iSteamMatchmakingCallbacks, k_iSteamUtilsCallbacks,
+    k_iSteamAppsCallbacks, k_iSteamUserStatsCallbacks, k_iSteamNetworkingCallbacks,
+    k_iSteamRemoteStorageCallbacks,
+    k_EFriendFlagNone, k_EFriendFlagBlocked, k_EFriendFlagFriendshipRequested,
+    k_EFriendFlagImmediate, k_EFriendFlagClanMember, k_EFriendFlagOnGameServer,
+    k_EFriendFlagAll,
+    k_EPersonaStateOffline, k_EPersonaStateOnline, k_EPersonaStateBusy,
+    k_EPersonaStateAway, k_EPersonaStateSnooze, k_EPersonaStateLookingToTrade,
+    k_EPersonaStateLookingToPlay, k_EPersonaStateInvisible, k_EPersonaStateMax,
+    k_EAccountTypeInvalid, k_EAccountTypeIndividual, k_EAccountTypeMultiseat,
+    k_EAccountTypeGameServer, k_EAccountTypeClan, k_EAccountTypeMax,
+    k_EUniverseInvalid, k_EUniversePublic, k_EUniverseBeta,
+    k_EUniverseInternal, k_EUniverseDev, k_EUniverseMax,
+    k_EPositionTopLeft, k_EPositionTopRight, k_EPositionBottomLeft, k_EPositionBottomRight
+}
+
+var testsPassed: Int = 0
+var testsFailed: Int = 0
+
+fun expect(condition: Bool, message: String) -> Void {
+    if condition {
+        testsPassed = testsPassed + 1
+    } else {
+        testsFailed = testsFailed + 1
+        println("FAIL: " + message)
+    }
+}
+
+fun testCallbackTypes() -> Void {
+    println("Testing Steam callback type constants...")
+
+    expect(k_iSteamUserCallbacks == 100, "k_iSteamUserCallbacks should be 100")
+    expect(k_iSteamGameServerCallbacks == 200, "k_iSteamGameServerCallbacks should be 200")
+    expect(k_iSteamFriendsCallbacks == 300, "k_iSteamFriendsCallbacks should be 300")
+    expect(k_iSteamBillingCallbacks == 400, "k_iSteamBillingCallbacks should be 400")
+    expect(k_iSteamMatchmakingCallbacks == 500, "k_iSteamMatchmakingCallbacks should be 500")
+    expect(k_iSteamUtilsCallbacks == 700, "k_iSteamUtilsCallbacks should be 700")
+    expect(k_iSteamAppsCallbacks == 1000, "k_iSteamAppsCallbacks should be 1000")
+    expect(k_iSteamUserStatsCallbacks == 1100, "k_iSteamUserStatsCallbacks should be 1100")
+    expect(k_iSteamNetworkingCallbacks == 1200, "k_iSteamNetworkingCallbacks should be 1200")
+    expect(k_iSteamRemoteStorageCallbacks == 1300, "k_iSteamRemoteStorageCallbacks should be 1300")
+}
+
+fun testFriendFlags() -> Void {
+    println("Testing Steam friend flag constants...")
+
+    expect(k_EFriendFlagNone == 0x00, "k_EFriendFlagNone should be 0x00")
+    expect(k_EFriendFlagBlocked == 0x01, "k_EFriendFlagBlocked should be 0x01")
+    expect(k_EFriendFlagFriendshipRequested == 0x02, "k_EFriendFlagFriendshipRequested should be 0x02")
+    expect(k_EFriendFlagImmediate == 0x04, "k_EFriendFlagImmediate should be 0x04")
+    expect(k_EFriendFlagClanMember == 0x08, "k_EFriendFlagClanMember should be 0x08")
+    expect(k_EFriendFlagOnGameServer == 0x10, "k_EFriendFlagOnGameServer should be 0x10")
+    expect(k_EFriendFlagAll == 0xFFFF, "k_EFriendFlagAll should be 0xFFFF")
+
+    // Test combining flags
+    let combinedFlags = k_EFriendFlagImmediate | k_EFriendFlagClanMember
+    expect(combinedFlags == 0x0C, "Combined IMMEDIATE|CLAN_MEMBER should be 0x0C")
+
+    // Test flag checking
+    expect((combinedFlags & k_EFriendFlagImmediate) != 0, "Should detect Immediate in combined flags")
+    expect((combinedFlags & k_EFriendFlagBlocked) == 0, "Should not detect Blocked in combined flags")
+}
+
+fun testPersonaStates() -> Void {
+    println("Testing Steam persona state constants...")
+
+    expect(k_EPersonaStateOffline == 0, "k_EPersonaStateOffline should be 0")
+    expect(k_EPersonaStateOnline == 1, "k_EPersonaStateOnline should be 1")
+    expect(k_EPersonaStateBusy == 2, "k_EPersonaStateBusy should be 2")
+    expect(k_EPersonaStateAway == 3, "k_EPersonaStateAway should be 3")
+    expect(k_EPersonaStateSnooze == 4, "k_EPersonaStateSnooze should be 4")
+    expect(k_EPersonaStateLookingToTrade == 5, "k_EPersonaStateLookingToTrade should be 5")
+    expect(k_EPersonaStateLookingToPlay == 6, "k_EPersonaStateLookingToPlay should be 6")
+    expect(k_EPersonaStateInvisible == 7, "k_EPersonaStateInvisible should be 7")
+    expect(k_EPersonaStateMax == 8, "k_EPersonaStateMax should be 8")
+
+    // Test that states are in valid range
+    let onlineState = k_EPersonaStateOnline
+    expect(onlineState >= 0 and onlineState < k_EPersonaStateMax, "Online state should be in valid range")
+}
+
+fun testAccountTypes() -> Void {
+    println("Testing Steam account type constants...")
+
+    expect(k_EAccountTypeInvalid == 0, "k_EAccountTypeInvalid should be 0")
+    expect(k_EAccountTypeIndividual == 1, "k_EAccountTypeIndividual should be 1")
+    expect(k_EAccountTypeMultiseat == 2, "k_EAccountTypeMultiseat should be 2")
+    expect(k_EAccountTypeGameServer == 3, "k_EAccountTypeGameServer should be 3")
+    expect(k_EAccountTypeClan == 7, "k_EAccountTypeClan should be 7")
+    expect(k_EAccountTypeMax == 11, "k_EAccountTypeMax should be 11")
+
+    // Validate common account type
+    expect(k_EAccountTypeIndividual >= 0 and k_EAccountTypeIndividual < k_EAccountTypeMax,
+           "Individual account type should be in valid range")
+}
+
+fun testUniverseTypes() -> Void {
+    println("Testing Steam universe type constants...")
+
+    expect(k_EUniverseInvalid == 0, "k_EUniverseInvalid should be 0")
+    expect(k_EUniversePublic == 1, "k_EUniversePublic should be 1")
+    expect(k_EUniverseBeta == 2, "k_EUniverseBeta should be 2")
+    expect(k_EUniverseInternal == 3, "k_EUniverseInternal should be 3")
+    expect(k_EUniverseDev == 4, "k_EUniverseDev should be 4")
+    expect(k_EUniverseMax == 5, "k_EUniverseMax should be 5")
+
+    // Validate public universe
+    expect(k_EUniversePublic > k_EUniverseInvalid, "Public universe should be greater than Invalid")
+    expect(k_EUniversePublic < k_EUniverseMax, "Public universe should be less than Max")
+}
+
+fun testOverlayPositions() -> Void {
+    println("Testing Steam overlay position constants...")
+
+    expect(k_EPositionTopLeft == 0, "k_EPositionTopLeft should be 0")
+    expect(k_EPositionTopRight == 1, "k_EPositionTopRight should be 1")
+    expect(k_EPositionBottomLeft == 2, "k_EPositionBottomLeft should be 2")
+    expect(k_EPositionBottomRight == 3, "k_EPositionBottomRight should be 3")
+
+    // Test all positions are unique and in valid range
+    expect(k_EPositionTopLeft != k_EPositionTopRight, "TopLeft should differ from TopRight")
+    expect(k_EPositionTopLeft != k_EPositionBottomLeft, "TopLeft should differ from BottomLeft")
+    expect(k_EPositionBottomRight >= 0 and k_EPositionBottomRight <= 3,
+           "BottomRight should be in valid range 0-3")
+}
+
+fun testCallbackRanges() -> Void {
+    println("Testing Steam callback ranges don't overlap...")
+
+    // Verify callback ranges don't overlap
+    expect(k_iSteamUserCallbacks < k_iSteamGameServerCallbacks,
+           "User callbacks should start before GameServer callbacks")
+    expect(k_iSteamGameServerCallbacks < k_iSteamFriendsCallbacks,
+           "GameServer callbacks should start before Friends callbacks")
+    expect(k_iSteamFriendsCallbacks < k_iSteamBillingCallbacks,
+           "Friends callbacks should start before Billing callbacks")
+    expect(k_iSteamUtilsCallbacks < k_iSteamAppsCallbacks,
+           "Utils callbacks should start before Apps callbacks")
+    expect(k_iSteamAppsCallbacks < k_iSteamUserStatsCallbacks,
+           "Apps callbacks should start before UserStats callbacks")
+    expect(k_iSteamUserStatsCallbacks < k_iSteamNetworkingCallbacks,
+           "UserStats callbacks should start before Networking callbacks")
+    expect(k_iSteamNetworkingCallbacks < k_iSteamRemoteStorageCallbacks,
+           "Networking callbacks should start before RemoteStorage callbacks")
+}
+
+fun testFriendFlagBitOperations() -> Void {
+    println("Testing friend flag bit operations...")
+
+    // Test that k_EFriendFlagAll contains all individual flags
+    let allFlags = k_EFriendFlagAll
+    expect((allFlags & k_EFriendFlagBlocked) != 0, "All should include Blocked")
+    expect((allFlags & k_EFriendFlagFriendshipRequested) != 0, "All should include FriendshipRequested")
+    expect((allFlags & k_EFriendFlagImmediate) != 0, "All should include Immediate")
+    expect((allFlags & k_EFriendFlagClanMember) != 0, "All should include ClanMember")
+    expect((allFlags & k_EFriendFlagOnGameServer) != 0, "All should include OnGameServer")
+
+    // Test building up flags
+    var flags = k_EFriendFlagNone
+    expect(flags == 0, "Starting with no flags should be 0")
+
+    flags = flags | k_EFriendFlagImmediate
+    expect((flags & k_EFriendFlagImmediate) != 0, "Should have Immediate after OR")
+    expect((flags & k_EFriendFlagBlocked) == 0, "Should not have Blocked yet")
+
+    flags = flags | k_EFriendFlagBlocked
+    expect((flags & k_EFriendFlagImmediate) != 0, "Should still have Immediate")
+    expect((flags & k_EFriendFlagBlocked) != 0, "Should now have Blocked")
+
+    // Test removing flags
+    flags = flags & (0xFFFF - k_EFriendFlagBlocked)
+    expect((flags & k_EFriendFlagImmediate) != 0, "Should still have Immediate")
+    expect((flags & k_EFriendFlagBlocked) == 0, "Should no longer have Blocked")
+}
+
+fun testPersonaStateLogic() -> Void {
+    println("Testing persona state logic...")
+
+    // Test online detection
+    let offlineStates = [k_EPersonaStateOffline, k_EPersonaStateInvisible]
+    let onlineStates = [k_EPersonaStateOnline, k_EPersonaStateBusy, k_EPersonaStateAway,
+                        k_EPersonaStateSnooze, k_EPersonaStateLookingToTrade, k_EPersonaStateLookingToPlay]
+
+    // Helper function would be: fun isOnline(state: Int) -> Bool { return state > 0 and state < 7 }
+    let online = k_EPersonaStateOnline
+    let offline = k_EPersonaStateOffline
+    let invisible = k_EPersonaStateInvisible
+
+    expect(online > 0 and online < k_EPersonaStateInvisible, "Online should be visibly online")
+    expect(offline == 0, "Offline should be 0")
+    expect(invisible == k_EPersonaStateMax - 1, "Invisible should be max - 1")
+}
+
+fun main() -> Int {
+    println("=== Steam FFI Bindings E2E Tests ===")
+    println("")
+
+    testCallbackTypes()
+    testFriendFlags()
+    testPersonaStates()
+    testAccountTypes()
+    testUniverseTypes()
+    testOverlayPositions()
+    testCallbackRanges()
+    testFriendFlagBitOperations()
+    testPersonaStateLogic()
+
+    println("")
+    println("=== Test Summary ===")
+    println("Passed: " + testsPassed.toString())
+    println("Failed: " + testsFailed.toString())
+
+    if testsFailed > 0 {
+        println("TESTS FAILED!")
+        return 1
+    }
+
+    println("All Steam tests passed!")
+    return 0
+}

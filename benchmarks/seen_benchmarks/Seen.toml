@@ -1,0 +1,10 @@
+[project]
+name = "seen_benchmarks"
+version = "0.1.0"
+description = "Benchmark suite for Seen language"
+
+[build]
+target = "native"
+optimization_level = 3
+
+[dependencies]

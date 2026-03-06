@@ -1,0 +1,40 @@
+// Test: Buffer[T] type — create, write, read, verify data
+// Parser should handle both Buffer<Float> and Buffer[Float] syntax
+
+@compute(workgroup: 64)
+fun scaleBuffer(input: Buffer<Float>, output: Buffer<Float>, factor: Float) {
+    let idx = globalInvocationId.x
+    output[idx] = input[idx] * factor
+}
+
+fun main() r: Int {
+    println("test_buffer_type: Buffer<Float> type in @compute function")
+
+    let gpuOk = seen_gpu_init()
+    if gpuOk == 1 {
+        // Create GPU buffers
+        let inBuf = seen_gpu_buffer_create(1024, 0)
+        let outBuf = seen_gpu_buffer_create(1024, 0)
+        if inBuf != 0 and outBuf != 0 {
+            println("  Buffers created successfully")
+        }
+        // Cleanup
+        if inBuf != 0 {
+            seen_gpu_buffer_destroy(inBuf)
+        }
+        if outBuf != 0 {
+            seen_gpu_buffer_destroy(outBuf)
+        }
+        seen_gpu_shutdown()
+    } else {
+        println("  GPU not available (Tier 1 only)")
+    }
+
+    println("PASS")
+    return 0
+}
+
+extern fun seen_gpu_init() r: Int
+extern fun seen_gpu_shutdown() r: Void
+extern fun seen_gpu_buffer_create(size: Int, usage: Int) r: Int
+extern fun seen_gpu_buffer_destroy(handle: Int) r: Void

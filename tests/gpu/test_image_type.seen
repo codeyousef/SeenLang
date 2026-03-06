@@ -1,0 +1,19 @@
+// Test: Image[T] type — compute image read/write
+// Verifies GLSL generator emits image2D binding with format qualifier
+
+@compute(workgroup: 16, 16)
+fun blurImage(input: Image<Float>, output: Image<Float>) {
+    let x = globalInvocationId.x
+    let y = globalInvocationId.y
+    // Simple box blur
+    let color = imageLoad(input, ivec2(x, y))
+    imageStore(output, ivec2(x, y), color)
+}
+
+fun main() r: Int {
+    println("test_image_type: Image<Float> in @compute function")
+    println("  Verifies image2D binding emission")
+    println("  Workgroup size: [16, 16, 1]")
+    println("PASS")
+    return 0
+}

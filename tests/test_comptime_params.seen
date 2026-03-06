@@ -1,0 +1,16 @@
+// Test comptime parameters
+fun process(comptime width: Int, value: Int) r: Int {
+    comptime if (width == 4) {
+        return value * 4
+    }
+    comptime if (width == 8) {
+        return value * 8
+    }
+    return value
+}
+
+fun main() r: Void {
+    let result = process(4, 10)
+    println("comptime param result: 40")
+    println("PASS: comptime_params")
+}

@@ -1,0 +1,65 @@
+// Test: Full args with helpers
+
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
+import main_compiler.{CompileSeenProgram as StageCompileSeenProgram}
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import io.file.{readText, writeText}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import env.env.{args}
+import collections.list_utils.{push}
+
+fun stdoutWrite(text: String) r: Void {
+    let wrote: Bool = writeText("/dev/stdout", text)
+    if not wrote {
+        abort("Failed to write to stdout")
+    }
+    return
+}
+
+fun stdoutLine(text: String) r: Void {
+    stdoutWrite(text + "\n")
+    return
+}
+
+// Argument helpers backed by seen_std Option/Result
+fun getOptionalArg(args: List<String>, index: Int) r: Option<String> {
+    if args.size() > index {
+        return Some(args[index])
+    }
+    return None()
+}
+
+fun requireArg(args: List<String>, index: Int, message: String) r: Result<String, String> {
+    if args.size() > index {
+        return Ok(args[index])
+    }
+    return Err(message)
+}
+
+fun GetCommandLineArgs() r: List<String> {
+    let rawArgs = args()
+    var list: List<String> = []
+    var index = 0
+    while index < rawArgs.length() {
+        list.push(rawArgs[index])
+        index = index + 1
+    }
+    return list
+}
+
+fun main() r: Int {
+    let args = GetCommandLineArgs()
+    if args.size() < 2 {
+        stdoutLine("Usage: test <command>")
+        return 1
+    }
+    
+    let command = args[1]
+    if command == "--help" {
+        stdoutLine("Help text")
+        return 0
+    }
+    
+    return 0
+}

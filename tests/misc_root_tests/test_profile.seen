@@ -1,0 +1,44 @@
+// Test @profile decorator - verifies timing instrumentation
+// Expected: Profile report should show timing for decorated functions
+
+@profile
+fun fibonacci(n: Int) r: Int {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+@profile
+fun factorial(n: Int) r: Int {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+// Non-profiled function for comparison
+fun notProfiled(x: Int) r: Int {
+    return x * 2
+}
+
+@profile
+fun doWork() r: Void {
+    // Call some profiled functions
+    var i = 0
+    while i < 5 {
+        let f = fibonacci(10)
+        let g = factorial(5)
+        let h = notProfiled(i)
+        i = i + 1
+    }
+}
+
+fun main() r: Int {
+    println("Testing @profile decorator...")
+
+    doWork()
+
+    println("Done! Profile report should appear below:")
+    return 0
+}

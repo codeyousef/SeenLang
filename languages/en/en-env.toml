@@ -1,0 +1,10 @@
+name = "English"
+description = "English Environment Standard Library"
+
+[std_lib]
+"args" = "seen_std.env.env.args"
+"get" = "seen_std.env.env.get"
+"set" = "seen_std.env.env.set"
+"has" = "seen_std.env.env.has"
+"runCommand" = "seen_std.process.process.runCommand"
+"processExit" = "seen_std.process.process.processExit"

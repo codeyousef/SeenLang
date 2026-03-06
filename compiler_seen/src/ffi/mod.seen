@@ -1,0 +1,42 @@
+// FFI Module - Foreign Function Interface bindings
+// Provides low-level C library access for the Seen compiler
+
+// Z3 SMT Solver FFI bindings
+import z3_ffi.{
+    Z3Context, Z3Solver, Z3Ast, Z3Sort, Z3Model, Z3Symbol, Z3Config,
+    Z3_mk_config, Z3_del_config, Z3_set_param_value,
+    Z3_mk_context, Z3_mk_context_rc, Z3_del_context,
+    Z3_mk_solver, Z3_mk_simple_solver,
+    Z3_solver_inc_ref, Z3_solver_dec_ref,
+    Z3_solver_push, Z3_solver_pop, Z3_solver_reset, Z3_solver_assert,
+    Z3_solver_check, Z3_solver_get_model, Z3_solver_get_reason_unknown,
+    Z3_mk_bv_sort, Z3_mk_bool_sort, Z3_mk_int_sort,
+    Z3_mk_true, Z3_mk_false, Z3_mk_unsigned_int64, Z3_mk_int64,
+    Z3_mk_const, Z3_mk_string_symbol,
+    Z3_mk_bvadd, Z3_mk_bvsub, Z3_mk_bvmul, Z3_mk_bvsdiv, Z3_mk_bvudiv,
+    Z3_mk_bvsrem, Z3_mk_bvurem, Z3_mk_bvsmod, Z3_mk_bvneg,
+    Z3_mk_bvand, Z3_mk_bvor, Z3_mk_bvxor, Z3_mk_bvnot,
+    Z3_mk_bvshl, Z3_mk_bvlshr, Z3_mk_bvashr,
+    Z3_mk_bvslt, Z3_mk_bvsle, Z3_mk_bvsgt, Z3_mk_bvsge,
+    Z3_mk_bvult, Z3_mk_bvule, Z3_mk_bvugt, Z3_mk_bvuge,
+    Z3_mk_eq, Z3_mk_not, Z3_mk_and, Z3_mk_or, Z3_mk_ite,
+    Z3_mk_sign_ext, Z3_mk_zero_ext, Z3_mk_extract, Z3_mk_concat,
+    Z3_model_inc_ref, Z3_model_dec_ref, Z3_model_to_string,
+    Z3_ast_to_string, Z3_get_numeral_string, Z3_sort_to_string,
+    Z3_inc_ref, Z3_dec_ref,
+    Z3Result, Z3BitWidth
+}
+
+// Export Z3 FFI types and functions
+pub type Z3Context = Z3Context
+pub type Z3Solver = Z3Solver
+pub type Z3Ast = Z3Ast
+pub type Z3Sort = Z3Sort
+pub type Z3Model = Z3Model
+pub type Z3Symbol = Z3Symbol
+pub type Z3Config = Z3Config
+
+// Export Z3 result constants
+pub let Z3_UNSAT: Int = Z3Result.UNSAT
+pub let Z3_SAT: Int = Z3Result.SAT
+pub let Z3_UNKNOWN: Int = Z3Result.UNKNOWN

@@ -1,0 +1,29 @@
+# Performance baseline configuration
+# Each task entry will be executed by tools/perf_baseline to capture runtime,
+# peak RSS, and (for compile tasks) artifact sizes.
+
+[[tasks]]
+name = "interp:simple_test"
+kind = "micro"
+command = ["cargo", "run", "-p", "seen_cli", "--", "run", "simple_test.seen"]
+working_dir = "."
+warmups = 1
+runs = 3
+
+[[tasks]]
+name = "build:simple_showcase"
+kind = "macro"
+command = ["cargo", "run", "-p", "seen_cli", "--", "run", "simple_showcase.seen"]
+working_dir = "."
+warmups = 1
+runs = 2
+
+[[tasks]]
+name = "compile:seen_cli_release"
+kind = "compile"
+command = ["cargo", "build", "-p", "seen_cli", "--release"]
+working_dir = "."
+clean_before = true
+warmups = 0
+runs = 2
+artifacts = ["target/release/seen_cli"]

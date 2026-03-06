@@ -1,0 +1,101 @@
+// seen_std.process.process
+// Deterministic process helpers backed by __ExecuteProgram / __ExecuteCommand.
+
+import str.string.{StringBuilder}
+
+// External runtime intrinsics
+extern fun __ExecuteProgram(path: String) r: Int
+extern fun __ExecuteCommand(command: String) r: CommandResult
+
+data CommandResult {
+    success: Bool
+    output: String
+}
+
+fun runProgram(path: String) r: Int {
+    return __ExecuteProgram(path)
+}
+
+fun execCommand(command: String) r: CommandResult {
+    let result: CommandResult = __ExecuteCommand(command)
+    return result
+}
+
+fun runCommand(command: String) r: CommandResult {
+    return execCommand(command)
+}
+
+fun commandWasSuccessful(result: CommandResult) r: Bool {
+    return result.success
+}
+
+fun commandOutput(result: CommandResult) r: String {
+    return result.output
+}
+
+fun runCommandOrAbort(command: String) r: CommandResult {
+    let result: CommandResult = execCommand(command)
+    if not result.success {
+        abort("Command failed: {command}\n{result.output}")
+    }
+    return result
+}
+
+fun runCommandOutput(command: String) r: String {
+    return execCommand(command).output
+}
+
+fun isSuccess(status: Int) r: Bool {
+    return status == 0
+}
+
+// External C runtime functions for process-level parallelism.
+// Use __ prefix to match runtime convention and avoid linker conflicts.
+// NOTE: These are SKIPPED by the codegen (name starts with __ and have empty bodies).
+// Declares come from ir_declarations.seen.
+extern fun __seen_fork() r: Int
+extern fun __seen_waitpid(pid: Int, flags: Int) r: Int
+extern fun __seen_exit(code: Int) r: Void
+extern fun __seen_getpid() r: Int
+
+// Fork the current process.
+// Returns: child PID in parent, 0 in child, -1 on error.
+// Named "processFork" (not "fork") to avoid shadowing the POSIX fork() symbol at link time.
+fun processFork() r: Int {
+    return __seen_fork()
+}
+
+// Wait for a child process to exit (blocking).
+// Returns the child's exit code, or -1 on error.
+fun waitPid(pid: Int) r: Int {
+    return __seen_waitpid(pid, 0)
+}
+
+// Terminate the current process with the given exit code.
+// Uses _exit() - bypasses C atexit handlers (safe for forked children).
+fun processExit(code: Int) r: Void {
+    __seen_exit(code)
+}
+
+// Return the PID of the current process.
+fun getPid() r: Int {
+    return __seen_getpid()
+}
+
+fun shellQuote(text: String) r: String {
+    let builder = StringBuilder.new()
+    builder.append("\"")
+
+    var index = 0
+    while index < text.length() {
+        let ch = text.charAt(index)
+        if ch == "\"" or ch == "\\" {
+            builder.append("\\")
+        }
+        builder.appendChar(ch)
+        index = index + 1
+    }
+
+    builder.append("\"")
+    return builder.toString()
+}

@@ -1,0 +1,22 @@
+// : Test zero-cost type punning (transmute)
+// Verify transmute between same-width types
+
+fun main() {
+    // transmute Int -> Float (reinterpret bits)
+    unsafe {
+        let intVal: Int = 4614253070214989087  // IEEE 754 bits for 3.14
+        let floatVal: Float = transmute<Float>(intVal)
+        println("Transmuted float: " + floatVal.toString())
+
+        // transmute Float -> Int (round-trip)
+        let backToInt: Int = transmute<Int>(floatVal)
+        println("Round-trip int: " + backToInt.toString())
+
+        if backToInt == intVal {
+            println("Transmute round-trip: PASS")
+        } else {
+            println("Transmute round-trip: FAIL")
+        }
+    }
+    println("Transmute test passed")
+}

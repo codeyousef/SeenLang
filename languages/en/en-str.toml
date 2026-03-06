@@ -1,0 +1,18 @@
+name = "English"
+description = "English String Standard Library"
+
+[std_lib]
+"split" = "seen_std.str.string.split"
+"trim" = "seen_std.str.string.trim"
+"contains" = "seen_std.str.string.contains"
+"startsWith" = "seen_std.str.string.startsWith"
+"endsWith" = "seen_std.str.string.endsWith"
+"indexOf" = "seen_std.str.string.indexOf"
+"replace" = "seen_std.str.string.replace"
+"toUpperCase" = "seen_std.str.string.String_toUpperCase"
+"toLowerCase" = "seen_std.str.string.String_toLowerCase"
+"lines" = "seen_std.str.string.lines"
+"words" = "seen_std.str.string.words"
+"repeat" = "seen_std.str.string.repeat"
+"join" = "seen_std.str.string.join"
+"StringBuilder" = "StringBuilder"

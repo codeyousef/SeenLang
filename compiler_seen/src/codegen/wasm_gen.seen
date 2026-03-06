@@ -1,0 +1,1140 @@
+// WASM Code Generator - UWW-Compatible WebAssembly Backend
+// Generates deterministic .wasm binaries for Universal World Wide runtime
+
+import ir.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType}
+import str.string.{StringBuilder}
+import collections.vec.{Vec}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import io.file.{writeText, readBytes}
+
+// WASI imports that are forbidden in UWW mode for determinism
+let FORBIDDEN_WASI_IMPORTS: Array<String> = [
+    "fd_read",
+    "fd_write",
+    "clock_time_get",
+    "random_get",
+    "proc_exit",
+    "environ_get",
+    "environ_sizes_get",
+    "args_get",
+    "args_sizes_get",
+    "fd_close",
+    "fd_seek",
+    "fd_fdstat_get",
+    "path_open"
+]
+
+// WASM Type enum for cleaner type handling
+enum WASMType {
+    I32,
+    I64,
+    F32,
+    F64,
+    V128,      // SIMD vector type
+    FuncRef,
+    ExternRef
+}
+
+// WASM Value type representation
+class WASMValue {
+    let name: String
+    let wasmType: WASMType
+    let isLocal: Bool
+    let localIndex: Int
+
+    fun new(name: String, wasmType: WASMType, isLocal: Bool = true, localIndex: Int = -1) r: WASMValue {
+        name = name
+        wasmType = wasmType
+        isLocal = isLocal
+        localIndex = localIndex
+    }
+
+    fun typeString() r: String {
+        return match wasmType {
+            WASMType.I32 -> "i32"
+            WASMType.I64 -> "i64"
+            WASMType.F32 -> "f32"
+            WASMType.F64 -> "f64"
+            WASMType.V128 -> "v128"
+            WASMType.FuncRef -> "funcref"
+            WASMType.ExternRef -> "externref"
+        }
+    }
+}
+
+// Function signature for type section
+class WASMFuncType {
+    let params: Array<WASMType>
+    let results: Array<WASMType>
+
+    fun new() r: WASMFuncType {
+        params = Array<WASMType>()
+        results = Array<WASMType>()
+    }
+
+    fun addParam(t: WASMType) r: Void {
+        params.push(t)
+    }
+
+    fun addResult(t: WASMType) r: Void {
+        results.push(t)
+    }
+
+    fun toWAT() r: String {
+        let output = "(func"
+        for param in params {
+            let paramType = match param {
+                WASMType.I32 -> "i32"
+                WASMType.I64 -> "i64"
+                WASMType.F32 -> "f32"
+                WASMType.F64 -> "f64"
+                _ -> "i32"
+            }
+            output = output + " (param " + paramType + ")"
+        }
+        for result in results {
+            let resultType = match result {
+                WASMType.I32 -> "i32"
+                WASMType.I64 -> "i64"
+                WASMType.F32 -> "f32"
+                WASMType.F64 -> "f64"
+                _ -> "i32"
+            }
+            output = output + " (result " + resultType + ")"
+        }
+        output = output + ")"
+        return output
+    }
+
+    fun equals(other: WASMFuncType) r: Bool {
+        if params.length() != other.params.length() {
+            return false
+        }
+        if results.length() != other.results.length() {
+            return false
+        }
+        var i = 0
+        while i < params.length() {
+            if params[i] != other.params[i] {
+                return false
+            }
+            i = i + 1
+        }
+        i = 0
+        while i < results.length() {
+            if results[i] != other.results[i] {
+                return false
+            }
+            i = i + 1
+        }
+        return true
+    }
+}
+
+// Import entry for WASM module
+class WASMImport {
+    let moduleName: String
+    let fieldName: String
+    let importType: String  // "func", "memory", "table", "global"
+    let typeIndex: Int      // For function imports
+
+    fun new(moduleName: String, fieldName: String, importType: String, typeIndex: Int = 0) r: WASMImport {
+        moduleName = moduleName
+        fieldName = fieldName
+        importType = importType
+        typeIndex = typeIndex
+    }
+
+    fun toWAT() r: String {
+        if importType == "memory" {
+            return "  (import \"" + moduleName + "\" \"" + fieldName + "\" (memory 1))"
+        } else if importType == "func" {
+            return "  (import \"" + moduleName + "\" \"" + fieldName + "\" (func (type " + typeIndex.toString() + ")))"
+        }
+        return "  ;; unsupported import type: " + importType
+    }
+}
+
+// Export entry for WASM module
+class WASMExport {
+    let name: String
+    let exportType: String  // "func", "memory", "table", "global"
+    let index: Int
+
+    fun new(name: String, exportType: String, index: Int) r: WASMExport {
+        name = name
+        exportType = exportType
+        index = index
+    }
+
+    fun toWAT() r: String {
+        return "  (export \"" + name + "\" (" + exportType + " " + index.toString() + "))"
+    }
+}
+
+// Data segment for string constants
+class WASMDataSegment {
+    let offset: Int
+    let data: String
+
+    fun new(offset: Int, data: String) r: WASMDataSegment {
+        offset = offset
+        data = data
+    }
+
+    fun toWAT() r: String {
+        let escaped = escapeStringForWASM(data)
+        return "  (data (i32.const " + offset.toString() + ") \"" + escaped + "\")"
+    }
+
+    fun escapeStringForWASM(str: String) r: String {
+        let result = StringBuilder.new()
+        var i = 0
+        while i < str.length() {
+            let c = str.charAt(i)
+            if c == '\\' {
+                result.append("\\\\")
+            } else if c == '"' {
+                result.append("\\\"")
+            } else if c == '\n' {
+                result.append("\\n")
+            } else if c == '\t' {
+                result.append("\\t")
+            } else if c.toInt() == 0 {
+                result.append("\\00")
+            } else {
+                result.appendChar(c)
+            }
+            i = i + 1
+        }
+        return result.toString()
+    }
+}
+
+// Validation result for UWW mode
+class UWWValidationResult {
+    let valid: Bool
+    let errors: Array<String>
+
+    fun new() r: UWWValidationResult {
+        valid = true
+        errors = Array<String>()
+    }
+
+    fun addError(message: String) r: Void {
+        errors.push(message)
+        valid = false
+    }
+}
+
+// Main WASM Generator class
+class WASMGenerator {
+    var output: StringBuilder
+    var locals: Array<WASMValue>
+    var localIndex: Int
+    var funcTypes: Array<WASMFuncType>
+    var imports: Array<WASMImport>
+    var exports: Array<WASMExport>
+    var dataSegments: Array<WASMDataSegment>
+    var functionNames: Array<String>
+    var functionIndices: Map<String, Int>
+
+    // Configuration
+    var uwwMode: Bool
+    var deterministicMode: Bool
+    var enableSIMD: Bool
+    var debugMode: Bool
+    var memoryPages: Int
+    var stackPointerGlobal: Int
+    var heapBase: Int
+    var dataOffset: Int
+
+    // Statistics
+    var instructionCount: Int
+    var functionCount: Int
+
+    fun new() r: WASMGenerator {
+        output = StringBuilder.new()
+        locals = Array<WASMValue>()
+        localIndex = 0
+        funcTypes = Array<WASMFuncType>()
+        imports = Array<WASMImport>()
+        exports = Array<WASMExport>()
+        dataSegments = Array<WASMDataSegment>()
+        functionNames = Array<String>()
+        functionIndices = Map<String, Int>.new()
+
+        uwwMode = false
+        deterministicMode = false
+        enableSIMD = false
+        debugMode = false
+        memoryPages = 16  // 1MB initial memory
+        stackPointerGlobal = 65536  // 64KB for stack
+        heapBase = 65536
+        dataOffset = 1024  // Reserve first 1KB for runtime data
+
+        instructionCount = 0
+        functionCount = 0
+    }
+
+    // Enable UWW mode with all determinism requirements
+    fun enableUWW() r: Void {
+        uwwMode = true
+        deterministicMode = true
+        // Add UWW runtime imports
+        addUWWImports()
+    }
+
+    // Add UWW runtime imports
+    fun addUWWImports() r: Void {
+        // uww.timestamp - returns deterministic timestamp
+        let timestampType = WASMFuncType.new()
+        timestampType.addResult(WASMType.I64)
+        let timestampTypeIndex = addFuncType(timestampType)
+        imports.push(WASMImport.new("uww", "timestamp", "func", timestampTypeIndex))
+
+        // uww.deterministic_rand - seeded deterministic RNG
+        let randType = WASMFuncType.new()
+        randType.addParam(WASMType.I64)  // seed
+        randType.addResult(WASMType.I64)
+        let randTypeIndex = addFuncType(randType)
+        imports.push(WASMImport.new("uww", "deterministic_rand", "func", randTypeIndex))
+
+        // uww.storage_get - key -> value (returns pointer)
+        let storageGetType = WASMFuncType.new()
+        storageGetType.addParam(WASMType.I32)  // key pointer
+        storageGetType.addResult(WASMType.I32) // value pointer
+        let storageGetTypeIndex = addFuncType(storageGetType)
+        imports.push(WASMImport.new("uww", "storage_get", "func", storageGetTypeIndex))
+
+        // uww.storage_set - key, value -> success
+        let storageSetType = WASMFuncType.new()
+        storageSetType.addParam(WASMType.I32)  // key pointer
+        storageSetType.addParam(WASMType.I32)  // value pointer
+        storageSetType.addResult(WASMType.I32) // success (0 or 1)
+        let storageSetTypeIndex = addFuncType(storageSetType)
+        imports.push(WASMImport.new("uww", "storage_set", "func", storageSetTypeIndex))
+
+        // uww.log - message -> void
+        let logType = WASMFuncType.new()
+        logType.addParam(WASMType.I32)  // message pointer
+        let logTypeIndex = addFuncType(logType)
+        imports.push(WASMImport.new("uww", "log", "func", logTypeIndex))
+    }
+
+    // Add a function type and return its index (deduplicated)
+    fun addFuncType(funcType: WASMFuncType) r: Int {
+        // Check if type already exists
+        var i = 0
+        while i < funcTypes.length() {
+            if funcTypes[i].equals(funcType) {
+                return i
+            }
+            i = i + 1
+        }
+        // Add new type
+        funcTypes.push(funcType)
+        return funcTypes.length() - 1
+    }
+
+    // Validate imports for UWW mode (no WASI allowed)
+    fun validateUWWImports() r: UWWValidationResult {
+        let result = UWWValidationResult.new()
+
+        if not uwwMode {
+            return result  // No validation needed
+        }
+
+        // Initialize forbidden imports inline (module-level constants don't compile properly)
+        let forbiddenImports: Array<String> = [
+            "fd_read", "fd_write", "clock_time_get", "random_get", "proc_exit",
+            "environ_get", "environ_sizes_get", "args_get", "args_sizes_get",
+            "fd_close", "fd_seek", "fd_fdstat_get", "path_open"
+        ]
+        for imp in imports {
+            // Check if this is a WASI import
+            if imp.moduleName == "wasi_snapshot_preview1" or imp.moduleName == "wasi" {
+                for forbidden in forbiddenImports {
+                    if imp.fieldName == forbidden {
+                        result.addError("UWW mode forbids WASI import: " + forbidden)
+                    }
+                }
+            }
+        }
+
+        return result
+    }
+
+    // Validate that no float types are used in UWW mode
+    fun validateUWWTypes(irModule: IRModule) r: UWWValidationResult {
+        let result = UWWValidationResult.new()
+
+        if not uwwMode {
+            return result
+        }
+
+        for (funcName, function) in irModule.functions.entries() {
+            // Check return type
+            if isFloatType(function.returnType) {
+                result.addError("Float return type not allowed in UWW mode for function: " + funcName + ". Use Fixed64 for deterministic numerics.")
+            }
+
+            // Check parameter types
+            for param in function.parameters {
+                if isFloatType(param.type) {
+                    result.addError("Float parameter type not allowed in UWW mode in function: " + funcName + ". Use Fixed64 for deterministic numerics.")
+                }
+            }
+
+            // Check instructions for float operations
+            for block in function.blocks {
+                for instruction in block.instructions {
+                    if isFloatInstruction(instruction) {
+                        result.addError("Float instruction '" + instruction.opcode + "' not allowed in UWW mode in function: " + funcName)
+                    }
+                }
+            }
+        }
+
+        return result
+    }
+
+    fun isFloatType(irType: IRType) r: Bool {
+        return irType.name == "float" or irType.name == "double" or
+               irType.name == "f32" or irType.name == "f64"
+    }
+
+    fun isFloatInstruction(instruction: IRInstruction) r: Bool {
+        let opcode = instruction.opcode
+        return opcode == "fadd" or opcode == "fsub" or opcode == "fmul" or
+               opcode == "fdiv" or opcode == "fcmp" or opcode == "fneg" or
+               opcode == "sitofp" or opcode == "fptosi" or opcode == "uitofp" or
+               opcode == "fptoui" or opcode == "fpext" or opcode == "fptrunc"
+    }
+
+    // Convert IR type to WASM type
+    fun convertIRTypeToWASM(irType: IRType) r: WASMType {
+        return match irType.name {
+            "i8" -> WASMType.I32
+            "i16" -> WASMType.I32
+            "i32" -> WASMType.I32
+            "i64" -> WASMType.I64
+            "float" -> WASMType.F32
+            "f32" -> WASMType.F32
+            "double" -> WASMType.F64
+            "f64" -> WASMType.F64
+            "i1" -> WASMType.I32   // Booleans as i32
+            "void" -> WASMType.I32  // Void represented as i32 (no result)
+            _ -> {
+                // Pointers and structs are represented as i32 memory addresses
+                if irType.isPointer {
+                    return WASMType.I32
+                }
+                return WASMType.I32  // Default to i32
+            }
+        }
+    }
+
+    // Convert WASM type to string
+    fun wasmTypeToString(t: WASMType) r: String {
+        return match t {
+            WASMType.I32 -> "i32"
+            WASMType.I64 -> "i64"
+            WASMType.F32 -> "f32"
+            WASMType.F64 -> "f64"
+            WASMType.V128 -> "v128"
+            WASMType.FuncRef -> "funcref"
+            WASMType.ExternRef -> "externref"
+        }
+    }
+
+    // Main entry point: generate WASM module from IR
+    fun generate(irModule: IRModule) r: String {
+        // Reset state
+        output = StringBuilder.new()
+        locals = Array<WASMValue>()
+        localIndex = 0
+        dataSegments = Array<WASMDataSegment>()
+        functionNames = Array<String>()
+        functionIndices = Map<String, Int>.new()
+        instructionCount = 0
+        functionCount = 0
+
+        // Validate UWW requirements if enabled
+        if uwwMode {
+            let importValidation = validateUWWImports()
+            if not importValidation.valid {
+                output.append(";; UWW VALIDATION FAILED:\n")
+                for error in importValidation.errors {
+                    output.append(";; ERROR: " + error + "\n")
+                }
+                return output.toString()
+            }
+
+            let typeValidation = validateUWWTypes(irModule)
+            if not typeValidation.valid {
+                output.append(";; UWW VALIDATION FAILED:\n")
+                for error in typeValidation.errors {
+                    output.append(";; ERROR: " + error + "\n")
+                }
+                return output.toString()
+            }
+        }
+
+        // Sort functions by name for deterministic output
+        let sortedFunctionNames = sortFunctionNames(irModule)
+
+        // Assign function indices (imports first, then definitions)
+        var funcIndex = imports.length()
+        for funcName in sortedFunctionNames {
+            functionIndices.put(funcName, funcIndex)
+            funcIndex = funcIndex + 1
+        }
+
+        // Add string constants as data segments
+        var strIndex = 0
+        while strIndex < irModule.stringConstants.length() {
+            let str = irModule.stringConstants[strIndex]
+            // Append null terminator using char code (workaround for \0 not being supported)
+            let nullTerminator = String.fromCharCode(0)
+            dataSegments.push(WASMDataSegment.new(dataOffset, str + nullTerminator))
+            dataOffset = dataOffset + str.length() + 1
+            strIndex = strIndex + 1
+        }
+
+        // Generate module
+        output.append("(module\n")
+
+        // Generate type section
+        generateTypeSection(irModule)
+
+        // Generate import section
+        generateImportSection()
+
+        // Generate memory section (if not imported)
+        if not hasMemoryImport() {
+            output.append("  (memory (export \"memory\") " + memoryPages.toString() + ")\n")
+        }
+
+        // Generate global section (stack pointer)
+        output.append("  (global $__stack_pointer (mut i32) (i32.const " + stackPointerGlobal.toString() + "))\n")
+
+        // Generate function section
+        for funcName in sortedFunctionNames {
+            let function = irModule.functions.get(funcName)
+            if function != null {
+                generateFunction(function)
+            }
+        }
+
+        // Generate export section
+        generateExportSection(sortedFunctionNames)
+
+        // Generate data section
+        generateDataSection()
+
+        // Generate UWW metadata section if enabled
+        if uwwMode {
+            generateUWWMetadataSection()
+        }
+
+        output.append(")\n")
+
+        return output.toString()
+    }
+
+    // Sort function names deterministically
+    fun sortFunctionNames(irModule: IRModule) r: Array<String> {
+        let names = Array<String>()
+        for (name, _) in irModule.functions.entries() {
+            names.push(name)
+        }
+        // Simple bubble sort for determinism (could use better algorithm)
+        var i = 0
+        while i < names.length() {
+            var j = i + 1
+            while j < names.length() {
+                if names[j] < names[i] {
+                    let temp = names[i]
+                    names[i] = names[j]
+                    names[j] = temp
+                }
+                j = j + 1
+            }
+            i = i + 1
+        }
+        return names
+    }
+
+    // Check if memory is imported
+    fun hasMemoryImport() r: Bool {
+        for imp in imports {
+            if imp.importType == "memory" {
+                return true
+            }
+        }
+        return false
+    }
+
+    // Generate type section with all function signatures
+    fun generateTypeSection(irModule: IRModule) r: Void {
+        // Add function types from IR module
+        for (funcName, function) in irModule.functions.entries() {
+            let funcType = WASMFuncType.new()
+            for param in function.parameters {
+                funcType.addParam(convertIRTypeToWASM(param.type))
+            }
+            if function.returnType.name != "void" {
+                funcType.addResult(convertIRTypeToWASM(function.returnType))
+            }
+            addFuncType(funcType)
+        }
+
+        // Emit type section
+        var typeIndex = 0
+        while typeIndex < funcTypes.length() {
+            let funcType = funcTypes[typeIndex]
+            output.append("  (type (;" + typeIndex.toString() + ";) " + funcType.toWAT() + ")\n")
+            typeIndex = typeIndex + 1
+        }
+    }
+
+    // Generate import section
+    fun generateImportSection() r: Void {
+        for imp in imports {
+            output.append(imp.toWAT() + "\n")
+        }
+    }
+
+    // Generate export section
+    fun generateExportSection(functionNames: Array<String>) r: Void {
+        // Export main function if present
+        if functionIndices.containsKey("main") {
+            let mainIndex = functionIndices.get("main")
+            if mainIndex != null {
+                output.append("  (export \"main\" (func " + mainIndex.toString() + "))\n")
+            }
+        }
+
+        // Export _start for WASI compatibility (wraps main)
+        if functionIndices.containsKey("main") {
+            let mainIndex = functionIndices.get("main")
+            if mainIndex != null {
+                output.append("  (export \"_start\" (func " + mainIndex.toString() + "))\n")
+            }
+        }
+
+        // Add custom exports
+        for exp in exports {
+            output.append(exp.toWAT() + "\n")
+        }
+    }
+
+    // Generate data section
+    fun generateDataSection() r: Void {
+        for segment in dataSegments {
+            output.append(segment.toWAT() + "\n")
+        }
+    }
+
+    // Generate UWW metadata custom section
+    fun generateUWWMetadataSection() r: Void {
+        // Note: This emits a placeholder. Real hash would be computed post-assembly
+        output.append("  ;; UWW Metadata Section\n")
+        output.append("  ;; version=1;hash=<computed-post-assembly>;timestamp=0\n")
+        // Custom section would be added by wat2wasm or post-processing
+    }
+
+    // Generate a single function
+    fun generateFunction(irFunction: IRFunction) r: Void {
+        functionCount = functionCount + 1
+
+        // Reset locals for new function
+        locals = Array<WASMValue>()
+        localIndex = irFunction.parameters.length()  // Parameters are first locals
+
+        // Build function signature
+        let funcIndex = functionIndices.get(irFunction.name)
+        let funcIndexStr = if funcIndex != null { funcIndex.toString() } else { "?" }
+
+        output.append("  (func $" + irFunction.name + " (;" + funcIndexStr + ";)")
+
+        // Parameters
+        for param in irFunction.parameters {
+            let wasmType = convertIRTypeToWASM(param.type)
+            output.append(" (param $" + sanitizeName(param.name) + " " + wasmTypeToString(wasmType) + ")")
+        }
+
+        // Return type
+        if irFunction.returnType.name != "void" {
+            let returnWasmType = convertIRTypeToWASM(irFunction.returnType)
+            output.append(" (result " + wasmTypeToString(returnWasmType) + ")")
+        }
+
+        output.append("\n")
+
+        // Collect all local variables from allocas
+        for block in irFunction.blocks {
+            for instruction in block.instructions {
+                if instruction.opcode == "alloca" and instruction.result != null {
+                    let result = instruction.result.unwrap()
+                    let elementType = if result.type.elementType != null {
+                        result.type.elementType.unwrap()
+                    } else {
+                        IRType.I32
+                    }
+                    let wasmType = convertIRTypeToWASM(elementType)
+                    let localVar = WASMValue.new(result.name, wasmType, true, localIndex)
+                    locals.push(localVar)
+                    localIndex = localIndex + 1
+                }
+            }
+        }
+
+        // Emit local declarations
+        for local in locals {
+            output.append("    (local $" + sanitizeName(local.name) + " " + local.typeString() + ")\n")
+        }
+
+        // Generate basic blocks
+        // WASM uses structured control flow, so we need to handle blocks carefully
+        if irFunction.blocks.length() > 0 {
+            // For simple functions with single block, emit directly
+            if irFunction.blocks.length() == 1 {
+                generateBasicBlock(irFunction.blocks[0])
+            } else {
+                // Multiple blocks require structured control flow
+                generateStructuredControlFlow(irFunction)
+            }
+        }
+
+        output.append("  )\n")
+    }
+
+    // Generate structured control flow for multiple basic blocks
+    fun generateStructuredControlFlow(irFunction: IRFunction) r: Void {
+        // WASM requires structured control flow
+        // For now, emit blocks sequentially with br_table for complex control flow
+
+        var blockIndex = 0
+        while blockIndex < irFunction.blocks.length() {
+            let block = irFunction.blocks[blockIndex]
+
+            if blockIndex > 0 {
+                output.append("    ;; block: " + block.name + "\n")
+            }
+
+            generateBasicBlock(block)
+            blockIndex = blockIndex + 1
+        }
+    }
+
+    // Generate instructions for a basic block
+    fun generateBasicBlock(block: IRBasicBlock) r: Void {
+        for instruction in block.instructions {
+            generateInstruction(instruction)
+            instructionCount = instructionCount + 1
+        }
+    }
+
+    // Generate a single instruction
+    fun generateInstruction(instruction: IRInstruction) r: Void {
+        let opcode = instruction.opcode
+
+        // Skip alloca - handled in local declarations
+        if opcode == "alloca" {
+            return
+        }
+
+        output.append("    ")
+
+        match opcode {
+            "add" -> generateBinaryOp(instruction, "add")
+            "sub" -> generateBinaryOp(instruction, "sub")
+            "mul" -> generateBinaryOp(instruction, "mul")
+            "sdiv" -> generateBinaryOp(instruction, "div_s")
+            "udiv" -> generateBinaryOp(instruction, "div_u")
+            "srem" -> generateBinaryOp(instruction, "rem_s")
+            "urem" -> generateBinaryOp(instruction, "rem_u")
+            "and" -> generateBinaryOp(instruction, "and")
+            "or" -> generateBinaryOp(instruction, "or")
+            "xor" -> generateBinaryOp(instruction, "xor")
+            "shl" -> generateBinaryOp(instruction, "shl")
+            "ashr" -> generateBinaryOp(instruction, "shr_s")
+            "lshr" -> generateBinaryOp(instruction, "shr_u")
+
+            "icmp" -> generateICmp(instruction)
+            "fcmp" -> generateFCmp(instruction)
+
+            "load" -> generateLoad(instruction)
+            "store" -> generateStore(instruction)
+
+            "call" -> generateCall(instruction)
+            "ret" -> generateReturn(instruction)
+
+            "br" -> generateBranch(instruction)
+            "br_if" -> generateConditionalBranch(instruction)
+
+            "phi" -> output.append(";; phi node (handled structurally)\n")
+            "unreachable" -> output.append("unreachable\n")
+
+            "trunc" -> generateTrunc(instruction)
+            "zext" -> generateZext(instruction)
+            "sext" -> generateSext(instruction)
+
+            "getelementptr" -> generateGEP(instruction)
+            "bitcast" -> output.append(";; bitcast (no-op in WASM)\n")
+
+            _ -> output.append(";; unsupported opcode: " + opcode + "\n")
+        }
+    }
+
+    // Generate binary operation
+    fun generateBinaryOp(instruction: IRInstruction, wasmOp: String) r: Void {
+        if instruction.operands.length() >= 2 {
+            let lhs = instruction.operands[0]
+            let rhs = instruction.operands[1]
+            let typePrefix = getTypePrefix(lhs.type)
+
+            // Push operands onto stack
+            generateOperandLoad(lhs)
+            generateOperandLoad(rhs)
+
+            // Emit operation
+            output.append(typePrefix + "." + wasmOp + "\n")
+
+            // Store result
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Generate integer comparison
+    fun generateICmp(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() >= 3 {
+            let predicate = instruction.operands[0].name
+            let lhs = instruction.operands[1]
+            let rhs = instruction.operands[2]
+            let typePrefix = getTypePrefix(lhs.type)
+
+            generateOperandLoad(lhs)
+            generateOperandLoad(rhs)
+
+            let wasmOp = match predicate {
+                "eq" -> "eq"
+                "ne" -> "ne"
+                "slt" -> "lt_s"
+                "sle" -> "le_s"
+                "sgt" -> "gt_s"
+                "sge" -> "ge_s"
+                "ult" -> "lt_u"
+                "ule" -> "le_u"
+                "ugt" -> "gt_u"
+                "uge" -> "ge_u"
+                _ -> "eq"  // Default
+            }
+
+            output.append(typePrefix + "." + wasmOp + "\n")
+
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Generate float comparison
+    fun generateFCmp(instruction: IRInstruction) r: Void {
+        // Similar to icmp but for floats
+        if instruction.operands.length() >= 3 {
+            let predicate = instruction.operands[0].name
+            let lhs = instruction.operands[1]
+            let rhs = instruction.operands[2]
+            let typePrefix = getTypePrefix(lhs.type)
+
+            generateOperandLoad(lhs)
+            generateOperandLoad(rhs)
+
+            let wasmOp = match predicate {
+                "oeq" -> "eq"
+                "one" -> "ne"
+                "olt" -> "lt"
+                "ole" -> "le"
+                "ogt" -> "gt"
+                "oge" -> "ge"
+                _ -> "eq"
+            }
+
+            output.append(typePrefix + "." + wasmOp + "\n")
+
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Generate load instruction
+    fun generateLoad(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() >= 1 {
+            let ptr = instruction.operands[0]
+
+            // Load pointer value (memory address)
+            generateOperandLoad(ptr)
+
+            // Determine load type based on result type
+            let loadType = if instruction.result != null {
+                instruction.result.unwrap().type
+            } else {
+                IRType.I32
+            }
+
+            let typePrefix = getTypePrefix(loadType)
+            output.append(typePrefix + ".load\n")
+
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Generate store instruction
+    fun generateStore(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() >= 2 {
+            let value = instruction.operands[0]
+            let ptr = instruction.operands[1]
+
+            // Load destination address
+            generateOperandLoad(ptr)
+
+            // Load value to store
+            generateOperandLoad(value)
+
+            // Emit store
+            let typePrefix = getTypePrefix(value.type)
+            output.append(typePrefix + ".store\n")
+        }
+    }
+
+    // Generate function call
+    fun generateCall(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() >= 1 {
+            let funcOperand = instruction.operands[0]
+            let funcName = funcOperand.name.replace("@", "")
+
+            // Push arguments
+            var argIndex = 1
+            while argIndex < instruction.operands.length() {
+                generateOperandLoad(instruction.operands[argIndex])
+                argIndex = argIndex + 1
+            }
+
+            // Call function
+            output.append("call $" + funcName + "\n")
+
+            // Store result if non-void
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Generate return instruction
+    fun generateReturn(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() > 0 {
+            let value = instruction.operands[0]
+            if value.type.name != "void" {
+                generateOperandLoad(value)
+            }
+        }
+        output.append("return\n")
+    }
+
+    // Generate unconditional branch
+    fun generateBranch(instruction: IRInstruction) r: Void {
+        // WASM uses structured control flow
+        // For now emit as comment; real implementation needs block structure
+        if instruction.operands.length() > 0 {
+            output.append(";; br " + instruction.operands[0].name + "\n")
+        }
+    }
+
+    // Generate conditional branch
+    fun generateConditionalBranch(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() >= 3 {
+            let condition = instruction.operands[0]
+            generateOperandLoad(condition)
+            output.append("br_if 0 ;; conditional branch\n")
+        }
+    }
+
+    // Generate truncation
+    fun generateTrunc(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() >= 1 {
+            generateOperandLoad(instruction.operands[0])
+            output.append("i32.wrap_i64\n")
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Generate zero extension
+    fun generateZext(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() >= 1 {
+            generateOperandLoad(instruction.operands[0])
+            output.append("i64.extend_i32_u\n")
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Generate sign extension
+    fun generateSext(instruction: IRInstruction) r: Void {
+        if instruction.operands.length() >= 1 {
+            generateOperandLoad(instruction.operands[0])
+            output.append("i64.extend_i32_s\n")
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Generate GEP (get element pointer)
+    fun generateGEP(instruction: IRInstruction) r: Void {
+        // GEP calculates a pointer offset
+        if instruction.operands.length() >= 2 {
+            let basePtr = instruction.operands[0]
+            generateOperandLoad(basePtr)
+
+            // Add offsets
+            var offsetIndex = 1
+            while offsetIndex < instruction.operands.length() {
+                let offset = instruction.operands[offsetIndex]
+                generateOperandLoad(offset)
+                output.append("i32.const 4\n")  // Assume 4-byte elements (simplified)
+                output.append("    i32.mul\n")
+                output.append("    i32.add\n")
+                offsetIndex = offsetIndex + 1
+            }
+
+            if instruction.result != null {
+                output.append("    local.set $" + sanitizeName(instruction.result.unwrap().name) + "\n")
+            }
+        }
+    }
+
+    // Helper: Load an operand onto the stack
+    fun generateOperandLoad(value: IRValue) r: Void {
+        if value.isConstant {
+            // Emit constant
+            let typePrefix = getTypePrefix(value.type)
+            let constValue = if value.value != null { value.value } else { "0" }
+            output.append(typePrefix + ".const " + constValue + "\n    ")
+        } else {
+            // Load from local
+            let name = sanitizeName(value.name)
+            output.append("local.get $" + name + "\n    ")
+        }
+    }
+
+    // Helper: Get WASM type prefix (i32, i64, f32, f64)
+    fun getTypePrefix(irType: IRType) r: String {
+        return match irType.name {
+            "i8" -> "i32"
+            "i16" -> "i32"
+            "i32" -> "i32"
+            "i64" -> "i64"
+            "float" -> "f32"
+            "f32" -> "f32"
+            "double" -> "f64"
+            "f64" -> "f64"
+            _ -> "i32"  // Default to i32 for pointers, etc.
+        }
+    }
+
+    // Helper: Sanitize names for WASM (remove special chars)
+    fun sanitizeName(name: String) r: String {
+        // Remove % and @ prefixes common in LLVM IR
+        var result = name
+        if result.startsWith("%") {
+            result = result.substring(1, result.length())
+        }
+        if result.startsWith("@") {
+            result = result.substring(1, result.length())
+        }
+        // Replace invalid characters
+        result = result.replace(".", "_")
+        result = result.replace("-", "_")
+        return result
+    }
+
+    // Add a string constant and return its memory offset
+    fun addStringConstant(str: String) r: Int {
+        let offset = dataOffset
+        let nullTerminator = String.fromCharCode(0)
+        dataSegments.push(WASMDataSegment.new(offset, str + nullTerminator))
+        dataOffset = dataOffset + str.length() + 1
+        return offset
+    }
+
+    // Add an export
+    fun addExport(name: String, exportType: String, index: Int) r: Void {
+        exports.push(WASMExport.new(name, exportType, index))
+    }
+
+    // Add a memory import
+    fun addMemoryImport(moduleName: String, fieldName: String) r: Void {
+        imports.push(WASMImport.new(moduleName, fieldName, "memory"))
+    }
+
+    // Compile WAT to WASM binary using wat2wasm
+    fun compileToBinary(watCode: String, outputPath: String) r: Bool {
+        // Write WAT to temporary file
+        let watPath = outputPath + ".wat"
+        if not writeText(watPath, watCode) {
+            return false
+        }
+
+        // Run wat2wasm
+        let command = "wat2wasm " + watPath + " -o " + outputPath
+        if uwwMode {
+            // Enable deterministic output options
+            command = command + " --no-canonicalize-leb128s"
+        }
+
+        let result = runCommand(command)
+        return commandWasSuccessful(result)
+    }
+
+    // Validate WASM binary using wasm-validate
+    fun validateBinary(wasmPath: String) r: Bool {
+        let command = "wasm-validate " + wasmPath
+        let result = runCommand(command)
+        return commandWasSuccessful(result)
+    }
+
+    // Get statistics about generated code
+    fun getStatistics() r: Map<String, Int> {
+        let stats = Map<String, Int>.new()
+        stats.put("instructions", instructionCount)
+        stats.put("functions", functionCount)
+        stats.put("dataSegments", dataSegments.length())
+        stats.put("funcTypes", funcTypes.length())
+        stats.put("imports", imports.length())
+        stats.put("exports", exports.length())
+        return stats
+    }
+}
+
+// Utility function to create a new generator
+fun createWASMGenerator() r: WASMGenerator {
+    return WASMGenerator.new()
+}
+
+// Utility function to create a UWW-mode generator
+fun createUWWGenerator() r: WASMGenerator {
+    let gen = WASMGenerator.new()
+    gen.enableUWW()
+    return gen
+}

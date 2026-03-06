@@ -1,0 +1,105 @@
+// ir_function_gen.seen — Function decorator handling and preamble generation
+// Extracted from llvm_ir_gen.seen generateFunction() to reduce module 5 size
+// Handles @intrinsic, @compute/@vertex/@fragment registration, and DSE analysis
+
+import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
+import codegen.ir_optimization.{getNextRegFn}
+import str.string.{StringBuilder}
+
+// emitIntrinsicWrapperImpl — Generate thin wrapper for @intrinsic("llvm.xxx") decorated function
+// Emits LLVM intrinsic declare + Seen wrapper function
+// intrinsicRegistryOut: [0]=funcName, [1]=llvmName appended
+// Returns true if intrinsic was emitted
+fun emitIntrinsicWrapperImpl(output: Array<String>, regBox: Array<Int>,
+    fnName: String, intrLlvmName: String,
+    paramTypes: Array<String>, paramCount: Int,
+    retType: String, quotedFnName: String) r: Bool {
+    if intrLlvmName == "" {
+        return false
+    }
+    // Build parameter type/arg strings
+    var intrParamTypes = ""
+    var intrParamArgs = ""
+    var pIdx = 0
+    while pIdx < paramCount {
+        if pIdx > 0 {
+            intrParamTypes = intrParamTypes + ", "
+            intrParamArgs = intrParamArgs + ", "
+        }
+        let pt = paramTypes[pIdx]
+        intrParamTypes = intrParamTypes + pt
+        intrParamArgs = intrParamArgs + pt + " %" + pIdx.toString()
+        pIdx = pIdx + 1
+    }
+    // Emit declare for the LLVM intrinsic
+    output.push("declare " + retType + " @" + intrLlvmName + "(" + intrParamTypes + ") nounwind readnone\n")
+    // Emit thin wrapper function
+    output.push("define " + retType + " @" + quotedFnName + "(" + intrParamArgs + ") nounwind {\n")
+    output.push("entry:\n")
+    let callReg = getNextRegFn(regBox)
+    output.push("  " + callReg + " = call " + retType + " @" + intrLlvmName + "(" + intrParamArgs + ")\n")
+    output.push("  ret " + retType + " " + callReg + "\n")
+    output.push("}\n\n")
+    return true
+}
+
+// analyzeDeadStoresImpl — Scan block for var x = literal; x = expr2 pattern (DSE 9.10b)
+// Returns pipe-delimited list of variable names whose literal initializers should be skipped
+fun analyzeDeadStoresImpl(block: BlockNode) r: String {
+    var result = ""
+    var dsIdx = 0
+    while dsIdx < block.statements.length() - 1 {
+        let dsStmt = block.statements[dsIdx]
+        let dsNext = block.statements[dsIdx + 1]
+        // Pattern: var x = <literal> followed by x = <new value>
+        if (dsStmt.kind == "Let" or dsStmt.kind == "Var") and dsNext.kind == "Expression" {
+            if dsNext.expression.kind == "Assignment" {
+                if dsNext.expression.variableName == dsStmt.variableName {
+                    // Check if RHS reads the same variable (read-modify-write)
+                    var dsIsReadModWrite = false
+                    if dsNext.expression.operands.length() > 0 {
+                        let dsRhs = dsNext.expression.operands[0]
+                        // Direct: x = x
+                        if dsRhs.kind == "Variable" or dsRhs.kind == "VarExpr" {
+                            var dsRhsName = dsRhs.literalValue
+                            if dsRhsName == "" { dsRhsName = dsRhs.variableName }
+                            if dsRhsName == dsStmt.variableName { dsIsReadModWrite = true }
+                        }
+                        // Binary: x = x + something OR x = something + x
+                        if dsRhs.kind == "Binary" {
+                            if dsRhs.operands.length() > 0 {
+                                let dsLhsOp = dsRhs.operands[0]
+                                var dsLhsName = dsLhsOp.literalValue
+                                if dsLhsName == "" { dsLhsName = dsLhsOp.variableName }
+                                if dsLhsName == dsStmt.variableName { dsIsReadModWrite = true }
+                            }
+                            // Also check operands[1] (catches x = y + x)
+                            if dsRhs.operands.length() > 1 {
+                                let dsRhsOp = dsRhs.operands[1]
+                                var dsRhsName2 = dsRhsOp.literalValue
+                                if dsRhsName2 == "" { dsRhsName2 = dsRhsOp.variableName }
+                                if dsRhsName2 == dsStmt.variableName { dsIsReadModWrite = true }
+                            }
+                        }
+                        // Conservative: any function call on RHS may read the variable
+                        if dsRhs.kind == "Call" or dsRhs.kind == "MethodCall" {
+                            dsIsReadModWrite = true
+                        }
+                    }
+                    if not dsIsReadModWrite {
+                        // Only record if initializer is a pure literal (no side effects)
+                        if dsStmt.initializer.kind == "Literal" {
+                            if result == "" {
+                                result = dsStmt.variableName
+                            } else {
+                                result = result + "|" + dsStmt.variableName
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dsIdx = dsIdx + 1
+    }
+    return result
+}

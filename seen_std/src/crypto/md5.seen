@@ -1,0 +1,166 @@
+// seen_std.crypto.md5
+// RFC 1321 compliant MD5 hash implementation in pure Seen.
+
+import collections.vec.{Vec}
+import str.string.{StringBuilder}
+
+class MD5 {
+    var a: Int
+    var b: Int
+    var c: Int
+    var d: Int
+    var buffer: Vec<Int>
+    var bufferLen: Int
+    var totalLen: Int
+
+    fun new() -> MD5 {
+        var buffer = Vec<Int>.new()
+        var i = 0
+        while i < 64 {
+            buffer.push(0)
+            i = i + 1
+        }
+        return MD5 {
+            a: 0x67452301,
+            b: 0xEFCDAB89,
+            c: 0x98BADCFE,
+            d: 0x10325476,
+            buffer: buffer,
+            bufferLen: 0,
+            totalLen: 0
+        }
+    }
+
+    fun update(this: MD5, data: String) -> Void {
+        let len = data.length()
+        var i = 0
+        while i < len {
+            let byte = data.charCodeAt(i)
+            this.buffer.set(this.bufferLen, byte)
+            this.bufferLen = this.bufferLen + 1
+            this.totalLen = this.totalLen + 1
+
+            if this.bufferLen == 64 {
+                this.processBlock()
+                this.bufferLen = 0
+            }
+            i = i + 1
+        }
+    }
+
+    fun finalize(this: MD5) -> String {
+        let originalLen = this.totalLen
+        
+        this.buffer.set(this.bufferLen, 0x80)
+        this.bufferLen = this.bufferLen + 1
+
+        if this.bufferLen > 56 {
+            while this.bufferLen < 64 {
+                this.buffer.set(this.bufferLen, 0)
+                this.bufferLen = this.bufferLen + 1
+            }
+            this.processBlock()
+            this.bufferLen = 0
+        }
+
+        while this.bufferLen < 56 {
+            this.buffer.set(this.bufferLen, 0)
+            this.bufferLen = this.bufferLen + 1
+        }
+
+        let bitLen = originalLen * 8
+        var i = 0
+        while i < 8 {
+            this.buffer.set(56 + i, (bitLen >> (i * 8)) & 0xFF)
+            i = i + 1
+        }
+
+        this.processBlock()
+
+        return this.toHexString()
+    }
+
+    fun processBlock(this: MD5) -> Void {
+        let x = Vec<Int>.new()
+        var i = 0
+        while i < 16 {
+            let j = i * 4
+            let value = this.buffer.get(j) |
+                       (this.buffer.get(j + 1) << 8) |
+                       (this.buffer.get(j + 2) << 16) |
+                       (this.buffer.get(j + 3) << 24)
+            x.push(value)
+            i = i + 1
+        }
+
+        var aa = this.a
+        var bb = this.b
+        var cc = this.c
+        var dd = this.d
+
+        let round1K = Vec<Int>.new()
+        round1K.push(0xD76AA478); round1K.push(0xE8C7B756)
+        round1K.push(0x242070DB); round1K.push(0xC1BDCEEE)
+        round1K.push(0xF57C0FAF); round1K.push(0x4787C62A)
+        round1K.push(0xA8304613); round1K.push(0xFD469501)
+        round1K.push(0x698098D8); round1K.push(0x8B44F7AF)
+        round1K.push(0xFFFF5BB1); round1K.push(0x895CD7BE)
+        round1K.push(0x6B901122); round1K.push(0xFD987193)
+        round1K.push(0xA679438E); round1K.push(0x49B40821)
+
+        i = 0
+        while i < 16 {
+            let f = (bb & cc) | ((~bb) & dd)
+            let g = i
+            let temp = dd
+            dd = cc
+            cc = bb
+            bb = bb + this.rotateLeft(aa + f + round1K.get(i) + x.get(g), 
+                                       this.getShift1(i))
+            aa = temp
+            i = i + 1
+        }
+
+        this.a = this.a + aa
+        this.b = this.b + bb
+        this.c = this.c + cc
+        this.d = this.d + dd
+    }
+
+    fun rotateLeft(this: MD5, value: Int, shift: Int) -> Int {
+        return (value << shift) | (value >> (32 - shift))
+    }
+
+    fun getShift1(this: MD5, i: Int) -> Int {
+        if i % 4 == 0 { return 7 }
+        if i % 4 == 1 { return 12 }
+        if i % 4 == 2 { return 17 }
+        return 22
+    }
+
+    fun toHexString(this: MD5) -> String {
+        let sb = StringBuilder.new()
+        this.appendHex(sb, this.a)
+        this.appendHex(sb, this.b)
+        this.appendHex(sb, this.c)
+        this.appendHex(sb, this.d)
+        return sb.toString()
+    }
+
+    fun appendHex(this: MD5, sb: StringBuilder, value: Int) -> Void {
+        let hex = "0123456789abcdef"
+        var i = 0
+        while i < 4 {
+            let byte = (value >> (i * 8)) & 0xFF
+            sb.append(hex.charAt(byte >> 4))
+            sb.append(hex.charAt(byte & 0x0F))
+            i = i + 1
+        }
+    }
+}
+
+fun md5Hash(data: String) -> String {
+    let hasher = MD5.new()
+    hasher.update(data)
+    return hasher.finalize()
+}

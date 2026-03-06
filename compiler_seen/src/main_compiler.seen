@@ -1,0 +1,2867 @@
+// =============================================================================
+// main_compiler.seen -- Bootstrap compiler driver (Stage 5 orchestrator)
+// =============================================================================
+//
+// This is the entry point for the "compile" subcommand used during bootstrap
+// and production builds. It orchestrates the full compilation pipeline:
+//
+//   Source (.seen) -> Frontend (lex/parse/typecheck) -> Multi-module IR gen
+//     -> opt -O3 (per-module, parallel) -> opt --thinlto-bc -> clang -flto=thin
+//
+// Key design decisions:
+//   - Fork-parallel IR generation: each uncached module is compiled in a forked
+//     child process. The child inherits a copy-on-write snapshot of the parent's
+//     Pass 1 declaration registry, avoiding costly serialization.
+//   - Content-addressed IR cache (v3 key = declarationsHash + moduleSourceHash):
+//     deterministic IR means the same source + declarations always produce the
+//     same optimized object file, enabling cross-stage cache reuse.
+//   - ThinLTO linking: per-module bitcode with summaries enables LLD to perform
+//     cross-module inlining at link time without the memory cost of full LTO.
+//
+// Module-level global flags use Int instead of Bool due to a Stage1 codegen
+// limitation where boolean variables generate invalid IR.
+
+import bootstrap.frontend.{FrontendResult, run_frontend}
+import io.file.{readText, writeText, exists}
+import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit}
+import env.env.{args}
+import codegen.llvm_ir_gen.{LLVMIRGenerator, overrideTargetTriple}
+import parser.real_parser.{ProgramNode, ItemNode}
+import lsp.server.{runLspServer}
+import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
+import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
+import codegen.ir_decl_parser.{emitParserDecls}
+import codegen.ir_decl_features.{emitFeatureDecls}
+import codegen.ir_method_gen.{emitToStringMethodImpl}
+import codegen.ir_string_collect.{hexToDecimalImpl}
+import codegen.ir_type_dispatch.{emitVecMethodImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl}
+import codegen.ir_type_ops.{emitBinaryOpImpl}
+import codegen.ir_control_flow.{detectMemcpyPatternImpl}
+import codegen.ir_function_gen.{analyzeDeadStoresImpl}
+import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback}
+import codegen.ir_assignment_gen.{emitFieldStoreImpl}
+import tools.translator.{translateSource}
+
+// DJB2 hash of a string, returned as 8-char hex
+// Uses byteAt() to avoid per-char string allocation
+fun hashString(data: String) r: String {
+    var hash = 5381
+    var index = 0
+    while index < data.length() {
+        let code = data.byteAt(index)
+        var step = hash * 33
+        step = step + code
+        hash = step % 2147483647
+        index = index + 1
+    }
+    let hexChars = "0123456789abcdef"
+    var remaining = if hash < 0 { 0 - hash } else { hash }
+    var result = ""
+    var digits = 0
+    while digits < 8 {
+        let nibble = remaining % 16
+        let digit = hexChars.substring(nibble, nibble + 1)
+        result = digit + result
+        remaining = remaining / 16
+        digits = digits + 1
+    }
+    return result
+}
+
+// Read file contents, returning "" if file doesn't exist
+fun loadFileContent(path: String) r: String {
+    if not exists(path) {
+        return ""
+    }
+    return readText(path)
+}
+
+// Ensure .seen_cache/ directory exists
+fun ensureCacheDir() r: Void {
+    if not exists(".seen_cache") {
+        let result: CommandResult = runCommand("mkdir -p .seen_cache")
+    }
+}
+
+// Ensure IR cache directory exists
+fun ensureIrCacheDir() r: Void {
+    let result: CommandResult = runCommand("mkdir -p /tmp/seen_ir_cache")
+}
+
+// Clear all cached files
+fun clearCache() r: Void {
+    let result: CommandResult = runCommand("rm -rf .seen_cache/*")
+}
+
+// Helper to parse a module and return its program
+fun parseModule(path: String, lang: String) r: FrontendResult {
+    let source = readText(path)
+    if source == "" {
+        println("  Warning: could not read module " + path)
+    }
+    return run_frontend(source, path, lang)
+}
+
+// Resolve module path to actual file path
+fun resolveModulePath(modulePath: String) r: String {
+    // Determine base path: stdlib modules go to seen_std/src/, compiler modules to compiler_seen/src/
+    var basePath = "compiler_seen/src/"
+    if modulePath.startsWith("str.") or modulePath.startsWith("ffi.") or modulePath.startsWith("core.") or modulePath.startsWith("collections.") or modulePath.startsWith("io.") or modulePath.startsWith("process.") or modulePath.startsWith("env.") or modulePath.startsWith("json.") or modulePath.startsWith("framework.") or modulePath.startsWith("sync.") or modulePath.startsWith("thread.") {
+        basePath = "seen_std/src/"
+    }
+
+    var filePath = basePath
+    var i = 0
+    while i < modulePath.length() {
+        if modulePath.byteAt(i) == 46 {
+            filePath = filePath + "/"
+        } else {
+            filePath = filePath + modulePath.substring(i, i + 1)
+        }
+        i = i + 1
+    }
+    return filePath + ".seen"
+}
+
+// Extract last segment from a path (e.g., "foo/bar/baz" -> "baz")
+fun getLastSegment(path: String) r: String {
+    var lastSlash = 0 - 1
+    var i = 0
+    while i < path.length() {
+        if path.byteAt(i) == 47 {
+            lastSlash = i
+        }
+        i = i + 1
+    }
+    if lastSlash < 0 {
+        return path
+    }
+    return path.substring(lastSlash + 1, path.length())
+}
+
+// Resolve an import path (e.g., ["codegen", "llvm_ir_gen"]) to a filesystem path.
+// Stdlib imports (str, io, env, process, etc.) resolve under seen_std/src/.
+// Compiler imports resolve relative to sourceDir, with deduplication: if the first
+// path segment matches the last directory segment, it is skipped to avoid paths
+// like "lexer/lexer/token.seen". Tries module-style (foo/mod.seen) before direct
+// (foo.seen).
+fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
+    // Convert import path segments to file path
+
+    // Check for stdlib imports (str, io, env, process, collections, core, framework)
+    if importPath.length() > 0 {
+        let firstSegment = importPath[0]
+        if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "framework" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
+            // This is a stdlib import - resolve from seen_std/src/
+            var filePath = "seen_std/src/"
+            var i = 0
+            while i < importPath.length() {
+                if i > 0 {
+                    filePath = filePath + "/"
+                }
+                filePath = filePath + importPath[i]
+                i = i + 1
+            }
+            return filePath + ".seen"
+        }
+    }
+
+    // Handle module-style imports: if first segment matches last segment of sourceDir,
+    // skip it to avoid duplication (e.g., in lexer/, "lexer.interfaces" -> "interfaces.seen")
+    var filePath = sourceDir
+    if filePath != "" and not filePath.endsWith("/") {
+        filePath = filePath + "/"
+    }
+
+    // Check if first import segment matches last segment of sourceDir
+    var startIdx = 0
+    if importPath.length() > 0 {
+        let lastDirSegment = getLastSegment(sourceDir)
+        if lastDirSegment == importPath[0] {
+            // Skip the first segment - it's the current module
+            startIdx = 1
+        }
+    }
+
+    var i = startIdx
+    while i < importPath.length() {
+        if i > startIdx {
+            filePath = filePath + "/"
+        }
+        filePath = filePath + importPath[i]
+        i = i + 1
+    }
+
+    // Try module file first (foo/mod.seen), then direct file (foo.seen)
+    let modPath = filePath + "/mod.seen"
+    let directPath = filePath + ".seen"
+
+    // Check if module file exists by trying to read it
+    let modContent = readText(modPath)
+    if modContent != "" {
+        return modPath
+    }
+    return directPath
+}
+
+// Get directory part of file path. Uses byteAt() (47 = '/')
+fun getSourceDir(filePath: String) r: String {
+    var lastSlash = 0 - 1
+    var i = 0
+    while i < filePath.length() {
+        if filePath.byteAt(i) == 47 {
+            lastSlash = i
+        }
+        i = i + 1
+    }
+    if lastSlash < 0 {
+        return ""
+    }
+    return filePath.substring(0, lastSlash)
+}
+
+// Check if a path is in the array (handles absolute vs relative paths)
+fun containsPath(paths: Array<String>, path: String) r: Bool {
+    var i = 0
+    while i < paths.length() {
+        let existing = paths[i]
+        // Direct match
+        if existing == path {
+            return true
+        }
+        // Handle absolute vs relative: check if one ends with the other
+        if existing.endsWith(path) or path.endsWith(existing) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Collect all module paths needed for compilation (without storing ASTs).
+// Parses the main file to discover imports, then adds hard-coded bootstrap
+// modules when compiling the compiler itself (detected by "main_compiler.seen"
+// in the input path). Returns paths in dependency order: main file first,
+// then discovered imports, then bootstrap modules (lexer, parser, typechecker,
+// codegen, stdlib, optimization, LSP).
+// The AST from import discovery is released before returning to bound memory.
+fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
+    var paths = Array<String>()
+    var processedPaths = Array<String>()
+
+    paths.push(inputFile)
+    processedPaths.push(inputFile)
+
+    let sourceDir = getSourceDir(inputFile)
+    let isBootstrap = inputFile.contains("main_compiler.seen")
+
+    // Parse main file to discover imports (AST released after this block)
+    if not quiet {
+        println("    Discovering imports from main file...")
+    }
+    let mainFrontend = parseModule(inputFile, "en")
+    if mainFrontend.success {
+        var itemIdx = 0
+        while itemIdx < mainFrontend.program.items.length() {
+            let item = mainFrontend.program.items[itemIdx]
+            if item.itemType == "Import" {
+                let importFilePath = resolveImportPath(item.importPath, sourceDir)
+                if not containsPath(processedPaths, importFilePath) {
+                    paths.push(importFilePath)
+                    processedPaths.push(importFilePath)
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+    }
+    // mainFrontend.program (AST) goes out of scope here
+
+    // Add bootstrap modules if compiling the compiler
+    if isBootstrap {
+        if not quiet {
+            println("    Bootstrap mode: adding compiler modules...")
+        }
+        let modules = Array<String>()
+        modules.push("lexer.token")
+        modules.push("lexer.token_type")
+        modules.push("lexer.interfaces")
+        modules.push("lexer.keyword_manager")
+        modules.push("lexer.lexer")
+        modules.push("trace")
+        modules.push("lexer.real_lexer")
+        modules.push("parser.real_parser")
+        modules.push("typechecker.interfaces")
+        modules.push("typechecker.typechecker")
+        modules.push("typechecker.determinism")
+        // Macro modules must come before bootstrap.frontend (which imports them)
+        modules.push("macro.ast_node")
+        modules.push("macro.registry")
+        modules.push("macro.interpreter")
+        modules.push("macro.expander")
+        modules.push("bootstrap.frontend")
+        modules.push("codegen.llvm_ir_gen")
+        modules.push("codegen.ir_optimization")
+        modules.push("codegen.ir_declarations")
+        modules.push("codegen.ir_type_info")
+        modules.push("codegen.ir_type_tables")
+        // Extracted codegen helper modules
+        modules.push("codegen.ir_decl_runtime")
+        modules.push("codegen.ir_decl_parser")
+        modules.push("codegen.ir_decl_features")
+        modules.push("codegen.ir_method_gen")
+        modules.push("codegen.ir_string_collect")
+        modules.push("codegen.ir_type_dispatch")
+        modules.push("codegen.ir_type_mapping")
+        modules.push("codegen.ir_type_ops")
+        modules.push("codegen.ir_control_flow")
+        modules.push("codegen.ir_function_gen")
+        modules.push("codegen.ir_struct_gen")
+        modules.push("codegen.ir_assignment_gen")
+        // JSON module (required by LSP)
+        modules.push("json.value")
+        modules.push("json.parser")
+        modules.push("json.builder")
+        // IO module (required by LSP for stdio)
+        modules.push("io.stdio")
+        // String utilities - disabled during bootstrap due to conflicts with C runtime functions
+        // (split, trim, startsWith, endsWith, contains, indexOf, StringBuilder_length)
+        // These functions are provided by seen_runtime.c instead
+        // modules.push("str.string")
+        // Optimization pipeline modules
+        modules.push("optimization.egraph.egraph")
+        modules.push("optimization.egraph.rewrite_rules")
+        modules.push("optimization.egraph.cost_model")
+        modules.push("optimization.egraph.optimizer")
+        modules.push("optimization.egraph.mod")
+        modules.push("optimization.ml.ml_optimizer")
+        modules.push("optimization.arch.architecture_optimizer")
+        modules.push("optimization.superopt.superoptimizer")
+        modules.push("optimization.superopt.z3_solver")
+        modules.push("optimization.memory.memory_optimizer")
+        // LSP server modules
+        modules.push("lsp.types")
+        modules.push("lsp.jsonrpc")
+        modules.push("lsp.server")
+
+        var mi = 0
+        while mi < modules.length() {
+            let modPath = resolveModulePath(modules[mi])
+            if not containsPath(processedPaths, modPath) {
+                paths.push(modPath)
+                processedPaths.push(modPath)
+            }
+            mi = mi + 1
+        }
+    }
+
+    return paths
+}
+
+// Collect ML training data from LLVM optimization remarks YAML file.
+// Parses the YAML line-by-line extracting Pass/Name/Function fields from
+// each remark block (delimited by "---" or "..."), and appends tab-separated
+// records to outputPath. Used with --ml-log to build training datasets for
+// the ML-guided optimization heuristics.
+fun collectMLTrainingData(remarksFile: String, outputPath: String) r: Void {
+    let content = readText(remarksFile)
+    if content.length() == 0 {
+        return
+    }
+    // Parse YAML remarks line-by-line, extracting Pass/Name/Function/Args fields
+    // LLVM remarks YAML format: key-value lines like "Pass: loop-vectorize"
+    var mlData = ""
+    var lineStart = 0
+    var i = 0
+    var curPass = ""
+    var curName = ""
+    var curFunc = ""
+    while i <= content.length() {
+        var isNewline = false
+        if i == content.length() { isNewline = true }
+        if not isNewline {
+            if content.substring(i, i + 1) == "\n" { isNewline = true }
+        }
+        if isNewline {
+            if i > lineStart {
+                let line = content.substring(lineStart, i)
+                // Check for "Pass:" prefix (with optional leading spaces/dashes)
+                if contains(line, "Pass:") {
+                    // Extract value after "Pass:"
+                    var pIdx = 0
+                    var pFound = false
+                    while pIdx < line.length() - 5 {
+                        if line.substring(pIdx, pIdx + 5) == "Pass:" {
+                            curPass = line.substring(pIdx + 5, line.length())
+                            // Trim leading space
+                            if curPass.length() > 0 {
+                                if curPass.substring(0, 1) == " " {
+                                    curPass = curPass.substring(1, curPass.length())
+                                }
+                            }
+                            pFound = true
+                        }
+                        pIdx = pIdx + 1
+                    }
+                }
+                if contains(line, "Name:") {
+                    var nIdx = 0
+                    while nIdx < line.length() - 5 {
+                        if line.substring(nIdx, nIdx + 5) == "Name:" {
+                            curName = line.substring(nIdx + 5, line.length())
+                            if curName.length() > 0 {
+                                if curName.substring(0, 1) == " " {
+                                    curName = curName.substring(1, curName.length())
+                                }
+                            }
+                        }
+                        nIdx = nIdx + 1
+                    }
+                }
+                if contains(line, "Function:") {
+                    var fIdx = 0
+                    while fIdx < line.length() - 9 {
+                        if line.substring(fIdx, fIdx + 9) == "Function:" {
+                            curFunc = line.substring(fIdx + 9, line.length())
+                            if curFunc.length() > 0 {
+                                if curFunc.substring(0, 1) == " " {
+                                    curFunc = curFunc.substring(1, curFunc.length())
+                                }
+                            }
+                        }
+                        fIdx = fIdx + 1
+                    }
+                }
+                // End of a remark block (starts with "---" or "...")
+                if line.startsWith("---") or line.startsWith("...") {
+                    if curPass != "" and curName != "" {
+                        mlData = mlData + curPass + "\t" + curName + "\t" + curFunc + "\n"
+                    }
+                    curPass = ""
+                    curName = ""
+                    curFunc = ""
+                }
+            }
+            lineStart = i + 1
+        }
+        i = i + 1
+    }
+    // Flush last remark if file doesn't end with ---
+    if curPass != "" and curName != "" {
+        mlData = mlData + curPass + "\t" + curName + "\t" + curFunc + "\n"
+    }
+    if mlData.length() > 0 {
+        let existing = readText(outputPath)
+        writeText(outputPath, existing + mlData)
+    }
+}
+
+// Format LLVM vectorization remarks into a structured report
+// Uses contains() which is available in stage1 from C runtime
+fun formatSimdReport(output: String) r: String {
+    // Count vectorized and missed loops by scanning for known substrings
+    var vectorizedCount = 0
+    var missedCount = 0
+    // Count occurrences by checking for multiple markers
+    if contains(output, "vectorized loop") {
+        vectorizedCount = 1
+        // Rough heuristic: check for multiple remark lines
+        if contains(output, "vectorized loop (vectorization width: 8)") {
+            vectorizedCount = vectorizedCount + 1
+        }
+    }
+    if contains(output, "loop not vectorized") {
+        missedCount = 1
+    }
+    if vectorizedCount == 0 {
+        if missedCount == 0 {
+            return ""
+        }
+    }
+    var result = "=== SIMD Vectorization Report ===\n"
+    result = result + "Vectorized loops: " + vectorizedCount.toString() + "\n"
+    result = result + "Missed loops:     " + missedCount.toString() + "\n"
+    result = result + "=================================\n"
+    result = result + "\nRaw remarks:\n" + output
+    return result
+}
+
+// Convenience entry points for compilation. All delegate to compileCommandWithAllOptions
+// which contains the full pipeline. These exist because the bootstrap compiler cannot
+// handle default parameter values, so each call site uses the variant with the fewest
+// parameters it needs.
+fun compileCommand(inputFile: String, outputFile: String) r: Int {
+    return compileCommandWithOptions(inputFile, outputFile, "default", false, true)
+}
+
+fun compileCommandWithLanguage(inputFile: String, outputFile: String, language: String) r: Int {
+    return compileCommandWithAllOptions(inputFile, outputFile, "default", false, true, language, "", "auto", false, "", "", "", "", "")
+}
+
+fun compileCommandWithProfile(inputFile: String, outputFile: String, profile: String) r: Int {
+    return compileCommandWithOptions(inputFile, outputFile, profile, false, true)
+}
+
+fun compileCommandWithTargeting(inputFile: String, outputFile: String, profile: String, useCache: Bool, targetCpu: String, simdPolicy: String, simdReport: Bool) r: Int {
+    return compileCommandWithAllOptions(inputFile, outputFile, profile, false, useCache, "en", targetCpu, simdPolicy, simdReport, "", "", "", "", "")
+}
+
+fun compileCommandWithFullTargeting(inputFile: String, outputFile: String, profile: String, useCache: Bool, language: String, targetCpu: String, simdPolicy: String, simdReport: Bool, sanitizePolicy: String, pgoMode: String, pgoPath: String, mlLogPath: String, crossTarget: String) r: Int {
+    return compileCommandWithAllOptions(inputFile, outputFile, profile, false, useCache, language, targetCpu, simdPolicy, simdReport, sanitizePolicy, pgoMode, pgoPath, mlLogPath, crossTarget)
+}
+
+fun compileCommandWithProfileAndCache(inputFile: String, outputFile: String, profile: String, useCache: Bool) r: Int {
+    return compileCommandWithAllOptions(inputFile, outputFile, profile, false, useCache, "en", "", "auto", false, "", "", "", "", "")
+}
+
+fun compileCommandWithOptions(inputFile: String, outputFile: String, profile: String, panicOnOverflow: Bool, useCache: Bool) r: Int {
+    return compileCommandWithAllOptions(inputFile, outputFile, profile, panicOnOverflow, useCache, "en", "", "auto", false, "", "", "", "", "")
+}
+
+// Release mode flag: enables cross-module LTO for multi-module builds
+var g_releaseMode: Bool = false
+// Emit LLVM IR flag: saves .ll files alongside output for debugging
+var g_emitLlvm: Bool = false
+// Fast mode flag: lightweight optimization for bootstrap verification (Int, not Bool -- Stage1 limitation)
+var g_fastMode = 0
+// O2 mode flag: moderate optimization, faster than O3 for bootstrap stages (Int, not Bool -- Stage1 limitation)
+var g_O2Mode = 0
+// CLI flags for safety checks (Int, not Bool -- Stage1 limitation)
+var g_panicOnOverflowCli = 0
+var g_boundsCheckCli = 0
+var g_warnUnusedResultCli = 0
+// Emit GLSL flag for debugging shader generation
+var g_emitGlsl = 0
+// Safety control CLI flags (Int, not Bool -- Stage1 limitation)
+var g_nullSafetyCli = 0
+var g_uninitCheckCli = 0
+var g_stackCheckCli = 0
+var g_sanitizerModeCli = 0
+// Feature flags CLI
+var g_enabledFeaturesCli: String = ""
+// Compilation database output
+var g_emitCompileDb = 0
+// Disable fork-parallel IR generation (use sequential in-process generation)
+var g_noFork = 0
+// ThinLTO cache path (/tmp/seen_thinlto_cache) and IR cache path (/tmp/seen_ir_cache)
+// are inlined as string literals at each use site. Module-level String variables
+// generate invalid IR (`store %SeenString 0`) in the production compiler, so we
+// cannot store these as `var g_thinltoCachePath = "/tmp/..."` at module scope.
+
+// Core compilation pipeline: the single function that implements the entire
+// compile subcommand. Orchestrates a two-pass architecture:
+//
+//   Pass 1: Parse all modules, register declarations into a shared registry.
+//           This builds the cross-module symbol table needed for type resolution.
+//
+//   Pass 2: For each module, check caches (source-level, then IR-level).
+//           Uncached modules are compiled via fork() for parallelism -- each
+//           child inherits a CoW copy of the Pass 1 registry. Children write
+//           .ll files to /tmp and exit; the parent waits for all to complete.
+//
+//   Pass 2b: Run LLVM opt + ThinLTO-bc in parallel via a generated shell script.
+//            Each module: opt -O3 -> Polly (best-effort) -> opt --thinlto-bc -> .o
+//
+//   Pass 3: Link all .o files with clang -flto=thin using LLD (Linux) or ld64
+//           (macOS). The ThinLTO cache at /tmp/seen_thinlto_cache persists
+//           across builds for fast incremental links.
+//
+// Returns 0 on success, 1 on any compilation or linking failure.
+fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile: String, panicOnOverflow: Bool, useCache: Bool, language: String, targetCpu: String, simdPolicy: String, simdReport: Bool, sanitizePolicy: String, pgoMode: String, pgoPath: String, mlLogPath: String, crossTarget: String) r: Int {
+    println("Stage1 compiling (Two-Pass Memory Optimized)")
+    let isDeterministicProfile = profile == "deterministic"
+    if isDeterministicProfile {
+        println("  Profile: deterministic")
+    }
+    if panicOnOverflow {
+        println("  Panic on overflow: enabled")
+    }
+
+    if g_releaseMode {
+        println("  Release mode: cross-module LTO enabled, inline-threshold=2000")
+    }
+    if g_emitLlvm {
+        println("  Emitting LLVM IR alongside output")
+    }
+    if g_fastMode == 1 {
+        println("  Fast mode: lightweight optimization for bootstrap")
+    }
+    if g_O2Mode == 1 {
+        println("  O2 mode: moderate optimization for bootstrap stages")
+    }
+
+    // Create generator - registries will persist across both passes
+    let generator = LLVMIRGenerator.new()
+    generator.setPanicOnOverflow(panicOnOverflow)
+    // Wire P0 deferred CLI flags to codegen module-level state
+    if g_panicOnOverflowCli == 1 {
+        generator.setPanicOnOverflow(true)
+    }
+    if g_boundsCheckCli == 1 {
+        generator.setBoundsCheckEnabled(1)
+    }
+    if g_warnUnusedResultCli == 1 {
+        generator.setWarnUnusedResult(1)
+    }
+    // Safety control flags
+    if g_nullSafetyCli == 1 {
+        generator.setNullSafetyEnabled(1)
+    }
+    if g_uninitCheckCli == 1 {
+        generator.setUninitCheckEnabled(1)
+    }
+    if g_stackCheckCli == 1 {
+        generator.setStackCheckEnabled(1)
+    }
+    // Feature flags
+    if g_enabledFeaturesCli != "" {
+        generator.setEnabledFeatures(g_enabledFeaturesCli)
+    }
+
+    // Cross-compilation: override target triple and data layout
+    if crossTarget != "" {
+        if crossTarget == "ios-arm64" or crossTarget == "arm64-apple-ios" or crossTarget == "arm64-apple-ios17.0" {
+            overrideTargetTriple("arm64-apple-ios17.0", "e-m:o-i64:64-i128:128-n32:64-S128")
+            println("  Cross-compiling for iOS ARM64")
+        } else {
+            if crossTarget == "macos-arm64" or crossTarget == "arm64-apple-darwin" {
+                overrideTargetTriple("arm64-apple-darwin", "e-m:o-i64:64-i128:128-n32:64-S128")
+                println("  Cross-compiling for macOS ARM64")
+            } else {
+                if crossTarget == "macos-x86_64" or crossTarget == "x86_64-apple-darwin" {
+                    overrideTargetTriple("x86_64-apple-macosx", "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128")
+                    println("  Cross-compiling for macOS x86_64")
+                } else {
+                    if crossTarget == "linux-x86_64" or crossTarget == "x86_64-linux-gnu" {
+                        overrideTargetTriple("x86_64-unknown-linux-gnu", "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128")
+                        println("  Cross-compiling for Linux x86_64")
+                    } else {
+                        if crossTarget == "linux-arm64" or crossTarget == "aarch64-linux-gnu" {
+                            overrideTargetTriple("aarch64-unknown-linux-gnu", "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128")
+                            println("  Cross-compiling for Linux ARM64")
+                        } else {
+                            println("  Warning: Unknown cross-target '" + crossTarget + "', using host platform")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Split mlLogPath which may contain "|decisionLogPath" encoded by CLI
+    var actualMlLogPath = mlLogPath
+    var mlDecisionLogPath = ""
+    var splitIdx = 0
+    while splitIdx < mlLogPath.length() {
+        if mlLogPath.substring(splitIdx, splitIdx + 1) == "|" {
+            actualMlLogPath = mlLogPath.substring(0, splitIdx)
+            mlDecisionLogPath = mlLogPath.substring(splitIdx + 1, mlLogPath.length())
+            splitIdx = mlLogPath.length()
+        }
+        splitIdx = splitIdx + 1
+    }
+
+    // Set type header path for ABI compatibility with Rust bootstrap compiler
+    // Also encode ML decision log path via "|ml:" delimiter (bootstrap-safe channel)
+    var headerArg = "seen_types.ll"
+    if mlDecisionLogPath.length() > 0 {
+        headerArg = headerArg + "|ml:" + mlDecisionLogPath
+    }
+    generator.setTypeHeaderPath(headerArg)
+
+    // ============================================================
+    // : Dependency management -- parse Seen.toml if present
+    // ============================================================
+    // Reads [dependencies] for system library link flags (-lname),
+    // [features] for compile-time feature flags, and [assets] for
+    // shader files to compile with glslc before linking.
+    var tomlExtraLinkFlags = ""
+    var tomlAssetShaders = ""
+    let tomlContent = readText("Seen.toml")
+    if tomlContent != "" {
+        println("  Reading Seen.toml...")
+        var tomlSection = ""
+        var tomlLineStart = 0
+        var tomlPos = 0
+        while tomlPos <= tomlContent.length() {
+            var tomlAtEnd = 0
+            if tomlPos == tomlContent.length() {
+                tomlAtEnd = 1
+            }
+            var tomlIsNewline = 0
+            if tomlAtEnd == 0 {
+                let tomlByte = tomlContent.byteAt(tomlPos)
+                if tomlByte == 10 {
+                    tomlIsNewline = 1
+                }
+            }
+            if tomlIsNewline == 1 or tomlAtEnd == 1 {
+                let tomlLine = tomlContent.substring(tomlLineStart, tomlPos)
+                let tomlLineTrimmed = tomlLine.trim()
+                // Section headers: [dependencies], [features], [assets]
+                if tomlLineTrimmed.startsWith("[") and tomlLineTrimmed.endsWith("]") {
+                    tomlSection = tomlLineTrimmed.substring(1, tomlLineTrimmed.length() - 1)
+                } else {
+                    if tomlLineTrimmed != "" and not tomlLineTrimmed.startsWith("#") {
+                        // Parse key = value
+                        var tomlEqPos = tomlLineTrimmed.indexOf("=", 0)
+                        if tomlEqPos > 0 {
+                            let tomlKey = tomlLineTrimmed.substring(0, tomlEqPos).trim()
+                            let tomlVal = tomlLineTrimmed.substring(tomlEqPos + 1, tomlLineTrimmed.length()).trim()
+                            // [dependencies] section: system libs → -lname link flags
+                            if tomlSection == "dependencies" {
+                                if tomlVal.contains("system = true") or tomlVal.contains("system=true") {
+                                    tomlExtraLinkFlags = tomlExtraLinkFlags + " -l" + tomlKey
+                                    println("    dep: " + tomlKey + " (system)")
+                                }
+                                if tomlVal.contains("path =") or tomlVal.contains("path=") {
+                                    println("    dep: " + tomlKey + " (local path)")
+                                }
+                            }
+                            // [features] section: feature flags
+                            if tomlSection == "features" {
+                                g_enabledFeaturesCli = g_enabledFeaturesCli + tomlKey + "|"
+                                println("    feature: " + tomlKey)
+                            }
+                            // [assets] section: shader compilation
+                            if tomlSection == "assets" {
+                                if tomlKey == "shaders" or tomlVal.contains(".glsl") or tomlVal.contains(".vert") or tomlVal.contains(".frag") or tomlVal.contains(".comp") {
+                                    // Strip quotes from value
+                                    var shaderPath = tomlVal
+                                    if shaderPath.startsWith("\"") {
+                                        shaderPath = shaderPath.substring(1, shaderPath.length())
+                                    }
+                                    if shaderPath.endsWith("\"") {
+                                        shaderPath = shaderPath.substring(0, shaderPath.length() - 1)
+                                    }
+                                    tomlAssetShaders = tomlAssetShaders + shaderPath + "|"
+                                    println("    asset shader: " + shaderPath)
+                                }
+                            }
+                        }
+                    }
+                }
+                tomlLineStart = tomlPos + 1
+            }
+            tomlPos = tomlPos + 1
+        }
+        // Apply features from TOML
+        if g_enabledFeaturesCli != "" {
+            generator.setEnabledFeatures(g_enabledFeaturesCli)
+        }
+    }
+
+    // : Compile asset shaders (invoke glslc for each .glsl/.vert/.frag/.comp)
+    if tomlAssetShaders != "" {
+        var shaderSearchPos = 0
+        var shaderPipePos = tomlAssetShaders.indexOf("|", shaderSearchPos)
+        while shaderPipePos >= 0 {
+            let shaderFile = tomlAssetShaders.substring(shaderSearchPos, shaderPipePos)
+            if shaderFile != "" {
+                let spvOut = shaderFile + ".spv"
+                let shaderCmd = "glslc " + shaderFile + " -o " + spvOut
+                println("  Compiling shader: " + shaderFile + " -> " + spvOut)
+                let shaderResult: CommandResult = runCommand(shaderCmd)
+                if not commandWasSuccessful(shaderResult) {
+                    println("  Warning: shader compilation failed for " + shaderFile)
+                }
+            }
+            shaderSearchPos = shaderPipePos + 1
+            shaderPipePos = tomlAssetShaders.indexOf("|", shaderSearchPos)
+        }
+    }
+
+    // ============================================================
+    // Circular dependency detection
+    // ============================================================
+    // Build import graph and run DFS cycle detection before committing to
+    // compilation. Circular imports would cause the module collector to loop
+    // and the IR generator to emit incomplete forward references. Catching
+    // this early gives a clear diagnostic instead of a cryptic linker error.
+    let depPaths = collectModulePaths(inputFile, true)
+    let sourceDir = getSourceDir(inputFile)
+    var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
+    var depIdx = 0
+    while depIdx < depPaths.length() {
+        let depPath = depPaths[depIdx]
+        let depFe = parseModule(depPath, language)
+        var edges = depPath
+        if depFe.success {
+            var depItemIdx = 0
+            while depItemIdx < depFe.program.items.length() {
+                let depItem = depFe.program.items[depItemIdx]
+                if depItem.itemType == "Import" {
+                    let depTarget = resolveImportPath(depItem.importPath, sourceDir)
+                    edges = edges + "|" + depTarget
+                }
+                depItemIdx = depItemIdx + 1
+            }
+        }
+        depGraph.push(edges)
+        depIdx = depIdx + 1
+    }
+    // DFS cycle check: color 0=white, 1=gray, 2=black
+    var depColors = Array<Int>()
+    var depCycleFound = 0
+    var depCyclePath = ""
+    depIdx = 0
+    while depIdx < depPaths.length() {
+        depColors.push(0)
+        depIdx = depIdx + 1
+    }
+    // Simple O(V+E) DFS; sufficient for ~50 modules
+    // Use manual stack via Array<Int> + stackTop counter (no .pop() in runtime)
+    var dfsStack = Array<Int>()
+    var dfsStackTop = 0
+    depIdx = 0
+    while depIdx < depPaths.length() {
+        if depColors[depIdx] == 0 {
+            dfsStack.push(depIdx)
+            dfsStackTop = dfsStackTop + 1
+            while dfsStackTop > 0 {
+                let dfsNode = dfsStack[dfsStackTop - 1]
+                if depColors[dfsNode] == 0 {
+                    depColors[dfsNode] = 1  // gray = in-progress
+                    // Push neighbors
+                    let dfsEdges = depGraph[dfsNode]
+                    // Parse edges (pipe-delimited, first is self)
+                    var dfsPos = 0
+                    var dfsFirst = true
+                    var dfsSegStart = 0
+                    while dfsPos <= dfsEdges.length() {
+                        var dfsIsSep = false
+                        if dfsPos == dfsEdges.length() { dfsIsSep = true }
+                        if not dfsIsSep {
+                            if dfsEdges.substring(dfsPos, dfsPos + 1) == "|" { dfsIsSep = true }
+                        }
+                        if dfsIsSep {
+                            if not dfsFirst {
+                                let dfsTarget = dfsEdges.substring(dfsSegStart, dfsPos)
+                                // Find target index
+                                var dfsTargetIdx = 0
+                                while dfsTargetIdx < depPaths.length() {
+                                    if depPaths[dfsTargetIdx] == dfsTarget {
+                                        if depColors[dfsTargetIdx] == 1 {
+                                            depCycleFound = 1
+                                            depCyclePath = depPaths[dfsNode] + " -> " + dfsTarget
+                                        }
+                                        if depColors[dfsTargetIdx] == 0 {
+                                            dfsStack.push(dfsTargetIdx)
+                                            dfsStackTop = dfsStackTop + 1
+                                        }
+                                        dfsTargetIdx = depPaths.length()
+                                    }
+                                    dfsTargetIdx = dfsTargetIdx + 1
+                                }
+                            }
+                            dfsFirst = false
+                            dfsSegStart = dfsPos + 1
+                        }
+                        dfsPos = dfsPos + 1
+                    }
+                } else {
+                    depColors[dfsNode] = 2  // black = done
+                    dfsStackTop = dfsStackTop - 1
+                }
+            }
+        }
+        depIdx = depIdx + 1
+    }
+    if depCycleFound == 1 {
+        println("  WARNING: Circular module dependency detected: " + depCyclePath)
+    }
+
+    // ============================================================
+    // PASS 1: Collect module paths and register all declarations
+    // ============================================================
+    // Why a separate declaration pass? The IR generator uses a three-pass approach
+    // (signatures -> types -> implementations). Pass 1 here feeds all module ASTs
+    // into registerDeclarations() so every function signature, class layout, and
+    // enum variant is known before any IR is generated. Without this, cross-module
+    // references (e.g., calling a function defined in a different module) would
+    // produce "undefined value" errors during IR generation.
+    // Each AST is released after registration to bound memory usage.
+    println("  [Pass 1] Scanning declarations...")
+    let modulePaths = collectModulePaths(inputFile, false)
+    println("    Found " + modulePaths.length().toString() + " modules")
+
+    var passIdx = 0
+    while passIdx < modulePaths.length() {
+        let path = modulePaths[passIdx]
+        println("    Scanning: " + path)
+        let frontend = parseModule(path, language)
+        if frontend.success {
+            generator.registerDeclarations(frontend.program)
+
+            if isDeterministicProfile {
+                let deterResult = checkDeterminismWithProfile(frontend.program, true)
+                if deterResult.hasErrors() {
+                    println("  Determinism check failed for: " + path)
+                    printDeterminismErrors(deterResult)
+                    return 1
+                }
+            }
+        } else {
+            println("    Warning: Failed to parse " + path)
+        }
+        // AST goes out of scope here - memory released
+        passIdx = passIdx + 1
+    }
+    println("  [Pass 1] Complete - declarations registered")
+
+    // Optimization pipeline status
+    println("  Optimization pipeline:")
+    println("    E-graph rewrite rules: 55 (22 integer, 13 self-comparison, 12 float, 8 FMA)")
+    println("    Superoptimizer patterns: 10 (strength reduction in codegen)")
+    println("    ML heuristics: inline/unroll/vectorize thresholds from config")
+    println("    Architecture: -mcpu=native (auto-detected)")
+    println("    Memory: LLVM SROA/mem2reg + pool allocator runtime")
+    println("    Backend: opt -O3 -> llc -O3 -> clang -O3 -flto -march=native")
+
+    // ============================================================
+    // CACHE: Compute global hash for incremental compilation
+    // ============================================================
+    // The source-level cache (.seen_cache/) uses a global registryHash to detect
+    // when ANY module's declarations change. When the hash changes, all cached .o
+    // files are invalidated because cross-module type resolution may have changed.
+    // The IR cache (/tmp/seen_ir_cache/) uses per-module keys (registryHash + path)
+    // for finer granularity -- a body-only change in module A does not invalidate
+    // module B's IR cache since declarations are unchanged.
+    var registryHash = ""
+    var cacheValid = false
+    if useCache {
+        var globalData = ""
+        var gi = 0
+        while gi < modulePaths.length() {
+            let gpath = modulePaths[gi]
+            let gsrc = readText(gpath)
+            let gsrcHash = hashString(gsrc)
+            globalData = globalData + gpath + ":" + gsrcHash + "\n"
+            gi = gi + 1
+        }
+        registryHash = hashString(globalData)
+        ensureCacheDir()
+        let cachedRegHash = loadFileContent(".seen_cache/registry.hash")
+        if cachedRegHash == registryHash {
+            cacheValid = true
+        } else {
+            // Global state changed -- invalidate all cached .o files
+            clearCache()
+            ensureCacheDir()
+            writeText(".seen_cache/registry.hash", registryHash)
+        }
+    }
+
+    // ============================================================
+    // PASS 2: Stream compile each module (one AST at a time)
+    // ============================================================
+    println("  [Pass 2] Compiling modules...")
+    var objectFiles = Array<String>()
+    var llFiles = Array<String>()
+    var moduleIndex = 0
+    var cachedCount = 0
+    var uncachedIdxStrs = Array<String>()
+    var uncachedSrcPaths = Array<String>()
+    var uncachedIrKeys = Array<String>()
+
+    // Fork-parallel IR generation: each uncached module gets its own child process.
+    // Why fork instead of threads? Fork gives each child a copy-on-write snapshot of
+    // the parent's entire Pass 1 registry (all declaration tables, type info, struct
+    // layouts) without any serialization or shared-memory coordination. The child
+    // writes a .ll file to /tmp and exits. The parent waits for all children, then
+    // collects the .ll files for the optimization pass.
+    //
+    // When --no-fork is set, modules compile serially in-process instead.
+    var forkPids = Array<Int>()
+    var forkModuleIdxStrs = Array<String>()
+    var forkIrKeys = Array<String>()
+    var forkSrcPaths = Array<String>()
+
+    while moduleIndex < modulePaths.length() {
+        let path = modulePaths[moduleIndex]
+
+        // Check source-level cache first (fastest: just file comparison)
+        if useCache and cacheValid {
+            let pathHash = hashString(path)
+            let sourceContent = readText(path)
+            let sourceHash = hashString(sourceContent)
+            let cachedHashFile = ".seen_cache/" + pathHash + ".hash"
+            let cachedObjFile = ".seen_cache/" + pathHash + ".o"
+            let storedHash = loadFileContent(cachedHashFile)
+            if storedHash == sourceHash and exists(cachedObjFile) {
+                println("    [" + moduleIndex.toString() + "] Cached: " + path)
+                objectFiles.push(cachedObjFile)
+                cachedCount = cachedCount + 1
+                moduleIndex = moduleIndex + 1
+                continue
+            }
+        }
+
+        // IR content-addressed cache: deterministic codegen means identical source +
+        // identical declarations always produce identical optimized .o files. This cache
+        // persists across bootstrap stages (stage2 can reuse stage1's cached objects),
+        // which is critical for keeping bootstrap verification fast.
+        // Key = hash("v2:" + registryHash + ":" + path). The "v2" prefix forces a
+        // one-time cache miss when the pipeline changes (e.g., llvm-as -> opt --thinlto-bc).
+        var irCacheKey = ""
+        var irCacheHit = 0
+        if useCache and registryHash != "" {
+            irCacheKey = hashString("v2:" + registryHash + ":" + path)
+            ensureIrCacheDir()
+            let irCacheFile = "/tmp/seen_ir_cache/" + irCacheKey + ".o"
+            let checkIrCache: CommandResult = runCommand("test -f " + irCacheFile)
+            if commandWasSuccessful(checkIrCache) {
+                irCacheHit = 1
+            }
+        }
+        if irCacheHit == 1 {
+            let irCacheFile = "/tmp/seen_ir_cache/" + irCacheKey + ".o"
+            let irCacheObj = "/tmp/seen_module_" + moduleIndex.toString() + ".o"
+            let irCopy: CommandResult = runCommand("cp " + irCacheFile + " " + irCacheObj)
+            objectFiles.push(irCacheObj)
+            println("    [" + moduleIndex.toString() + "] IR cache hit: " + path)
+            // Promote to source-level cache to speed up next build within same stage
+            if useCache {
+                ensureCacheDir()
+                let srcPathHash = hashString(path)
+                let srcContent = readText(path)
+                let cpSrcObj: CommandResult = runCommand("cp " + irCacheObj + " .seen_cache/" + srcPathHash + ".o")
+                writeText(".seen_cache/" + srcPathHash + ".hash", hashString(srcContent))
+            }
+            moduleIndex = moduleIndex + 1
+            continue
+        }
+
+        if g_noFork == 1 {
+            // Serial: generate IR in-process (no fork)
+            println("    [" + moduleIndex.toString() + "] Generating IR (serial): " + path)
+            let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
+            let frontend = parseModule(path, language)
+            if not frontend.success {
+                println("[irgen] Parse failed: " + path)
+                return 1
+            }
+            let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
+            if g_emitLlvm {
+                let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
+                let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
+            }
+            if not writeText(llFile, llvmIR) {
+                println("[irgen] Failed to write IR: " + llFile)
+                return 1
+            }
+            llFiles.push(llFile)
+            uncachedIdxStrs.push(moduleIndex.toString())
+            uncachedSrcPaths.push(path)
+            uncachedIrKeys.push(irCacheKey)
+        } else {
+            // Fork a child to generate IR for this module in parallel.
+            // Child gets a copy-on-write snapshot of the parent's registry from Pass 1.
+            println("    [" + moduleIndex.toString() + "] Forking IR gen: " + path)
+            let pid = processFork()
+            if pid < 0 {
+                println("    Error: fork() failed for module " + moduleIndex.toString())
+                return 1
+            } else {
+                if pid == 0 {
+                    // === CHILD: generate IR, write .ll file, then exit ===
+                    let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
+                    let frontend = parseModule(path, language)
+                    if not frontend.success {
+                        println("[irgen child] Parse failed: " + path)
+                        processExit(1)
+                    }
+                    let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
+                    // --emit-llvm: save IR alongside output for debugging
+                    if g_emitLlvm {
+                        let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
+                        let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
+                    }
+                    if not writeText(llFile, llvmIR) {
+                        println("[irgen child] Failed to write IR: " + llFile)
+                        processExit(1)
+                    }
+                    processExit(0)
+                } else {
+                    // === PARENT: record child PID for later waitpid ===
+                    forkPids.push(pid)
+                    forkModuleIdxStrs.push(moduleIndex.toString())
+                    forkIrKeys.push(irCacheKey)
+                    forkSrcPaths.push(path)
+                }
+            }
+        }
+
+        moduleIndex = moduleIndex + 1
+    }
+
+    // Wait for all forked children to complete
+    var waitIdx = 0
+    var forkFailed = 0
+    while waitIdx < forkPids.length() {
+        let ec = waitPid(forkPids[waitIdx])
+        if ec != 0 {
+            println("    Error: IR gen failed (exit " + ec.toString() + ") for module " + forkModuleIdxStrs[waitIdx])
+            forkFailed = 1
+        }
+        waitIdx = waitIdx + 1
+    }
+    if forkFailed == 1 {
+        return 1
+    }
+
+    // Register all forked modules for Pass 2B parallel optimization
+    var forkReg = 0
+    while forkReg < forkModuleIdxStrs.length() {
+        let midxStr = forkModuleIdxStrs[forkReg]
+        let llFile = "/tmp/seen_module_" + midxStr + ".ll"
+        llFiles.push(llFile)
+        uncachedIdxStrs.push(midxStr)
+        uncachedSrcPaths.push(forkSrcPaths[forkReg])
+        uncachedIrKeys.push(forkIrKeys[forkReg])
+        forkReg = forkReg + 1
+    }
+
+    // ============================================================
+    // PASS 2B: Run opt + opt --thinlto-bc in parallel for all uncached modules
+    // ============================================================
+    // Why a generated shell script? LLVM opt is an external process, and we need
+    // to run N instances in parallel. Generating a shell script with backgrounded
+    // commands + wait is simpler and more portable than managing N fork+exec pairs
+    // from Seen code. Each module goes through:
+    //   1. opt -O3 (main optimization) -- falls back to raw .ll on failure
+    //   2. Polly polyhedral optimization (best-effort, skipped in --fast mode)
+    //   3. opt --thinlto-bc (emit bitcode with ThinLTO module summaries for LLD)
+    if uncachedIdxStrs.length() > 0 {
+        println("  [Pass 2b] Optimizing " + uncachedIdxStrs.length().toString() + " modules in parallel...")
+
+        // Build opt passes and threshold based on mode
+        var optPasses = ""
+        var optThreshold = ""
+        var optInternalize = ""
+        var pgoPasses = ""
+        var pgoOptFlags = ""
+        if pgoMode == "use" {
+            pgoPasses = "pgo-instr-use,"
+            pgoOptFlags = " -pgo-test-profile-file=" + pgoPath
+        }
+        if g_fastMode == 1 {
+            optPasses = pgoPasses + "default<O1>"
+            optThreshold = "250"
+        } else {
+            if g_O2Mode == 1 {
+                optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "default<O2>"
+                optThreshold = "500"
+            } else {
+                if modulePaths.length() == 1 {
+                    optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "internalize,default<O3>,function(loop-unroll-and-jam)"
+                    optThreshold = "1500"
+                    optInternalize = " -internalize-public-api-list=main"
+                } else {
+                    var inlineThreshold = "1000"
+                    if g_releaseMode {
+                        inlineThreshold = "2000"
+                    }
+                    optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "default<O3>,function(loop-interchange,loop-unroll-and-jam)"
+                    optThreshold = inlineThreshold
+                }
+            }
+        }
+
+        // Write parallel optimization shell script
+        var script = "#!/bin/sh\n"
+        var pi = 0
+        while pi < uncachedIdxStrs.length() {
+            let midx = uncachedIdxStrs[pi]
+            let llFile = "/tmp/seen_module_" + midx + ".ll"
+            let optFile = "/tmp/seen_module_" + midx + ".opt.ll"
+            let objFile = "/tmp/seen_module_" + midx + ".o"
+
+            var moduleOptCmd = "opt -passes='" + optPasses + "'" + optInternalize + " -inline-threshold=" + optThreshold + " -S " + llFile + " -o " + optFile + pgoOptFlags
+
+            // Add ML remarks file if needed
+            if actualMlLogPath != "" {
+                moduleOptCmd = moduleOptCmd + " -pass-remarks-output=/tmp/seen_ml_remarks_" + midx + ".yaml -pass-remarks-format=yaml"
+            }
+
+            // Each module: (opt ... || cp fallback) && polly best-effort && opt --thinlto-bc ... , backgrounded
+            // opt --thinlto-bc produces bitcode with ThinLTO module summaries (needed for LLD's --thinlto-cache-dir)
+            // Skip Polly in fast mode for faster builds
+            var pollyStep = ""
+            if g_fastMode == 0 {
+                let pollyFile = "/tmp/seen_module_" + midx + ".polly.ll"
+                pollyStep = " && (opt -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " 2>/dev/null && mv " + pollyFile + " " + optFile + " || true)"
+            }
+            script = script + "(" + moduleOptCmd + " || cp " + llFile + " " + optFile + ")" + pollyStep + " && opt --thinlto-bc " + optFile + " -o " + objFile + " &\n"
+
+            pi = pi + 1
+        }
+        script = script + "wait\n"
+
+        if not writeText("/tmp/seen_parallel_opt.sh", script) {
+            println("    Error: Failed to write parallel optimization script")
+            return 1
+        }
+        let chmodResult: CommandResult = runCommand("chmod +x /tmp/seen_parallel_opt.sh")
+        let parallelResult: CommandResult = runCommand("/tmp/seen_parallel_opt.sh")
+
+        // Verify all object files were created
+        var vi = 0
+        while vi < uncachedIdxStrs.length() {
+            let midx = uncachedIdxStrs[vi]
+            let objFile = "/tmp/seen_module_" + midx + ".o"
+            let checkObj: CommandResult = runCommand("test -f " + objFile)
+            if not commandWasSuccessful(checkObj) {
+                println("    Error: optimization failed for module " + midx)
+                return 1
+            }
+            vi = vi + 1
+        }
+
+        // Collect object files, emit debug IR, collect ML data, and write cache
+        var ci = 0
+        while ci < uncachedIdxStrs.length() {
+            let midx = uncachedIdxStrs[ci]
+            let objFile = "/tmp/seen_module_" + midx + ".o"
+            objectFiles.push(objFile)
+
+            // --emit-llvm: save optimized IR alongside output
+            if g_emitLlvm {
+                let optFile = "/tmp/seen_module_" + midx + ".opt.ll"
+                let emitOptDst = outputFile + ".module" + midx + ".opt.ll"
+                let emitOptCp: CommandResult = runCommand("cp " + optFile + " " + emitOptDst)
+                println("    Emitted optimized IR: " + emitOptDst)
+            }
+
+            // Collect ML training data if --ml-log was specified
+            if actualMlLogPath != "" {
+                let mlRemarksFile = "/tmp/seen_ml_remarks_" + midx + ".yaml"
+                collectMLTrainingData(mlRemarksFile, actualMlLogPath)
+            }
+
+            // Cache the .o file for future builds (source-level cache)
+            if useCache {
+                ensureCacheDir()
+                let sourcePath = uncachedSrcPaths[ci]
+                let pathHash = hashString(sourcePath)
+                let cpCacheResult: CommandResult = runCommand("cp " + objFile + " .seen_cache/" + pathHash + ".o")
+                writeText(".seen_cache/" + pathHash + ".hash", hashString(readText(sourcePath)))
+            }
+
+            // IR cache: store post-opt .o for cross-stage reuse
+            let irKey = uncachedIrKeys[ci]
+            if irKey != "" {
+                ensureIrCacheDir()
+                let irCacheDest = "/tmp/seen_ir_cache/" + irKey + ".o"
+                let irCacheCopy: CommandResult = runCommand("cp " + objFile + " " + irCacheDest)
+            }
+
+            ci = ci + 1
+        }
+        println("  [Pass 2b] Optimization complete")
+    }
+
+    if cachedCount > 0 {
+        println("  [Pass 2] Complete (" + cachedCount.toString() + "/" + modulePaths.length().toString() + " cached)")
+    } else {
+        println("  [Pass 2] Complete")
+    }
+
+    // ============================================================
+    // RELEASE MODE: Cross-module LTO merge (when --release and multi-module)
+    // ============================================================
+    // Why a separate release path? The normal pipeline uses ThinLTO (per-module
+    // bitcode + link-time cross-module inlining). --release instead merges ALL
+    // modules into a single LLVM IR file via llvm-link, then runs internalize +
+    // O3 on the whole program. This enables aggressive whole-program optimization
+    // (dead code elimination, cross-module inlining with threshold=2000) at the
+    // cost of higher memory usage and slower compilation. The merged object is
+    // compiled via llc rather than ThinLTO.
+    if g_releaseMode and llFiles.length() > 1 {
+        println("  [2.5] Release mode: cross-module LTO merge (" + llFiles.length().toString() + " modules)...")
+        var llLinkCmd = "llvm-link -S "
+        var lli = 0
+        while lli < llFiles.length() {
+            llLinkCmd = llLinkCmd + llFiles[lli] + " "
+            lli = lli + 1
+        }
+        let mergedLl = "/tmp/seen_merged_release.ll"
+        llLinkCmd = llLinkCmd + "-o " + mergedLl
+        let llLinkResult: CommandResult = runCommand(llLinkCmd)
+        if commandWasSuccessful(llLinkResult) {
+            // Try Polly pre-pass for polyhedral loop optimization (best-effort)
+            let pollyOut = "/tmp/seen_merged_polly.ll"
+            let pollyCmd = "opt -passes='polly-canonicalize,polly' -S " + mergedLl + " -o " + pollyOut + " 2>/dev/null"
+            let pollyResult: CommandResult = runCommand(pollyCmd)
+            var mergedInput = mergedLl
+            if commandWasSuccessful(pollyResult) {
+                mergedInput = pollyOut
+                println("    Polly: polyhedral loop optimization applied")
+            }
+            // Run opt with internalize on merged module (enables cross-module inlining)
+            let mergedOpt = "/tmp/seen_merged_release.opt.ll"
+            let mergedOptCmd = "opt -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),internalize,default<O3>,function(loop-unroll-and-jam)' -internalize-public-api-list=main -inline-threshold=2000 -S " + mergedInput + " -o " + mergedOpt
+            let mergedOptResult: CommandResult = runCommand(mergedOptCmd)
+            if commandWasSuccessful(mergedOptResult) {
+                // Compile merged optimized IR to single object file
+                let mergedObj = "/tmp/seen_merged_release.o"
+                let mergedLlcCmd = "llc -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -align-loops=32 -fp-contract=fast -mcpu=native " + mergedOpt + " -o " + mergedObj
+                let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
+                if commandWasSuccessful(mergedLlcResult) {
+                    // Replace all per-module object files with single merged object
+                    objectFiles = Array<String>()
+                    objectFiles.push(mergedObj)
+                    println("    Cross-module LTO: merged " + llFiles.length().toString() + " modules into 1")
+                } else {
+                    println("    Warning: LLC on merged module failed, using per-module objects")
+                }
+            } else {
+                println("    Warning: opt on merged module failed, using per-module objects")
+            }
+            // --emit-llvm: save merged IR for debugging
+            if g_emitLlvm {
+                let emitMerge: CommandResult = runCommand("cp " + mergedOpt + " " + outputFile + ".merged.opt.ll")
+                println("    Emitted merged IR: " + outputFile + ".merged.opt.ll")
+            }
+        } else {
+            println("    Warning: llvm-link failed, using per-module objects")
+            println(llLinkResult.output)
+        }
+    }
+
+    // ============================================================
+    // LINKING: Combine all object files
+    // ============================================================
+    // Why ThinLTO (not full LTO)? Full LTO loads all bitcode into one module,
+    // requiring O(total IR) memory. ThinLTO reads only summaries, then performs
+    // cross-module inlining on a per-function basis. For the 50-module compiler,
+    // full LTO would require 5+ GB RAM; ThinLTO stays under 1 GB while still
+    // enabling cross-module inlining. The ThinLTO cache at /tmp/seen_thinlto_cache
+    // means unchanged modules skip link-time optimization entirely on rebuilds.
+    println("  [3] Linking " + objectFiles.length().toString() + " object files...")
+
+    // Pre-compile the C runtime to a ThinLTO-compatible .o file. This is done once
+    // and reused across builds (checked via timestamp: .o newer than .c).
+    // Why ThinLTO for the runtime? Using -flto=thin here matches the linker's ThinLTO
+    // mode, enabling cross-module inlining of hot runtime functions (e.g., seen_str_concat,
+    // seen_arr_push) into user code at link time.
+    // When sanitizer is enabled, the runtime must be recompiled with sanitizer flags.
+    let runtimeObj = "seen_runtime/seen_runtime.o"
+    let runtimeSrc = "seen_runtime/seen_runtime.c"
+    var sanitizerClangFlags = ""
+    if sanitizePolicy != "" {
+        sanitizerClangFlags = " -fsanitize=" + sanitizePolicy + " -fno-omit-frame-pointer -g"
+        println("  Sanitizer: " + sanitizePolicy)
+        g_sanitizerModeCli = 1
+    }
+    var pgoClangFlags = ""
+    if pgoMode == "generate" {
+        pgoClangFlags = " -fprofile-generate"
+        println("  PGO: generate (instrumented build)")
+    }
+    if pgoMode == "use" {
+        // Auto-merge .profraw files to .profdata if needed
+        if pgoPath.endsWith(".profraw") {
+            let profdataPath = "/tmp/seen_pgo.profdata"
+            let mergeCmd = "llvm-profdata merge " + pgoPath + " -o " + profdataPath
+            println("  PGO: merging profile data...")
+            let mergeResult: CommandResult = runCommand(mergeCmd)
+            if commandWasSuccessful(mergeResult) {
+                pgoPath = profdataPath
+            } else {
+                println("    Warning: llvm-profdata merge failed, using raw profile")
+            }
+        }
+        pgoClangFlags = " -fprofile-use=" + pgoPath
+        println("  PGO: use profile from " + pgoPath)
+    }
+    if sanitizePolicy == "" {
+        let checkRtResult: CommandResult = runCommand("test seen_runtime/seen_runtime.o -nt seen_runtime/seen_runtime.c")
+        if not commandWasSuccessful(checkRtResult) {
+            println("  [3a] Pre-compiling runtime...")
+            let rtCompile: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread -c -I seen_runtime seen_runtime/seen_runtime.c -o seen_runtime/seen_runtime.o")
+            if not commandWasSuccessful(rtCompile) {
+                println("    Warning: Runtime pre-compilation failed, will compile inline")
+            }
+        }
+    } else {
+        // With sanitizer, recompile runtime with sanitizer flags
+        println("  [3a] Compiling runtime with sanitizer...")
+        let rtCompile: CommandResult = runCommand("clang -O3 -march=native -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I seen_runtime seen_runtime/seen_runtime.c -o /tmp/seen_runtime_sanitized.o")
+        if not commandWasSuccessful(rtCompile) {
+            println("    Warning: Sanitized runtime compilation failed")
+        }
+    }
+
+    // Check if pre-compiled runtime exists
+    var runtimeArg = ""
+    if sanitizePolicy != "" {
+        // Use sanitized runtime object
+        let useSanitizedRt: CommandResult = runCommand("test -f /tmp/seen_runtime_sanitized.o")
+        if commandWasSuccessful(useSanitizedRt) {
+            runtimeArg = "/tmp/seen_runtime_sanitized.o"
+        } else {
+            runtimeArg = "-I seen_runtime seen_runtime/seen_runtime.c" + sanitizerClangFlags
+        }
+    } else {
+        let usePrecompiledRt: CommandResult = runCommand("test -f seen_runtime/seen_runtime.o")
+        if commandWasSuccessful(usePrecompiledRt) {
+            runtimeArg = "seen_runtime/seen_runtime.o"
+        } else {
+            runtimeArg = "-I seen_runtime seen_runtime/seen_runtime.c"
+        }
+    }
+
+    // iOS cross-compilation: compile runtime with iOS target flags
+    if crossTarget != "" and (crossTarget.contains("ios") or crossTarget.contains("arm64-apple-ios")) {
+        println("  [3a-ios] Compiling runtime for iOS...")
+        let sdkResult: CommandResult = runCommand("xcrun --sdk iphoneos --show-sdk-path")
+        var iosSdkPath = "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
+        if commandWasSuccessful(sdkResult) {
+            iosSdkPath = sdkResult.output.trim()
+        }
+        let rtIos: CommandResult = runCommand("clang -O3 -flto -target arm64-apple-ios17.0 -isysroot " + iosSdkPath + " -ffunction-sections -fdata-sections -c -I seen_runtime seen_runtime/seen_runtime.c -o /tmp/seen_runtime_ios.o")
+        if commandWasSuccessful(rtIos) {
+            runtimeArg = "/tmp/seen_runtime_ios.o"
+        } else {
+            println("    Warning: iOS runtime compilation failed, linking may fail")
+        }
+    }
+
+    // Detect host platform for platform-specific link flags
+    let unameS: CommandResult = runCommand("uname -s")
+    var hostOS = "Linux"
+    if commandWasSuccessful(unameS) {
+        if unameS.output.contains("Darwin") {
+            hostOS = "Darwin"
+        }
+    }
+    let unameM: CommandResult = runCommand("uname -m")
+    var hostArch = "x86_64"
+    if commandWasSuccessful(unameM) {
+        if unameM.output.contains("arm64") {
+            hostArch = "arm64"
+        }
+        if unameM.output.contains("aarch64") {
+            hostArch = "arm64"
+        }
+    }
+
+    // Build clang march flag based on --target-cpu / --simd and host architecture
+    var clangMarch = "-march=native"
+    if hostArch == "arm64" {
+        // ARM64: -march=native works on Apple clang, but x86-specific -march values don't
+        if targetCpu == "x86-64-v3" or targetCpu == "x86-64-v4" or targetCpu == "x86-64" {
+            // Ignore x86-specific target on ARM64, use native
+            clangMarch = "-march=native"
+        } else {
+            if targetCpu != "" and targetCpu != "native" {
+                clangMarch = "-mcpu=" + targetCpu
+            }
+        }
+        if simdPolicy == "none" {
+            clangMarch = "-mcpu=generic"
+        }
+    } else {
+        // x86_64 path (original logic)
+        if targetCpu == "x86-64-v3" {
+            clangMarch = "-march=x86-64-v3"
+        } else {
+            if targetCpu == "x86-64-v4" {
+                clangMarch = "-march=x86-64-v4"
+            } else {
+                if targetCpu != "" {
+                    if targetCpu != "native" {
+                        clangMarch = "-march=" + targetCpu
+                    }
+                }
+            }
+        }
+        if simdPolicy == "none" {
+            clangMarch = "-march=x86-64"
+        }
+    }
+
+        // Ensure ThinLTO cache directory exists for persistent cross-build link cache.
+    // This cache is shared across all Seen compilations on the machine, keyed by
+    // bitcode content hash. It persists across bootstrap stages and compiler rebuilds.
+    let thinltoMkdir: CommandResult = runCommand("mkdir -p /tmp/seen_thinlto_cache")
+    var linkCmd = ""
+    // iOS cross-compilation: use Xcode SDK and iOS target
+    if crossTarget != "" and (crossTarget.contains("ios") or crossTarget.contains("arm64-apple-ios")) {
+        let sdkResult2: CommandResult = runCommand("xcrun --sdk iphoneos --show-sdk-path")
+        var iosSdkPath2 = "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
+        if commandWasSuccessful(sdkResult2) {
+            iosSdkPath2 = sdkResult2.output.trim()
+        }
+        linkCmd = "clang -target arm64-apple-ios17.0 -isysroot " + iosSdkPath2 + " -O3 -flto=thin -Wl,-dead_strip -Wno-unused-command-line-argument "
+    } else if hostOS == "Darwin" {
+        // macOS link command: no -fuse-ld=lld, use Apple ld64 flags
+        if g_fastMode == 1 {
+            linkCmd = "clang -O1 -flto=thin -Wl,-cache_path_lto,/tmp/seen_thinlto_cache " + clangMarch + " -Wl,-dead_strip -Wno-unused-command-line-argument "
+        } else {
+            if g_O2Mode == 1 {
+                linkCmd = "clang -O2 -flto=thin -Wl,-cache_path_lto,/tmp/seen_thinlto_cache " + clangMarch + " -Wl,-dead_strip -Wno-unused-command-line-argument "
+            } else {
+                linkCmd = "clang -O3 -flto=thin -Wl,-cache_path_lto,/tmp/seen_thinlto_cache " + clangMarch + " -Wl,-dead_strip -ffp-contract=fast -Wno-unused-command-line-argument "
+            }
+        }
+    } else {
+        // Linux link command (original)
+        if g_fastMode == 1 {
+            linkCmd = "clang -O1 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache " + clangMarch + " -Wl,--gc-sections -Wno-unused-command-line-argument "
+        } else {
+            if g_O2Mode == 1 {
+                linkCmd = "clang -O2 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache " + clangMarch + " -Wl,--gc-sections -Wno-unused-command-line-argument "
+            } else {
+                linkCmd = "clang -O3 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache " + clangMarch + " -Wl,--gc-sections -ffp-contract=fast -Wno-unused-command-line-argument -mllvm -align-loops=32 -mllvm -inline-threshold=1500 "
+            }
+        }
+    }
+    // Append sanitizer and PGO flags to link command
+    if sanitizerClangFlags != "" {
+        linkCmd = linkCmd + sanitizerClangFlags + " "
+    }
+    if pgoClangFlags != "" {
+        linkCmd = linkCmd + pgoClangFlags + " "
+    }
+    var oi = 0
+    while oi < objectFiles.length() {
+        linkCmd = linkCmd + objectFiles[oi] + " "
+        oi = oi + 1
+    }
+    // Pre-compile region allocator if not already built
+    let regionObj = "seen_runtime/seen_region.o"
+    let checkRegionResult: CommandResult = runCommand("test seen_runtime/seen_region.o -nt seen_runtime/seen_region.c")
+    if not commandWasSuccessful(checkRegionResult) {
+        let regionSrcCheck: CommandResult = runCommand("test -f seen_runtime/seen_region.c")
+        if commandWasSuccessful(regionSrcCheck) {
+            let rtRegion: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I seen_runtime seen_runtime/seen_region.c -o seen_runtime/seen_region.o")
+        }
+    }
+    // Add region allocator object if it exists
+    var regionArg = ""
+    let useRegionObj: CommandResult = runCommand("test -f seen_runtime/seen_region.o")
+    if commandWasSuccessful(useRegionObj) {
+        regionArg = " seen_runtime/seen_region.o"
+    }
+    // Pre-compile GPU runtime if not already built
+    var gpuArg = ""
+    let checkGpuResult: CommandResult = runCommand("test seen_runtime/seen_gpu.o -nt seen_runtime/seen_gpu.c")
+    if not commandWasSuccessful(checkGpuResult) {
+        let gpuSrcCheck: CommandResult = runCommand("test -f seen_runtime/seen_gpu.c")
+        if commandWasSuccessful(gpuSrcCheck) {
+            // Check if vulkan headers are available before trying to compile
+            let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
+            if commandWasSuccessful(vulkanCheck) {
+                let rtGpu: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I seen_runtime seen_runtime/seen_gpu.c -o seen_runtime/seen_gpu.o $(pkg-config --cflags vulkan) 2>&1")
+            } else {
+                // Try without pkg-config (headers might be in standard paths)
+                let rtGpu2: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I seen_runtime seen_runtime/seen_gpu.c -o seen_runtime/seen_gpu.o 2>&1")
+            }
+        }
+    }
+    let useGpuObj: CommandResult = runCommand("test -f seen_runtime/seen_gpu.o")
+    if commandWasSuccessful(useGpuObj) {
+        gpuArg = " seen_runtime/seen_gpu.o"
+    }
+    // Link libraries: -lm -lpthread (omit -lrt on macOS where it doesn't exist)
+    // Add -lvulkan when GPU runtime is linked
+    var linkLibs = " -lm -lpthread"
+    if gpuArg != "" {
+        linkLibs = linkLibs + " -lvulkan"
+    }
+    linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + " -o " + outputFile + linkLibs + tomlExtraLinkFlags
+
+    let linkResult: CommandResult = runCommand(linkCmd)
+    if commandWasSuccessful(linkResult) {
+        // : Emit compilation database if requested
+        if g_emitCompileDb == 1 {
+            var cdbContent = "[\n"
+            var cdbIdx = 0
+            while cdbIdx < objectFiles.length() {
+                let cdbObjFile = objectFiles[cdbIdx]
+                if cdbIdx > 0 {
+                    cdbContent = cdbContent + ",\n"
+                }
+                let lb = "{"
+                let rb = "}"
+                cdbContent = cdbContent + "  " + lb + "\n"
+                cdbContent = cdbContent + "    \"directory\": \".\",\n"
+                cdbContent = cdbContent + "    \"file\": \"" + cdbObjFile + "\",\n"
+                cdbContent = cdbContent + "    \"command\": \"seen build " + cdbObjFile + "\"\n"
+                cdbContent = cdbContent + "  " + rb
+                cdbIdx = cdbIdx + 1
+            }
+            cdbContent = cdbContent + "\n]\n"
+            writeText("compile_commands.json", cdbContent)
+            println("  Wrote compile_commands.json (" + objectFiles.length().toString() + " entries)")
+        }
+        println("Build succeeded -> " + outputFile)
+        return 0
+    }
+
+    println("Linking failed")
+    println(linkResult.output)
+    return 1
+}
+
+fun checkCommand(inputFile: String) r: Int {
+    return checkCommandWithProfile(inputFile, "default", "en")
+}
+
+// Type-check a source file without generating code. Runs the full frontend
+// pipeline (lex -> parse -> typecheck) and optionally the determinism checker.
+// Returns 0 if all checks pass, 1 on any error.
+fun checkCommandWithProfile(inputFile: String, profile: String, language: String) r: Int {
+    let sourceCode = readText(inputFile)
+    if sourceCode == "" {
+        println("[ERROR] Failed to read source: " + inputFile)
+        return 1
+    }
+
+    let frontend = run_frontend(sourceCode, inputFile, language)
+    if not frontend.success {
+        println("[ERROR] Frontend errors detected")
+        printFrontendDiagnostics(frontend)
+        return 1
+    }
+
+    if profile == "deterministic" {
+        let deterResult = checkDeterminismWithProfile(frontend.program, true)
+        if deterResult.hasErrors() {
+            println("[ERROR] Determinism check failed")
+            printDeterminismErrors(deterResult)
+            return 1
+        }
+    }
+
+    println("[OK] Check passed")
+    return 0
+}
+
+fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
+    let diagnostics = frontend.getDiagnostics()
+    var index = 0
+    while index < diagnostics.length() {
+        let diag = diagnostics[index]
+        println("[" + diag.severity + "] " + diag.file + ":" + diag.line.toString() + ":" + diag.column.toString() + " " + diag.message)
+        index = index + 1
+    }
+    return
+}
+
+fun defaultOutput(sourceFile: String) r: String {
+    if sourceFile.endsWith(".seen") {
+        return sourceFile.substring(0, sourceFile.length() - 5)
+    }
+    return sourceFile + "_out"
+}
+
+// Ensure JIT runtime object (non-LTO ELF) exists for lli --extra-object
+fun ensureJitRuntime() r: String {
+    let jitObj = "seen_runtime/seen_runtime_jit.o"
+    let checkResult: CommandResult = runCommand("test " + jitObj + " -nt seen_runtime/seen_runtime.c")
+    if commandWasSuccessful(checkResult) {
+        return jitObj
+    }
+    println("  [jit] Pre-compiling runtime for JIT...")
+    let cmd: CommandResult = runCommand("clang -O2 -march=native -ffunction-sections -fdata-sections -pthread -c -I seen_runtime seen_runtime/seen_runtime.c -o " + jitObj)
+    if not commandWasSuccessful(cmd) {
+        return ""
+    }
+    return jitObj
+}
+
+// JIT execution path: generates LLVM IR for all modules, merges them with
+// llvm-link into a single .ll, then executes via lli's ORC JIT engine.
+// Uses a non-LTO runtime object (seen_runtime_jit.o) since lli cannot
+// consume ThinLTO bitcode. Falls back to AOT compilation if lli is not
+// available or if JIT runtime build fails.
+fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
+    if verbose {
+        println("[jit] Compiling " + inputFile + "...")
+    }
+
+    // Check lli is available
+    let lliCheck: CommandResult = runCommand("which lli")
+    if not commandWasSuccessful(lliCheck) {
+        println("[jit] lli not found, falling back to AOT")
+        return aotRunCommand(inputFile, verbose, language)
+    }
+
+    // Build non-LTO runtime for lli
+    let jitRt = ensureJitRuntime()
+    if jitRt == "" {
+        println("[jit] JIT runtime build failed, falling back to AOT")
+        return aotRunCommand(inputFile, verbose, language)
+    }
+
+    // Create generator
+    let generator = LLVMIRGenerator.new()
+
+    // Pass 1: Collect module paths and register declarations
+    if verbose {
+        println("  [Pass 1] Scanning declarations...")
+    }
+    let modulePaths = collectModulePaths(inputFile, not verbose)
+    if verbose {
+        println("    Found " + modulePaths.length().toString() + " modules")
+    }
+
+    var passIdx = 0
+    while passIdx < modulePaths.length() {
+        let path = modulePaths[passIdx]
+        let frontend = parseModule(path, language)
+        if frontend.success {
+            generator.registerDeclarations(frontend.program)
+        }
+        passIdx = passIdx + 1
+    }
+    if verbose {
+        println("  [Pass 1] Complete")
+    }
+
+    // Pass 2: Generate IR for each module (no opt/llc -- just .ll files)
+    if verbose {
+        println("  [Pass 2] Generating IR...")
+    }
+    var llFiles = Array<String>()
+    var moduleIndex = 0
+    while moduleIndex < modulePaths.length() {
+        let path = modulePaths[moduleIndex]
+        let frontend = parseModule(path, language)
+        if not frontend.success {
+            println("    Error: Failed to parse " + path)
+            moduleIndex = moduleIndex + 1
+            continue
+        }
+        let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
+        let llFile = "/tmp/seen_jit_module_" + moduleIndex.toString() + ".ll"
+        if not writeText(llFile, llvmIR) {
+            println("    Error: Failed to write IR: " + llFile)
+            return 1
+        }
+        llFiles.push(llFile)
+        generator.reset()
+        moduleIndex = moduleIndex + 1
+    }
+    if verbose {
+        println("  [Pass 2] Complete")
+    }
+
+    // Merge all .ll files with llvm-link
+    var mergedFile = "/tmp/seen_jit_merged.ll"
+    if llFiles.length() == 1 {
+        // Single module -- use directly (no cp needed)
+        mergedFile = llFiles[0]
+    } else {
+        var linkCmd = "llvm-link -S "
+        var li = 0
+        while li < llFiles.length() {
+            linkCmd = linkCmd + llFiles[li] + " "
+            li = li + 1
+        }
+        linkCmd = linkCmd + "-o " + mergedFile
+        let linkResult: CommandResult = runCommand(linkCmd)
+        if not commandWasSuccessful(linkResult) {
+            println("[jit] llvm-link failed, falling back to AOT")
+            println(linkResult.output)
+            return aotRunCommand(inputFile, verbose)
+        }
+    }
+
+    // Execute with lli
+    if verbose {
+        println("[jit] Executing...")
+    }
+    let execCmd = "lli --jit-kind=orc --extra-object=" + jitRt + " " + mergedFile
+    // Program output flows directly to terminal via runProgram (posix_spawn).
+    let exitCode: Int = runProgram(execCmd)
+    if exitCode != 0 {
+        println("[jit] JIT execution failed (exit code " + exitCode.toString() + ")")
+        return exitCode
+    }
+    return 0
+}
+
+// AOT execution path: compiles the source to a temporary binary at
+// /tmp/seen_run_script using the full compile pipeline, then executes it.
+// This is the fallback when JIT is unavailable and the explicit path for --aot.
+fun aotRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
+    if verbose {
+        println("[run] Compiling " + inputFile + "...")
+    }
+
+    // Compile to temp file
+    let tempOutput = "/tmp/seen_run_script"
+    let compileResult = compileCommandWithLanguage(inputFile, tempOutput, language)
+    if compileResult != 0 {
+        println("[run] Compilation failed")
+        return compileResult
+    }
+
+    // Execute the compiled binary
+    if verbose {
+        println("[run] Executing...")
+    }
+    let exitCode: Int = runProgram(tempOutput)
+    if exitCode != 0 {
+        println("[run] Execution failed (exit code " + exitCode.toString() + ")")
+        return exitCode
+    }
+    return 0
+}
+
+// Dispatch run command: JIT by default, AOT with --aot flag
+fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool, language: String) r: Int {
+    if useAot {
+        return aotRunCommand(inputFile, verbose, language)
+    }
+    return jitRunCommand(inputFile, verbose, language)
+}
+
+fun printUsage() r: Void {
+    println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache]")
+    println("       seen check <input.seen> [--profile deterministic]")
+    println("       seen run <input.seen> [--aot] [--verbose] [--language <lang>]")
+    println("       seen bundle <executable> <AppName> [--icon=<icon.icns>] [--version=<1.0>]")
+    println("       seen sign <path> [--identity=<identity>]")
+    println("       seen notarize <path> --apple-id=<email> --team-id=<id> --password=<pwd>")
+    println("       seen lipo <x86_64_binary> <arm64_binary> [--output=<universal>]")
+    println("       seen lipo --from-source <source.seen> [--output=<universal>]")
+    println("       seen ipa <executable> <AppName> [--bundle-id=...] [--version=...] [--provisioning-profile=...]")
+    println("       seen translate <file> --from <lang> --to <lang> [-o <output>]")
+    println("       seen lsp")
+    println("")
+    println("Options:")
+    println("  --profile deterministic  Reject HashMap/HashSet without @nondeterministic")
+    println("  --no-cache               Disable incremental compilation caching")
+    println("  --aot                    Use AOT compilation for 'run' (default: JIT via lli)")
+    println("  --verbose                Show compiler diagnostics during 'run'")
+    println("  --target-cpu=<cpu>       Target CPU (native, x86-64-v3, x86-64-v4)")
+    println("  --simd=<policy>          SIMD policy (auto, none, sse4.2, avx2, avx512)")
+    println("  --simd-report            Show LLVM vectorization report (brief)")
+    println("  --simd-report=full       Show detailed per-loop vectorization report")
+    println("  --backend=<name>         Backend (llvm)")
+    println("  --deterministic          Deterministic mode (scalar SIMD, no HashMap)")
+    println("  --sanitize=<policy>      Sanitizer (address, undefined, thread, memory)")
+    println("  --pgo-generate           Generate PGO instrumentation profile")
+    println("  --pgo-use=<path>         Use PGO profile for optimization")
+    println("  --ml-log=<path>          Collect ML training data from optimization remarks")
+    println("  --ml-decision-log=<path> Write optimization decision log (JSONL format)")
+    println("  --target=<platform>      Cross-compile target (ios-arm64)")
+    println("  --fast                   Lightweight optimization (for bootstrap verification)")
+    println("  --no-fork                Disable fork-parallel IR generation (sequential)")
+    println("")
+    println("PGO Workflow:")
+    println("  1. seen compile prog.seen prog --pgo-generate")
+    println("  2. ./prog                    # run with representative input")
+    println("  3. llvm-profdata merge -o default.profdata default_*.profraw")
+    println("  4. seen compile prog.seen prog --pgo-use=default.profdata")
+    return
+}
+
+// Extract value after = in a flag like "--target-cpu=native"
+// Uses .substring() method instead of free function to avoid stage1 codegen issue
+fun extractFlagValue(flag: String, prefixLen: Int) r: String {
+    return flag.substring(prefixLen, flag.length())
+}
+
+// Parse --profile flag from arguments starting at given index
+fun parseProfile(argv: Array<String>, startIndex: Int) r: String {
+    var i = startIndex
+    while i < argv.length() {
+        if argv[i] == "--profile" {
+            if i + 1 < argv.length() {
+                return argv[i + 1]
+            }
+        }
+        i = i + 1
+    }
+    return "default"
+}
+
+// Check if --language or -l flag is present in argv starting at startIndex.
+fun hasLanguageFlag(argv: Array<String>, startIndex: Int) r: Bool {
+    var i = startIndex
+    while i < argv.length() {
+        if argv[i] == "--language" or argv[i] == "-l" {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Extract language from Seen.toml [project] section. Returns "" if not found.
+fun extractTomlProjectLanguage(content: String) r: String {
+    var inProject = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = content.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("[") {
+                if line.endsWith("]") {
+                    let section = line.substring(1, line.length() - 1)
+                    if section == "project" {
+                        inProject = 1
+                    } else {
+                        inProject = 0
+                    }
+                }
+            } else {
+                if inProject == 1 {
+                    if line != "" {
+                        if not line.startsWith("#") {
+                            var eqPos = line.indexOf("=", 0)
+                            if eqPos > 0 {
+                                let key = line.substring(0, eqPos).trim()
+                                if key == "language" {
+                                    var langVal = line.substring(eqPos + 1, line.length()).trim()
+                                    if langVal.startsWith("\"") {
+                                        langVal = langVal.substring(1, langVal.length())
+                                    }
+                                    if langVal.endsWith("\"") {
+                                        langVal = langVal.substring(0, langVal.length() - 1)
+                                    }
+                                    return langVal
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun parseLanguage(argv: Array<String>, startIndex: Int) r: String {
+    var i = startIndex
+    while i < argv.length() {
+        if argv[i] == "--language" or argv[i] == "-l" {
+            if i + 1 < argv.length() {
+                return argv[i + 1]
+            }
+        }
+        i = i + 1
+    }
+    return "en"
+}
+
+// CLI entry point. Dispatches to subcommands: compile, check, run, lsp,
+// bundle, sign, notarize, lipo, ipa. The compile subcommand does its own
+// extensive flag parsing here before delegating to compileCommandWithFullTargeting.
+fun main() r: Int {
+    let argv = args()
+    if argv.length() < 2 {
+        printUsage()
+        return 1
+    }
+
+    let command = argv[1]
+    if command == "compile" {
+        if argv.length() < 3 {
+            printUsage()
+            return 1
+        }
+        // Parse flags and positional args from argv[2:]
+        var useCache = true
+        var profile = "default"
+        var language = "en"
+        var languageFromCli = 0
+        var targetCpu = ""
+        var simdPolicy = "auto"
+        var simdReport = false
+        var deterministic = false
+        var backend = "llvm"
+        var sanitizePolicy = ""
+        var pgoMode = ""
+        var pgoPath = ""
+        var mlLogPath = ""
+        var mlDecisionLogPath = ""
+        var crossTarget = ""
+        var positionalArgs = Array<String>()
+        var argIdx = 2
+        while argIdx < argv.length() {
+            if argv[argIdx] == "--no-cache" {
+                useCache = false
+            } else {
+                if argv[argIdx] == "--profile" {
+                    if argIdx + 1 < argv.length() {
+                        argIdx = argIdx + 1
+                        profile = argv[argIdx]
+                    }
+                } else {
+                    if argv[argIdx] == "--language" or argv[argIdx] == "-l" {
+                        if argIdx + 1 < argv.length() {
+                            argIdx = argIdx + 1
+                            language = argv[argIdx]
+                            languageFromCli = 1
+                        }
+                    } else if argv[argIdx] == "--simd-report" {
+                        simdReport = true
+                    } else {
+                        if startsWith(argv[argIdx], "--simd-report=") {
+                            simdReport = true
+                        } else {
+                            if argv[argIdx] == "--deterministic" {
+                                deterministic = true
+                                simdPolicy = "none"
+                            } else {
+                                if startsWith(argv[argIdx], "--target-cpu=") {
+                                    targetCpu = extractFlagValue(argv[argIdx], 13)
+                                } else {
+                                    if startsWith(argv[argIdx], "--simd=") {
+                                        simdPolicy = extractFlagValue(argv[argIdx], 7)
+                                    } else {
+                                        if startsWith(argv[argIdx], "--backend=") {
+                                            backend = extractFlagValue(argv[argIdx], 10)
+                                        } else {
+                                            if startsWith(argv[argIdx], "--sanitize=") {
+                                                sanitizePolicy = extractFlagValue(argv[argIdx], 11)
+                                            } else {
+                                                if argv[argIdx] == "--pgo-generate" {
+                                                    pgoMode = "generate"
+                                                } else {
+                                                    if startsWith(argv[argIdx], "--pgo-use=") {
+                                                        pgoMode = "use"
+                                                        pgoPath = extractFlagValue(argv[argIdx], 10)
+                                                    } else {
+                                                        if startsWith(argv[argIdx], "--ml-log=") {
+                                                            mlLogPath = extractFlagValue(argv[argIdx], 9)
+                                                        } else {
+                                                            if startsWith(argv[argIdx], "--ml-decision-log=") {
+                                                                mlDecisionLogPath = extractFlagValue(argv[argIdx], 18)
+                                                            } else {
+                                                                if argv[argIdx] == "--release" {
+                                                                    g_releaseMode = true
+                                                                } else {
+                                                                    if argv[argIdx] == "--emit-llvm" {
+                                                                        g_emitLlvm = true
+                                                                    } else {
+                                                                        if argv[argIdx] == "--fast" {
+                                                                            g_fastMode = 1
+                                                                        } else {
+                                                                            if argv[argIdx] == "--O2" {
+                                                                                g_O2Mode = 1
+                                                                            } else {
+                                                                                if startsWith(argv[argIdx], "--target=") {
+                                                                                    crossTarget = extractFlagValue(argv[argIdx], 9)
+                                                                                } else if argv[argIdx] == "--bounds-check" {
+                                                                                    g_boundsCheckCli = 1
+                                                                                } else if argv[argIdx] == "--panic-on-overflow" {
+                                                                                    g_panicOnOverflowCli = 1
+                                                                                } else if argv[argIdx] == "--warn-unused-result" {
+                                                                                    g_warnUnusedResultCli = 1
+                                                                                } else if argv[argIdx] == "--emit-glsl" {
+                                                                                    g_emitGlsl = 1
+                                                                                } else if argv[argIdx] == "--null-safety" {
+                                                                                    g_nullSafetyCli = 1
+                                                                                } else if argv[argIdx] == "--warn-uninit" {
+                                                                                    g_uninitCheckCli = 1
+                                                                                } else if argv[argIdx] == "--stack-check" {
+                                                                                    g_stackCheckCli = 1
+                                                                                } else if argv[argIdx] == "--emit-compile-db" {
+                                                                                    g_emitCompileDb = 1
+                                                                                } else if argv[argIdx] == "--no-fork" {
+                                                                                    g_noFork = 1
+                                                                                } else if startsWith(argv[argIdx], "--feature=") {
+                                                                                    let featureVal = extractFlagValue(argv[argIdx], 10)
+                                                                                    g_enabledFeaturesCli = g_enabledFeaturesCli + featureVal + "|"
+                                                                                } else {
+                                                                                    positionalArgs.push(argv[argIdx])
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            argIdx = argIdx + 1
+        }
+        if positionalArgs.length() < 1 {
+            printUsage()
+            return 1
+        }
+        // Check backend selection
+        if backend != "llvm" {
+            println("Error: Backend '" + backend + "' is not implemented. Only 'llvm' is supported.")
+            return 1
+        }
+        let inputFile = positionalArgs[0]
+        var outputFile = defaultOutput(inputFile)
+        if positionalArgs.length() > 1 {
+            outputFile = positionalArgs[1]
+        }
+        // Read language from Seen.toml [project] if CLI didn't explicitly set it
+        if languageFromCli == 0 {
+            let tc = readText("Seen.toml")
+            if tc != "" {
+                let tl = extractTomlProjectLanguage(tc)
+                if tl != "" {
+                    language = tl
+                }
+            }
+        }
+        // Encode mlDecisionLogPath into mlLogPath using | delimiter for bootstrap compat
+        var combinedMlPath = mlLogPath
+        if mlDecisionLogPath != "" {
+            combinedMlPath = mlLogPath + "|" + mlDecisionLogPath
+        }
+        let compResult = compileCommandWithFullTargeting(inputFile, outputFile, profile, useCache, language, targetCpu, simdPolicy, simdReport, sanitizePolicy, pgoMode, pgoPath, combinedMlPath, crossTarget)
+        return compResult
+    }
+
+    if command == "check" {
+        if argv.length() < 3 {
+            printUsage()
+            return 1
+        }
+        let profile = parseProfile(argv, 3)
+        var language = parseLanguage(argv, 3)
+        // Read language from Seen.toml [project] if CLI didn't explicitly set --language
+        if not hasLanguageFlag(argv, 3) {
+            let tc = readText("Seen.toml")
+            if tc != "" {
+                let tl = extractTomlProjectLanguage(tc)
+                if tl != "" {
+                    language = tl
+                }
+            }
+        }
+        return checkCommandWithProfile(argv[2], profile, language)
+    }
+
+    if command == "run" {
+        if argv.length() < 3 {
+            printUsage()
+            return 1
+        }
+        // Parse --aot, --verbose, and --language flags
+        var useAot = false
+        var verbose = false
+        var runInputFile = ""
+        var runLanguage = "en"
+        var ri = 2
+        while ri < argv.length() {
+            if argv[ri] == "--aot" {
+                useAot = true
+            } else if argv[ri] == "--verbose" {
+                verbose = true
+            } else if argv[ri] == "--language" or argv[ri] == "-l" {
+                if ri + 1 < argv.length() {
+                    ri = ri + 1
+                    runLanguage = argv[ri]
+                }
+            } else {
+                if runInputFile == "" {
+                    runInputFile = argv[ri]
+                }
+            }
+            ri = ri + 1
+        }
+        if runInputFile == "" {
+            printUsage()
+            return 1
+        }
+        // Read language from Seen.toml [project] if CLI didn't explicitly set --language
+        if not hasLanguageFlag(argv, 2) {
+            let tc = readText("Seen.toml")
+            if tc != "" {
+                let tl = extractTomlProjectLanguage(tc)
+                if tl != "" {
+                    runLanguage = tl
+                }
+            }
+        }
+        return runScriptCommand(runInputFile, useAot, verbose, runLanguage)
+    }
+
+    // LSP command - start language server
+    if command == "lsp" {
+        return runLspServer()
+    }
+
+    // macOS App Bundle command
+    if command == "bundle" {
+        if argv.length() < 4 {
+            println("Usage: seen bundle <executable> <AppName> [--icon=<icon.icns>] [--version=<1.0>]")
+            return 1
+        }
+        return bundleCommand(argv)
+    }
+
+    // macOS code signing command
+    if command == "sign" {
+        if argv.length() < 3 {
+            println("Usage: seen sign <path> [--identity=<identity>]")
+            return 1
+        }
+        return signCommand(argv)
+    }
+
+    // macOS notarization command
+    if command == "notarize" {
+        if argv.length() < 3 {
+            println("Usage: seen notarize <path.zip|path.app> --apple-id=<email> --team-id=<id> --password=<app-specific-password>")
+            return 1
+        }
+        return notarizeCommand(argv)
+    }
+
+    // Universal binary (lipo) command
+    if command == "lipo" {
+        if argv.length() < 3 {
+            println("Usage: seen lipo <x86_64_binary> <arm64_binary> [--output=<universal>]")
+            println("       seen lipo --from-source <source.seen> [--output=<universal>]")
+            return 1
+        }
+        return lipoCommand(argv)
+    }
+
+    // iOS IPA builder command
+    if command == "ipa" {
+        if argv.length() < 4 {
+            println("Usage: seen ipa <executable> <AppName> [--bundle-id=...] [--version=...] [--provisioning-profile=<path>]")
+            return 1
+        }
+        return ipaCommand(argv)
+    }
+
+    if command == "translate" {
+        return translateCommand(argv)
+    }
+
+    println("Unknown command: " + command)
+    printUsage()
+    return 1
+}
+
+// ============================================================================
+// macOS App Bundle / Code Signing / Notarization Commands
+// ============================================================================
+
+// Create a macOS .app bundle from a compiled executable. Generates the standard
+// Contents/MacOS + Contents/Resources directory structure and writes Info.plist.
+fun bundleCommand(argv: Array<String>) r: Int {
+    let executable = argv[2]
+    let appName = argv[3]
+    var iconPath = ""
+    var version = "1.0"
+    var bundleId = "com.seen." + appName
+
+    // Parse optional flags
+    var i = 4
+    while i < argv.length() {
+        if startsWith(argv[i], "--icon=") {
+            iconPath = extractFlagValue(argv[i], 7)
+        }
+        if startsWith(argv[i], "--version=") {
+            version = extractFlagValue(argv[i], 10)
+        }
+        if startsWith(argv[i], "--bundle-id=") {
+            bundleId = extractFlagValue(argv[i], 12)
+        }
+        i = i + 1
+    }
+
+    let appDir = appName + ".app"
+    let contentsDir = appDir + "/Contents"
+    let macosDir = contentsDir + "/MacOS"
+    let resourcesDir = contentsDir + "/Resources"
+
+    // Create directory structure
+    let mkdirResult: CommandResult = runCommand("mkdir -p " + macosDir + " " + resourcesDir)
+    if not commandWasSuccessful(mkdirResult) {
+        println("Error: Failed to create app bundle directory structure")
+        return 1
+    }
+
+    // Copy executable
+    let cpResult: CommandResult = runCommand("cp " + executable + " " + macosDir + "/" + appName)
+    if not commandWasSuccessful(cpResult) {
+        println("Error: Failed to copy executable into bundle")
+        return 1
+    }
+    let chmodResult: CommandResult = runCommand("chmod +x " + macosDir + "/" + appName)
+
+    // Copy icon if provided
+    if iconPath != "" {
+        let iconResult: CommandResult = runCommand("cp " + iconPath + " " + resourcesDir + "/AppIcon.icns")
+    }
+
+    // Generate Info.plist
+    let plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
+        "<plist version=\"1.0\">\n" +
+        "<dict>\n" +
+        "  <key>CFBundleExecutable</key>\n" +
+        "  <string>" + appName + "</string>\n" +
+        "  <key>CFBundleIdentifier</key>\n" +
+        "  <string>" + bundleId + "</string>\n" +
+        "  <key>CFBundleName</key>\n" +
+        "  <string>" + appName + "</string>\n" +
+        "  <key>CFBundleVersion</key>\n" +
+        "  <string>" + version + "</string>\n" +
+        "  <key>CFBundleShortVersionString</key>\n" +
+        "  <string>" + version + "</string>\n" +
+        "  <key>CFBundlePackageType</key>\n" +
+        "  <string>APPL</string>\n" +
+        "  <key>CFBundleIconFile</key>\n" +
+        "  <string>AppIcon</string>\n" +
+        "  <key>LSMinimumSystemVersion</key>\n" +
+        "  <string>13.0</string>\n" +
+        "  <key>NSHighResolutionCapable</key>\n" +
+        "  <true/>\n" +
+        "</dict>\n" +
+        "</plist>"
+    writeText(contentsDir + "/Info.plist", plist)
+
+    println("App bundle created: " + appDir)
+    return 0
+}
+
+fun signCommand(argv: Array<String>) r: Int {
+    let path = argv[2]
+    var identity = "-"  // Ad-hoc signing by default
+    var i = 3
+    while i < argv.length() {
+        if startsWith(argv[i], "--identity=") {
+            identity = extractFlagValue(argv[i], 11)
+        }
+        i = i + 1
+    }
+
+    let signCmd = "codesign --force --deep --sign \"" + identity + "\" " + path
+    println("Signing: " + path + " (identity: " + identity + ")")
+    let result: CommandResult = runCommand(signCmd)
+    if commandWasSuccessful(result) {
+        println("Signed successfully")
+        return 0
+    }
+    println("Signing failed: " + result.output)
+    return 1
+}
+
+fun notarizeCommand(argv: Array<String>) r: Int {
+    let path = argv[2]
+    var appleId = ""
+    var teamId = ""
+    var password = ""
+    var i = 3
+    while i < argv.length() {
+        if startsWith(argv[i], "--apple-id=") {
+            appleId = extractFlagValue(argv[i], 11)
+        }
+        if startsWith(argv[i], "--team-id=") {
+            teamId = extractFlagValue(argv[i], 10)
+        }
+        if startsWith(argv[i], "--password=") {
+            password = extractFlagValue(argv[i], 11)
+        }
+        i = i + 1
+    }
+
+    if appleId == "" or teamId == "" or password == "" {
+        println("Error: --apple-id, --team-id, and --password are all required")
+        return 1
+    }
+
+    let notarizeCmd = "xcrun notarytool submit " + path +
+        " --apple-id " + appleId +
+        " --team-id " + teamId +
+        " --password " + password +
+        " --wait"
+    println("Submitting for notarization: " + path)
+    let result: CommandResult = runCommand(notarizeCmd)
+    if commandWasSuccessful(result) {
+        println("Notarization succeeded")
+        // Staple the ticket
+        let stapleCmd = "xcrun stapler staple " + path
+        let stapleResult: CommandResult = runCommand(stapleCmd)
+        if commandWasSuccessful(stapleResult) {
+            println("Ticket stapled successfully")
+        }
+        return 0
+    }
+    println("Notarization failed: " + result.output)
+    return 1
+}
+
+// ============================================================================
+// Universal Binary (lipo) Command
+// ============================================================================
+
+// Create a macOS universal binary (fat binary) containing both x86_64 and arm64
+// slices. Two modes: (A) merge two pre-built binaries, or (B) --from-source
+// compiles the same source for both architectures and merges the results.
+fun lipoCommand(argv: Array<String>) r: Int {
+    var outputPath = ""
+    var fromSource = false
+    var sourceFile = ""
+
+    // Check for --from-source mode
+    if argv[2] == "--from-source" {
+        fromSource = true
+        if argv.length() < 4 {
+            println("Usage: seen lipo --from-source <source.seen> [--output=<universal>]")
+            return 1
+        }
+        sourceFile = argv[3]
+        // Parse remaining flags
+        var i = 4
+        while i < argv.length() {
+            if startsWith(argv[i], "--output=") {
+                outputPath = extractFlagValue(argv[i], 9)
+            }
+            i = i + 1
+        }
+        // Default output name: strip .seen extension
+        if outputPath == "" {
+            if sourceFile.endsWith(".seen") {
+                outputPath = sourceFile.substring(0, sourceFile.length() - 5)
+            } else {
+                outputPath = sourceFile + ".universal"
+            }
+        }
+    } else {
+        // Mode A: merge two pre-built binaries
+        let x86Binary = argv[2]
+        let armBinary = argv[3]
+        // Parse remaining flags
+        var i = 4
+        while i < argv.length() {
+            if startsWith(argv[i], "--output=") {
+                outputPath = extractFlagValue(argv[i], 9)
+            }
+            i = i + 1
+        }
+        if outputPath == "" {
+            outputPath = x86Binary + ".universal"
+        }
+
+        println("Creating universal binary: " + outputPath)
+        println("  x86_64: " + x86Binary)
+        println("  arm64:  " + armBinary)
+
+        let lipoCmd = "lipo -create " + x86Binary + " " + armBinary + " -output " + outputPath
+        let result: CommandResult = runCommand(lipoCmd)
+        if not commandWasSuccessful(result) {
+            println("Error: lipo failed: " + result.output)
+            return 1
+        }
+
+        // Verify the result
+        let infoCmd = "lipo -info " + outputPath
+        let infoResult: CommandResult = runCommand(infoCmd)
+        if commandWasSuccessful(infoResult) {
+            println("Universal binary created: " + infoResult.output)
+        }
+        return 0
+    }
+
+    // --from-source mode: compile for both architectures, then merge
+    let selfPath = argv[0]
+    let hash = hashString(sourceFile)
+    let tmpX86 = "/tmp/seen_lipo_x86_" + hash
+    let tmpArm = "/tmp/seen_lipo_arm_" + hash
+
+    println("Building universal binary from source: " + sourceFile)
+
+    // Compile for x86_64
+    println("  Compiling for x86_64...")
+    let x86Cmd = selfPath + " compile " + sourceFile + " " + tmpX86 + " --target=macos-x86_64"
+    let x86Result: CommandResult = runCommand(x86Cmd)
+    if not commandWasSuccessful(x86Result) {
+        println("Error: x86_64 compilation failed: " + x86Result.output)
+        return 1
+    }
+
+    // Compile for arm64
+    println("  Compiling for arm64...")
+    let armCmd = selfPath + " compile " + sourceFile + " " + tmpArm + " --target=macos-arm64"
+    let armResult: CommandResult = runCommand(armCmd)
+    if not commandWasSuccessful(armResult) {
+        // Clean up x86 temp file
+        let cleanResult: CommandResult = runCommand("rm -f " + tmpX86)
+        println("Error: arm64 compilation failed: " + armResult.output)
+        return 1
+    }
+
+    // Merge with lipo
+    println("  Merging architectures...")
+    let lipoCmd = "lipo -create " + tmpX86 + " " + tmpArm + " -output " + outputPath
+    let lipoResult: CommandResult = runCommand(lipoCmd)
+    if not commandWasSuccessful(lipoResult) {
+        let cleanResult: CommandResult = runCommand("rm -f " + tmpX86 + " " + tmpArm)
+        println("Error: lipo failed: " + lipoResult.output)
+        return 1
+    }
+
+    // Clean up temp files
+    let cleanResult: CommandResult = runCommand("rm -f " + tmpX86 + " " + tmpArm)
+
+    // Verify the result
+    let infoCmd = "lipo -info " + outputPath
+    let infoResult: CommandResult = runCommand(infoCmd)
+    if commandWasSuccessful(infoResult) {
+        println("Universal binary created: " + infoResult.output)
+    }
+    return 0
+}
+
+// ============================================================================
+// iOS IPA Builder Command
+// ============================================================================
+
+// Build an iOS .ipa archive from a pre-built arm64 executable or from source.
+// Creates the Payload/AppName.app directory structure, generates Info.plist,
+// embeds provisioning profile, code-signs, and packages into a .zip renamed .ipa.
+fun ipaCommand(argv: Array<String>) r: Int {
+    var fromSource = false
+    var sourceFile = ""
+    var executable = ""
+    var appName = ""
+    var bundleId = ""
+    var version = "1.0"
+    var minIos = "17.0"
+    var iconPath = ""
+    var provisioningProfile = ""
+    var identity = "-"
+    var entitlements = ""
+
+    // Check for --from-source mode
+    if argv[2] == "--from-source" {
+        fromSource = true
+        if argv.length() < 4 {
+            println("Usage: seen ipa --from-source <source.seen> <AppName> [options...]")
+            return 1
+        }
+        sourceFile = argv[3]
+        if argv.length() < 5 {
+            println("Usage: seen ipa --from-source <source.seen> <AppName> [options...]")
+            return 1
+        }
+        appName = argv[4]
+        // Parse flags starting at index 5
+        var i = 5
+        while i < argv.length() {
+            if startsWith(argv[i], "--bundle-id=") {
+                bundleId = extractFlagValue(argv[i], 12)
+            }
+            if startsWith(argv[i], "--version=") {
+                version = extractFlagValue(argv[i], 10)
+            }
+            if startsWith(argv[i], "--min-ios=") {
+                minIos = extractFlagValue(argv[i], 10)
+            }
+            if startsWith(argv[i], "--icon=") {
+                iconPath = extractFlagValue(argv[i], 7)
+            }
+            if startsWith(argv[i], "--provisioning-profile=") {
+                provisioningProfile = extractFlagValue(argv[i], 23)
+            }
+            if startsWith(argv[i], "--identity=") {
+                identity = extractFlagValue(argv[i], 11)
+            }
+            if startsWith(argv[i], "--entitlements=") {
+                entitlements = extractFlagValue(argv[i], 15)
+            }
+            i = i + 1
+        }
+    } else {
+        executable = argv[2]
+        appName = argv[3]
+        // Parse flags starting at index 4
+        var i = 4
+        while i < argv.length() {
+            if startsWith(argv[i], "--bundle-id=") {
+                bundleId = extractFlagValue(argv[i], 12)
+            }
+            if startsWith(argv[i], "--version=") {
+                version = extractFlagValue(argv[i], 10)
+            }
+            if startsWith(argv[i], "--min-ios=") {
+                minIos = extractFlagValue(argv[i], 10)
+            }
+            if startsWith(argv[i], "--icon=") {
+                iconPath = extractFlagValue(argv[i], 7)
+            }
+            if startsWith(argv[i], "--provisioning-profile=") {
+                provisioningProfile = extractFlagValue(argv[i], 23)
+            }
+            if startsWith(argv[i], "--identity=") {
+                identity = extractFlagValue(argv[i], 11)
+            }
+            if startsWith(argv[i], "--entitlements=") {
+                entitlements = extractFlagValue(argv[i], 15)
+            }
+            i = i + 1
+        }
+    }
+
+    if bundleId == "" {
+        bundleId = "com.seen." + appName
+    }
+
+    // Step 1: If --from-source, compile for ios-arm64
+    if fromSource {
+        let selfPath = argv[0]
+        let hash = hashString(sourceFile)
+        let tmpOut = "/tmp/seen_ipa_bin_" + hash
+        println("Compiling " + sourceFile + " for ios-arm64...")
+        let compileCmd = selfPath + " compile " + sourceFile + " " + tmpOut + " --target=ios-arm64"
+        let compileResult: CommandResult = runCommand(compileCmd)
+        if not commandWasSuccessful(compileResult) {
+            println("Error: iOS compilation failed: " + compileResult.output)
+            return 1
+        }
+        executable = tmpOut
+    }
+
+    // Step 2: Create Payload directory structure in /tmp
+    let hash = hashString(appName + version)
+    let buildDir = "/tmp/seen_ipa_" + hash
+    let payloadDir = buildDir + "/Payload"
+    let appDir = payloadDir + "/" + appName + ".app"
+
+    println("Building IPA: " + appName + ".ipa")
+    println("  Bundle ID: " + bundleId)
+    println("  Version: " + version)
+    println("  Min iOS: " + minIos)
+
+    let mkdirResult: CommandResult = runCommand("mkdir -p " + appDir)
+    if not commandWasSuccessful(mkdirResult) {
+        println("Error: Failed to create app directory structure")
+        return 1
+    }
+
+    // Step 3: Copy executable into app bundle
+    let cpResult: CommandResult = runCommand("cp " + executable + " " + appDir + "/" + appName)
+    if not commandWasSuccessful(cpResult) {
+        println("Error: Failed to copy executable into app bundle")
+        let cleanResult: CommandResult = runCommand("rm -rf " + buildDir)
+        return 1
+    }
+    let chmodResult: CommandResult = runCommand("chmod +x " + appDir + "/" + appName)
+
+    // Step 4: Generate iOS Info.plist
+    let plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
+        "<plist version=\"1.0\">\n" +
+        "<dict>\n" +
+        "  <key>CFBundleExecutable</key>\n" +
+        "  <string>" + appName + "</string>\n" +
+        "  <key>CFBundleIdentifier</key>\n" +
+        "  <string>" + bundleId + "</string>\n" +
+        "  <key>CFBundleName</key>\n" +
+        "  <string>" + appName + "</string>\n" +
+        "  <key>CFBundleVersion</key>\n" +
+        "  <string>" + version + "</string>\n" +
+        "  <key>CFBundleShortVersionString</key>\n" +
+        "  <string>" + version + "</string>\n" +
+        "  <key>CFBundlePackageType</key>\n" +
+        "  <string>APPL</string>\n" +
+        "  <key>MinimumOSVersion</key>\n" +
+        "  <string>" + minIos + "</string>\n" +
+        "  <key>DTPlatformName</key>\n" +
+        "  <string>iphoneos</string>\n" +
+        "  <key>UIDeviceFamily</key>\n" +
+        "  <array>\n" +
+        "    <integer>1</integer>\n" +
+        "    <integer>2</integer>\n" +
+        "  </array>\n" +
+        "  <key>UILaunchStoryboardName</key>\n" +
+        "  <string></string>\n" +
+        "  <key>UIRequiredDeviceCapabilities</key>\n" +
+        "  <array>\n" +
+        "    <string>arm64</string>\n" +
+        "  </array>\n" +
+        "  <key>CFBundleSupportedPlatforms</key>\n" +
+        "  <array>\n" +
+        "    <string>iPhoneOS</string>\n" +
+        "  </array>\n" +
+        "</dict>\n" +
+        "</plist>"
+    writeText(appDir + "/Info.plist", plist)
+
+    // Step 5: Embed provisioning profile if provided
+    if provisioningProfile != "" {
+        let provResult: CommandResult = runCommand("cp " + provisioningProfile + " " + appDir + "/embedded.mobileprovision")
+        if not commandWasSuccessful(provResult) {
+            println("Warning: Failed to embed provisioning profile")
+        }
+    }
+
+    // Step 6: Copy icon if provided
+    if iconPath != "" {
+        let iconResult: CommandResult = runCommand("cp " + iconPath + " " + appDir + "/AppIcon.png")
+    }
+
+    // Step 7: Code sign
+    var signCmd = "codesign --force --deep --sign \"" + identity + "\" "
+    if entitlements != "" {
+        signCmd = signCmd + "--entitlements " + entitlements + " "
+    }
+    signCmd = signCmd + appDir
+    println("  Signing with identity: " + identity)
+    let signResult: CommandResult = runCommand(signCmd)
+    if not commandWasSuccessful(signResult) {
+        println("Warning: Code signing failed: " + signResult.output)
+        println("  IPA will be unsigned (may not install on devices)")
+    }
+
+    // Step 8: Package as .ipa
+    let ipaName = appName + ".ipa"
+    let zipCmd = "cd " + buildDir + " && zip -r -q " + ipaName + " Payload/"
+    let zipResult: CommandResult = runCommand(zipCmd)
+    if not commandWasSuccessful(zipResult) {
+        println("Error: Failed to create IPA archive")
+        let cleanResult: CommandResult = runCommand("rm -rf " + buildDir)
+        return 1
+    }
+
+    // Step 9: Move .ipa to current directory and clean up
+    let mvResult: CommandResult = runCommand("mv " + buildDir + "/" + ipaName + " ./" + ipaName)
+    if not commandWasSuccessful(mvResult) {
+        println("Error: Failed to move IPA to current directory")
+        let cleanResult: CommandResult = runCommand("rm -rf " + buildDir)
+        return 1
+    }
+    let cleanResult: CommandResult = runCommand("rm -rf " + buildDir)
+
+    // Clean up temp executable from --from-source
+    if fromSource {
+        let cleanSrcResult: CommandResult = runCommand("rm -f " + executable)
+    }
+
+    println("IPA created: " + ipaName)
+    return 0
+}
+
+// ============================================================================
+// Translate Command
+// ============================================================================
+
+// Check if a language code is supported. Returns 1 for valid, 0 for invalid.
+fun isValidTranslateLanguage(lang: String) r: Int {
+    if lang == "en" { return 1 }
+    if lang == "ar" { return 1 }
+    if lang == "es" { return 1 }
+    if lang == "ru" { return 1 }
+    if lang == "zh" { return 1 }
+    if lang == "ja" { return 1 }
+    if lang == "fr" { return 1 }
+    return 0
+}
+
+// Usage: seen translate <file> --from <lang> --to <lang> [-o <output>]
+fun translateCommand(argv: Array<String>) r: Int {
+    if argv.length() < 3 {
+        println("Error: translate command requires a source file")
+        println("Usage: seen translate <file> --from <lang> --to <lang> [-o <output>]")
+        return 1
+    }
+
+    let sourceFile = argv[2]
+    var fromLang = "en"
+    var toLang = ""
+    var outputFile = ""
+
+    var i = 3
+    while i < argv.length() {
+        if argv[i] == "--from" {
+            if i + 1 < argv.length() {
+                i = i + 1
+                fromLang = argv[i]
+            } else {
+                println("Error: --from requires a language code")
+                return 1
+            }
+        } else {
+            if argv[i] == "--to" {
+                if i + 1 < argv.length() {
+                    i = i + 1
+                    toLang = argv[i]
+                } else {
+                    println("Error: --to requires a language code")
+                    return 1
+                }
+            } else {
+                if argv[i] == "-o" or argv[i] == "--output" {
+                    if i + 1 < argv.length() {
+                        i = i + 1
+                        outputFile = argv[i]
+                    } else {
+                        println("Error: -o requires an output file path")
+                        return 1
+                    }
+                } else {
+                    println("Warning: Unknown option '" + argv[i] + "'")
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    if toLang == "" {
+        println("Error: --to <lang> is required")
+        println("Usage: seen translate <file> --from <lang> --to <lang> [-o <output>]")
+        return 1
+    }
+
+    if isValidTranslateLanguage(fromLang) == 0 {
+        println("Error: Unsupported language '" + fromLang + "'")
+        println("Supported languages: en, ar, es, ru, zh, ja, fr")
+        return 1
+    }
+    if isValidTranslateLanguage(toLang) == 0 {
+        println("Error: Unsupported language '" + toLang + "'")
+        println("Supported languages: en, ar, es, ru, zh, ja, fr")
+        return 1
+    }
+
+    let sourceCode = readText(sourceFile)
+    if sourceCode.length() == 0 {
+        println("Error: Could not read file '" + sourceFile + "'")
+        return 1
+    }
+
+    let translated = translateSource(sourceCode, fromLang, toLang)
+
+    if outputFile != "" {
+        writeText(outputFile, translated)
+        println("Translated " + sourceFile + " (" + fromLang + " -> " + toLang + ") -> " + outputFile)
+        return 0
+    }
+    // Print to stdout
+    print(translated)
+    return 0
+}

@@ -1,0 +1,11 @@
+--- a/lib/linguist/languages.yml
++++ b/lib/linguist/languages.yml
+@@ -0,0 +1,8 @@
++Seen:
++  type: programming
++  color: "#4B8BBE"
++  extensions:
++    - ".seen"
++  tm_scope: source.seen
++  ace_mode: text
++  language_id: <will be auto-assigned by Linguist maintainers>

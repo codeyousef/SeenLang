@@ -1,0 +1,387 @@
+// Routing Framework for Seen Language
+// Provides deterministic route registration and resolution
+// Uses BTreeMap<String, Int> for sorted path storage (deterministic iteration)
+// Used with the @router decorator
+
+import collections.btree_map.{BTreeMap}
+
+// A single route definition
+class Route {
+    var path: String              // e.g. "/users/:id"
+    var method: String            // "GET", "POST", etc.
+    var handlerName: String       // Name of handler function
+    var isStatic: Bool            // True if no dynamic segments
+    var paramNames: Array<String> // e.g. ["id"] for "/users/:id"
+    var middlewareNames: Array<String>  // Middleware chain for this route
+
+    static fun new(method: String, path: String, handler: String) r: Route {
+        return Route{
+            path: path,
+            method: method,
+            handlerName: handler,
+            isStatic: isStaticPath(path),
+            paramNames: extractParamNames(path),
+            middlewareNames: Array<String>()
+        }
+    }
+
+    static fun withMiddleware(method: String, path: String, handler: String, middleware: Array<String>) r: Route {
+        return Route{
+            path: path,
+            method: method,
+            handlerName: handler,
+            isStatic: isStaticPath(path),
+            paramNames: extractParamNames(path),
+            middlewareNames: middleware
+        }
+    }
+}
+
+// Result of resolving a route
+class RouteMatch {
+    var found: Bool
+    var route: Route
+    var params: Array<String>    // key,value,key,value pairs
+
+    static fun notFound() r: RouteMatch {
+        return RouteMatch{
+            found: false,
+            route: Route{
+                path: "",
+                method: "",
+                handlerName: "",
+                isStatic: true,
+                paramNames: Array<String>(),
+                middlewareNames: Array<String>()
+            },
+            params: Array<String>()
+        }
+    }
+
+    static fun matched(route: Route, params: Array<String>) r: RouteMatch {
+        return RouteMatch{
+            found: true,
+            route: route,
+            params: params
+        }
+    }
+
+    // Get a param value by name
+    fun getParam(name: String) r: String {
+        var i = 0
+        while i < params.length() {
+            if i % 2 == 0 and params[i] == name {
+                return params[i + 1]
+            }
+            i = i + 2
+        }
+        return ""
+    }
+
+    // Check if a param exists
+    fun hasParam(name: String) r: Bool {
+        var i = 0
+        while i < params.length() {
+            if i % 2 == 0 and params[i] == name {
+                return true
+            }
+            i = i + 2
+        }
+        return false
+    }
+}
+
+// The main router class
+@router
+class Router {
+    var routes: Array<Route>             // All routes (ordered by registration)
+    var routeIndex: BTreeMap<String, Int> // path key -> route index (sorted)
+    var middlewareNames: Array<String>    // Global middleware names
+
+    static fun new() r: Router {
+        return Router{
+            routes: Array<Route>(),
+            routeIndex: BTreeMap<String, Int>.new(),
+            middlewareNames: Array<String>()
+        }
+    }
+
+    // Register a route
+    fun addRoute(method: String, path: String, handler: String) r: Void {
+        let route = Route.new(method, path, handler)
+        let index = routes.length()
+        routes.push(route)
+        let key = method + ":" + path
+        routeIndex.insert(key, index)
+    }
+
+    // Register a route with middleware
+    fun addRouteWithMiddleware(method: String, path: String, handler: String, middleware: Array<String>) r: Void {
+        let route = Route.withMiddleware(method, path, handler, middleware)
+        let index = routes.length()
+        routes.push(route)
+        let key = method + ":" + path
+        routeIndex.insert(key, index)
+    }
+
+    // Resolve a route by method and path
+    fun resolve(method: String, path: String) r: RouteMatch {
+        // First try exact (static) match via BTreeMap
+        let key = method + ":" + path
+        if routeIndex.containsKey(key) {
+            let optIndex = routeIndex.get(key)
+            let index = optIndex.unwrap()
+            let route = routes[index]
+            return RouteMatch.matched(route, Array<String>())
+        }
+
+        // Then scan for dynamic routes
+        var i = 0
+        while i < routes.length() {
+            let route = routes[i]
+            if route.method == method and not route.isStatic {
+                let params = matchPath(route.path, path)
+                if params.length() > 0 or matchPathExact(route.path, path) {
+                    return RouteMatch.matched(route, params)
+                }
+            }
+            i = i + 1
+        }
+
+        return RouteMatch.notFound()
+    }
+
+    // Check if a route exists
+    fun hasRoute(method: String, path: String) r: Bool {
+        let match = resolve(method, path)
+        return match.found
+    }
+
+    // Get the number of registered routes
+    fun routeCount() r: Int {
+        return routes.length()
+    }
+
+    // Register global middleware
+    fun useMiddleware(name: String) r: Void {
+        middlewareNames.push(name)
+    }
+}
+
+// ============================================================================
+// Route Pattern Utilities
+// ============================================================================
+
+// Check if a path has no dynamic segments
+fun isStaticPath(path: String) r: Bool {
+    var i = 0
+    while i < path.length() {
+        if path.charAt(i) == ":" {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// Validate a route pattern
+fun isValidPattern(path: String) r: Bool {
+    // Must start with /
+    if path.length() == 0 {
+        return false
+    }
+    if path.charAt(0) != "/" {
+        return false
+    }
+    // Must not end with / (except root "/")
+    if path.length() > 1 and path.charAt(path.length() - 1) == "/" {
+        return false
+    }
+    // Check for empty segments (double slashes)
+    var i = 0
+    while i < path.length() - 1 {
+        if path.charAt(i) == "/" and path.charAt(i + 1) == "/" {
+            return false
+        }
+        i = i + 1
+    }
+    // Check dynamic segment names are valid identifiers
+    let segments = splitPath(path)
+    var si = 0
+    while si < segments.length() {
+        let seg = segments[si]
+        if seg.length() > 0 and seg.charAt(0) == ":" {
+            // Dynamic segment - name must be non-empty
+            if seg.length() < 2 {
+                return false
+            }
+            // Name must start with letter
+            let firstChar = seg.charAt(1)
+            if not isAlpha(firstChar) {
+                return false
+            }
+        }
+        si = si + 1
+    }
+    return true
+}
+
+// Extract parameter names from a pattern
+fun extractParamNames(path: String) r: Array<String> {
+    var names = Array<String>()
+    let segments = splitPath(path)
+    var i = 0
+    while i < segments.length() {
+        let seg = segments[i]
+        if seg.length() > 0 and seg.charAt(0) == ":" {
+            names.push(seg.substring(1, seg.length()))
+        }
+        i = i + 1
+    }
+    return names
+}
+
+// Match a pattern against an actual path, returning params as [key, value, ...]
+fun matchPath(pattern: String, actual: String) r: Array<String> {
+    var params = Array<String>()
+    let patternSegs = splitPath(pattern)
+    let actualSegs = splitPath(actual)
+
+    if patternSegs.length() != actualSegs.length() {
+        return params  // Empty = no match
+    }
+
+    var i = 0
+    while i < patternSegs.length() {
+        let pSeg = patternSegs[i]
+        let aSeg = actualSegs[i]
+
+        if pSeg.length() > 0 and pSeg.charAt(0) == ":" {
+            // Dynamic segment - extract param
+            let paramName = pSeg.substring(1, pSeg.length())
+            params.push(paramName)
+            params.push(aSeg)
+        } else if pSeg != aSeg {
+            // Static segment mismatch
+            return Array<String>()
+        }
+        i = i + 1
+    }
+
+    return params
+}
+
+// Check if a pattern matches a path exactly (for patterns with no params)
+fun matchPathExact(pattern: String, actual: String) r: Bool {
+    let patternSegs = splitPath(pattern)
+    let actualSegs = splitPath(actual)
+
+    if patternSegs.length() != actualSegs.length() {
+        return false
+    }
+
+    var i = 0
+    while i < patternSegs.length() {
+        let pSeg = patternSegs[i]
+        let aSeg = actualSegs[i]
+
+        if pSeg.length() > 0 and pSeg.charAt(0) == ":" {
+            // Dynamic segment always matches
+        } else if pSeg != aSeg {
+            return false
+        }
+        i = i + 1
+    }
+
+    return true
+}
+
+// Split a path into segments (splitting on '/')
+fun splitPath(path: String) r: Array<String> {
+    var segments = Array<String>()
+    var current = ""
+    var i = 0
+    while i < path.length() {
+        let ch = path.charAt(i)
+        if ch == "/" {
+            if current.length() > 0 {
+                segments.push(current)
+                current = ""
+            }
+        } else {
+            current = current + ch
+        }
+        i = i + 1
+    }
+    if current.length() > 0 {
+        segments.push(current)
+    }
+    return segments
+}
+
+// Check if a character is alphabetic
+fun isAlpha(ch: String) r: Bool {
+    if ch == "a" or ch == "b" or ch == "c" or ch == "d" or ch == "e" {
+        return true
+    }
+    if ch == "f" or ch == "g" or ch == "h" or ch == "i" or ch == "j" {
+        return true
+    }
+    if ch == "k" or ch == "l" or ch == "m" or ch == "n" or ch == "o" {
+        return true
+    }
+    if ch == "p" or ch == "q" or ch == "r" or ch == "s" or ch == "t" {
+        return true
+    }
+    if ch == "u" or ch == "v" or ch == "w" or ch == "x" or ch == "y" {
+        return true
+    }
+    if ch == "z" {
+        return true
+    }
+    if ch == "A" or ch == "B" or ch == "C" or ch == "D" or ch == "E" {
+        return true
+    }
+    if ch == "F" or ch == "G" or ch == "H" or ch == "I" or ch == "J" {
+        return true
+    }
+    if ch == "K" or ch == "L" or ch == "M" or ch == "N" or ch == "O" {
+        return true
+    }
+    if ch == "P" or ch == "Q" or ch == "R" or ch == "S" or ch == "T" {
+        return true
+    }
+    if ch == "U" or ch == "V" or ch == "W" or ch == "X" or ch == "Y" {
+        return true
+    }
+    if ch == "Z" {
+        return true
+    }
+    return false
+}
+
+// ============================================================================
+// Global Router API
+// ============================================================================
+
+var g_router: Router = Router.new()
+
+// Initialize/reset the global router
+fun initRouter() r: Void {
+    g_router = Router.new()
+}
+
+// Register a route on the global router
+fun addRoute(method: String, path: String, handler: String) r: Void {
+    g_router.addRoute(method, path, handler)
+}
+
+// Resolve a route on the global router
+fun resolveRoute(method: String, path: String) r: RouteMatch {
+    return g_router.resolve(method, path)
+}
+
+// Get the global route count
+fun routeCount() r: Int {
+    return g_router.routeCount()
+}

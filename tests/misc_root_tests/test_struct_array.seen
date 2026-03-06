@@ -1,0 +1,17 @@
+fun testArrayAccess() r: Float {
+    var arr = Array<Float>()
+    arr.push(1.5)
+    arr.push(2.5)
+    arr.push(3.5)
+
+    let first = arr[0]
+    let second = arr[1]
+    let third = arr[2]
+
+    return first + second + third
+}
+
+fun main() r: Void {
+    let result = testArrayAccess()
+    println("Array sum: " + result.toString())
+}

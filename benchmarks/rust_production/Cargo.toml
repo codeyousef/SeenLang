@@ -1,0 +1,60 @@
+[package]
+name = "seen-benchmarks-rust"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "01_matrix_mult"
+path = "src/bin/01_matrix_mult.rs"
+
+[[bin]]
+name = "02_sieve"
+path = "src/bin/02_sieve.rs"
+
+[[bin]]
+name = "05_nbody"
+path = "src/bin/05_nbody.rs"
+
+[[bin]]
+name = "07_mandelbrot"
+path = "src/bin/07_mandelbrot.rs"
+
+[[bin]]
+name = "08_lru_cache"
+path = "src/bin/08_lru_cache.rs"
+
+[[bin]]
+name = "03_binary_trees"
+path = "src/bin/03_binary_trees.rs"
+
+[[bin]]
+name = "04_fasta"
+path = "src/bin/04_fasta.rs"
+
+[[bin]]
+name = "06_revcomp"
+path = "src/bin/06_revcomp.rs"
+
+[[bin]]
+name = "11_spectral_norm"
+path = "src/bin/11_spectral_norm.rs"
+
+[[bin]]
+name = "12_fannkuch"
+path = "src/bin/12_fannkuch.rs"
+
+[[bin]]
+name = "13_great_circle"
+path = "src/bin/13_great_circle.rs"
+
+[[bin]]
+name = "14_hyperbolic_pde"
+path = "src/bin/14_hyperbolic_pde.rs"
+
+[[bin]]
+name = "15_dft_spectrum"
+path = "src/bin/15_dft_spectrum.rs"
+
+[[bin]]
+name = "16_euler_totient"
+path = "src/bin/16_euler_totient.rs"

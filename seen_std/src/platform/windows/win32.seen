@@ -1,0 +1,345 @@
+/**
+ * Win32 FFI bindings for the Seen language.
+ *
+ * Low-level bindings to the Windows API via seen_win32_* shim functions.
+ * Provides constants, function declarations, and a Win32Window helper class
+ * for window creation, message pumping, input polling, and timing.
+ *
+ * Link with: -luser32 -lgdi32 -lkernel32
+ */
+
+// ============================================================================
+// Window style constants
+// ============================================================================
+
+let WS_OVERLAPPED: Int = 0x00000000
+let WS_CAPTION: Int = 0x00C00000
+let WS_SYSMENU: Int = 0x00080000
+let WS_THICKFRAME: Int = 0x00040000
+let WS_MINIMIZEBOX: Int = 0x00020000
+let WS_MAXIMIZEBOX: Int = 0x00010000
+let WS_OVERLAPPEDWINDOW: Int = 0x00CF0000
+let WS_VISIBLE: Int = 0x10000000
+let WS_POPUP: Int = 0x80000000
+let WS_CHILD: Int = 0x40000000
+let WS_BORDER: Int = 0x00800000
+let WS_CLIPCHILDREN: Int = 0x02000000
+let WS_CLIPSIBLINGS: Int = 0x04000000
+let WS_DISABLED: Int = 0x08000000
+let WS_MAXIMIZE: Int = 0x01000000
+let WS_MINIMIZE: Int = 0x20000000
+
+// ============================================================================
+// Window message constants
+// ============================================================================
+
+let WM_DESTROY: Int = 0x0002
+let WM_SIZE: Int = 0x0005
+let WM_PAINT: Int = 0x000F
+let WM_CLOSE: Int = 0x0010
+let WM_QUIT: Int = 0x0012
+let WM_KEYDOWN: Int = 0x0100
+let WM_KEYUP: Int = 0x0101
+let WM_CHAR: Int = 0x0102
+let WM_SYSKEYDOWN: Int = 0x0104
+let WM_SYSKEYUP: Int = 0x0105
+let WM_SYSCOMMAND: Int = 0x0112
+let WM_TIMER: Int = 0x0113
+let WM_MOUSEMOVE: Int = 0x0200
+let WM_LBUTTONDOWN: Int = 0x0201
+let WM_LBUTTONUP: Int = 0x0202
+let WM_RBUTTONDOWN: Int = 0x0204
+let WM_RBUTTONUP: Int = 0x0205
+let WM_MBUTTONDOWN: Int = 0x0207
+let WM_MBUTTONUP: Int = 0x0208
+let WM_MOUSEWHEEL: Int = 0x020A
+
+// ============================================================================
+// Virtual key constants
+// ============================================================================
+
+let VK_LBUTTON: Int = 0x01
+let VK_RBUTTON: Int = 0x02
+let VK_MBUTTON: Int = 0x04
+let VK_BACK: Int = 0x08
+let VK_TAB: Int = 0x09
+let VK_RETURN: Int = 0x0D
+let VK_SHIFT: Int = 0x10
+let VK_CONTROL: Int = 0x11
+let VK_MENU: Int = 0x12
+let VK_PAUSE: Int = 0x13
+let VK_CAPITAL: Int = 0x14
+let VK_ESCAPE: Int = 0x1B
+let VK_SPACE: Int = 0x20
+let VK_PRIOR: Int = 0x21
+let VK_NEXT: Int = 0x22
+let VK_END: Int = 0x23
+let VK_HOME: Int = 0x24
+let VK_LEFT: Int = 0x25
+let VK_UP: Int = 0x26
+let VK_RIGHT: Int = 0x27
+let VK_DOWN: Int = 0x28
+let VK_INSERT: Int = 0x2D
+let VK_DELETE: Int = 0x2E
+
+// VK_A through VK_Z (0x41 - 0x5A, same as ASCII 'A'-'Z')
+// Number keys: VK_0=0x30 .. VK_9=0x39 (same as ASCII digits)
+let VK_A: Int = 0x41
+let VK_B: Int = 0x42
+let VK_C: Int = 0x43
+let VK_D: Int = 0x44
+let VK_E: Int = 0x45
+let VK_F: Int = 0x46
+let VK_G: Int = 0x47
+let VK_H: Int = 0x48
+let VK_I: Int = 0x49
+let VK_J: Int = 0x4A
+let VK_K: Int = 0x4B
+let VK_L: Int = 0x4C
+let VK_M: Int = 0x4D
+let VK_N: Int = 0x4E
+let VK_O: Int = 0x4F
+let VK_P: Int = 0x50
+let VK_Q: Int = 0x51
+let VK_R: Int = 0x52
+let VK_S: Int = 0x53
+let VK_T: Int = 0x54
+let VK_U: Int = 0x55
+let VK_V: Int = 0x56
+let VK_W: Int = 0x57
+let VK_X: Int = 0x58
+let VK_Y: Int = 0x59
+let VK_Z: Int = 0x5A
+
+// Function keys
+let VK_F1: Int = 0x70
+let VK_F2: Int = 0x71
+let VK_F3: Int = 0x72
+let VK_F4: Int = 0x73
+let VK_F5: Int = 0x74
+let VK_F6: Int = 0x75
+let VK_F7: Int = 0x76
+let VK_F8: Int = 0x77
+let VK_F9: Int = 0x78
+let VK_F10: Int = 0x79
+let VK_F11: Int = 0x7A
+let VK_F12: Int = 0x7B
+
+let VK_LSHIFT: Int = 0xA0
+let VK_RSHIFT: Int = 0xA1
+let VK_LCONTROL: Int = 0xA2
+let VK_RCONTROL: Int = 0xA3
+let VK_LMENU: Int = 0xA4
+let VK_RMENU: Int = 0xA5
+
+// ============================================================================
+// ShowWindow constants
+// ============================================================================
+
+let SW_HIDE: Int = 0
+let SW_SHOWNORMAL: Int = 1
+let SW_SHOWMAXIMIZED: Int = 3
+let SW_SHOW: Int = 5
+let SW_MINIMIZE: Int = 6
+let SW_RESTORE: Int = 9
+
+// ============================================================================
+// Special position values
+// ============================================================================
+
+let CW_USEDEFAULT: Int = 0x80000000
+
+// ============================================================================
+// Win32 shim FFI declarations
+// ============================================================================
+
+// Window class registration and creation
+extern fun seen_win32_register_class(className: String) r: Int
+extern fun seen_win32_create_window(className: String, title: String, x: Int, y: Int, w: Int, h: Int, style: Int) r: Int
+extern fun seen_win32_show_window(hwnd: Int, cmd: Int) r: Int
+extern fun seen_win32_destroy_window(hwnd: Int) r: Int
+
+// Message loop
+extern fun seen_win32_peek_message(hwnd: Int) r: Int
+extern fun seen_win32_translate_message(msg: Int) r: Int
+extern fun seen_win32_dispatch_message(msg: Int) r: Int
+extern fun seen_win32_get_message_id(msg: Int) r: Int
+extern fun seen_win32_post_quit(exitCode: Int) r: Void
+
+// Timing
+extern fun seen_win32_get_tick_count() r: Int
+extern fun seen_win32_query_perf_counter() r: Int
+extern fun seen_win32_query_perf_frequency() r: Int
+
+// Window geometry
+extern fun seen_win32_get_client_rect(hwnd: Int) r: Int
+extern fun seen_win32_set_cursor_pos(x: Int, y: Int) r: Int
+extern fun seen_win32_get_cursor_pos() r: Int
+
+// Input
+extern fun seen_win32_get_async_key_state(vk: Int) r: Int
+
+// Utility
+extern fun seen_win32_sleep(ms: Int) r: Void
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+/**
+ * Unpack width from a packed width<<32|height value.
+ */
+fun win32_unpack_width(packed: Int) r: Int {
+    return (packed >> 32) & 0xFFFFFFFF
+}
+
+/**
+ * Unpack height from a packed width<<32|height value.
+ */
+fun win32_unpack_height(packed: Int) r: Int {
+    return packed & 0xFFFFFFFF
+}
+
+/**
+ * Unpack X from a packed x<<32|y cursor position.
+ */
+fun win32_unpack_x(packed: Int) r: Int {
+    return (packed >> 32) & 0xFFFFFFFF
+}
+
+/**
+ * Unpack Y from a packed x<<32|y cursor position.
+ */
+fun win32_unpack_y(packed: Int) r: Int {
+    return packed & 0xFFFFFFFF
+}
+
+/**
+ * Check if a key is currently pressed using GetAsyncKeyState.
+ * Returns 1 if the key is down, 0 otherwise.
+ */
+fun win32_is_key_down(vk: Int) r: Int {
+    let state = seen_win32_get_async_key_state(vk)
+    if (state & 0x8000) != 0 {
+        return 1
+    }
+    return 0
+}
+
+// ============================================================================
+// Win32Window wrapper class
+// ============================================================================
+
+/**
+ * High-level Win32 window wrapper.
+ *
+ * Manages a native HWND handle with a simple create/show/poll/close lifecycle.
+ * Uses var running (0/1) instead of Bool due to stage1 limitations.
+ *
+ * Example:
+ *   var wnd = Win32Window.create("My App", 800, 600)
+ *   wnd.show()
+ *   while wnd.isRunning() == 1 {
+ *       let msg = wnd.pollEvents()
+ *       if msg == WM_QUIT {
+ *           wnd.close()
+ *       }
+ *   }
+ */
+class Win32Window {
+    var handle: Int
+    var className: String
+    var title: String
+    var width: Int
+    var height: Int
+    var running: Int
+
+    /**
+     * Create a new Win32 window with an overlapped window style.
+     * Registers a window class, creates the window, and marks it as running.
+     * Returns a Win32Window with handle set to 0 on failure.
+     */
+    fun create(title: String, w: Int, h: Int) r: Win32Window {
+        let cls = "SeenWindowClass"
+        let regResult = seen_win32_register_class(cls)
+        let style = WS_OVERLAPPEDWINDOW | WS_VISIBLE
+        let hwnd = seen_win32_create_window(cls, title, CW_USEDEFAULT, CW_USEDEFAULT, w, h, style)
+        var r = 0
+        if hwnd != 0 {
+            r = 1
+        }
+        return Win32Window {
+            handle: hwnd,
+            className: cls,
+            title: title,
+            width: w,
+            height: h,
+            running: r
+        }
+    }
+
+    /**
+     * Show the window using SW_SHOW.
+     */
+    fun show(this) r: Void {
+        seen_win32_show_window(this.handle, SW_SHOW)
+    }
+
+    /**
+     * Poll for pending window messages (non-blocking).
+     * Returns the message ID of the most recent message, or 0 if none.
+     * Automatically sets running to 0 when WM_QUIT is received.
+     */
+    fun pollEvents(this) r: Int {
+        let msg = seen_win32_peek_message(this.handle)
+        if msg == 0 {
+            return 0
+        }
+        seen_win32_translate_message(msg)
+        seen_win32_dispatch_message(msg)
+        let msgId = seen_win32_get_message_id(msg)
+        if msgId == WM_QUIT {
+            this.running = 0
+        }
+        return msgId
+    }
+
+    /**
+     * Close and destroy the window.
+     */
+    fun close(this) r: Void {
+        this.running = 0
+        if this.handle != 0 {
+            seen_win32_destroy_window(this.handle)
+            this.handle = 0
+        }
+    }
+
+    /**
+     * Check if the window is still running.
+     * Returns 1 if running, 0 if closed or quit.
+     */
+    fun isRunning(this) r: Int {
+        return this.running
+    }
+
+    /**
+     * Get the current client area dimensions.
+     * Updates width and height fields from the native window.
+     */
+    fun updateSize(this) r: Void {
+        if this.handle != 0 {
+            let packed = seen_win32_get_client_rect(this.handle)
+            this.width = win32_unpack_width(packed)
+            this.height = win32_unpack_height(packed)
+        }
+    }
+
+    /**
+     * Check if a virtual key is currently pressed.
+     * Returns 1 if down, 0 if up.
+     */
+    fun isKeyDown(this, vk: Int) r: Int {
+        return win32_is_key_down(vk)
+    }
+}

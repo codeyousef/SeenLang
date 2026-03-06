@@ -1,0 +1,660 @@
+/**
+ * Gamepad abstraction for Linux.
+ *
+ * Provides a unified gamepad API using evdev, normalizing input from
+ * different controller types (Xbox, PlayStation, etc.) to a standard
+ * layout. Supports multiple simultaneous gamepads with deadzone handling.
+ *
+ * Example:
+ *   let manager = GamepadManager.newDefault()
+ *   manager.scan()
+ *   while running {
+ *       let events = manager.poll()
+ *       for event in events {
+ *           if event.eventType == GamepadEventType.Button {
+ *               // handle button press
+ *           }
+ *       }
+ *   }
+ *   manager.disconnectAll()
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import platform.linux.evdev.{
+    EvdevDevice, InputEvent, AbsAxisInfo,
+    EV_KEY, EV_ABS, EV_SYN,
+    BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST,
+    BTN_TL, BTN_TR, BTN_TL2, BTN_TR2,
+    BTN_SELECT, BTN_START, BTN_MODE,
+    BTN_THUMBL, BTN_THUMBR,
+    BTN_DPAD_UP, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT,
+    ABS_X, ABS_Y, ABS_Z, ABS_RX, ABS_RY, ABS_RZ,
+    ABS_HAT0X, ABS_HAT0Y,
+    DEVICE_TYPE_GAMEPAD,
+    findDevicesByType
+}
+
+// Standardized button indices (Xbox-style naming)
+let GAMEPAD_BUTTON_A: Int = 0       // South face button (A on Xbox, Cross on PS)
+let GAMEPAD_BUTTON_B: Int = 1       // East face button (B on Xbox, Circle on PS)
+let GAMEPAD_BUTTON_X: Int = 2       // West face button (X on Xbox, Square on PS)
+let GAMEPAD_BUTTON_Y: Int = 3       // North face button (Y on Xbox, Triangle on PS)
+let GAMEPAD_BUTTON_LB: Int = 4      // Left bumper
+let GAMEPAD_BUTTON_RB: Int = 5      // Right bumper
+let GAMEPAD_BUTTON_LT: Int = 6      // Left trigger (digital)
+let GAMEPAD_BUTTON_RT: Int = 7      // Right trigger (digital)
+let GAMEPAD_BUTTON_SELECT: Int = 8  // Back/Select/Share
+let GAMEPAD_BUTTON_START: Int = 9   // Start/Options
+let GAMEPAD_BUTTON_GUIDE: Int = 10  // Guide/Home/PS button
+let GAMEPAD_BUTTON_LS: Int = 11     // Left stick click
+let GAMEPAD_BUTTON_RS: Int = 12     // Right stick click
+let GAMEPAD_BUTTON_DPAD_UP: Int = 13
+let GAMEPAD_BUTTON_DPAD_DOWN: Int = 14
+let GAMEPAD_BUTTON_DPAD_LEFT: Int = 15
+let GAMEPAD_BUTTON_DPAD_RIGHT: Int = 16
+let GAMEPAD_BUTTON_COUNT: Int = 17
+
+// Gamepad axis indices (standardized layout)
+let GAMEPAD_AXIS_LEFT_X: Int = 0    // Left stick X (-1 to 1)
+let GAMEPAD_AXIS_LEFT_Y: Int = 1    // Left stick Y (-1 to 1, inverted for up=positive)
+let GAMEPAD_AXIS_RIGHT_X: Int = 2   // Right stick X
+let GAMEPAD_AXIS_RIGHT_Y: Int = 3   // Right stick Y
+let GAMEPAD_AXIS_LEFT_TRIGGER: Int = 4   // Left trigger (0 to 1)
+let GAMEPAD_AXIS_RIGHT_TRIGGER: Int = 5  // Right trigger (0 to 1)
+let GAMEPAD_AXIS_COUNT: Int = 6
+
+let DEFAULT_DEADZONE: Float = 0.1
+
+/**
+ * Current state of all gamepad inputs.
+ *
+ * Contains button press states and analog axis values.
+ * Updated automatically when polling a Gamepad.
+ */
+class GamepadState {
+    var buttons: Array<Bool>
+    var axes: Array<Float>
+    var connected: Bool
+    var timestamp: Int
+
+    static fun new() r: GamepadState {
+        var buttons = Array<Bool>()
+        var i = 0
+        while i < GAMEPAD_BUTTON_COUNT {
+            buttons.push(false)
+            i = i + 1
+        }
+
+        var axes = Array<Float>()
+        i = 0
+        while i < GAMEPAD_AXIS_COUNT {
+            axes.push(0.0)
+            i = i + 1
+        }
+
+        return GamepadState {
+            buttons: buttons,
+            axes: axes,
+            connected: false,
+            timestamp: 0
+        }
+    }
+
+    fun getButton(index: Int) r: Bool {
+        if index >= 0 and index < this.buttons.length() {
+            return this.buttons[index]
+        }
+        return false
+    }
+
+    fun getAxis(index: Int) r: Float {
+        if index >= 0 and index < this.axes.length() {
+            return this.axes[index]
+        }
+        return 0.0
+    }
+
+    fun setButton(index: Int, pressed: Bool) r: Void {
+        if index >= 0 and index < this.buttons.length() {
+            this.buttons[index] = pressed
+        }
+    }
+
+    fun setAxis(index: Int, value: Float) r: Void {
+        if index >= 0 and index < this.axes.length() {
+            this.axes[index] = value
+        }
+    }
+}
+
+/**
+ * Event data for gamepad button press/release.
+ */
+class GamepadButtonEvent {
+    var gamepadIndex: Int
+    var button: Int
+    var pressed: Bool
+    var timestamp: Int
+
+    static fun new(gpIndex: Int, btn: Int, pressed: Bool, ts: Int) r: GamepadButtonEvent {
+        return GamepadButtonEvent {
+            gamepadIndex: gpIndex,
+            button: btn,
+            pressed: pressed,
+            timestamp: ts
+        }
+    }
+}
+
+/**
+ * Event data for gamepad analog axis movement.
+ */
+class GamepadAxisEvent {
+    var gamepadIndex: Int
+    var axis: Int
+    var value: Float
+    var timestamp: Int
+
+    static fun new(gpIndex: Int, ax: Int, val: Float, ts: Int) r: GamepadAxisEvent {
+        return GamepadAxisEvent {
+            gamepadIndex: gpIndex,
+            axis: ax,
+            value: val,
+            timestamp: ts
+        }
+    }
+}
+
+/**
+ * Event data for gamepad connection/disconnection.
+ */
+class GamepadConnectionEvent {
+    var gamepadIndex: Int
+    var connected: Bool
+    var name: String
+
+    static fun new(gpIndex: Int, connected: Bool, name: String) r: GamepadConnectionEvent {
+        return GamepadConnectionEvent {
+            gamepadIndex: gpIndex,
+            connected: connected,
+            name: name
+        }
+    }
+}
+
+/**
+ * Types of gamepad events.
+ */
+enum GamepadEventType {
+    Button
+    Axis
+    Connection
+    None
+}
+
+class GamepadEvent {
+    var eventType: GamepadEventType
+    var buttonEvent: GamepadButtonEvent
+    var axisEvent: GamepadAxisEvent
+    var connectionEvent: GamepadConnectionEvent
+
+    static fun button(event: GamepadButtonEvent) r: GamepadEvent {
+        return GamepadEvent {
+            eventType: GamepadEventType.Button,
+            buttonEvent: event,
+            axisEvent: GamepadAxisEvent.new(0, 0, 0.0, 0),
+            connectionEvent: GamepadConnectionEvent.new(0, false, "")
+        }
+    }
+
+    static fun axis(event: GamepadAxisEvent) r: GamepadEvent {
+        return GamepadEvent {
+            eventType: GamepadEventType.Axis,
+            buttonEvent: GamepadButtonEvent.new(0, 0, false, 0),
+            axisEvent: event,
+            connectionEvent: GamepadConnectionEvent.new(0, false, "")
+        }
+    }
+
+    static fun connection(event: GamepadConnectionEvent) r: GamepadEvent {
+        return GamepadEvent {
+            eventType: GamepadEventType.Connection,
+            buttonEvent: GamepadButtonEvent.new(0, 0, false, 0),
+            axisEvent: GamepadAxisEvent.new(0, 0, 0.0, 0),
+            connectionEvent: event
+        }
+    }
+
+    static fun none() r: GamepadEvent {
+        return GamepadEvent {
+            eventType: GamepadEventType.None,
+            buttonEvent: GamepadButtonEvent.new(0, 0, false, 0),
+            axisEvent: GamepadAxisEvent.new(0, 0, 0.0, 0),
+            connectionEvent: GamepadConnectionEvent.new(0, false, "")
+        }
+    }
+}
+
+/**
+ * Single gamepad device with input state and event handling.
+ *
+ * Wraps an evdev device and normalizes input to the standard layout.
+ * Use GamepadManager to handle multiple gamepads and hot-plugging.
+ */
+class Gamepad {
+    var device: EvdevDevice
+    var index: Int
+    var state: GamepadState
+    var deadzone: Float
+    var axisInfoX: AbsAxisInfo
+    var axisInfoY: AbsAxisInfo
+    var axisInfoRX: AbsAxisInfo
+    var axisInfoRY: AbsAxisInfo
+    var axisInfoZ: AbsAxisInfo
+    var axisInfoRZ: AbsAxisInfo
+
+    /**
+     * Open a gamepad device by evdev path.
+     *
+     * Returns an error if the device cannot be opened or is not a gamepad.
+     */
+    static fun open(path: String, index: Int) r: Result<Gamepad, String> {
+        let deviceResult = EvdevDevice.open(path)
+        if deviceResult.isErr() {
+            return Err(deviceResult.unwrapErr())
+        }
+
+        let device = deviceResult.unwrap()
+        if not device.isGamepad() {
+            device.close()
+            return Err("Device is not a gamepad: " + path)
+        }
+
+        var gamepad = Gamepad {
+            device: device,
+            index: index,
+            state: GamepadState.new(),
+            deadzone: DEFAULT_DEADZONE,
+            axisInfoX: device.getAbsInfo(ABS_X),
+            axisInfoY: device.getAbsInfo(ABS_Y),
+            axisInfoRX: device.getAbsInfo(ABS_RX),
+            axisInfoRY: device.getAbsInfo(ABS_RY),
+            axisInfoZ: device.getAbsInfo(ABS_Z),
+            axisInfoRZ: device.getAbsInfo(ABS_RZ)
+        }
+
+        gamepad.state.connected = true
+        return Ok(gamepad)
+    }
+
+    fun getName() r: String {
+        return this.device.name
+    }
+
+    fun getVendorId() r: Int {
+        return this.device.vendorId
+    }
+
+    fun getProductId() r: Int {
+        return this.device.productId
+    }
+
+    fun isConnected() r: Bool {
+        return this.state.connected
+    }
+
+    fun setDeadzone(deadzone: Float) r: Void {
+        this.deadzone = deadzone
+    }
+
+    // Apply deadzone to axis value
+    fun applyDeadzone(value: Float) r: Float {
+        if value > -this.deadzone and value < this.deadzone {
+            return 0.0
+        }
+        // Scale the value outside the deadzone
+        if value > 0.0 {
+            return (value - this.deadzone) / (1.0 - this.deadzone)
+        } else {
+            return (value + this.deadzone) / (1.0 - this.deadzone)
+        }
+    }
+
+    // Map evdev button code to standardized index
+    fun mapButtonCode(code: Int) r: Int {
+        if code == BTN_SOUTH { return GAMEPAD_BUTTON_A }
+        if code == BTN_EAST { return GAMEPAD_BUTTON_B }
+        if code == BTN_WEST { return GAMEPAD_BUTTON_X }
+        if code == BTN_NORTH { return GAMEPAD_BUTTON_Y }
+        if code == BTN_TL { return GAMEPAD_BUTTON_LB }
+        if code == BTN_TR { return GAMEPAD_BUTTON_RB }
+        if code == BTN_TL2 { return GAMEPAD_BUTTON_LT }
+        if code == BTN_TR2 { return GAMEPAD_BUTTON_RT }
+        if code == BTN_SELECT { return GAMEPAD_BUTTON_SELECT }
+        if code == BTN_START { return GAMEPAD_BUTTON_START }
+        if code == BTN_MODE { return GAMEPAD_BUTTON_GUIDE }
+        if code == BTN_THUMBL { return GAMEPAD_BUTTON_LS }
+        if code == BTN_THUMBR { return GAMEPAD_BUTTON_RS }
+        if code == BTN_DPAD_UP { return GAMEPAD_BUTTON_DPAD_UP }
+        if code == BTN_DPAD_DOWN { return GAMEPAD_BUTTON_DPAD_DOWN }
+        if code == BTN_DPAD_LEFT { return GAMEPAD_BUTTON_DPAD_LEFT }
+        if code == BTN_DPAD_RIGHT { return GAMEPAD_BUTTON_DPAD_RIGHT }
+        return -1
+    }
+
+    // Process a raw event and update state
+    fun processEvent(event: InputEvent) r: GamepadEvent {
+        this.state.timestamp = event.getTimestampMs()
+
+        if event.eventType == EV_KEY {
+            let buttonIndex = this.mapButtonCode(event.code)
+            if buttonIndex >= 0 {
+                let pressed = event.value != 0
+                this.state.setButton(buttonIndex, pressed)
+                return GamepadEvent.button(
+                    GamepadButtonEvent.new(this.index, buttonIndex, pressed, this.state.timestamp)
+                )
+            }
+        }
+
+        if event.eventType == EV_ABS {
+            // Left stick
+            if event.code == ABS_X {
+                let normalized = this.axisInfoX.normalizeCentered(event.value)
+                let value = this.applyDeadzone(normalized)
+                this.state.setAxis(GAMEPAD_AXIS_LEFT_X, value)
+                return GamepadEvent.axis(
+                    GamepadAxisEvent.new(this.index, GAMEPAD_AXIS_LEFT_X, value, this.state.timestamp)
+                )
+            }
+            if event.code == ABS_Y {
+                let normalized = this.axisInfoY.normalizeCentered(event.value)
+                let value = this.applyDeadzone(0.0 - normalized)  // Invert Y for up=positive
+                this.state.setAxis(GAMEPAD_AXIS_LEFT_Y, value)
+                return GamepadEvent.axis(
+                    GamepadAxisEvent.new(this.index, GAMEPAD_AXIS_LEFT_Y, value, this.state.timestamp)
+                )
+            }
+
+            // Right stick
+            if event.code == ABS_RX {
+                let normalized = this.axisInfoRX.normalizeCentered(event.value)
+                let value = this.applyDeadzone(normalized)
+                this.state.setAxis(GAMEPAD_AXIS_RIGHT_X, value)
+                return GamepadEvent.axis(
+                    GamepadAxisEvent.new(this.index, GAMEPAD_AXIS_RIGHT_X, value, this.state.timestamp)
+                )
+            }
+            if event.code == ABS_RY {
+                let normalized = this.axisInfoRY.normalizeCentered(event.value)
+                let value = this.applyDeadzone(0.0 - normalized)
+                this.state.setAxis(GAMEPAD_AXIS_RIGHT_Y, value)
+                return GamepadEvent.axis(
+                    GamepadAxisEvent.new(this.index, GAMEPAD_AXIS_RIGHT_Y, value, this.state.timestamp)
+                )
+            }
+
+            // Triggers (may be ABS_Z/ABS_RZ or ABS_HAT*)
+            if event.code == ABS_Z {
+                let value = this.axisInfoZ.normalize(event.value)
+                this.state.setAxis(GAMEPAD_AXIS_LEFT_TRIGGER, value)
+                return GamepadEvent.axis(
+                    GamepadAxisEvent.new(this.index, GAMEPAD_AXIS_LEFT_TRIGGER, value, this.state.timestamp)
+                )
+            }
+            if event.code == ABS_RZ {
+                let value = this.axisInfoRZ.normalize(event.value)
+                this.state.setAxis(GAMEPAD_AXIS_RIGHT_TRIGGER, value)
+                return GamepadEvent.axis(
+                    GamepadAxisEvent.new(this.index, GAMEPAD_AXIS_RIGHT_TRIGGER, value, this.state.timestamp)
+                )
+            }
+
+            // D-pad as axis (HAT0)
+            if event.code == ABS_HAT0X {
+                if event.value < 0 {
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_LEFT, true)
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_RIGHT, false)
+                } else if event.value > 0 {
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_LEFT, false)
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_RIGHT, true)
+                } else {
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_LEFT, false)
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_RIGHT, false)
+                }
+            }
+            if event.code == ABS_HAT0Y {
+                if event.value < 0 {
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_UP, true)
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_DOWN, false)
+                } else if event.value > 0 {
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_UP, false)
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_DOWN, true)
+                } else {
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_UP, false)
+                    this.state.setButton(GAMEPAD_BUTTON_DPAD_DOWN, false)
+                }
+            }
+        }
+
+        return GamepadEvent.none()
+    }
+
+    // Poll for events (non-blocking)
+    fun poll() r: Array<GamepadEvent> {
+        var events = Array<GamepadEvent>()
+
+        while this.device.hasPendingEvents() {
+            let eventResult = this.device.pollEvent()
+            if eventResult.isOkay() {
+                let rawEvent = eventResult.unwrap()
+                let gamepadEvent = this.processEvent(rawEvent)
+                if gamepadEvent.eventType != GamepadEventType.None {
+                    events.push(gamepadEvent)
+                }
+            } else {
+                break
+            }
+        }
+
+        return events
+    }
+
+    // Get current state
+    fun getState() r: GamepadState {
+        return this.state
+    }
+
+    // Convenience getters
+    fun isButtonPressed(button: Int) r: Bool {
+        return this.state.getButton(button)
+    }
+
+    fun getAxisValue(axis: Int) r: Float {
+        return this.state.getAxis(axis)
+    }
+
+    fun getLeftStick() r: Array<Float> {
+        var stick = Array<Float>()
+        stick.push(this.state.getAxis(GAMEPAD_AXIS_LEFT_X))
+        stick.push(this.state.getAxis(GAMEPAD_AXIS_LEFT_Y))
+        return stick
+    }
+
+    fun getRightStick() r: Array<Float> {
+        var stick = Array<Float>()
+        stick.push(this.state.getAxis(GAMEPAD_AXIS_RIGHT_X))
+        stick.push(this.state.getAxis(GAMEPAD_AXIS_RIGHT_Y))
+        return stick
+    }
+
+    fun getLeftTrigger() r: Float {
+        return this.state.getAxis(GAMEPAD_AXIS_LEFT_TRIGGER)
+    }
+
+    fun getRightTrigger() r: Float {
+        return this.state.getAxis(GAMEPAD_AXIS_RIGHT_TRIGGER)
+    }
+
+    // Close the gamepad
+    fun close() r: Void {
+        this.state.connected = false
+        this.device.close()
+    }
+}
+
+/**
+ * Manager for multiple gamepad devices.
+ *
+ * Handles device enumeration, hot-plugging detection, and
+ * aggregated event polling across all connected gamepads.
+ */
+class GamepadManager {
+    var gamepads: Array<Gamepad>
+    var maxGamepads: Int
+
+    static fun new(maxGamepads: Int) r: GamepadManager {
+        return GamepadManager {
+            gamepads: Array<Gamepad>(),
+            maxGamepads: maxGamepads
+        }
+    }
+
+    static fun newDefault() r: GamepadManager {
+        return GamepadManager.new(4)
+    }
+
+    /**
+     * Scan for and connect new gamepads.
+     *
+     * Returns connection events for newly discovered devices.
+     * Call periodically to detect hot-plugged controllers.
+     */
+    fun scan() r: Array<GamepadConnectionEvent> {
+        var events = Array<GamepadConnectionEvent>()
+        let devicePaths = findDevicesByType(DEVICE_TYPE_GAMEPAD)
+
+        var i = 0
+        while i < devicePaths.length() and this.gamepads.length() < this.maxGamepads {
+            let path = devicePaths[i]
+
+            // Check if already connected
+            var alreadyConnected = false
+            var j = 0
+            while j < this.gamepads.length() {
+                if this.gamepads[j].device.path == path {
+                    alreadyConnected = true
+                    break
+                }
+                j = j + 1
+            }
+
+            if not alreadyConnected {
+                let result = Gamepad.open(path, this.gamepads.length())
+                if result.isOkay() {
+                    let gamepad = result.unwrap()
+                    let event = GamepadConnectionEvent.new(
+                        this.gamepads.length(),
+                        true,
+                        gamepad.getName()
+                    )
+                    events.push(event)
+                    this.gamepads.push(gamepad)
+                }
+            }
+
+            i = i + 1
+        }
+
+        return events
+    }
+
+    /**
+     * Poll all connected gamepads for events.
+     *
+     * Returns button, axis, and connection events from all gamepads.
+     * Call once per frame in your game loop.
+     */
+    fun poll() r: Array<GamepadEvent> {
+        var events = Array<GamepadEvent>()
+
+        var i = 0
+        while i < this.gamepads.length() {
+            let gamepadEvents = this.gamepads[i].poll()
+            var j = 0
+            while j < gamepadEvents.length() {
+                events.push(gamepadEvents[j])
+                j = j + 1
+            }
+            i = i + 1
+        }
+
+        return events
+    }
+
+    // Get gamepad by index
+    fun getGamepad(index: Int) r: Result<Gamepad, String> {
+        if index >= 0 and index < this.gamepads.length() {
+            return Ok(this.gamepads[index])
+        }
+        return Err("Gamepad not found")
+    }
+
+    // Get number of connected gamepads
+    fun getConnectedCount() r: Int {
+        return this.gamepads.length()
+    }
+
+    // Check if any gamepad is connected
+    fun hasGamepads() r: Bool {
+        return this.gamepads.length() > 0
+    }
+
+    // Disconnect all gamepads
+    fun disconnectAll() r: Void {
+        var i = 0
+        while i < this.gamepads.length() {
+            this.gamepads[i].close()
+            i = i + 1
+        }
+        this.gamepads = Array<Gamepad>()
+    }
+}
+
+/**
+ * Get the display name for a button index.
+ */
+fun getButtonName(button: Int) r: String {
+    if button == GAMEPAD_BUTTON_A { return "A" }
+    if button == GAMEPAD_BUTTON_B { return "B" }
+    if button == GAMEPAD_BUTTON_X { return "X" }
+    if button == GAMEPAD_BUTTON_Y { return "Y" }
+    if button == GAMEPAD_BUTTON_LB { return "LB" }
+    if button == GAMEPAD_BUTTON_RB { return "RB" }
+    if button == GAMEPAD_BUTTON_LT { return "LT" }
+    if button == GAMEPAD_BUTTON_RT { return "RT" }
+    if button == GAMEPAD_BUTTON_SELECT { return "Select" }
+    if button == GAMEPAD_BUTTON_START { return "Start" }
+    if button == GAMEPAD_BUTTON_GUIDE { return "Guide" }
+    if button == GAMEPAD_BUTTON_LS { return "LS" }
+    if button == GAMEPAD_BUTTON_RS { return "RS" }
+    if button == GAMEPAD_BUTTON_DPAD_UP { return "DPad Up" }
+    if button == GAMEPAD_BUTTON_DPAD_DOWN { return "DPad Down" }
+    if button == GAMEPAD_BUTTON_DPAD_LEFT { return "DPad Left" }
+    if button == GAMEPAD_BUTTON_DPAD_RIGHT { return "DPad Right" }
+    return "Unknown"
+}
+
+/**
+ * Get the display name for an axis index.
+ */
+fun getAxisName(axis: Int) r: String {
+    if axis == GAMEPAD_AXIS_LEFT_X { return "Left X" }
+    if axis == GAMEPAD_AXIS_LEFT_Y { return "Left Y" }
+    if axis == GAMEPAD_AXIS_RIGHT_X { return "Right X" }
+    if axis == GAMEPAD_AXIS_RIGHT_Y { return "Right Y" }
+    if axis == GAMEPAD_AXIS_LEFT_TRIGGER { return "Left Trigger" }
+    if axis == GAMEPAD_AXIS_RIGHT_TRIGGER { return "Right Trigger" }
+    return "Unknown"
+}

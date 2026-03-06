@@ -1,0 +1,187 @@
+// N-Body Simulation Benchmark
+// Double-precision gravitational simulation
+
+fun PI() -> Float { return 3.141592653589793; }
+fun SOLAR_MASS() -> Float { return 39.47841760435743; }
+fun DAYS_PER_YEAR() -> Float { return 365.24; }
+
+fun abs(x: Float) -> Float {
+    if x < 0.0 { return 0.0 - x; }
+    return x;
+}
+
+class Body {
+    var x: Float
+    var y: Float
+    var z: Float
+    var vx: Float
+    var vy: Float
+    var vz: Float
+    var mass: Float
+}
+
+fun create_bodies() -> Array<Body> {
+    return [
+        Body {
+            x: 0.0, y: 0.0, z: 0.0,
+            vx: 0.0, vy: 0.0, vz: 0.0,
+            mass: SOLAR_MASS(),
+        },
+        Body {
+            x: 4.84143144246472090,
+            y: -1.16032004402742839,
+            z: -0.103622044471123109,
+            vx: 0.00166007664274403694 * DAYS_PER_YEAR(),
+            vy: 0.00769901118419740425 * DAYS_PER_YEAR(),
+            vz: -0.0000690460016972063023 * DAYS_PER_YEAR(),
+            mass: 0.000954791938424326609 * SOLAR_MASS(),
+        },
+        Body {
+            x: 8.34336671824457987,
+            y: 4.12479856412430479,
+            z: -0.403523417114321381,
+            vx: -0.00276742510726862411 * DAYS_PER_YEAR(),
+            vy: 0.00499852801234917238 * DAYS_PER_YEAR(),
+            vz: 0.0000230417297573763929 * DAYS_PER_YEAR(),
+            mass: 0.000285885980666130812 * SOLAR_MASS(),
+        },
+        Body {
+            x: 12.8943695621391310,
+            y: -15.1111514016986312,
+            z: -0.223307578892655734,
+            vx: 0.00296460137564761618 * DAYS_PER_YEAR(),
+            vy: 0.00237847173959480950 * DAYS_PER_YEAR(),
+            vz: -0.0000296589568540237556 * DAYS_PER_YEAR(),
+            mass: 0.0000436624404335156298 * SOLAR_MASS(),
+        },
+        Body {
+            x: 15.3796971148509165,
+            y: -25.9193146099879641,
+            z: 0.179258772950371181,
+            vx: 0.00268067772490389322 * DAYS_PER_YEAR(),
+            vy: 0.00162824170038242295 * DAYS_PER_YEAR(),
+            vz: -0.0000951592254519715870 * DAYS_PER_YEAR(),
+            mass: 0.0000515138902046611451 * SOLAR_MASS(),
+        }
+    ];
+}
+
+fun offset_momentum(bodies: Array<Body>) {
+    var px = 0.0;
+    var py = 0.0;
+    var pz = 0.0;
+    
+    var i = 0;
+    while i < bodies.size() {
+        let m = bodies[i].mass;
+        px = px + bodies[i].vx * m;
+        py = py + bodies[i].vy * m;
+        pz = pz + bodies[i].vz * m;
+        i = i + 1;
+    }
+    
+    bodies[0].vx = 0.0 - px / SOLAR_MASS();
+    bodies[0].vy = 0.0 - py / SOLAR_MASS();
+    bodies[0].vz = 0.0 - pz / SOLAR_MASS();
+}
+
+fun advance(bodies: Array<Body>, dt: Float) {
+    let n = bodies.size();
+    
+    var i = 0;
+    while i < n {
+        var j = i + 1;
+        while j < n {
+            let dx = bodies[i].x - bodies[j].x;
+            let dy = bodies[i].y - bodies[j].y;
+            let dz = bodies[i].z - bodies[j].z;
+            
+            let dist_sq = dx * dx + dy * dy + dz * dz;
+            let dist = __Sqrt(dist_sq);
+            let mag = dt / (dist * dist_sq);
+            
+            let mi = bodies[i].mass;
+            let mj = bodies[j].mass;
+            
+            bodies[i].vx = bodies[i].vx - dx * mj * mag;
+            bodies[i].vy = bodies[i].vy - dy * mj * mag;
+            bodies[i].vz = bodies[i].vz - dz * mj * mag;
+            
+            bodies[j].vx = bodies[j].vx + dx * mi * mag;
+            bodies[j].vy = bodies[j].vy + dy * mi * mag;
+            bodies[j].vz = bodies[j].vz + dz * mi * mag;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    i = 0;
+    while i < n {
+        bodies[i].x = bodies[i].x + dt * bodies[i].vx;
+        bodies[i].y = bodies[i].y + dt * bodies[i].vy;
+        bodies[i].z = bodies[i].z + dt * bodies[i].vz;
+        i = i + 1;
+    }
+}
+
+fun energy(bodies: Array<Body>) -> Float {
+    var e = 0.0;
+    let n = bodies.size();
+    
+    var i = 0;
+    while i < n {
+        let b = bodies[i];
+        e = e + 0.5 * b.mass * (b.vx * b.vx + b.vy * b.vy + b.vz * b.vz);
+        
+        var j = i + 1;
+        while j < n {
+            let b2 = bodies[j];
+            let dx = b.x - b2.x;
+            let dy = b.y - b2.y;
+            let dz = b.z - b2.z;
+            let dist = __Sqrt(dx * dx + dy * dy + dz * dz);
+            e = e - (b.mass * b2.mass) / dist;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    e
+}
+
+fun main() {
+    let steps = 1000;
+    let dt = 0.01;
+    
+    println("N-Body Simulation Benchmark");
+    println("Simulating {steps} steps");
+    
+    let bodies = create_bodies();
+    offset_momentum(bodies);
+    
+    let initial_energy = energy(bodies);
+    println("Initial energy: {initial_energy}");
+    
+    println("Running simulation...");
+    let start = __GetTime();
+    
+    var step = 0;
+    while step < steps {
+        advance(bodies, dt);
+        step = step + 1;
+    }
+    
+    let end = __GetTime();
+    let time_s = end - start;
+    
+    let final_energy = energy(bodies);
+    let drift = abs(final_energy - initial_energy);
+    let steps_per_sec = (steps as Float) / time_s;
+    
+    println("Final energy: {final_energy}");
+    println("Energy drift: {drift}");
+    println("Time: {time_s} s");
+    println("Steps per second: {steps_per_sec}");
+}
+
+main();

@@ -1,0 +1,20 @@
+// Test: BTreeSet should be accepted in deterministic profile
+// Expected: PASS with --profile deterministic
+
+import collections.btree_set.{BTreeSet}
+
+fun main() r: Int {
+    // This should be accepted in deterministic profile
+    // because BTreeSet has deterministic sorted iteration order
+    let set = BTreeSet<Int>.new()
+    set.insert(3)
+    set.insert(1)
+    set.insert(2)
+
+    // Iteration order is guaranteed to be sorted: 1, 2, 3
+    let values = set.values()
+    println("Size: " + set.len().toString())
+
+    // This is deterministic - same input always produces same output
+    return 0
+}

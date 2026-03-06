@@ -1,0 +1,56 @@
+// ir_assignment_gen.seen — Assignment GEP+store emission helpers
+// Extracted from llvm_ir_gen.seen to reduce module 5 size
+// Handles field store with nullable types, ptr coercion, and data type loading
+
+import codegen.ir_optimization.{getNextRegFn}
+import str.string.{StringBuilder}
+
+// emitFieldStoreImpl — Store a value into a struct field via GEP
+// Handles nullable String (zeroinitializer), ptr (null/inttoptr), data type struct literal loading
+// valueReg: the register holding the value to store
+// llvmFieldType: LLVM type of the field (e.g., "%SeenString", "ptr", "i64")
+// fieldPtrReg: GEP result pointing to the field
+// valueIsStructLiteral: 1 if the value expression was a StructLiteral (may need ptr load)
+// seenFieldType: Seen type name (used with isDataType check in caller)
+// isDataField: 1 if the field's Seen type is a data type (needs load from ptr for struct literals)
+fun emitFieldStoreImpl(output: Array<String>, regBox: Array<Int>,
+    valueReg: String, llvmFieldType: String, fieldPtrReg: String,
+    valueIsStructLiteral: Int, isDataField: Int) r: Void {
+    var actualValueReg = valueReg
+
+    // For inline data types from struct literals, valueReg is a ptr - need to load
+    if isDataField == 1 and valueIsStructLiteral == 1 {
+        let loadedVal = getNextRegFn(regBox)
+        output.push("  " + loadedVal + " = load " + llvmFieldType + ", ptr " + valueReg + "\n")
+        actualValueReg = loadedVal
+    }
+
+    // Handle nullable String fields initialized to null
+    if llvmFieldType == "%SeenString" and actualValueReg == "0" {
+        actualValueReg = "zeroinitializer"
+    }
+
+    // Handle ptr fields: integer 0 -> null, non-zero int literal -> inttoptr
+    if llvmFieldType == "ptr" {
+        if actualValueReg == "0" {
+            actualValueReg = "null"
+        } else {
+            // Check if it's a plain integer literal (starts with digit 1-9)
+            var firstCh = 0
+            if actualValueReg.length() > 0 {
+                firstCh = actualValueReg.byteAt(0)
+            }
+            var isIntLit = 0
+            if firstCh >= 49 and firstCh <= 57 {
+                isIntLit = 1
+            }
+            if isIntLit == 1 {
+                let convReg = getNextRegFn(regBox)
+                output.push("  " + convReg + " = inttoptr i64 " + actualValueReg + " to ptr\n")
+                actualValueReg = convReg
+            }
+        }
+    }
+
+    output.push("  store " + llvmFieldType + " " + actualValueReg + ", ptr " + fieldPtrReg + "\n")
+}

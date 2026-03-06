@@ -1,0 +1,102 @@
+// SIMD Decorator Checker
+// Validates @prefetch and @align_to decorators at compile time
+
+class SIMDChecker {
+    var errors: Array<String>
+
+    fun new() r: SIMDChecker {
+        return SIMDChecker{
+            errors: Array<String>()
+        }
+    }
+
+    // Check a @prefetch decorator
+    // Valid forms: @prefetch(read), @prefetch(write)
+    fun checkPrefetch(arg: String, location: String) r: Bool {
+        if arg == "read" {
+            return true
+        }
+        if arg == "write" {
+            return true
+        }
+        errors.push(location + ": @prefetch argument must be 'read' or 'write', got '" + arg + "'")
+        return false
+    }
+
+    // Check an @align_to decorator
+    // Valid: N must be a power of 2, between 1 and 4096
+    fun checkAlignTo(n: Int, location: String) r: Bool {
+        if n <= 0 {
+            errors.push(location + ": @align_to value must be positive, got " + n.toString())
+            return false
+        }
+        if n > 4096 {
+            errors.push(location + ": @align_to value must be <= 4096, got " + n.toString())
+            return false
+        }
+        // Check power of 2: n & (n-1) == 0
+        // Use subtraction workaround since stage1 has no bitwise AND for this
+        if not isPowerOfTwo(n) {
+            errors.push(location + ": @align_to value must be a power of 2, got " + n.toString())
+            return false
+        }
+        return true
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+
+    fun printErrors() r: Void {
+        var i = 0
+        while i < errors.length() {
+            println("  [simd] " + errors[i])
+            i = i + 1
+        }
+    }
+}
+
+// Check if n is a power of 2
+fun isPowerOfTwo(n: Int) r: Bool {
+    if n <= 0 {
+        return false
+    }
+    // Power-of-2 check: keep dividing by 2
+    var v = n
+    while v > 1 {
+        let half = v / 2
+        if half * 2 != v {
+            return false
+        }
+        v = half
+    }
+    return true
+}
+
+// Generate LLVM IR for a prefetch hint
+// rw: 0=read, 1=write
+// locality: 0-3 (3=high locality)
+fun generatePrefetchIR(ptrReg: String, rw: Int, locality: Int) r: String {
+    return "  call void @llvm.prefetch.p0(ptr " + ptrReg + ", i32 " + rw.toString() + ", i32 " + locality.toString() + ", i32 1)\n"
+}
+
+// Generate LLVM IR alignment metadata
+fun generateAlignMetadata(metadataId: Int, alignment: Int) r: String {
+    return "!" + metadataId.toString() + " = !{i64 " + alignment.toString() + "}"
+}
+
+// : Validate @gpu_buffer decorator argument
+fun checkGpuBuffer(arg: String, location: String) r: Bool {
+    if arg == "std140" {
+        return true
+    }
+    if arg == "std430" {
+        return true
+    }
+    if arg == "" {
+        // Default: std140
+        return true
+    }
+    println("  [gpu_buffer] " + location + ": @gpu_buffer argument must be 'std140' or 'std430', got '" + arg + "'")
+    return false
+}

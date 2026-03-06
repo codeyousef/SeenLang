@@ -1,0 +1,38 @@
+// seen_std.hash.mod
+// Generic hashing utility functions.
+
+fun hashInt(value: Int) r: Int {
+    var h = value
+    h = h ^ (h >> 16)
+    h = h * 0x85ebca6b
+    h = h ^ (h >> 13)
+    h = h * 0xc2b2ae35
+    h = h ^ (h >> 16)
+    return h
+}
+
+fun hashString(value: String) r: Int {
+    var hash = 5381
+    let len = value.length()
+    var i = 0
+    while i < len {
+        let c = value.charCodeAt(i)
+        hash = ((hash << 5) + hash) + c
+        i = i + 1
+    }
+    return hash
+}
+
+fun hashFloat(value: Float) r: Int {
+    // Simple hash: multiply by large value and convert to int
+    let scaled = value * 1000000.0
+    // Use integer part by truncation (cast semantics)
+    return hashInt(scaled as Int)
+}
+
+fun hashBool(value: Bool) r: Int {
+    return if value { 1 } else { 0 }
+}
+
+fun combineHashes(h1: Int, h2: Int) r: Int {    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2))
+}

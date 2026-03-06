@@ -1,0 +1,11 @@
+// Test: Array of struct access
+class MyStruct {
+    var value: Int
+}
+
+fun main() r: Int {
+    var arr: Array<MyStruct> = []
+    arr.push(MyStruct{ value: 42 })
+    let item = arr[0]
+    return item.value
+}

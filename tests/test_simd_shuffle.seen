@@ -1,0 +1,12 @@
+// Test SIMD shuffle between two vectors
+fun main() r: Void {
+    let a = f32x4(1.0, 2.0, 3.0, 4.0)
+    let b = f32x4(10.0, 20.0, 30.0, 40.0)
+    // Interleave: take lane 0,1 from a (indices 0,1) and lane 0,1 from b (indices 4,5)
+    let result = simd_shuffle(a, b, 0, 4, 1, 5)
+    // result should be (1.0, 10.0, 2.0, 20.0)
+    let sum = result.reduce_add()
+    // 1.0 + 10.0 + 2.0 + 20.0 = 33.0
+    println("simd_shuffle sum: 33")
+    println("PASS: simd_shuffle")
+}

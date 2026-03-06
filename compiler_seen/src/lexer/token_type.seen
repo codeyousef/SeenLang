@@ -1,0 +1,188 @@
+enum SeenTokenType {
+    IntegerLiteral,
+    FloatLiteral,
+    StringLiteral,
+    CharLiteral,
+    BooleanLiteral,
+    KeywordFalse,
+    Identifier,
+    KeywordFun,
+    KeywordLet,
+    KeywordVar,
+    KeywordIf,
+    KeywordElse,
+    KeywordWhile,
+    KeywordFor,
+    KeywordIn,
+    KeywordReturn,
+    KeywordBreak,
+    KeywordContinue,
+    KeywordClass,
+    KeywordInterface,
+    KeywordEnum,
+    KeywordExtends,
+    KeywordImplements,
+    KeywordAsync,
+    KeywordAwait,
+    KeywordSpawn,
+    KeywordMatch,
+    KeywordTry,
+    KeywordCatch,
+    KeywordFinally,
+    KeywordThrow,
+    KeywordImport,
+    KeywordUse,
+    KeywordExport,
+    KeywordAs,
+    KeywordIs,
+    KeywordNull,
+    KeywordTrue,
+    KeywordThis,
+    KeywordSuper,
+    KeywordMove,
+    KeywordBorrow,
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Modulo,
+    Equal,
+    PlusEqual,
+    MinusEqual,
+    MultiplyEqual,
+    DivideEqual,
+    EqualEqual,
+    NotEqual,
+    LessThan,
+    LessEqual,
+    GreaterThan,
+    GreaterEqual,
+    LogicalAnd,
+    LogicalOr,
+    LogicalNot,
+    SafeNavigation,
+    Elvis,
+    Question,
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    LeftBracket,
+    RightBracket,
+    Comma,
+    Semicolon,
+    Colon,
+    Dot,
+    Arrow,
+    InterpolatedStringStart,
+    InterpolatedStringMiddle,
+    InterpolatedStringEnd,
+    Newline,
+    Whitespace,
+    Comment,
+    Error,
+    EndOfFile,
+    None,
+    AtSymbol,
+    BitwiseAnd,     // &
+    BitwiseOr,      // |
+    BitwiseXor,     // ^
+    BitwiseNot,     // ~
+    LeftShift,      // <<
+    RightShift,     // >>
+    KeywordDefer,     // defer
+    KeywordModule,    // module
+    KeywordImpl,      // impl
+    KeywordExtension, // extension
+    KeywordSealed,    // sealed
+    KeywordTrait,     // trait
+    KeywordUnsafe,    // unsafe
+    KeywordRef,       // ref
+    KeywordOwn,       // own
+    KeywordPub,       // pub    (100)
+    KeywordStruct,    // struct (101)
+    KeywordMut,       // mut    (102)
+    KeywordConst,     // const  (103)
+    KeywordStatic,    // static (104)
+    KeywordOverride,  // override (105)
+    KeywordData,      // data   (106)
+    DoubleQuestion,   // ??     (107)
+    Ellipsis,         // ...    (108)
+    KeywordType,      // type   (109)
+    KeywordErrdefer,  // errdefer (110)
+    KeywordDistinct,  // distinct (111)
+    KeywordUnion,     // union    (112)
+    KeywordComptime,  // comptime (113)
+    KeywordParallelFor, // parallel_for (114)
+    KeywordTransmute, // transmute (115)
+    KeywordGpu,       // gpu (116)
+    KeywordRegion,    // region (117)
+    KeywordAssert,    // assert (118)
+    KeywordWhen,      // when (119)
+    KeywordOperator,  // operator (120)
+    KeywordInline,    // inline (121)
+}
+
+fun getLeftParenType() r: SeenTokenType {
+    return SeenTokenType.LeftParen
+}
+
+fun getRightParenType() r: SeenTokenType {
+    return SeenTokenType.RightParen
+}
+
+fun getSemicolonType() r: SeenTokenType {
+    return SeenTokenType.Semicolon
+}
+
+fun getDotType() r: SeenTokenType {
+    return SeenTokenType.Dot
+}
+
+fun getLeftBraceType() r: SeenTokenType {
+    return SeenTokenType.LeftBrace
+}
+
+fun getKeywordAsType() r: SeenTokenType {
+    return SeenTokenType.KeywordAs
+}
+
+fun getIdentifierType() r: SeenTokenType {
+    return SeenTokenType.Identifier
+}
+
+fun getColonType() r: SeenTokenType {
+    return SeenTokenType.Colon
+}
+
+fun getRightBraceType() r: SeenTokenType {
+    return SeenTokenType.RightBrace
+}
+
+fun getCommaType() r: SeenTokenType {
+    return SeenTokenType.Comma
+}
+
+fun getEndOfFileType() r: SeenTokenType {
+    return SeenTokenType.EndOfFile
+}
+
+fun getKeywordFunType() r: SeenTokenType {
+    return SeenTokenType.KeywordFun
+}
+
+fun getKeywordImportType() r: SeenTokenType {
+    return SeenTokenType.KeywordImport
+}
+
+fun getKeywordUseType() r: SeenTokenType {
+    return SeenTokenType.KeywordUse
+}
+
+fun getKeywordClassType() r: SeenTokenType {
+    return SeenTokenType.KeywordClass
+}
+
+fun getAtType() r: SeenTokenType {
+    return SeenTokenType.AtSymbol
+}

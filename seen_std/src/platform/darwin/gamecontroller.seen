@@ -1,0 +1,48 @@
+/**
+ * Game Controller framework FFI bindings for macOS/iOS.
+ *
+ * Bindings to Apple's Game Controller framework via libseen_platform.dylib shim.
+ * Provides controller detection, button/axis input, haptics, and motion data.
+ *
+ * Link with: -lseen_platform (which wraps GameController.framework)
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// Controller button indices
+let GC_BUTTON_A: Int = 0
+let GC_BUTTON_B: Int = 1
+let GC_BUTTON_X: Int = 2
+let GC_BUTTON_Y: Int = 3
+let GC_BUTTON_DPAD_UP: Int = 4
+let GC_BUTTON_DPAD_DOWN: Int = 5
+let GC_BUTTON_DPAD_LEFT: Int = 6
+let GC_BUTTON_DPAD_RIGHT: Int = 7
+let GC_BUTTON_LEFT_SHOULDER: Int = 8
+let GC_BUTTON_RIGHT_SHOULDER: Int = 9
+let GC_BUTTON_LEFT_THUMBSTICK: Int = 10
+let GC_BUTTON_RIGHT_THUMBSTICK: Int = 11
+let GC_BUTTON_MENU: Int = 12
+let GC_BUTTON_OPTIONS: Int = 13
+let GC_BUTTON_HOME: Int = 14
+
+// Controller axis indices
+let GC_AXIS_LEFT_X: Int = 0
+let GC_AXIS_LEFT_Y: Int = 1
+let GC_AXIS_RIGHT_X: Int = 2
+let GC_AXIS_RIGHT_Y: Int = 3
+let GC_AXIS_LEFT_TRIGGER: Int = 4
+let GC_AXIS_RIGHT_TRIGGER: Int = 5
+
+// FFI declarations (provided by libseen_platform.dylib)
+extern fun seen_gc_get_controller_count() r: Int
+extern fun seen_gc_get_controller(index: Int) r: Int  // Returns GCController handle
+extern fun seen_gc_get_controller_name(controller: Int) r: Int  // Returns C string
+extern fun seen_gc_is_button_pressed(controller: Int, button: Int) r: Bool
+extern fun seen_gc_get_axis_value(controller: Int, axis: Int) r: Float
+extern fun seen_gc_has_haptics(controller: Int) r: Bool
+extern fun seen_gc_play_haptic(controller: Int, intensity: Float, duration: Float) r: Void
+extern fun seen_gc_has_motion(controller: Int) r: Bool
+extern fun seen_gc_start_discovery() r: Void
+extern fun seen_gc_stop_discovery() r: Void

@@ -1,0 +1,29 @@
+// Lock-Free Treiber Atomic Stack — CAS linked list
+// Usage: let s = AtomicStack.new()
+//        s.push(42)
+//        let v = s.pop()  // returns value or 0 if empty
+
+class AtomicStack {
+    var handle: Int
+
+    fun new() r: AtomicStack {
+        return AtomicStack { handle: seen_atomic_stack_new() }
+    }
+
+    fun push(value: Int) r: Void {
+        seen_atomic_stack_push(this.handle, value)
+    }
+
+    fun pop() r: Int {
+        return seen_atomic_stack_pop(this.handle)
+    }
+
+    fun destroy() r: Void {
+        seen_atomic_stack_destroy(this.handle)
+    }
+}
+
+extern fun seen_atomic_stack_new() r: Int
+extern fun seen_atomic_stack_push(handle: Int, value: Int) r: Void
+extern fun seen_atomic_stack_pop(handle: Int) r: Int
+extern fun seen_atomic_stack_destroy(handle: Int) r: Void

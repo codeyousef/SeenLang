@@ -1,0 +1,75 @@
+/**
+ * Metal GPU FFI bindings for macOS/iOS.
+ *
+ * Low-level bindings to Apple Metal via libseen_platform.dylib shim.
+ * Provides constants, function declarations, and helper utilities
+ * for GPU compute and rendering on Apple platforms.
+ *
+ * Link with: -lseen_platform (which wraps Metal.framework)
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// Metal pixel formats
+let MTL_PIXEL_FORMAT_INVALID: Int = 0
+let MTL_PIXEL_FORMAT_BGRA8_UNORM: Int = 80
+let MTL_PIXEL_FORMAT_BGRA8_UNORM_SRGB: Int = 81
+let MTL_PIXEL_FORMAT_RGBA8_UNORM: Int = 70
+let MTL_PIXEL_FORMAT_RGBA8_UNORM_SRGB: Int = 71
+let MTL_PIXEL_FORMAT_RGBA16_FLOAT: Int = 115
+let MTL_PIXEL_FORMAT_RGBA32_FLOAT: Int = 125
+let MTL_PIXEL_FORMAT_DEPTH32_FLOAT: Int = 252
+let MTL_PIXEL_FORMAT_DEPTH32_FLOAT_STENCIL8: Int = 260
+
+// Metal load/store actions
+let MTL_LOAD_ACTION_DONT_CARE: Int = 0
+let MTL_LOAD_ACTION_LOAD: Int = 1
+let MTL_LOAD_ACTION_CLEAR: Int = 2
+let MTL_STORE_ACTION_DONT_CARE: Int = 0
+let MTL_STORE_ACTION_STORE: Int = 1
+
+// Metal primitive types
+let MTL_PRIMITIVE_TYPE_POINT: Int = 0
+let MTL_PRIMITIVE_TYPE_LINE: Int = 1
+let MTL_PRIMITIVE_TYPE_LINE_STRIP: Int = 2
+let MTL_PRIMITIVE_TYPE_TRIANGLE: Int = 3
+let MTL_PRIMITIVE_TYPE_TRIANGLE_STRIP: Int = 4
+
+// Metal resource options
+let MTL_RESOURCE_STORAGE_MODE_SHARED: Int = 0
+let MTL_RESOURCE_STORAGE_MODE_MANAGED: Int = 1
+let MTL_RESOURCE_STORAGE_MODE_PRIVATE: Int = 2
+
+// Metal command buffer status
+let MTL_COMMAND_BUFFER_STATUS_NOT_ENQUEUED: Int = 0
+let MTL_COMMAND_BUFFER_STATUS_ENQUEUED: Int = 1
+let MTL_COMMAND_BUFFER_STATUS_COMMITTED: Int = 2
+let MTL_COMMAND_BUFFER_STATUS_SCHEDULED: Int = 3
+let MTL_COMMAND_BUFFER_STATUS_COMPLETED: Int = 4
+let MTL_COMMAND_BUFFER_STATUS_ERROR: Int = 5
+
+// Opaque handle types (pointers to Objective-C objects)
+// These are passed through the C shim as void*
+
+// FFI declarations (provided by libseen_platform.dylib)
+extern fun seen_mtl_create_system_default_device() r: Int  // Returns MTLDevice handle
+extern fun seen_mtl_device_name(device: Int) r: Int  // Returns C string pointer
+extern fun seen_mtl_create_command_queue(device: Int) r: Int
+extern fun seen_mtl_create_buffer(device: Int, length: Int, options: Int) r: Int
+extern fun seen_mtl_buffer_contents(buffer: Int) r: Int  // Returns void* to buffer data
+extern fun seen_mtl_buffer_length(buffer: Int) r: Int
+extern fun seen_mtl_create_library_from_source(device: Int, source: Int) r: Int
+extern fun seen_mtl_create_function(library: Int, name: Int) r: Int
+extern fun seen_mtl_create_compute_pipeline(device: Int, function: Int) r: Int
+extern fun seen_mtl_create_render_pipeline(device: Int, descriptor: Int) r: Int
+extern fun seen_mtl_create_command_buffer(queue: Int) r: Int
+extern fun seen_mtl_create_compute_encoder(commandBuffer: Int) r: Int
+extern fun seen_mtl_create_render_encoder(commandBuffer: Int, descriptor: Int) r: Int
+extern fun seen_mtl_compute_set_pipeline(encoder: Int, pipeline: Int) r: Void
+extern fun seen_mtl_compute_set_buffer(encoder: Int, buffer: Int, offset: Int, index: Int) r: Void
+extern fun seen_mtl_compute_dispatch(encoder: Int, gridX: Int, gridY: Int, gridZ: Int, groupX: Int, groupY: Int, groupZ: Int) r: Void
+extern fun seen_mtl_end_encoding(encoder: Int) r: Void
+extern fun seen_mtl_commit(commandBuffer: Int) r: Void
+extern fun seen_mtl_wait_until_completed(commandBuffer: Int) r: Void
+extern fun seen_mtl_release(object: Int) r: Void

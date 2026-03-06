@@ -1,0 +1,161 @@
+/**
+ * E2E tests for Vulkan FFI bindings.
+ * Tests that constants are correctly defined.
+ */
+
+import platform.linux.vulkan.{
+    VK_SUCCESS, VK_NOT_READY, VK_TIMEOUT, VK_INCOMPLETE,
+    VK_ERROR_OUT_OF_HOST_MEMORY, VK_ERROR_DEVICE_LOST,
+    VK_ERROR_INITIALIZATION_FAILED, VK_ERROR_OUT_OF_DATE_KHR,
+    VK_STRUCTURE_TYPE_APPLICATION_INFO, VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+    VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_D32_SFLOAT,
+    VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_MAILBOX_KHR,
+    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+    VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT,
+    VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_POLYGON_MODE_FILL,
+    VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_CLOCKWISE,
+    VK_SAMPLE_COUNT_1_BIT, VK_SAMPLE_COUNT_4_BIT,
+    VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
+    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+    VK_QUEUE_GRAPHICS_BIT, VK_QUEUE_COMPUTE_BIT
+}
+
+var testsPassed: Int = 0
+var testsFailed: Int = 0
+
+fun expectEq(actual: Int, expected: Int, message: String) -> Void {
+    if actual == expected {
+        testsPassed = testsPassed + 1
+        return
+    }
+    testsFailed = testsFailed + 1
+    println("FAIL: " + message + " (got " + actual.toString() + ", expected " + expected.toString() + ")")
+}
+
+fun testVulkanResultCodes() -> Void {
+    println("Testing Vulkan result codes...")
+    expectEq(VK_SUCCESS, 0, "VK_SUCCESS")
+    expectEq(VK_NOT_READY, 1, "VK_NOT_READY")
+    expectEq(VK_TIMEOUT, 2, "VK_TIMEOUT")
+    expectEq(VK_INCOMPLETE, 5, "VK_INCOMPLETE")
+    expectEq(VK_ERROR_OUT_OF_HOST_MEMORY, -1, "VK_ERROR_OUT_OF_HOST_MEMORY")
+    expectEq(VK_ERROR_DEVICE_LOST, -4, "VK_ERROR_DEVICE_LOST")
+    expectEq(VK_ERROR_INITIALIZATION_FAILED, -3, "VK_ERROR_INITIALIZATION_FAILED")
+}
+
+fun testVulkanStructureTypes() -> Void {
+    println("Testing Vulkan structure types...")
+    expectEq(VK_STRUCTURE_TYPE_APPLICATION_INFO, 0, "VK_STRUCTURE_TYPE_APPLICATION_INFO")
+    expectEq(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, 1, "VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO")
+}
+
+fun testVulkanFormats() -> Void {
+    println("Testing Vulkan formats...")
+    expectEq(VK_FORMAT_R8G8B8A8_UNORM, 37, "VK_FORMAT_R8G8B8A8_UNORM")
+    expectEq(VK_FORMAT_B8G8R8A8_SRGB, 50, "VK_FORMAT_B8G8R8A8_SRGB")
+    expectEq(VK_FORMAT_D32_SFLOAT, 126, "VK_FORMAT_D32_SFLOAT")
+}
+
+fun testVulkanPresentModes() -> Void {
+    println("Testing Vulkan present modes...")
+    expectEq(VK_PRESENT_MODE_FIFO_KHR, 2, "VK_PRESENT_MODE_FIFO_KHR")
+    expectEq(VK_PRESENT_MODE_MAILBOX_KHR, 1, "VK_PRESENT_MODE_MAILBOX_KHR")
+}
+
+fun testVulkanImageUsage() -> Void {
+    println("Testing Vulkan image usage flags...")
+    expectEq(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 16, "VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT")
+    expectEq(VK_IMAGE_USAGE_TRANSFER_SRC_BIT, 1, "VK_IMAGE_USAGE_TRANSFER_SRC_BIT")
+}
+
+fun testVulkanShaderStages() -> Void {
+    println("Testing Vulkan shader stages...")
+    expectEq(VK_SHADER_STAGE_VERTEX_BIT, 1, "VK_SHADER_STAGE_VERTEX_BIT")
+    expectEq(VK_SHADER_STAGE_FRAGMENT_BIT, 16, "VK_SHADER_STAGE_FRAGMENT_BIT")
+}
+
+fun testVulkanPipelineState() -> Void {
+    println("Testing Vulkan pipeline state constants...")
+    expectEq(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 3, "VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST")
+    expectEq(VK_POLYGON_MODE_FILL, 0, "VK_POLYGON_MODE_FILL")
+    expectEq(VK_CULL_MODE_BACK_BIT, 2, "VK_CULL_MODE_BACK_BIT")
+    expectEq(VK_FRONT_FACE_CLOCKWISE, 1, "VK_FRONT_FACE_CLOCKWISE")
+}
+
+fun testVulkanSampleCounts() -> Void {
+    println("Testing Vulkan sample counts...")
+    expectEq(VK_SAMPLE_COUNT_1_BIT, 1, "VK_SAMPLE_COUNT_1_BIT")
+    expectEq(VK_SAMPLE_COUNT_4_BIT, 4, "VK_SAMPLE_COUNT_4_BIT")
+}
+
+fun testVulkanBlending() -> Void {
+    println("Testing Vulkan blending constants...")
+    expectEq(VK_BLEND_FACTOR_SRC_ALPHA, 6, "VK_BLEND_FACTOR_SRC_ALPHA")
+    expectEq(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, 7, "VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA")
+}
+
+fun testVulkanAttachmentOps() -> Void {
+    println("Testing Vulkan attachment operations...")
+    expectEq(VK_ATTACHMENT_LOAD_OP_CLEAR, 1, "VK_ATTACHMENT_LOAD_OP_CLEAR")
+    expectEq(VK_ATTACHMENT_STORE_OP_STORE, 0, "VK_ATTACHMENT_STORE_OP_STORE")
+}
+
+fun testVulkanImageLayouts() -> Void {
+    println("Testing Vulkan image layouts...")
+    expectEq(VK_IMAGE_LAYOUT_UNDEFINED, 0, "VK_IMAGE_LAYOUT_UNDEFINED")
+    expectEq(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 1000001002, "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR")
+}
+
+fun testVulkanBufferUsage() -> Void {
+    println("Testing Vulkan buffer usage flags...")
+    expectEq(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 128, "VK_BUFFER_USAGE_VERTEX_BUFFER_BIT")
+    expectEq(VK_BUFFER_USAGE_INDEX_BUFFER_BIT, 64, "VK_BUFFER_USAGE_INDEX_BUFFER_BIT")
+}
+
+fun testVulkanMemoryProperties() -> Void {
+    println("Testing Vulkan memory property flags...")
+    expectEq(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1, "VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT")
+    expectEq(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, 2, "VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT")
+}
+
+fun testVulkanQueueFlags() -> Void {
+    println("Testing Vulkan queue flags...")
+    expectEq(VK_QUEUE_GRAPHICS_BIT, 1, "VK_QUEUE_GRAPHICS_BIT")
+    expectEq(VK_QUEUE_COMPUTE_BIT, 2, "VK_QUEUE_COMPUTE_BIT")
+}
+
+fun main() -> Int {
+    println("=== Vulkan FFI Bindings E2E Tests ===")
+    println("")
+
+    testVulkanResultCodes()
+    testVulkanStructureTypes()
+    testVulkanFormats()
+    testVulkanPresentModes()
+    testVulkanImageUsage()
+    testVulkanShaderStages()
+    testVulkanPipelineState()
+    testVulkanSampleCounts()
+    testVulkanBlending()
+    testVulkanAttachmentOps()
+    testVulkanImageLayouts()
+    testVulkanBufferUsage()
+    testVulkanMemoryProperties()
+    testVulkanQueueFlags()
+
+    println("")
+    println("=== Test Summary ===")
+    println("Passed: " + testsPassed.toString())
+    println("Failed: " + testsFailed.toString())
+
+    if testsFailed > 0 {
+        println("TESTS FAILED!")
+        return 1
+    }
+
+    println("All Vulkan tests passed!")
+    return 0
+}

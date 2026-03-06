@@ -1,0 +1,418 @@
+// Integration Example: Using Neural Network ML Optimizer in Seen Compiler
+// 
+// This file demonstrates how to integrate the ML optimizer into the
+// compilation pipeline for intelligent optimization decisions.
+
+import optimization.ml.{MLOptimizerNN, LoopFeaturesNN, InlineFeaturesNN}
+import optimization.ml.training_data.{OptimizationDecision}
+import ir.module.Module
+
+// Example: Optimization pass that uses ML guidance
+class MLOptimizationPass {
+    var optimizer: MLOptimizerNN
+    var passName: String
+    var enabled: Bool
+    
+    fun new() r: MLOptimizationPass {
+        return MLOptimizationPass{
+            optimizer: MLOptimizerNN.new(),
+            passName: "MLOptimizationPass",
+            enabled: true
+        }
+    }
+    
+    // Initialize the optimizer with configuration
+    fun initialize(target: String, useNN: Bool) r: Void {
+        optimizer.setTargetHardware(target)
+        optimizer.enableNeuralNetwork(useNN)
+        
+        // Load existing models if available
+        optimizer.loadModels()
+        
+        println("[ML] Initialized optimizer for target: " + target)
+        println("[ML] Neural network enabled: " + useNN.toString())
+    }
+    
+    // Run the optimization pass on a module
+    fun run(module: Module) r: Module {
+        if not enabled {
+            return module
+        }
+        
+        println("[ML] Running optimization pass on module: " + module.name)
+        
+        // Process each function in the module
+        var funcIndex = 0
+        while funcIndex < module.functions.length() {
+            let func = module.functions[funcIndex]
+            optimizeFunction(func)
+            funcIndex = funcIndex + 1
+        }
+        
+        // Print statistics
+        println("[ML] " + optimizer.getSummary())
+        
+        return module
+    }
+    
+    // Optimize a single function
+    fun optimizeFunction(func: FunctionSummary) r: Void {
+        // Analyze function for loops
+        let loops = analyzeLoops(func)
+        
+        var loopIndex = 0
+        while loopIndex < loops.length() {
+            let loop = loops[loopIndex]
+            optimizeLoop(loop)
+            loopIndex = loopIndex + 1
+        }
+        
+        // Analyze function for inlining opportunities
+        let calls = analyzeCallSites(func)
+        
+        var callIndex = 0
+        while callIndex < calls.length() {
+            let call = calls[callIndex]
+            considerInlining(call)
+            callIndex = callIndex + 1
+        }
+    }
+    
+    // Optimize a single loop using ML guidance
+    fun optimizeLoop(loop: LoopInfo) r: Void {
+        // Extract features from loop analysis
+        let features = LoopFeaturesNN.new(
+            tripCount: loop.estimatedTripCount,
+            nestingDepth: loop.nestingDepth,
+            addOps: loop.countOperations("add"),
+            mulOps: loop.countOperations("mul"),
+            loadOps: loop.countMemoryOperations("load"),
+            storeOps: loop.countMemoryOperations("store"),
+            stride: loop.memoryAccessStride,
+            sourceLocation: loop.sourceLocation,
+            functionName: loop.functionName
+        )
+        
+        // Ask ML optimizer for vectorization decision
+        if optimizer.shouldVectorize(features) {
+            println("[ML] Vectorizing loop at " + loop.sourceLocation)
+            applyVectorization(loop)
+            
+            // Record the decision for training
+            recordDecision(features, OptimizationDecision.Vectorize)
+        }
+        
+        // Ask ML optimizer for unrolling decision
+        if optimizer.shouldUnroll(features) {
+            println("[ML] Unrolling loop at " + loop.sourceLocation)
+            applyUnrolling(loop)
+            
+            recordDecision(features, OptimizationDecision.Unroll)
+        }
+    }
+    
+    // Consider inlining a function call
+    fun considerInlining(call: CallSiteInfo) r: Void {
+        // Extract features from call site analysis
+        let features = InlineFeaturesNN.new(
+            calleeSize: call.callee.instructionCount,
+            callerSize: call.caller.instructionCount,
+            callCount: call.callee.callCount,
+            hasLoops: call.callee.hasLoops,
+            sourceLocation: call.sourceLocation,
+            functionName: call.caller.name
+        )
+        
+        // Ask ML optimizer for inlining decision
+        if optimizer.shouldInline(features) {
+            println("[ML] Inlining call to " + call.callee.name + " at " + call.sourceLocation)
+            applyInlining(call)
+            
+            recordInlineDecision(features, OptimizationDecision.Inline)
+        }
+    }
+    
+    // Apply vectorization transformation
+    fun applyVectorization(loop: LoopInfo) r: Void {
+        // Implementation would:
+        // 1. Check legality of vectorization
+        // 2. Generate vectorized version of loop body
+        // 3. Add runtime checks if needed
+        // 4. Replace original loop with vectorized version
+        
+        // Mark loop as vectorized for LLVM
+        loop.addMetadata("llvm.loop.vectorize.enable", "true")
+        loop.addMetadata("llvm.loop.vectorize.width", "4")
+    }
+    
+    // Apply unrolling transformation
+    fun applyUnrolling(loop: LoopInfo) r: Void {
+        // Implementation would:
+        // 1. Determine unroll factor based on trip count
+        // 2. Duplicate loop body
+        // 3. Adjust loop bounds and induction variables
+        
+        let unrollFactor = calculateUnrollFactor(loop)
+        loop.addMetadata("llvm.loop.unroll.count", unrollFactor.toString())
+    }
+    
+    // Apply inlining transformation
+    fun applyInlining(call: CallSiteInfo) r: Void {
+        // Implementation would:
+        // 1. Copy callee body to call site
+        // 2. Map parameters to arguments
+        // 3. Replace return with branch to continuation
+        // 4. Update debug info
+        
+        call.shouldInline = true
+    }
+    
+    // Record decision for training
+    fun recordDecision(features: LoopFeaturesNN, decision: OptimizationDecision) r: Void {
+        // This records the decision with the training data
+        // The outcome will be updated later from LLVM remarks
+        optimizer.trainingData.addLoopExample(
+            features.toLegacyFeatures(),
+            decision,
+            0.8, // confidence placeholder
+            features.sourceLocation,
+            features.functionName
+        )
+    }
+    
+    // Record inline decision
+    fun recordInlineDecision(features: InlineFeaturesNN, decision: OptimizationDecision) r: Void {
+        optimizer.trainingData.addInlineExample(
+            features.toLegacyFeatures(),
+            decision,
+            0.8,
+            features.sourceLocation,
+            features.functionName
+        )
+    }
+    
+    // Process LLVM optimization remarks after compilation
+    fun processRemarks(remarks: Array<LLVMOptRemark>) r: Void {
+        // Convert remarks to internal format
+        let llvmRemarks = Array<LLVMRemark>()
+        
+        var i = 0
+        while i < remarks.length() {
+            let remark = LLVMRemark{
+                exampleId: findExampleIdForRemark(remarks[i]),
+                message: remarks[i].message,
+                wasSuccessful: remarks[i].applied,
+                speedup: remarks[i].speedup
+            }
+            llvmRemarks.push(remark)
+            i = i + 1
+        }
+        
+        // Process with optimizer
+        optimizer.processOptimizationRemarks(llvmRemarks)
+        
+        // Save updated training data
+        optimizer.trainingData.save()
+    }
+    
+    // Train models with collected data
+    fun trainModels(epochs: Int) r: TrainingResult {
+        println("[ML] Training models with " + optimizer.trainingData.getStats().totalExamples.toString() + " examples...")
+        
+        let result = optimizer.trainModels(epochs)
+        
+        if result.success {
+            println("[ML] Training complete!")
+            println("[ML] Loss: " + result.loss.toString())
+            println("[ML] Accuracy: " + result.accuracy.toString())
+            
+            // Save trained models
+            optimizer.saveModels()
+        } else {
+            println("[ML] Training failed: " + result.message)
+        }
+        
+        return result
+    }
+    
+    // Get current statistics
+    fun getStatistics() r: String {
+        let stats = optimizer.getStats()
+        let trainingStats = optimizer.trainingData.getStats()
+        
+        return "ML Optimization Statistics:\n" +
+               "  Total decisions: " + stats.totalDecisions.toString() + "\n" +
+               "  NN decisions: " + stats.nnDecisions.toString() + "\n" +
+               "  Heuristic decisions: " + stats.heuristicDecisions.toString() + "\n" +
+               "  Vectorizations: " + stats.vectorizeCount.toString() + "\n" +
+               "  Unrolls: " + stats.unrollCount.toString() + "\n" +
+               "  Inlines: " + stats.inlineCount.toString() + "\n" +
+               "  Cache hits: " + stats.cacheHits.toString() + "\n" +
+               "  Training samples: " + stats.trainingSamples.toString() + "\n" +
+               "  Using NN: " + stats.usingNeuralNetwork.toString()
+    }
+    
+    // Check if models need retraining
+    fun needsRetraining() r: Bool {
+        return optimizer.hasLearnedNewPatterns()
+    }
+    
+    // Check for performance regression
+    fun detectRegression() r: Bool {
+        return optimizer.detectRegression()
+    }
+}
+
+// Supporting data structures
+
+class FunctionSummary {
+    var name: String
+    var instructionCount: Int
+    var callCount: Int
+    var hasLoops: Bool
+}
+
+class LoopInfo {
+    var estimatedTripCount: Int
+    var nestingDepth: Int
+    var operations: Map<String, Int>
+    var memoryOperations: Map<String, Int>
+    var memoryAccessStride: Int
+    var sourceLocation: String
+    var functionName: String
+    
+    fun countOperations(opType: String) r: Int {
+        if operations.hasKey(opType) {
+            return operations.get(opType)!
+        }
+        return 0
+    }
+    
+    fun countMemoryOperations(opType: String) r: Int {
+        if memoryOperations.hasKey(opType) {
+            return memoryOperations.get(opType)!
+        }
+        return 0
+    }
+    
+    fun addMetadata(key: String, value: String) r: Void {
+        // Implementation would add LLVM metadata
+    }
+}
+
+class CallSiteInfo {
+    var callee: FunctionSummary
+    var caller: FunctionSummary
+    var sourceLocation: String
+    var shouldInline: Bool
+}
+
+class LLVMOptRemark {
+    var passName: String
+    var message: String
+    var location: String
+    var applied: Bool
+    var speedup: Float
+}
+
+// Forward declarations
+fun analyzeLoops(func: FunctionSummary) r: Array<LoopInfo> {
+    // Would analyze function IR for loops
+    return Array<LoopInfo>()
+}
+
+fun analyzeCallSites(func: FunctionSummary) r: Array<CallSiteInfo> {
+    // Would analyze function IR for call sites
+    return Array<CallSiteInfo>()
+}
+
+fun calculateUnrollFactor(loop: LoopInfo) r: Int {
+    // Would calculate optimal unroll factor based on trip count
+    return 4
+}
+
+fun findExampleIdForRemark(remark: LLVMOptRemark) r: String {
+    // Would match remark to training example
+    return ""
+}
+
+fun applyVectorization(loop: LoopInfo) r: Void {
+    // Placeholder
+}
+
+fun applyUnrolling(loop: LoopInfo) r: Void {
+    // Placeholder
+}
+
+fun applyInlining(call: CallSiteInfo) r: Void {
+    // Placeholder
+}
+
+fun collectLLVMRemarks() r: Array<LLVMRemark> {
+    // Would collect remarks from LLVM compilation
+    return Array<LLVMRemark>()
+}
+
+// Example: Main compiler integration
+fun exampleCompilerIntegration() {
+    // Create and initialize the ML optimization pass
+    let mlPass = MLOptimizationPass.new()
+    mlPass.initialize("x86_64", true)
+    
+    // Load a module
+    let module = Module.new("example_program")
+    
+    // Run ML-guided optimization
+    let optimizedModule = mlPass.run(module)
+    
+    // Compile to LLVM IR (this would generate remarks)
+    // compileToLLVM(optimizedModule)
+    
+    // Process LLVM remarks to update training data
+    // let remarks = collectLLVMRemarksFromFile()
+    // mlPass.processRemarks(remarks)
+    
+    // Periodically train models
+    if mlPass.needsRetraining() {
+        mlPass.trainModels(50)
+    }
+    
+    // Check for regression
+    if mlPass.detectRegression() {
+        println("WARNING: Performance regression detected!")
+        // Could rollback to previous model or adjust thresholds
+    }
+    
+    // Print final statistics
+    println(mlPass.getStatistics())
+}
+
+// Run example
+fun main() {
+    println("ML Optimizer Integration Example")
+    println("=================================")
+    println("")
+    
+    exampleCompilerIntegration()
+}
+
+// Placeholder
+class LLVMRemark {
+    var exampleId: String
+    var message: String
+    var wasSuccessful: Bool
+    var speedup: Float
+}
+
+class TrainingResult {
+    var success: Bool
+    var message: String
+    var loss: Float
+    var accuracy: Float
+}
+
+// Map placeholder
+data Map<K, V> {
+    fun hasKey(key: K) r: Bool { return false }
+    fun get(key: K) r: V? { return null }
+}

@@ -1,0 +1,1906 @@
+// Seen Language Server Protocol Implementation
+// Full LSP server with JSON-RPC over stdio
+
+import json.{JsonValue, JsonValue_emptyObject, JsonValue_emptyArray, JsonValue_array, JsonValue_string, JsonValue_number, JsonValue_bool, JsonValue_nullValue, parseJson, toJson}
+import lsp.types.{
+    LspPosition, LspPosition_new, LspPosition_fromJson,
+    Range, Range_new, Range_fromJson,
+    Location, Location_new,
+    TextDocumentIdentifier, TextDocumentIdentifier_new, TextDocumentIdentifier_fromJson,
+    TextDocumentItem, TextDocumentItem_fromJson,
+    TextDocumentContentChangeEvent, TextDocumentContentChangeEvent_fromJson,
+    Diagnostic, Diagnostic_new,
+    DIAGNOSTIC_ERROR, DIAGNOSTIC_WARNING, DIAGNOSTIC_INFORMATION, DIAGNOSTIC_HINT,
+    CompletionItem, CompletionItem_new,
+    CompletionList, CompletionList_new,
+    COMPLETION_KEYWORD, COMPLETION_FUNCTION, COMPLETION_CLASS, COMPLETION_VARIABLE,
+    COMPLETION_METHOD, COMPLETION_FIELD, COMPLETION_SNIPPET, COMPLETION_ENUM,
+    MarkupContent, MarkupContent_markdown, MarkupContent_plaintext,
+    Hover, Hover_new,
+    TextEdit, TextEdit_new,
+    CodeAction, CodeAction_new,
+    InitializeParams, InitializeParams_fromJson,
+    InitializeResult, InitializeResult_new,
+    ServerCapabilities, ServerInfo,
+    DidOpenTextDocumentParams, DidOpenTextDocumentParams_fromJson,
+    DidChangeTextDocumentParams, DidChangeTextDocumentParams_fromJson,
+    DidCloseTextDocumentParams, DidCloseTextDocumentParams_fromJson,
+    TextDocumentPositionParams, TextDocumentPositionParams_fromJson,
+    CodeActionParams, CodeActionParams_fromJson,
+    DocumentFormattingParams, DocumentFormattingParams_fromJson,
+    PublishDiagnosticsParams, PublishDiagnosticsParams_new,
+    CompletionParams_fromJson, HoverParams_fromJson, DefinitionParams_fromJson
+}
+import lsp.jsonrpc.{
+    JsonRpcHandler, JsonRpcHandler_new,
+    LspMessage, LspMessage_fromJson,
+    LspResponse, LspResponse_success, LspResponse_failure,
+    LspError, LspError_new,
+    JSONRPC_METHOD_NOT_FOUND, JSONRPC_INTERNAL_ERROR,
+    LSP_SERVER_NOT_INITIALIZED
+}
+import lexer.lexer.{SeenLexer}
+import lexer.token.{Token, SeenTokenType, TOKEN_EOF}
+import parser.real_parser.{RealParser, ProgramNode}
+import typechecker.type_checker.{SeenTypeChecker}
+import bootstrap.frontend.{run_frontend, FrontendResult, FrontendDiagnostic}
+
+// ============================================================================
+// Document Storage
+// ============================================================================
+
+class Document {
+    var uri: String
+    var content: String
+    var version: Int
+    var languageId: String
+}
+
+// Free function (formerly static method on Document)
+
+fun Document_new(uri: String, content: String, version: Int) r: Document {
+    let doc = Document()
+    doc.uri = uri
+    doc.content = content
+    doc.version = version
+    doc.languageId = "seen"
+    return doc
+}
+
+// ============================================================================
+// LSP Server
+// ============================================================================
+
+class SeenLspServer {
+    var rpc: JsonRpcHandler
+    var initialized: Bool
+    var shutdown: Bool
+    var documents: Array<Document>  // Simple array storage for documents
+    var documentUris: Array<String> // URIs for lookup
+
+    // ========================================================================
+    // Helper Methods (moved early to avoid parser limit)
+    // ========================================================================
+
+    fun checkWordChar(ch: Int) r: Bool {
+        // a-z, A-Z, 0-9, _
+        if ch >= 97 and ch <= 122 { return true }
+        if ch >= 65 and ch <= 90 { return true }
+        if ch >= 48 and ch <= 57 { return true }
+        if ch == 95 { return true }
+        return false
+    }
+
+    fun storeDocument(doc: Document) r: Void {
+        // Check if already exists
+        var i = 0
+        while i < this.documentUris.length() {
+            if this.documentUris[i] == doc.uri {
+                this.documents[i] = doc
+                return
+            }
+            i = i + 1
+        }
+        // Add new - use local vars to avoid chained push codegen bug
+        let uriArr = this.documentUris
+        uriArr.push(doc.uri)
+        let docArr = this.documents
+        docArr.push(doc)
+    }
+
+    fun getDocument(uri: String) r: Document? {
+        var i = 0
+        while i < this.documentUris.length() {
+            if this.documentUris[i] == uri {
+                return this.documents[i]
+            }
+            i = i + 1
+        }
+        return null
+    }
+
+    fun removeDocument(uri: String) r: Void {
+        // Simple implementation - just mark as empty
+        var i = 0
+        while i < this.documentUris.length() {
+            if this.documentUris[i] == uri {
+                this.documentUris[i] = ""
+                return
+            }
+            i = i + 1
+        }
+    }
+
+    fun log(message: String) r: Void {
+        // Note: In a real implementation, we'd write to stderr
+        // For now, we can use sendNotification for window/logMessage
+        let params = JsonValue_emptyObject()
+        params.set("type", JsonValue_number(3))  // Info
+        params.set("message", JsonValue_string("[seen-lsp] " + message))
+        this.rpc.sendNotification("window/logMessage", params)
+    }
+
+    fun getTypeInfo(word: String) r: String {
+        if word == "Int" {
+            return "64-bit signed integer type."
+        }
+        if word == "Float" {
+            return "64-bit floating point type."
+        }
+        if word == "String" {
+            return "UTF-8 string type."
+        }
+        if word == "Bool" {
+            return "Boolean type (true or false)."
+        }
+        if word == "Char" {
+            return "Unicode code point."
+        }
+        if word == "Void" {
+            return "Unit type (no value)."
+        }
+        if word == "Array" {
+            return "Dynamic array type."
+        }
+        if word == "Map" {
+            return "Hash map type."
+        }
+        if word == "Vec" {
+            return "Growable array type.\n\n```seen\nlet v = Vec<Int>()\nv.push(42)\n```"
+        }
+        if word == "HashMap" {
+            return "Hash map with key-value pairs.\n\n```seen\nlet m = HashMap<String, Int>()\nm.set(\"key\", 42)\n```"
+        }
+        if word == "LinkedList" {
+            return "Doubly-linked list type."
+        }
+        if word == "BTreeMap" {
+            return "Sorted map backed by a B-tree."
+        }
+        if word == "Channel" {
+            return "Inter-thread communication channel.\n\n```seen\nlet ch = Channel<Int>()\nch.send(42)\nlet val = ch.recv()\n```"
+        }
+        if word == "Mutex" {
+            return "Mutual exclusion lock for thread-safe access.\n\n```seen\nlet m = Mutex.new()\nm.lock()\nm.unlock()\n```"
+        }
+        if word == "RwLock" {
+            return "Reader-writer lock. Multiple readers or one writer."
+        }
+        if word == "AtomicInt" {
+            return "Atomic integer for lock-free concurrent access."
+        }
+        if word == "Barrier" {
+            return "Thread synchronization barrier."
+        }
+        if word == "ThreadLocal" {
+            return "Thread-local storage."
+        }
+        if word == "Buffer" {
+            return "GPU buffer type for compute shaders.\n\n```seen\nlet buf = Buffer<Float>(1024)\n```"
+        }
+        if word == "Uniform" {
+            return "GPU uniform buffer type."
+        }
+        if word == "Image" {
+            return "GPU image type for texture operations."
+        }
+        if word == "Result" {
+            return "Result type for error handling.\n\n```seen\nfun parse(s: String) r: Result<Int, String> {\n    return Ok(42)\n}\n```"
+        }
+        if word == "Option" {
+            return "Optional type. Either Some(value) or None."
+        }
+        if word == "SmallVec" {
+            return "Small-buffer-optimized vector. Stores small arrays inline without heap allocation."
+        }
+        return ""
+    }
+
+    fun getLineContent(content: String, lineNumber: Int) r: String {
+        var currentLine = 0
+        var lineStart = 0
+        var i = 0
+
+        while i < content.length() {
+            if currentLine == lineNumber {
+                // Find end of this line
+                var lineEnd = i
+                while lineEnd < content.length() and content.charAt(lineEnd) != 10 {
+                    lineEnd = lineEnd + 1
+                }
+                return content.substring(i, lineEnd)
+            }
+
+            if content.charAt(i) == 10 {  // newline
+                currentLine = currentLine + 1
+            }
+            i = i + 1
+        }
+
+        return ""
+    }
+
+    fun getWordAt(line: String, charIndex: Int) r: String {
+        if charIndex >= line.length() {
+            charIndex = line.length() - 1
+        }
+        if charIndex < 0 {
+            return ""
+        }
+
+        // Find word boundaries
+        var start = charIndex
+        var end = charIndex
+
+        // Expand left
+        while start > 0 and this.checkWordChar(line.charAt(start - 1)) {
+            start = start - 1
+        }
+
+        // Expand right
+        while end < line.length() and this.checkWordChar(line.charAt(end)) {
+            end = end + 1
+        }
+
+        if start >= end {
+            return ""
+        }
+
+        return line.substring(start, end)
+    }
+
+    fun getDocumentIndex(uri: String) r: Int {
+        var i = 0
+        while i < this.documentUris.length() {
+            if this.documentUris[i] == uri {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fun getAstForDocument(uri: String) r: ProgramNode {
+        let doc = this.getDocument(uri)
+        if doc == null {
+            return ProgramNode.new()
+        }
+        let docObj = doc.unwrap()
+        let content = docObj.content
+        let result = run_frontend(content, uri, "en")
+        return result.program
+    }
+
+    fun findDefinitionLine(content: String, word: String) r: Int {
+        // Find the 0-based line number where a definition of 'word' appears
+        var lineNum = 0
+        var lineStart = 0
+        var i = 0
+        let funPattern = "fun " + word + "("
+        let classPattern = "class " + word
+        let enumPattern = "enum " + word
+        let dataPattern = "data " + word
+        while i <= content.length() {
+            var atEnd = false
+            if i == content.length() {
+                atEnd = true
+            } else {
+                if content.charAt(i) == 10 {
+                    atEnd = true
+                }
+            }
+            if atEnd {
+                let line = content.substring(lineStart, i)
+                if line.contains(funPattern) {
+                    return lineNum
+                }
+                if line.contains(classPattern) {
+                    return lineNum
+                }
+                if line.contains(enumPattern) {
+                    return lineNum
+                }
+                if line.contains(dataPattern) {
+                    return lineNum
+                }
+                lineNum = lineNum + 1
+                lineStart = i + 1
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fun extractSignatureFromSource(content: String, fnName: String) r: String {
+        let defLine = this.findDefinitionLine(content, fnName)
+        if defLine < 0 {
+            return "fun " + fnName + "(...)"
+        }
+        let line = this.getLineContent(content, defLine)
+        // Find "fun " in the line and extract up to "{"
+        var funStart = -1
+        var i = 0
+        while i < line.length() - 3 {
+            if line.charAt(i) == 102 and line.charAt(i + 1) == 117 and line.charAt(i + 2) == 110 and line.charAt(i + 3) == 32 {
+                funStart = i
+                i = line.length()
+            }
+            i = i + 1
+        }
+        if funStart < 0 {
+            return "fun " + fnName + "(...)"
+        }
+        // Find "{" to trim
+        var bracePos = line.length()
+        var b = funStart
+        while b < line.length() {
+            if line.charAt(b) == 123 {
+                bracePos = b
+                b = line.length()
+            }
+            b = b + 1
+        }
+        let sig = line.substring(funStart, bracePos)
+        return sig.trim()
+    }
+
+    fun findContainingFunctionName(prog: ProgramNode, content: String, cursorLine: Int) r: String {
+        var bestName = ""
+        var bestLine = -1
+        var j = 0
+        while j < prog.items.length() {
+            let item = prog.items[j]
+            if item.itemType == "Function" {
+                let defLine = this.findDefinitionLine(content, item.name)
+                if defLine >= 0 and defLine <= cursorLine and defLine > bestLine {
+                    bestLine = defLine
+                    bestName = item.name
+                }
+            }
+            if item.itemType == "Class" {
+                let cls = item.classNode
+                var k = 0
+                while k < cls.methods.length() {
+                    let method = cls.methods[k]
+                    let defLine = this.findDefinitionLine(content, method.name)
+                    if defLine >= 0 and defLine <= cursorLine and defLine > bestLine {
+                        bestLine = defLine
+                        bestName = method.name
+                    }
+                    k = k + 1
+                }
+            }
+            j = j + 1
+        }
+        return bestName
+    }
+
+    fun extractParamNames(content: String, fnName: String) r: Array<String> {
+        let names = Array<String>()
+        let defLine = this.findDefinitionLine(content, fnName)
+        if defLine < 0 {
+            return names
+        }
+        let line = this.getLineContent(content, defLine)
+        // Find opening paren
+        var parenStart = -1
+        var i = 0
+        while i < line.length() {
+            if line.charAt(i) == 40 {
+                parenStart = i
+                i = line.length()
+            }
+            i = i + 1
+        }
+        if parenStart < 0 {
+            return names
+        }
+        // Find closing paren
+        var parenEnd = -1
+        i = parenStart + 1
+        var depth = 1
+        while i < line.length() and depth > 0 {
+            if line.charAt(i) == 40 {
+                depth = depth + 1
+            }
+            if line.charAt(i) == 41 {
+                depth = depth - 1
+                if depth == 0 {
+                    parenEnd = i
+                }
+            }
+            i = i + 1
+        }
+        if parenEnd <= parenStart + 1 {
+            return names
+        }
+        // Parse param names between parens: "a: Int, b: String" -> ["a", "b"]
+        let inner = line.substring(parenStart + 1, parenEnd)
+        var pos = 0
+        while pos < inner.length() {
+            // Skip whitespace
+            while pos < inner.length() and (inner.charAt(pos) == 32 or inner.charAt(pos) == 9) {
+                pos = pos + 1
+            }
+            if pos >= inner.length() {
+                pos = inner.length()
+            } else {
+                // Read word chars
+                var nameStart = pos
+                while pos < inner.length() and this.checkWordChar(inner.charAt(pos)) {
+                    pos = pos + 1
+                }
+                if pos > nameStart {
+                    names.push(inner.substring(nameStart, pos))
+                }
+                // Skip to next comma
+                while pos < inner.length() and inner.charAt(pos) != 44 {
+                    pos = pos + 1
+                }
+                if pos < inner.length() {
+                    pos = pos + 1
+                }
+            }
+        }
+        return names
+    }
+
+    fun findLocalVarNames(content: String, fnDefLine: Int, cursorLine: Int) r: Array<String> {
+        let names = Array<String>()
+        var lineNum = 0
+        var lineStart = 0
+        var i = 0
+        while i <= content.length() {
+            var atEnd = false
+            if i == content.length() {
+                atEnd = true
+            } else {
+                if content.charAt(i) == 10 {
+                    atEnd = true
+                }
+            }
+            if atEnd {
+                if lineNum > fnDefLine and lineNum <= cursorLine {
+                    let line = content.substring(lineStart, i)
+                    // Check for "let X" or "var X" patterns
+                    var li = 0
+                    while li < line.length() and (line.charAt(li) == 32 or line.charAt(li) == 9) {
+                        li = li + 1
+                    }
+                    // Check "let " (108,101,116,32) or "var " (118,97,114,32)
+                    var isLetOrVar = false
+                    if li + 3 < line.length() {
+                        if line.charAt(li) == 108 and line.charAt(li+1) == 101 and line.charAt(li+2) == 116 and line.charAt(li+3) == 32 {
+                            isLetOrVar = true
+                        }
+                        if line.charAt(li) == 118 and line.charAt(li+1) == 97 and line.charAt(li+2) == 114 and line.charAt(li+3) == 32 {
+                            isLetOrVar = true
+                        }
+                    }
+                    if isLetOrVar {
+                        li = li + 4
+                        while li < line.length() and (line.charAt(li) == 32 or line.charAt(li) == 9) {
+                            li = li + 1
+                        }
+                        var nameStart = li
+                        while li < line.length() and this.checkWordChar(line.charAt(li)) {
+                            li = li + 1
+                        }
+                        if li > nameStart {
+                            names.push(line.substring(nameStart, li))
+                        }
+                    }
+                }
+                lineNum = lineNum + 1
+                lineStart = i + 1
+            }
+            i = i + 1
+        }
+        return names
+    }
+
+    fun findVarDefinitionLine(content: String, word: String, afterLine: Int) r: Int {
+        var lineNum = 0
+        var lineStart = 0
+        var i = 0
+        let letPattern = "let " + word
+        let varPattern = "var " + word
+        while i <= content.length() {
+            var atEnd = false
+            if i == content.length() {
+                atEnd = true
+            } else {
+                if content.charAt(i) == 10 {
+                    atEnd = true
+                }
+            }
+            if atEnd {
+                if lineNum >= afterLine {
+                    let line = content.substring(lineStart, i)
+                    if line.contains(letPattern) {
+                        return lineNum
+                    }
+                    if line.contains(varPattern) {
+                        return lineNum
+                    }
+                }
+                lineNum = lineNum + 1
+                lineStart = i + 1
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    // ========================================================================
+    // Main Message Loop
+    // ========================================================================
+
+    fun run() r: Int {
+        // Log startup to stderr (visible in output channel)
+        this.log("Seen LSP Server starting...")
+
+        let rpcHandler = this.rpc
+        while rpcHandler.running {
+            let msg = this.rpc.readMessage()
+            if msg == null {
+                // Check if it's a real error or just EOF
+                let err = this.rpc.getLastError()
+                if err.length() > 0 {
+                    if err.contains("EOF") {
+                        // skip
+                    } else {
+                        this.log("Error reading message: " + err)
+                    }
+                }
+                break
+            }
+
+            this.handleMessage(msg.unwrap())
+        }
+
+        this.log("Seen LSP Server stopped")
+        return 0
+    }
+
+    // Handle a single message
+    fun handleMessage(msg: LspMessage) r: Void {
+        let method = msg.method
+
+        // Check initialization state
+        if this.initialized {
+            // fall through to dispatch
+        } else {
+            if method == "initialize" {
+                // fall through to dispatch
+            } else {
+                if method == "exit" {
+                    // fall through to dispatch
+                } else {
+                    if msg.id == -1 {
+                        // ignore
+                    } else {
+                        this.rpc.sendError(msg.id, LSP_SERVER_NOT_INITIALIZED, "Server not initialized")
+                    }
+                    return
+                }
+            }
+        }
+
+        // Dispatch based on method (early-return chain to avoid else-if)
+        if method == "initialize" { this.handleInitialize(msg); return }
+        if method == "initialized" { this.handleInitialized(msg); return }
+        if method == "shutdown" { this.handleShutdown(msg); return }
+        if method == "exit" { this.handleExit(msg); return }
+        if method == "textDocument/didOpen" { this.handleDidOpen(msg); return }
+        if method == "textDocument/didChange" { this.handleDidChange(msg); return }
+        if method == "textDocument/didClose" { this.handleDidClose(msg); return }
+        if method == "textDocument/didSave" { this.handleDidSave(msg); return }
+        if method == "textDocument/completion" { this.handleCompletion(msg); return }
+        if method == "textDocument/hover" { this.handleHover(msg); return }
+        if method == "textDocument/definition" { this.handleDefinition(msg); return }
+        if method == "textDocument/codeAction" { this.handleCodeAction(msg); return }
+        if method == "textDocument/formatting" { this.handleFormatting(msg); return }
+        if method == "textDocument/references" { this.handleReferences(msg); return }
+        if method == "textDocument/rename" { this.handleRename(msg); return }
+        if method == "textDocument/documentSymbol" { this.handleDocumentSymbol(msg); return }
+        if method == "$/cancelRequest" { return }
+        if method.startsWith("$/") { return }
+        // Unknown method
+        if msg.id == -1 {
+            // ignore
+        } else {
+            this.rpc.sendError(msg.id, JSONRPC_METHOD_NOT_FOUND, "Method not found: " + method)
+        }
+    }
+
+    // ========================================================================
+    // Lifecycle Methods
+    // ========================================================================
+
+    fun handleInitialize(msg: LspMessage) r: Void {
+        this.log("Handling initialize request")
+
+        let result = InitializeResult_new()
+
+        let response = LspResponse_success(msg.id, result.toJson())
+        this.rpc.sendResponse(response)
+
+        this.initialized = true
+        this.log("Server initialized")
+    }
+
+    fun handleInitialized(msg: LspMessage) r: Void {
+        // Client acknowledged initialization
+        this.log("Client sent initialized notification")
+    }
+
+    fun handleShutdown(msg: LspMessage) r: Void {
+        this.log("Handling shutdown request")
+        this.shutdown = true
+        let response = LspResponse_success(msg.id, JsonValue_nullValue())
+        this.rpc.sendResponse(response)
+    }
+
+    fun handleExit(msg: LspMessage) r: Void {
+        this.log("Handling exit notification")
+        this.rpc.stop()
+    }
+
+    // ========================================================================
+    // Document Synchronization
+    // ========================================================================
+
+    fun handleDidOpen(msg: LspMessage) r: Void {
+        if msg.params == null {
+            return
+        }
+
+        let params = DidOpenTextDocumentParams_fromJson(msg.params.unwrap())
+        if params == null {
+            return
+        }
+
+        let paramsOpenObj = params.unwrap()
+        let td = paramsOpenObj.textDocument
+        let uri = td.uri
+        let content = td.text
+        let version = td.version
+
+        // Store document
+        let doc = Document_new(uri, content, version)
+        this.storeDocument(doc)
+
+        this.log("Document opened: " + uri)
+
+        // Analyze and publish diagnostics
+        this.analyzeDocument(uri, content)
+    }
+
+    fun handleDidChange(msg: LspMessage) r: Void {
+        if msg.params == null {
+            return
+        }
+
+        let params = DidChangeTextDocumentParams_fromJson(msg.params.unwrap())
+        if params == null {
+            return
+        }
+
+        let paramsChangeObj = params.unwrap()
+        let changeTd = paramsChangeObj.textDocument
+        let uri = changeTd.uri
+        let version = changeTd.version
+        let changes = paramsChangeObj.contentChanges
+
+        // Apply changes (full document sync - just take the last change)
+        if changes.length() > 0 {
+            let newContent = changes[changes.length() - 1].text
+            let doc = Document_new(uri, newContent, version)
+            this.storeDocument(doc)
+
+            // Re-analyze
+            this.analyzeDocument(uri, newContent)
+        }
+    }
+
+    fun handleDidClose(msg: LspMessage) r: Void {
+        if msg.params == null {
+            return
+        }
+
+        let params = DidCloseTextDocumentParams_fromJson(msg.params.unwrap())
+        if params == null {
+            return
+        }
+
+        let paramsCloseObj = params.unwrap()
+        let closeTd = paramsCloseObj.textDocument
+        let uri = closeTd.uri
+        this.removeDocument(uri)
+        this.log("Document closed: " + uri)
+
+        // Clear diagnostics
+        let emptyDiags = PublishDiagnosticsParams_new(uri, Array<Diagnostic>())
+        this.rpc.sendNotification("textDocument/publishDiagnostics", emptyDiags.toJson())
+    }
+
+    fun handleDidSave(msg: LspMessage) r: Void {
+        // Re-analyze on save
+        if msg.params == null {
+            return
+        }
+        // Just trigger re-analysis of the document
+    }
+
+    // ========================================================================
+    // Language Features
+    // ========================================================================
+
+    fun handleCompletion(msg: LspMessage) r: Void {
+        if msg.params == null {
+            let emptyList = CompletionList_new(Array<CompletionItem>())
+            let response = LspResponse_success(msg.id, emptyList.toJson())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let params = CompletionParams_fromJson(msg.params.unwrap())
+        if params == null {
+            let emptyList = CompletionList_new(Array<CompletionItem>())
+            let response = LspResponse_success(msg.id, emptyList.toJson())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let paramsCompObj = params.unwrap()
+        let compTd = paramsCompObj.textDocument
+        let uri = compTd.uri
+        let position = paramsCompObj.position
+
+        let doc = this.getDocument(uri)
+        let completions = Array<CompletionItem>()
+
+        if doc != null {
+            // Get content and analyze context
+            let docCompObj = doc.unwrap()
+            let content = docCompObj.content
+            completions = this.generateCompletions(uri, content, position)
+        } else {
+            // Just provide keyword completions
+            completions = this.getKeywordCompletions()
+        }
+
+        let list = CompletionList_new(completions)
+        let response = LspResponse_success(msg.id, list.toJson())
+        this.rpc.sendResponse(response)
+    }
+
+    fun handleHover(msg: LspMessage) r: Void {
+        if msg.params == null {
+            let response = LspResponse_success(msg.id, JsonValue_nullValue())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let params = HoverParams_fromJson(msg.params.unwrap())
+        if params == null {
+            let response = LspResponse_success(msg.id, JsonValue_nullValue())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let paramsHoverObj = params.unwrap()
+        let hoverTd = paramsHoverObj.textDocument
+        let uri = hoverTd.uri
+        let position = paramsHoverObj.position
+
+        let doc = this.getDocument(uri)
+        if doc == null {
+            let response = LspResponse_success(msg.id, JsonValue_nullValue())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let docHoverObj = doc.unwrap()
+        let content = docHoverObj.content
+        let hover = this.generateHover(uri, content, position)
+
+        if hover != null {
+            let hoverVal = hover.unwrap()
+            let hoverJson = hoverVal.toJson()
+            let response = LspResponse_success(msg.id, hoverJson)
+            this.rpc.sendResponse(response)
+        } else {
+            let response = LspResponse_success(msg.id, JsonValue_nullValue())
+            this.rpc.sendResponse(response)
+        }
+    }
+
+    fun handleDefinition(msg: LspMessage) r: Void {
+        if msg.params == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let params = DefinitionParams_fromJson(msg.params.unwrap())
+        if params == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let paramsDefObj = params.unwrap()
+        let defTd = paramsDefObj.textDocument
+        let uri = defTd.uri
+        let position = paramsDefObj.position
+
+        let doc = this.getDocument(uri)
+        if doc == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let docDefObj = doc.unwrap()
+        let content = docDefObj.content
+        let lineContent = this.getLineContent(content, position.line)
+        let word = this.getWordAt(lineContent, position.character)
+
+        if word.length() == 0 {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        // Parse AST and search for matching definition
+        let prog = this.getAstForDocument(uri)
+        var j = 0
+        while j < prog.items.length() {
+            let item = prog.items[j]
+            // Check top-level item names (functions, classes, enums)
+            if item.name == word {
+                let defLine = this.findDefinitionLine(content, word)
+                if defLine >= 0 {
+                    let startPos = LspPosition_new(defLine, 0)
+                    let endPos = LspPosition_new(defLine, word.length())
+                    let range = Range_new(startPos, endPos)
+                    let loc = Location_new(uri, range)
+                    let resultElems = Array<JsonValue>()
+                    resultElems.push(loc.toJson())
+                    let result = JsonValue_array(resultElems)
+                    let response = LspResponse_success(msg.id, result)
+                    this.rpc.sendResponse(response)
+                    return
+                }
+            }
+            // Also check class method names
+            if item.itemType == "Class" {
+                let cls = item.classNode
+                var k = 0
+                while k < cls.methods.length() {
+                    let method = cls.methods[k]
+                    if method.name == word {
+                        let defLine = this.findDefinitionLine(content, word)
+                        if defLine >= 0 {
+                            let startPos = LspPosition_new(defLine, 0)
+                            let endPos = LspPosition_new(defLine, word.length())
+                            let range = Range_new(startPos, endPos)
+                            let loc = Location_new(uri, range)
+                            let resultElems2 = Array<JsonValue>()
+                            resultElems2.push(loc.toJson())
+                            let result = JsonValue_array(resultElems2)
+                            let response = LspResponse_success(msg.id, result)
+                            this.rpc.sendResponse(response)
+                            return
+                        }
+                    }
+                    k = k + 1
+                }
+            }
+            j = j + 1
+        }
+
+        // Search for local variables and parameters
+        let containingFnName = this.findContainingFunctionName(prog, content, position.line)
+        if containingFnName.length() > 0 {
+            let fnDefLine = this.findDefinitionLine(content, containingFnName)
+            if fnDefLine >= 0 {
+                // Check if word is a parameter name - jump to function definition line
+                let paramNames = this.extractParamNames(content, containingFnName)
+                var p = 0
+                while p < paramNames.length() {
+                    if paramNames[p] == word {
+                        let startPos = LspPosition_new(fnDefLine, 0)
+                        let endPos = LspPosition_new(fnDefLine, word.length())
+                        let range = Range_new(startPos, endPos)
+                        let loc = Location_new(uri, range)
+                        let resultElems3 = Array<JsonValue>()
+                        resultElems3.push(loc.toJson())
+                        let result = JsonValue_array(resultElems3)
+                        let response = LspResponse_success(msg.id, result)
+                        this.rpc.sendResponse(response)
+                        return
+                    }
+                    p = p + 1
+                }
+                // Check local variable declarations
+                let varLine = this.findVarDefinitionLine(content, word, fnDefLine)
+                if varLine >= 0 {
+                    let startPos = LspPosition_new(varLine, 0)
+                    let endPos = LspPosition_new(varLine, word.length())
+                    let range = Range_new(startPos, endPos)
+                    let loc = Location_new(uri, range)
+                    let resultElems4 = Array<JsonValue>()
+                    resultElems4.push(loc.toJson())
+                    let result = JsonValue_array(resultElems4)
+                    let response = LspResponse_success(msg.id, result)
+                    this.rpc.sendResponse(response)
+                    return
+                }
+            }
+        }
+
+        // Not found
+        let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+        this.rpc.sendResponse(response)
+    }
+
+    fun handleCodeAction(msg: LspMessage) r: Void {
+        if msg.params == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        // For now, return empty array
+        let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+        this.rpc.sendResponse(response)
+    }
+
+    fun handleFormatting(msg: LspMessage) r: Void {
+        if msg.params == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        // For now, return empty array (no edits)
+        let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+        this.rpc.sendResponse(response)
+    }
+
+    // ========================================================================
+    // Find References
+    // ========================================================================
+
+    fun findAllOccurrences(uri: String, content: String, word: String) r: Array<JsonValue> {
+        let results = Array<JsonValue>()
+        var lineNum = 0
+        var lineStart = 0
+        var i = 0
+        let wordLen = word.length()
+        let contentLen = content.length()
+
+        while i < contentLen {
+            let ch = content.charAt(i)
+            if ch == 10 {
+                // Process this line (from lineStart to i)
+                var pos = lineStart
+                while pos <= i - wordLen {
+                    // Check if word matches at pos
+                    let sub = content.substring(pos, pos + wordLen)
+                    if sub == word {
+                        // Check word boundary: char before must not be word char
+                        var beforeOk = true
+                        if pos > lineStart {
+                            let bc = content.charAt(pos - 1)
+                            if this.checkWordChar(bc) {
+                                beforeOk = false
+                            }
+                        }
+                        // Check word boundary: char after must not be word char
+                        var afterOk = true
+                        let afterPos = pos + wordLen
+                        if afterPos < i {
+                            let ac = content.charAt(afterPos)
+                            if this.checkWordChar(ac) {
+                                afterOk = false
+                            }
+                        }
+                        if beforeOk {
+                            if afterOk {
+                                let col = pos - lineStart
+                                let startPos = LspPosition_new(lineNum, col)
+                                let endPos = LspPosition_new(lineNum, col + wordLen)
+                                let range = Range_new(startPos, endPos)
+                                let loc = Location_new(uri, range)
+                                results.push(loc.toJson())
+                            }
+                        }
+                    }
+                    pos = pos + 1
+                }
+                lineNum = lineNum + 1
+                lineStart = i + 1
+            }
+            i = i + 1
+        }
+        // Handle last line (no trailing newline)
+        if lineStart < contentLen {
+            var pos = lineStart
+            while pos <= contentLen - wordLen {
+                let sub = content.substring(pos, pos + wordLen)
+                if sub == word {
+                    var beforeOk = true
+                    if pos > lineStart {
+                        let bc = content.charAt(pos - 1)
+                        if this.checkWordChar(bc) {
+                            beforeOk = false
+                        }
+                    }
+                    var afterOk = true
+                    let afterPos = pos + wordLen
+                    if afterPos < contentLen {
+                        let ac = content.charAt(afterPos)
+                        if this.checkWordChar(ac) {
+                            afterOk = false
+                        }
+                    }
+                    if beforeOk {
+                        if afterOk {
+                            let col = pos - lineStart
+                            let startPos = LspPosition_new(lineNum, col)
+                            let endPos = LspPosition_new(lineNum, col + wordLen)
+                            let range = Range_new(startPos, endPos)
+                            let loc = Location_new(uri, range)
+                            results.push(loc.toJson())
+                        }
+                    }
+                }
+                pos = pos + 1
+            }
+        }
+        return results
+    }
+
+    fun handleReferences(msg: LspMessage) r: Void {
+        if msg.params == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        // ReferenceParams has same structure as DefinitionParams for position extraction
+        let params = DefinitionParams_fromJson(msg.params.unwrap())
+        if params == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let paramsObj = params.unwrap()
+        let uri = paramsObj.textDocument.uri
+        let position = paramsObj.position
+
+        let doc = this.getDocument(uri)
+        if doc == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let docObj = doc.unwrap()
+        let content = docObj.content
+        let lineContent = this.getLineContent(content, position.line)
+        let word = this.getWordAt(lineContent, position.character)
+
+        if word.length() == 0 {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let occurrences = this.findAllOccurrences(uri, content, word)
+        let result = JsonValue_array(occurrences)
+        let response = LspResponse_success(msg.id, result)
+        this.rpc.sendResponse(response)
+    }
+
+    // ========================================================================
+    // Rename
+    // ========================================================================
+
+    fun handleRename(msg: LspMessage) r: Void {
+        if msg.params == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let paramsJson = msg.params.unwrap()
+
+        // Extract position using existing DefinitionParams parser
+        let posParams = DefinitionParams_fromJson(paramsJson)
+        if posParams == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        // Extract newName manually from params JSON
+        let newNameVal = paramsJson.get("newName")
+        if newNameVal == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+        let newNameUnwrapped = newNameVal.unwrap()
+        let newName = newNameUnwrapped.getString()
+
+        let paramsObj = posParams.unwrap()
+        let uri = paramsObj.textDocument.uri
+        let position = paramsObj.position
+
+        let doc = this.getDocument(uri)
+        if doc == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let docObj = doc.unwrap()
+        let content = docObj.content
+        let lineContent = this.getLineContent(content, position.line)
+        let word = this.getWordAt(lineContent, position.character)
+
+        if word.length() == 0 {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        // Find all occurrences and build TextEdits
+        let occurrences = this.findAllOccurrences(uri, content, word)
+        let edits = Array<JsonValue>()
+        var i = 0
+        while i < occurrences.length() {
+            let loc = occurrences[i]
+            let locRange = loc.get("range")
+            if locRange != null {
+                let editObj = JsonValue_emptyObject()
+                editObj.set("range", locRange.unwrap())
+                editObj.set("newText", JsonValue_string(newName))
+                edits.push(editObj)
+            }
+            i = i + 1
+        }
+
+        // Build WorkspaceEdit: { "changes": { "<uri>": [ TextEdit... ] } }
+        let fileEdits = JsonValue_array(edits)
+        let changesObj = JsonValue_emptyObject()
+        changesObj.set(uri, fileEdits)
+        let workspaceEdit = JsonValue_emptyObject()
+        workspaceEdit.set("changes", changesObj)
+
+        let response = LspResponse_success(msg.id, workspaceEdit)
+        this.rpc.sendResponse(response)
+    }
+
+    // ========================================================================
+    // Document Symbols
+    // ========================================================================
+
+    fun extractDocumentSymbols(uri: String, content: String) r: Array<JsonValue> {
+        let symbols = Array<JsonValue>()
+        var lineNum = 0
+        var lineStart = 0
+        var i = 0
+        let contentLen = content.length()
+
+        while i < contentLen {
+            let ch = content.charAt(i)
+            if ch == 10 {
+                let line = content.substring(lineStart, i)
+                this.checkLineForSymbol(symbols, uri, line, lineNum)
+                lineNum = lineNum + 1
+                lineStart = i + 1
+            }
+            i = i + 1
+        }
+        // Last line
+        if lineStart < contentLen {
+            let line = content.substring(lineStart, contentLen)
+            this.checkLineForSymbol(symbols, uri, line, lineNum)
+        }
+        return symbols
+    }
+
+    fun checkLineForSymbol(symbols: Array<JsonValue>, uri: String, line: String, lineNum: Int) r: Void {
+        // Skip empty/short lines
+        if line.length() < 4 { return }
+
+        // Check for function: "fun NAME("
+        let funIdx = this.findPrefix(line, "fun ")
+        if funIdx >= 0 {
+            let nameStart = funIdx + 4
+            let name = this.extractIdentifier(line, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 12, uri, lineNum)
+            }
+            return
+        }
+
+        // Check for class: "class NAME"
+        let classIdx = this.findPrefix(line, "class ")
+        if classIdx >= 0 {
+            let nameStart = classIdx + 6
+            let name = this.extractIdentifier(line, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 5, uri, lineNum)
+            }
+            return
+        }
+
+        // Check for enum: "enum NAME"
+        let enumIdx = this.findPrefix(line, "enum ")
+        if enumIdx >= 0 {
+            let nameStart = enumIdx + 5
+            let name = this.extractIdentifier(line, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 10, uri, lineNum)
+            }
+            return
+        }
+
+        // Check for data: "data NAME"
+        let dataIdx = this.findPrefix(line, "data ")
+        if dataIdx >= 0 {
+            let nameStart = dataIdx + 5
+            let name = this.extractIdentifier(line, nameStart)
+            if name.length() > 0 {
+                this.addSymbolInfo(symbols, name, 23, uri, lineNum)
+            }
+            return
+        }
+    }
+
+    fun findPrefix(line: String, prefix: String) r: Int {
+        // Find prefix after optional leading whitespace
+        let pLen = prefix.length()
+        var pos = 0
+        // Skip whitespace
+        while pos < line.length() {
+            let c = line.charAt(pos)
+            if c != 32 {
+                if c != 9 {
+                    break
+                }
+            }
+            pos = pos + 1
+        }
+        // pos is now at first non-whitespace (or line.length() if all whitespace)
+        if pos + pLen <= line.length() {
+            let sub = line.substring(pos, pos + pLen)
+            if sub == prefix {
+                return pos
+            }
+        }
+        return -1
+    }
+
+    fun extractIdentifier(line: String, start: Int) r: String {
+        var end = start
+        while end < line.length() {
+            if this.checkWordChar(line.charAt(end)) {
+                end = end + 1
+            } else {
+                break
+            }
+        }
+        if end > start {
+            return line.substring(start, end)
+        }
+        return ""
+    }
+
+    fun addSymbolInfo(symbols: Array<JsonValue>, name: String, kind: Int, uri: String, lineNum: Int) r: Void {
+        let startPos = LspPosition_new(lineNum, 0)
+        let endPos = LspPosition_new(lineNum, name.length())
+        let range = Range_new(startPos, endPos)
+        let loc = Location_new(uri, range)
+
+        let sym = JsonValue_emptyObject()
+        sym.set("name", JsonValue_string(name))
+        sym.set("kind", JsonValue_number(kind))
+        sym.set("location", loc.toJson())
+        symbols.push(sym)
+    }
+
+    fun handleDocumentSymbol(msg: LspMessage) r: Void {
+        if msg.params == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let paramsJson = msg.params.unwrap()
+        let tdVal = paramsJson.get("textDocument")
+        if tdVal == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+        let tdUnwrapped = tdVal.unwrap()
+        let uriVal = tdUnwrapped.get("uri")
+        if uriVal == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+        let uriUnwrapped = uriVal.unwrap()
+        let uri = uriUnwrapped.getString()
+
+        let doc = this.getDocument(uri)
+        if doc == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        let docObj = doc.unwrap()
+        let content = docObj.content
+        let symbolsList = this.extractDocumentSymbols(uri, content)
+        let result = JsonValue_array(symbolsList)
+        let response = LspResponse_success(msg.id, result)
+        this.rpc.sendResponse(response)
+    }
+
+    // ========================================================================
+    // Document Analysis
+    // ========================================================================
+
+    fun analyzeDocument(uri: String, content: String) r: Void {
+        let diagnostics = Array<Diagnostic>()
+        let result = run_frontend(content, uri, "en")
+        let frontendDiags = result.diagnostics
+        var i = 0
+        while i < frontendDiags.length() {
+            let fd = frontendDiags[i]
+            let converted = this.convertDiagnostic(fd)
+            diagnostics.push(converted)
+            i = i + 1
+        }
+        let params = PublishDiagnosticsParams_new(uri, diagnostics)
+        this.rpc.sendNotification("textDocument/publishDiagnostics", params.toJson())
+    }
+
+    fun convertDiagnostic(diag: FrontendDiagnostic) r: Diagnostic {
+        // Convert line/column to Position (LSP uses 0-based)
+        let startLine = diag.line - 1
+        if startLine < 0 {
+            startLine = 0
+        }
+        let startChar = diag.column - 1
+        if startChar < 0 {
+            startChar = 0
+        }
+
+        let start = LspPosition_new(startLine, startChar)
+        let end = LspPosition_new(startLine, startChar + 1)
+        let range = Range_new(start, end)
+
+        // Determine severity
+        var severity = DIAGNOSTIC_ERROR
+        if diag.severity == "warning" {
+            severity = DIAGNOSTIC_WARNING
+        } else {
+            if diag.severity == "info" {
+                severity = DIAGNOSTIC_INFORMATION
+            } else {
+                if diag.severity == "hint" {
+                    severity = DIAGNOSTIC_HINT
+                }
+            }
+        }
+
+        return Diagnostic_new(range, severity, diag.message)
+    }
+
+    // ========================================================================
+    // Completion Generation
+    // ========================================================================
+
+    fun generateCompletions(uri: String, content: String, position: LspPosition) r: Array<CompletionItem> {
+        let completions = Array<CompletionItem>()
+
+        // Get line content to determine context
+        let lineContent = this.getLineContent(content, position.line)
+        let charIndex = position.character
+
+        // Check context
+        if charIndex > 0 and lineContent.length() > 0 {
+            // Get character before cursor
+            let prevChar = lineContent.charAt(charIndex - 1)
+
+            // After dot - member completion
+            if prevChar == 46 {  // '.'
+                completions = this.getMemberCompletions(uri, content, position)
+                return completions
+            }
+
+            // After colon - could be type annotation
+            if prevChar == 58 {  // ':'
+                completions = this.getTypeCompletions()
+                return completions
+            }
+        }
+
+        // Default: keywords + snippets
+        let keywords = this.getKeywordCompletions()
+        var i = 0
+        while i < keywords.length() {
+            completions.push(keywords[i])
+            i = i + 1
+        }
+
+        let snippets = this.getSnippetCompletions()
+        i = 0
+        while i < snippets.length() {
+            completions.push(snippets[i])
+            i = i + 1
+        }
+
+        // Add AST-derived completions (functions, classes, enums from this document)
+        let prog = this.getAstForDocument(uri)
+        var j = 0
+        while j < prog.items.length() {
+            let item = prog.items[j]
+            if item.itemType == "Function" {
+                let fnItem = CompletionItem_new(item.name, COMPLETION_FUNCTION)
+                fnItem.detail = this.extractSignatureFromSource(content, item.name)
+                completions.push(fnItem)
+            }
+            if item.itemType == "Class" {
+                let clsItem = CompletionItem_new(item.name, COMPLETION_CLASS)
+                clsItem.detail = "class"
+                completions.push(clsItem)
+            }
+            if item.itemType == "Enum" {
+                let enumItem = CompletionItem_new(item.name, COMPLETION_ENUM)
+                enumItem.detail = "enum"
+                completions.push(enumItem)
+            }
+            j = j + 1
+        }
+
+        // Add local variable and parameter completions
+        let containingFnName = this.findContainingFunctionName(prog, content, position.line)
+        if containingFnName.length() > 0 {
+            let fnDefLine = this.findDefinitionLine(content, containingFnName)
+            if fnDefLine >= 0 {
+                // Add function parameters
+                let paramNames = this.extractParamNames(content, containingFnName)
+                var p = 0
+                while p < paramNames.length() {
+                    let paramItem = CompletionItem_new(paramNames[p], COMPLETION_VARIABLE)
+                    paramItem.detail = "parameter"
+                    completions.push(paramItem)
+                    p = p + 1
+                }
+                // Add local variables from source text
+                let varNames = this.findLocalVarNames(content, fnDefLine, position.line)
+                var s = 0
+                while s < varNames.length() {
+                    let varItem = CompletionItem_new(varNames[s], COMPLETION_VARIABLE)
+                    varItem.detail = "variable"
+                    completions.push(varItem)
+                    s = s + 1
+                }
+            }
+        }
+
+        return completions
+    }
+
+    fun getKeywordCompletions() r: Array<CompletionItem> {
+        let completions = Array<CompletionItem>()
+
+        // Control flow, declarations, and modifiers
+        let keywords = ["if", "else", "while", "for", "return", "break", "continue",
+                        "fun", "class", "data", "let", "var", "import", "pub", "extern",
+                        "true", "false", "null", "and", "or", "not", "in", "as", "is",
+                        "match", "enum", "struct", "impl", "trait", "where",
+                        "region", "comptime", "inline", "when",
+                        "try", "catch", "errdefer", "defer",
+                        "async", "await", "spawn",
+                        "unsafe", "distinct", "union",
+                        "this", "extends",
+                        "mut", "const", "static", "override", "type"]
+
+        var i = 0
+        while i < keywords.length() {
+            let item = CompletionItem_new(keywords[i], COMPLETION_KEYWORD)
+            item.detail = "keyword"
+            completions.push(item)
+            i = i + 1
+        }
+
+        return completions
+    }
+
+    fun getTypeCompletions() r: Array<CompletionItem> {
+        let completions = Array<CompletionItem>()
+
+        let types = ["Int", "Float", "String", "Bool", "Char", "Void", "Array", "Map",
+                     "Vec", "HashMap", "LinkedList", "BTreeMap",
+                     "Channel", "Mutex", "RwLock", "AtomicInt", "Barrier", "ThreadLocal",
+                     "Buffer", "Uniform", "Image",
+                     "Result", "Option", "SmallVec"]
+
+        var i = 0
+        while i < types.length() {
+            let item = CompletionItem_new(types[i], COMPLETION_CLASS)
+            item.detail = "type"
+            completions.push(item)
+            i = i + 1
+        }
+
+        return completions
+    }
+
+    fun getSnippetCompletions() r: Array<CompletionItem> {
+        let completions = Array<CompletionItem>()
+
+        // Function snippet
+        let fnItem = CompletionItem_new("fun", COMPLETION_SNIPPET)
+        fnItem.detail = "function definition"
+        fnItem.insertText = "fun ${1:name}(${2:params}) r: ${3:ReturnType} {\n\t$0\n}"
+        fnItem.insertTextFormat = 2  // Snippet format
+        completions.push(fnItem)
+
+        // Class snippet
+        let classItem = CompletionItem_new("class", COMPLETION_SNIPPET)
+        classItem.detail = "class definition"
+        classItem.insertText = "class ${1:Name} {\n\t$0\n}"
+        classItem.insertTextFormat = 2
+        completions.push(classItem)
+
+        // If snippet
+        let ifItem = CompletionItem_new("if", COMPLETION_SNIPPET)
+        ifItem.detail = "if statement"
+        ifItem.insertText = "if ${1:condition} {\n\t$0\n}"
+        ifItem.insertTextFormat = 2
+        completions.push(ifItem)
+
+        // While snippet
+        let whileItem = CompletionItem_new("while", COMPLETION_SNIPPET)
+        whileItem.detail = "while loop"
+        whileItem.insertText = "while ${1:condition} {\n\t$0\n}"
+        whileItem.insertTextFormat = 2
+        completions.push(whileItem)
+
+        // For-in snippet
+        let forItem = CompletionItem_new("for", COMPLETION_SNIPPET)
+        forItem.detail = "for-in loop"
+        forItem.insertText = "for ${1:item} in ${2:collection} {\n\t$0\n}"
+        forItem.insertTextFormat = 2
+        completions.push(forItem)
+
+        // Impl snippet
+        let implItem = CompletionItem_new("impl", COMPLETION_SNIPPET)
+        implItem.detail = "implement trait"
+        implItem.insertText = "impl ${1:Trait} for ${2:Type} {\n\t$0\n}"
+        implItem.insertTextFormat = 2
+        completions.push(implItem)
+
+        // Trait snippet
+        let traitItem = CompletionItem_new("trait", COMPLETION_SNIPPET)
+        traitItem.detail = "trait definition"
+        traitItem.insertText = "trait ${1:Name} {\n\t$0\n}"
+        traitItem.insertTextFormat = 2
+        completions.push(traitItem)
+
+        // Match snippet
+        let matchItem = CompletionItem_new("match", COMPLETION_SNIPPET)
+        matchItem.detail = "match expression"
+        matchItem.insertText = "match ${1:expr} {\n\t${2:pattern} => $0\n}"
+        matchItem.insertTextFormat = 2
+        completions.push(matchItem)
+
+        // Enum snippet
+        let enumItem = CompletionItem_new("enum", COMPLETION_SNIPPET)
+        enumItem.detail = "enum definition"
+        enumItem.insertText = "enum ${1:Name} {\n\t$0\n}"
+        enumItem.insertTextFormat = 2
+        completions.push(enumItem)
+
+        // Async fun snippet
+        let asyncItem = CompletionItem_new("async fun", COMPLETION_SNIPPET)
+        asyncItem.detail = "async function"
+        asyncItem.insertText = "async fun ${1:name}(${2:params}) r: ${3:Type} {\n\t$0\n}"
+        asyncItem.insertTextFormat = 2
+        completions.push(asyncItem)
+
+        return completions
+    }
+
+    fun getMemberCompletions(uri: String, content: String, position: LspPosition) r: Array<CompletionItem> {
+        let completions = Array<CompletionItem>()
+
+        // Try to determine the type of the receiver (word before the dot)
+        let lineContent = this.getLineContent(content, position.line)
+        let dotPos = position.character - 1
+        if dotPos > 0 {
+            let wordBeforeDot = this.getWordAt(lineContent, dotPos - 1)
+
+            // Check if it matches a class name in the AST
+            let prog = this.getAstForDocument(uri)
+            var j = 0
+            while j < prog.items.length() {
+                let item = prog.items[j]
+                if item.itemType == "Class" and item.name == wordBeforeDot {
+                    let cls = item.classNode
+                    // Add class fields
+                    var k = 0
+                    while k < cls.fields.length() {
+                        let field = cls.fields[k]
+                        let fieldItem = CompletionItem_new(field.name, COMPLETION_FIELD)
+                        fieldItem.detail = "field"
+                        completions.push(fieldItem)
+                        k = k + 1
+                    }
+                    // Add class methods
+                    k = 0
+                    while k < cls.methods.length() {
+                        let method = cls.methods[k]
+                        let methodItem = CompletionItem_new(method.name, COMPLETION_METHOD)
+                        methodItem.detail = this.extractSignatureFromSource(content, method.name)
+                        completions.push(methodItem)
+                        k = k + 1
+                    }
+                    return completions
+                }
+                j = j + 1
+            }
+        }
+
+        // Fall back to common string/array methods
+        let methods = ["length", "push", "pop", "get", "set", "contains", "toString",
+                       "substring", "trim", "split", "charAt", "startsWith", "endsWith"]
+
+        var i = 0
+        while i < methods.length() {
+            let item = CompletionItem_new(methods[i], COMPLETION_METHOD)
+            item.detail = "method"
+            completions.push(item)
+            i = i + 1
+        }
+
+        return completions
+    }
+
+    // ========================================================================
+    // Hover Generation
+    // ========================================================================
+
+    fun generateHover(uri: String, content: String, position: LspPosition) r: Hover? {
+        // Get the word at the cursor position
+        let lineContent = this.getLineContent(content, position.line)
+        let word = this.getWordAt(lineContent, position.character)
+
+        if word.length() == 0 {
+            return null
+        }
+
+        // Check if it's a keyword
+        let keywordInfo = this.getKeywordInfo(word)
+        if keywordInfo.length() > 0 {
+            let hoverContent = MarkupContent_markdown("**" + word + "** (keyword)\n\n" + keywordInfo)
+            return Hover_new(hoverContent)
+        }
+
+        // Check if it's a type
+        let typeInfo = this.getTypeInfo(word)
+        if typeInfo.length() > 0 {
+            let hoverContent = MarkupContent_markdown("**" + word + "** (type)\n\n" + typeInfo)
+            return Hover_new(hoverContent)
+        }
+
+        // Check if it's a function or class defined in the document
+        let prog = this.getAstForDocument(uri)
+        var j = 0
+        while j < prog.items.length() {
+            let item = prog.items[j]
+            if item.itemType == "Function" and item.name == word {
+                let sig = this.extractSignatureFromSource(content, item.name)
+                let hoverContent = MarkupContent_markdown("```seen\n" + sig + "\n```")
+                return Hover_new(hoverContent)
+            }
+            if item.itemType == "Class" and item.name == word {
+                let cls = item.classNode
+                var classInfo = "**class " + item.name + "**\n\n"
+                if cls.fields.length() > 0 {
+                    classInfo = classInfo + "Fields:\n"
+                    var k = 0
+                    while k < cls.fields.length() {
+                        let field = cls.fields[k]
+                        classInfo = classInfo + "- `" + field.name + "`\n"
+                        k = k + 1
+                    }
+                }
+                if cls.methods.length() > 0 {
+                    classInfo = classInfo + "\nMethods:\n"
+                    var k = 0
+                    while k < cls.methods.length() {
+                        let method = cls.methods[k]
+                        let methodSig = this.extractSignatureFromSource(content, method.name)
+                        classInfo = classInfo + "- `" + methodSig + "`\n"
+                        k = k + 1
+                    }
+                }
+                let hoverContent = MarkupContent_markdown(classInfo)
+                return Hover_new(hoverContent)
+            }
+            if item.itemType == "Enum" and item.name == word {
+                let en = item.enumNode
+                var enumInfo = "**enum " + item.name + "**\n\nVariants:\n"
+                var k = 0
+                while k < en.variants.length() {
+                    enumInfo = enumInfo + "- `" + en.variants[k] + "`\n"
+                    k = k + 1
+                }
+                let hoverContent = MarkupContent_markdown(enumInfo)
+                return Hover_new(hoverContent)
+            }
+            j = j + 1
+        }
+
+        return null
+    }
+
+    fun getKeywordInfo(word: String) r: String {
+        if word == "fun" {
+            return "Defines a function.\n\n```seen\nfun name(params) r: Type { body }\n```"
+        }
+        if word == "class" {
+            return "Defines a class type.\n\n```seen\nclass Name {\n    var field: Type\n    fun method() r: Type { }\n}\n```"
+        }
+        if word == "data" {
+            return "Defines a data type (struct-like, stored by value).\n\n```seen\ndata Name {\n    field: Type\n}\n```"
+        }
+        if word == "let" {
+            return "Declares an immutable variable.\n\n```seen\nlet x = value\n```"
+        }
+        if word == "var" {
+            return "Declares a mutable variable.\n\n```seen\nvar x = value\n```"
+        }
+        if word == "import" {
+            return "Imports symbols from a module.\n\n```seen\nimport module.{Symbol1, Symbol2}\n```"
+        }
+        if word == "if" {
+            return "Conditional statement.\n\n```seen\nif condition {\n    // then branch\n} else {\n    // else branch\n}\n```"
+        }
+        if word == "while" {
+            return "While loop.\n\n```seen\nwhile condition {\n    // body\n}\n```"
+        }
+        if word == "return" {
+            return "Returns a value from a function."
+        }
+        if word == "for" {
+            return "For-in loop.\n\n```seen\nfor item in collection {\n    // body\n}\n```"
+        }
+        if word == "match" {
+            return "Pattern matching expression.\n\n```seen\nmatch expr {\n    pattern => result\n}\n```"
+        }
+        if word == "enum" {
+            return "Defines an enumeration type.\n\n```seen\nenum Name {\n    Variant1\n    Variant2(field: Type)\n}\n```"
+        }
+        if word == "impl" {
+            return "Implement methods or traits for a type.\n\n```seen\nimpl Trait for Type {\n    fun method() { }\n}\n```"
+        }
+        if word == "trait" {
+            return "Define a trait (interface).\n\n```seen\ntrait Name {\n    fun method() r: Type\n}\n```"
+        }
+        if word == "struct" {
+            return "Alias for `data`. Defines a value type."
+        }
+        if word == "region" {
+            return "Region-based memory management block.\n\n```seen\nregion r {\n    let obj = r.alloc(value)\n}\n```"
+        }
+        if word == "comptime" {
+            return "Compile-time evaluation block. Code inside runs during compilation."
+        }
+        if word == "async" {
+            return "Marks a function as asynchronous (returns a coroutine handle).\n\n```seen\nasync fun fetch() r: String { }\n```"
+        }
+        if word == "await" {
+            return "Suspends until an async operation completes.\n\n```seen\nlet result = await asyncFn()\n```"
+        }
+        if word == "spawn" {
+            return "Spawns an async task for concurrent execution."
+        }
+        if word == "when" {
+            return "Pattern matching expression (alias for match).\n\n```seen\nwhen (value) {\n    is Pattern => result\n}\n```"
+        }
+        if word == "try" {
+            return "Begins a try-catch error handling block."
+        }
+        if word == "catch" {
+            return "Catches errors from a try block."
+        }
+        if word == "defer" {
+            return "Defers execution of a statement until the end of the current scope."
+        }
+        if word == "errdefer" {
+            return "Like defer, but only runs if the function returns an error."
+        }
+        if word == "where" {
+            return "Adds constraints to generic type parameters."
+        }
+        if word == "unsafe" {
+            return "Marks a block as unsafe, allowing raw pointer operations."
+        }
+        if word == "distinct" {
+            return "Creates a distinct type (newtype) that is not interchangeable with its base type."
+        }
+        if word == "union" {
+            return "Defines a union type."
+        }
+        if word == "extern" {
+            return "Declares an external function (FFI).\n\n```seen\nextern fun c_function(arg: Int) r: Int\n```"
+        }
+        if word == "pub" {
+            return "Makes a declaration public (visible outside the module)."
+        }
+        if word == "inline" {
+            return "Hints that a function should be inlined at call sites."
+        }
+        if word == "type" {
+            return "Defines a type alias.\n\n```seen\ntype Name = ExistingType\n```"
+        }
+        return ""
+    }
+}
+
+// Free function (formerly static method on SeenLspServer)
+
+fun SeenLspServer_new() r: SeenLspServer {
+    let server = SeenLspServer()
+    server.rpc = JsonRpcHandler_new()
+    server.initialized = false
+    server.shutdown = false
+    server.documents = Array<Document>()
+    server.documentUris = Array<String>()
+    return server
+}
+
+// ============================================================================
+// Entry Point
+// ============================================================================
+
+fun runLspServer() r: Int {
+    let server = SeenLspServer_new()
+    return server.run()
+}

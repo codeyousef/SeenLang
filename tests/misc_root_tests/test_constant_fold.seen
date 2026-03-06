@@ -1,0 +1,46 @@
+// Test integer constant folding and strength reductions
+// IntLiteral op IntLiteral → computed at compile time
+// x * 4 → shl 2, x * 8 → shl 3, x / 2 → ashr 1
+
+fun main() r: Int {
+    // Constant folding: 3 + 5 → 8
+    let a = 3 + 5
+    println("3 + 5 = " + a.toString())
+
+    // Constant folding: 10 - 3 → 7
+    let b = 10 - 3
+    println("10 - 3 = " + b.toString())
+
+    // Constant folding: 6 * 7 → 42
+    let c = 6 * 7
+    println("6 * 7 = " + c.toString())
+
+    // Constant folding: 20 / 4 → 5
+    let d = 20 / 4
+    println("20 / 4 = " + d.toString())
+
+    // Strength reduction: x * 4 → shl x, 2
+    let x = 10
+    let e = x * 4
+    println("10 * 4 = " + e.toString())
+
+    // Strength reduction: x * 8 → shl x, 3
+    let f = x * 8
+    println("10 * 8 = " + f.toString())
+
+    // Strength reduction: x / 2 → ashr x, 1
+    let g = x / 2
+    println("10 / 2 = " + g.toString())
+
+    // Verify correctness
+    if a != 8 { println("FAIL: 3+5"); return 1 }
+    if b != 7 { println("FAIL: 10-3"); return 1 }
+    if c != 42 { println("FAIL: 6*7"); return 1 }
+    if d != 5 { println("FAIL: 20/4"); return 1 }
+    if e != 40 { println("FAIL: 10*4"); return 1 }
+    if f != 80 { println("FAIL: 10*8"); return 1 }
+    if g != 5 { println("FAIL: 10/2"); return 1 }
+
+    println("PASS: all constant folding and strength reductions correct")
+    return 0
+}

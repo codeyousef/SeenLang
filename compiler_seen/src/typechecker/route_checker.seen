@@ -1,0 +1,191 @@
+// Route Checker for Seen Language
+// Validates @router decorator usage for deterministic routing
+// Ensures routes use deterministic collections and valid patterns
+
+import parser.real_parser.{ClassNode, FunctionNode, ProgramNode, FieldNode}
+import typechecker.checker_utils.{hasFieldNamed, getFieldType, hasMethod, hasDecorator, isDeterministicCollectionType}
+
+// Result of route checking
+class RouteCheckResult {
+    var success: Bool
+    var errors: Array<String>
+    var warnings: Array<String>
+
+    static fun new() r: RouteCheckResult {
+        return RouteCheckResult{
+            success: true,
+            errors: Array<String>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(message: String) r: Void {
+        errors.push(message)
+        success = false
+    }
+
+    fun addWarning(message: String) r: Void {
+        warnings.push(message)
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+}
+
+// Route Checker class
+class RouteChecker {
+    var result: RouteCheckResult
+
+    static fun new() r: RouteChecker {
+        return RouteChecker{
+            result: RouteCheckResult.new()
+        }
+    }
+
+    // Check a class marked with @router
+    fun checkRouting(cls: ClassNode) r: RouteCheckResult {
+        result = RouteCheckResult.new()
+
+        // Check for conflicting decorators
+        if hasDecorator(cls, "nondeterministic") {
+            result.addError("@router class '" + cls.name + "' cannot also be @nondeterministic")
+        }
+
+        // Must have a routes field
+        if not hasFieldNamed(cls, "routes") {
+            result.addError("@router class '" + cls.name + "' must have a 'routes' field")
+        } else {
+            // Routes field must use a deterministic collection type
+            let routesType = getFieldType(cls, "routes")
+            if not isDeterministicCollectionType(routesType) {
+                result.addError("@router class '" + cls.name + "' field 'routes' uses non-deterministic type '" + routesType + "'. Use Array or Vec instead.")
+            }
+        }
+
+        // Check for routeIndex field using BTreeMap (deterministic sorted storage)
+        if hasFieldNamed(cls, "routeIndex") {
+            let indexType = getFieldType(cls, "routeIndex")
+            if not indexType.startsWith("BTreeMap") {
+                result.addWarning("@router class '" + cls.name + "' field 'routeIndex' should use BTreeMap for deterministic sorted route lookup, got '" + indexType + "'")
+            }
+        }
+
+        // Warn about missing essential methods
+        if not hasMethod(cls, "addRoute") {
+            result.addWarning("@router class '" + cls.name + "' has no addRoute() method")
+        }
+        if not hasMethod(cls, "resolve") {
+            result.addWarning("@router class '" + cls.name + "' has no resolve() method")
+        }
+
+        // Check for duplicate route registrations in methods
+        checkForDuplicateRoutes(cls)
+
+        // Check all fields for determinism
+        var i = 0
+        while i < cls.fields.length() {
+            let field = cls.fields[i]
+            checkFieldDeterminism(cls.name, field)
+            i = i + 1
+        }
+
+        return result
+    }
+
+    // Validate a route pattern string
+    fun validateRoutePattern(pattern: String) r: Bool {
+        // Must start with /
+        if pattern.length() == 0 {
+            return false
+        }
+        if pattern.charAt(0) != "/" {
+            return false
+        }
+        // Must not end with / (except root "/")
+        if pattern.length() > 1 and pattern.charAt(pattern.length() - 1) == "/" {
+            return false
+        }
+        // Check for empty segments (double slashes)
+        var i = 0
+        while i < pattern.length() - 1 {
+            if pattern.charAt(i) == "/" and pattern.charAt(i + 1) == "/" {
+                return false
+            }
+            i = i + 1
+        }
+        return true
+    }
+
+    // Check for potential duplicate route patterns in string literals
+    fun checkForDuplicateRoutes(cls: ClassNode) r: Void {
+        // This is a best-effort static check. Full duplicate detection
+        // happens at runtime via BTreeMap key insertion.
+        // Here we warn if the class has no routeCount/routeIndex field
+        // which would be needed for runtime deduplication.
+        if not hasFieldNamed(cls, "routeIndex") and not hasFieldNamed(cls, "routeCount") {
+            result.addWarning("@router class '" + cls.name + "' has no route index - consider adding a BTreeMap field for O(1) dedup and sorted iteration")
+        }
+    }
+
+    // Check handler method existence (called with handler name from route registration)
+    fun checkHandlerExists(cls: ClassNode, handlerName: String) r: Void {
+        if not hasMethod(cls, handlerName) {
+            result.addError("@router class '" + cls.name + "' references handler '" + handlerName + "' which does not exist as a method")
+        }
+    }
+
+    // Check if a field type is deterministic
+    fun checkFieldDeterminism(className: String, field: FieldNode) r: Void {
+        let typeName = field.paramType.typeName
+
+        // HashMap and HashSet are not allowed in @router classes
+        if typeName == "HashMap" or typeName.startsWith("HashMap<") {
+            result.addError("@router class '" + className + "' has non-deterministic field '" + field.name + "' of type '" + typeName + "'. Use BTreeMap instead of HashMap.")
+        }
+        if typeName == "HashSet" or typeName.startsWith("HashSet<") {
+            result.addError("@router class '" + className + "' has non-deterministic field '" + field.name + "' of type '" + typeName + "'. Use BTreeSet instead of HashSet.")
+        }
+    }
+}
+
+// Check all @router classes in a program
+fun checkRoutingClasses(program: ProgramNode) r: RouteCheckResult {
+    let checker = RouteChecker.new()
+    var combinedResult = RouteCheckResult.new()
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            // Check if class has @router decorator
+            var hasRouterDecorator = false
+            var di = 0
+            while di < cls.decorators.length() {
+                if cls.decorators[di].name == "router" {
+                    hasRouterDecorator = true
+                }
+                di = di + 1
+            }
+
+            if hasRouterDecorator {
+                let result = checker.checkRouting(cls)
+                // Merge results
+                var ei = 0
+                while ei < result.errors.length() {
+                    combinedResult.addError(result.errors[ei])
+                    ei = ei + 1
+                }
+                var wi = 0
+                while wi < result.warnings.length() {
+                    combinedResult.addWarning(result.warnings[wi])
+                    wi = wi + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return combinedResult
+}

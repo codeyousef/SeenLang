@@ -1,0 +1,14 @@
+name = "Chinese"
+description = "Chinese Collections Standard Library"
+
+[std_lib]
+"向量" = "Vec"
+"数组" = "Array"
+"哈希表" = "HashMap"
+"字符串哈希表" = "StringHashMap"
+"哈希集" = "HashSet"
+"B树表" = "BTreeMap"
+"链表" = "LinkedList"
+"双端队列" = "VecDeque"
+"位集" = "BitSet"
+"对象池" = "Pool"

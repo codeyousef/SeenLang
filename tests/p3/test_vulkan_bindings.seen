@@ -1,0 +1,17 @@
+// : Vulkan bindings — already exist in seen_std/src/platform/linux/vulkan.seen
+// Compile-only test verifying the binding constants are valid
+
+fun main() r: Int {
+    // Vulkan result codes (from vulkan.seen)
+    let VK_SUCCESS = 0
+    let VK_NOT_READY = 1
+    let VK_ERROR_DEVICE_LOST = 0 - 4
+
+    if VK_SUCCESS != 0 {
+        println("FAIL: VK_SUCCESS should be 0")
+        return 1
+    }
+
+    println("PASS: Vulkan bindings test")
+    return 0
+}

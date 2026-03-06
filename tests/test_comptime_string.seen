@@ -1,0 +1,11 @@
+// Test comptime string manipulation
+fun main() r: Void {
+    comptime {
+        let prefix = "hello"
+        let suffix = "_world"
+        let combined = prefix + suffix
+    }
+    // Comptime strings registered successfully
+    println("comptime string concat")
+    println("PASS: comptime_string")
+}

@@ -1,0 +1,631 @@
+// Training Data Collection for ML-Guided Optimization
+// Collects optimization decisions and outcomes for training neural networks
+
+import io.file.{readText, writeText, appendText}
+import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string, JsonValue_number, JsonValue_numberFloat, JsonValue_bool, JsonValue_emptyArray}
+import optimization.ml.ml_optimizer.{LoopFeatures, InlineFeatures}
+
+// Optimization decision types
+enum OptimizationDecision {
+    Vectorize,
+    Unroll,
+    Inline,
+    None
+}
+
+// Outcome of an optimization decision
+class OptimizationOutcome {
+    var decision: OptimizationDecision
+    var expectedSpeedup: Float       // Predicted speedup from model
+    var actualSpeedup: Float         // Measured speedup (if available)
+    var llvmRemark: String           // LLVM optimization remark
+    var wasApplied: Bool             // Whether LLVM applied the optimization
+    var compileTimeMs: Float         // Compilation time in milliseconds
+
+    fun new(decision: OptimizationDecision) r: OptimizationOutcome {
+        return OptimizationOutcome{
+            decision: decision,
+            expectedSpeedup: 1.0,
+            actualSpeedup: 0.0,
+            llvmRemark: "",
+            wasApplied: false,
+            compileTimeMs: 0.0
+        }
+    }
+}
+
+// A single training example with features, decision, and outcome
+class TrainingExample {
+    var id: String                   // Unique identifier
+    var loopFeatures: LoopFeatures?  // Loop features (if loop optimization)
+    var inlineFeatures: InlineFeatures? // Inline features (if inline decision)
+    var decision: OptimizationDecision
+    var confidence: Float            // Model confidence (0-1)
+    var outcome: OptimizationOutcome
+    var timestamp: Float             // Unix timestamp
+    var sourceLocation: String       // File and line info
+    var functionName: String         // Function being optimized
+
+    fun new(id: String, decision: OptimizationDecision) r: TrainingExample {
+        return TrainingExample{
+            id: id,
+            loopFeatures: null,
+            inlineFeatures: null,
+            decision: decision,
+            confidence: 0.5,
+            outcome: OptimizationOutcome.new(decision),
+            timestamp: 0.0,
+            sourceLocation: "",
+            functionName: ""
+        }
+    }
+
+    // Convert loop features to normalized float array for neural network
+    fun toFeatureVector() r: Array<Float> {
+        let vector = Array<Float>()
+        
+        if loopFeatures != null {
+            let lf = loopFeatures!
+            // Normalize features to 0-1 range approximately
+            vector.push(clampNorm(lf.tripCount.toFloat(), 0.0, 10000.0))
+            vector.push(clampNorm(lf.nestingDepth.toFloat(), 0.0, 5.0))
+            vector.push(clampNorm(lf.addOps.toFloat(), 0.0, 100.0))
+            vector.push(clampNorm(lf.mulOps.toFloat(), 0.0, 50.0))
+            vector.push(clampNorm(lf.loadOps.toFloat(), 0.0, 50.0))
+            vector.push(clampNorm(lf.storeOps.toFloat(), 0.0, 50.0))
+            vector.push(clampNorm(lf.stride.toFloat(), 0.0, 100.0))
+        } else if inlineFeatures != null {
+            let inf = inlineFeatures!
+            vector.push(clampNorm(inf.calleeSize.toFloat(), 0.0, 500.0))
+            vector.push(clampNorm(inf.callerSize.toFloat(), 0.0, 1000.0))
+            vector.push(clampNorm(inf.callCount.toFloat(), 0.0, 100.0))
+            vector.push(if inf.hasLoops { 1.0 } else { 0.0 })
+            // Pad to match loop feature size
+            vector.push(0.0)
+            vector.push(0.0)
+            vector.push(0.0)
+        } else {
+            // Default padding
+            var i = 0
+            while i < 7 {
+                vector.push(0.0)
+                i = i + 1
+            }
+        }
+        
+        return vector
+    }
+
+    // Convert decision to one-hot target vector
+    fun toTargetVector() r: Array<Float> {
+        let vector = Array<Float>()
+        
+        // One-hot encoding for 4 classes: [Vectorize, Unroll, Inline, None]
+        match decision {
+            OptimizationDecision.Vectorize -> {
+                vector.push(1.0)
+                vector.push(0.0)
+                vector.push(0.0)
+                vector.push(0.0)
+            }
+            OptimizationDecision.Unroll -> {
+                vector.push(0.0)
+                vector.push(1.0)
+                vector.push(0.0)
+                vector.push(0.0)
+            }
+            OptimizationDecision.Inline -> {
+                vector.push(0.0)
+                vector.push(0.0)
+                vector.push(1.0)
+                vector.push(0.0)
+            }
+            OptimizationDecision.None -> {
+                vector.push(0.0)
+                vector.push(0.0)
+                vector.push(0.0)
+                vector.push(1.0)
+            }
+        }
+        
+        return vector
+    }
+
+    // Convert to JSON for storage
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("id", JsonValue_string(id))
+        obj.set("decision", JsonValue_string(decisionToString(decision)))
+        obj.set("confidence", JsonValue_numberFloat(confidence))
+        obj.set("timestamp", JsonValue_numberFloat(timestamp))
+        obj.set("sourceLocation", JsonValue_string(sourceLocation))
+        obj.set("functionName", JsonValue_string(functionName))
+
+        // Outcome
+        let outcomeObj = JsonValue_emptyObject()
+        outcomeObj.set("expectedSpeedup", JsonValue_numberFloat(outcome.expectedSpeedup))
+        outcomeObj.set("actualSpeedup", JsonValue_numberFloat(outcome.actualSpeedup))
+        outcomeObj.set("llvmRemark", JsonValue_string(outcome.llvmRemark))
+        outcomeObj.set("wasApplied", JsonValue_bool(outcome.wasApplied))
+        outcomeObj.set("compileTimeMs", JsonValue_numberFloat(outcome.compileTimeMs))
+        obj.set("outcome", outcomeObj)
+
+        // Features
+        if loopFeatures != null {
+            let lf = loopFeatures!
+            let featureObj = JsonValue_emptyObject()
+            featureObj.set("tripCount", JsonValue_number(lf.tripCount))
+            featureObj.set("nestingDepth", JsonValue_number(lf.nestingDepth))
+            featureObj.set("addOps", JsonValue_number(lf.addOps))
+            featureObj.set("mulOps", JsonValue_number(lf.mulOps))
+            featureObj.set("loadOps", JsonValue_number(lf.loadOps))
+            featureObj.set("storeOps", JsonValue_number(lf.storeOps))
+            featureObj.set("stride", JsonValue_number(lf.stride))
+            obj.set("loopFeatures", featureObj)
+        }
+
+        if inlineFeatures != null {
+            let inf = inlineFeatures!
+            let featureObj = JsonValue_emptyObject()
+            featureObj.set("calleeSize", JsonValue_number(inf.calleeSize))
+            featureObj.set("callerSize", JsonValue_number(inf.callerSize))
+            featureObj.set("callCount", JsonValue_number(inf.callCount))
+            featureObj.set("hasLoops", JsonValue_bool(inf.hasLoops))
+            obj.set("inlineFeatures", featureObj)
+        }
+
+        return obj
+    }
+}
+
+// Training data collector and manager
+class TrainingData {
+    var examples: Array<TrainingExample>
+    var dataPath: String
+    var totalCollected: Int
+    var positiveOutcomes: Int
+    var negativeOutcomes: Int
+
+    fun new(dataPath: String = ".seen_cache/ml_training_data.jsonl") r: TrainingData {
+        return TrainingData{
+            examples: Array<TrainingExample>(),
+            dataPath: dataPath,
+            totalCollected: 0,
+            positiveOutcomes: 0,
+            negativeOutcomes: 0
+        }
+    }
+
+    // Add a new training example
+    fun addExample(example: TrainingExample) r: Void {
+        examples.push(example)
+        totalCollected = totalCollected + 1
+    }
+
+    // Create example from loop features
+    fun addLoopExample(
+        features: LoopFeatures,
+        decision: OptimizationDecision,
+        confidence: Float,
+        sourceLocation: String,
+        functionName: String
+    ) r: TrainingExample {
+        let id = generateExampleId()
+        let example = TrainingExample.new(id, decision)
+        example.loopFeatures = features
+        example.confidence = confidence
+        example.sourceLocation = sourceLocation
+        example.functionName = functionName
+        example.timestamp = getCurrentTime()
+        
+        addExample(example)
+        return example
+    }
+
+    // Create example from inline features
+    fun addInlineExample(
+        features: InlineFeatures,
+        decision: OptimizationDecision,
+        confidence: Float,
+        sourceLocation: String,
+        functionName: String
+    ) r: TrainingExample {
+        let id = generateExampleId()
+        let example = TrainingExample.new(id, decision)
+        example.inlineFeatures = features
+        example.confidence = confidence
+        example.sourceLocation = sourceLocation
+        example.functionName = functionName
+        example.timestamp = getCurrentTime()
+        
+        addExample(example)
+        return example
+    }
+
+    // Update outcome for an example
+    fun updateOutcome(id: String, outcome: OptimizationOutcome) r: Bool {
+        var i = 0
+        while i < examples.length() {
+            if examples[i].id == id {
+                examples[i].outcome = outcome
+                if outcome.actualSpeedup > 1.0 {
+                    positiveOutcomes = positiveOutcomes + 1
+                } else if outcome.actualSpeedup < 1.0 {
+                    negativeOutcomes = negativeOutcomes + 1
+                }
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Process LLVM optimization remark
+    fun processLLVMRemark(remark: String, exampleId: String) r: Void {
+        var i = 0
+        while i < examples.length() {
+            if examples[i].id == exampleId {
+                examples[i].outcome.llvmRemark = remark
+                
+                // Parse remark to determine if optimization was applied
+                if contains(remark, "applied") or contains(remark, "vectorized") or 
+                   contains(remark, "unrolled") or contains(remark, "inlined") {
+                    examples[i].outcome.wasApplied = true
+                }
+                
+                // Extract speedup info if present
+                if contains(remark, "speedup") {
+                    // Parse speedup value from remark
+                    let speedup = extractSpeedupFromRemark(remark)
+                    examples[i].outcome.actualSpeedup = speedup
+                }
+                
+                return
+            }
+            i = i + 1
+        }
+    }
+
+    // Get examples suitable for neural network training
+    fun getTrainingSamples() r: Array<TrainingSample> {
+        let samples = Array<TrainingSample>()
+        
+        var i = 0
+        while i < examples.length() {
+            let example = examples[i]
+            let features = example.toFeatureVector()
+            let targets = example.toTargetVector()
+            
+            // Weight samples by actual outcome (successful optimizations get higher weight)
+            var weight = 1.0
+            if example.outcome.actualSpeedup > 0.0 {
+                weight = example.outcome.actualSpeedup
+            }
+            
+            samples.push(TrainingSample.new(features, targets, weight))
+            i = i + 1
+        }
+        
+        return samples
+    }
+
+    // Get high-confidence examples (for validation set)
+    fun getHighConfidenceExamples(minConfidence: Float) r: Array<TrainingExample> {
+        let result = Array<TrainingExample>()
+        
+        var i = 0
+        while i < examples.length() {
+            if examples[i].confidence >= minConfidence {
+                result.push(examples[i])
+            }
+            i = i + 1
+        }
+        
+        return result
+    }
+
+    // Get examples by decision type
+    fun getExamplesByDecision(decision: OptimizationDecision) r: Array<TrainingExample> {
+        let result = Array<TrainingExample>()
+        
+        var i = 0
+        while i < examples.length() {
+            if examples[i].decision == decision {
+                result.push(examples[i])
+            }
+            i = i + 1
+        }
+        
+        return result
+    }
+
+    // Get successful examples (those with speedup > 1.0)
+    fun getSuccessfulExamples() r: Array<TrainingExample> {
+        let result = Array<TrainingExample>()
+        
+        var i = 0
+        while i < examples.length() {
+            if examples[i].outcome.actualSpeedup > 1.0 {
+                result.push(examples[i])
+            }
+            i = i + 1
+        }
+        
+        return result
+    }
+
+    // Save all examples to JSONL file
+    fun save() r: Bool {
+        var content = ""
+        var i = 0
+        while i < examples.length() {
+            let json = examples[i].toJson()
+            content = content + jsonToString(json) + "\n"
+            i = i + 1
+        }
+        return writeText(dataPath, content)
+    }
+
+    // Append single example to file (for incremental logging)
+    fun appendToFile(example: TrainingExample) r: Bool {
+        let json = example.toJson()
+        let line = jsonToString(json) + "\n"
+        return appendText(dataPath, line)
+    }
+
+    // Load examples from JSONL file
+    fun load() r: Int {
+        let content = readText(dataPath)
+        if content == "" {
+            return 0
+        }
+        
+        let lines = content.split("\n")
+        var loaded = 0
+        
+        var i = 0
+        while i < lines.length() {
+            let line = trim(lines[i])
+            if line.length() > 0 {
+                // Parse JSON line (simplified - would need full JSON parser)
+                // For now, just count valid lines
+                loaded = loaded + 1
+            }
+            i = i + 1
+        }
+        
+        return loaded
+    }
+
+    // Clear all examples
+    fun clear() r: Void {
+        examples = Array<TrainingExample>()
+        totalCollected = 0
+        positiveOutcomes = 0
+        negativeOutcomes = 0
+    }
+
+    // Get statistics
+    fun getStats() r: TrainingStats {
+        return TrainingStats{
+            totalExamples: examples.length(),
+            vectorizeExamples: getExamplesByDecision(OptimizationDecision.Vectorize).length(),
+            unrollExamples: getExamplesByDecision(OptimizationDecision.Unroll).length(),
+            inlineExamples: getExamplesByDecision(OptimizationDecision.Inline).length(),
+            positiveOutcomes: positiveOutcomes,
+            negativeOutcomes: negativeOutcomes
+        }
+    }
+
+    // Check if we have enough data to train
+    fun hasEnoughData(minSamples: Int) r: Bool {
+        return examples.length() >= minSamples
+    }
+
+    // Split data into training and validation sets
+    fun splitTrainValidation(validationRatio: Float) r: TrainValidationSplit {
+        let trainSize = (examples.length().toFloat() * (1.0 - validationRatio)).toInt()
+        
+        let trainSet = Array<TrainingExample>()
+        let valSet = Array<TrainingExample>()
+        
+        var i = 0
+        while i < examples.length() {
+            if i < trainSize {
+                trainSet.push(examples[i])
+            } else {
+                valSet.push(examples[i])
+            }
+            i = i + 1
+        }
+        
+        return TrainValidationSplit{
+            train: trainSet,
+            validation: valSet
+        }
+    }
+}
+
+// Training statistics
+class TrainingStats {
+    var totalExamples: Int
+    var vectorizeExamples: Int
+    var unrollExamples: Int
+    var inlineExamples: Int
+    var positiveOutcomes: Int
+    var negativeOutcomes: Int
+
+    fun toString() r: String {
+        return "TrainingData: " + totalExamples.toString() + " examples (" +
+               vectorizeExamples.toString() + " vectorize, " +
+               unrollExamples.toString() + " unroll, " +
+               inlineExamples.toString() + " inline), " +
+               positiveOutcomes.toString() + " positive, " +
+               negativeOutcomes.toString() + " negative"
+    }
+}
+
+// Train/validation split result
+class TrainValidationSplit {
+    var train: Array<TrainingExample>
+    var validation: Array<TrainingExample>
+}
+
+// Helper: Normalize value to 0-1 range with clamping
+fun clampNorm(value: Float, minVal: Float, maxVal: Float) r: Float {
+    if value <= minVal {
+        return 0.0
+    }
+    if value >= maxVal {
+        return 1.0
+    }
+    return (value - minVal) / (maxVal - minVal)
+}
+
+// Helper: Generate unique example ID
+var exampleCounter: Int = 0
+fun generateExampleId() r: String {
+    exampleCounter = exampleCounter + 1
+    return "ex_" + getCurrentTime().toString() + "_" + exampleCounter.toString()
+}
+
+// Helper: Convert decision to string
+fun decisionToString(decision: OptimizationDecision) r: String {
+    return match decision {
+        OptimizationDecision.Vectorize -> "vectorize"
+        OptimizationDecision.Unroll -> "unroll"
+        OptimizationDecision.Inline -> "inline"
+        OptimizationDecision.None -> "none"
+    }
+}
+
+// Helper: Extract speedup from LLVM remark
+fun extractSpeedupFromRemark(remark: String) r: Float {
+    // Look for patterns like "speedup=1.5x" or "1.5x faster"
+    var speedup = 1.0
+    // Simplified extraction - would need proper parsing
+    return speedup
+}
+
+extern fun __GetTime() -> Float
+
+fun getCurrentTime() r: Float {
+    return __GetTime()
+}
+
+fun trim(s: String) r: String {
+    let len = s.length()
+    var start = 0
+    var doneStart = 0
+    while start < len and doneStart == 0 {
+        let c = s.byteAt(start)
+        if c == 32 or c == 9 or c == 10 or c == 13 {
+            start = start + 1
+        } else {
+            doneStart = 1
+        }
+    }
+    var end = len - 1
+    var doneEnd = 0
+    while end >= start and doneEnd == 0 {
+        let c = s.byteAt(end)
+        if c == 32 or c == 9 or c == 10 or c == 13 {
+            end = end - 1
+        } else {
+            doneEnd = 1
+        }
+    }
+    if start > end {
+        return ""
+    }
+    return s.substring(start, end + 1)
+}
+
+fun indexOf(s: String, substr: String, start: Int) r: Int {
+    let slen = s.length()
+    let sublen = substr.length()
+    if sublen == 0 {
+        return start
+    }
+    var i = start
+    while i <= slen - sublen {
+        var match = 1
+        var j = 0
+        while j < sublen {
+            if s.byteAt(i + j) != substr.byteAt(j) {
+                match = 0
+            }
+            j = j + 1
+        }
+        if match == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fun contains(s: String, substr: String) r: Bool {
+    return indexOf(s, substr, 0) >= 0
+}
+
+fun jsonToString(json: JsonValue) r: String {
+    if json.isNull() {
+        return "null"
+    }
+    if json.isBool() {
+        if json.getBool() {
+            return "true"
+        }
+        return "false"
+    }
+    if json.isNumber() {
+        return json.getNumber().toString()
+    }
+    if json.isString() {
+        return "\"" + json.getString() + "\""
+    }
+    if json.isArray() {
+        var result = "["
+        let arr = json.getArray()
+        var i = 0
+        while i < arr.length() {
+            if i > 0 {
+                result = result + ","
+            }
+            result = result + jsonToString(arr[i])
+            i = i + 1
+        }
+        return result + "]"
+    }
+    if json.isObject() {
+        var result = "{"
+        let keys = json.objectKeys
+        let vals = json.objectValues
+        var i = 0
+        while i < keys.length() {
+            if i > 0 {
+                result = result + ","
+            }
+            result = result + "\"" + keys[i] + "\":" + jsonToString(vals[i])
+            i = i + 1
+        }
+        return result + "}"
+    }
+    return "{}"
+}
+
+// TrainingSample reference for NeuralNetwork
+class TrainingSample {
+    var features: Array<Float>
+    var targets: Array<Float>
+    var sampleWeight: Float
+
+    fun new(features: Array<Float>, targets: Array<Float>, sampleWeight: Float = 1.0) r: TrainingSample {
+        return TrainingSample{
+            features: features,
+            targets: targets,
+            sampleWeight: sampleWeight
+        }
+    }
+}

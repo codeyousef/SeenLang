@@ -1,0 +1,18 @@
+// Shared types for ML optimization module
+
+// Result of an A/B test comparing optimization strategies
+class ABTestResult {
+    var winner: String
+    var improvement: Float
+
+    static fun new(winner: String = "baseline", improvement: Float = 0.0) r: ABTestResult {
+        return ABTestResult{
+            winner: winner,
+            improvement: improvement
+        }
+    }
+
+    fun hasWinner() r: Bool {
+        return winner != ""
+    }
+}

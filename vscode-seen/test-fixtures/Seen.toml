@@ -1,0 +1,26 @@
+[package]
+name = "test-project"
+version = "0.1.0"
+edition = "2024"
+authors = ["Test Author <test@seen-lang.org>"]
+description = "Test project for VSCode extension testing"
+
+[dependencies]
+
+[dev-dependencies]
+
+[build]
+target = "native"
+optimization = "debug"
+
+[language]
+default = "en"
+available = ["en", "ar"]
+
+[reactive]
+enabled = true
+marble_diagrams = true
+
+[benchmarks]
+enabled = true
+iterations = 1000

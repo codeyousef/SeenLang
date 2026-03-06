@@ -1,0 +1,8 @@
+// : Compilation database output
+// Compile with: --emit-compile-db
+// Verifies that compile_commands.json is generated
+
+fun main() r: Int {
+    println("PASS: Compilation database test (compile-only)")
+    return 0
+}

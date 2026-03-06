@@ -1,0 +1,9 @@
+// : Dependency management + asset pipeline
+// Tests that Seen.toml is parsed for [dependencies], [features], [assets]
+// This test only verifies compilation succeeds — TOML parsing is tested
+// by creating a Seen.toml in the test directory
+
+fun main() r: Int {
+    println("PASS: Dependency management test (compile-only)")
+    return 0
+}

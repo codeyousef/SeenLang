@@ -1,0 +1,139 @@
+// Hyperbolic PDE Solver Benchmark
+// 1D catenary/cable equation with hyperbolic function evaluation
+// Math functions: sinh, cosh, tanh, exp, sqrt, ln (via LLVM intrinsic builtins)
+
+fun run_hyperbolic_pde(grid_size: Int, timesteps: Int) -> Float {
+    // Initialize grid: catenary initial shape y = cosh(x) - 1
+    let dx = 4.0 / grid_size.toFloat()
+    let dt = 0.0001
+
+    let u = Array<Float>(grid_size, 0.0)
+    let v = Array<Float>(grid_size, 0.0)
+    let u_new = Array<Float>(grid_size, 0.0)
+
+    // Set initial condition: catenary centered in domain
+    var i = 0
+    while i < grid_size {
+        let x = 0.0 - 2.0 + i.toFloat() * dx
+        u[i] = __Cosh(x) - 1.0
+        v[i] = 0.0
+        i = i + 1
+    }
+
+    // Time-stepping loop
+    var t = 0
+    while t < timesteps {
+        let time = t.toFloat() * dt
+
+        // Interior points update
+        var j = 1
+        while j < grid_size - 1 {
+            let x = 0.0 - 2.0 + j.toFloat() * dx
+
+            // Catenary restoring force: cosh(x)
+            let catenary_force = __Cosh(x) - u[j]
+
+            // Tension term using sinh: sinh(x)/x gives tension profile
+            var tension = 1.0
+            if __Fabs(x) > 0.0001 {
+                tension = __Sinh(x) / x
+            }
+
+            // Damping using tanh (saturates at +-1)
+            let damping = 0.0 - 0.1 * __Tanh(v[j])
+
+            // Thermal decay using exp
+            let thermal = __Exp(0.0 - 0.01 * time)
+
+            // Laplacian (second derivative)
+            let laplacian = (u[j + 1] - 2.0 * u[j] + u[j - 1]) / (dx * dx)
+
+            // Update velocity and position
+            let accel = tension * laplacian + catenary_force * thermal + damping
+            v[j] = v[j] + accel * dt
+            u_new[j] = u[j] + v[j] * dt
+
+            j = j + 1
+        }
+
+        // Boundary conditions: fixed ends
+        u_new[0] = __Cosh(0.0 - 2.0) - 1.0
+        u_new[grid_size - 1] = __Cosh(2.0) - 1.0
+
+        // Copy u_new -> u
+        var k = 0
+        while k < grid_size {
+            u[k] = u_new[k]
+            k = k + 1
+        }
+
+        t = t + 1
+    }
+
+    // Compute checksum: sum of final grid values plus some ln evaluations
+    var checksum = 0.0
+    var m = 0
+    while m < grid_size {
+        checksum = checksum + u[m]
+        // Also exercise ln on positive values
+        let abs_val = __Fabs(u[m]) + 1.0
+        checksum = checksum + __Log(abs_val)
+        m = m + 1
+    }
+
+    return checksum
+}
+
+fun main() -> Int {
+    let grid_size = 10000
+    let timesteps = 500
+
+    __Print("Hyperbolic PDE Solver Benchmark\n")
+    __Print("Grid size: ")
+    __PrintInt(grid_size)
+    __Print(", Timesteps: ")
+    __PrintInt(timesteps)
+    __Print("\n")
+
+    // Warmup
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs at 100 timesteps)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let warmup_result = run_hyperbolic_pde(grid_size, 100)
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result = 0.0
+
+    var iter = 0
+    while iter < iterations {
+        let start = __GetTime()
+        let checksum = run_hyperbolic_pde(grid_size, timesteps)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result = checksum
+        }
+        iter = iter + 1
+    }
+
+    let grid_points_per_step = grid_size.toFloat() * timesteps.toFloat()
+    __Print("Checksum: ")
+    __PrintFloat(result)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Grid-steps per second: ")
+    __PrintFloat(grid_points_per_step / (min_time / 1000.0) / 1000000.0)
+    __Print(" million\n")
+
+    return 0
+}

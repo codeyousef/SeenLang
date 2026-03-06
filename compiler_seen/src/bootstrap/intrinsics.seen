@@ -1,0 +1,6 @@
+// compiler_seen.bootstrap.intrinsics
+// Declarations for runtime intrinsics used during compiler bootstrap.
+
+extern fun abort(message: String) r: Never
+
+extern fun __ArrayNew<T>(elementSize: Int, capacity: Int) r: Array<T>

@@ -1,0 +1,7 @@
+extern fun __IntToFloat(i: Int) -> Float
+extern fun __PrintFloat(f: Float) -> Void
+
+fun main() {
+    let x = __IntToFloat(1)
+    __PrintFloat(x)
+}

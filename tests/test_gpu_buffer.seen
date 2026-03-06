@@ -1,0 +1,19 @@
+// : Test @gpu_buffer(std140) struct layout
+// Verify that structs decorated with @gpu_buffer get proper std140 padding
+
+@gpu_buffer(std140)
+class UniformBlock {
+    var modelMatrix: Float
+    var viewMatrix: Float
+    var projMatrix: Float
+    var time: Float
+}
+
+fun main() {
+    let block = UniformBlock{ modelMatrix: 1.0, viewMatrix: 2.0, projMatrix: 3.0, time: 4.0 }
+    let size = sizeof(UniformBlock)
+    println("UniformBlock size: " + size.toString())
+    // std140 requires total size rounded to 16 bytes
+    // 4 floats = 4*8 = 32 bytes (Seen Float = f64 = 8 bytes), already 16-aligned
+    println("GPU buffer test passed")
+}

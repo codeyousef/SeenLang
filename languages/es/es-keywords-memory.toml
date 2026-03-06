@@ -1,0 +1,13 @@
+name = "Spanish"
+description = "Spanish Memory Management Keywords"
+
+[keywords]
+"mover" = "KeywordMove"
+"prestar" = "KeywordBorrow"
+"en_lugar" = "KeywordInout"
+"región" = "KeywordRegion"
+"arena" = "KeywordArena"
+"referencia" = "KeywordRef"
+"propio" = "KeywordOwn"
+"transmutar" = "KeywordTransmute"
+"gpu" = "KeywordGpu"

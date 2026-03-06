@@ -1,0 +1,9 @@
+class Profiler {
+    static fun new() r: Profiler {
+        return Profiler{}
+    }
+
+    fun profileFunction(name: String) r: Void {
+        println("[pgo-profiler] profile {name}")
+    }
+}

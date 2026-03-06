@@ -1,0 +1,15 @@
+// Test comptime type introspection
+class Point {
+    var x: Float
+    var y: Float
+}
+
+fun main() r: Void {
+    comptime {
+        let fields = typeFields("Point")
+    }
+    comptime if (typeFields("Point") == 2) {
+        println("Point has 2 fields")
+    }
+    println("PASS: comptime_introspect")
+}

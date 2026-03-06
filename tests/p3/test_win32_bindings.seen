@@ -1,0 +1,16 @@
+// : Win32 bindings — compile-only (no Windows runtime in CI)
+// Verifies Win32 constants and API shape
+
+fun main() r: Int {
+    let WS_OVERLAPPEDWINDOW = 13565952
+    let WM_QUIT = 18
+    let VK_ESCAPE = 27
+
+    if WM_QUIT != 18 {
+        println("FAIL: WM_QUIT constant")
+        return 1
+    }
+
+    println("PASS: Win32 bindings test (compile-only)")
+    return 0
+}

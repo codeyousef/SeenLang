@@ -1,0 +1,12 @@
+// Test: File creation and unwrap
+import io.file.{File}
+import core.result.{Result, Ok, Err}
+
+fun main() r: Int {
+    let res = File.create("/dev/null")
+    if res.isOk() {
+        let f = res.unwrap()
+        return 0
+    }
+    return 1
+}

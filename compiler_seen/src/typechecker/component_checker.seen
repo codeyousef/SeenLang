@@ -1,0 +1,191 @@
+// Component Checker for Seen Language
+// Validates @component decorator usage and lifecycle method requirements
+
+import parser.real_parser.{ClassNode, FunctionNode, ProgramNode}
+
+// Result of component checking
+class ComponentCheckResult {
+    var success: Bool
+    var errors: Array<String>
+    var warnings: Array<String>
+
+    static fun new() r: ComponentCheckResult {
+        return ComponentCheckResult{
+            success: true,
+            errors: Array<String>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(message: String) r: Void {
+        errors.push(message)
+        success = false
+    }
+
+    fun addWarning(message: String) r: Void {
+        warnings.push(message)
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+}
+
+// Component Checker class
+class ComponentChecker {
+    var result: ComponentCheckResult
+
+    static fun new() r: ComponentChecker {
+        return ComponentChecker{
+            result: ComponentCheckResult.new()
+        }
+    }
+
+    // Check a class marked with @component
+    fun checkComponent(cls: ClassNode) r: ComponentCheckResult {
+        result = ComponentCheckResult.new()
+
+        // Check for required lifecycle methods
+        let hasInit = hasMethod(cls, "init")
+        let hasMount = hasMethod(cls, "mount")
+        let hasUnmount = hasMethod(cls, "unmount")
+        let hasDestroy = hasMethod(cls, "destroy")
+
+        // init() is required
+        if not hasInit {
+            result.addError("@component class '" + cls.name + "' must have an init() method")
+        }
+
+        // Warn about missing optional lifecycle methods
+        if not hasMount {
+            result.addWarning("@component class '" + cls.name + "' has no mount() method - consider adding one for proper lifecycle management")
+        }
+
+        if not hasUnmount {
+            result.addWarning("@component class '" + cls.name + "' has no unmount() method - consider adding one for cleanup")
+        }
+
+        if not hasDestroy {
+            result.addWarning("@component class '" + cls.name + "' has no destroy() method - consider adding one for resource cleanup")
+        }
+
+        // Check that lifecycle methods have correct signatures
+        if hasInit {
+            checkLifecycleMethod(cls, "init")
+        }
+        if hasMount {
+            checkLifecycleMethod(cls, "mount")
+        }
+        if hasUnmount {
+            checkLifecycleMethod(cls, "unmount")
+        }
+        if hasDestroy {
+            checkLifecycleMethod(cls, "destroy")
+        }
+
+        // Check nested component fields for determinism compatibility
+        checkNestedComponents(cls)
+
+        return result
+    }
+
+    // Check if a class has a method with the given name
+    fun hasMethod(cls: ClassNode, methodName: String) r: Bool {
+        var i = 0
+        while i < cls.methods.length() {
+            if cls.methods[i].name == methodName {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Get a method by name
+    fun getMethod(cls: ClassNode, methodName: String) r: Option<FunctionNode> {
+        var i = 0
+        while i < cls.methods.length() {
+            if cls.methods[i].name == methodName {
+                return Some(cls.methods[i])
+            }
+            i = i + 1
+        }
+        return None()
+    }
+
+    // Check lifecycle method signature
+    fun checkLifecycleMethod(cls: ClassNode, methodName: String) r: Void {
+        let methodOpt = getMethod(cls, methodName)
+        if methodOpt.isNone() {
+            return
+        }
+
+        let method = methodOpt.unwrap()
+
+        // Lifecycle methods should have no parameters (except implicit self)
+        if method.params.length() > 0 {
+            result.addError("@component lifecycle method '" + methodName + "' in '" + cls.name + "' should have no parameters")
+        }
+
+        // Lifecycle methods should return Void
+        if method.returnType.typeName != "Void" and method.returnType.typeName != "" {
+            result.addWarning("@component lifecycle method '" + methodName + "' in '" + cls.name + "' should return Void")
+        }
+    }
+
+    // Check nested component fields for determinism
+    fun checkNestedComponents(cls: ClassNode) r: Void {
+        // If parent is @deterministic, all nested components must also be deterministic
+        if cls.isDeterministic {
+            var i = 0
+            while i < cls.fields.length() {
+                let field = cls.fields[i]
+                // Check if field type is a component (has @component decorator)
+                // This would require access to the type registry
+                // For now, just warn about potential issues
+                i = i + 1
+            }
+        }
+    }
+}
+
+// Check all @component classes in a program
+fun checkComponents(program: ProgramNode) r: ComponentCheckResult {
+    let checker = ComponentChecker.new()
+    var combinedResult = ComponentCheckResult.new()
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            // Check if class has @component decorator
+            var hasComponentDecorator = false
+            var di = 0
+            while di < cls.decorators.length() {
+                if cls.decorators[di].name == "component" {
+                    hasComponentDecorator = true
+                }
+                di = di + 1
+            }
+
+            if hasComponentDecorator {
+                let result = checker.checkComponent(cls)
+                // Merge results
+                var ei = 0
+                while ei < result.errors.length() {
+                    combinedResult.addError(result.errors[ei])
+                    ei = ei + 1
+                }
+                var wi = 0
+                while wi < result.warnings.length() {
+                    combinedResult.addWarning(result.warnings[wi])
+                    wi = wi + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return combinedResult
+}

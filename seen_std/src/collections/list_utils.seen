@@ -1,0 +1,17 @@
+// seen_std.collections.list_utils
+// Small helpers that make List<T>/Map<K, V> usage saner inside Stage-1.
+
+fun <T> List<T>.isEmpty() r: Bool {
+    return this.size() == 0
+}
+
+fun <T> List<T>.firstOrNull() r: T? {
+    if this.size() == 0 {
+        return null
+    }
+    return this[0]
+}
+
+fun <K, V> Map<K, V>.getOrDefault(key: K, defaultValue: V) r: V {
+    return this.get(key).UnwrapOr(defaultValue)
+}

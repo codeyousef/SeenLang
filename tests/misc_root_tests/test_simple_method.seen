@@ -1,0 +1,40 @@
+// Test simple method call to verify method calling works
+
+class Box {
+    var value: Int
+
+    static fun create(v: Int) r: Box {
+        return Box{value: v}
+    }
+
+    fun get() r: Int {
+        println("get() called, value = " + value.toString())
+        return value
+    }
+}
+
+fun main() r: Int {
+    println("Test 1: Direct method call on static result")
+    let b1 = Box.create(42)
+    let v1 = b1.get()
+    println("v1 = " + v1.toString())
+
+    println("")
+    println("Test 2: Method call with var")
+    var b2 = Box.create(100)
+    let v2 = b2.get()
+    println("v2 = " + v2.toString())
+
+    if v1 != 42 {
+        println("FAIL: v1 expected 42, got " + v1.toString())
+        return 1
+    }
+
+    if v2 != 100 {
+        println("FAIL: v2 expected 100, got " + v2.toString())
+        return 1
+    }
+
+    println("PASS")
+    return 0
+}

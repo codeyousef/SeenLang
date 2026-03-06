@@ -1,0 +1,32 @@
+fun main() -> Int {
+    __Print("Creating array\n")
+    let arr = Array<Float>.withCapacity(4)
+    
+    __Print("Pushing values\n")
+    arr.push(1.0)
+    arr.push(2.0)
+    arr.push(3.0)
+    arr.push(4.0)
+    
+    __Print("Reading values\n")
+    __PrintFloat(arr[0])
+    __Print("\n")
+    __PrintFloat(arr[1])
+    __Print("\n")
+    __PrintFloat(arr[2])
+    __Print("\n")
+    __PrintFloat(arr[3])
+    __Print("\n")
+    
+    __Print("Setting values\n")
+    arr[0] = 10.0
+    arr[1] = 20.0
+    
+    __Print("Reading after set\n")
+    __PrintFloat(arr[0])
+    __Print("\n")
+    __PrintFloat(arr[1])
+    __Print("\n")
+    
+    return 0
+}

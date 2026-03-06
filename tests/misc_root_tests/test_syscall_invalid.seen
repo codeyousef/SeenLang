@@ -1,0 +1,23 @@
+// Test invalid @syscall decorators
+// This test SHOULD FAIL compilation with --profile deterministic in UWW mode
+// It demonstrates that invalid syscall names are rejected
+
+@syscall("invalid::syscall")
+fun badSyscall() r: Int {
+    return 0
+}
+
+@syscall("os::read_file")
+fun unsafeSyscall() r: String {
+    return ""
+}
+
+@syscall("network::send")
+fun networkSend(data: String) r: Void {
+    // This would break determinism
+}
+
+fun main() r: Int {
+    println("This test should not compile in deterministic mode!")
+    return 0
+}

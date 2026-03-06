@@ -1,0 +1,27 @@
+// Mutex for thread synchronization backed by pthread_mutex_t
+// The 'handle' field holds an opaque pointer (cast to Int) to the heap-allocated
+// SeenMutex struct. Named 'handle' (not 'lock') to avoid shadowing the lock() method.
+
+class Mutex {
+    var handle: Int
+
+    fun new() r: Mutex {
+        let h = __MutexCreate()
+        return Mutex {
+            handle: h
+        }
+    }
+
+    fun lock() r: Void {
+        __MutexLock(this.handle)
+    }
+
+    fun unlock() r: Void {
+        __MutexUnlock(this.handle)
+    }
+
+    fun tryLock() r: Bool {
+        let result = __MutexTryLock(this.handle)
+        return result == 1
+    }
+}

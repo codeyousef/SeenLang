@@ -1,0 +1,151 @@
+// Reverse Complement Benchmark
+// String processing with lookup tables
+
+import seen_std.collections.vec { Vec }
+
+fun code_to_string(c: Int) -> String {
+    if c == 65 { return "A" }
+    if c == 67 { return "C" }
+    if c == 71 { return "G" }
+    if c == 84 { return "T" }
+    if c == 97 { return "a" }
+    if c == 99 { return "c" }
+    if c == 103 { return "g" }
+    if c == 116 { return "t" }
+    if c == 85 { return "U" }
+    if c == 117 { return "u" }
+    if c == 78 { return "N" }
+    if c == 110 { return "n" }
+    if c == 10 { return "\n" }
+    return "?"
+}
+
+fun create_complement_table() -> Vec<Int> {
+    let table = Vec<Int>.withCapacity(256);
+    var i = 0;
+    while i < 256 {
+        table.push(0);
+        i = i + 1;
+    }
+    
+    table.set(65, 84);
+    table.set(67, 71);
+    table.set(71, 67);
+    table.set(84, 65);
+    table.set(85, 65);
+    table.set(97, 116);
+    table.set(99, 103);
+    table.set(103, 99);
+    table.set(116, 97);
+    table.set(117, 97);
+    
+    return table;
+}
+
+fun generate_sequence(size: Int, seed: Int) -> String {
+    var result = "";
+    var rng = seed;
+    let line_len = 60;
+    var pos = 0;
+    
+    while pos < size {
+        rng = (rng * 1103515245 + 12345) & 0x7FFFFFFF;
+        let idx = (rng % 4);
+        
+        if idx == 0 { result = result + "A"; }
+        else if idx == 1 { result = result + "C"; }
+        else if idx == 2 { result = result + "G"; }
+        else { result = result + "T"; }
+        
+        pos = pos + 1;
+        
+        if (pos % line_len) == 0 {
+            result = result + "\n";
+        }
+    }
+    
+    if (pos % line_len) != 0 {
+        result = result + "\n";
+    }
+    
+    return result;
+}
+
+fun reverse_complement(seq: String, table: Vec<Int>) -> String {
+    var result = "";
+    let len = seq.length();
+    
+    var i = len - 1;
+    while i >= 0 {
+        let ch = seq[i];
+        if ch == 10 {
+            i = i - 1;
+            continue;
+        }
+        
+        let comp = table.get(ch);
+        if comp != 0 {
+            result = result + code_to_string(comp);
+        } else {
+            result = result + code_to_string(ch);
+        }
+        
+        i = i - 1;
+    }
+    
+    return result;
+}
+
+fun checksum(s: String) -> Int {
+    var sum = 0;
+    var i = 0;
+    let len = s.length();
+    while i < len {
+        sum = sum + s[i];
+        i = i + 1;
+    }
+    return sum;
+}
+
+fun main() {
+    let size = 25000;
+    
+    println("Reverse Complement Benchmark");
+    println("Sequence size: {size} bytes");
+    
+    let table = create_complement_table();
+    
+    println("Generating sequence...");
+    let seq = generate_sequence(size, 42);
+    
+    println("Warming up...");
+    var w = 0;
+    while w < 3 {
+        let _ = reverse_complement(seq, table);
+        w = w + 1;
+    }
+    
+    println("Running 10 measured iterations...");
+    var min_time = 999999.0;
+    var result_checksum = 0;
+    
+    var run = 0;
+    while run < 10 {
+        let start = __GetTime();
+        let rev = reverse_complement(seq, table);
+        let end = __GetTime();
+        
+        let time_ms = (end - start) * 1000.0;
+        if time_ms < min_time {
+            min_time = time_ms;
+        }
+        
+        if run == 0 {
+            result_checksum = checksum(rev);
+        }
+        run = run + 1;
+    }
+    
+    println("Checksum: {result_checksum}");
+    println("Min time: {min_time} ms");
+}

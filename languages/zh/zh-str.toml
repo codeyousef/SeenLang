@@ -1,0 +1,18 @@
+name = "Chinese"
+description = "Chinese String Standard Library"
+
+[std_lib]
+"分割" = "seen_std.str.string.split"
+"修剪" = "seen_std.str.string.trim"
+"包含" = "seen_std.str.string.contains"
+"开头是" = "seen_std.str.string.startsWith"
+"结尾是" = "seen_std.str.string.endsWith"
+"索引位置" = "seen_std.str.string.indexOf"
+"替换" = "seen_std.str.string.replace"
+"转大写" = "seen_std.str.string.String_toUpperCase"
+"转小写" = "seen_std.str.string.String_toLowerCase"
+"按行" = "seen_std.str.string.lines"
+"按词" = "seen_std.str.string.words"
+"重复" = "seen_std.str.string.repeat"
+"连接" = "seen_std.str.string.join"
+"字符串构建器" = "StringBuilder"

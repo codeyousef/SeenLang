@@ -1,0 +1,1206 @@
+// lexer.seen — Tokenizer for the Seen programming language
+//
+// Pipeline stage: Stage 1 (first stage of compilation)
+// Input: Raw source code string + language code (e.g. "en", "ar", "zh")
+// Output: Array<Token> — flat sequence of tokens with position info
+//
+// The lexer scans source bytes left-to-right, producing tokens for:
+//   - Keywords (multi-language via KeywordManager + TOML files in languages/)
+//   - Identifiers, numeric literals (int, float, hex 0x, binary 0b, octal 0o)
+//   - String literals with interpolation ("hello {name}"), char literals
+//   - Operators (single-char, two-char like ==, >=, compound-assign like +=)
+//   - Punctuation (braces, parens, brackets, semicolons, commas, etc.)
+//
+// Key design decisions:
+//   - Uses byteAt() for scanning (byte-indexed), not charAt() (char-indexed),
+//     for performance on large files. UTF-8 multi-byte sequences handled via
+//     decodeUtf8At() and advanceUtf8() for identifier characters.
+//   - String interpolation: "{expr}" inside double-quoted strings emits
+//     InterpolationStart/InterpolationEnd tokens around the expression.
+//   - Error recovery mode: on unexpected characters, emits Error tokens and
+//     continues rather than aborting, so the parser gets a complete token stream.
+//   - Safety: main loop has a 500K iteration cap to prevent infinite loops on
+//     malformed input.
+
+import lexer.interfaces.{Token, Position, LexerError}
+import lexer.token_type.{SeenTokenType}
+import lexer.keyword_manager.{KeywordManager}
+import str.string.{StringBuilder}
+import trace.{traceLex, traceLexVerbose, isLexerTracingEnabled, isLexerTraceVerboseEnabled}
+
+// Main lexer class. Holds the source text, cursor state (position/line/column),
+// and the accumulated token array. One instance per source file.
+//
+// Fields:
+//   source      — immutable source text to tokenize
+//   fileId      — numeric ID for this file (used in position tracking)
+//   language    — language code for keyword lookup ("en", "ar", "es", etc.)
+//   keywordManager — maps identifiers to keyword token types for the selected language
+//   position    — current byte offset into source
+//   line/column — current source location (1-based) for error reporting
+//   tokens      — output: accumulated token array built during tokenize()
+class SeenLexer {
+    let source: String
+    let fileId: Int
+    let language: String
+    var errorRecoveryMode: Bool
+    var keywordManager: KeywordManager
+    var position: Int
+    var line: Int
+    var column: Int
+    var tokens: Array<Token>
+    
+    static fun new(source: String, fileId: Int, language: String) r: SeenLexer {
+        return SeenLexer {
+            source: source,
+            fileId: fileId,
+            language: language,
+            errorRecoveryMode: false,
+            keywordManager: KeywordManager.new(language),
+            position: 0,
+            line: 1,
+            column: 1,
+            tokens: Array<Token>()
+        }
+    }
+    
+    // Main entry point. Scans the entire source and returns all tokens.
+    // Resets cursor state so a single SeenLexer can be re-used (though
+    // this is not typical — one lexer per file is the norm).
+    fun tokenize() r: Array<Token> {
+        // Reset state
+        position = 0
+        line = 1
+        column = 1
+        tokens = Array<Token>()
+        let traceEnabled = isLexerTracingEnabled()
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceEnabled {
+            traceLex("tokenize start fileId=" + fileId.toString() + " len=" + source.length().toString())
+        }
+
+        // Main tokenization loop
+        var loopIter = 0
+        while position < source.length() {
+            loopIter = loopIter + 1
+            if loopIter > 500000 {
+                break
+            }
+
+            let char = getCurrentChar()
+            let startPos = position
+            if traceVerbose {
+                traceLexVerbose("loop pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString() + " code=" + char.toInt().toString())
+            }
+
+            // Skip whitespace (except newlines for position tracking)
+            if isWhitespace(char) {
+                if traceVerbose {
+                    traceLexVerbose("whitespace pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                }
+                handleWhitespace(char)
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            // Handle comments
+            if char == '/' and peekChar(1) == '/' {
+                if traceVerbose {
+                    traceLexVerbose("single-line comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                handleSingleLineComment()
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            if char == '/' and peekChar(1) == '*' {
+                if traceVerbose {
+                    traceLexVerbose("multi-line comment pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                handleMultiLineComment()
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            // Handle string literals
+            if char == '"' {
+                if traceVerbose {
+                    traceLexVerbose("string literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                handleStringLiteral()
+                if traceVerbose {
+                    traceLexVerbose("string literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            // Handle character literals (single-quoted)
+            if char == '\'' {
+                if traceVerbose {
+                    traceLexVerbose("char literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                handleCharLiteral()
+                if traceVerbose {
+                    traceLexVerbose("char literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            // Handle numeric literals
+            if isDigit(char) {
+                if traceVerbose {
+                    traceLexVerbose("number literal start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                handleNumericLiteral()
+                if traceVerbose {
+                    traceLexVerbose("number literal end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            // Handle identifiers and keywords (ASCII or multi-byte UTF-8)
+            var isIdentStart = isAlpha(char) or char == '_'
+            if char.toInt() >= 128 {
+                let cp = decodeUtf8At(position)
+                if isUnicodeAlphaCodePoint(cp) {
+                    isIdentStart = true
+                }
+            }
+            if isIdentStart {
+                if traceVerbose {
+                    traceLexVerbose("identifier start pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                }
+                handleIdentifierOrKeyword()
+                if traceVerbose {
+                    traceLexVerbose("identifier end pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+                }
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            // Handle operators and punctuation
+            if handleOperator() {
+                if traceVerbose {
+                    traceLexVerbose("operator handled pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                }
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            // Handle single-character tokens
+            if handleSingleCharToken() {
+                if traceVerbose {
+                    traceLexVerbose("single-char token handled pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + char.toString())
+                }
+                if position == startPos {
+                    position = position + 1
+                }
+                continue
+            }
+
+            // Unknown character — skip full UTF-8 sequence to avoid stuck-on-byte loops
+            if errorRecoveryMode {
+                emitErrorToken(char)
+                let skipLen = utf8ByteLen(position)
+                column = column + 1
+                position = position + skipLen
+            } else {
+                let errLine = line
+                let errCol = column
+                var start = position - 16
+                if start < 0 {
+                    start = 0
+                }
+                var end = position + 16
+                if end > source.length() {
+                    end = source.length()
+                }
+                let snippet = source.substring(start, end)
+                println("Fatal Lexer Error: Unexpected character: " + char + " at " + errLine.toString() + ":" + errCol.toString())
+                println("  context: " + snippet)
+                emitErrorToken(char)
+                return tokens
+            }
+        }
+        
+        // Add EOF token
+        emitToken(SeenTokenType.EndOfFile, "", 0)
+        if traceEnabled {
+            traceLex("tokenize end tokens=" + tokens.length().toString())
+        }
+        return tokens
+    }
+    
+    fun setErrorRecoveryMode(enabled: Bool) r: Void {
+        errorRecoveryMode = enabled
+    }
+    
+    fun isKeywordSourceDynamic() r: Bool {
+        return keywordManager.isDynamic()
+    }
+    
+    fun getKeywordSources() r: Array<String> {
+        return keywordManager.getSources()
+    }
+    
+    fun getKeywordCount() r: Int {
+        return keywordManager.getKeywordCount()
+    }
+    
+    fun hasKeyword(keyword: String) r: Bool {
+        return keywordManager.isKeyword(keyword)
+    }
+    
+    fun hasTranslatedKeyword(keyword: String) r: Bool {
+        return keywordManager.hasTranslation(keyword)
+    }
+    
+    fun getMemoryUsage() r: Int {
+        // Estimate memory usage: source + tokens + internal structures
+        let sourceSize = source.length() * 2  // Assume 2 bytes per char
+        let tokensSize = tokens.length() * 64  // Estimate 64 bytes per token
+        let internalSize = 1024  // Estimate for internal structures
+        return sourceSize + tokensSize + internalSize
+    }
+    
+    // Helper methods for tokenization
+    
+    fun getCurrentChar() r: Char {
+        if position >= source.length() {
+            return ' '
+        }
+        return source.byteAt(position)
+    }
+
+    fun peekChar(offset: Int = 1) r: Char {
+        let peekPos = position + offset
+        if peekPos >= source.length() {
+            return ' '
+        }
+        return source.byteAt(peekPos)
+    }
+
+    fun getCurrentCharString() r: String {
+        if position >= source.length() {
+            return ""
+        }
+        return source.substring(position, position + 1)
+    }
+
+    fun peekCharString(offset: Int = 1) r: String {
+        let peekPos = position + offset
+        if peekPos >= source.length() {
+            return ""
+        }
+        return source.substring(peekPos, peekPos + 1)
+    }
+    
+    fun advance() r: Void {
+        if position < source.length() {
+            if source.charAt(position) == '\n' {
+                line = line + 1
+                column = 1
+            } else {
+                column = column + 1
+            }
+            position = position + 1
+        }
+    }
+    
+    fun getCurrentPosition() r: Position {
+        return Position.new(line, column, fileId)
+    }
+    
+    fun emitToken(type: SeenTokenType, value: String, length: Int) r: Void {
+        let token = Token.new(type, value, line, column - length, length, fileId)
+        tokens.push(token)
+    }
+    
+    fun emitErrorToken(char: Char) r: Void {
+        emitToken(SeenTokenType.Error, char.toString(), 1)
+    }
+    
+    fun isWhitespace(char: Char) r: Bool {
+        return char == ' ' or char == '\t' or char == '\r' or char == '\n'
+    }
+    
+    fun isDigit(char: Char) r: Bool {
+        let isDigit = char >= '0' and char <= '9'
+        return isDigit
+    }
+    
+    fun isAlpha(char: Char) r: Bool {
+        let isLower = char >= 'a' and char <= 'z'
+        let isUpper = char >= 'A' and char <= 'Z'
+        let isAlpha = isLower or isUpper or isUnicodeAlpha(char)
+        return isAlpha
+    }
+    
+    fun isAlphaNumeric(char: Char) r: Bool {
+        return isAlpha(char) or isDigit(char)
+    }
+    
+    fun isUnicodeAlpha(char: Char) r: Bool {
+        let c = char.toInt()
+        // Unicode alphabetic ranges (simplified for common scripts)
+        // Chinese: 0x4E00-0x9FFF (CJK Unified Ideographs)
+        // Arabic: 0x0600-0x06FF
+        // Cyrillic: 0x0400-0x04FF
+        // Greek: 0x0370-0x03FF
+        // Hebrew: 0x0590-0x05FF
+        // Devanagari (Hindi): 0x0900-0x097F
+        // Hiragana: 0x3040-0x309F
+        // Katakana: 0x30A0-0x30FF
+
+        if c >= 0x4E00 and c <= 0x9FFF { return true }  // Chinese
+        if c >= 0x0600 and c <= 0x06FF { return true }  // Arabic
+        if c >= 0x0400 and c <= 0x04FF { return true }  // Cyrillic (Russian)
+        if c >= 0x0370 and c <= 0x03FF { return true }  // Greek
+        if c >= 0x0590 and c <= 0x05FF { return true }  // Hebrew
+        if c >= 0x0900 and c <= 0x097F { return true }  // Devanagari
+        if c >= 0x3040 and c <= 0x309F { return true }  // Hiragana
+        if c >= 0x30A0 and c <= 0x30FF { return true }  // Katakana
+        if c >= 0x3400 and c <= 0x4DBF { return true }  // CJK Extension A
+        if c >= 0xAC00 and c <= 0xD7AF { return true }  // Hangul (Korean)
+
+        return false
+    }
+
+    fun isUnicodeAlphaCodePoint(cp: Int) r: Bool {
+        // CJK Unified Ideographs
+        if cp >= 19968 and cp <= 40959 { return true }
+        // Arabic
+        if cp >= 1536 and cp <= 1791 { return true }
+        // Cyrillic
+        if cp >= 1024 and cp <= 1279 { return true }
+        // Greek
+        if cp >= 880 and cp <= 1023 { return true }
+        // Hebrew
+        if cp >= 1424 and cp <= 1535 { return true }
+        // Devanagari
+        if cp >= 2304 and cp <= 2431 { return true }
+        // Hiragana
+        if cp >= 12352 and cp <= 12447 { return true }
+        // Katakana
+        if cp >= 12448 and cp <= 12543 { return true }
+        // CJK Extension A
+        if cp >= 13312 and cp <= 19903 { return true }
+        // Hangul
+        if cp >= 44032 and cp <= 55215 { return true }
+        // Latin Extended
+        if cp >= 192 and cp <= 591 { return true }
+        // Arabic Presentation Forms A
+        if cp >= 64336 and cp <= 65023 { return true }
+        // Arabic Presentation Forms B
+        if cp >= 65136 and cp <= 65279 { return true }
+        return false
+    }
+
+    // Decodes a single Unicode code point from the UTF-8 byte sequence at pos.
+    // Returns the code point as an Int, or 65533 (U+FFFD replacement char) on error.
+    // Used by handleIdentifierOrKeyword() to support non-ASCII identifier chars.
+    fun decodeUtf8At(pos: Int) r: Int {
+        var slen = source.length()
+        if pos >= slen { return 0 }
+        var ch0 = source.byteAt(pos)
+        var b0 = ch0.toInt()
+        if b0 < 128 { return b0 }
+        // 2-byte sequence
+        if b0 >= 192 and b0 <= 223 {
+            var p1 = pos + 1
+            if p1 < slen {
+                var ch1 = source.byteAt(p1)
+                var b1 = ch1.toInt()
+                return ((b0 - 192) * 64) + (b1 - 128)
+            }
+            return 65533
+        }
+        // 3-byte sequence
+        if b0 >= 224 and b0 <= 239 {
+            var p2 = pos + 2
+            if p2 < slen {
+                var p1 = pos + 1
+                var ch1 = source.byteAt(p1)
+                var b1 = ch1.toInt()
+                var ch2 = source.byteAt(p2)
+                var b2 = ch2.toInt()
+                return ((b0 - 224) * 4096) + ((b1 - 128) * 64) + (b2 - 128)
+            }
+            return 65533
+        }
+        // 4-byte sequence
+        if b0 >= 240 and b0 <= 247 {
+            var p3 = pos + 3
+            if p3 < slen {
+                var p1 = pos + 1
+                var ch1 = source.byteAt(p1)
+                var b1 = ch1.toInt()
+                var p2 = pos + 2
+                var ch2 = source.byteAt(p2)
+                var b2 = ch2.toInt()
+                var ch3 = source.byteAt(p3)
+                var b3 = ch3.toInt()
+                return ((b0 - 240) * 262144) + ((b1 - 128) * 4096) + ((b2 - 128) * 64) + (b3 - 128)
+            }
+            return 65533
+        }
+        return 65533
+    }
+
+    fun utf8ByteLen(pos: Int) r: Int {
+        if pos >= source.length() { return 1 }
+        var ch0 = source.byteAt(pos)
+        var b0 = ch0.toInt()
+        if b0 < 128 { return 1 }
+        if b0 >= 192 and b0 <= 223 { return 2 }
+        if b0 >= 224 and b0 <= 239 { return 3 }
+        if b0 >= 240 and b0 <= 247 { return 4 }
+        return 1
+    }
+
+    fun advanceUtf8() r: Void {
+        if position < source.length() {
+            var blen = utf8ByteLen(position)
+            var curByte = source.byteAt(position)
+            if curByte == '\n' {
+                line = line + 1
+                column = 1
+            } else {
+                column = column + 1
+            }
+            position = position + blen
+        }
+    }
+    
+    fun handleWhitespace(char: Char) r: Void {
+        advance()
+    }
+    
+    fun handleSingleLineComment() r: Void {
+        // Consume ALL bytes until newline, including non-ASCII (UTF-8 sequences, etc.)
+        while position < source.length() {
+            let c = getCurrentChar()
+            if c == '\n' {
+                break
+            }
+            advance()
+        }
+    }
+    
+    fun handleMultiLineComment() r: Void {
+        advance() // Skip '/'
+        advance() // Skip '*'
+
+        // Consume ALL bytes until '*/', including non-ASCII (UTF-8 sequences, etc.)
+        while position < source.length() - 1 {
+            if getCurrentChar() == '*' and peekChar(1) == '/' {
+                advance() // Skip '*'
+                advance() // Skip '/'
+                break
+            }
+            advance()
+        }
+    }
+    
+    // Scans a double-quoted string literal, handling escape sequences (\n, \t, etc.)
+    // and string interpolation ("{expr}"). Interpolation detection uses lookahead:
+    // a lone '{' followed by an identifier-start char AND a matching '}' before the
+    // closing '"' triggers interpolation mode. "{{" is an escaped literal '{'.
+    // CAVEAT: "{identifier" without closing "}" is treated as literal text, but
+    // "{" followed by space (e.g. "{ i64, ptr }") also stays literal.
+    fun handleStringLiteral() r: Void {
+        let startPos = position
+        let startLine = line
+        let startCol = column
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceVerbose {
+            traceLexVerbose("handleStringLiteral enter pos=" + startPos.toString() + " line=" + startLine.toString() + " col=" + startCol.toString())
+        }
+        advance() // Skip opening quote
+
+        let valueBuilder = StringBuilder.new()
+        var hasInterpolation = false
+
+        while position < source.length() {
+            let ch = getCurrentChar()
+            if ch == '"' {
+                break
+            }
+            if traceVerbose {
+                traceLexVerbose("string char pos=" + position.toString() + " char=" + ch.toString() + " code=" + ch.toInt().toString())
+            }
+
+            if ch == '\\' {
+                if position + 1 >= source.length() {
+                    throw LexerError.new("Unterminated string literal", getCurrentPosition(), "")
+                }
+                let escaped = peekChar(1)
+                if traceVerbose {
+                    traceLexVerbose("string escape pos=" + position.toString() + " escaped=" + escaped.toString() + " code=" + escaped.toInt().toString())
+                }
+                valueBuilder.append(handleEscapeSequence(escaped))
+                advance()
+                advance()
+                continue
+            }
+
+            if ch == '{' and !isInInterpolation() {
+                // Check for escaped brace {{ -> { OR single { followed by non-identifier
+                advance()
+                if position < source.length() and getCurrentChar() == '{' {
+                    // Escaped brace - add single { to value
+                    valueBuilder.append("{")
+                    advance()
+                } else if position >= source.length() or getCurrentChar() == '"' {
+                    // Single { at end of string - just add it
+                    valueBuilder.append("{")
+                } else {
+                    // Check if what follows looks like the start of an expression
+                    let nextChar = getCurrentChar()
+                    let isIdentStart = isAlpha(nextChar) or nextChar == '_'
+                    if isIdentStart {
+                        // Look ahead for closing } before next "
+                        // If no } found before ", treat { as literal (not interpolation)
+                        var scanOff = 0
+                        var scanFoundClose = 0
+                        var scanDone = 0
+                        while scanDone == 0 {
+                            let sc = peekChar(scanOff)
+                            if sc == '}' {
+                                scanFoundClose = 1
+                                scanDone = 1
+                            }
+                            if sc == '"' {
+                                scanDone = 1
+                            }
+                            if scanOff > 500 {
+                                scanDone = 1
+                            }
+                            scanOff = scanOff + 1
+                        }
+                        if scanFoundClose == 1 {
+                            hasInterpolation = true
+                            break
+                        }
+                    }
+                    // Not an interpolation — treat { as literal
+                    valueBuilder.append("{")
+                }
+            } else if ch == '}' {
+                // Check for escaped brace }} -> }
+                advance()
+                if position < source.length() and getCurrentChar() == '}' {
+                    // Escaped brace - add single } to value
+                    valueBuilder.append("}")
+                    advance()
+                } else {
+                    // Single } - just add it
+                    valueBuilder.append("}")
+                }
+            } else {
+                valueBuilder.append(source.substring(position, position + 1))
+                advance()
+            }
+        }
+
+        if hasInterpolation {
+            handleInterpolatedString(startPos)
+            return
+        }
+
+        if getCurrentChar() == '"' {
+            advance() // Skip closing quote
+        } else {
+            throw LexerError.new("Unterminated string literal", getCurrentPosition(), "")
+        }
+
+        let length = position - startPos
+        let value = valueBuilder.toString()
+        emitToken(SeenTokenType.StringLiteral, value, length)
+        if traceVerbose {
+            traceLexVerbose("handleStringLiteral exit pos=" + position.toString() + " len=" + length.toString())
+        }
+    }
+
+    fun handleCharLiteral() r: Void {
+        let startPos = position
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceVerbose {
+            traceLexVerbose("handleCharLiteral enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+        }
+        advance() // Skip opening single quote
+
+        var value = ""
+        if position < source.length() {
+            let ch = getCurrentChar()
+            if ch == '\\' {
+                // Handle escape sequences
+                if position + 1 >= source.length() {
+                    throw LexerError.new("Unterminated character literal", getCurrentPosition(), "")
+                }
+                let escaped = peekChar(1)
+                value = handleEscapeSequence(escaped)
+                advance()
+                advance()
+            } else {
+                value = ch.toString()
+                advance()
+            }
+        }
+
+        // Consume closing single quote
+        let closingChar = getCurrentChar()
+        if closingChar == '\'' {
+            advance()
+        } else {
+            throw LexerError.new("Unterminated character literal", getCurrentPosition(), "")
+        }
+
+        let length = position - startPos
+        // Emit as a character literal
+        emitToken(SeenTokenType.CharLiteral, value, length)
+        if traceVerbose {
+            traceLexVerbose("handleCharLiteral exit pos=" + position.toString() + " len=" + length.toString())
+        }
+    }
+
+    fun handleEscapeSequence(escaped: Char) r: String {
+        if escaped == 'n' { return "\n" } // n -> newline
+        if escaped == 't' { return "\t" } // t -> tab
+        if escaped == 'r' { return "\r" } // r -> carriage return
+        if escaped == '\\' { return "\\" }  // backslash
+        if escaped == '"' { return "\"" }  // double quote
+        if escaped == '\'' { return "'" }   // single quote
+        if escaped == '0' { return "" }  // null character - simplified for bootstrap
+        return escaped.toString()
+    }
+    
+    fun isInInterpolation() r: Bool {
+        // Check if we're currently inside an interpolation expression
+        // This would need more sophisticated tracking
+        return false
+    }
+    
+    // Handles "text {expr} more text" by emitting a sequence of tokens:
+    //   InterpolatedStringStart → StringLiteral("text ") → InterpolationStart →
+    //   <expression tokens> → InterpolationEnd → StringLiteral(" more text") →
+    //   InterpolatedStringEnd
+    // Called when handleStringLiteral detects a valid interpolation pattern.
+    fun handleInterpolatedString(startPos: Int) r: Void {
+        
+        // Reset to start and re-parse with interpolation awareness
+        position = startPos
+        advance() // Skip opening quote
+        
+        emitToken(SeenTokenType.InterpolatedStringStart, "", 1)
+        
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceVerbose {
+            traceLexVerbose("handleInterpolatedString enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+        }
+        var currentPart = ""
+        var inExpression = false
+        var braceLevel = 0
+        
+        while position < source.length() {
+            let ch = getCurrentChar()
+            if ch == '"' {
+                break
+            }
+
+            if not inExpression and ch == '\\' {
+                if position + 1 >= source.length() {
+                    throw LexerError.new("Unterminated string literal", getCurrentPosition(), "")
+                }
+                let escaped = peekChar(1)
+                currentPart = currentPart + handleEscapeSequence(escaped)
+                advance()
+                advance()
+                continue
+            }
+
+            if ch == '{' and !inExpression {
+                // Start of interpolation expression
+                if currentPart.length() > 0 {
+                    emitToken(SeenTokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
+                    currentPart = ""
+                }
+                inExpression = true
+                braceLevel = 1
+                advance()
+                
+                // Parse the expression inside braces
+                parseInterpolationExpression()
+                continue
+            }
+            if ch == '}' and inExpression {
+                braceLevel = braceLevel - 1
+                if braceLevel == 0 {
+                    inExpression = false
+                }
+                advance()
+                continue
+            }
+            if ch == '{' and inExpression {
+                braceLevel = braceLevel + 1
+                advance()
+            } else {
+                if not inExpression {
+                    currentPart = currentPart + ch.toString()
+                }
+                advance()
+            }
+        }
+        
+        if currentPart.length() > 0 {
+            emitToken(SeenTokenType.InterpolatedStringMiddle, currentPart, currentPart.length())
+        }
+        
+        if getCurrentChar() == '"' {
+            advance() // Skip closing quote
+        }
+        
+        emitToken(SeenTokenType.InterpolatedStringEnd, "", 1)
+        if traceVerbose {
+            traceLexVerbose("handleInterpolatedString exit pos=" + position.toString() + " line=" + line.toString() + " col=" + column.toString())
+        }
+    }
+    
+    fun parseInterpolationExpression() r: Void {
+        // Parse the expression inside {} - this is a mini-parser
+        // For now, tokenize it as regular tokens
+        // IMPORTANT: Do NOT emit tokens for {} as they are handled by caller
+
+        while position < source.length() {
+            let ch = getCurrentChar()
+            if ch == '}' or ch == '"' {
+                break
+            }
+            // Recursively tokenize the expression
+            if isAlpha(ch) or ch == '_' {
+                handleIdentifierOrKeyword()
+                // After handleIdentifierOrKeyword, continue immediately
+                // to avoid falling through to else branch
+                continue
+            } else if isDigit(ch) {
+                handleNumericLiteral()
+            } else if handleOperator() {
+                continue
+            } else if ch == '(' or ch == ')' or ch == '[' or ch == ']' or
+                      ch == ',' or ch == ';' or ch == ':' or ch == '.' {
+                // Single char tokens that ARE allowed in expressions
+                emitSingleCharToken(ch)
+                advance()
+            } else {
+                advance()
+            }
+        }
+    }
+
+    fun emitSingleCharToken(ch: Char) r: Void {
+        if ch == '(' {
+            emitToken(SeenTokenType.LeftParen, "(", 1)
+        } else if ch == ')' {
+            emitToken(SeenTokenType.RightParen, ")", 1)
+        } else if ch == '[' {
+            emitToken(SeenTokenType.LeftBracket, "[", 1)
+        } else if ch == ']' {
+            emitToken(SeenTokenType.RightBracket, "]", 1)
+        } else if ch == ',' {
+            emitToken(SeenTokenType.Comma, ",", 1)
+        } else if ch == ';' {
+            emitToken(SeenTokenType.Semicolon, ";", 1)
+        } else if ch == ':' {
+            emitToken(SeenTokenType.Colon, ":", 1)
+        } else if ch == '.' {
+            // Check for '...' (ellipsis)
+            if peekChar(1) == '.' and peekChar(2) == '.' {
+                advance()
+                advance()
+                emitToken(SeenTokenType.Ellipsis, "...", 3)
+            } else {
+                emitToken(SeenTokenType.Dot, ".", 1)
+            }
+        }
+    }
+    
+    // Scans integer and float literals: decimal, hex (0x), binary (0b),
+    // with underscore separators (1_000_000), decimal points, and scientific
+    // notation (1e-3). Emits IntegerLiteral or FloatLiteral token.
+    fun handleNumericLiteral() r: Void {
+        let startPos = position
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        if traceVerbose {
+            traceLexVerbose("handleNumericLiteral enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString())
+        }
+        let valueBuilder = StringBuilder.new()
+        var isFloat = false
+
+        // Handle different number formats
+        if getCurrentChar() == '0' and (peekChar(1) == 'x' or peekChar(1) == 'X') {
+            // Hexadecimal
+            advance() // Skip '0'
+            advance() // Skip 'x'
+            valueBuilder.append("0x")
+
+            while isHexDigit(getCurrentChar()) {
+                valueBuilder.append(getCurrentChar().toString())
+                advance()
+            }
+        } else if getCurrentChar() == '0' and (peekChar(1) == 'b' or peekChar(1) == 'B') {
+            // Binary
+            advance() // Skip '0'
+            advance() // Skip 'b'
+            valueBuilder.append("0b")
+
+            while isBinaryDigit(getCurrentChar()) {
+                valueBuilder.append(getCurrentChar().toString())
+                advance()
+            }
+        } else {
+            // Decimal (integer or float)
+            while isDigit(getCurrentChar()) or getCurrentChar() == '_' {
+                if getCurrentChar() != '_' {
+                    valueBuilder.append(getCurrentChar().toString())
+                }
+                advance()
+            }
+
+            // Check for decimal point
+            if getCurrentChar() == '.' and isDigit(peekChar(1)) {
+                isFloat = true
+                valueBuilder.append(getCurrentChar().toString())
+                advance()
+
+                while isDigit(getCurrentChar()) or getCurrentChar() == '_' {
+                    if getCurrentChar() != '_' {
+                        valueBuilder.append(getCurrentChar().toString())
+                    }
+                    advance()
+                }
+            }
+
+            // Check for scientific notation
+            if getCurrentChar() == 'e' or getCurrentChar() == 'E' {
+                isFloat = true
+                valueBuilder.append(getCurrentChar().toString())
+                advance()
+
+                if getCurrentChar() == '+' or getCurrentChar() == '-' {
+                    valueBuilder.append(getCurrentChar().toString())
+                    advance()
+                }
+
+                while isDigit(getCurrentChar()) {
+                    valueBuilder.append(getCurrentChar().toString())
+                    advance()
+                }
+            }
+        }
+
+        let length = position - startPos
+        var tokenType = SeenTokenType.IntegerLiteral
+        if isFloat {
+            tokenType = SeenTokenType.FloatLiteral
+        }
+        let value = valueBuilder.toString()
+        emitToken(tokenType, value, length)
+        if traceVerbose {
+            traceLexVerbose("handleNumericLiteral exit pos=" + position.toString() + " len=" + length.toString() + " value=" + value)
+        }
+    }
+    
+    fun isHexDigit(char: Char) r: Bool {
+        return isDigit(char) or (char >= 'a' and char <= 'f') or (char >= 'A' and char <= 'F')
+    }
+    
+    fun isBinaryDigit(char: Char) r: Bool {
+        return char == '0' or char == '1'
+    }
+    
+    // Scans an identifier or keyword. Supports UTF-8 multi-byte characters
+    // (Arabic, Chinese, etc.) in identifiers via decodeUtf8At(). After
+    // collecting the full identifier string, checks keywordManager to see
+    // if it maps to a keyword token type in the current language.
+    fun handleIdentifierOrKeyword() r: Void {
+        let startPos = position
+        let valueBuilder = StringBuilder.new()
+        let traceVerbose = isLexerTraceVerboseEnabled()
+
+        // First character (already validated as alpha, underscore, or UTF-8 lead byte)
+        let c1 = getCurrentChar()
+        if traceVerbose {
+            traceLexVerbose("handleIdentifier enter pos=" + startPos.toString() + " line=" + line.toString() + " col=" + column.toString() + " char=" + c1.toString())
+        }
+        let blen1 = utf8ByteLen(position)
+        if blen1 > 1 {
+            valueBuilder.append(source.substring(position, position + blen1))
+        } else {
+            valueBuilder.append(c1.toString())
+        }
+        if blen1 > 1 {
+            column = column + 1
+            position = position + blen1
+        } else {
+            advance()
+        }
+
+        // Subsequent characters
+        while position < source.length() {
+            let c = getCurrentChar()
+            let cInt = c.toInt()
+            var isIdentChar = isAlphaNumeric(c) or c == '_'
+            if cInt >= 128 {
+                let cp = decodeUtf8At(position)
+                if isUnicodeAlphaCodePoint(cp) {
+                    isIdentChar = true
+                }
+            }
+            if isIdentChar {
+                let blen = utf8ByteLen(position)
+                if blen > 1 {
+                    valueBuilder.append(source.substring(position, position + blen))
+                    column = column + 1
+                    position = position + blen
+                } else {
+                    valueBuilder.append(c.toString())
+                    advance()
+                }
+            } else {
+                break
+            }
+        }
+
+        let length = position - startPos
+        let value = valueBuilder.toString()
+        if traceVerbose {
+            traceLexVerbose("handleIdentifier value=" + value + " len=" + length.toString())
+        }
+
+        // Check if it's a keyword
+        let keywordType = keywordManager.getKeywordType(value)
+
+        if keywordType != null {
+            let unwrapped = keywordType.unwrap()
+            emitToken(unwrapped, value, length)
+        } else {
+            // Check for stdlib alias (localized name -> English name)
+            let aliasedName = keywordManager.resolveStdlibAlias(value)
+            if aliasedName != "" {
+                emitToken(SeenTokenType.Identifier, aliasedName, length)
+            } else {
+                emitToken(SeenTokenType.Identifier, value, length)
+            }
+        }
+        if traceVerbose {
+            traceLexVerbose("handleIdentifier exit pos=" + position.toString())
+        }
+    }
+    
+    // Attempts to match the current position as an operator token.
+    // Tries two-character operators first (==, !=, <=, >=, <<, >>, ->, +=, etc.)
+    // then falls back to single-character operators (+, -, *, /, etc.).
+    // Returns true if an operator was consumed, false otherwise.
+    fun handleOperator() r: Bool {
+        let char = getCurrentChar()
+        let nextChar = peekChar(1)
+        let traceVerbose = isLexerTraceVerboseEnabled()
+
+        // Two-character operators - check specific combinations directly
+        // This avoids potential string concatenation issues
+        if char == '=' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched ==") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.EqualEqual, "==", 2)
+            return true
+        }
+        if char == '!' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched !=") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.NotEqual, "!=", 2)
+            return true
+        }
+        if char == '<' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched <=") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.LessEqual, "<=", 2)
+            return true
+        }
+        if char == '>' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched >=") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.GreaterEqual, ">=", 2)
+            return true
+        }
+        if char == '<' and nextChar == '<' {
+            if traceVerbose { traceLexVerbose("handleOperator matched <<") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.LeftShift, "<<", 2)
+            return true
+        }
+        if char == '>' and nextChar == '>' {
+            if traceVerbose { traceLexVerbose("handleOperator matched >>") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.RightShift, ">>", 2)
+            return true
+        }
+        if char == '-' and nextChar == '>' {
+            if traceVerbose { traceLexVerbose("handleOperator matched ->") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.Arrow, "->", 2)
+            return true
+        }
+        // Compound assignment operators
+        if char == '+' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched +=") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.PlusEqual, "+=", 2)
+            return true
+        }
+        if char == '-' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched -=") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.MinusEqual, "-=", 2)
+            return true
+        }
+        if char == '*' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched *=") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.MultiplyEqual, "*=", 2)
+            return true
+        }
+        if char == '/' and nextChar == '=' {
+            if traceVerbose { traceLexVerbose("handleOperator matched /=") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.DivideEqual, "/=", 2)
+            return true
+        }
+
+        // Safe navigation and elvis operators
+        if char == '?' and nextChar == '.' {
+            if traceVerbose { traceLexVerbose("handleOperator matched ?.") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.SafeNavigation, "?.", 2)
+            return true
+        }
+        if char == '?' and nextChar == ':' {
+            if traceVerbose { traceLexVerbose("handleOperator matched ?:") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.Elvis, "?:", 2)
+            return true
+        }
+        if char == '?' and nextChar == '?' {
+            if traceVerbose { traceLexVerbose("handleOperator matched ??") }
+            advance()
+            advance()
+            emitToken(SeenTokenType.DoubleQuestion, "??", 2)
+            return true
+        }
+
+        // Single-character operators
+        let singleCharType = getSingleCharOperatorType(char)
+        if singleCharType != SeenTokenType.None {
+            if traceVerbose { traceLexVerbose("handleOperator matched single '" + char.toString() + "'") }
+            advance()
+            emitToken(singleCharType, char.toString(), 1)
+            return true
+        }
+        
+        return false
+    }
+    
+    fun getTwoCharOperatorType(op: String) r: SeenTokenType {
+        if op == "==" { return SeenTokenType.EqualEqual }
+        if op == "!=" { return SeenTokenType.NotEqual }
+        if op == "<=" { return SeenTokenType.LessEqual }
+        if op == ">=" { return SeenTokenType.GreaterEqual }
+        if op == "+=" { return SeenTokenType.PlusEqual }
+        if op == "-=" { return SeenTokenType.MinusEqual }
+        if op == "*=" { return SeenTokenType.MultiplyEqual }
+        if op == "/=" { return SeenTokenType.DivideEqual }
+        if op == "->" { return SeenTokenType.Arrow }
+        if op == "?." { return SeenTokenType.SafeNavigation }
+        if op == "?:" { return SeenTokenType.Elvis }
+        return SeenTokenType.None
+    }
+    
+    fun getSingleCharOperatorType(char: Char) r: SeenTokenType {
+        if char == '+' { return SeenTokenType.Plus }
+        if char == '-' { return SeenTokenType.Minus }
+        if char == '*' { return SeenTokenType.Multiply }
+        if char == '/' { return SeenTokenType.Divide }
+        if char == '%' { return SeenTokenType.Modulo }
+        if char == '=' { return SeenTokenType.Equal }
+        if char == '<' { return SeenTokenType.LessThan }
+        if char == '>' { return SeenTokenType.GreaterThan }
+        if char == '?' { return SeenTokenType.Question }
+        if char == '!' { return SeenTokenType.LogicalNot }
+        if char == '&' { return SeenTokenType.BitwiseAnd }
+        if char == '|' { return SeenTokenType.BitwiseOr }
+        if char == '^' { return SeenTokenType.BitwiseXor }
+        if char == '~' { return SeenTokenType.BitwiseNot }
+        return SeenTokenType.None
+    }
+    
+    fun handleSingleCharToken() r: Bool {
+        let char = getCurrentChar()
+        let tokenType = getSingleCharSeenTokenType(char)
+        let traceVerbose = isLexerTraceVerboseEnabled()
+        
+        if tokenType != SeenTokenType.None {
+            if traceVerbose { traceLexVerbose("handleSingleCharToken matched '" + char.toString() + "'") }
+            advance()
+            emitToken(tokenType, char.toString(), 1)
+            return true
+        }
+        
+        return false
+    }
+    
+    fun getSingleCharSeenTokenType(char: Char) r: SeenTokenType {
+        if char == '(' { return SeenTokenType.LeftParen }
+        if char == ')' { return SeenTokenType.RightParen }
+        if char == '{' { return SeenTokenType.LeftBrace }
+        if char == '}' { return SeenTokenType.RightBrace }
+        if char == '[' { return SeenTokenType.LeftBracket }
+        if char == ']' { return SeenTokenType.RightBracket }
+        if char == ',' { return SeenTokenType.Comma }
+        if char == ';' { return SeenTokenType.Semicolon }
+        if char == ':' { return SeenTokenType.Colon }
+        if char == '.' { return SeenTokenType.Dot }
+        if char == '@' { return SeenTokenType.AtSymbol }
+        return SeenTokenType.None
+    }
+}

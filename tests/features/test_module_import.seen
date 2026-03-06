@@ -1,0 +1,70 @@
+// Module Import Test
+// Tests: import from local module
+// Expected: Can import and use functions from another file
+
+import helper_math.{add, multiply, square}
+
+fun main() r: Int {
+    println("Testing Module Import System...")
+
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Import function works
+    println("\n=== Test 1: Basic Function Import ===")
+    let sum = add(5, 3)
+    if sum == 8 {
+        println("PASS: Imported add() function works")
+        passed = passed + 1
+    } else {
+        println("FAIL: add(5, 3) = " + sum.toString() + ", expected 8")
+        failed = failed + 1
+    }
+
+    // Test 2: Second imported function
+    println("\n=== Test 2: Second Function Import ===")
+    let product = multiply(4, 7)
+    if product == 28 {
+        println("PASS: Imported multiply() function works")
+        passed = passed + 1
+    } else {
+        println("FAIL: multiply(4, 7) = " + product.toString() + ", expected 28")
+        failed = failed + 1
+    }
+
+    // Test 3: Third imported function
+    println("\n=== Test 3: Third Function Import ===")
+    let squared = square(6)
+    if squared == 36 {
+        println("PASS: Imported square() function works")
+        passed = passed + 1
+    } else {
+        println("FAIL: square(6) = " + squared.toString() + ", expected 36")
+        failed = failed + 1
+    }
+
+    // Test 4: Using imported functions in expressions
+    println("\n=== Test 4: Imported Functions in Expressions ===")
+    let result = add(multiply(2, 3), square(2))
+    // (2 * 3) + (2 * 2) = 6 + 4 = 10
+    if result == 10 {
+        println("PASS: Imported functions work in complex expressions")
+        passed = passed + 1
+    } else {
+        println("FAIL: Complex expression = " + result.toString() + ", expected 10")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("\n==================================================")
+    println("Module Import Results: " + passed.toString() + "/" + (passed + failed).toString())
+    println("==================================================")
+
+    if failed > 0 {
+        println("FAIL: Some import tests failed")
+        return 1
+    }
+
+    println("PASS: All module import tests passed!")
+    return 0
+}

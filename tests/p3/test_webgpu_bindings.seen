@@ -1,0 +1,16 @@
+// : WebGPU bindings — compile-only (WASM target)
+
+fun main() r: Int {
+    let GPU_POWER_LOW = 0
+    let GPU_POWER_HIGH = 1
+    let GPU_BUFFER_USAGE_STORAGE = 128
+    let GPU_SHADER_COMPUTE = 4
+
+    if GPU_BUFFER_USAGE_STORAGE != 128 {
+        println("FAIL: GPU_BUFFER_USAGE_STORAGE constant")
+        return 1
+    }
+
+    println("PASS: WebGPU bindings test (compile-only)")
+    return 0
+}

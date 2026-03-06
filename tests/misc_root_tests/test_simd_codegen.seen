@@ -1,0 +1,69 @@
+// SIMD Codegen Verification Test Program
+// A math-heavy program with loops that should be vectorizable
+// Used by test_simd_integration.sh to verify vectorization
+
+fun dotProduct(n: Int) r: Float {
+    var a = Array<Float>()
+    var b = Array<Float>()
+    var i = 0
+    while i < n {
+        let fi: Float = i.toFloat()
+        a.push(fi * 1.5)
+        b.push(fi * 0.5)
+        i = i + 1
+    }
+
+    var sum: Float = 0.0
+    i = 0
+    while i < n {
+        sum = sum + a[i] * b[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun arraySum(n: Int) r: Float {
+    var arr = Array<Float>()
+    var i = 0
+    while i < n {
+        let fi: Float = i.toFloat()
+        arr.push(fi * 2.0 + 1.0)
+        i = i + 1
+    }
+
+    var total: Float = 0.0
+    i = 0
+    while i < n {
+        total = total + arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+fun main() r: Int {
+    let n = 1000
+    let dot = dotProduct(n)
+    let sum = arraySum(n)
+
+    // Print integer approximation to verify scalar equivalence
+    // (avoid Float.toString() which has stage1 codegen issues)
+    let dotInt: Int = dot.toInt()
+    let sumInt: Int = sum.toInt()
+    println("dot_product(1000) ~ " + dotInt.toString())
+    println("array_sum(1000) ~ " + sumInt.toString())
+
+    // Basic sanity check
+    if dotInt > 0 {
+        println("PASS: dot product positive")
+    } else {
+        println("FAIL: dot product should be positive")
+        return 1
+    }
+    if sumInt > 0 {
+        println("PASS: array sum positive")
+    } else {
+        println("FAIL: array sum should be positive")
+        return 1
+    }
+    return 0
+}

@@ -1,0 +1,12 @@
+@binary
+class Record {
+    id: Int
+    value: Int
+}
+
+fun main() r: Int {
+    let r1 = Record(1, 42)
+    let buf = r1.serialize()
+    println("PASS: binary_serialize")
+    return 0
+}

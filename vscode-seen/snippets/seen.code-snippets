@@ -1,0 +1,409 @@
+{
+  "Main Function": {
+    "prefix": "main",
+    "body": [
+      "fun main() r: Int {",
+      "\t$0",
+      "\treturn 0",
+      "}"
+    ],
+    "description": "Main function entry point"
+  },
+  "Function": {
+    "prefix": "fun",
+    "body": [
+      "fun ${1:functionName}(${2:params}) r: ${3:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function declaration"
+  },
+  "Void Function": {
+    "prefix": "funv",
+    "body": [
+      "fun ${1:functionName}(${2:params}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function with no return value"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:ClassName} {",
+      "\tlet ${2:field}: ${3:Type}",
+      "",
+      "\tstatic fun new(${2:field}: ${3:Type}) r: ${1:ClassName} {",
+      "\t\treturn ${1:ClassName} {",
+      "\t\t\t${2:field}: ${2:field}",
+      "\t\t}",
+      "\t}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Class with constructor"
+  },
+  "Data": {
+    "prefix": "data",
+    "body": [
+      "data ${1:Name} {",
+      "\t${2:field}: ${3:Type}",
+      "}"
+    ],
+    "description": "Data record declaration"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:Type}",
+      "}"
+    ],
+    "description": "Struct declaration"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant1},",
+      "\t${3:Variant2}",
+      "}"
+    ],
+    "description": "Enum declaration"
+  },
+  "Import": {
+    "prefix": "import",
+    "body": [
+      "import ${1:module}.${2:submodule}.{${3:Symbol}}"
+    ],
+    "description": "Import statement"
+  },
+  "If": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "If statement"
+  },
+  "If-Else": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:condition} {",
+      "\t${2:trueBlock}",
+      "} else {",
+      "\t${3:falseBlock}",
+      "}"
+    ],
+    "description": "If-else statement"
+  },
+  "For Loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:collection} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "For-in loop"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "Let Binding": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name}: ${2:Type} = ${3:value}"
+    ],
+    "description": "Immutable variable declaration"
+  },
+  "Var Binding": {
+    "prefix": "var",
+    "body": [
+      "var ${1:name}: ${2:Type} = ${3:value}"
+    ],
+    "description": "Mutable variable declaration"
+  },
+  "Match Expression": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "\t${2:pattern} => ${3:result}",
+      "\t_ => ${4:default}",
+      "}"
+    ],
+    "description": "Match expression"
+  },
+  "Trait": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "\tfun ${2:method}(${3:params}) r: ${4:ReturnType}",
+      "}"
+    ],
+    "description": "Trait declaration"
+  },
+  "Implementation": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Trait} for ${2:Type} {",
+      "\tfun ${3:method}(${4:params}) r: ${5:ReturnType} {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Trait implementation"
+  },
+  "Extern Function": {
+    "prefix": "extern",
+    "body": [
+      "extern fun ${1:functionName}(${2:params}) r: ${3:ReturnType}"
+    ],
+    "description": "External function declaration (FFI)"
+  },
+  "Test": {
+    "prefix": "test",
+    "body": [
+      "@test",
+      "fun test${1:Name}() {",
+      "\t$0",
+      "\tassert(${2:condition})",
+      "}"
+    ],
+    "description": "Test function"
+  },
+  "Print Line": {
+    "prefix": "println",
+    "body": [
+      "printLn(${1:\"${2:message}\"})"
+    ],
+    "description": "Print with newline"
+  },
+  "Method": {
+    "prefix": "method",
+    "body": [
+      "fun ${1:methodName}(${2:params}) r: ${3:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Method declaration inside a class"
+  },
+  "Static Method": {
+    "prefix": "static",
+    "body": [
+      "static fun ${1:methodName}(${2:params}) r: ${3:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Static method declaration"
+  },
+  "Extension Method": {
+    "prefix": "ext",
+    "body": [
+      "fun ${1:Type}.${2:methodName}(${3:params}) r: ${4:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Extension method"
+  },
+  "Lambda": {
+    "prefix": "lambda",
+    "body": [
+      "{ ${1:params} -> ${2:body} }"
+    ],
+    "description": "Lambda expression"
+  },
+  "Closure": {
+    "prefix": "closure",
+    "body": [
+      "|${1:x}| ${2:expr}"
+    ],
+    "description": "Closure expression"
+  },
+  "Parallel For": {
+    "prefix": "parallel_for",
+    "body": [
+      "parallel_for ${1:i} in ${2:0}..${3:n} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Parallel for loop"
+  },
+  "GPU Compute Kernel": {
+    "prefix": "compute",
+    "body": [
+      "@compute(workgroup_size = ${1:64})",
+      "fun ${2:kernelName}(${3:buf}: Buffer<${4:Float}>) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "GPU compute shader kernel"
+  },
+  "Derive": {
+    "prefix": "derive",
+    "body": [
+      "@derive(${1|Clone,Hash,Eq,Debug,Serialize,Deserialize,Json|})"
+    ],
+    "description": "Derive macro annotation"
+  },
+  "Try-Catch": {
+    "prefix": "trycatch",
+    "body": [
+      "try {",
+      "\t$0",
+      "} catch ${1:e} {",
+      "\t${2:// handle error}",
+      "}"
+    ],
+    "description": "Try-catch block"
+  },
+  "Defer": {
+    "prefix": "defer",
+    "body": [
+      "defer {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Defer block (runs at scope exit)"
+  },
+  "When Expression": {
+    "prefix": "when",
+    "body": [
+      "when ${1:value} {",
+      "\t${2:pattern} => ${3:result},",
+      "\t_ => ${4:default}",
+      "}"
+    ],
+    "description": "When expression (pattern matching)"
+  },
+  "Unsafe Block": {
+    "prefix": "unsafe",
+    "body": [
+      "unsafe {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Unsafe block"
+  },
+  "Region Block": {
+    "prefix": "region",
+    "body": [
+      "region ${1:name} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Memory region block"
+  },
+  "Arena Block": {
+    "prefix": "arena",
+    "body": [
+      "arena ${1:name} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Arena allocator block"
+  },
+  "Generic Function": {
+    "prefix": "fung",
+    "body": [
+      "fun ${1:functionName}<${2:T}>(${3:param}: ${2:T}) r: ${4:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Generic function declaration"
+  },
+  "Generic Class": {
+    "prefix": "classg",
+    "body": [
+      "class ${1:ClassName}<${2:T}> {",
+      "\tlet ${3:field}: ${2:T}",
+      "",
+      "\tstatic fun new(${3:field}: ${2:T}) r: ${1:ClassName}<${2:T}> {",
+      "\t\treturn ${1:ClassName} {",
+      "\t\t\t${3:field}: ${3:field}",
+      "\t\t}",
+      "\t}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Generic class with constructor"
+  },
+  "Async Function": {
+    "prefix": "async",
+    "body": [
+      "@async",
+      "fun ${1:functionName}(${2:params}) r: ${3:ReturnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Async function declaration"
+  },
+  "Comptime Block": {
+    "prefix": "comptime",
+    "body": [
+      "comptime {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Compile-time evaluation block"
+  },
+  "Operator Overload": {
+    "prefix": "operator",
+    "body": [
+      "@operator",
+      "fun ${1|add,sub,mul,div,mod,eq,lt,gt|}(this: ${2:Type}, other: ${2:Type}) r: ${3:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Operator overload function"
+  },
+  "Union Type": {
+    "prefix": "union",
+    "body": [
+      "union ${1:Name} {",
+      "\t${2:Variant1}(${3:Type}),",
+      "\t${4:Variant2}(${5:Type})",
+      "}"
+    ],
+    "description": "Union type declaration"
+  },
+  "Distinct Type": {
+    "prefix": "distinct",
+    "body": [
+      "distinct type ${1:Name} = ${2:BaseType}"
+    ],
+    "description": "Distinct type alias"
+  },
+  "SIMD Vector": {
+    "prefix": "simd",
+    "body": [
+      "let ${1:v} = ${2|f32x4,f64x2,i32x4,i64x2,i16x8,i8x16|}(${3:a}, ${4:b}, ${5:c}, ${6:d})"
+    ],
+    "description": "SIMD vector construction"
+  },
+  "Errdefer": {
+    "prefix": "errdefer",
+    "body": [
+      "errdefer {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Errdefer block (runs on error exit)"
+  },
+  "Benchmark": {
+    "prefix": "bench",
+    "body": [
+      "@benchmark",
+      "fun bench${1:Name}() {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Benchmark function"
+  }
+}

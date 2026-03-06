@@ -1,0 +1,25 @@
+// Test @align_to(N) decorator
+// Verify: compile with --emit-llvm, grep for 'aligned_alloc' in .ll file
+
+@align_to(64)
+fun simdFriendlySum(n: Int) r: Int {
+    let arr = Array<Int>(n, 1)
+    var total = 0
+    var i = 0
+    while i < n {
+        total = total + arr[i]
+        i = i + 1
+    }
+    arr.free()
+    return total
+}
+
+fun main() r: Int {
+    let result = simdFriendlySum(256)
+    println("simdFriendlySum(256) = " + result.toString())
+
+    if result != 256 { println("FAIL: simdFriendlySum"); return 1 }
+
+    println("PASS: @align_to decorator compiled correctly")
+    return 0
+}

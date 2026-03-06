@@ -1,0 +1,87 @@
+// Diagnostic test: verify patterns that were worked around for stage1 limitations
+// Tests Bool variables, Bool fields, if not X, static methods
+
+class Counter {
+    var count: Int
+    var active: Bool
+
+    fun increment() {
+        count = count + 1
+    }
+
+    fun isActive() r: Bool {
+        return active
+    }
+}
+
+fun makeCounter(n: Int) r: Counter {
+    let c = Counter { count: n, active: true }
+    return c
+}
+
+fun main() {
+    // Test 1: Bool variable
+    var flag: Bool = true
+    if flag {
+        println("PASS: Bool variable in condition")
+    } else {
+        println("FAIL: Bool variable in condition")
+    }
+
+    // Test 2: if not Bool
+    var other: Bool = false
+    if not other {
+        println("PASS: if not Bool")
+    } else {
+        println("FAIL: if not Bool")
+    }
+
+    // Test 3: Bool assignment
+    flag = false
+    if not flag {
+        println("PASS: Bool assignment false")
+    } else {
+        println("FAIL: Bool assignment false")
+    }
+
+    // Test 4: Bool field in class
+    let c = makeCounter(10)
+    if c.active {
+        println("PASS: Bool field read")
+    } else {
+        println("FAIL: Bool field read")
+    }
+
+    // Test 5: Bool method return
+    if c.isActive() {
+        println("PASS: Bool method return")
+    } else {
+        println("FAIL: Bool method return")
+    }
+
+    // Test 6: Int in condition (should still work after fix)
+    var x = 42
+    if x {
+        println("PASS: Int in condition (truthy)")
+    } else {
+        println("FAIL: Int in condition (truthy)")
+    }
+
+    // Test 7: not with Bool variable
+    var b: Bool = true
+    let nb = not b
+    if not nb {
+        println("PASS: not Bool variable")
+    } else {
+        println("FAIL: not Bool variable")
+    }
+
+    // Test 8: Comparison still works
+    if x == 42 {
+        println("PASS: Comparison in if")
+    } else {
+        println("FAIL: Comparison in if")
+    }
+
+    println("All workaround pattern tests complete")
+}

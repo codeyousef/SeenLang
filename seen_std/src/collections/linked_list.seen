@@ -1,0 +1,166 @@
+// seen_std.collections.linked_list
+// Doubly-linked list with O(1) operations for LRU cache implementation.
+
+import core.option.{Option, Some, None}
+
+class Node<T> {
+    var value: T
+    var prev: Option<Node<T>>
+    var next: Option<Node<T>>
+
+    fun new(value: T) -> Node<T> {
+        return Node<T> {
+            value: value,
+            prev: None<Node<T>>(),
+            next: None<Node<T>>()
+        }
+    }
+}
+
+class LinkedList<T> {
+    var head: Option<Node<T>>
+    var tail: Option<Node<T>>
+    var length: Int
+
+    fun new() -> LinkedList<T> {
+        return LinkedList<T> {
+            head: None<Node<T>>(),
+            tail: None<Node<T>>(),
+            length: 0
+        }
+    }
+
+    fun pushFront(this: LinkedList<T>, value: T) -> Node<T> {
+        let node = Node<T>.new(value)
+        
+        if this.head.isNone() {
+            this.head = Some<Node<T>>(node)
+            this.tail = Some<Node<T>>(node)
+        } else {
+            let oldHead = this.head.unwrap()
+            node.next = Some<Node<T>>(oldHead)
+            oldHead.prev = Some<Node<T>>(node)
+            this.head = Some<Node<T>>(node)
+        }
+        
+        this.length = this.length + 1
+        return node
+    }
+
+    fun pushBack(this: LinkedList<T>, value: T) -> Node<T> {
+        let node = Node<T>.new(value)
+        
+        if this.tail.isNone() {
+            this.head = Some<Node<T>>(node)
+            this.tail = Some<Node<T>>(node)
+        } else {
+            let oldTail = this.tail.unwrap()
+            node.prev = Some<Node<T>>(oldTail)
+            oldTail.next = Some<Node<T>>(node)
+            this.tail = Some<Node<T>>(node)
+        }
+        
+        this.length = this.length + 1
+        return node
+    }
+
+    fun popFront(this: LinkedList<T>) -> Option<T> {
+        if this.head.isNone() {
+            return None<T>()
+        }
+
+        let node = this.head.unwrap()
+        let value = node.value
+
+        if node.next.isNone() {
+            this.head = None<Node<T>>()
+            this.tail = None<Node<T>>()
+        } else {
+            let nextNode = node.next.unwrap()
+            nextNode.prev = None<Node<T>>()
+            this.head = Some<Node<T>>(nextNode)
+        }
+
+        this.length = this.length - 1
+        return Some<T>(value)
+    }
+
+    fun popBack(this: LinkedList<T>) -> Option<T> {
+        if this.tail.isNone() {
+            return None<T>()
+        }
+
+        let node = this.tail.unwrap()
+        let value = node.value
+
+        if node.prev.isNone() {
+            this.head = None<Node<T>>()
+            this.tail = None<Node<T>>()
+        } else {
+            let prevNode = node.prev.unwrap()
+            prevNode.next = None<Node<T>>()
+            this.tail = Some<Node<T>>(prevNode)
+        }
+
+        this.length = this.length - 1
+        return Some<T>(value)
+    }
+
+    fun remove(this: LinkedList<T>, node: Node<T>) -> Void {
+        if node.prev.isNone() {
+            this.head = node.next
+        } else {
+            let prevNode = node.prev.unwrap()
+            prevNode.next = node.next
+        }
+
+        if node.next.isNone() {
+            this.tail = node.prev
+        } else {
+            let nextNode = node.next.unwrap()
+            nextNode.prev = node.prev
+        }
+
+        this.length = this.length - 1
+    }
+
+    fun moveToFront(this: LinkedList<T>, node: Node<T>) -> Void {
+        if this.head.isSome() {
+            let headNode = this.head.unwrap()
+            if node == headNode {
+                return
+            }
+        }
+
+        this.remove(node)
+        
+        if this.head.isNone() {
+            this.head = Some<Node<T>>(node)
+            this.tail = Some<Node<T>>(node)
+            node.prev = None<Node<T>>()
+            node.next = None<Node<T>>()
+        } else {
+            let oldHead = this.head.unwrap()
+            node.next = Some<Node<T>>(oldHead)
+            node.prev = None<Node<T>>()
+            oldHead.prev = Some<Node<T>>(node)
+            this.head = Some<Node<T>>(node)
+        }
+
+        this.length = this.length + 1
+    }
+
+    fun size(this: LinkedList<T>) -> Int {
+        return this.length
+    }
+
+    fun isEmpty(this: LinkedList<T>) -> Bool {
+        return this.length == 0
+    }
+
+    fun clear(this: LinkedList<T>) -> Void {
+        this.head = None<Node<T>>()
+        this.tail = None<Node<T>>()
+        this.length = 0
+    }
+}

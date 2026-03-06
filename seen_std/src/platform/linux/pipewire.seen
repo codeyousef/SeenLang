@@ -1,0 +1,200 @@
+/**
+ * PipeWire audio FFI bindings for Linux.
+ *
+ * Low-level bindings to PipeWire via libseen_platform.so shim.
+ * Provides audio streaming with low latency and automatic device routing.
+ * Prefer the higher-level AudioDevice from audio.audio module.
+ *
+ * Link with: -lseen_platform (which wraps libpipewire-0.3.so)
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// PipeWire stream states
+let PW_STREAM_STATE_ERROR: Int = -1
+let PW_STREAM_STATE_UNCONNECTED: Int = 0
+let PW_STREAM_STATE_CONNECTING: Int = 1
+let PW_STREAM_STATE_PAUSED: Int = 2
+let PW_STREAM_STATE_STREAMING: Int = 3
+
+// PipeWire stream flags
+let PW_STREAM_FLAG_NONE: Int = 0
+let PW_STREAM_FLAG_AUTOCONNECT: Int = 1
+let PW_STREAM_FLAG_INACTIVE: Int = 2
+let PW_STREAM_FLAG_MAP_BUFFERS: Int = 4
+let PW_STREAM_FLAG_DRIVER: Int = 8
+let PW_STREAM_FLAG_RT_PROCESS: Int = 16
+
+// PipeWire stream direction
+let PW_DIRECTION_INPUT: Int = 0
+let PW_DIRECTION_OUTPUT: Int = 1
+
+// Audio sample formats (SPA formats)
+let SPA_AUDIO_FORMAT_UNKNOWN: Int = 0
+let SPA_AUDIO_FORMAT_S16: Int = 3      // Signed 16-bit little-endian
+let SPA_AUDIO_FORMAT_S24: Int = 5      // Signed 24-bit little-endian
+let SPA_AUDIO_FORMAT_S32: Int = 7      // Signed 32-bit little-endian
+let SPA_AUDIO_FORMAT_F32: Int = 25     // 32-bit float little-endian
+let SPA_AUDIO_FORMAT_F64: Int = 27     // 64-bit float little-endian
+
+// Common sample rates
+let SAMPLE_RATE_44100: Int = 44100
+let SAMPLE_RATE_48000: Int = 48000
+let SAMPLE_RATE_96000: Int = 96000
+
+// ============================================================================
+// Shim FFI Declarations - Link to libseen_platform.so
+// ============================================================================
+
+// Core PipeWire initialization
+extern "C" fun seen_pw_init() r: Void
+extern "C" fun seen_pw_deinit() r: Void
+extern "C" fun seen_pw_get_library_version() r: *Char
+
+// Thread loop (for async operation)
+extern "C" fun seen_pw_thread_loop_new(name: *Char) r: *Void
+extern "C" fun seen_pw_thread_loop_destroy(loop: *Void) r: Void
+extern "C" fun seen_pw_thread_loop_start(loop: *Void) r: Int32
+extern "C" fun seen_pw_thread_loop_stop(loop: *Void) r: Void
+extern "C" fun seen_pw_thread_loop_lock(loop: *Void) r: Void
+extern "C" fun seen_pw_thread_loop_unlock(loop: *Void) r: Void
+extern "C" fun seen_pw_thread_loop_get_loop(threadLoop: *Void) r: *Void
+
+// ============================================================================
+// Safe Wrapper Functions
+// ============================================================================
+
+fun pw_init() r: Void {
+    seen_pw_init()
+}
+
+fun pw_deinit() r: Void {
+    seen_pw_deinit()
+}
+
+fun pw_get_version() r: String {
+    let cstr = seen_pw_get_library_version()
+    if cstr == null {
+        return ""
+    }
+    return String.fromCString(cstr)
+}
+
+// Stream state enum
+enum PwStreamState {
+    Error
+    Unconnected
+    Connecting
+    Paused
+    Streaming
+}
+
+fun parsePwStreamState(state: Int) r: PwStreamState {
+    // Inline constants to work around module constant lookup issues
+    if state == -1 { return PwStreamState.Error }
+    if state == 0 { return PwStreamState.Unconnected }
+    if state == 1 { return PwStreamState.Connecting }
+    if state == 2 { return PwStreamState.Paused }
+    if state == 3 { return PwStreamState.Streaming }
+    return PwStreamState.Error
+}
+
+/**
+ * PipeWire audio format configuration.
+ */
+class PwAudioFormat {
+    var format: Int
+    var channels: Int
+    var sampleRate: Int
+
+    static fun f32Stereo(sampleRate: Int) r: PwAudioFormat {
+        return PwAudioFormat {
+            format: SPA_AUDIO_FORMAT_F32,
+            channels: 2,
+            sampleRate: sampleRate
+        }
+    }
+
+    static fun f32Mono(sampleRate: Int) r: PwAudioFormat {
+        return PwAudioFormat {
+            format: SPA_AUDIO_FORMAT_F32,
+            channels: 1,
+            sampleRate: sampleRate
+        }
+    }
+
+    static fun s16Stereo(sampleRate: Int) r: PwAudioFormat {
+        return PwAudioFormat {
+            format: SPA_AUDIO_FORMAT_S16,
+            channels: 2,
+            sampleRate: sampleRate
+        }
+    }
+
+    static fun default() r: PwAudioFormat {
+        return PwAudioFormat.f32Stereo(SAMPLE_RATE_48000)
+    }
+}
+
+/**
+ * PipeWire thread loop for async audio processing.
+ *
+ * Runs PipeWire's event loop in a separate thread. Use lock()/unlock()
+ * when accessing PipeWire objects from the main thread.
+ */
+class PwThreadLoop {
+    var nativeHandle: *Void
+
+    static fun new(name: String) r: Result<PwThreadLoop, String> {
+        let loopPtr = seen_pw_thread_loop_new(name.toCString())
+        if loopPtr == null {
+            return Err("Failed to create PipeWire thread loop")
+        }
+        return Ok(PwThreadLoop { nativeHandle: loopPtr })
+    }
+
+    fun start() r: Result<Unit, String> {
+        let result = seen_pw_thread_loop_start(this.nativeHandle)
+        if result < 0 {
+            return Err("Failed to start thread loop")
+        }
+        return Ok(Unit{})
+    }
+
+    fun stop() r: Void {
+        seen_pw_thread_loop_stop(this.nativeHandle)
+    }
+
+    fun lock() r: Void {
+        seen_pw_thread_loop_lock(this.nativeHandle)
+    }
+
+    fun unlock() r: Void {
+        seen_pw_thread_loop_unlock(this.nativeHandle)
+    }
+
+    fun getLoop() r: *Void {
+        return seen_pw_thread_loop_get_loop(this.nativeHandle)
+    }
+
+    fun destroy() r: Void {
+        if this.nativeHandle != null {
+            seen_pw_thread_loop_destroy(this.nativeHandle)
+            this.nativeHandle = null
+        }
+    }
+}
+
+/**
+ * Check if PipeWire is available on the system.
+ */
+fun pw_is_available() r: Bool {
+    seen_pw_init()
+    let version = seen_pw_get_library_version()
+    let available = version != null
+    if not available {
+        seen_pw_deinit()
+    }
+    return available
+}

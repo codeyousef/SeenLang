@@ -1,0 +1,30 @@
+// Test tail call optimization
+// Verify: compile with --emit-llvm, grep for 'tail call' in .ll file
+
+fun factorial(n: Int, acc: Int) r: Int {
+    if n <= 1 {
+        return acc
+    }
+    return factorial(n - 1, acc * n)
+}
+
+fun sumTo(n: Int, acc: Int) r: Int {
+    if n <= 0 {
+        return acc
+    }
+    return sumTo(n - 1, acc + n)
+}
+
+fun main() r: Int {
+    let f5 = factorial(5, 1)
+    println("5! = " + f5.toString())
+
+    let s100 = sumTo(100, 0)
+    println("sum(1..100) = " + s100.toString())
+
+    if f5 != 120 { println("FAIL: factorial"); return 1 }
+    if s100 != 5050 { println("FAIL: sumTo"); return 1 }
+
+    println("PASS: tail call optimization compiled correctly")
+    return 0
+}

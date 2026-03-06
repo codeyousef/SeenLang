@@ -1,0 +1,18 @@
+// Test case demonstrating the stale type problem fix
+
+data Inner {
+    value: Int
+}
+
+data Outer {
+    inner: Inner
+}
+
+function testNestedStructs() {
+    let outer = Outer { inner: Inner { value: 42 } }
+    let value = outer.inner.value  // Should resolve Inner's fields correctly
+    print("Nested data access: " + value.toString())
+}
+
+testNestedStructs()
+

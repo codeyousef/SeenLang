@@ -1,0 +1,11 @@
+fun main() -> Int {
+    let size = 512
+    let min_time = 100.0
+    
+    // This mimics the GFLOPS calculation from the benchmark
+    let gflops = (2.0 * (size as Float) * (size as Float) * (size as Float)) / (min_time / 1000.0) / 1000000000.0
+    
+    __PrintFloat(gflops)
+    __Print("\n")
+    return 0
+}

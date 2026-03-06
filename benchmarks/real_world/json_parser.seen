@@ -1,0 +1,576 @@
+// Real-World JSON Parser Benchmark
+// Tests JSON parsing, validation, serialization, and manipulation
+
+import std::collections::{Vec, HashMap}
+import std::time::Instant
+
+// JSON value types
+enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+    Array(Vec<JsonValue>),
+    Object(HashMap<String, JsonValue>),
+}
+
+// JSON parser implementation
+class JsonParser {
+    input: String,
+    position: usize,
+    
+    fun new(input: String) -> JsonParser {
+        return JsonParser {
+            input: input,
+            position: 0,
+        }
+    }
+    
+    // Peek at current character without consuming
+    fun peek(&self) -> Option<char> {
+        self.input.chars().nth(self.position)
+    }
+    
+    // Consume and return current character
+    fun consume(&mut self) -> Option<char> {
+        let ch = self.peek()
+        if ch.is_some() {
+            self.position += 1
+        }
+        ch
+    }
+    
+    // Skip whitespace
+    fun skip_whitespace(&mut self) {
+        while let Some(ch) = self.peek() {
+            if ch.is_whitespace() {
+                self.consume()
+            } else {
+                break
+            }
+        }
+    }
+    
+    // Parse a JSON value
+    fun parse_value(&mut self) -> Result<JsonValue, String> {
+        self.skip_whitespace()
+        
+        match self.peek() {
+            Some('"') => self.parse_string(),
+            Some('{') => self.parse_object(),
+            Some('[') => self.parse_array(),
+            Some('t') | Some('f') => self.parse_bool(),
+            Some('n') => self.parse_null(),
+            Some(ch) if ch == '-' || ch.is_digit(10) => self.parse_number(),
+            Some(ch) => Err(format!("Unexpected character: {}", ch)),
+            None => Err("Unexpected end of input".to_string()),
+        }
+    }
+    
+    // Parse string value
+    fun parse_string(&mut self) -> Result<JsonValue, String> {
+        self.consume() // Opening quote
+        let mut result = String::new()
+        let mut escaped = false
+        
+        loop {
+            match self.consume() {
+                Some('"') if !escaped => {
+                    return Ok(JsonValue::String(result))
+                },
+                Some('\\') if !escaped => {
+                    escaped = true
+                },
+                Some(ch) if escaped => {
+                    let escaped_char = match ch {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '\\' => '\\',
+                        '"' => '"',
+                        _ => ch,
+                    }
+                    result.push(escaped_char)
+                    escaped = false
+                },
+                Some(ch) => {
+                    result.push(ch)
+                    escaped = false
+                },
+                None => return Err("Unterminated string".to_string()),
+            }
+        }
+    }
+    
+    // Parse number value
+    fun parse_number(&mut self) -> Result<JsonValue, String> {
+        let mut number_str = String::new()
+        
+        // Handle negative sign
+        if self.peek() == Some('-') {
+            number_str.push(self.consume().unwrap())
+        }
+        
+        // Parse digits
+        while let Some(ch) = self.peek() {
+            if ch.is_digit(10) || ch == '.' || ch == 'e' || ch == 'E' || ch == '+' || ch == '-' {
+                number_str.push(self.consume().unwrap())
+            } else {
+                break
+            }
+        }
+        
+        match number_str.parse::<f64>() {
+            Ok(num) => Ok(JsonValue::Number(num)),
+            Err(_) => Err(format!("Invalid number: {}", number_str)),
+        }
+    }
+    
+    // Parse boolean value
+    fun parse_bool(&mut self) -> Result<JsonValue, String> {
+        let start_pos = self.position
+        let mut word = String::new()
+        
+        while let Some(ch) = self.peek() {
+            if ch.is_alphabetic() {
+                word.push(self.consume().unwrap())
+            } else {
+                break
+            }
+        }
+        
+        match word.as_str() {
+            "true" => Ok(JsonValue::Bool(true)),
+            "false" => Ok(JsonValue::Bool(false)),
+            _ => {
+                self.position = start_pos
+                Err(format!("Invalid boolean: {}", word))
+            }
+        }
+    }
+    
+    // Parse null value
+    fun parse_null(&mut self) -> Result<JsonValue, String> {
+        let start_pos = self.position
+        let mut word = String::new()
+        
+        for _ in 0..4 {
+            if let Some(ch) = self.consume() {
+                word.push(ch)
+            }
+        }
+        
+        if word == "null" {
+            Ok(JsonValue::Null)
+        } else {
+            self.position = start_pos
+            Err(format!("Invalid null: {}", word))
+        }
+    }
+    
+    // Parse array value
+    fun parse_array(&mut self) -> Result<JsonValue, String> {
+        self.consume() // Opening bracket
+        self.skip_whitespace()
+        
+        let mut array = Vec::new()
+        
+        // Check for empty array
+        if self.peek() == Some(']') {
+            self.consume()
+            return Ok(JsonValue::Array(array))
+        }
+        
+        loop {
+            // Parse value
+            let value = self.parse_value()?
+            array.push(value)
+            
+            self.skip_whitespace()
+            
+            match self.consume() {
+                Some(',') => {
+                    self.skip_whitespace()
+                    continue
+                },
+                Some(']') => {
+                    return Ok(JsonValue::Array(array))
+                },
+                Some(ch) => return Err(format!("Expected ',' or ']', got '{}'", ch)),
+                None => return Err("Unexpected end of array".to_string()),
+            }
+        }
+    }
+    
+    // Parse object value
+    fun parse_object(&mut self) -> Result<JsonValue, String> {
+        self.consume() // Opening brace
+        self.skip_whitespace()
+        
+        let mut object = HashMap::new()
+        
+        // Check for empty object
+        if self.peek() == Some('}') {
+            self.consume()
+            return Ok(JsonValue::Object(object))
+        }
+        
+        loop {
+            // Parse key (must be string)
+            self.skip_whitespace()
+            if self.peek() != Some('"') {
+                return Err("Object key must be a string".to_string())
+            }
+            
+            let key = match self.parse_string()? {
+                JsonValue::String(s) => s,
+                _ => return Err("Invalid key type".to_string()),
+            }
+            
+            // Expect colon
+            self.skip_whitespace()
+            if self.consume() != Some(':') {
+                return Err("Expected ':' after object key".to_string())
+            }
+            
+            // Parse value
+            self.skip_whitespace()
+            let value = self.parse_value()?
+            object.insert(key, value)
+            
+            self.skip_whitespace()
+            
+            match self.consume() {
+                Some(',') => {
+                    self.skip_whitespace()
+                    continue
+                },
+                Some('}') => {
+                    return Ok(JsonValue::Object(object))
+                },
+                Some(ch) => return Err(format!("Expected ',' or '}}', got '{}'", ch)),
+                None => return Err("Unexpected end of object".to_string()),
+            }
+        }
+    }
+    
+    // Main parse function
+    fun parse(&mut self) -> Result<JsonValue, String> {
+        let result = self.parse_value()?
+        self.skip_whitespace()
+        
+        if self.position < self.input.len() {
+            return Err(format!("Unexpected characters after JSON value at position {}", self.position))
+        }
+        
+        Ok(result)
+    }
+}
+
+// JSON serializer
+class JsonSerializer {
+    // Serialize JSON value to string
+    fun serialize(value: &JsonValue) -> String {
+        match value {
+            JsonValue::Null => "null".to_string(),
+            JsonValue::Bool(b) => b.to_string(),
+            JsonValue::Number(n) => n.to_string(),
+            JsonValue::String(s) => format!("\"{}\"", Self::escape_string(s)),
+            JsonValue::Array(arr) => {
+                let items: Vec<String> = arr.iter()
+                    .map(|v| Self::serialize(v))
+                    .collect()
+                format!("[{}]", items.join(","))
+            },
+            JsonValue::Object(obj) => {
+                let items: Vec<String> = obj.iter()
+                    .map(|(k, v)| format!("\"{}\":{}", Self::escape_string(k), Self::serialize(v)))
+                    .collect()
+                format!("{{{}}}", items.join(","))
+            },
+        }
+    }
+    
+    // Escape string for JSON
+    fun escape_string(s: &String) -> String {
+        let mut result = String::new()
+        for ch in s.chars() {
+            match ch {
+                '"' => result.push_str("\\\""),
+                '\\' => result.push_str("\\\\"),
+                '\n' => result.push_str("\\n"),
+                '\r' => result.push_str("\\r"),
+                '\t' => result.push_str("\\t"),
+                _ => result.push(ch),
+            }
+        }
+        result
+    }
+    
+    // Pretty print JSON with indentation
+    fun pretty_print(value: &JsonValue, indent: usize) -> String {
+        let indent_str = "  ".repeat(indent)
+        let next_indent = "  ".repeat(indent + 1)
+        
+        match value {
+            JsonValue::Null => "null".to_string(),
+            JsonValue::Bool(b) => b.to_string(),
+            JsonValue::Number(n) => n.to_string(),
+            JsonValue::String(s) => format!("\"{}\"", Self::escape_string(s)),
+            JsonValue::Array(arr) => {
+                if arr.is_empty() {
+                    "[]".to_string()
+                } else {
+                    let items: Vec<String> = arr.iter()
+                        .map(|v| format!("{}{}", next_indent, Self::pretty_print(v, indent + 1)))
+                        .collect()
+                    format!("[\n{}\n{}]", items.join(",\n"), indent_str)
+                }
+            },
+            JsonValue::Object(obj) => {
+                if obj.is_empty() {
+                    "{}".to_string()
+                } else {
+                    let items: Vec<String> = obj.iter()
+                        .map(|(k, v)| {
+                            format!("{}\"{}\": {}", 
+                                   next_indent, 
+                                   Self::escape_string(k), 
+                                   Self::pretty_print(v, indent + 1))
+                        })
+                        .collect()
+                    format!("{{\n{}\n{}}}", items.join(",\n"), indent_str)
+                }
+            },
+        }
+    }
+}
+
+// JSON benchmark suite
+class JsonParserBenchmark {
+    // Generate test JSON data
+    fun generate_test_json(complexity: &str) -> String {
+        match complexity {
+            "simple" => r#"{
+                "name": "John Doe",
+                "age": 30,
+                "active": true,
+                "balance": 1234.56
+            }"#.to_string(),
+            
+            "medium" => r#"{
+                "users": [
+                    {"id": 1, "name": "Alice", "email": "alice@example.com", "roles": ["admin", "user"]},
+                    {"id": 2, "name": "Bob", "email": "bob@example.com", "roles": ["user"]},
+                    {"id": 3, "name": "Charlie", "email": "charlie@example.com", "roles": ["moderator", "user"]}
+                ],
+                "metadata": {
+                    "version": "1.0.0",
+                    "timestamp": 1234567890,
+                    "count": 3
+                }
+            }"#.to_string(),
+            
+            "complex" => {
+                // Generate large nested JSON
+                let mut json = String::from("{\"data\":[")
+                for i in 0..100 {
+                    if i > 0 { json.push(',') }
+                    json.push_str(&format!(
+                        r#"{{"id":{},"name":"User{}","details":{{"age":{},"scores":[{},{},{}],"active":{}}}}}"#,
+                        i, i, 20 + i % 50, 
+                        i * 10, i * 20, i * 30,
+                        i % 2 == 0
+                    ))
+                }
+                json.push_str("],\"meta\":{\"total\":100,\"page\":1}}")
+                json
+            },
+            
+            _ => "{}".to_string(),
+        }
+    }
+    
+    // Benchmark JSON parsing
+    fun benchmark_parsing() -> BenchmarkResult {
+        let test_cases = vec![
+            ("simple", 100000),
+            ("medium", 50000),
+            ("complex", 10000),
+        ]
+        
+        let start_time = Instant::now()
+        let mut total_parsed = 0
+        let mut total_bytes = 0
+        
+        for (complexity, iterations) in test_cases {
+            let json_str = Self::generate_test_json(complexity)
+            total_bytes += json_str.len() * iterations
+            
+            for _ in 0..iterations {
+                let mut parser = JsonParser::new(json_str.clone())
+                match parser.parse() {
+                    Ok(_) => total_parsed += 1,
+                    Err(e) => {
+                        return BenchmarkResult {
+                            name: "json_parsing".to_string(),
+                            language: "seen".to_string(),
+                            execution_mode: "jit".to_string(),
+                            execution_time_ns: 0,
+                            memory_peak_bytes: 0,
+                            operations_per_second: 0.0,
+                            success: false,
+                            error_message: Some(format!("Parse error: {}", e)),
+                            metadata: format!("Failed at {} complexity", complexity),
+                        }
+                    }
+                }
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let operations_per_second = (total_parsed as f64) / elapsed.as_secs_f64()
+        let bytes_per_second = (total_bytes as f64) / elapsed.as_secs_f64()
+        
+        BenchmarkResult {
+            name: "json_parsing".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: total_bytes as i64,
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("parsed={}, bytes={}, bytes_per_sec={:.0}", 
+                           total_parsed, total_bytes, bytes_per_second),
+        }
+    }
+    
+    // Benchmark JSON serialization
+    fun benchmark_serialization() -> BenchmarkResult {
+        // Create test data structure
+        let mut test_object = HashMap::new()
+        let mut users_array = Vec::new()
+        
+        for i in 0..100 {
+            let mut user = HashMap::new()
+            user.insert("id".to_string(), JsonValue::Number(i as f64))
+            user.insert("name".to_string(), JsonValue::String(format!("User{}", i)))
+            user.insert("active".to_string(), JsonValue::Bool(i % 2 == 0))
+            
+            let scores = vec![
+                JsonValue::Number((i * 10) as f64),
+                JsonValue::Number((i * 20) as f64),
+                JsonValue::Number((i * 30) as f64),
+            ]
+            user.insert("scores".to_string(), JsonValue::Array(scores))
+            
+            users_array.push(JsonValue::Object(user))
+        }
+        
+        test_object.insert("users".to_string(), JsonValue::Array(users_array))
+        test_object.insert("version".to_string(), JsonValue::String("1.0.0".to_string()))
+        test_object.insert("count".to_string(), JsonValue::Number(100.0))
+        
+        let json_value = JsonValue::Object(test_object)
+        
+        let iterations = 10000
+        let start_time = Instant::now()
+        let mut total_bytes = 0
+        
+        for _ in 0..iterations {
+            let serialized = JsonSerializer::serialize(&json_value)
+            total_bytes += serialized.len()
+        }
+        
+        let elapsed = start_time.elapsed()
+        let operations_per_second = (iterations as f64) / elapsed.as_secs_f64()
+        let bytes_per_second = (total_bytes as f64) / elapsed.as_secs_f64()
+        
+        BenchmarkResult {
+            name: "json_serialization".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: total_bytes as i64 / iterations,
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("iterations={}, bytes={}, bytes_per_sec={:.0}", 
+                           iterations, total_bytes, bytes_per_second),
+        }
+    }
+    
+    // Benchmark JSON manipulation
+    fun benchmark_manipulation() -> BenchmarkResult {
+        let json_str = Self::generate_test_json("complex")
+        let mut parser = JsonParser::new(json_str)
+        let mut json_value = parser.parse().unwrap()
+        
+        let iterations = 50000
+        let start_time = Instant::now()
+        let mut operations = 0
+        
+        for i in 0..iterations {
+            // Perform various manipulations
+            match &mut json_value {
+                JsonValue::Object(obj) => {
+                    // Add new field
+                    obj.insert(format!("field_{}", i), JsonValue::Number(i as f64))
+                    operations += 1
+                    
+                    // Modify existing field
+                    if let Some(JsonValue::Array(arr)) = obj.get_mut("data") {
+                        if !arr.is_empty() {
+                            // Modify first element
+                            if let Some(JsonValue::Object(first)) = arr.get_mut(0) {
+                                first.insert("modified".to_string(), JsonValue::Bool(true))
+                                operations += 1
+                            }
+                            
+                            // Add new element
+                            let mut new_item = HashMap::new()
+                            new_item.insert("id".to_string(), JsonValue::Number((1000 + i) as f64))
+                            new_item.insert("dynamic".to_string(), JsonValue::Bool(true))
+                            arr.push(JsonValue::Object(new_item))
+                            operations += 1
+                        }
+                    }
+                    
+                    // Remove field (simulate by setting to null)
+                    if i % 10 == 0 {
+                        obj.insert(format!("removed_{}", i), JsonValue::Null)
+                        operations += 1
+                    }
+                },
+                _ => {}
+            }
+        }
+        
+        let elapsed = start_time.elapsed()
+        let operations_per_second = (operations as f64) / elapsed.as_secs_f64()
+        
+        BenchmarkResult {
+            name: "json_manipulation".to_string(),
+            language: "seen".to_string(),
+            execution_mode: "jit".to_string(),
+            execution_time_ns: elapsed.as_nanos() as i64,
+            memory_peak_bytes: 10 * 1024 * 1024, // Estimate 10MB for manipulated structure
+            operations_per_second: operations_per_second,
+            success: true,
+            error_message: None,
+            metadata: format!("iterations={}, operations={}", iterations, operations),
+        }
+    }
+    
+    // Run all JSON benchmarks
+    fun run_all() -> Vec<BenchmarkResult> {
+        let mut results = Vec::new()
+        
+        results.push(Self::benchmark_parsing())
+        results.push(Self::benchmark_serialization())
+        results.push(Self::benchmark_manipulation())
+        
+        results
+    }
+}

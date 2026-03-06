@@ -1,0 +1,53 @@
+// Negative test for capability tokens - these should produce compile errors
+// Run this file to verify capability error detection works
+
+// ERROR: Missing FileToken when calling file operation
+fun testMissingFileToken() r: String {
+    return readText("secret.txt")  // Should error: lacks FileToken
+}
+
+// ERROR: Missing NetToken when calling network operation
+fun testMissingNetToken() r: Bool {
+    let stream = TcpStream.connect("example.com:80")  // Should error: lacks NetToken
+    return true
+}
+
+// ERROR: Missing ProcessToken when calling process operation
+fun testMissingProcessToken() r: Int {
+    return execCommand("ls")  // Should error: lacks ProcessToken
+}
+
+// ERROR: Missing EnvToken when calling environment operation
+fun testMissingEnvToken() r: String {
+    return env.get("HOME")  // Should error: lacks EnvToken
+}
+
+// ERROR: Missing DynLoadToken when calling dynamic load operation
+fun testMissingDynLoadToken() r: Bool {
+    let module = HotModule.load("plugin.so")  // Should error: lacks DynLoadToken
+    return true
+}
+
+// ERROR: Propagation - calling function that requires FileToken without having it
+@using(FileToken)
+fun helperWithFileToken() r: String {
+    return readText("data.txt")
+}
+
+fun testPropagationError() r: String {
+    return helperWithFileToken()  // Should error: caller lacks FileToken
+}
+
+// ERROR: Having wrong token
+@using(NetToken)
+fun testWrongToken() r: String {
+    return readText("file.txt")  // Should error: has NetToken but needs FileToken
+}
+
+// This main is just to make the file compilable for structure
+// The actual errors should be caught during compilation
+fun main() r: Int {
+    println("This file should not compile successfully!")
+    println("It contains intentional capability violations.")
+    return 1
+}

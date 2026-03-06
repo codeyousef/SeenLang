@@ -1,0 +1,265 @@
+/**
+ * OpenAL 3D audio FFI bindings.
+ *
+ * Low-level bindings to OpenAL for positional 3D audio playback.
+ * Provides device/context management, buffer loading, source
+ * control, and listener positioning for spatial audio in games
+ * and interactive applications.
+ *
+ * Link with: -lopenal
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// ============================================================
+// Audio format constants
+// ============================================================
+
+let AL_FORMAT_MONO8: Int = 4352       // 0x1100
+let AL_FORMAT_MONO16: Int = 4353      // 0x1101
+let AL_FORMAT_STEREO8: Int = 4354     // 0x1102
+let AL_FORMAT_STEREO16: Int = 4355    // 0x1103
+
+// ============================================================
+// Source state constants
+// ============================================================
+
+let AL_INITIAL: Int = 4113            // 0x1011
+let AL_PLAYING: Int = 4114            // 0x1012
+let AL_PAUSED: Int = 4115             // 0x1013
+let AL_STOPPED: Int = 4116            // 0x1014
+
+// ============================================================
+// Distance model constants
+// ============================================================
+
+let AL_NONE: Int = 0
+let AL_INVERSE_DISTANCE: Int = 53249           // 0xD001
+let AL_INVERSE_DISTANCE_CLAMPED: Int = 53250   // 0xD002
+let AL_LINEAR_DISTANCE: Int = 53251            // 0xD003
+let AL_LINEAR_DISTANCE_CLAMPED: Int = 53252    // 0xD004
+let AL_EXPONENT_DISTANCE: Int = 53253          // 0xD005
+let AL_EXPONENT_DISTANCE_CLAMPED: Int = 53254  // 0xD006
+
+// ============================================================
+// Source property constants (for integer-based setters)
+// ============================================================
+
+let AL_PITCH: Int = 4099              // 0x1003
+let AL_GAIN: Int = 4106               // 0x100A
+let AL_MAX_DISTANCE: Int = 4131       // 0x1023
+let AL_ROLLOFF_FACTOR: Int = 4129     // 0x1021
+let AL_REFERENCE_DISTANCE: Int = 4128 // 0x1020
+let AL_MIN_GAIN: Int = 4109           // 0x100D
+let AL_MAX_GAIN: Int = 4110           // 0x100E
+let AL_CONE_OUTER_GAIN: Int = 4130    // 0x1022
+
+// ============================================================
+// Boolean constants
+// ============================================================
+
+let AL_FALSE: Int = 0
+let AL_TRUE: Int = 1
+
+// ============================================================
+// Error code constants
+// ============================================================
+
+let AL_NO_ERROR: Int = 0
+let AL_INVALID_NAME: Int = 40961      // 0xA001
+let AL_INVALID_ENUM: Int = 40962      // 0xA002
+let AL_INVALID_VALUE: Int = 40963     // 0xA003
+let AL_INVALID_OPERATION: Int = 40964 // 0xA004
+let AL_OUT_OF_MEMORY: Int = 40965     // 0xA005
+
+// ============================================================
+// Fixed-point scale factor for float-like parameters
+// Multiply float values by this before passing as Int.
+// e.g., gain 0.5 -> 500, position 3.14 -> 3140
+// ============================================================
+
+let AL_FIXED_POINT_SCALE: Int = 1000
+
+// ============================================================
+// FFI declarations (provided by libseen_openal shim)
+// ============================================================
+
+// Device and context lifecycle
+extern fun seen_al_open_device(name: String) r: Int
+extern fun seen_al_close_device(device: Int) r: Void
+extern fun seen_al_create_context(device: Int) r: Int
+extern fun seen_al_make_current(ctx: Int) r: Int
+extern fun seen_al_destroy_context(ctx: Int) r: Void
+extern fun seen_al_get_error() r: Int
+
+// Buffer management
+extern fun seen_al_gen_buffer() r: Int
+extern fun seen_al_delete_buffer(buffer: Int) r: Void
+extern fun seen_al_buffer_data(buffer: Int, format: Int, data: Int, size: Int, freq: Int) r: Void
+
+// Source management
+extern fun seen_al_gen_source() r: Int
+extern fun seen_al_delete_source(source: Int) r: Void
+extern fun seen_al_source_set_buffer(source: Int, buffer: Int) r: Void
+
+// Source playback control
+extern fun seen_al_source_play(source: Int) r: Void
+extern fun seen_al_source_pause(source: Int) r: Void
+extern fun seen_al_source_stop(source: Int) r: Void
+extern fun seen_al_source_rewind(source: Int) r: Void
+
+// Source properties (use fixed-point integers, divide by AL_FIXED_POINT_SCALE in shim)
+extern fun seen_al_source_set_pos(source: Int, x: Int, y: Int, z: Int) r: Void
+extern fun seen_al_source_set_velocity(source: Int, vx: Int, vy: Int, vz: Int) r: Void
+extern fun seen_al_source_set_direction(source: Int, dx: Int, dy: Int, dz: Int) r: Void
+extern fun seen_al_source_set_gain(source: Int, gain: Int) r: Void
+extern fun seen_al_source_set_pitch(source: Int, pitch: Int) r: Void
+extern fun seen_al_source_set_looping(source: Int, looping: Int) r: Void
+extern fun seen_al_source_set_reference_distance(source: Int, dist: Int) r: Void
+extern fun seen_al_source_set_max_distance(source: Int, dist: Int) r: Void
+extern fun seen_al_source_set_rolloff(source: Int, rolloff: Int) r: Void
+extern fun seen_al_source_get_state(source: Int) r: Int
+
+// Listener properties (fixed-point integers)
+extern fun seen_al_listener_set_pos(x: Int, y: Int, z: Int) r: Void
+extern fun seen_al_listener_set_velocity(vx: Int, vy: Int, vz: Int) r: Void
+extern fun seen_al_listener_set_orientation(fx: Int, fy: Int, fz: Int, ux: Int, uy: Int, uz: Int) r: Void
+extern fun seen_al_listener_set_gain(gain: Int) r: Void
+
+// Distance model
+extern fun seen_al_distance_model(model: Int) r: Void
+
+// ============================================================
+// OpenALDevice wrapper class
+// ============================================================
+
+/**
+ * High-level wrapper around an OpenAL device and context.
+ *
+ * Manages the audio device lifecycle and provides factory methods
+ * for creating buffers and sources. All positional parameters use
+ * fixed-point integers (multiply by AL_FIXED_POINT_SCALE).
+ *
+ * Example:
+ *   let audio = OpenALDevice.init("")
+ *   if audio.ready == 1 {
+ *       let buf = audio.createBuffer()
+ *       seen_al_buffer_data(buf, AL_FORMAT_MONO16, pcmData, dataSize, 44100)
+ *       let src = audio.createSource()
+ *       seen_al_source_set_buffer(src, buf)
+ *       seen_al_source_set_pos(src, 0, 0, 0)
+ *       seen_al_source_play(src)
+ *       // ... wait for playback ...
+ *       seen_al_delete_source(src)
+ *       seen_al_delete_buffer(buf)
+ *       audio.shutdown()
+ *   }
+ */
+class OpenALDevice {
+    var deviceHandle: Int
+    var contextHandle: Int
+    var ready: Int   // 1 = initialized, 0 = not (avoid Bool)
+
+    /**
+     * Initialize OpenAL with the given device name.
+     * Pass an empty string "" to use the default device.
+     * Sets ready=1 on success, ready=0 on failure.
+     */
+    static fun init(deviceName: String) r: OpenALDevice {
+        let dev = seen_al_open_device(deviceName)
+        if dev == 0 {
+            return OpenALDevice {
+                deviceHandle: 0,
+                contextHandle: 0,
+                ready: 0
+            }
+        }
+
+        let ctx = seen_al_create_context(dev)
+        if ctx == 0 {
+            seen_al_close_device(dev)
+            return OpenALDevice {
+                deviceHandle: 0,
+                contextHandle: 0,
+                ready: 0
+            }
+        }
+
+        let result = seen_al_make_current(ctx)
+        if result == 0 {
+            seen_al_destroy_context(ctx)
+            seen_al_close_device(dev)
+            return OpenALDevice {
+                deviceHandle: 0,
+                contextHandle: 0,
+                ready: 0
+            }
+        }
+
+        return OpenALDevice {
+            deviceHandle: dev,
+            contextHandle: ctx,
+            ready: 1
+        }
+    }
+
+    /**
+     * Generate a new audio buffer.
+     * Returns the buffer handle, or 0 on failure.
+     */
+    fun createBuffer() r: Int {
+        return seen_al_gen_buffer()
+    }
+
+    /**
+     * Generate a new audio source.
+     * Returns the source handle, or 0 on failure.
+     */
+    fun createSource() r: Int {
+        return seen_al_gen_source()
+    }
+
+    /**
+     * Set the listener position (fixed-point integers).
+     */
+    fun setListenerPos(x: Int, y: Int, z: Int) r: Void {
+        seen_al_listener_set_pos(x, y, z)
+    }
+
+    /**
+     * Set the listener orientation.
+     * fx/fy/fz = forward direction, ux/uy/uz = up direction.
+     * All values are fixed-point integers.
+     */
+    fun setListenerOrientation(fx: Int, fy: Int, fz: Int, ux: Int, uy: Int, uz: Int) r: Void {
+        seen_al_listener_set_orientation(fx, fy, fz, ux, uy, uz)
+    }
+
+    /**
+     * Set the distance attenuation model.
+     * Use one of the AL_*_DISTANCE constants.
+     */
+    fun setDistanceModel(model: Int) r: Void {
+        seen_al_distance_model(model)
+    }
+
+    /**
+     * Set the master listener gain (fixed-point integer).
+     */
+    fun setMasterGain(gain: Int) r: Void {
+        seen_al_listener_set_gain(gain)
+    }
+
+    /**
+     * Shut down OpenAL: destroy context and close device.
+     */
+    fun shutdown() r: Void {
+        if this.ready == 1 {
+            seen_al_make_current(0)
+            seen_al_destroy_context(this.contextHandle)
+            seen_al_close_device(this.deviceHandle)
+            this.ready = 0
+        }
+    }
+}

@@ -1,0 +1,86 @@
+// Euler Totient (Number Theory) Benchmark
+// Computes Euler's totient function phi(n) for n = 1..N using GCD
+// Pure integer math — fair comparison (no hardware intrinsic advantage)
+
+fun seen_gcd(a: Int, b: Int) -> Int {
+    var x = a
+    var y = b
+    while y > 0 {
+        let temp = y
+        y = x % y
+        x = temp
+    }
+    return x
+}
+
+fun euler_totient(n: Int) -> Int {
+    var count = 0
+    var k = 1
+    while k < n {
+        if seen_gcd(k, n) == 1 {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    return count
+}
+
+fun run_totient_sum(limit: Int) -> Int {
+    var total = 0
+    var n = 1
+    while n <= limit {
+        total = total + euler_totient(n)
+        n = n + 1
+    }
+    return total
+}
+
+fun main() -> Int {
+    let n = 10000
+
+    __Print("Euler Totient (Number Theory) Benchmark\n")
+    __Print("Computing phi(1) to phi(")
+    __PrintInt(n)
+    __Print(")\n")
+
+    // Warmup
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs at n=1000)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let warmup_result = run_totient_sum(1000)
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result = 0
+
+    var iter = 0
+    while iter < iterations {
+        let start = __GetTime()
+        let checksum = run_totient_sum(n)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result = checksum
+        }
+        iter = iter + 1
+    }
+
+    __Print("Sum of phi(1..N): ")
+    __PrintInt(result)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Totients per second: ")
+    __PrintFloat(n.toFloat() / (min_time / 1000.0) / 1000000.0)
+    __Print(" million\n")
+
+    return 0
+}

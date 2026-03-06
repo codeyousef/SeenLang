@@ -1,0 +1,119 @@
+// Basic Region Memory Management Test
+// Tests Vale-style region allocation and deallocation
+// Expected: All region operations work correctly
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    println("Testing Vale-style region memory management...")
+
+    // Test 1: Region creation and destruction
+    println("\n=== Test 1: Region Creation ===")
+    let region1 = seen_region_create(1024, 0)  // 1KB region, AUTO strategy
+    if region1 != 0 {
+        println("PASS: Region created successfully")
+        passed = passed + 1
+    } else {
+        println("FAIL: Region creation failed")
+        failed = failed + 1
+    }
+
+    // Test 2: Allocation from region
+    println("\n=== Test 2: Region Allocation ===")
+    let ptr1 = seen_region_alloc(region1, 64, 8)  // Allocate 64 bytes, 8-byte aligned
+    if ptr1 != 0 {
+        println("PASS: Allocation from region succeeded")
+        passed = passed + 1
+    } else {
+        println("FAIL: Allocation from region failed")
+        failed = failed + 1
+    }
+
+    // Test 3: Multiple allocations from same region
+    println("\n=== Test 3: Multiple Allocations ===")
+    let ptr2 = seen_region_alloc(region1, 128, 8)
+    let ptr3 = seen_region_alloc(region1, 256, 16)
+    if ptr2 != 0 and ptr3 != 0 {
+        println("PASS: Multiple allocations succeeded")
+        passed = passed + 1
+    } else {
+        println("FAIL: Multiple allocations failed")
+        failed = failed + 1
+    }
+
+    // Test 4: Region usage tracking
+    println("\n=== Test 4: Usage Tracking ===")
+    let used = seen_region_used(region1)
+    let remaining = seen_region_remaining(region1)
+    if used > 0 and remaining < 1024 {
+        println("PASS: Usage tracking works (used: " + used.toString() + ", remaining: " + remaining.toString() + ")")
+        passed = passed + 1
+    } else {
+        println("FAIL: Usage tracking incorrect")
+        failed = failed + 1
+    }
+
+    // Test 5: Region peak usage
+    println("\n=== Test 5: Peak Usage ===")
+    let peak = seen_region_peak(region1)
+    if peak >= used {
+        println("PASS: Peak usage tracked correctly: " + peak.toString())
+        passed = passed + 1
+    } else {
+        println("FAIL: Peak usage incorrect")
+        failed = failed + 1
+    }
+
+    // Test 6: Region reset
+    println("\n=== Test 6: Region Reset ===")
+    seen_region_reset(region1)
+    let usedAfterReset = seen_region_used(region1)
+    if usedAfterReset == 0 {
+        println("PASS: Region reset successfully")
+        passed = passed + 1
+    } else {
+        println("FAIL: Region not reset, still shows: " + usedAfterReset.toString())
+        failed = failed + 1
+    }
+
+    // Test 7: Allocation after reset
+    println("\n=== Test 7: Allocation After Reset ===")
+    let ptr4 = seen_region_alloc(region1, 512, 8)
+    if ptr4 != 0 {
+        println("PASS: Can allocate after reset")
+        passed = passed + 1
+    } else {
+        println("FAIL: Cannot allocate after reset")
+        failed = failed + 1
+    }
+
+    // Test 8: Region destruction
+    println("\n=== Test 8: Region Cleanup ===")
+    seen_region_destroy(region1)
+    println("PASS: Region destroyed without error")
+    passed = passed + 1
+
+    // Summary
+    println("\n==================================================")
+    println("Region Memory Management Test Results:")
+    println("Passed: " + passed.toString() + "/" + (passed + failed).toString())
+    println("==================================================")
+
+    if failed > 0 {
+        println("\nFAIL: Some region tests failed")
+        return 1
+    }
+
+    println("\nPASS: All region tests passed!")
+    return 0
+}
+
+// External C runtime functions for region management
+extern fun seen_region_create(size: Int, strategy: Int) r: Int
+extern fun seen_region_alloc(region: Int, size: Int, alignment: Int) r: Int
+extern fun seen_region_destroy(region: Int) r: Void
+extern fun seen_region_reset(region: Int) r: Void
+extern fun seen_region_used(region: Int) r: Int
+extern fun seen_region_remaining(region: Int) r: Int
+extern fun seen_region_peak(region: Int) r: Int

@@ -1,0 +1,626 @@
+// seen_std.math.math
+// Scalar math utilities (abs/trig/sqrt + integer helpers) for bootstrap code.
+
+const PI: Float = 3.14159265358979323846
+const TAU: Float = 6.28318530717958647692
+const HALF_PI: Float = 1.57079632679489661923
+const DEG_TO_RAD: Float = PI / 180.0
+const RAD_TO_DEG: Float = 180.0 / PI
+const E: Float = 2.71828182845904523536
+const EPSILON: Float = 0.0000000000000002220446049250313
+const LN2: Float = 0.69314718055994530942
+const LN10: Float = 2.30258509299404568402
+const LOG2_E: Float = 1.44269504088896340736
+const LOG10_E: Float = 0.43429448190325182765
+const SQRT2: Float = 1.41421356237309504880
+const FRAC_1_PI: Float = 0.31830988618379067154
+const FRAC_2_PI: Float = 0.63661977236758134308
+const FRAC_1_SQRT2: Float = 0.70710678118654752440
+// TODO: INFINITY, NEG_INFINITY, NAN — codegen emits `fdiv fast double` with nnan/ninf semantics
+
+fun abs(value: Float) r: Float {
+    if value < 0.0 {
+        return -value
+    }
+    return value
+}
+
+fun absInt(value: Int) r: Int {
+    if value < 0 {
+        return -value
+    }
+    return value
+}
+
+fun min(a: Float, b: Float) r: Float {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+fun max(a: Float, b: Float) r: Float {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fun minInt(a: Int, b: Int) r: Int {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+fun maxInt(a: Int, b: Int) r: Int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fun clamp01(value: Float) r: Float {
+    return clamp(value, 0.0, 1.0)
+}
+
+fun sign(value: Float) r: Int {
+    if value > 0.0 {
+        return 1
+    }
+    if value < 0.0 {
+        return -1
+    }
+    return 0
+}
+
+fun approxEqual(a: Float, b: Float, tolerance: Float = 0.0001) r: Bool {
+    return abs(a - b) <= tolerance
+}
+
+fun sin(radians: Float) r: Float {
+    let angle = normalizeAngle(radians)
+    let x2 = angle * angle
+    let x3 = angle * x2
+    let x5 = x3 * x2
+    let x7 = x5 * x2
+    let x9 = x7 * x2
+    return angle
+        - (x3 / 6.0)
+        + (x5 / 120.0)
+        - (x7 / 5040.0)
+        + (x9 / 362880.0)
+}
+
+fun cos(radians: Float) r: Float {
+    let angle = normalizeAngle(radians)
+    let x2 = angle * angle
+    let x4 = x2 * x2
+    let x6 = x4 * x2
+    let x8 = x4 * x4
+    return 1.0
+        - (x2 / 2.0)
+        + (x4 / 24.0)
+        - (x6 / 720.0)
+        + (x8 / 40320.0)
+}
+
+fun tan(radians: Float) r: Float {
+    let c = cos(radians)
+    if approxEqual(c, 0.0, 0.0000001) {
+        abort("tan undefined for angle {radians}")
+    }
+    return sin(radians) / c
+}
+
+fun atan(x: Float) r: Float {
+    // Range reduction: for |x| > 1, use atan(x) = sign*PI/2 - atan(1/x)
+    let pi_half = 1.57079632679489661923
+    if x > 1.0 {
+        return pi_half - atan(1.0 / x)
+    }
+    if x < -1.0 {
+        return -pi_half - atan(1.0 / x)
+    }
+    // Taylor series for |x| <= 1: atan(x) = x - x^3/3 + x^5/5 - x^7/7 + ...
+    let x2 = x * x
+    var term = x
+    var result = x
+    var n = 1
+    while n < 13 {
+        term = -term * x2
+        let denom = 2 * n + 1
+        result = result + term / denom.toFloat()
+        n = n + 1
+    }
+    return result
+}
+
+fun atan2(y: Float, x: Float) r: Float {
+    let pi = 3.14159265358979323846
+    if x > 0.0 {
+        return atan(y / x)
+    }
+    if x < 0.0 and y >= 0.0 {
+        return atan(y / x) + pi
+    }
+    if x < 0.0 and y < 0.0 {
+        return atan(y / x) - pi
+    }
+    // x == 0
+    let pi_half = 1.57079632679489661923
+    if y > 0.0 {
+        return pi_half
+    }
+    if y < 0.0 {
+        return -pi_half
+    }
+    return 0.0
+}
+
+fun asin(x: Float) r: Float {
+    if x < -1.0 or x > 1.0 {
+        abort("asin: domain error, x must be in [-1, 1]")
+    }
+    let pi_half = 1.57079632679489661923
+    if x == 1.0 {
+        return pi_half
+    }
+    if x == -1.0 {
+        return -pi_half
+    }
+    return atan(x / sqrt(1.0 - x * x))
+}
+
+fun acos(x: Float) r: Float {
+    if x < -1.0 or x > 1.0 {
+        abort("acos: domain error, x must be in [-1, 1]")
+    }
+    let pi_half = 1.57079632679489661923
+    return pi_half - asin(x)
+}
+
+fun sqrt(value: Float) r: Float {
+    if value < 0.0 {
+        abort("sqrt of negative input")
+    }
+    if value == 0.0 {
+        return 0.0
+    }
+    var guess = value
+    var iterations = 0
+    while iterations < 24 {
+        guess = 0.5 * (guess + value / guess)
+        iterations = iterations + 1
+    }
+    return guess
+}
+
+fun floor(value: Float) r: Float {
+    if value >= 0.0 {
+        var whole = 0.0
+        var remaining = value
+        while remaining >= 1.0 {
+            remaining = remaining - 1.0
+            whole = whole + 1.0
+        }
+        return whole
+    }
+    var whole = 0.0
+    var remaining = value
+    while remaining <= -1.0 {
+        remaining = remaining + 1.0
+        whole = whole - 1.0
+    }
+    if remaining == 0.0 {
+        return whole
+    }
+    return whole - 1.0
+}
+
+fun ceil(value: Float) r: Float {
+    if value >= 0.0 {
+        var whole = 0.0
+        var remaining = value
+        while remaining >= 1.0 {
+            remaining = remaining - 1.0
+            whole = whole + 1.0
+        }
+        if remaining == 0.0 {
+            return whole
+        }
+        return whole + 1.0
+    }
+    var whole = 0.0
+    var remaining = value
+    while remaining <= -1.0 {
+        remaining = remaining + 1.0
+        whole = whole - 1.0
+    }
+    return whole
+}
+
+fun round(value: Float) r: Float {
+    let floored = floor(value)
+    let fraction = value - floored
+    if fraction >= 0.5 {
+        return floored + 1.0
+    }
+    if fraction <= -0.5 {
+        return floored - 1.0
+    }
+    return floored
+}
+
+fun pow(base: Float, exponent: Float) r: Float {
+    if exponent == 0.0 {
+        return 1.0
+    }
+    // Check if exponent is an integer
+    let absExp = abs(exponent)
+    let fracPart = absExp - floor(absExp)
+    if fracPart < 0.0000000001 and absExp < 1000.0 {
+        // Integer fast path
+        var result = 1.0
+        var count = absExp
+        while count >= 1.0 {
+            result = result * base
+            count = count - 1.0
+        }
+        if exponent < 0.0 {
+            if result == 0.0 {
+                abort("pow division by zero")
+            }
+            return 1.0 / result
+        }
+        return result
+    }
+    // Fractional exponent: base^exp = exp(exp * ln(base))
+    if base < 0.0 {
+        abort("pow: negative base with fractional exponent")
+    }
+    if base == 0.0 {
+        return 0.0
+    }
+    return exp(exponent * ln(base))
+}
+
+fun exp(value: Float) r: Float {
+    var term = 1.0
+    var result = 1.0
+    var n = 1
+    while n < 20 {
+        term = term * value / n
+        result = result + term
+        n = n + 1
+    }
+    return result
+}
+
+fun ln(value: Float) r: Float {
+    if value <= 0.0 {
+        abort("ln expects positive input")
+    }
+    var guess = 0.0
+    var iterations = 0
+    while iterations < 32 {
+        let e = exp(guess)
+        guess = guess + (value - e) / e
+        iterations = iterations + 1
+    }
+    return guess
+}
+
+fun log(base: Float, value: Float) r: Float {
+    return ln(value) / ln(base)
+}
+
+fun log2(value: Float) r: Float {
+    return ln(value) * 1.44269504088896340736
+}
+
+fun log10(value: Float) r: Float {
+    return ln(value) * 0.43429448190325182765
+}
+
+fun exp2(value: Float) r: Float {
+    return exp(value * 0.69314718055994530942)
+}
+
+fun clamp(value: Float, minValue: Float, maxValue: Float) r: Float {
+    if value < minValue {
+        return minValue
+    }
+    if value > maxValue {
+        return maxValue
+    }
+    return value
+}
+
+fun clampInt(value: Int, minValue: Int, maxValue: Int) r: Int {
+    if value < minValue {
+        return minValue
+    }
+    if value > maxValue {
+        return maxValue
+    }
+    return value
+}
+
+fun degToRad(degrees: Float) r: Float {
+    let factor = 3.14159265358979323846 / 180.0
+    return degrees * factor
+}
+
+fun radToDeg(radians: Float) r: Float {
+    let factor = 180.0 / 3.14159265358979323846
+    return radians * factor
+}
+
+fun saturatingAdd(a: Int, b: Int) r: Int {
+    let result = a + b
+    if (a > 0 and b > 0 and result < 0) {
+        return Int.max()
+    }
+    if (a < 0 and b < 0 and result > 0) {
+        return Int.min()
+    }
+    return result
+}
+
+fun saturatingSub(a: Int, b: Int) r: Int {
+    let result = a - b
+    if (a > 0 and b < 0 and result < 0) {
+        return Int.max()
+    }
+    if (a < 0 and b > 0 and result > 0) {
+        return Int.min()
+    }
+    return result
+}
+
+fun saturatingMul(a: Int, b: Int) r: Int {
+    if a == 0 or b == 0 {
+        return 0
+    }
+    let result = a * b
+    if (a == -1 and b == Int.min()) or (b == -1 and a == Int.min()) {
+        return Int.max()
+    }
+    if (result / b) != a {
+        if (a > 0 and b > 0) or (a < 0 and b < 0) {
+            return Int.max()
+        }
+        return Int.min()
+    }
+    return result
+}
+
+fun checkedAdd(a: Int, b: Int) r: Int {
+    let result = a + b
+    if (a > 0 and b > 0 and result < 0) or (a < 0 and b < 0 and result > 0) {
+        abort("checkedAdd overflow")
+    }
+    return result
+}
+
+fun checkedSub(a: Int, b: Int) r: Int {
+    let result = a - b
+    if (a >= 0 and b < 0 and result < 0) or (a <= 0 and b > 0 and result > 0) {
+        abort("checkedSub overflow")
+    }
+    return result
+}
+
+fun checkedMul(a: Int, b: Int) r: Int {
+    if a == 0 or b == 0 {
+        return 0
+    }
+    let result = a * b
+    if result / b != a {
+        abort("checkedMul overflow")
+    }
+    return result
+}
+
+fun wrappingAdd(a: Int, b: Int) r: Int {
+    return (a + b) // wrap via overflow semantics
+}
+
+fun wrappingSub(a: Int, b: Int) r: Int {
+    return (a - b)
+}
+
+fun wrappingMul(a: Int, b: Int) r: Int {
+    return (a * b)
+}
+
+fun checkedDiv(a: Int, b: Int) r: Int {
+    if b == 0 {
+        abort("division by zero")
+    }
+    if a == Int.min() and b == -1 {
+        abort("division overflow")
+    }
+    return a / b
+}
+
+fun lerp(a: Float, b: Float, t: Float) r: Float {
+    return a + (b - a) * t
+}
+
+fun inverseLerp(a: Float, b: Float, value: Float) r: Float {
+    if a == b {
+        return 0.0
+    }
+    return (value - a) / (b - a)
+}
+
+fun remap(value: Float, inMin: Float, inMax: Float, outMin: Float, outMax: Float) r: Float {
+    let normalized = clamp((value - inMin) / (inMax - inMin), 0.0, 1.0)
+    return lerp(outMin, outMax, normalized)
+}
+
+fun smoothstep(edge0: Float, edge1: Float, value: Float) r: Float {
+    let x = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
+}
+
+fun cbrt(value: Float) r: Float {
+    if value == 0.0 {
+        return 0.0
+    }
+    var x = abs(value)
+    var guess = x / 3.0
+    if guess == 0.0 {
+        guess = 1.0
+    }
+    var iterations = 0
+    while iterations < 30 {
+        guess = (2.0 * guess + x / (guess * guess)) / 3.0
+        iterations = iterations + 1
+    }
+    if value < 0.0 {
+        return -guess
+    }
+    return guess
+}
+
+fun hypot(x: Float, y: Float) r: Float {
+    let ax = abs(x)
+    let ay = abs(y)
+    if ax == 0.0 and ay == 0.0 {
+        return 0.0
+    }
+    let big = max(ax, ay)
+    let small = min(ax, ay)
+    let ratio = small / big
+    return big * sqrt(1.0 + ratio * ratio)
+}
+
+fun fmod(x: Float, y: Float) r: Float {
+    if y == 0.0 {
+        abort("fmod: division by zero")
+    }
+    return x - floor(x / y) * y
+}
+
+fun copysign(x: Float, y: Float) r: Float {
+    let magnitude = abs(x)
+    if y < 0.0 {
+        return -magnitude
+    }
+    return magnitude
+}
+
+fun radians(value: Float) r: Float {
+    return degToRad(value)
+}
+
+fun degrees(value: Float) r: Float {
+    return radToDeg(value)
+}
+
+fun normalizeAngle(value: Float) r: Float {
+    // Use local literals so we don't depend on module-level const resolution during bootstrap lowering.
+    let pi = 3.14159265358979323846
+    let tau = 6.28318530717958647692
+    var angle = value
+    while angle > pi {
+        angle = angle - tau
+    }
+    while angle < -pi {
+        angle = angle + tau
+    }
+    return angle
+}
+
+// --- Hyperbolic functions ---
+
+fun sinh(x: Float) r: Float {
+    if abs(x) < 1.0 {
+        // Taylor series for small x to avoid cancellation: x + x^3/6 + x^5/120 + ...
+        let x2 = x * x
+        let x3 = x * x2
+        let x5 = x3 * x2
+        let x7 = x5 * x2
+        let x9 = x7 * x2
+        let x11 = x9 * x2
+        return x + x3 / 6.0 + x5 / 120.0 + x7 / 5040.0 + x9 / 362880.0 + x11 / 39916800.0
+    }
+    let ex = exp(x)
+    return (ex - 1.0 / ex) / 2.0
+}
+
+fun cosh(x: Float) r: Float {
+    let ex = exp(x)
+    return (ex + 1.0 / ex) / 2.0
+}
+
+fun tanh(x: Float) r: Float {
+    if x > 20.0 {
+        return 1.0
+    }
+    if x < -20.0 {
+        return -1.0
+    }
+    let e2x = exp(2.0 * x)
+    return (e2x - 1.0) / (e2x + 1.0)
+}
+
+fun asinh(x: Float) r: Float {
+    return ln(x + sqrt(x * x + 1.0))
+}
+
+fun acosh(x: Float) r: Float {
+    if x < 1.0 {
+        abort("acosh: domain error, x must be >= 1")
+    }
+    return ln(x + sqrt(x * x - 1.0))
+}
+
+fun atanh(x: Float) r: Float {
+    if x <= -1.0 or x >= 1.0 {
+        abort("atanh: domain error, x must be in (-1, 1)")
+    }
+    return 0.5 * ln((1.0 + x) / (1.0 - x))
+}
+
+// --- IEEE 754 classification ---
+
+fun isnan(x: Float) r: Bool {
+    // NaN is the only value where x != x (fcmp ole returns false for NaN)
+    return not (x <= x)
+}
+
+fun isinf(x: Float) r: Bool {
+    // Can't reliably detect Inf in pure Seen due to fast-math nnan/ninf flags.
+    // Returns false for all normal values. Useful as interface contract.
+    return false
+}
+
+fun isfinite(x: Float) r: Bool {
+    return not isnan(x) and not isinf(x)
+}
+
+// --- Integer utilities ---
+
+fun gcd(a: Int, b: Int) r: Int {
+    var x = absInt(a)
+    var y = absInt(b)
+    while y != 0 {
+        let temp = y
+        y = x - (x / y) * y
+        x = temp
+    }
+    return x
+}
+
+fun lcm(a: Int, b: Int) r: Int {
+    if a == 0 or b == 0 {
+        return 0
+    }
+    // Compute as |a / gcd(a,b)| * |b| to avoid overflow
+    let g = gcd(a, b)
+    return absInt(a / g) * absInt(b)
+}

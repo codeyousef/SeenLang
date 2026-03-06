@@ -1,0 +1,43 @@
+// Test: Explicit CPU/GPU fence synchronization
+// Verifies seen_gpu_fence_create/wait/destroy runtime functions
+
+fun main() r: Int {
+    println("test_fence_events: CPU/GPU fence synchronization")
+
+    let gpuOk = seen_gpu_init()
+    if gpuOk == 1 {
+        let fence = seen_gpu_fence_create()
+        if fence != 0 {
+            println("  Fence created")
+            // Wait with 0 timeout (instant check)
+            let signaled = seen_gpu_fence_wait(fence, 0)
+            if signaled == 1 {
+                println("  Fence signaled")
+            } else {
+                println("  Fence not signaled (expected for unused fence)")
+            }
+            seen_gpu_fence_destroy(fence)
+            println("  Fence destroyed")
+        }
+
+        // Test device wait idle
+        let waitOk = seen_gpu_device_wait_idle()
+        if waitOk == 1 {
+            println("  Device wait idle succeeded")
+        }
+
+        seen_gpu_shutdown()
+    } else {
+        println("  GPU not available (Tier 1 only)")
+    }
+
+    println("PASS")
+    return 0
+}
+
+extern fun seen_gpu_init() r: Int
+extern fun seen_gpu_shutdown() r: Void
+extern fun seen_gpu_fence_create() r: Int
+extern fun seen_gpu_fence_wait(handle: Int, timeoutNs: Int) r: Int
+extern fun seen_gpu_fence_destroy(handle: Int) r: Void
+extern fun seen_gpu_device_wait_idle() r: Int

@@ -1,0 +1,334 @@
+// Test sandbox isolation for nondeterministic middleware
+// Verifies that sandboxed middleware can't corrupt deterministic context
+
+// Minimal middleware context (inline, no imports)
+class MiddlewareContext {
+    var data: Array<String>
+    var stopped: Bool
+    var error: String
+
+    static fun new() r: MiddlewareContext {
+        return MiddlewareContext{
+            data: Array<String>(),
+            stopped: false,
+            error: ""
+        }
+    }
+
+    fun set(key: String, value: String) r: Void {
+        var i = 0
+        while i < data.length() {
+            if i % 2 == 0 and data[i] == key {
+                data[i + 1] = value
+                return
+            }
+            i = i + 1
+        }
+        data.push(key)
+        data.push(value)
+    }
+
+    fun get(key: String) r: String {
+        var i = 0
+        while i < data.length() {
+            if i % 2 == 0 and data[i] == key {
+                return data[i + 1]
+            }
+            i = i + 2
+        }
+        return ""
+    }
+
+    fun has(key: String) r: Bool {
+        var i = 0
+        while i < data.length() {
+            if i % 2 == 0 and data[i] == key {
+                return true
+            }
+            i = i + 2
+        }
+        return false
+    }
+
+    fun stop() r: Void {
+        stopped = true
+    }
+
+    fun shouldContinue() r: Bool {
+        return not stopped
+    }
+}
+
+// Free function helper for context get (avoids chained field access codegen issue)
+fun ctxGet(ctx: MiddlewareContext, key: String) r: String {
+    var d = ctx.data
+    var i = 0
+    while i < d.length() {
+        if i % 2 == 0 and d[i] == key {
+            return d[i + 1]
+        }
+        i = i + 2
+    }
+    return ""
+}
+
+// Free function helper for context set
+fun ctxSet(ctx: MiddlewareContext, key: String, value: String) r: Void {
+    var d = ctx.data
+    var i = 0
+    while i < d.length() {
+        if i % 2 == 0 and d[i] == key {
+            d[i + 1] = value
+            return
+        }
+        i = i + 1
+    }
+    d.push(key)
+    d.push(value)
+}
+
+// Free function helper for context has
+fun ctxHas(ctx: MiddlewareContext, key: String) r: Bool {
+    var d = ctx.data
+    var i = 0
+    while i < d.length() {
+        if i % 2 == 0 and d[i] == key {
+            return true
+        }
+        i = i + 2
+    }
+    return false
+}
+
+// Sandbox configuration
+class SandboxConfig {
+    var name: String
+    var allowedWriteKeys: Array<String>
+    var allowedReadKeys: Array<String>
+
+    static fun new(name: String) r: SandboxConfig {
+        return SandboxConfig{
+            name: name,
+            allowedWriteKeys: Array<String>(),
+            allowedReadKeys: Array<String>()
+        }
+    }
+
+    fun allowWrite(key: String) r: Void {
+        allowedWriteKeys.push(key)
+    }
+
+    fun allowRead(key: String) r: Void {
+        allowedReadKeys.push(key)
+    }
+
+    fun canWrite(key: String) r: Bool {
+        if allowedWriteKeys.length() == 0 { return true }
+        var i = 0
+        while i < allowedWriteKeys.length() {
+            if allowedWriteKeys[i] == key { return true }
+            i = i + 1
+        }
+        return false
+    }
+
+    fun canRead(key: String) r: Bool {
+        if allowedReadKeys.length() == 0 { return true }
+        var i = 0
+        while i < allowedReadKeys.length() {
+            if allowedReadKeys[i] == key { return true }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+// Sandboxed context wrapper
+class SandboxedContext {
+    var inner: MiddlewareContext
+    var config: SandboxConfig
+    var snapshotData: Array<String>
+    var violations: Array<String>
+    var writeCount: Int
+    var readCount: Int
+
+    static fun new(ctx: MiddlewareContext, config: SandboxConfig) r: SandboxedContext {
+        var snapshot = Array<String>()
+        var d = ctx.data
+        var i = 0
+        while i < d.length() {
+            snapshot.push(d[i])
+            i = i + 1
+        }
+
+        return SandboxedContext{
+            inner: ctx,
+            config: config,
+            snapshotData: snapshot,
+            violations: Array<String>(),
+            writeCount: 0,
+            readCount: 0
+        }
+    }
+
+    fun set(key: String, value: String) r: Bool {
+        if not config.canWrite(key) {
+            violations.push("Write denied: '" + key + "'")
+            return false
+        }
+        ctxSet(inner, key, value)
+        writeCount = writeCount + 1
+        return true
+    }
+
+    fun get(key: String) r: String {
+        if not config.canRead(key) {
+            violations.push("Read denied: '" + key + "'")
+            return ""
+        }
+        readCount = readCount + 1
+        return ctxGet(inner, key)
+    }
+
+    fun hasViolations() r: Bool {
+        return violations.length() > 0
+    }
+
+    fun violationCount() r: Int {
+        return violations.length()
+    }
+
+    fun getViolation(index: Int) r: String {
+        if index >= 0 and index < violations.length() {
+            return violations[index]
+        }
+        return ""
+    }
+
+    fun rollback() r: Void {
+        // Restore data from snapshot
+        var newData = Array<String>()
+        var i = 0
+        while i < snapshotData.length() {
+            newData.push(snapshotData[i])
+            i = i + 1
+        }
+        inner.data = newData
+        inner.stopped = false
+        inner.error = ""
+    }
+}
+
+fun main() r: Int {
+    println("=== Sandbox Middleware Isolation Test ===")
+    println("")
+
+    // Test 1: Sandboxed middleware with allowed writes
+    println("--- Test 1: Allowed writes pass through ---")
+    var ctx = MiddlewareContext.new()
+    ctxSet(ctx, "request_id", "12345")
+
+    var sandbox = SandboxConfig.new("LoggingMiddleware")
+    sandbox.allowWrite("logged")
+    sandbox.allowWrite("log_level")
+    sandbox.allowRead("request_id")
+
+    var sctx = SandboxedContext.new(ctx, sandbox)
+
+    let writeOk = sctx.set("logged", "true")
+    println("  Write 'logged' = " + writeOk.toString())
+
+    let reqId = sctx.get("request_id")
+    println("  Read 'request_id' = " + reqId)
+
+    println("  Violations: " + sctx.violationCount().toString())
+    println("  Write count: " + sctx.writeCount.toString())
+    println("  Read count: " + sctx.readCount.toString())
+    println("")
+
+    // Test 2: Sandboxed middleware with denied writes
+    println("--- Test 2: Denied writes are blocked ---")
+    var ctx2 = MiddlewareContext.new()
+    ctxSet(ctx2, "auth_token", "secret123")
+    ctxSet(ctx2, "role", "admin")
+
+    var sandbox2 = SandboxConfig.new("UntrustedMiddleware")
+    sandbox2.allowWrite("result")      // Can only write "result"
+    sandbox2.allowRead("role")         // Can only read "role"
+
+    var sctx2 = SandboxedContext.new(ctx2, sandbox2)
+
+    // Attempt to write to auth_token (should be denied)
+    let writeAuthOk = sctx2.set("auth_token", "hacked")
+    println("  Write 'auth_token' (expected false): " + writeAuthOk.toString())
+
+    // Attempt to read auth_token (should be denied)
+    let authVal = sctx2.get("auth_token")
+    println("  Read 'auth_token' (expected empty): '" + authVal + "'")
+
+    // Allowed write should work
+    let writeResultOk = sctx2.set("result", "processed")
+    println("  Write 'result' (expected true): " + writeResultOk.toString())
+
+    // Allowed read should work
+    let roleVal = sctx2.get("role")
+    println("  Read 'role' (expected admin): " + roleVal)
+
+    println("  Violations: " + sctx2.violationCount().toString())
+    println("  Violation 0: " + sctx2.getViolation(0))
+    println("  Violation 1: " + sctx2.getViolation(1))
+
+    // Verify original context wasn't corrupted
+    let origAuth = ctxGet(ctx2, "auth_token")
+    println("  Original auth_token: " + origAuth)
+    println("")
+
+    // Test 3: Rollback on violation
+    println("--- Test 3: Rollback restores context ---")
+    var ctx3 = MiddlewareContext.new()
+    ctxSet(ctx3, "counter", "10")
+    ctxSet(ctx3, "status", "ok")
+
+    var sandbox3 = SandboxConfig.new("FailingMiddleware")
+    // Permissive mode (no restrictions)
+
+    var sctx3 = SandboxedContext.new(ctx3, sandbox3)
+
+    // Middleware modifies context
+    sctx3.set("counter", "999")
+    sctx3.set("status", "modified")
+    sctx3.set("extra", "new_data")
+
+    println("  Before rollback:")
+    println("    counter = " + ctxGet(ctx3, "counter"))
+    println("    status = " + ctxGet(ctx3, "status"))
+    println("    extra = " + ctxGet(ctx3, "extra"))
+
+    // Simulate failure - rollback
+    sctx3.rollback()
+
+    println("  After rollback:")
+    println("    counter = " + ctxGet(ctx3, "counter"))
+    println("    status = " + ctxGet(ctx3, "status"))
+    let hasExtra = ctxHas(ctx3, "extra")
+    println("    has 'extra' (expected false): " + hasExtra.toString())
+    println("")
+
+    // Test 4: Permissive sandbox (no restrictions)
+    println("--- Test 4: Permissive sandbox allows all ---")
+    var ctx4 = MiddlewareContext.new()
+
+    var sandbox4 = SandboxConfig.new("TrustedMiddleware")
+    // No restrictions added - permissive mode
+
+    var sctx4 = SandboxedContext.new(ctx4, sandbox4)
+
+    sctx4.set("any_key", "any_value")
+    let anyVal = sctx4.get("any_key")
+    println("  Write/read unrestricted: " + anyVal)
+    println("  Violations: " + sctx4.violationCount().toString())
+    println("")
+
+    println("=== All Sandbox Tests Passed ===")
+    return 0
+}

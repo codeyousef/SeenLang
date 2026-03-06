@@ -1,0 +1,162 @@
+// Minimal cross-platform Vulkan-style sample for MVP POST-2
+
+data VulkanAppConfig {
+    title: String,
+    width: Int,
+    height: Int,
+    frames_to_render: Int,
+    enable_validation: Bool,
+    swapchain_image_count: Int,
+}
+
+data SurfaceSize {
+    width: Int,
+    height: Int,
+}
+
+data VulkanResourceState {
+    surface: SurfaceSize,
+    pipelines_ready: Bool,
+    swapchain_images: Int,
+}
+
+data Vec2 {
+    x: Float,
+    y: Float,
+}
+
+data Vec3 {
+    r: Float,
+    g: Float,
+    b: Float,
+}
+
+data VulkanVertex {
+    position: Vec2,
+    color: Vec3,
+}
+
+data FrameResult {
+    validation_ok: Bool,
+    estimated_ms: Float,
+}
+
+data VulkanFrameSummary {
+    frames_rendered: Int,
+    validation_errors: Int,
+    average_frame_time_ms: Float,
+    swapchain_images: Int,
+}
+
+fun main() -> Int {
+    let config = VulkanAppConfig {
+        title: "Seen Vulkan Minimal",
+        width: 1280,
+        height: 720,
+        frames_to_render: 3,
+        enable_validation: true,
+        swapchain_image_count: 2,
+    }
+
+    let summary = run_vulkan_sample(config)
+
+    println("[seen-vulkan-min] title={config.title}")
+    println("frame_count={summary.frames_rendered} avg_ms={summary.average_frame_time_ms}")
+    println("swapchain_images={summary.swapchain_images} validation_errors={summary.validation_errors}")
+
+    if summary.validation_errors == 0 {
+        println("validation layers: clean")
+        return 0
+    }
+
+    println("validation layers: FAILED")
+    return 1
+}
+
+fun run_vulkan_sample(config: VulkanAppConfig) -> VulkanFrameSummary {
+    let vertices = triangle_vertices()
+    let resources = bootstrap_resources(config)
+
+    let frames = if config.frames_to_render <= 0 { 1 } else { config.frames_to_render }
+    var validation_errors = 0
+    var total_frame_time = 0.0
+
+    for frame in 0..frames {
+        let result = record_frame(frame, vertices, resources)
+        if not result.validation_ok {
+            validation_errors = validation_errors + 1
+        }
+        total_frame_time = total_frame_time + result.estimated_ms
+    }
+
+    let frames_float = frames * 1.0
+    let average_frame_time = total_frame_time / frames_float
+
+    return VulkanFrameSummary {
+        frames_rendered: frames,
+        validation_errors: validation_errors,
+        average_frame_time_ms: average_frame_time,
+        swapchain_images: resources.swapchain_images,
+    }
+}
+
+fun bootstrap_resources(config: VulkanAppConfig) -> VulkanResourceState {
+    let surface = SurfaceSize {
+        width: config.width,
+        height: config.height,
+    }
+
+    let pipelines_ready = config.enable_validation and config.swapchain_image_count >= 2
+
+    return VulkanResourceState {
+        surface: surface,
+        pipelines_ready: pipelines_ready,
+        swapchain_images: config.swapchain_image_count,
+    }
+}
+
+fun record_frame(frame_index: Int, vertices: List<VulkanVertex>, state: VulkanResourceState) -> FrameResult {
+    let command_count = vertices.length()
+    let has_surface = state.surface.width > 0 and state.surface.height > 0
+    let validation_ok = state.pipelines_ready and has_surface and command_count >= 3
+    let estimated_ms = estimate_frame_time(frame_index, command_count, state.swapchain_images)
+
+    if validation_ok {
+        println("frame#{frame_index}: recorded {command_count} commands against {state.swapchain_images} images")
+    } else {
+        println("frame#{frame_index}: validation failed (commands={command_count} surface={state.surface.width}x{state.surface.height})")
+    }
+
+    return FrameResult {
+        validation_ok: validation_ok,
+        estimated_ms: estimated_ms,
+    }
+}
+
+fun estimate_frame_time(frame_index: Int, commands: Int, swapchain_images: Int) -> Float {
+    let base = 0.9
+    let commands_float = commands * 1.0
+    let swapchain_float = swapchain_images * 1.0
+    let frame_float = frame_index * 1.0
+    let command_penalty = commands_float * 0.2
+    let swapchain_bonus = swapchain_float * 0.05
+    let jitter = frame_float * 0.03
+    return base + command_penalty - swapchain_bonus + jitter
+}
+
+fun triangle_vertices() -> List<VulkanVertex> {
+    return [
+        VulkanVertex {
+            position: Vec2 { x: 0.0, y: -0.5 },
+            color: Vec3 { r: 1.0, g: 0.0, b: 0.0 },
+        },
+        VulkanVertex {
+            position: Vec2 { x: 0.5, y: 0.5 },
+            color: Vec3 { r: 0.0, g: 1.0, b: 0.0 },
+        },
+        VulkanVertex {
+            position: Vec2 { x: -0.5, y: 0.5 },
+            color: Vec3 { r: 0.0, g: 0.0, b: 1.0 },
+        },
+    ]
+}

@@ -1,0 +1,54 @@
+name = "English"
+description = "English Math Standard Library"
+
+[std_lib]
+# Trigonometric
+"sin" = "seen_std.math.sin"
+"cos" = "seen_std.math.cos"
+"tan" = "seen_std.math.tan"
+"asin" = "seen_std.math.asin"
+"acos" = "seen_std.math.acos"
+"atan" = "seen_std.math.atan"
+"atan2" = "seen_std.math.atan2"
+
+# Roots & Powers
+"sqrt" = "seen_std.math.sqrt"
+"cbrt" = "seen_std.math.cbrt"
+"pow" = "seen_std.math.pow"
+"hypot" = "seen_std.math.hypot"
+
+# Exponential & Logarithmic
+"exp" = "seen_std.math.exp"
+"ln" = "seen_std.math.ln"
+"log2" = "seen_std.math.log2"
+"log10" = "seen_std.math.log10"
+
+# Rounding
+"floor" = "seen_std.math.floor"
+"ceil" = "seen_std.math.ceil"
+"round" = "seen_std.math.round"
+
+# Basic
+"abs" = "seen_std.math.abs"
+"min" = "seen_std.math.min"
+"max" = "seen_std.math.max"
+"clamp" = "seen_std.math.clamp"
+"sign" = "seen_std.math.sign"
+
+# Interpolation
+"lerp" = "seen_std.math.lerp"
+"smoothstep" = "seen_std.math.smoothstep"
+
+# IEEE checks
+"isnan" = "seen_std.math.isnan"
+"isinf" = "seen_std.math.isinf"
+"isfinite" = "seen_std.math.isfinite"
+
+# Integer
+"gcd" = "seen_std.math.gcd"
+
+# Constants
+"PI" = "seen_std.math.PI"
+"TAU" = "seen_std.math.TAU"
+"E" = "seen_std.math.E"
+"EPSILON" = "seen_std.math.EPSILON"

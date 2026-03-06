@@ -1,0 +1,43 @@
+// Test @derive decorator - verifies Serialize, Deserialize, and Reflect
+
+@derive(Serialize, Deserialize, Reflect)
+class Person {
+    var name: String
+    var age: Int
+    var active: Bool
+}
+
+fun main() r: Int {
+    println("Testing @derive decorators...")
+
+    // Create a Person instance
+    let person = Person{ name: "Alice", age: 30, active: true }
+
+    // Test @derive(Reflect) - getTypeName
+    let typeName = person.getTypeName()
+    println("Type name: " + typeName)
+
+    // Test @derive(Reflect) - getFieldCount
+    let fieldCount = person.getFieldCount()
+    println("Field count: " + fieldCount.toString())
+
+    // Test @derive(Reflect) - getFieldNames
+    let fieldNames = person.getFieldNames()
+    var i = 0
+    println("Field names:")
+    while i < fieldNames.length() {
+        println("  - " + fieldNames[i])
+        i = i + 1
+    }
+
+    // Test @derive(Serialize) - toBytes
+    let bytes = person.toBytes()
+    println("Serialized size: " + bytes.length().toString() + " bytes")
+
+    // Test @derive(Deserialize) - fromBytes
+    let restored = Person.fromBytes(bytes)
+    println("Restored age: " + restored.age.toString())
+
+    println("Done!")
+    return 0
+}

@@ -1,0 +1,152 @@
+// Reverse Complement Benchmark
+// DNA sequence reverse complement with lookup table
+
+fun create_complement_table() -> Array<Int> {
+    let table: Array<Int> = Array<Int>(256, 0)
+    var i = 0
+    while i < 256 {
+        table[i] = i
+        i = i + 1
+    }
+
+    table[65] = 84
+    table[67] = 71
+    table[71] = 67
+    table[84] = 65
+    table[85] = 65
+    table[77] = 75
+    table[82] = 89
+    table[87] = 87
+    table[83] = 83
+    table[89] = 82
+    table[75] = 77
+    table[86] = 66
+    table[72] = 68
+    table[68] = 72
+    table[66] = 86
+    table[78] = 78
+
+    table[97] = 116
+    table[99] = 103
+    table[103] = 99
+    table[116] = 97
+    table[117] = 97
+    table[109] = 107
+    table[114] = 121
+    table[119] = 119
+    table[115] = 115
+    table[121] = 114
+    table[107] = 109
+    table[118] = 98
+    table[104] = 100
+    table[100] = 104
+    table[98] = 118
+    table[110] = 110
+
+    return table
+}
+
+fun reverse_complement(seq: Array<Int>, table: Array<Int>) -> Array<Int> {
+    let len: Int = seq.length()
+    let result: Array<Int> = Array<Int>.withLength(len)
+
+    var i = 0
+    while i < len {
+        result[i] = table[seq[len - 1 - i]]
+        i = i + 1
+    }
+
+    return result
+}
+
+fun generate_sequence(n: Int, seed: Int) -> Array<Int> {
+    let seq: Array<Int> = Array<Int>.withLength(n)
+    let bases: Array<Int> = Array<Int>(4, 0)
+    bases[0] = 65
+    bases[1] = 67
+    bases[2] = 71
+    bases[3] = 84
+
+    var current_seed = seed
+    var i = 0
+    while i < n {
+        current_seed = (current_seed * 1103515245 + 12345) % 2147483647
+        if current_seed < 0 {
+            current_seed = 0 - current_seed
+        }
+        let idx: Int = current_seed % 4
+        seq[i] = bases[idx]
+        i = i + 1
+    }
+
+    return seq
+}
+
+fun compute_checksum(seq: Array<Int>) -> Int {
+    var sum = 0
+    var i = 0
+    let len = seq.length()
+    while i < len {
+        sum = sum + seq[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun main() -> Int {
+    let n = 5000000
+
+    __Print("Reverse Complement Benchmark\n")
+    __Print("Sequence length: ")
+    __PrintInt(n)
+    __Print("\n")
+
+    let table: Array<Int> = create_complement_table()
+    let seq: Array<Int> = generate_sequence(n, 42)
+
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let result_warmup: Array<Int> = reverse_complement(seq, table)
+        result_warmup.free()
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_seq: Array<Int> = Array<Int>()
+
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let result: Array<Int> = reverse_complement(seq, table)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_seq.free()
+            result_seq = result
+        } else {
+            result.free()
+        }
+        i = i + 1
+    }
+
+    let checksum: Int = compute_checksum(result_seq)
+
+    __Print("Checksum: ")
+    __PrintInt(checksum)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Throughput: ")
+    __PrintFloat(n.toFloat() / (min_time / 1000.0) / 1000000.0)
+    __Print(" Mbp/s\n")
+
+    return 0
+}

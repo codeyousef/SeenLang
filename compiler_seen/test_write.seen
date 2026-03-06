@@ -1,0 +1,10 @@
+// Test: Call writeText
+import io.file.{writeText}
+
+fun main() r: Int {
+    let wrote = writeText("/dev/null", "test")
+    if wrote {
+        return 0
+    }
+    return 1
+}

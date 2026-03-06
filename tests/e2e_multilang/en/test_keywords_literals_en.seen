@@ -1,0 +1,91 @@
+// E2E Test: Literal Keywords (English)
+// Keywords tested: true, false, null
+
+fun isPositive(n: Int) r: Int {
+    if n > 0 {
+        return 1
+    }
+    return 0
+}
+
+fun main() r: Int {
+    // Test 1: true in condition (using Int workaround for bool vars)
+    var flag = 0
+    if true {
+        flag = 1
+    }
+    if flag == 1 {
+        println("PASS: true literal")
+    } else {
+        println("FAIL: true literal")
+        return 1
+    }
+
+    // Test 2: false in condition
+    var flag2 = 1
+    if false {
+        flag2 = 0
+    }
+    if flag2 == 1 {
+        println("PASS: false literal")
+    } else {
+        println("FAIL: false literal")
+        return 1
+    }
+
+    // Test 3: true/false in logical expressions
+    var result = 0
+    if true and true {
+        result = 1
+    }
+    if result == 1 {
+        println("PASS: true and true")
+    } else {
+        println("FAIL: true and true")
+        return 1
+    }
+
+    // Test 4: false in logical expression
+    var result2 = 1
+    if true and false {
+        result2 = 0
+    }
+    if result2 == 1 {
+        println("PASS: true and false")
+    } else {
+        println("FAIL: true and false")
+        return 1
+    }
+
+    // Test 5: not false
+    var result3 = 0
+    if not false {
+        result3 = 1
+    }
+    if result3 == 1 {
+        println("PASS: not false")
+    } else {
+        println("FAIL: not false")
+        return 1
+    }
+
+    // Test 6: null check pattern (using nullable Int)
+    let val = isPositive(5)
+    if val == 1 {
+        println("PASS: non-null value")
+    } else {
+        println("FAIL: non-null value")
+        return 1
+    }
+
+    let val2 = isPositive(-3)
+    if val2 == 0 {
+        println("PASS: zero/null-like value")
+    } else {
+        println("FAIL: zero/null-like value")
+        return 1
+    }
+
+    println("PASS: all literal keyword tests passed")
+    return 0
+}

@@ -1,0 +1,29 @@
+// Test: @test decorator marks function as deterministic by default
+
+@test
+fun testAddition() r: Bool {
+    let result = 2 + 2
+    return result == 4
+}
+
+@test
+fun testStringConcat() r: Bool {
+    let s = "hello" + " world"
+    return s == "hello world"
+}
+
+fun main() r: Int {
+    if testAddition() {
+        println("testAddition passed")
+    } else {
+        println("testAddition FAILED")
+    }
+
+    if testStringConcat() {
+        println("testStringConcat passed")
+    } else {
+        println("testStringConcat FAILED")
+    }
+
+    return 0
+}

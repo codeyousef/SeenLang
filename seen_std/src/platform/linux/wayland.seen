@@ -1,0 +1,289 @@
+/**
+ * Wayland client protocol FFI bindings for Linux.
+ *
+ * Provides low-level access to the Wayland compositor via libwayland-client,
+ * including display connection, surface management, XDG shell toplevel windows,
+ * and Vulkan surface creation for rendering.
+ *
+ * Link with: -lwayland-client
+ */
+
+// ============================================================================
+// Wayland pointer event types
+// ============================================================================
+
+let WL_POINTER_ENTER: Int = 1
+let WL_POINTER_LEAVE: Int = 2
+let WL_POINTER_MOTION: Int = 3
+let WL_POINTER_BUTTON: Int = 4
+let WL_POINTER_AXIS: Int = 5
+let WL_POINTER_FRAME: Int = 6
+let WL_POINTER_AXIS_SOURCE: Int = 7
+let WL_POINTER_AXIS_STOP: Int = 8
+let WL_POINTER_AXIS_DISCRETE: Int = 9
+
+// ============================================================================
+// Wayland keyboard event types
+// ============================================================================
+
+let WL_KEYBOARD_KEYMAP: Int = 10
+let WL_KEYBOARD_ENTER: Int = 11
+let WL_KEYBOARD_LEAVE: Int = 12
+let WL_KEYBOARD_KEY: Int = 13
+let WL_KEYBOARD_MODIFIERS: Int = 14
+let WL_KEYBOARD_REPEAT_INFO: Int = 15
+
+// ============================================================================
+// Wayland touch event types
+// ============================================================================
+
+let WL_TOUCH_DOWN: Int = 20
+let WL_TOUCH_UP: Int = 21
+let WL_TOUCH_MOTION: Int = 22
+let WL_TOUCH_FRAME: Int = 23
+let WL_TOUCH_CANCEL: Int = 24
+
+// ============================================================================
+// XDG toplevel state constants
+// ============================================================================
+
+let XDG_TOPLEVEL_STATE_MAXIMIZED: Int = 1
+let XDG_TOPLEVEL_STATE_FULLSCREEN: Int = 2
+let XDG_TOPLEVEL_STATE_RESIZING: Int = 3
+let XDG_TOPLEVEL_STATE_ACTIVATED: Int = 4
+let XDG_TOPLEVEL_STATE_TILED_LEFT: Int = 5
+let XDG_TOPLEVEL_STATE_TILED_RIGHT: Int = 6
+let XDG_TOPLEVEL_STATE_TILED_TOP: Int = 7
+let XDG_TOPLEVEL_STATE_TILED_BOTTOM: Int = 8
+
+// ============================================================================
+// Wayland button codes (matching linux/input-event-codes.h)
+// ============================================================================
+
+let WL_BTN_LEFT: Int = 0x110
+let WL_BTN_RIGHT: Int = 0x111
+let WL_BTN_MIDDLE: Int = 0x112
+
+// ============================================================================
+// Pointer axis sources
+// ============================================================================
+
+let WL_POINTER_AXIS_SOURCE_WHEEL: Int = 0
+let WL_POINTER_AXIS_SOURCE_FINGER: Int = 1
+let WL_POINTER_AXIS_SOURCE_CONTINUOUS: Int = 2
+let WL_POINTER_AXIS_SOURCE_WHEEL_TILT: Int = 3
+
+// ============================================================================
+// FFI Declarations - seen_wl_* functions
+// ============================================================================
+
+// Display connection
+extern fun seen_wl_display_connect(name: String) r: Int
+extern fun seen_wl_display_disconnect(display: Int) r: Void
+extern fun seen_wl_display_dispatch(display: Int) r: Int
+extern fun seen_wl_display_roundtrip(display: Int) r: Int
+extern fun seen_wl_display_get_fd(display: Int) r: Int
+extern fun seen_wl_display_flush(display: Int) r: Int
+
+// Compositor and surface management
+extern fun seen_wl_compositor_create_surface(compositor: Int) r: Int
+extern fun seen_wl_surface_destroy(surface: Int) r: Void
+extern fun seen_wl_surface_commit(surface: Int) r: Void
+extern fun seen_wl_surface_damage(surface: Int, x: Int, y: Int, w: Int, h: Int) r: Void
+extern fun seen_wl_surface_attach(surface: Int, buffer: Int, x: Int, y: Int) r: Void
+
+// XDG shell (window management)
+extern fun seen_xdg_wm_base_get(display: Int) r: Int
+extern fun seen_xdg_surface_create(wmBase: Int, surface: Int) r: Int
+extern fun seen_xdg_toplevel_create(xdgSurface: Int) r: Int
+extern fun seen_xdg_toplevel_set_title(toplevel: Int, title: String) r: Void
+extern fun seen_xdg_toplevel_set_size(toplevel: Int, w: Int, h: Int) r: Void
+extern fun seen_xdg_toplevel_set_min_size(toplevel: Int, w: Int, h: Int) r: Void
+extern fun seen_xdg_toplevel_set_max_size(toplevel: Int, w: Int, h: Int) r: Void
+extern fun seen_xdg_toplevel_set_fullscreen(toplevel: Int) r: Void
+extern fun seen_xdg_toplevel_unset_fullscreen(toplevel: Int) r: Void
+extern fun seen_xdg_toplevel_set_maximized(toplevel: Int) r: Void
+extern fun seen_xdg_toplevel_unset_maximized(toplevel: Int) r: Void
+extern fun seen_xdg_toplevel_destroy(toplevel: Int) r: Void
+extern fun seen_xdg_surface_destroy(xdgSurface: Int) r: Void
+
+// Vulkan integration
+extern fun seen_wl_vk_surface_create(display: Int, surface: Int, vkInstance: Int) r: Int
+
+// Event polling
+extern fun seen_wl_poll_event(display: Int) r: Int
+extern fun seen_wl_get_event_type(event: Int) r: Int
+extern fun seen_wl_get_event_x(event: Int) r: Int
+extern fun seen_wl_get_event_y(event: Int) r: Int
+extern fun seen_wl_get_event_button(event: Int) r: Int
+extern fun seen_wl_get_event_key(event: Int) r: Int
+extern fun seen_wl_get_event_state(event: Int) r: Int
+
+// ============================================================================
+// WaylandWindow - high-level window wrapper
+// ============================================================================
+
+/**
+ * High-level Wayland window abstraction.
+ *
+ * Manages a wl_display connection, wl_surface, xdg_surface, and
+ * xdg_toplevel to provide a simple windowing API. Uses Int handles
+ * for all Wayland objects.
+ *
+ * Example:
+ *   let win = WaylandWindow.create("My App", 800, 600)
+ *   if win.isValid() == 1 {
+ *       win.show()
+ *       while win.isRunning() == 1 {
+ *           win.pollEvents()
+ *       }
+ *       win.close()
+ *   }
+ */
+class WaylandWindow {
+    var handle: Int
+    var display: Int
+    var surface: Int
+    var xdgSurface: Int
+    var toplevel: Int
+    var width: Int
+    var height: Int
+    var running: Int
+
+    /**
+     * Create a new Wayland window with the given title and dimensions.
+     * Connects to the default Wayland display (name = "").
+     * Returns a window with handle=0 and running=0 on failure.
+     */
+    static fun create(title: String, w: Int, h: Int) r: WaylandWindow {
+        let disp = seen_wl_display_connect("")
+        if disp == 0 {
+            return WaylandWindow {
+                handle: 0, display: 0, surface: 0,
+                xdgSurface: 0, toplevel: 0,
+                width: 0, height: 0, running: 0
+            }
+        }
+
+        // Perform initial roundtrip to bind globals
+        seen_wl_display_roundtrip(disp)
+
+        let wmBase = seen_xdg_wm_base_get(disp)
+        let wlSurface = seen_wl_compositor_create_surface(disp)
+        let xdgSurf = seen_xdg_surface_create(wmBase, wlSurface)
+        let top = seen_xdg_toplevel_create(xdgSurf)
+
+        seen_xdg_toplevel_set_title(top, title)
+        seen_xdg_toplevel_set_size(top, w, h)
+        seen_wl_surface_commit(wlSurface)
+
+        // Second roundtrip to process configure events
+        seen_wl_display_roundtrip(disp)
+
+        return WaylandWindow {
+            handle: wlSurface,
+            display: disp,
+            surface: wlSurface,
+            xdgSurface: xdgSurf,
+            toplevel: top,
+            width: w,
+            height: h,
+            running: 1
+        }
+    }
+
+    /**
+     * Check if the window was created successfully.
+     * Returns 1 if valid, 0 otherwise.
+     */
+    fun isValid() r: Int {
+        if this.display != 0 {
+            return 1
+        }
+        return 0
+    }
+
+    /**
+     * Show the window by committing the surface.
+     */
+    fun show() r: Void {
+        seen_wl_surface_commit(this.surface)
+        seen_wl_display_flush(this.display)
+    }
+
+    /**
+     * Poll and dispatch pending Wayland events.
+     * Returns the number of events dispatched, or -1 on error.
+     */
+    fun pollEvents() r: Int {
+        let result = seen_wl_display_dispatch(this.display)
+        if result < 0 {
+            this.running = 0
+        }
+        return result
+    }
+
+    /**
+     * Check if the window is still running.
+     * Returns 1 if running, 0 if closed or error.
+     */
+    fun isRunning() r: Int {
+        return this.running
+    }
+
+    /**
+     * Set the window title.
+     */
+    fun setTitle(title: String) r: Void {
+        seen_xdg_toplevel_set_title(this.toplevel, title)
+    }
+
+    /**
+     * Resize the window to the given dimensions.
+     */
+    fun resize(w: Int, h: Int) r: Void {
+        this.width = w
+        this.height = h
+        seen_xdg_toplevel_set_size(this.toplevel, w, h)
+        seen_wl_surface_commit(this.surface)
+    }
+
+    /**
+     * Create a Vulkan surface (VkSurfaceKHR) for this window.
+     * Returns the Vulkan surface handle, or 0 on failure.
+     */
+    fun createVulkanSurface(vkInstance: Int) r: Int {
+        return seen_wl_vk_surface_create(this.display, this.surface, vkInstance)
+    }
+
+    /**
+     * Close the window and release all Wayland resources.
+     */
+    fun close() r: Void {
+        this.running = 0
+        if this.toplevel != 0 {
+            seen_xdg_toplevel_destroy(this.toplevel)
+            this.toplevel = 0
+        }
+        if this.xdgSurface != 0 {
+            seen_xdg_surface_destroy(this.xdgSurface)
+            this.xdgSurface = 0
+        }
+        if this.surface != 0 {
+            seen_wl_surface_destroy(this.surface)
+            this.surface = 0
+        }
+        if this.display != 0 {
+            seen_wl_display_disconnect(this.display)
+            this.display = 0
+        }
+    }
+
+    /**
+     * Get the file descriptor for the Wayland display connection.
+     * Useful for integrating with external event loops (epoll/poll).
+     */
+    fun getFd() r: Int {
+        return seen_wl_display_get_fd(this.display)
+    }
+}

@@ -1,0 +1,486 @@
+// Keyword Manager - TOML-Driven Keyword Loading
+// Loads keywords and stdlib aliases from TOML files based on language
+
+import lexer.token_type.{SeenTokenType}
+import collections.map.{Map}
+import io.file.{readText}
+
+class KeywordManager {
+    let language: String
+    var keywords: Map<String, SeenTokenType>
+    var tokenNameMap: Map<String, SeenTokenType>
+    var stdlibAliases: Map<String, String>
+    var sources: Array<String>
+
+    static fun new(language: String) r: KeywordManager {
+        let km = KeywordManager {
+            language: language,
+            keywords: Map<String, SeenTokenType>.new(),
+            tokenNameMap: Map<String, SeenTokenType>.new(),
+            stdlibAliases: Map<String, String>.new(),
+            sources: Array<String>()
+        }
+
+        km.initTokenNameMap()
+
+        let langDir = "languages/" + language + "/"
+        let prefix = language + "-keywords-"
+
+        // Load keyword TOMLs
+        km.loadFromToml(langDir + prefix + "control.toml")
+        km.loadFromToml(langDir + prefix + "vars.toml")
+        km.loadFromToml(langDir + prefix + "types.toml")
+        km.loadFromToml(langDir + prefix + "module.toml")
+        km.loadFromToml(langDir + prefix + "literals.toml")
+        km.loadFromToml(langDir + prefix + "async.toml")
+        km.loadFromToml(langDir + prefix + "modifiers.toml")
+        km.loadFromToml(langDir + prefix + "memory.toml")
+        km.loadFromToml(langDir + prefix + "meta.toml")
+        km.loadFromToml(langDir + prefix + "misc.toml")
+
+        // Load stdlib aliases for non-English languages
+        km.loadStdlibAliases(language)
+
+        return km
+    }
+
+    fun initTokenNameMap() r: Void {
+        // Control flow
+        tokenNameMap.put("KeywordFun", SeenTokenType.KeywordFun)
+        tokenNameMap.put("KeywordIf", SeenTokenType.KeywordIf)
+        tokenNameMap.put("KeywordElse", SeenTokenType.KeywordElse)
+        tokenNameMap.put("KeywordWhile", SeenTokenType.KeywordWhile)
+        tokenNameMap.put("KeywordFor", SeenTokenType.KeywordFor)
+        tokenNameMap.put("KeywordIn", SeenTokenType.KeywordIn)
+        tokenNameMap.put("KeywordMatch", SeenTokenType.KeywordMatch)
+        tokenNameMap.put("KeywordBreak", SeenTokenType.KeywordBreak)
+        tokenNameMap.put("KeywordContinue", SeenTokenType.KeywordContinue)
+        tokenNameMap.put("KeywordReturn", SeenTokenType.KeywordReturn)
+        tokenNameMap.put("KeywordTry", SeenTokenType.KeywordTry)
+        tokenNameMap.put("KeywordCatch", SeenTokenType.KeywordCatch)
+        tokenNameMap.put("KeywordFinally", SeenTokenType.KeywordFinally)
+        tokenNameMap.put("KeywordThrow", SeenTokenType.KeywordThrow)
+
+        // Variable declarations
+        tokenNameMap.put("KeywordLet", SeenTokenType.KeywordLet)
+        tokenNameMap.put("KeywordVar", SeenTokenType.KeywordVar)
+
+        // Type definitions
+        tokenNameMap.put("KeywordClass", SeenTokenType.KeywordClass)
+        tokenNameMap.put("KeywordInterface", SeenTokenType.KeywordInterface)
+        tokenNameMap.put("KeywordEnum", SeenTokenType.KeywordEnum)
+        tokenNameMap.put("KeywordExtends", SeenTokenType.KeywordExtends)
+        tokenNameMap.put("KeywordImplements", SeenTokenType.KeywordImplements)
+
+        // Async
+        tokenNameMap.put("KeywordAsync", SeenTokenType.KeywordAsync)
+        tokenNameMap.put("KeywordAwait", SeenTokenType.KeywordAwait)
+        tokenNameMap.put("KeywordSpawn", SeenTokenType.KeywordSpawn)
+
+        // Module
+        tokenNameMap.put("KeywordImport", SeenTokenType.KeywordImport)
+        tokenNameMap.put("KeywordExport", SeenTokenType.KeywordExport)
+        tokenNameMap.put("KeywordUse", SeenTokenType.KeywordUse)
+
+        // Misc
+        tokenNameMap.put("KeywordAs", SeenTokenType.KeywordAs)
+        tokenNameMap.put("KeywordIs", SeenTokenType.KeywordIs)
+        tokenNameMap.put("KeywordNull", SeenTokenType.KeywordNull)
+        tokenNameMap.put("KeywordTrue", SeenTokenType.KeywordTrue)
+        tokenNameMap.put("KeywordFalse", SeenTokenType.KeywordFalse)
+        tokenNameMap.put("KeywordThis", SeenTokenType.KeywordThis)
+        tokenNameMap.put("KeywordSuper", SeenTokenType.KeywordSuper)
+
+        // Memory
+        tokenNameMap.put("KeywordMove", SeenTokenType.KeywordMove)
+        tokenNameMap.put("KeywordBorrow", SeenTokenType.KeywordBorrow)
+        tokenNameMap.put("KeywordRef", SeenTokenType.KeywordRef)
+        tokenNameMap.put("KeywordOwn", SeenTokenType.KeywordOwn)
+
+        // New keywords
+        tokenNameMap.put("KeywordDefer", SeenTokenType.KeywordDefer)
+        tokenNameMap.put("KeywordModule", SeenTokenType.KeywordModule)
+        tokenNameMap.put("KeywordImpl", SeenTokenType.KeywordImpl)
+        tokenNameMap.put("KeywordExtension", SeenTokenType.KeywordExtension)
+        tokenNameMap.put("KeywordSealed", SeenTokenType.KeywordSealed)
+        tokenNameMap.put("KeywordTrait", SeenTokenType.KeywordTrait)
+        tokenNameMap.put("KeywordUnsafe", SeenTokenType.KeywordUnsafe)
+
+        // Syntax completeness keywords
+        tokenNameMap.put("KeywordPub", SeenTokenType.KeywordPub)
+        tokenNameMap.put("KeywordStruct", SeenTokenType.KeywordStruct)
+        tokenNameMap.put("KeywordMut", SeenTokenType.KeywordMut)
+        tokenNameMap.put("KeywordConst", SeenTokenType.KeywordConst)
+        tokenNameMap.put("KeywordStatic", SeenTokenType.KeywordStatic)
+        tokenNameMap.put("KeywordOverride", SeenTokenType.KeywordOverride)
+        tokenNameMap.put("KeywordData", SeenTokenType.KeywordData)
+
+        // Word operators
+        tokenNameMap.put("LogicalAnd", SeenTokenType.LogicalAnd)
+        tokenNameMap.put("LogicalOr", SeenTokenType.LogicalOr)
+        tokenNameMap.put("LogicalNot", SeenTokenType.LogicalNot)
+
+        // Type keyword
+        tokenNameMap.put("KeywordType", SeenTokenType.KeywordType)
+
+        // New P0 keywords
+        tokenNameMap.put("KeywordErrdefer", SeenTokenType.KeywordErrdefer)
+        tokenNameMap.put("KeywordDistinct", SeenTokenType.KeywordDistinct)
+        tokenNameMap.put("KeywordUnion", SeenTokenType.KeywordUnion)
+        tokenNameMap.put("KeywordComptime", SeenTokenType.KeywordComptime)
+
+        // P1 keywords
+        tokenNameMap.put("KeywordParallelFor", SeenTokenType.KeywordParallelFor)
+
+        // P0 Deferred: Game engine keywords
+        tokenNameMap.put("KeywordTransmute", SeenTokenType.KeywordTransmute)
+        tokenNameMap.put("KeywordGpu", SeenTokenType.KeywordGpu)
+
+        // Activated game engine keywords
+        // NOTE: KeywordOperator and KeywordAssert NOT activated — 'operator' is used as
+        // a field name and 'assert' as a function name in compiler source. Activating
+        // them would break bootstrap. Enum variants + codegen values exist for future use.
+        tokenNameMap.put("KeywordRegion", SeenTokenType.KeywordRegion)
+        tokenNameMap.put("KeywordWhen", SeenTokenType.KeywordWhen)
+        tokenNameMap.put("KeywordInline", SeenTokenType.KeywordInline)
+
+        // Aliases from misc keywords that map to word operators
+        tokenNameMap.put("KeywordAnd", SeenTokenType.LogicalAnd)
+        tokenNameMap.put("KeywordOr", SeenTokenType.LogicalOr)
+        tokenNameMap.put("KeywordNot", SeenTokenType.LogicalNot)
+    }
+
+    // Parse a TOML file and load [keywords] entries into the keywords map.
+    // Uses character scanning to avoid dependency on split().
+    fun loadFromToml(path: String) r: Void {
+        sources.push(path)
+        let content = readText(path)
+        let len = content.length()
+        var pos = 0
+        var currentSection = ""
+
+        while pos < len {
+            // Find end of current line (byte-based scan)
+            var lineEnd = pos
+            while lineEnd < len {
+                if content.byteAt(lineEnd) == '\n' {
+                    break
+                }
+                lineEnd = lineEnd + 1
+            }
+
+            // Trim leading whitespace
+            var ls = pos
+            while ls < lineEnd {
+                var c = content.byteAt(ls)
+                if c != ' ' and c != '\t' and c != '\r' {
+                    break
+                }
+                ls = ls + 1
+            }
+
+            // Trim trailing whitespace
+            var le = lineEnd
+            while le > ls {
+                var ct = content.byteAt(le - 1)
+                if ct != ' ' and ct != '\t' and ct != '\r' {
+                    break
+                }
+                le = le - 1
+            }
+
+            if le > ls {
+                var firstChar = content.byteAt(ls)
+
+                if firstChar == '#' {
+                    // Comment line, skip
+                } else if firstChar == '[' {
+                    // Section header — extract name between [ and ]
+                    var secEnd = ls + 1
+                    while secEnd < le {
+                        if content.byteAt(secEnd) == ']' {
+                            break
+                        }
+                        secEnd = secEnd + 1
+                    }
+                    currentSection = content.substring(ls + 1, secEnd)
+                } else if firstChar == '"' and currentSection == "keywords" {
+                    // Quoted key-value in [keywords] section
+                    // Format: "key" = "TokenName"
+                    // Find the 4 quote characters (byte-based: all delimiters are ASCII)
+                    let q1 = ls
+                    var q2 = q1 + 1
+                    while q2 < le {
+                        if content.byteAt(q2) == '"' { break }
+                        q2 = q2 + 1
+                    }
+                    let key = content.substring(q1 + 1, q2)
+
+                    var q3 = q2 + 1
+                    while q3 < le {
+                        if content.byteAt(q3) == '"' { break }
+                        q3 = q3 + 1
+                    }
+                    var q4 = q3 + 1
+                    while q4 < le {
+                        if content.byteAt(q4) == '"' { break }
+                        q4 = q4 + 1
+                    }
+                    let value = content.substring(q3 + 1, q4)
+
+                    if tokenNameMap.containsKey(value) {
+                        keywords.put(key, tokenNameMap.get(value))
+                    }
+                }
+                // Skip unquoted lines (name = ..., description = ...) and non-keyword sections
+            }
+
+            pos = lineEnd + 1
+        }
+    }
+
+    // Parse a TOML file and extract [std_lib] entries into the given map.
+    fun loadStdlibFromToml(path: String, dest: Map<String, String>) r: Void {
+        let content = readText(path)
+        let len = content.length()
+        var pos = 0
+        var currentSection = ""
+
+        while pos < len {
+            var lineEnd = pos
+            while lineEnd < len {
+                if content.byteAt(lineEnd) == '\n' { break }
+                lineEnd = lineEnd + 1
+            }
+
+            var ls = pos
+            while ls < lineEnd {
+                var c = content.byteAt(ls)
+                if c != ' ' and c != '\t' and c != '\r' { break }
+                ls = ls + 1
+            }
+
+            var le = lineEnd
+            while le > ls {
+                var ct = content.byteAt(le - 1)
+                if ct != ' ' and ct != '\t' and ct != '\r' { break }
+                le = le - 1
+            }
+
+            if le > ls {
+                var firstChar = content.byteAt(ls)
+
+                if firstChar == '#' {
+                    // skip
+                } else if firstChar == '[' {
+                    var secEnd = ls + 1
+                    while secEnd < le {
+                        if content.byteAt(secEnd) == ']' { break }
+                        secEnd = secEnd + 1
+                    }
+                    currentSection = content.substring(ls + 1, secEnd)
+                } else if firstChar == '"' and currentSection == "std_lib" {
+                    let q1 = ls
+                    var q2 = q1 + 1
+                    while q2 < le {
+                        if content.byteAt(q2) == '"' { break }
+                        q2 = q2 + 1
+                    }
+                    let key = content.substring(q1 + 1, q2)
+
+                    var q3 = q2 + 1
+                    while q3 < le {
+                        if content.byteAt(q3) == '"' { break }
+                        q3 = q3 + 1
+                    }
+                    var q4 = q3 + 1
+                    while q4 < le {
+                        if content.byteAt(q4) == '"' { break }
+                        q4 = q4 + 1
+                    }
+                    let value = content.substring(q3 + 1, q4)
+
+                    dest.put(key, value)
+                }
+            }
+
+            pos = lineEnd + 1
+        }
+    }
+
+    // Load stdlib entries from TOML into parallel arrays (key, value).
+    // Avoids Map entirely to sidestep the Map.keys()/Map.put() runtime crash bugs.
+    fun loadStdlibToArrays(path: String, keys: Array<String>, values: Array<String>) r: Void {
+        let content = readText(path)
+        let len = content.length()
+        var pos = 0
+        var currentSection = ""
+
+        while pos < len {
+            var lineEnd = pos
+            while lineEnd < len {
+                if content.byteAt(lineEnd) == '\n' { break }
+                lineEnd = lineEnd + 1
+            }
+
+            var ls = pos
+            while ls < lineEnd {
+                var c = content.byteAt(ls)
+                if c != ' ' and c != '\t' and c != '\r' { break }
+                ls = ls + 1
+            }
+
+            var le = lineEnd
+            while le > ls {
+                var ct = content.byteAt(le - 1)
+                if ct != ' ' and ct != '\t' and ct != '\r' { break }
+                le = le - 1
+            }
+
+            if le > ls {
+                var firstChar = content.byteAt(ls)
+
+                if firstChar == '#' {
+                    // skip
+                } else if firstChar == '[' {
+                    var secEnd = ls + 1
+                    while secEnd < le {
+                        if content.byteAt(secEnd) == ']' { break }
+                        secEnd = secEnd + 1
+                    }
+                    currentSection = content.substring(ls + 1, secEnd)
+                } else if firstChar == '"' and currentSection == "std_lib" {
+                    let q1 = ls
+                    var q2 = q1 + 1
+                    while q2 < le {
+                        if content.byteAt(q2) == '"' { break }
+                        q2 = q2 + 1
+                    }
+                    let key = content.substring(q1 + 1, q2)
+
+                    var q3 = q2 + 1
+                    while q3 < le {
+                        if content.byteAt(q3) == '"' { break }
+                        q3 = q3 + 1
+                    }
+                    var q4 = q3 + 1
+                    while q4 < le {
+                        if content.byteAt(q4) == '"' { break }
+                        q4 = q4 + 1
+                    }
+                    let value = content.substring(q3 + 1, q4)
+
+                    keys.push(key)
+                    values.push(value)
+                }
+            }
+
+            pos = lineEnd + 1
+        }
+    }
+
+    // Build stdlib alias map: localized name -> English short name.
+    // For non-English languages, loads both English and target language stdlib
+    // TOMLs, then resolves localized_name -> canonical_path -> english_name.
+    // Uses parallel arrays instead of Map to avoid Map runtime crash bugs.
+    fun loadStdlibAliases(language: String) r: Void {
+        if language == "en" {
+            return
+        }
+
+        // Load English stdlib entries as parallel arrays
+        var enNames = Array<String>()
+        var enPaths = Array<String>()
+        let enDir = "languages/en/"
+
+        loadStdlibToArrays(enDir + "en-math.toml", enNames, enPaths)
+        loadStdlibToArrays(enDir + "en-collections.toml", enNames, enPaths)
+        loadStdlibToArrays(enDir + "en-io.toml", enNames, enPaths)
+        loadStdlibToArrays(enDir + "en-env.toml", enNames, enPaths)
+        loadStdlibToArrays(enDir + "en-str.toml", enNames, enPaths)
+        loadStdlibToArrays(enDir + "en-builtins.toml", enNames, enPaths)
+
+        // Load target language stdlib entries as parallel arrays
+        var localNames = Array<String>()
+        var localPaths = Array<String>()
+        let langDir = "languages/" + language + "/"
+        let prefix = language + "-"
+
+        loadStdlibToArrays(langDir + prefix + "math.toml", localNames, localPaths)
+        loadStdlibToArrays(langDir + prefix + "collections.toml", localNames, localPaths)
+        loadStdlibToArrays(langDir + prefix + "io.toml", localNames, localPaths)
+        loadStdlibToArrays(langDir + prefix + "env.toml", localNames, localPaths)
+        loadStdlibToArrays(langDir + prefix + "str.toml", localNames, localPaths)
+        loadStdlibToArrays(langDir + prefix + "builtins.toml", localNames, localPaths)
+
+        // Resolve: for each local entry, find the English name that shares
+        // the same canonical path, then store as "ALIAS:localName=englishName"
+        // in the sources array. Avoids Map<String,String>.get() which returns
+        // only first 8 bytes of SeenString (len field), losing the data ptr.
+        var i = 0
+        while i < localNames.length() {
+            var localCanonical = localPaths[i]
+            var j = 0
+            var found = 0
+            while j < enNames.length() {
+                if enPaths[j] == localCanonical {
+                    sources.push("ALIAS:" + localNames[i] + "=" + enNames[j])
+                    found = 1
+                    j = enNames.length()
+                }
+                j = j + 1
+            }
+            if found == 0 {
+                sources.push("ALIAS:" + localNames[i] + "=" + localCanonical)
+            }
+            i = i + 1
+        }
+    }
+
+    // Resolve a stdlib alias to its English name.
+    // Returns empty string if no alias exists.
+    fun resolveStdlibAlias(name: String) r: String {
+        // Search sources array for "ALIAS:name=value" entries.
+        // Cannot use Map<String,String>.get() — it returns only len field (8 bytes),
+        // losing the data pointer, causing SIGSEGV on dereference.
+        let prefix = "ALIAS:" + name + "="
+        var idx = 0
+        while idx < sources.length() {
+            var entry = sources[idx]
+            if entry.startsWith(prefix) {
+                return entry.substring(prefix.length(), entry.length())
+            }
+            idx = idx + 1
+        }
+        return ""
+    }
+
+    fun isKeyword(text: String) r: Bool {
+        return keywords.containsKey(text)
+    }
+
+    fun getKeywordType(text: String) r: SeenTokenType? {
+        let res = keywords.get(text)
+        return res
+    }
+
+    fun getAllKeywords() r: Array<String> {
+        return keywords.keys()
+    }
+
+    fun isDynamic() r: Bool {
+        return true
+    }
+
+    fun getSources() r: Array<String> {
+        return sources
+    }
+
+    fun getKeywordCount() r: Int {
+        return keywords.size()
+    }
+
+    fun hasTranslation(keyword: String) r: Bool {
+        return keywords.containsKey(keyword)
+    }
+}

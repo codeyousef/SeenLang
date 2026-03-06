@@ -1,0 +1,497 @@
+// AstNode API for User-Defined Macros
+// Provides a safe wrapper for AST manipulation in compile-time macros
+
+import parser.real_parser.{FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode, AnnotationNode}
+
+// Parameter information for macros
+class ParamInfo {
+    var name: String
+    var paramType: String
+
+    static fun new(name: String, paramType: String) r: ParamInfo {
+        return ParamInfo{ name: name, paramType: paramType }
+    }
+}
+
+// Field information for macros
+class FieldInfo {
+    var name: String
+    var fieldType: String
+    var isMutable: Bool
+
+    static fun new(name: String, fieldType: String, isMutable: Bool) r: FieldInfo {
+        return FieldInfo{ name: name, fieldType: fieldType, isMutable: isMutable }
+    }
+}
+
+// Safe wrapper for AST manipulation in macros
+// This class provides a stable interface for macro authors while
+// allowing the internal AST representation to evolve
+class AstNode {
+    var nodeType: String  // "Function", "Class", "Statement", "Expression", "Block", "Error"
+    var functionNode: FunctionNode
+    var classNode: ClassNode
+    var statementNode: StatementNode
+    var expressionNode: ParserExpressionNode
+    var blockNode: BlockNode
+    var errorMessage: String
+    var hasFunction: Bool
+    var hasClass: Bool
+    var hasStatement: Bool
+    var hasExpression: Bool
+    var hasBlock: Bool
+    var isError: Bool
+
+    // Create an empty/null AstNode
+    static fun new() r: AstNode {
+        return AstNode{
+            nodeType: "Empty",
+            functionNode: FunctionNode.new(),
+            classNode: ClassNode.new(),
+            statementNode: StatementNode.new(),
+            expressionNode: ParserExpressionNode.new(),
+            blockNode: BlockNode.new(),
+            errorMessage: "",
+            hasFunction: false,
+            hasClass: false,
+            hasStatement: false,
+            hasExpression: false,
+            hasBlock: false,
+            isError: false
+        }
+    }
+
+    // Create an error node (compile error)
+    static fun error(message: String) r: AstNode {
+        let node = AstNode.new()
+        node.nodeType = "Error"
+        node.errorMessage = message
+        node.isError = true
+        return node
+    }
+
+    // Create from FunctionNode
+    static fun fromFunction(fn: FunctionNode) r: AstNode {
+        let node = AstNode.new()
+        node.nodeType = "Function"
+        node.functionNode = fn
+        node.hasFunction = true
+        return node
+    }
+
+    // Create from ClassNode
+    static fun fromClass(cls: ClassNode) r: AstNode {
+        let node = AstNode.new()
+        node.nodeType = "Class"
+        node.classNode = cls
+        node.hasClass = true
+        return node
+    }
+
+    // Create from StatementNode
+    static fun fromStatement(stmt: StatementNode) r: AstNode {
+        let node = AstNode.new()
+        node.nodeType = "Statement"
+        node.statementNode = stmt
+        node.hasStatement = true
+        return node
+    }
+
+    // Create from ParserExpressionNode
+    static fun fromExpression(expr: ParserExpressionNode) r: AstNode {
+        let node = AstNode.new()
+        node.nodeType = "Expression"
+        node.expressionNode = expr
+        node.hasExpression = true
+        return node
+    }
+
+    // Create from BlockNode
+    static fun fromBlock(blk: BlockNode) r: AstNode {
+        let node = AstNode.new()
+        node.nodeType = "Block"
+        node.blockNode = blk
+        node.hasBlock = true
+        return node
+    }
+
+    // ========== Read-only Accessors ==========
+
+    // Get the node kind
+    fun kind() r: String {
+        return nodeType
+    }
+
+    // Get the name of the function/class
+    fun name() r: String {
+        if hasFunction {
+            return functionNode.name
+        }
+        if hasClass {
+            return classNode.name
+        }
+        return ""
+    }
+
+    // Get the body statements as AstNode array
+    fun body() r: Array<AstNode> {
+        var result = Array<AstNode>()
+        if hasFunction {
+            let fnBody = functionNode.body
+            let stmts = fnBody.statements
+            var i = 0
+            while i < stmts.length() {
+                result.push(AstNode.fromStatement(stmts[i]))
+                i = i + 1
+            }
+        }
+        if hasBlock {
+            let blkStmts = blockNode.statements
+            var i = 0
+            while i < blkStmts.length() {
+                result.push(AstNode.fromStatement(blkStmts[i]))
+                i = i + 1
+            }
+        }
+        return result
+    }
+
+    // Get parameters for function
+    fun params() r: Array<ParamInfo> {
+        var result = Array<ParamInfo>()
+        if hasFunction {
+            var i = 0
+            while i < functionNode.params.length() {
+                let param = functionNode.params[i]
+                result.push(ParamInfo.new(param.name, param.paramType.typeName))
+                i = i + 1
+            }
+        }
+        return result
+    }
+
+    // Get fields for class
+    fun fields() r: Array<FieldInfo> {
+        var result = Array<FieldInfo>()
+        if hasClass {
+            var i = 0
+            while i < classNode.fields.length() {
+                let field = classNode.fields[i]
+                result.push(FieldInfo.new(field.name, field.paramType.typeName, field.isMutable))
+                i = i + 1
+            }
+        }
+        return result
+    }
+
+    // Get methods for class
+    fun methods() r: Array<AstNode> {
+        var result = Array<AstNode>()
+        if hasClass {
+            var i = 0
+            while i < classNode.methods.length() {
+                result.push(AstNode.fromFunction(classNode.methods[i]))
+                i = i + 1
+            }
+        }
+        return result
+    }
+
+    // Check if class has a method
+    fun hasMethod(methodName: String) r: Bool {
+        if hasClass {
+            var i = 0
+            while i < classNode.methods.length() {
+                if classNode.methods[i].name == methodName {
+                    return true
+                }
+                i = i + 1
+            }
+        }
+        return false
+    }
+
+    // Check if class has a field
+    fun hasField(fieldName: String) r: Bool {
+        if hasClass {
+            var i = 0
+            while i < classNode.fields.length() {
+                if classNode.fields[i].name == fieldName {
+                    return true
+                }
+                i = i + 1
+            }
+        }
+        return false
+    }
+
+    // Get annotations/decorators
+    fun getAnnotations() r: Array<AnnotationNode> {
+        if hasFunction {
+            return functionNode.decorators
+        }
+        if hasClass {
+            return classNode.decorators
+        }
+        return Array<AnnotationNode>()
+    }
+
+    // Get return type for function
+    fun returnType() r: String {
+        if hasFunction {
+            return functionNode.returnType.typeName
+        }
+        return "Void"
+    }
+
+    // ========== Construction Methods ==========
+
+    // Create a function call expression
+    static fun newCall(funcName: String, args: Array<String>) r: AstNode {
+        let expr = ParserExpressionNode.new()
+        expr.kind = "Call"
+        expr.callee = funcName
+        // Build argument expressions from string literals
+        var i = 0
+        while i < args.length() {
+            let argExpr = ParserExpressionNode.new()
+            argExpr.kind = "Literal"
+            argExpr.literalValue = args[i]
+            argExpr.literalType = "String"
+            expr.arguments.push(argExpr)
+            i = i + 1
+        }
+        // Wrap in statement
+        let stmt = StatementNode.new()
+        stmt.kind = "Expression"
+        stmt.expression = expr
+        return AstNode.fromStatement(stmt)
+    }
+
+    // Create a new statement
+    static fun newStatement(stmtKind: String, expr: AstNode) r: AstNode {
+        let stmt = StatementNode.new()
+        stmt.kind = stmtKind
+        if expr.hasExpression {
+            stmt.expression = expr.expressionNode
+        }
+        if expr.hasStatement {
+            stmt.expression = expr.statementNode.expression
+        }
+        return AstNode.fromStatement(stmt)
+    }
+
+    // Create a return statement
+    static fun newReturn(expr: AstNode) r: AstNode {
+        let stmt = StatementNode.new()
+        stmt.kind = "Return"
+        if expr.hasExpression {
+            stmt.returnValue = expr.expressionNode
+        }
+        return AstNode.fromStatement(stmt)
+    }
+
+    // Create a string literal expression
+    static fun newStringLiteral(value: String) r: AstNode {
+        let expr = ParserExpressionNode.new()
+        expr.kind = "Literal"
+        expr.literalValue = value
+        expr.literalType = "String"
+        return AstNode.fromExpression(expr)
+    }
+
+    // Create an integer literal expression
+    static fun newIntLiteral(value: Int) r: AstNode {
+        let expr = ParserExpressionNode.new()
+        expr.kind = "Literal"
+        expr.literalValue = value.toString()
+        expr.literalType = "Int"
+        return AstNode.fromExpression(expr)
+    }
+
+    // Create a variable reference expression
+    static fun newVariable(varName: String) r: AstNode {
+        let expr = ParserExpressionNode.new()
+        expr.kind = "Variable"
+        expr.variableName = varName
+        return AstNode.fromExpression(expr)
+    }
+
+    // ========== Transformation Methods (return new node) ==========
+
+    // Create a copy of this node with a different name
+    fun withName(newName: String) r: AstNode {
+        if hasFunction {
+            let newFn = copyFunction(functionNode)
+            newFn.name = newName
+            return AstNode.fromFunction(newFn)
+        }
+        if hasClass {
+            let newCls = copyClass(classNode)
+            newCls.name = newName
+            return AstNode.fromClass(newCls)
+        }
+        return self
+    }
+
+    // Create a copy with new body statements
+    fun withBody(stmts: Array<AstNode>) r: AstNode {
+        if hasFunction {
+            let newFn = copyFunction(functionNode)
+            newFn.body = BlockNode.new()
+            var i = 0
+            while i < stmts.length() {
+                if stmts[i].hasStatement {
+                    newFn.body.statements.push(stmts[i].statementNode)
+                }
+                i = i + 1
+            }
+            return AstNode.fromFunction(newFn)
+        }
+        return self
+    }
+
+    // Wrap function body with before/after statements
+    fun wrapBody(before: AstNode, after: AstNode) r: AstNode {
+        if hasFunction {
+            let newFn = copyFunction(functionNode)
+            let newBody = BlockNode.new()
+
+            // Add before statement
+            if before.hasStatement {
+                newBody.statements.push(before.statementNode)
+            }
+
+            // Add original body statements
+            let fnBody = functionNode.body
+            let origStmts = fnBody.statements
+            var i = 0
+            while i < origStmts.length() {
+                newBody.statements.push(origStmts[i])
+                i = i + 1
+            }
+
+            // Add after statement
+            if after.hasStatement {
+                newBody.statements.push(after.statementNode)
+            }
+
+            newFn.body = newBody
+            return AstNode.fromFunction(newFn)
+        }
+        return self
+    }
+
+    // Add a method to a class
+    fun addMethod(method: AstNode) r: AstNode {
+        if hasClass and method.hasFunction {
+            let newCls = copyClass(classNode)
+            newCls.methods.push(method.functionNode)
+            return AstNode.fromClass(newCls)
+        }
+        return self
+    }
+
+    // Add a field to a class
+    fun addField(fieldName: String, fieldType: String) r: AstNode {
+        if hasClass {
+            let newCls = copyClass(classNode)
+            let field = ParamNode.new()
+            field.name = fieldName
+            field.paramType.typeName = fieldType
+            field.isMutable = true
+            newCls.fields.push(field)
+            return AstNode.fromClass(newCls)
+        }
+        return self
+    }
+
+    // ========== Conversion Methods ==========
+
+    // Convert back to FunctionNode
+    fun toFunction() r: FunctionNode {
+        if hasFunction {
+            return functionNode
+        }
+        return FunctionNode.new()
+    }
+
+    // Convert back to ClassNode
+    fun toClass() r: ClassNode {
+        if hasClass {
+            return classNode
+        }
+        return ClassNode.new()
+    }
+
+    // Convert back to StatementNode
+    fun toStatement() r: StatementNode {
+        if hasStatement {
+            return statementNode
+        }
+        return StatementNode.new()
+    }
+}
+
+// ========== Helper Functions ==========
+
+// Deep copy a FunctionNode
+fun copyFunction(fn: FunctionNode) r: FunctionNode {
+    let newFn = FunctionNode.new()
+    newFn.name = fn.name
+    newFn.returnType = fn.returnType
+    newFn.isAsync = fn.isAsync
+    newFn.isInline = fn.isInline
+    newFn.isStatic = fn.isStatic
+    newFn.isExtern = fn.isExtern
+    newFn.isDeterministic = fn.isDeterministic
+    newFn.isNondeterministic = fn.isNondeterministic
+    newFn.line = fn.line
+    newFn.column = fn.column
+    var i = 0
+    while i < fn.params.length() {
+        newFn.params.push(fn.params[i])
+        i = i + 1
+    }
+    var j = 0
+    while j < fn.decorators.length() {
+        newFn.decorators.push(fn.decorators[j])
+        j = j + 1
+    }
+    newFn.body = copyBlock(fn.body)
+    return newFn
+}
+
+// Deep copy a BlockNode
+fun copyBlock(blk: BlockNode) r: BlockNode {
+    let newBlk = BlockNode.new()
+    var i = 0
+    while i < blk.statements.length() {
+        newBlk.statements.push(blk.statements[i])
+        i = i + 1
+    }
+    return newBlk
+}
+
+// Deep copy a ClassNode
+fun copyClass(cls: ClassNode) r: ClassNode {
+    let newCls = ClassNode.new()
+    newCls.name = cls.name
+    newCls.isNondeterministic = cls.isNondeterministic
+    var i = 0
+    while i < cls.fields.length() {
+        newCls.fields.push(cls.fields[i])
+        i = i + 1
+    }
+    var j = 0
+    while j < cls.methods.length() {
+        newCls.methods.push(cls.methods[j])
+        j = j + 1
+    }
+    var k = 0
+    while k < cls.decorators.length() {
+        newCls.decorators.push(cls.decorators[k])
+        k = k + 1
+    }
+    return newCls
+}

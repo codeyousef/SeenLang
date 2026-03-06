@@ -1,0 +1,19 @@
+class Test {
+    value: Int
+    
+    fun new(v: Int) -> Test {
+        Test { value: v }
+    }
+}
+
+fun min(a: Int, b: Int) -> Int {
+    if a < b { a } else { b }
+}
+
+fun main() -> Int {
+    let t = Test.new(100)
+    let result = min(t.value, 50)
+    __PrintInt(result)
+    __Print("\n")
+    return 0
+}

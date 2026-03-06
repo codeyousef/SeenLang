@@ -1,0 +1,13 @@
+name = "Chinese"
+description = "Chinese Memory Management Keywords"
+
+[keywords]
+"移动" = "KeywordMove"
+"借用" = "KeywordBorrow"
+"输入输出" = "KeywordInout"
+"区域" = "KeywordRegion"
+"竞技场" = "KeywordArena"
+"引用" = "KeywordRef"
+"拥有" = "KeywordOwn"
+"变换" = "KeywordTransmute"
+"图形处理" = "KeywordGpu"

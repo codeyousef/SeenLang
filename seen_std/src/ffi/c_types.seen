@@ -1,0 +1,217 @@
+// C Type Mappings for @_c_import decorator
+// Maps C types to Seen types for FFI generation
+
+// C to Seen type mapping function
+fun cTypeToSeen(cType: String) r: String {
+    // Remove whitespace and normalize
+    let normalized = cType.trim()
+
+    // Integer types
+    if normalized == "int" or normalized == "int32_t" or normalized == "signed int" {
+        return "Int"
+    }
+    if normalized == "long" or normalized == "int64_t" or normalized == "long long" or normalized == "signed long" {
+        return "Int"
+    }
+    if normalized == "short" or normalized == "int16_t" or normalized == "signed short" {
+        return "Int"
+    }
+    if normalized == "unsigned int" or normalized == "uint32_t" {
+        return "Int"
+    }
+    if normalized == "unsigned long" or normalized == "uint64_t" or normalized == "size_t" {
+        return "Int"
+    }
+    if normalized == "unsigned short" or normalized == "uint16_t" {
+        return "Int"
+    }
+    if normalized == "unsigned char" or normalized == "uint8_t" {
+        return "Int"
+    }
+    if normalized == "signed char" or normalized == "int8_t" {
+        return "Int"
+    }
+
+    // Character types
+    if normalized == "char" {
+        return "Char"
+    }
+
+    // String types (pointers to char)
+    if normalized == "char*" or normalized == "char *" or normalized == "const char*" or normalized == "const char *" {
+        return "String"
+    }
+
+    // Boolean
+    if normalized == "bool" or normalized == "_Bool" {
+        return "Bool"
+    }
+
+    // Floating point (requires @nondeterministic context)
+    if normalized == "float" {
+        return "Float"
+    }
+    if normalized == "double" {
+        return "Float"
+    }
+    if normalized == "long double" {
+        return "Float"
+    }
+
+    // Void
+    if normalized == "void" {
+        return "Void"
+    }
+
+    // Pointer types
+    if normalized == "void*" or normalized == "void *" {
+        return "*Void"
+    }
+
+    // Generic pointers (struct*, etc.)
+    if normalized.endsWith("*") {
+        return "*Void"
+    }
+
+    // Unknown type - default to void pointer
+    return "*Void"
+}
+
+// Seen to C type mapping (for generating C declarations)
+fun seenTypeToC(seenType: String) r: String {
+    if seenType == "Int" {
+        return "int64_t"
+    }
+    if seenType == "Bool" {
+        return "bool"
+    }
+    if seenType == "Char" {
+        return "char"
+    }
+    if seenType == "Float" {
+        return "double"
+    }
+    if seenType == "String" {
+        return "SeenString"
+    }
+    if seenType == "Void" {
+        return "void"
+    }
+    if seenType == "*Void" {
+        return "void*"
+    }
+    if seenType.startsWith("*") {
+        return "void*"
+    }
+    if seenType.startsWith("Array<") {
+        return "SeenArray*"
+    }
+
+    // Class types are pointers
+    return "void*"
+}
+
+// Check if a C type requires @nondeterministic context
+fun isNondeterministicCType(cType: String) r: Bool {
+    let normalized = cType.trim()
+
+    // Floating point types are nondeterministic in Seen
+    if normalized == "float" or normalized == "double" or normalized == "long double" {
+        return true
+    }
+
+    return false
+}
+
+// C type sizes (for struct layout calculations)
+fun getCTypeSize(cType: String) r: Int {
+    let normalized = cType.trim()
+
+    // 1 byte
+    if normalized == "char" or normalized == "unsigned char" or normalized == "signed char" {
+        return 1
+    }
+    if normalized == "int8_t" or normalized == "uint8_t" or normalized == "_Bool" or normalized == "bool" {
+        return 1
+    }
+
+    // 2 bytes
+    if normalized == "short" or normalized == "unsigned short" or normalized == "signed short" {
+        return 2
+    }
+    if normalized == "int16_t" or normalized == "uint16_t" {
+        return 2
+    }
+
+    // 4 bytes
+    if normalized == "int" or normalized == "unsigned int" or normalized == "signed int" {
+        return 4
+    }
+    if normalized == "int32_t" or normalized == "uint32_t" or normalized == "float" {
+        return 4
+    }
+
+    // 8 bytes
+    if normalized == "long" or normalized == "unsigned long" or normalized == "signed long" {
+        return 8
+    }
+    if normalized == "long long" or normalized == "unsigned long long" {
+        return 8
+    }
+    if normalized == "int64_t" or normalized == "uint64_t" or normalized == "size_t" {
+        return 8
+    }
+    if normalized == "double" or normalized == "void*" {
+        return 8
+    }
+
+    // Pointers are 8 bytes on 64-bit
+    if normalized.endsWith("*") {
+        return 8
+    }
+
+    // Default
+    return 8
+}
+
+// C type alignment (for struct layout)
+fun getCTypeAlignment(cType: String) r: Int {
+    // On x86-64, alignment typically equals size for basic types
+    return getCTypeSize(cType)
+}
+
+// Result of parsing a C function signature
+data CFunctionSignature {
+    name: String
+    returnType: String
+    paramNames: Array<String>
+    paramTypes: Array<String>
+    isVariadic: Bool
+}
+
+fun CFunctionSignature.new() r: CFunctionSignature {
+    return CFunctionSignature{
+        name: "",
+        returnType: "void",
+        paramNames: Array<String>(),
+        paramTypes: Array<String>(),
+        isVariadic: false
+    }
+}
+
+// Convert C function signature to Seen extern declaration
+fun CFunctionSignature.toSeenExtern() r: String {
+    var result = "@extern\nextern fun " + name + "("
+
+    var i = 0
+    while i < paramNames.length() {
+        if i > 0 {
+            result = result + ", "
+        }
+        result = result + paramNames[i] + ": " + cTypeToSeen(paramTypes[i])
+        i = i + 1
+    }
+
+    result = result + ") r: " + cTypeToSeen(returnType)
+    return result
+}

@@ -1,0 +1,814 @@
+// ML-Guided Optimization Pipeline with Neural Network
+// Replaces threshold-based heuristics with trained neural network models
+
+import io.file.{readText, writeText}
+import math.math.{max, min, abs}
+import optimization.ml.neural_network.{NeuralNetwork, TrainingSample}
+import optimization.ml.training_data.{TrainingData, TrainingExample, OptimizationDecision, OptimizationOutcome}
+
+// Neural Network-based ML Optimizer
+class MLOptimizerNN {
+    // Neural networks for different optimization decisions
+    var loopNetwork: NeuralNetwork          // For vectorize/unroll decisions
+    var inlineNetwork: NeuralNetwork        // For inline decisions
+    
+    // Training data
+    var trainingData: TrainingData
+    
+    // Configuration
+    var targetHardware: String
+    var useNeuralNetwork: Bool              // Whether to use NN or fall back to heuristics
+    var confidenceThreshold: Float          // Minimum confidence to trust NN decision
+    var minTrainingSamples: Int             // Minimum samples before using NN
+    
+    // Statistics
+    var totalDecisions: Int
+    var nnDecisions: Int
+    var heuristicDecisions: Int
+    var vectorizeCount: Int
+    var unrollCount: Int
+    var inlineCount: Int
+    var cacheHits: Int
+    
+    // Decision cache to avoid recomputing
+    var decisionCache: Map<String, OptimizationDecision>
+    
+    // Model paths
+    var modelDir: String
+
+    fun new() r: MLOptimizerNN {
+        let optimizer = MLOptimizerNN{
+            loopNetwork: NeuralNetwork.new(7, [16, 8], 4),      // 7 inputs, 2 hidden layers, 4 outputs
+            inlineNetwork: NeuralNetwork.new(4, [12, 6], 4),    // 4 inputs, 2 hidden layers, 4 outputs
+            trainingData: TrainingData.new(),
+            targetHardware: "generic",
+            useNeuralNetwork: false,                            // Start with heuristics
+            confidenceThreshold: 0.7,
+            minTrainingSamples: 50,
+            totalDecisions: 0,
+            nnDecisions: 0,
+            heuristicDecisions: 0,
+            vectorizeCount: 0,
+            unrollCount: 0,
+            inlineCount: 0,
+            cacheHits: 0,
+            decisionCache: Map<String, OptimizationDecision>.new(),
+            modelDir: ".seen_cache/ml_models"
+        }
+        
+        // Try to load existing models
+        optimizer.loadModels()
+        
+        // Load existing training data
+        optimizer.loadTrainingData()
+        
+        return optimizer
+    }
+
+    // ============ Decision Making Interface ============
+
+    // Decide whether to vectorize a loop
+    fun shouldVectorize(features: LoopFeaturesNN) r: Bool {
+        totalDecisions = totalDecisions + 1
+        
+        let cacheKey = features.toCacheKey() + "_vec"
+        if decisionCache.hasKey(cacheKey) {
+            cacheHits = cacheHits + 1
+            return decisionCache.get(cacheKey)! == OptimizationDecision.Vectorize
+        }
+        
+        let decision = makeDecision(features, OptimizationType.Vectorize)
+        decisionCache.set(cacheKey, decision)
+        
+        if decision == OptimizationDecision.Vectorize {
+            vectorizeCount = vectorizeCount + 1
+            return true
+        }
+        return false
+    }
+
+    // Decide whether to unroll a loop
+    fun shouldUnroll(features: LoopFeaturesNN) r: Bool {
+        totalDecisions = totalDecisions + 1
+        
+        let cacheKey = features.toCacheKey() + "_unroll"
+        if decisionCache.hasKey(cacheKey) {
+            cacheHits = cacheHits + 1
+            return decisionCache.get(cacheKey)! == OptimizationDecision.Unroll
+        }
+        
+        let decision = makeDecision(features, OptimizationType.Unroll)
+        decisionCache.set(cacheKey, decision)
+        
+        if decision == OptimizationDecision.Unroll {
+            unrollCount = unrollCount + 1
+            return true
+        }
+        return false
+    }
+
+    // Decide whether to inline a function call
+    fun shouldInline(features: InlineFeaturesNN) r: Bool {
+        totalDecisions = totalDecisions + 1
+        
+        let cacheKey = features.toCacheKey() + "_inline"
+        if decisionCache.hasKey(cacheKey) {
+            cacheHits = cacheHits + 1
+            return decisionCache.get(cacheKey)! == OptimizationDecision.Inline
+        }
+        
+        let decision = makeInlineDecision(features)
+        decisionCache.set(cacheKey, decision)
+        
+        if decision == OptimizationDecision.Inline {
+            inlineCount = inlineCount + 1
+            return true
+        }
+        return false
+    }
+
+    // ============ Neural Network Decision Making ============
+
+    // Make a decision using neural network or heuristics
+    fun makeDecision(features: LoopFeaturesNN, optType: OptimizationType) r: OptimizationDecision {
+        // Check if we should use neural network
+        if shouldUseNeuralNetwork() {
+            let featureVector = features.toFeatureVector()
+            let outputs = loopNetwork.predict(featureVector)
+            
+            // Find highest confidence decision
+            let decisionIdx = loopNetwork.predictClass(featureVector)
+            let confidence = outputs[decisionIdx]
+            
+            if confidence >= confidenceThreshold {
+                nnDecisions = nnDecisions + 1
+                
+                // Record training example
+                let example = trainingData.addLoopExample(
+                    features.toLegacyFeatures(),
+                    indexToDecision(decisionIdx),
+                    confidence,
+                    features.sourceLocation,
+                    features.functionName
+                )
+                
+                // Log decision for training
+                logNeuralDecision(features, decisionIdx, confidence, "loop")
+                
+                return indexToDecision(decisionIdx)
+            }
+        }
+        
+        // Fall back to heuristics
+        heuristicDecisions = heuristicDecisions + 1
+        return heuristicLoopDecision(features, optType)
+    }
+
+    // Make inline decision
+    fun makeInlineDecision(features: InlineFeaturesNN) r: OptimizationDecision {
+        if shouldUseNeuralNetwork() {
+            let featureVector = features.toFeatureVector()
+            let outputs = inlineNetwork.predict(featureVector)
+            
+            let decisionIdx = inlineNetwork.predictClass(featureVector)
+            let confidence = outputs[decisionIdx]
+            
+            if confidence >= confidenceThreshold {
+                nnDecisions = nnDecisions + 1
+                
+                let example = trainingData.addInlineExample(
+                    features.toLegacyFeatures(),
+                    indexToDecision(decisionIdx),
+                    confidence,
+                    features.sourceLocation,
+                    features.functionName
+                )
+                
+                logNeuralDecision(features, decisionIdx, confidence, "inline")
+                
+                return indexToDecision(decisionIdx)
+            }
+        }
+        
+        heuristicDecisions = heuristicDecisions + 1
+        return heuristicInlineDecision(features)
+    }
+
+    // ============ Heuristic Fallbacks ============
+
+    // Heuristic decision for loop optimizations
+    fun heuristicLoopDecision(features: LoopFeaturesNN, optType: OptimizationType) r: OptimizationDecision {
+        match optType {
+            OptimizationType.Vectorize -> {
+                // Vectorize if trip count > 8, stride-1, and reasonable register pressure
+                if features.tripCount > 8 and features.stride == 1 and 
+                   features.registerPressure() < 16 {
+                    return OptimizationDecision.Vectorize
+                }
+                return OptimizationDecision.None
+            }
+            OptimizationType.Unroll -> {
+                // Unroll if trip count is known and small
+                if features.tripCount > 0 and features.tripCount <= 16 and
+                   features.nestingDepth <= 2 {
+                    return OptimizationDecision.Unroll
+                }
+                return OptimizationDecision.None
+            }
+            OptimizationType.Both -> {
+                // Try both - prefer vectorization if applicable
+                if features.tripCount > 8 and features.stride == 1 {
+                    return OptimizationDecision.Vectorize
+                }
+                if features.tripCount > 0 and features.tripCount <= 16 {
+                    return OptimizationDecision.Unroll
+                }
+                return OptimizationDecision.None
+            }
+        }
+    }
+
+    // Heuristic decision for inlining
+    fun heuristicInlineDecision(features: InlineFeaturesNN) r: OptimizationDecision {
+        // Always inline very small functions
+        if features.calleeSize < 5 {
+            return OptimizationDecision.Inline
+        }
+        
+        // Inline small functions called multiple times
+        if features.calleeSize < 20 and features.callCount >= 3 {
+            return OptimizationDecision.Inline
+        }
+        
+        // Don't inline functions with loops if called many times
+        if features.hasLoops and features.callCount > 10 {
+            return OptimizationDecision.None
+        }
+        
+        return OptimizationDecision.None
+    }
+
+    // ============ Training and Learning ============
+
+    // Train models with collected data
+    fun trainModels(epochs: Int) r: TrainingResult {
+        let samples = trainingData.getTrainingSamples()
+        
+        if samples.length() < minTrainingSamples {
+            return TrainingResult{
+                success: false,
+                message: "Not enough training data: " + samples.length().toString() + " < " + minTrainingSamples.toString(),
+                loss: 0.0,
+                accuracy: 0.0
+            }
+        }
+        
+        // Split data
+        let split = trainingData.splitTrainValidation(0.2)
+        
+        // Prepare training samples for loop network
+        let loopTrainSamples = convertExamplesToSamples(split.train, true)
+        let loopValSamples = convertExamplesToSamples(split.validation, true)
+        
+        // Train loop network
+        let loopLoss = loopNetwork.trainBatch(loopTrainSamples, epochs)
+        let loopAccuracy = evaluateAccuracy(loopNetwork, loopValSamples)
+        
+        // Train inline network
+        let inlineTrainSamples = convertExamplesToSamples(split.train, false)
+        let inlineValSamples = convertExamplesToSamples(split.validation, false)
+        
+        let inlineLoss = inlineNetwork.trainBatch(inlineTrainSamples, epochs)
+        let inlineAccuracy = evaluateAccuracy(inlineNetwork, inlineValSamples)
+        
+        // Enable neural network if accuracy is good enough
+        let avgAccuracy = (loopAccuracy + inlineAccuracy) / 2.0
+        if avgAccuracy >= 0.7 {
+            useNeuralNetwork = true
+        }
+        
+        return TrainingResult{
+            success: true,
+            message: "Training complete",
+            loss: (loopLoss + inlineLoss) / 2.0,
+            accuracy: avgAccuracy,
+            loopAccuracy: loopAccuracy,
+            inlineAccuracy: inlineAccuracy
+        }
+    }
+
+    // Online learning: update model with single example
+    fun onlineLearn(features: Array<Float>, targets: Array<Float>, isLoop: Bool) r: Float {
+        if isLoop {
+            return loopNetwork.train(features, targets)
+        } else {
+            return inlineNetwork.train(features, targets)
+        }
+    }
+
+    // Process LLVM optimization remarks and update training data
+    fun processOptimizationRemarks(remarks: Array<LLVMRemark>) r: Void {
+        var i = 0
+        while i < remarks.length() {
+            let remark = remarks[i]
+            
+            // Find matching training example
+            trainingData.processLLVMRemark(remark.message, remark.exampleId)
+            
+            // Update model based on outcome
+            if remark.wasSuccessful {
+                reinforceDecision(remark.exampleId, true)
+            } else {
+                reinforceDecision(remark.exampleId, false)
+            }
+            
+            i = i + 1
+        }
+        
+        // Periodically retrain if we have new data
+        if trainingData.getStats().totalExamples % 100 == 0 {
+            trainModels(5)
+        }
+    }
+
+    // Reinforce or correct a decision based on actual outcome
+    fun reinforceDecision(exampleId: String, wasCorrect: Bool) r: Void {
+        // Find the example
+        var i = 0
+        while i < trainingData.examples.length() {
+            if trainingData.examples[i].id == exampleId {
+                let example = trainingData.examples[i]
+                
+                // Update target if the decision was wrong
+                if not wasCorrect {
+                    // Flip the decision for retraining
+                    let correctedDecision = flipDecision(example.decision)
+                    
+                    // Create corrected training sample
+                    let features = example.toFeatureVector()
+                    let correctedTargets = decisionToTargets(correctedDecision)
+                    
+                    // Online learning with corrected label
+                    let isLoop = example.loopFeatures != null
+                    onlineLearn(features, correctedTargets, isLoop)
+                }
+                
+                return
+            }
+            i = i + 1
+        }
+    }
+
+    // ============ Model Persistence ============
+
+    // Save trained models to disk
+    fun saveModels() r: Bool {
+        let loopPath = modelDir + "/loop_network.json"
+        let inlinePath = modelDir + "/inline_network.json"
+        
+        let loopSaved = loopNetwork.save(loopPath)
+        let inlineSaved = inlineNetwork.save(inlinePath)
+        
+        // Save training data
+        let dataSaved = trainingData.save()
+        
+        return loopSaved and inlineSaved and dataSaved
+    }
+
+    // Load models from disk
+    fun loadModels() r: Bool {
+        let loopPath = modelDir + "/loop_network.json"
+        let inlinePath = modelDir + "/inline_network.json"
+        
+        // Try to load loop network
+        let loopLoaded = loopNetwork.load(loopPath)
+        
+        // Try to load inline network
+        let inlineLoaded = inlineNetwork.load(inlinePath)
+        
+        // Enable NN if both models loaded successfully
+        if loopLoaded and inlineLoaded {
+            useNeuralNetwork = true
+        }
+        
+        return loopLoaded or inlineLoaded
+    }
+
+    // Load training data
+    fun loadTrainingData() r: Int {
+        return trainingData.load()
+    }
+
+    // ============ Configuration ============
+
+    fun setConfidenceThreshold(threshold: Float) r: Void {
+        confidenceThreshold = max(0.5, min(1.0, threshold))
+    }
+
+    fun setLearningRate(lr: Float) r: Void {
+        loopNetwork.setLearningRate(lr)
+        inlineNetwork.setLearningRate(lr)
+    }
+
+    fun setTargetHardware(name: String) r: Void {
+        targetHardware = name
+    }
+
+    fun enableNeuralNetwork(enable: Bool) r: Void {
+        useNeuralNetwork = enable
+    }
+
+    // ============ Statistics and Reporting ============
+
+    fun getSummary() r: String {
+        let stats = trainingData.getStats()
+        return "MLOptimizerNN: " + totalDecisions.toString() + " decisions (" +
+               nnDecisions.toString() + " NN, " + heuristicDecisions.toString() + " heuristic), " +
+               vectorizeCount.toString() + " vectorize, " + unrollCount.toString() + " unroll, " +
+               inlineCount.toString() + " inline, cache hits: " + cacheHits.toString()
+    }
+
+    fun getStats() r: OptimizerStats {
+        return OptimizerStats{
+            totalDecisions: totalDecisions,
+            nnDecisions: nnDecisions,
+            heuristicDecisions: heuristicDecisions,
+            vectorizeCount: vectorizeCount,
+            unrollCount: unrollCount,
+            inlineCount: inlineCount,
+            cacheHits: cacheHits,
+            trainingSamples: trainingData.getStats().totalExamples,
+            usingNeuralNetwork: useNeuralNetwork
+        }
+    }
+
+    fun hasLearnedNewPatterns() r: Bool {
+        return trainingData.hasEnoughData(minTrainingSamples)
+    }
+
+    fun detectRegression() r: Bool {
+        // Check if recent decisions have worse outcomes than expected
+        let recentExamples = getRecentExamples(50)
+        var badOutcomes = 0
+        
+        var i = 0
+        while i < recentExamples.length() {
+            if recentExamples[i].outcome.actualSpeedup < 0.9 {
+                badOutcomes = badOutcomes + 1
+            }
+            i = i + 1
+        }
+        
+        // Regression if >30% of recent decisions were bad
+        return badOutcomes > recentExamples.length() * 3 / 10
+    }
+
+    // ============ Helper Methods ============
+
+    fun shouldUseNeuralNetwork() r: Bool {
+        return useNeuralNetwork and trainingData.hasEnoughData(minTrainingSamples)
+    }
+
+    fun convertExamplesToSamples(examples: Array<TrainingExample>, isLoop: Bool) r: Array<TrainingSample> {
+        let samples = Array<TrainingSample>()
+        
+        var i = 0
+        while i < examples.length() {
+            let example = examples[i]
+            
+            // Only include examples of the right type
+            if isLoop and example.loopFeatures == null {
+                i = i + 1
+                continue
+            }
+            if not isLoop and example.inlineFeatures == null {
+                i = i + 1
+                continue
+            }
+            
+            let features = example.toFeatureVector()
+            let targets = example.toTargetVector()
+            let weight = if example.outcome.actualSpeedup > 0.0 { 
+                example.outcome.actualSpeedup 
+            } else { 
+                1.0 
+            }
+            
+            samples.push(TrainingSample.new(features, targets, weight))
+            i = i + 1
+        }
+        
+        return samples
+    }
+
+    fun evaluateAccuracy(network: NeuralNetwork, samples: Array<TrainingSample>) r: Float {
+        if samples.length() == 0 {
+            return 0.0
+        }
+        
+        var correct = 0
+        var i = 0
+        while i < samples.length() {
+            let predicted = network.predictClass(samples[i].features)
+            let expected = argmax(samples[i].targets)
+            
+            if predicted == expected {
+                correct = correct + 1
+            }
+            i = i + 1
+        }
+        
+        return correct.toFloat() / samples.length().toFloat()
+    }
+
+    fun logNeuralDecision(features: Any, decisionIdx: Int, confidence: Float, decisionType: String) r: Void {
+        // Log to file for debugging/analysis
+        let logLine = "NN_DECISION: type=" + decisionType + 
+                      " decision=" + decisionIdx.toString() +
+                      " confidence=" + confidence.toString() + "\n"
+        // Would append to log file
+    }
+
+    fun getRecentExamples(count: Int) r: Array<TrainingExample> {
+        let result = Array<TrainingExample>()
+        let start = max(0, trainingData.examples.length() - count)
+        
+        var i = start
+        while i < trainingData.examples.length() {
+            result.push(trainingData.examples[i])
+            i = i + 1
+        }
+        
+        return result
+    }
+}
+
+// ============ Feature Classes ============
+
+// Enhanced LoopFeatures with metadata for NN
+class LoopFeaturesNN {
+    var tripCount: Int
+    var nestingDepth: Int
+    var addOps: Int
+    var mulOps: Int
+    var loadOps: Int
+    var storeOps: Int
+    var stride: Int
+    var sourceLocation: String
+    var functionName: String
+
+    fun new(
+        tripCount: Int, nestingDepth: Int, addOps: Int, mulOps: Int,
+        loadOps: Int, storeOps: Int, stride: Int,
+        sourceLocation: String = "", functionName: String = ""
+    ) r: LoopFeaturesNN {
+        return LoopFeaturesNN{
+            tripCount: tripCount,
+            nestingDepth: nestingDepth,
+            addOps: addOps,
+            mulOps: mulOps,
+            loadOps: loadOps,
+            storeOps: storeOps,
+            stride: stride,
+            sourceLocation: sourceLocation,
+            functionName: functionName
+        }
+    }
+
+    fun toFeatureVector() r: Array<Float> {
+        let vector = Array<Float>()
+        vector.push(normalize(tripCount.toFloat(), 0.0, 10000.0))
+        vector.push(normalize(nestingDepth.toFloat(), 0.0, 5.0))
+        vector.push(normalize(addOps.toFloat(), 0.0, 100.0))
+        vector.push(normalize(mulOps.toFloat(), 0.0, 50.0))
+        vector.push(normalize(loadOps.toFloat(), 0.0, 50.0))
+        vector.push(normalize(storeOps.toFloat(), 0.0, 50.0))
+        vector.push(normalize(stride.toFloat(), 0.0, 100.0))
+        return vector
+    }
+
+    fun toCacheKey() r: String {
+        return tripCount.toString() + "_" + nestingDepth.toString() + "_" +
+               addOps.toString() + "_" + mulOps.toString() + "_" +
+               loadOps.toString() + "_" + storeOps.toString() + "_" +
+               stride.toString()
+    }
+
+    fun toLegacyFeatures() r: LoopFeatures {
+        return LoopFeatures.new(tripCount, nestingDepth, addOps, mulOps, loadOps, storeOps, stride)
+    }
+
+    fun registerPressure() r: Int {
+        return loadOps + addOps + mulOps
+    }
+}
+
+// Enhanced InlineFeatures with metadata for NN
+class InlineFeaturesNN {
+    var calleeSize: Int
+    var callerSize: Int
+    var callCount: Int
+    var hasLoops: Bool
+    var sourceLocation: String
+    var functionName: String
+
+    fun new(
+        calleeSize: Int, callerSize: Int, callCount: Int, hasLoops: Bool,
+        sourceLocation: String = "", functionName: String = ""
+    ) r: InlineFeaturesNN {
+        return InlineFeaturesNN{
+            calleeSize: calleeSize,
+            callerSize: callerSize,
+            callCount: callCount,
+            hasLoops: hasLoops,
+            sourceLocation: sourceLocation,
+            functionName: functionName
+        }
+    }
+
+    fun toFeatureVector() r: Array<Float> {
+        let vector = Array<Float>()
+        vector.push(normalize(calleeSize.toFloat(), 0.0, 500.0))
+        vector.push(normalize(callerSize.toFloat(), 0.0, 1000.0))
+        vector.push(normalize(callCount.toFloat(), 0.0, 100.0))
+        vector.push(if hasLoops { 1.0 } else { 0.0 })
+        // Pad to 7 features for consistency with loop network
+        vector.push(0.0)
+        vector.push(0.0)
+        vector.push(0.0)
+        return vector
+    }
+
+    fun toCacheKey() r: String {
+        return calleeSize.toString() + "_" + callerSize.toString() + "_" +
+               callCount.toString() + "_" + (if hasLoops { "1" } else { "0" })
+    }
+
+    fun toLegacyFeatures() r: InlineFeatures {
+        return InlineFeatures.new(calleeSize, callerSize, callCount, hasLoops)
+    }
+}
+
+// Legacy feature classes (for compatibility)
+class LoopFeatures {
+    let tripCount: Int
+    let nestingDepth: Int
+    let addOps: Int
+    let mulOps: Int
+    let loadOps: Int
+    let storeOps: Int
+    let stride: Int
+
+    fun new(tripCount: Int, nestingDepth: Int, addOps: Int, mulOps: Int, loadOps: Int, storeOps: Int, stride: Int) r: LoopFeatures {
+        return LoopFeatures{
+            tripCount: tripCount,
+            nestingDepth: nestingDepth,
+            addOps: addOps,
+            mulOps: mulOps,
+            loadOps: loadOps,
+            storeOps: storeOps,
+            stride: stride
+        }
+    }
+}
+
+class InlineFeatures {
+    let calleeSize: Int
+    let callerSize: Int
+    let callCount: Int
+    let hasLoops: Bool
+
+    fun new(calleeSize: Int, callerSize: Int, callCount: Int, hasLoops: Bool) r: InlineFeatures {
+        return InlineFeatures{
+            calleeSize: calleeSize,
+            callerSize: callerSize,
+            callCount: callCount,
+            hasLoops: hasLoops
+        }
+    }
+}
+
+// ============ Supporting Types ============
+
+enum OptimizationType {
+    Vectorize,
+    Unroll,
+    Both
+}
+
+class TrainingResult {
+    var success: Bool
+    var message: String
+    var loss: Float
+    var accuracy: Float
+    var loopAccuracy: Float
+    var inlineAccuracy: Float
+}
+
+class OptimizerStats {
+    var totalDecisions: Int
+    var nnDecisions: Int
+    var heuristicDecisions: Int
+    var vectorizeCount: Int
+    var unrollCount: Int
+    var inlineCount: Int
+    var cacheHits: Int
+    var trainingSamples: Int
+    var usingNeuralNetwork: Bool
+}
+
+class LLVMRemark {
+    var exampleId: String
+    var message: String
+    var wasSuccessful: Bool
+    var speedup: Float
+}
+
+// ============ Helper Functions ============
+
+fun normalize(value: Float, minVal: Float, maxVal: Float) r: Float {
+    if value <= minVal {
+        return 0.0
+    }
+    if value >= maxVal {
+        return 1.0
+    }
+    return (value - minVal) / (maxVal - minVal)
+}
+
+fun indexToDecision(idx: Int) r: OptimizationDecision {
+    return match idx {
+        0 -> OptimizationDecision.Vectorize
+        1 -> OptimizationDecision.Unroll
+        2 -> OptimizationDecision.Inline
+        _ -> OptimizationDecision.None
+    }
+}
+
+fun decisionToTargets(decision: OptimizationDecision) r: Array<Float> {
+    let targets = Array<Float>()
+    match decision {
+        OptimizationDecision.Vectorize -> { targets.push(1.0); targets.push(0.0); targets.push(0.0); targets.push(0.0); }
+        OptimizationDecision.Unroll -> { targets.push(0.0); targets.push(1.0); targets.push(0.0); targets.push(0.0); }
+        OptimizationDecision.Inline -> { targets.push(0.0); targets.push(0.0); targets.push(1.0); targets.push(0.0); }
+        OptimizationDecision.None -> { targets.push(0.0); targets.push(0.0); targets.push(0.0); targets.push(1.0); }
+    }
+    return targets
+}
+
+fun flipDecision(decision: OptimizationDecision) r: OptimizationDecision {
+    return match decision {
+        OptimizationDecision.Vectorize -> OptimizationDecision.None
+        OptimizationDecision.Unroll -> OptimizationDecision.None
+        OptimizationDecision.Inline -> OptimizationDecision.None
+        OptimizationDecision.None -> OptimizationDecision.None
+    }
+}
+
+fun argmax(values: Array<Float>) r: Int {
+    var maxIdx = 0
+    var maxVal = values[0]
+    var i = 1
+    while i < values.length() {
+        if values[i] > maxVal {
+            maxVal = values[i]
+            maxIdx = i
+        }
+        i = i + 1
+    }
+    return maxIdx
+}
+
+extern fun __GetTime() -> Float
+
+fun getCurrentTime() r: Float {
+    return __GetTime()
+}
+
+fun trim(s: String) r: String {
+    let len = s.length()
+    var start = 0
+    var doneStart = 0
+    while start < len and doneStart == 0 {
+        let c = s.byteAt(start)
+        if c == 32 or c == 9 or c == 10 or c == 13 {
+            start = start + 1
+        } else {
+            doneStart = 1
+        }
+    }
+    var end = len - 1
+    var doneEnd = 0
+    while end >= start and doneEnd == 0 {
+        let c = s.byteAt(end)
+        if c == 32 or c == 9 or c == 10 or c == 13 {
+            end = end - 1
+        } else {
+            doneEnd = 1
+        }
+    }
+    if start > end {
+        return ""
+    }
+    return s.substring(start, end + 1)
+}

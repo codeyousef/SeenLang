@@ -1,0 +1,176 @@
+// Test E-graph with union-find and rewrite rules
+// Verifies the core equality saturation data structure and optimization rules
+
+fun main() r: Int {
+    println("=== E-Graph Unit Tests ===")
+
+    // Test 1: Basic e-graph operations
+    println("Test 1: Basic add and find...")
+    var g = EGraph.new()
+
+    // Add leaf nodes: const_0 and variable x
+    let c0 = g.add("const_0", Array<Int>())
+    let x = g.add("var_x", Array<Int>())
+    let c1 = g.add("const_1", Array<Int>())
+
+    // They should be in different classes
+    if g.find(c0) == g.find(x) {
+        println("FAIL: const_0 and var_x should be in different classes")
+        return 1
+    }
+    println("  Classes are distinct: OK")
+
+    // Test 2: Add expression x + 0
+    println("Test 2: Add expression x + 0...")
+    var addChildren = Array<Int>()
+    addChildren.push(x)
+    addChildren.push(c0)
+    let xPlus0 = g.add("add", addChildren)
+
+    // x + 0 should be a new class
+    if g.find(xPlus0) == g.find(x) {
+        println("FAIL: (x+0) should initially be different from x")
+        return 1
+    }
+    println("  x+0 is new class: OK")
+
+    // Test 3: Merge (x + 0) with x (simulating the rewrite x+0 -> x)
+    println("Test 3: Merge x+0 with x...")
+    g.merge(xPlus0, x)
+    g.rebuild()
+
+    if g.find(xPlus0) != g.find(x) {
+        println("FAIL: after merge, x+0 should be same class as x")
+        return 1
+    }
+    println("  x+0 == x after merge: OK")
+
+    // Test 4: Deduplication
+    println("Test 4: Deduplication...")
+    var addChildren2 = Array<Int>()
+    addChildren2.push(x)
+    addChildren2.push(c0)
+    let xPlus0_dup = g.add("add", addChildren2)
+    // Should return the same class as the first x+0
+    if g.find(xPlus0_dup) != g.find(xPlus0) {
+        println("FAIL: duplicate add should return same class")
+        return 1
+    }
+    println("  Deduplication works: OK")
+
+    // Test 5: Class count
+    println("Test 5: Class count...")
+    let classCount = g.classCount()
+    println("  Class count: " + classCount.toString())
+    // We have: const_0, var_x (merged with x+0), const_1
+    // Plus the add node got merged with x, so should be ~3 canonical classes
+    if classCount < 2 {
+        println("FAIL: should have at least 2 classes")
+        return 1
+    }
+    println("  Class count reasonable: OK")
+
+    // Test 6: Rewrite rules
+    println("Test 6: Rewrite rules...")
+    var g2 = EGraph.new()
+    let zero = g2.add("const_0", Array<Int>())
+    let one = g2.add("const_1", Array<Int>())
+    let y = g2.add("var_y", Array<Int>())
+
+    // y * 1 -> should be rewritable to y
+    var mulChildren = Array<Int>()
+    mulChildren.push(y)
+    mulChildren.push(one)
+    let yTimes1 = g2.add("mul", mulChildren)
+
+    // y * 0 -> should be rewritable to 0
+    var mulZeroChildren = Array<Int>()
+    mulZeroChildren.push(y)
+    mulZeroChildren.push(zero)
+    let yTimes0 = g2.add("mul", mulZeroChildren)
+
+    let rules = loadStandardRuleSet()
+    println("  Loaded " + rules.length().toString() + " rules")
+
+    // Apply rules to y * 1
+    var applied1 = false
+    var ri = 0
+    while ri < rules.length() {
+        // Find node index for yTimes1 - it's in the graph's nodes
+        var ni = 0
+        while ni < g2.numNodes {
+            if g2.nodeOp(ni) == "mul" {
+                let result = applyRule(g2, rules[ri], ni)
+                if result >= 0 {
+                    let origClass = g2.find(g2.nodeClassId[ni])
+                    if g2.find(result) != origClass {
+                        g2.merge(origClass, result)
+                        applied1 = true
+                    }
+                }
+            }
+            ni = ni + 1
+        }
+        ri = ri + 1
+    }
+    g2.rebuild()
+
+    if not applied1 {
+        println("FAIL: expected at least one rule to apply")
+        return 1
+    }
+    println("  Rules applied successfully: OK")
+
+    // After applying mul_one rule, y*1 should be in same class as y
+    if g2.find(yTimes1) == g2.find(y) {
+        println("  y*1 == y: OK")
+    } else {
+        println("  y*1 != y: (may need multiple iterations)")
+    }
+
+    // After applying mul_zero rule, y*0 should be in same class as 0
+    if g2.find(yTimes0) == g2.find(zero) {
+        println("  y*0 == 0: OK")
+    } else {
+        println("  y*0 != 0: (may need multiple iterations)")
+    }
+
+    // Test 7: Cost model
+    println("Test 7: Cost model...")
+    let costModel = CostModel.new()
+    let addCost = costModel.opCost("add")
+    let mulCost = costModel.opCost("mul")
+    let divCost = costModel.opCost("div")
+
+    if addCost != 1 {
+        println("FAIL: add cost should be 1, got " + addCost.toString())
+        return 1
+    }
+    if mulCost != 3 {
+        println("FAIL: mul cost should be 3, got " + mulCost.toString())
+        return 1
+    }
+    if divCost != 20 {
+        println("FAIL: div cost should be 20, got " + divCost.toString())
+        return 1
+    }
+    println("  Costs correct (add=1, mul=3, div=20): OK")
+
+    // Test 8: Full optimizer
+    println("Test 8: Full optimizer (EGraphOptimizer)...")
+    var opt = EGraphOptimizer.new()
+    let a = opt.graph.add("const_0", Array<Int>())
+    let b = opt.graph.add("var_x", Array<Int>())
+    var addKids = Array<Int>()
+    addKids.push(b)
+    addKids.push(a)
+    let expr = opt.graph.add("add", addKids)
+
+    let totalApplied = opt.saturate()
+    println("  Applied " + totalApplied.toString() + " rules in saturation")
+    println("  Classes: " + opt.getClassCount().toString())
+    println("  Nodes: " + opt.getNodeCount().toString())
+
+    println("=== All E-Graph tests passed ===")
+    return 0
+}

@@ -1,0 +1,33 @@
+// Test Float peephole identity rules
+// x + 0.0 → x, x - 0.0 → x, x * 1.0 → x, x / 1.0 → x
+
+fun main() r: Int {
+    let x = 3.14
+
+    // Float identity: x + 0.0 → x
+    let a = x + 0.0
+    println("x + 0.0 = " + a.toString())
+
+    // Float identity: 0.0 + x → x
+    let b = 0.0 + x
+    println("0.0 + x = " + b.toString())
+
+    // Float identity: x - 0.0 → x
+    let c = x - 0.0
+    println("x - 0.0 = " + c.toString())
+
+    // Float identity: x * 1.0 → x
+    let d = x * 1.0
+    println("x * 1.0 = " + d.toString())
+
+    // Float identity: 1.0 * x → x
+    let e = 1.0 * x
+    println("1.0 * x = " + e.toString())
+
+    // Float identity: x / 1.0 → x
+    let f = x / 1.0
+    println("x / 1.0 = " + f.toString())
+
+    println("PASS: all Float peephole identity rules correct")
+    return 0
+}

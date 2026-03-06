@@ -1,0 +1,197 @@
+// Component Framework for Seen Language
+// Provides lifecycle management and composition for UI/game components
+// Used with the @component decorator
+
+import collections.btree_map.{BTreeMap}
+
+// Component lifecycle state
+data ComponentState {
+    Uninitialized,
+    Initialized,
+    Mounted,
+    Unmounted,
+    Destroyed
+}
+
+// Component metadata stored in registry
+class ComponentInfo {
+    var id: Int
+    var name: String
+    var state: ComponentState
+    var parentId: Int  // -1 if no parent
+    var childIds: Array<Int>
+    var isDeterministic: Bool
+
+    static fun new(id: Int, name: String) r: ComponentInfo {
+        return ComponentInfo{
+            id: id,
+            name: name,
+            state: ComponentState.Uninitialized,
+            parentId: 0 - 1,  // -1 means no parent
+            childIds: Array<Int>(),
+            isDeterministic: true
+        }
+    }
+
+    fun addChild(childId: Int) r: Void {
+        childIds.push(childId)
+    }
+
+    fun removeChild(childId: Int) r: Void {
+        var newChildren = Array<Int>()
+        var i = 0
+        while i < childIds.length() {
+            if childIds[i] != childId {
+                newChildren.push(childIds[i])
+            }
+            i = i + 1
+        }
+        childIds = newChildren
+    }
+}
+
+// Global component registry - tracks all component instances
+class ComponentRegistry {
+    var components: BTreeMap<Int, ComponentInfo>
+    var nextId: Int
+
+    static fun new() r: ComponentRegistry {
+        return ComponentRegistry{
+            components: BTreeMap<Int, ComponentInfo>.new(),
+            nextId: 1
+        }
+    }
+
+    // Register a new component and return its ID
+    fun register(name: String, parentId: Int) r: Int {
+        let id = nextId
+        nextId = nextId + 1
+
+        let info = ComponentInfo.new(id, name)
+        if parentId > 0 {
+            info.parentId = parentId
+            // Add as child to parent
+            let parentOpt = components.get(parentId)
+            if parentOpt.isSome() {
+                let parent = parentOpt.unwrap()
+                parent.addChild(id)
+            }
+        }
+
+        components.put(id, info)
+        return id
+    }
+
+    // Get component info by ID
+    fun get(id: Int) r: Option<ComponentInfo> {
+        return components.get(id)
+    }
+
+    // Get all child IDs for a component
+    fun getChildren(parentId: Int) r: Array<Int> {
+        let infoOpt = components.get(parentId)
+        if infoOpt.isSome() {
+            return infoOpt.unwrap().childIds
+        }
+        return Array<Int>()
+    }
+
+    // Update component state
+    fun setState(id: Int, state: ComponentState) r: Void {
+        let infoOpt = components.get(id)
+        if infoOpt.isSome() {
+            let info = infoOpt.unwrap()
+            info.state = state
+        }
+    }
+
+    // Unregister a component and all its children (recursive)
+    fun unregister(id: Int) r: Void {
+        let infoOpt = components.get(id)
+        if infoOpt.isNone() {
+            return
+        }
+
+        let info = infoOpt.unwrap()
+
+        // Recursively unregister children first (reverse order for proper cleanup)
+        var i = info.childIds.length() - 1
+        while i >= 0 {
+            unregister(info.childIds[i])
+            i = i - 1
+        }
+
+        // Remove from parent's child list
+        if info.parentId > 0 {
+            let parentOpt = components.get(info.parentId)
+            if parentOpt.isSome() {
+                parentOpt.unwrap().removeChild(id)
+            }
+        }
+
+        // Remove from registry
+        components.remove(id)
+    }
+}
+
+// Global registry instance
+var g_componentRegistry: ComponentRegistry = ComponentRegistry.new()
+
+// Public API functions for component lifecycle management
+
+// Initialize the component system (call at app start)
+fun initComponentSystem() r: Void {
+    g_componentRegistry = ComponentRegistry.new()
+}
+
+// Register a component with optional parent
+fun registerComponent(name: String, parentId: Int) r: Int {
+    return g_componentRegistry.register(name, parentId)
+}
+
+// Register a root component (no parent)
+fun registerRootComponent(name: String) r: Int {
+    return g_componentRegistry.register(name, 0 - 1)
+}
+
+// Get component info
+fun getComponent(id: Int) r: Option<ComponentInfo> {
+    return g_componentRegistry.get(id)
+}
+
+// Set component state
+fun setComponentState(id: Int, state: ComponentState) r: Void {
+    g_componentRegistry.setState(id, state)
+}
+
+// Unregister component and children
+fun unregisterComponent(id: Int) r: Void {
+    g_componentRegistry.unregister(id)
+}
+
+// Get children of a component
+fun getComponentChildren(id: Int) r: Array<Int> {
+    return g_componentRegistry.getChildren(id)
+}
+
+// Lifecycle helper: call mount on component and all children (depth-first)
+fun mountComponentTree(id: Int) r: Void {
+    let children = getComponentChildren(id)
+    var i = 0
+    while i < children.length() {
+        mountComponentTree(children[i])
+        i = i + 1
+    }
+    setComponentState(id, ComponentState.Mounted)
+}
+
+// Lifecycle helper: call unmount on component and all children (reverse order)
+fun unmountComponentTree(id: Int) r: Void {
+    setComponentState(id, ComponentState.Unmounted)
+    let children = getComponentChildren(id)
+    var i = children.length() - 1
+    while i >= 0 {
+        unmountComponentTree(children[i])
+        i = i - 1
+    }
+}

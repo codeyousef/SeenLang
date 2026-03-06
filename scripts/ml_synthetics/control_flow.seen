@@ -1,0 +1,250 @@
+// Synthetic: Complex control flow patterns
+// Represents: state machines, protocol parsers, interpreters, validators
+// Tests: branch prediction, code layout, unlikely paths
+
+fun parseNumber(input: String, pos: Int) r: Int {
+    var result = 0
+    var p = pos
+    var negative = false
+    if p < input.length() {
+        if input.substring(p, p + 1) == "-" {
+            negative = true
+            p = p + 1
+        }
+    }
+    while p < input.length() {
+        let c = input.substring(p, p + 1)
+        var digit = 0 - 1
+        if c == "0" { digit = 0 }
+        if c == "1" { digit = 1 }
+        if c == "2" { digit = 2 }
+        if c == "3" { digit = 3 }
+        if c == "4" { digit = 4 }
+        if c == "5" { digit = 5 }
+        if c == "6" { digit = 6 }
+        if c == "7" { digit = 7 }
+        if c == "8" { digit = 8 }
+        if c == "9" { digit = 9 }
+        if digit < 0 { p = input.length() }
+        if digit >= 0 {
+            result = result * 10 + digit
+        }
+        p = p + 1
+    }
+    if negative { result = 0 - result }
+    return result
+}
+
+// Simple state machine: count words, numbers, punctuation
+fun analyzeText(text: String) r: Array<Int> {
+    var counts = Array<Int>()
+    counts.push(0)  // 0: words
+    counts.push(0)  // 1: numbers
+    counts.push(0)  // 2: punctuation
+    counts.push(0)  // 3: spaces
+    counts.push(0)  // 4: other
+
+    var state = 0  // 0=start, 1=in_word, 2=in_number
+    var i = 0
+    while i < text.length() {
+        let c = text.substring(i, i + 1)
+        var isAlpha = false
+        var isDigit = false
+        var isSpace = false
+        var isPunct = false
+
+        if c == " " or c == "\t" or c == "\n" { isSpace = true }
+        if c == "." or c == "," or c == "!" or c == "?" or c == ";" or c == ":" { isPunct = true }
+        if c >= "a" and c <= "z" { isAlpha = true }
+        if c >= "A" and c <= "Z" { isAlpha = true }
+        if c >= "0" and c <= "9" { isDigit = true }
+
+        if state == 0 {
+            if isAlpha {
+                state = 1
+            }
+            if isDigit {
+                state = 2
+            }
+            if isSpace {
+                counts[3] = counts[3] + 1
+            }
+            if isPunct {
+                counts[2] = counts[2] + 1
+            }
+        }
+        if state == 1 {
+            if not isAlpha {
+                counts[0] = counts[0] + 1  // word ended
+                state = 0
+                if isSpace { counts[3] = counts[3] + 1 }
+                if isPunct { counts[2] = counts[2] + 1 }
+                if isDigit { state = 2 }
+            }
+        }
+        if state == 2 {
+            if not isDigit {
+                counts[1] = counts[1] + 1  // number ended
+                state = 0
+                if isSpace { counts[3] = counts[3] + 1 }
+                if isPunct { counts[2] = counts[2] + 1 }
+                if isAlpha { state = 1 }
+            }
+        }
+
+        i = i + 1
+    }
+    // Flush last token
+    if state == 1 { counts[0] = counts[0] + 1 }
+    if state == 2 { counts[1] = counts[1] + 1 }
+
+    return counts
+}
+
+// Validator: check balanced brackets
+fun checkBalanced(text: String) r: Bool {
+    var depth = 0
+    var i = 0
+    while i < text.length() {
+        let c = text.substring(i, i + 1)
+        if c == "(" or c == "[" or c == "{" {
+            depth = depth + 1
+        }
+        if c == ")" or c == "]" or c == "}" {
+            depth = depth - 1
+            if depth < 0 { return false }
+        }
+        i = i + 1
+    }
+    return depth == 0
+}
+
+// Pattern matcher: simple glob with * and ?
+fun globMatch(pattern: String, text: String) r: Bool {
+    var pi = 0
+    var ti = 0
+    var starPi = 0 - 1
+    var starTi = 0 - 1
+
+    while ti < text.length() {
+        if pi < pattern.length() {
+            let pc = pattern.substring(pi, pi + 1)
+            let tc = text.substring(ti, ti + 1)
+            if pc == tc or pc == "?" {
+                pi = pi + 1
+                ti = ti + 1
+            } else {
+                if pc == "*" {
+                    starPi = pi
+                    starTi = ti
+                    pi = pi + 1
+                } else {
+                    if starPi >= 0 {
+                        pi = starPi + 1
+                        starTi = starTi + 1
+                        ti = starTi
+                    } else {
+                        return false
+                    }
+                }
+            }
+        } else {
+            if starPi >= 0 {
+                pi = starPi + 1
+                starTi = starTi + 1
+                ti = starTi
+            } else {
+                return false
+            }
+        }
+    }
+
+    while pi < pattern.length() {
+        if pattern.substring(pi, pi + 1) != "*" { return false }
+        pi = pi + 1
+    }
+    return true
+}
+
+fun fibonacci(n: Int) r: Int {
+    if n <= 1 { return n }
+    var a = 0
+    var b = 1
+    var i = 2
+    while i <= n {
+        let tmp = a + b
+        a = b
+        b = tmp
+        i = i + 1
+    }
+    return b
+}
+
+fun collatz(n: Int) r: Int {
+    var steps = 0
+    var val = n
+    while val != 1 {
+        if val - (val / 2) * 2 == 0 {
+            val = val / 2
+        } else {
+            val = val * 3 + 1
+        }
+        steps = steps + 1
+    }
+    return steps
+}
+
+fun main() r: Void {
+    // Build a text to analyze
+    var text = ""
+    var i = 0
+    while i < 100 {
+        text = text + "The quick brown fox 42 jumps! Over the 7 lazy dogs? "
+        i = i + 1
+    }
+    let counts = analyzeText(text)
+    println("Words: " + counts[0].toString())
+    println("Numbers: " + counts[1].toString())
+    println("Punctuation: " + counts[2].toString())
+
+    // Bracket checking
+    let bal1 = checkBalanced("((([])){})")
+    let bal2 = checkBalanced("((])")
+    let bal3 = checkBalanced("{[()]}")
+    if bal1 { println("bal1: balanced") } else { println("bal1: unbalanced") }
+    if bal2 { println("bal2: balanced") } else { println("bal2: unbalanced") }
+    if bal3 { println("bal3: balanced") } else { println("bal3: unbalanced") }
+
+    // Glob matching
+    let g1 = globMatch("hello*", "hello world")
+    let g2 = globMatch("h?llo", "hello")
+    let g3 = globMatch("*.seen", "test.seen")
+    let g4 = globMatch("*.rs", "test.seen")
+    if g1 { println("g1: match") } else { println("g1: no match") }
+    if g2 { println("g2: match") } else { println("g2: no match") }
+    if g3 { println("g3: match") } else { println("g3: no match") }
+    if g4 { println("g4: match") } else { println("g4: no match") }
+
+    // Fibonacci
+    println("fib(30): " + fibonacci(30).toString())
+    println("fib(45): " + fibonacci(45).toString())
+
+    // Collatz sequence lengths
+    var maxSteps = 0
+    var maxN = 0
+    i = 1
+    while i < 10000 {
+        let steps = collatz(i)
+        if steps > maxSteps {
+            maxSteps = steps
+            maxN = i
+        }
+        i = i + 1
+    }
+    println("Longest Collatz under 10000: n=" + maxN.toString() + " steps=" + maxSteps.toString())
+
+    // Number parsing
+    let n1 = parseNumber("12345", 0)
+    let n2 = parseNumber("-999", 0)
+    println("Parsed: " + n1.toString() + ", " + n2.toString())
+}

@@ -1,0 +1,38 @@
+// StackRegion — LIFO bump allocator with O(1) alloc/pop.
+// Memory is freed in reverse allocation order only.
+
+extern fun seen_stack_region_new(capacity: Int) r: Int
+extern fun seen_stack_region_alloc(handle: Int, size: Int) r: Int
+extern fun seen_stack_region_pop(handle: Int, size: Int) r: Void
+extern fun seen_stack_region_reset(handle: Int) r: Void
+extern fun seen_stack_region_destroy(handle: Int) r: Void
+extern fun seen_stack_region_remaining(handle: Int) r: Int
+
+class StackRegion {
+    var handle: Int
+
+    fun new(capacity: Int) r: StackRegion {
+        let h = seen_stack_region_new(capacity)
+        return StackRegion { handle: h }
+    }
+
+    fun alloc(size: Int) r: Int {
+        return seen_stack_region_alloc(this.handle, size)
+    }
+
+    fun pop(size: Int) r: Void {
+        seen_stack_region_pop(this.handle, size)
+    }
+
+    fun reset() r: Void {
+        seen_stack_region_reset(this.handle)
+    }
+
+    fun destroy() r: Void {
+        seen_stack_region_destroy(this.handle)
+    }
+
+    fun remaining() r: Int {
+        return seen_stack_region_remaining(this.handle)
+    }
+}

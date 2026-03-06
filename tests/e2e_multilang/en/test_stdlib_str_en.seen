@@ -1,0 +1,80 @@
+// E2E Test: String Standard Library (English)
+// Functions tested: contains, startsWith, endsWith, indexOf, length, concat
+// NOTE: contains/startsWith/endsWith return bool - must use directly in if,
+//       not assign to var and compare with == 1 (i1 vs i64 mismatch)
+// NOTE: indexOf takes 3 args: (text, needle, startIndex)
+
+fun main() r: Int {
+    let text = "hello world"
+
+    // Test 1: string length
+    let len = text.length()
+    if len == 11 {
+        println("PASS: string length")
+    } else {
+        println("FAIL: string length, got " + len.toString())
+        return 1
+    }
+
+    // Test 2: contains (returns bool, use in if directly)
+    if contains(text, "world") {
+        println("PASS: contains")
+    } else {
+        println("FAIL: contains")
+        return 1
+    }
+
+    // Test 3: startsWith (returns bool, use in if directly)
+    if startsWith(text, "hello") {
+        println("PASS: startsWith")
+    } else {
+        println("FAIL: startsWith")
+        return 1
+    }
+
+    // Test 4: endsWith (returns bool, use in if directly)
+    if endsWith(text, "world") {
+        println("PASS: endsWith")
+    } else {
+        println("FAIL: endsWith")
+        return 1
+    }
+
+    // Test 5: indexOf (takes 3 args: text, needle, startIndex)
+    let idx = indexOf(text, "world", 0)
+    if idx == 6 {
+        println("PASS: indexOf")
+    } else {
+        println("FAIL: indexOf, got " + idx.toString())
+        return 1
+    }
+
+    // Test 6: string concatenation
+    let greeting = "hi" + " " + "there"
+    if greeting == "hi there" {
+        println("PASS: string concat")
+    } else {
+        println("FAIL: string concat")
+        return 1
+    }
+
+    // Test 7: contains negative case
+    if contains(text, "xyz") {
+        println("FAIL: contains negative")
+        return 1
+    } else {
+        println("PASS: contains negative")
+    }
+
+    // Test 8: indexOf not found returns -1
+    let notfound = indexOf(text, "xyz", 0)
+    if notfound == -1 {
+        println("PASS: indexOf not found")
+    } else {
+        println("FAIL: indexOf not found, got " + notfound.toString())
+        return 1
+    }
+
+    println("PASS: all string stdlib tests passed")
+    return 0
+}

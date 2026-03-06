@@ -1,0 +1,54 @@
+name = "Russian"
+description = "Russian Math Standard Library"
+
+[std_lib]
+# Тригонометрия
+"синус" = "seen_std.math.sin"
+"косинус" = "seen_std.math.cos"
+"тангенс" = "seen_std.math.tan"
+"арксинус" = "seen_std.math.asin"
+"арккосинус" = "seen_std.math.acos"
+"арктангенс" = "seen_std.math.atan"
+"арктангенс2" = "seen_std.math.atan2"
+
+# Корни и степени
+"корень" = "seen_std.math.sqrt"
+"кубический_корень" = "seen_std.math.cbrt"
+"степень" = "seen_std.math.pow"
+"гипотенуза" = "seen_std.math.hypot"
+
+# Экспоненциальные и логарифмические
+"экспонента" = "seen_std.math.exp"
+"натуральный_логарифм" = "seen_std.math.ln"
+"логарифм2" = "seen_std.math.log2"
+"логарифм10" = "seen_std.math.log10"
+
+# Округление
+"пол" = "seen_std.math.floor"
+"потолок" = "seen_std.math.ceil"
+"округление" = "seen_std.math.round"
+
+# Базовые
+"модуль" = "seen_std.math.abs"
+"минимум" = "seen_std.math.min"
+"максимум" = "seen_std.math.max"
+"ограничить" = "seen_std.math.clamp"
+"знак" = "seen_std.math.sign"
+
+# Интерполяция
+"линейная_интерполяция" = "seen_std.math.lerp"
+"плавный_шаг" = "seen_std.math.smoothstep"
+
+# Проверки IEEE
+"является_нечислом" = "seen_std.math.isnan"
+"является_бесконечностью" = "seen_std.math.isinf"
+"является_конечным" = "seen_std.math.isfinite"
+
+# Целочисленные
+"наибольший_общий_делитель" = "seen_std.math.gcd"
+
+# Константы
+"ПИ" = "seen_std.math.PI"
+"ТАУ" = "seen_std.math.TAU"
+"Е" = "seen_std.math.E"
+"ЭПСИЛОН" = "seen_std.math.EPSILON"

@@ -1,0 +1,10 @@
+# Seen vs GCC -O3 Results (Tue 10 Feb 03:23:50 +03 2026)
+
+| Benchmark | Seen | GCC -O3 | Ratio | Compile Time |
+|-----------|------|---------|-------|-------------|
+| Matrix Multiply | 6566ms | 19ms | 34557% | 135ms vs 39ms |
+| Sieve | 740ms | 12ms | 6166% | 113ms vs 34ms |
+| N-Body | 2027ms | 1778ms | 114% | 128ms vs 67ms |
+
+## Compilation Speed
+Self-compilation: 95420ms

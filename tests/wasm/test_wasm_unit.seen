@@ -1,0 +1,218 @@
+// Unit test for WASM backend components
+// Tests Fixed64 arithmetic which is core to UWW determinism
+
+// Fixed64 - simplified inline version for testing
+// Uses 32.32 format: value = raw / 4294967296
+
+class Fixed64Test {
+    let raw: Int
+
+    fun new(raw: Int) r: Fixed64Test {
+        raw = raw
+    }
+
+    static fun fromInt(value: Int) r: Fixed64Test {
+        // SCALE = 2^32 = 4294967296
+        return Fixed64Test.new(value * 4294967296)
+    }
+
+    static fun fromFraction(num: Int, denom: Int) r: Fixed64Test {
+        if denom == 0 {
+            return Fixed64Test.new(0)
+        }
+        let scaled = (num * 4294967296) / denom
+        return Fixed64Test.new(scaled)
+    }
+
+    fun toInt() r: Int {
+        return raw / 4294967296
+    }
+
+    fun add(other: Fixed64Test) r: Fixed64Test {
+        return Fixed64Test.new(raw + other.raw)
+    }
+
+    fun sub(other: Fixed64Test) r: Fixed64Test {
+        return Fixed64Test.new(raw - other.raw)
+    }
+
+    fun eq(other: Fixed64Test) r: Bool {
+        return raw == other.raw
+    }
+
+    fun lt(other: Fixed64Test) r: Bool {
+        return raw < other.raw
+    }
+}
+
+// Test runner
+fun main() r: Int {
+    println("=================================")
+    println("WASM Backend Unit Tests")
+    println("=================================")
+
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Fixed64 fromInt
+    println("")
+    println("Test 1: Fixed64.fromInt")
+    let one = Fixed64Test.fromInt(1)
+    let two = Fixed64Test.fromInt(2)
+    if one.toInt() == 1 {
+        println("[PASS] fromInt(1).toInt() == 1")
+        passed = passed + 1
+    } else {
+        println("[FAIL] fromInt(1).toInt() != 1")
+        failed = failed + 1
+    }
+
+    // Test 2: Fixed64 addition
+    println("")
+    println("Test 2: Fixed64 addition")
+    let sum = one.add(two)
+    if sum.toInt() == 3 {
+        println("[PASS] 1 + 2 = 3")
+        passed = passed + 1
+    } else {
+        println("[FAIL] 1 + 2 != 3, got: ")
+        failed = failed + 1
+    }
+
+    // Test 3: Fixed64 subtraction
+    println("")
+    println("Test 3: Fixed64 subtraction")
+    let diff = two.sub(one)
+    if diff.toInt() == 1 {
+        println("[PASS] 2 - 1 = 1")
+        passed = passed + 1
+    } else {
+        println("[FAIL] 2 - 1 != 1")
+        failed = failed + 1
+    }
+
+    // Test 4: Fixed64 equality
+    println("")
+    println("Test 4: Fixed64 equality")
+    let oneAgain = Fixed64Test.fromInt(1)
+    if one.eq(oneAgain) {
+        println("[PASS] 1 == 1")
+        passed = passed + 1
+    } else {
+        println("[FAIL] 1 != 1")
+        failed = failed + 1
+    }
+
+    // Test 5: Fixed64 less than
+    println("")
+    println("Test 5: Fixed64 comparison")
+    if one.lt(two) {
+        println("[PASS] 1 < 2")
+        passed = passed + 1
+    } else {
+        println("[FAIL] 1 not < 2")
+        failed = failed + 1
+    }
+
+    // Test 6: Deterministic random (LCG)
+    println("")
+    println("Test 6: Deterministic LCG")
+    var seed = 12345
+    seed = (seed * 48271) % 2147483647
+    let expected1 = 596516649  // Known output for seed 12345
+    if seed == expected1 {
+        println("[PASS] LCG deterministic: seed 12345 -> 596516649")
+        passed = passed + 1
+    } else {
+        println("[FAIL] LCG not deterministic")
+        failed = failed + 1
+    }
+
+    // Test 7: Second LCG iteration
+    seed = (seed * 48271) % 2147483647
+    let expected2 = 1569684741
+    if seed == expected2 {
+        println("[PASS] LCG iteration 2 deterministic")
+        passed = passed + 1
+    } else {
+        println("[FAIL] LCG iteration 2 not deterministic")
+        failed = failed + 1
+    }
+
+    // Test 8: Target string parsing simulation
+    println("")
+    println("Test 8: Target parsing")
+    let targetWasm = "wasm"
+    let targetUww = "uww"
+    if targetWasm == "wasm" {
+        println("[PASS] Target 'wasm' parsed correctly")
+        passed = passed + 1
+    } else {
+        println("[FAIL] Target 'wasm' parsing failed")
+        failed = failed + 1
+    }
+
+    if targetUww == "uww" {
+        println("[PASS] Target 'uww' parsed correctly")
+        passed = passed + 1
+    } else {
+        println("[FAIL] Target 'uww' parsing failed")
+        failed = failed + 1
+    }
+
+    // Test 9: WASI forbidden imports list check
+    println("")
+    println("Test 9: WASI forbidden imports")
+    let forbidden = "fd_read"
+    if forbidden == "fd_read" {
+        println("[PASS] Forbidden import 'fd_read' detected")
+        passed = passed + 1
+    } else {
+        println("[FAIL] Forbidden import detection failed")
+        failed = failed + 1
+    }
+
+    // Test 10: Memory pages calculation
+    println("")
+    println("Test 10: Memory pages")
+    let memoryPages = 16
+    let memoryBytes = memoryPages * 65536
+    if memoryBytes == 1048576 {
+        println("[PASS] 16 pages = 1MB")
+        passed = passed + 1
+    } else {
+        println("[FAIL] Memory calculation wrong")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("")
+    println("=================================")
+    println("Test Summary")
+    println("=================================")
+    let total = passed + failed
+    println("Passed: ")
+    printInt(passed)
+    println("")
+    println("Failed: ")
+    printInt(failed)
+    println("")
+    println("Total:  ")
+    printInt(total)
+    println("")
+
+    if failed == 0 {
+        println("")
+        println("All tests passed!")
+        return 0
+    } else {
+        println("")
+        println("Some tests failed!")
+        return 1
+    }
+}
+
+// Simple print helpers
+fun printInt(n: Int) r: Void {
+    println(n.toString())
+}

@@ -1,0 +1,9 @@
+var gArr: Array<Int> = Array<Int>()
+
+fun main() {
+    gArr = Array<Int>()
+    gArr.push(42)
+    var copy = gArr
+    copy.push(99)
+    println(copy.length().toString())
+}

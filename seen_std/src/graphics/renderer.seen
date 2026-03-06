@@ -1,0 +1,1073 @@
+/**
+ * High-level Vulkan renderer abstraction.
+ *
+ * Provides a safe, easy-to-use rendering API that handles Vulkan
+ * initialization, swapchain management, and frame synchronization.
+ * Supports triple buffering and automatic swapchain recreation.
+ *
+ * Example:
+ *   let window = Window.newVulkan("Game", 1280, 720).unwrap()
+ *   let renderer = VulkanRenderer.new(window, "My Game").unwrap()
+ *   renderer.setClearColor(ClearColor.cornflowerBlue())
+ *   // render loop...
+ *   renderer.destroy()
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import platform.linux.window.{Window, ResizeEvent}
+import platform.linux.vulkan.{
+    VK_SUCCESS, VK_ERROR_OUT_OF_DATE_KHR, VK_SUBOPTIMAL_KHR,
+    VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_D32_SFLOAT,
+    VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+    VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_KHR,
+    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+    VK_SHARING_MODE_EXCLUSIVE,
+    VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+    VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_ASPECT_DEPTH_BIT,
+    VK_IMAGE_VIEW_TYPE_2D,
+    VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT,
+    VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    VK_POLYGON_MODE_FILL,
+    VK_CULL_MODE_BACK_BIT, VK_CULL_MODE_NONE,
+    VK_FRONT_FACE_COUNTER_CLOCKWISE,
+    VK_SAMPLE_COUNT_1_BIT,
+    VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
+    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    VK_PIPELINE_BIND_POINT_GRAPHICS,
+    VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+    VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    VK_SUBPASS_CONTENTS_INLINE,
+    VK_FENCE_CREATE_SIGNALED_BIT,
+    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    VK_QUEUE_GRAPHICS_BIT,
+    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    VK_INDEX_TYPE_UINT16, VK_INDEX_TYPE_UINT32,
+    vk_result_string, vk_succeeded, vk_failed,
+    // Direct C FFI functions from the shim
+    seen_vk_create_instance, seen_vk_destroy_instance,
+    seen_vk_enumerate_physical_devices, seen_vk_get_physical_device_properties,
+    seen_vk_get_physical_device_queue_family_count, seen_vk_get_physical_device_queue_family_flags,
+    seen_vk_get_physical_device_surface_support,
+    seen_vk_get_surface_capabilities,
+    seen_vk_get_surface_format_count, seen_vk_get_surface_format,
+    seen_vk_get_surface_present_mode_count, seen_vk_get_surface_present_mode,
+    seen_vk_get_physical_device_memory_type_count, seen_vk_get_memory_type_properties,
+    seen_vk_create_device, seen_vk_destroy_device, seen_vk_get_device_queue, seen_vk_device_wait_idle,
+    seen_vk_destroy_surface,
+    seen_vk_create_swapchain, seen_vk_destroy_swapchain, seen_vk_get_swapchain_image_count, seen_vk_get_swapchain_image,
+    seen_vk_acquire_next_image, seen_vk_queue_present,
+    seen_vk_create_image_view, seen_vk_destroy_image_view,
+    seen_vk_create_shader_module, seen_vk_destroy_shader_module,
+    seen_vk_create_pipeline_layout, seen_vk_destroy_pipeline_layout,
+    seen_vk_create_render_pass, seen_vk_destroy_render_pass,
+    seen_vk_create_graphics_pipeline, seen_vk_destroy_pipeline,
+    seen_vk_create_framebuffer, seen_vk_destroy_framebuffer,
+    seen_vk_create_command_pool, seen_vk_destroy_command_pool, seen_vk_reset_command_pool,
+    seen_vk_allocate_command_buffers, seen_vk_free_command_buffers,
+    seen_vk_begin_command_buffer, seen_vk_end_command_buffer, seen_vk_reset_command_buffer,
+    seen_vk_cmd_begin_render_pass, seen_vk_cmd_end_render_pass,
+    seen_vk_cmd_bind_pipeline, seen_vk_cmd_set_viewport, seen_vk_cmd_set_scissor,
+    seen_vk_cmd_bind_vertex_buffers, seen_vk_cmd_bind_index_buffer,
+    seen_vk_cmd_draw, seen_vk_cmd_draw_indexed,
+    seen_vk_queue_submit,
+    seen_vk_create_semaphore, seen_vk_destroy_semaphore,
+    seen_vk_create_fence, seen_vk_destroy_fence, seen_vk_wait_for_fences, seen_vk_reset_fences,
+    seen_vk_create_buffer, seen_vk_destroy_buffer, seen_vk_get_buffer_memory_requirements, seen_vk_bind_buffer_memory,
+    seen_vk_allocate_memory, seen_vk_free_memory, seen_vk_map_memory, seen_vk_unmap_memory
+}
+
+let MAX_FRAMES_IN_FLIGHT: Int = 2
+
+/**
+ * RGBA clear color for render pass clearing.
+ *
+ * Use factory methods like black(), white(), or cornflowerBlue()
+ * for common colors, or create custom colors with new().
+ */
+class ClearColor {
+    var red: Float
+    var green: Float
+    var blue: Float
+    var alpha: Float
+
+    static fun new(red: Float, green: Float, blue: Float, alpha: Float) r: ClearColor {
+        return ClearColor { red: red, green: green, blue: blue, alpha: alpha }
+    }
+
+    static fun black() r: ClearColor {
+        return ClearColor.new(0.0, 0.0, 0.0, 1.0)
+    }
+
+    static fun white() r: ClearColor {
+        return ClearColor.new(1.0, 1.0, 1.0, 1.0)
+    }
+
+    static fun cornflowerBlue() r: ClearColor {
+        return ClearColor.new(0.392, 0.584, 0.929, 1.0)
+    }
+}
+
+/**
+ * Renderer configuration using a builder pattern.
+ *
+ * Controls validation layers, vsync, triple buffering, and MSAA.
+ * Create with new() and chain configuration methods.
+ */
+class RendererConfig {
+    var appName: String
+    var appVersion: Int
+    var enableValidation: Bool
+    var vsync: Bool
+    var tripleBuffering: Bool
+    var sampleCount: Int
+
+    static fun new(appName: String) r: RendererConfig {
+        return RendererConfig {
+            appName: appName,
+            appVersion: 1,
+            enableValidation: false,
+            vsync: true,
+            tripleBuffering: true,
+            sampleCount: 1
+        }
+    }
+
+    fun withValidation(enable: Bool) r: RendererConfig {
+        this.enableValidation = enable
+        return this
+    }
+
+    fun withVsync(enable: Bool) r: RendererConfig {
+        this.vsync = enable
+        return this
+    }
+
+    fun withTripleBuffering(enable: Bool) r: RendererConfig {
+        this.tripleBuffering = enable
+        return this
+    }
+
+    fun withMsaa(samples: Int) r: RendererConfig {
+        this.sampleCount = samples
+        return this
+    }
+}
+
+/**
+ * GPU buffer wrapper for vertex, index, and uniform data.
+ */
+class Buffer {
+    var handle: UInt64
+    var memory: UInt64
+    var size: UInt64
+    var usage: UInt32
+
+    static fun empty() r: Buffer {
+        return Buffer {
+            handle: 0,
+            memory: 0,
+            size: 0,
+            usage: 0
+        }
+    }
+
+    fun isValid() r: Bool {
+        return this.handle != 0
+    }
+}
+
+/**
+ * Graphics pipeline wrapper containing handle and layout.
+ */
+class Pipeline {
+    var handle: UInt64
+    var layout: UInt64
+
+    static fun empty() r: Pipeline {
+        return Pipeline {
+            handle: 0,
+            layout: 0
+        }
+    }
+
+    fun isValid() r: Bool {
+        return this.handle != 0
+    }
+}
+
+/**
+ * Per-frame resources for multi-buffered rendering.
+ *
+ * Contains command buffer, semaphores, and fence for frame sync.
+ */
+class FrameData {
+    var commandBuffer: UInt64
+    var imageAvailableSemaphore: UInt64
+    var renderFinishedSemaphore: UInt64
+    var inFlightFence: UInt64
+
+    static fun empty() r: FrameData {
+        return FrameData {
+            commandBuffer: 0,
+            imageAvailableSemaphore: 0,
+            renderFinishedSemaphore: 0,
+            inFlightFence: 0
+        }
+    }
+}
+
+/**
+ * Main Vulkan renderer managing the full rendering pipeline.
+ *
+ * Handles instance, device, swapchain, render pass, and frame
+ * synchronization. Call beginFrame()/endFrame() each frame.
+ */
+class VulkanRenderer {
+    var instance: UInt64
+    var physicalDevice: UInt64
+    var device: UInt64
+    var graphicsQueue: UInt64
+    var presentQueue: UInt64
+    var surface: UInt64
+    var swapchain: UInt64
+    var swapchainFormat: UInt32
+    var swapchainExtentWidth: UInt32
+    var swapchainExtentHeight: UInt32
+    var swapchainImages: Array<UInt64>
+    var swapchainImageViews: Array<UInt64>
+    var renderPass: UInt64
+    var framebuffers: Array<UInt64>
+    var commandPool: UInt64
+    var frames: Array<FrameData>
+    var currentFrame: Int
+    var graphicsQueueFamily: UInt32
+    var presentQueueFamily: UInt32
+    var clearColor: ClearColor
+    var framebufferResized: Bool
+
+    /**
+     * Create a renderer with full configuration options.
+     *
+     * Initializes Vulkan instance, device, swapchain, and frame resources.
+     * The window must have been created with Vulkan support.
+     */
+    static fun create(window: Window, config: RendererConfig) r: Result<VulkanRenderer, String> {
+        var renderer = VulkanRenderer {
+            instance: 0,
+            physicalDevice: 0,
+            device: 0,
+            graphicsQueue: 0,
+            presentQueue: 0,
+            surface: 0,
+            swapchain: 0,
+            swapchainFormat: VK_FORMAT_B8G8R8A8_SRGB,
+            swapchainExtentWidth: window.width as UInt32,
+            swapchainExtentHeight: window.height as UInt32,
+            swapchainImages: Array<UInt64>(),
+            swapchainImageViews: Array<UInt64>(),
+            renderPass: 0,
+            framebuffers: Array<UInt64>(),
+            commandPool: 0,
+            frames: Array<FrameData>(),
+            currentFrame: 0,
+            graphicsQueueFamily: 0,
+            presentQueueFamily: 0,
+            clearColor: ClearColor.black(),
+            framebufferResized: false
+        }
+
+        // Create Vulkan instance
+        let instanceResult = renderer.createInstance(config)
+        if instanceResult.isErr() {
+            return Err(instanceResult.unwrapErr())
+        }
+
+        // Get surface from window
+        let surfaceResult = window.getVulkanSurface(renderer.instance)
+        if surfaceResult.isErr() {
+            renderer.destroyInstance()
+            return Err("Failed to create Vulkan surface: " + surfaceResult.unwrapErr())
+        }
+        renderer.surface = surfaceResult.unwrap()
+
+        // Select physical device
+        let physDevResult = renderer.selectPhysicalDevice()
+        if physDevResult.isErr() {
+            renderer.destroySurface()
+            renderer.destroyInstance()
+            return Err(physDevResult.unwrapErr())
+        }
+
+        // Create logical device
+        let deviceResult = renderer.createLogicalDevice()
+        if deviceResult.isErr() {
+            renderer.destroySurface()
+            renderer.destroyInstance()
+            return Err(deviceResult.unwrapErr())
+        }
+
+        // Create swapchain
+        let swapResult = renderer.createSwapchain(window.width as UInt32, window.height as UInt32, config.vsync)
+        if swapResult.isErr() {
+            renderer.destroyDevice()
+            renderer.destroySurface()
+            renderer.destroyInstance()
+            return Err(swapResult.unwrapErr())
+        }
+
+        // Create render pass
+        let rpResult = renderer.createRenderPass()
+        if rpResult.isErr() {
+            renderer.destroySwapchain()
+            renderer.destroyDevice()
+            renderer.destroySurface()
+            renderer.destroyInstance()
+            return Err(rpResult.unwrapErr())
+        }
+
+        // Create framebuffers
+        let fbResult = renderer.createFramebuffers()
+        if fbResult.isErr() {
+            renderer.destroyRenderPass()
+            renderer.destroySwapchain()
+            renderer.destroyDevice()
+            renderer.destroySurface()
+            renderer.destroyInstance()
+            return Err(fbResult.unwrapErr())
+        }
+
+        // Create command pool
+        let cpResult = renderer.createCommandPool()
+        if cpResult.isErr() {
+            renderer.destroyFramebuffers()
+            renderer.destroyRenderPass()
+            renderer.destroySwapchain()
+            renderer.destroyDevice()
+            renderer.destroySurface()
+            renderer.destroyInstance()
+            return Err(cpResult.unwrapErr())
+        }
+
+        // Create frame resources
+        let frResult = renderer.createFrameResources()
+        if frResult.isErr() {
+            renderer.destroyCommandPool()
+            renderer.destroyFramebuffers()
+            renderer.destroyRenderPass()
+            renderer.destroySwapchain()
+            renderer.destroyDevice()
+            renderer.destroySurface()
+            renderer.destroyInstance()
+            return Err(frResult.unwrapErr())
+        }
+
+        return Ok(renderer)
+    }
+
+    /**
+     * Create a renderer with default settings.
+     */
+    static fun new(window: Window, appName: String) r: Result<VulkanRenderer, String> {
+        let config = RendererConfig.new(appName)
+        return VulkanRenderer.create(window, config)
+    }
+
+    // Create Vulkan instance
+    fun createInstance(config: RendererConfig) r: Result<Unit, String> {
+        // Build extension names array
+        var extensionNames: Array<*Char> = Array<*Char>()
+        extensionNames.push("VK_KHR_surface".toCString())
+        extensionNames.push("VK_KHR_xcb_surface".toCString())
+        extensionNames.push("VK_KHR_xlib_surface".toCString())
+        extensionNames.push("VK_KHR_wayland_surface".toCString())
+
+        var layerNames: Array<*Char> = Array<*Char>()
+        if config.enableValidation {
+            layerNames.push("VK_LAYER_KHRONOS_validation".toCString())
+        }
+
+        let apiVersion: UInt32 = ((1 as UInt32) << 22) | ((3 as UInt32) << 12) | 0  // Vulkan 1.3.0
+        let result = seen_vk_create_instance(
+            config.appName.toCString(), config.appVersion as UInt32,
+            "Seen Engine".toCString(), 1 as UInt32,
+            apiVersion,
+            extensionNames.data() as **Char, extensionNames.length() as UInt32,
+            layerNames.data() as **Char, layerNames.length() as UInt32,
+            &this.instance
+        )
+
+        if vk_failed(result) {
+            return Err("Failed to create Vulkan instance: " + vk_result_string(result))
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Select best physical device
+    fun selectPhysicalDevice() r: Result<Unit, String> {
+        var deviceCount: UInt32 = 0
+        let enumResult = seen_vk_enumerate_physical_devices(this.instance, &deviceCount, null)
+        if vk_failed(enumResult) or deviceCount == 0 {
+            return Err("No Vulkan-capable GPUs found")
+        }
+
+        // Get first device (simple selection - could be improved)
+        var devices: Array<UInt64> = Array<UInt64>.withCapacity(deviceCount as Int)
+        let _ = seen_vk_enumerate_physical_devices(this.instance, &deviceCount, devices.data() as *UInt64)
+
+        // For now, use first device
+        if deviceCount > 0 {
+            this.physicalDevice = devices[0]
+        }
+
+        // Find queue families
+        let queueFamilyCount = seen_vk_get_physical_device_queue_family_count(this.physicalDevice)
+
+        var foundGraphics = false
+        var foundPresent = false
+
+        var i: UInt32 = 0
+        while i < queueFamilyCount {
+            let flags = seen_vk_get_physical_device_queue_family_flags(this.physicalDevice, i)
+
+            if (flags & VK_QUEUE_GRAPHICS_BIT) != 0 and not foundGraphics {
+                this.graphicsQueueFamily = i
+                foundGraphics = true
+            }
+
+            var presentSupport: Int32 = 0
+            let _ = seen_vk_get_physical_device_surface_support(this.physicalDevice, i, this.surface, &presentSupport)
+            if presentSupport != 0 and not foundPresent {
+                this.presentQueueFamily = i
+                foundPresent = true
+            }
+
+            if foundGraphics and foundPresent {
+                break
+            }
+
+            i = i + 1
+        }
+
+        if not foundGraphics {
+            return Err("No graphics queue family found")
+        }
+        if not foundPresent {
+            return Err("No presentation queue family found")
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Create logical device
+    fun createLogicalDevice() r: Result<Unit, String> {
+        var extensionNames: Array<*Char> = Array<*Char>()
+        extensionNames.push("VK_KHR_swapchain".toCString())
+
+        let result = seen_vk_create_device(
+            this.physicalDevice,
+            this.graphicsQueueFamily,
+            1 as UInt32,
+            extensionNames.data() as **Char, extensionNames.length() as UInt32,
+            &this.device
+        )
+
+        if vk_failed(result) {
+            return Err("Failed to create logical device: " + vk_result_string(result))
+        }
+
+        // Get queues
+        seen_vk_get_device_queue(this.device, this.graphicsQueueFamily, 0, &this.graphicsQueue)
+        seen_vk_get_device_queue(this.device, this.presentQueueFamily, 0, &this.presentQueue)
+
+        return Ok(Unit{})
+    }
+
+    // Create swapchain
+    fun createSwapchain(width: UInt32, height: UInt32, vsync: Bool) r: Result<Unit, String> {
+        // Get surface capabilities
+        var minImageCount: UInt32 = 0
+        var maxImageCount: UInt32 = 0
+        var currentWidth: UInt32 = 0
+        var currentHeight: UInt32 = 0
+        var currentTransform: UInt32 = 0
+        var supportedUsage: UInt32 = 0
+        let capResult = seen_vk_get_surface_capabilities(
+            this.physicalDevice, this.surface,
+            &minImageCount, &maxImageCount, &currentWidth, &currentHeight,
+            &currentTransform, &supportedUsage
+        )
+        if vk_failed(capResult) {
+            return Err("Failed to get surface capabilities")
+        }
+
+        // Choose image count (triple buffering if possible)
+        var imageCount = minImageCount + 1
+        if maxImageCount > 0 and imageCount > maxImageCount {
+            imageCount = maxImageCount
+        }
+
+        // Get surface format
+        let formatCount = seen_vk_get_surface_format_count(this.physicalDevice, this.surface)
+        if formatCount > 0 {
+            var format: UInt32 = 0
+            var colorSpace: UInt32 = 0
+            let _ = seen_vk_get_surface_format(this.physicalDevice, this.surface, 0, &format, &colorSpace)
+            this.swapchainFormat = format
+        }
+
+        // Choose present mode
+        var presentMode: UInt32 = VK_PRESENT_MODE_FIFO_KHR  // Always available (vsync)
+        if not vsync {
+            let modeCount = seen_vk_get_surface_present_mode_count(this.physicalDevice, this.surface)
+            var j: UInt32 = 0
+            while j < modeCount {
+                var mode: UInt32 = 0
+                let _ = seen_vk_get_surface_present_mode(this.physicalDevice, this.surface, j, &mode)
+                if mode == VK_PRESENT_MODE_MAILBOX_KHR {
+                    presentMode = mode
+                    break
+                }
+                j = j + 1
+            }
+        }
+
+        // Use provided dimensions or current extent
+        if currentWidth != 0xFFFFFFFF {
+            this.swapchainExtentWidth = currentWidth
+            this.swapchainExtentHeight = currentHeight
+        } else {
+            this.swapchainExtentWidth = width
+            this.swapchainExtentHeight = height
+        }
+
+        let result = seen_vk_create_swapchain(
+            this.device, this.surface,
+            imageCount,
+            this.swapchainFormat, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+            this.swapchainExtentWidth, this.swapchainExtentHeight,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            VK_SHARING_MODE_EXCLUSIVE,
+            currentTransform,
+            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+            presentMode,
+            1 as Int32,  // clipped
+            0 as UInt64,  // oldSwapchain
+            &this.swapchain
+        )
+
+        if vk_failed(result) {
+            return Err("Failed to create swapchain: " + vk_result_string(result))
+        }
+
+        // Get swapchain images
+        let swapImageCount = seen_vk_get_swapchain_image_count(this.device, this.swapchain)
+
+        this.swapchainImages = Array<UInt64>()
+        this.swapchainImageViews = Array<UInt64>()
+
+        var k: UInt32 = 0
+        while k < swapImageCount {
+            var image: UInt64 = 0
+            let _ = seen_vk_get_swapchain_image(this.device, this.swapchain, k, &image)
+            this.swapchainImages.push(image)
+
+            // Create image view
+            var imageView: UInt64 = 0
+            let ivResult = seen_vk_create_image_view(
+                this.device, image,
+                VK_IMAGE_VIEW_TYPE_2D as UInt32, this.swapchainFormat,
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                0 as UInt32, 1 as UInt32, 0 as UInt32, 1 as UInt32,
+                &imageView
+            )
+            if vk_failed(ivResult) {
+                return Err("Failed to create image view")
+            }
+            this.swapchainImageViews.push(imageView)
+
+            k = k + 1
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Create render pass
+    fun createRenderPass() r: Result<Unit, String> {
+        var attachmentFormat: UInt32 = this.swapchainFormat
+        var loadOp: UInt32 = VK_ATTACHMENT_LOAD_OP_CLEAR
+        var storeOp: UInt32 = VK_ATTACHMENT_STORE_OP_STORE
+        var initialLayout: UInt32 = VK_IMAGE_LAYOUT_UNDEFINED
+        var finalLayout: UInt32 = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+
+        let result = seen_vk_create_render_pass(
+            this.device,
+            1 as UInt32,  // attachmentCount
+            &attachmentFormat,
+            &loadOp,
+            &storeOp,
+            &initialLayout,
+            &finalLayout,
+            0 as UInt32, 1 as UInt32,  // color attachment ref (attachment 0, color layout)
+            &this.renderPass
+        )
+
+        if vk_failed(result) {
+            return Err("Failed to create render pass: " + vk_result_string(result))
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Create framebuffers
+    fun createFramebuffers() r: Result<Unit, String> {
+        this.framebuffers = Array<UInt64>()
+
+        var i = 0
+        while i < this.swapchainImageViews.length() {
+            var attachment: UInt64 = this.swapchainImageViews[i]
+
+            var framebuffer: UInt64 = 0
+            let result = seen_vk_create_framebuffer(
+                this.device, this.renderPass,
+                1 as UInt32, &attachment,
+                this.swapchainExtentWidth, this.swapchainExtentHeight, 1 as UInt32,
+                &framebuffer
+            )
+
+            if vk_failed(result) {
+                return Err("Failed to create framebuffer")
+            }
+
+            this.framebuffers.push(framebuffer)
+            i = i + 1
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Create command pool
+    fun createCommandPool() r: Result<Unit, String> {
+        let result = seen_vk_create_command_pool(
+            this.device,
+            this.graphicsQueueFamily,
+            0x00000002 as UInt32,  // VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+            &this.commandPool
+        )
+
+        if vk_failed(result) {
+            return Err("Failed to create command pool: " + vk_result_string(result))
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Create per-frame resources
+    fun createFrameResources() r: Result<Unit, String> {
+        this.frames = Array<FrameData>()
+
+        var i = 0
+        while i < MAX_FRAMES_IN_FLIGHT {
+            var frame = FrameData.empty()
+
+            // Allocate command buffer
+            let cbResult = seen_vk_allocate_command_buffers(
+                this.device, this.commandPool,
+                VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 as UInt32,
+                &frame.commandBuffer
+            )
+            if vk_failed(cbResult) {
+                return Err("Failed to allocate command buffer")
+            }
+
+            // Create semaphores
+            let ias = seen_vk_create_semaphore(this.device, &frame.imageAvailableSemaphore)
+            if vk_failed(ias) {
+                return Err("Failed to create image available semaphore")
+            }
+
+            let rfs = seen_vk_create_semaphore(this.device, &frame.renderFinishedSemaphore)
+            if vk_failed(rfs) {
+                return Err("Failed to create render finished semaphore")
+            }
+
+            // Create fence
+            let fenceResult = seen_vk_create_fence(
+                this.device,
+                VK_FENCE_CREATE_SIGNALED_BIT,
+                &frame.inFlightFence
+            )
+            if vk_failed(fenceResult) {
+                return Err("Failed to create fence")
+            }
+
+            this.frames.push(frame)
+            i = i + 1
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Set clear color
+    fun setClearColor(color: ClearColor) r: Void {
+        this.clearColor = color
+    }
+
+    /**
+     * Begin a new frame by acquiring a swapchain image.
+     *
+     * Waits for the previous frame to complete, acquires the next
+     * image, and begins the command buffer and render pass.
+     * Returns the image index for endFrame().
+     */
+    fun beginFrame() r: Result<UInt32, String> {
+        let frame = this.frames[this.currentFrame]
+
+        // Wait for previous frame
+        let waitResult = seen_vk_wait_for_fences(this.device, 1 as UInt32, &frame.inFlightFence, 1 as Int32, 0xFFFFFFFFFFFFFFFF as UInt64)
+        if vk_failed(waitResult) {
+            return Err("Failed to wait for fence")
+        }
+
+        // Acquire next image
+        var imageIndex: UInt32 = 0
+        let acquireResult = seen_vk_acquire_next_image(
+            this.device, this.swapchain,
+            0xFFFFFFFFFFFFFFFF as UInt64,
+            frame.imageAvailableSemaphore,
+            0 as UInt64,
+            &imageIndex
+        )
+
+        if acquireResult == VK_ERROR_OUT_OF_DATE_KHR {
+            this.framebufferResized = true
+            return Err("Swapchain out of date")
+        }
+        if vk_failed(acquireResult) and acquireResult != VK_SUBOPTIMAL_KHR {
+            return Err("Failed to acquire swapchain image: " + vk_result_string(acquireResult))
+        }
+
+        // Reset fence
+        let _ = seen_vk_reset_fences(this.device, 1 as UInt32, &frame.inFlightFence)
+
+        // Begin command buffer
+        let _ = seen_vk_reset_command_buffer(frame.commandBuffer, 0 as UInt32)
+        let beginResult = seen_vk_begin_command_buffer(frame.commandBuffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT)
+        if vk_failed(beginResult) {
+            return Err("Failed to begin command buffer")
+        }
+
+        // Begin render pass
+        seen_vk_cmd_begin_render_pass(
+            frame.commandBuffer,
+            this.renderPass,
+            this.framebuffers[imageIndex as Int],
+            0 as Int32, 0 as Int32,
+            this.swapchainExtentWidth, this.swapchainExtentHeight,
+            this.clearColor.red, this.clearColor.green, this.clearColor.blue, this.clearColor.alpha,
+            1.0 as Float, 0 as UInt32,
+            VK_SUBPASS_CONTENTS_INLINE
+        )
+
+        // Set viewport and scissor
+        seen_vk_cmd_set_viewport(
+            frame.commandBuffer, 0 as UInt32, 1 as UInt32,
+            0.0, 0.0,
+            this.swapchainExtentWidth as Float, this.swapchainExtentHeight as Float,
+            0.0, 1.0
+        )
+        seen_vk_cmd_set_scissor(
+            frame.commandBuffer, 0 as UInt32, 1 as UInt32,
+            0 as Int32, 0 as Int32,
+            this.swapchainExtentWidth, this.swapchainExtentHeight
+        )
+
+        return Ok(imageIndex)
+    }
+
+    /**
+     * End the current frame and present to screen.
+     *
+     * Ends the render pass, submits commands, and presents.
+     * Pass the imageIndex returned from beginFrame().
+     */
+    fun endFrame(imageIndex: UInt32) r: Result<Unit, String> {
+        let frame = this.frames[this.currentFrame]
+
+        // End render pass
+        seen_vk_cmd_end_render_pass(frame.commandBuffer)
+
+        // End command buffer
+        let endResult = seen_vk_end_command_buffer(frame.commandBuffer)
+        if vk_failed(endResult) {
+            return Err("Failed to end command buffer")
+        }
+
+        // Submit command buffer
+        var waitStage: UInt32 = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+
+        let submitResult = seen_vk_queue_submit(
+            this.graphicsQueue,
+            1 as UInt32, &frame.imageAvailableSemaphore, &waitStage,
+            1 as UInt32, &frame.commandBuffer,
+            1 as UInt32, &frame.renderFinishedSemaphore,
+            frame.inFlightFence
+        )
+        if vk_failed(submitResult) {
+            return Err("Failed to submit draw command buffer")
+        }
+
+        // Present
+        var imageIndexCopy: UInt32 = imageIndex
+        let presentResult = seen_vk_queue_present(
+            this.presentQueue,
+            1 as UInt32, &frame.renderFinishedSemaphore,
+            1 as UInt32, &this.swapchain, &imageIndexCopy
+        )
+
+        if presentResult == VK_ERROR_OUT_OF_DATE_KHR or presentResult == VK_SUBOPTIMAL_KHR or this.framebufferResized {
+            this.framebufferResized = false
+            // Swapchain needs recreation (handled by caller)
+        } else if vk_failed(presentResult) {
+            return Err("Failed to present: " + vk_result_string(presentResult))
+        }
+
+        // Advance to next frame
+        this.currentFrame = (this.currentFrame + 1) % MAX_FRAMES_IN_FLIGHT
+
+        return Ok(Unit{})
+    }
+
+    // Bind a pipeline for rendering
+    fun bindPipeline(pipeline: Pipeline) r: Void {
+        let frame = this.frames[this.currentFrame]
+        seen_vk_cmd_bind_pipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle)
+    }
+
+    // Draw vertices
+    fun draw(vertexCount: UInt32, instanceCount: UInt32, firstVertex: UInt32, firstInstance: UInt32) r: Void {
+        let frame = this.frames[this.currentFrame]
+        seen_vk_cmd_draw(frame.commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance)
+    }
+
+    // Draw indexed vertices
+    fun drawIndexed(indexCount: UInt32, instanceCount: UInt32, firstIndex: UInt32, vertexOffset: Int32, firstInstance: UInt32) r: Void {
+        let frame = this.frames[this.currentFrame]
+        seen_vk_cmd_draw_indexed(frame.commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance)
+    }
+
+    /**
+     * Create a graphics pipeline from SPIR-V shader bytecode.
+     *
+     * Takes vertex and fragment shader bytecode as UInt32 arrays.
+     * The pipeline uses default settings (triangle list, back-face cull).
+     */
+    fun createPipeline(vertSpirv: Array<UInt32>, fragSpirv: Array<UInt32>) r: Result<Pipeline, String> {
+        var pipeline = Pipeline.empty()
+
+        // Create shader modules
+        var vertModule: UInt64 = 0
+        let vertResult = seen_vk_create_shader_module(
+            this.device,
+            (vertSpirv.length() * 4) as UInt64,
+            vertSpirv.data() as *UInt32,
+            &vertModule
+        )
+        if vk_failed(vertResult) {
+            return Err("Failed to create vertex shader module")
+        }
+
+        var fragModule: UInt64 = 0
+        let fragResult = seen_vk_create_shader_module(
+            this.device,
+            (fragSpirv.length() * 4) as UInt64,
+            fragSpirv.data() as *UInt32,
+            &fragModule
+        )
+        if vk_failed(fragResult) {
+            seen_vk_destroy_shader_module(this.device, vertModule)
+            return Err("Failed to create fragment shader module")
+        }
+
+        // Create pipeline layout (empty for now)
+        let layoutResult = seen_vk_create_pipeline_layout(
+            this.device,
+            0 as UInt32, null as *UInt64,  // no descriptor set layouts
+            0 as UInt32, null as *Void,    // no push constants
+            &pipeline.layout
+        )
+        if vk_failed(layoutResult) {
+            seen_vk_destroy_shader_module(this.device, vertModule)
+            seen_vk_destroy_shader_module(this.device, fragModule)
+            return Err("Failed to create pipeline layout")
+        }
+
+        // Create graphics pipeline
+        let pipelineResult = seen_vk_create_graphics_pipeline(
+            this.device,
+            vertModule, fragModule,
+            0 as UInt32, 0 as UInt32,  // vertex binding/attribute counts
+            VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            this.swapchainExtentWidth, this.swapchainExtentHeight,
+            VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            0 as Int32, 0 as Int32,  // depth test/write disabled
+            0 as Int32,     // no blending
+            pipeline.layout,
+            this.renderPass, 0 as UInt32,
+            &pipeline.handle
+        )
+
+        // Clean up shader modules
+        seen_vk_destroy_shader_module(this.device, vertModule)
+        seen_vk_destroy_shader_module(this.device, fragModule)
+
+        if vk_failed(pipelineResult) {
+            seen_vk_destroy_pipeline_layout(this.device, pipeline.layout)
+            return Err("Failed to create graphics pipeline")
+        }
+
+        return Ok(pipeline)
+    }
+
+    // Destroy a pipeline
+    fun destroyPipeline(pipeline: Pipeline) r: Void {
+        if pipeline.handle != 0 {
+            seen_vk_destroy_pipeline(this.device, pipeline.handle)
+        }
+        if pipeline.layout != 0 {
+            seen_vk_destroy_pipeline_layout(this.device, pipeline.layout)
+        }
+    }
+
+    /**
+     * Recreate swapchain after window resize.
+     *
+     * Call this when receiving a WindowResized event or when
+     * beginFrame() returns a swapchain out-of-date error.
+     */
+    fun resize(width: UInt32, height: UInt32) r: Result<Unit, String> {
+        let _ = seen_vk_device_wait_idle(this.device)
+
+        // Cleanup old swapchain resources
+        this.destroyFramebuffers()
+        this.destroySwapchainImageViews()
+        seen_vk_destroy_swapchain(this.device, this.swapchain)
+
+        // Recreate swapchain
+        let swapResult = this.createSwapchain(width, height, true)
+        if swapResult.isErr() {
+            return Err(swapResult.unwrapErr())
+        }
+
+        // Recreate framebuffers
+        let fbResult = this.createFramebuffers()
+        if fbResult.isErr() {
+            return Err(fbResult.unwrapErr())
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Destroy swapchain image views
+    fun destroySwapchainImageViews() r: Void {
+        var i = 0
+        while i < this.swapchainImageViews.length() {
+            seen_vk_destroy_image_view(this.device, this.swapchainImageViews[i])
+            i = i + 1
+        }
+        this.swapchainImageViews = Array<UInt64>()
+    }
+
+    // Destroy framebuffers
+    fun destroyFramebuffers() r: Void {
+        var i = 0
+        while i < this.framebuffers.length() {
+            seen_vk_destroy_framebuffer(this.device, this.framebuffers[i])
+            i = i + 1
+        }
+        this.framebuffers = Array<UInt64>()
+    }
+
+    // Destroy frame resources
+    fun destroyFrameResources() r: Void {
+        var i = 0
+        while i < this.frames.length() {
+            let frame = this.frames[i]
+            seen_vk_destroy_semaphore(this.device, frame.imageAvailableSemaphore)
+            seen_vk_destroy_semaphore(this.device, frame.renderFinishedSemaphore)
+            seen_vk_destroy_fence(this.device, frame.inFlightFence)
+            i = i + 1
+        }
+        this.frames = Array<FrameData>()
+    }
+
+    // Destroy command pool
+    fun destroyCommandPool() r: Void {
+        if this.commandPool != 0 {
+            seen_vk_destroy_command_pool(this.device, this.commandPool)
+            this.commandPool = 0
+        }
+    }
+
+    // Destroy render pass
+    fun destroyRenderPass() r: Void {
+        if this.renderPass != 0 {
+            seen_vk_destroy_render_pass(this.device, this.renderPass)
+            this.renderPass = 0
+        }
+    }
+
+    // Destroy swapchain
+    fun destroySwapchain() r: Void {
+        this.destroySwapchainImageViews()
+        if this.swapchain != 0 {
+            seen_vk_destroy_swapchain(this.device, this.swapchain)
+            this.swapchain = 0
+        }
+    }
+
+    // Destroy device
+    fun destroyDevice() r: Void {
+        if this.device != 0 {
+            seen_vk_destroy_device(this.device)
+            this.device = 0
+        }
+    }
+
+    // Destroy surface
+    fun destroySurface() r: Void {
+        if this.surface != 0 {
+            seen_vk_destroy_surface(this.instance, this.surface)
+            this.surface = 0
+        }
+    }
+
+    // Destroy instance
+    fun destroyInstance() r: Void {
+        if this.instance != 0 {
+            seen_vk_destroy_instance(this.instance)
+            this.instance = 0
+        }
+    }
+
+    /**
+     * Destroy all Vulkan resources and cleanup.
+     *
+     * Waits for GPU idle before destroying. Must be called
+     * before destroying the window.
+     */
+    fun destroy() r: Void {
+        let _ = seen_vk_device_wait_idle(this.device)
+
+        this.destroyFrameResources()
+        this.destroyCommandPool()
+        this.destroyFramebuffers()
+        this.destroyRenderPass()
+        this.destroySwapchain()
+        this.destroyDevice()
+        this.destroySurface()
+        this.destroyInstance()
+    }
+}

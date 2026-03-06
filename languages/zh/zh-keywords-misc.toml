@@ -1,0 +1,13 @@
+name = "Chinese"
+description = "Chinese Miscellaneous Keywords"
+
+[keywords]
+"是" = "KeywordIs"
+"作为" = "KeywordAs"
+"由" = "KeywordBy"
+"和" = "KeywordAnd"
+"或" = "KeywordOr"
+"不" = "KeywordNot"
+"到" = "KeywordTo"
+"从" = "KeywordFrom"
+"效果" = "KeywordEffect"

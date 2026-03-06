@@ -1,0 +1,226 @@
+class JsonValue {
+    var kind: Int          // One of JSON_* constants
+    var boolValue: Bool
+    var numberValue: Float
+    var stringValue: String
+    var arrayValue: Array<JsonValue>
+    var objectKeys: Array<String>      // Keys in order
+    var objectValues: Array<JsonValue> // Values corresponding to keys
+
+    fun isNull() r: Bool {
+        return this.kind == 0
+    }
+
+    fun isBool() r: Bool {
+        return this.kind == 1
+    }
+
+    fun isNumber() r: Bool {
+        return this.kind == 2
+    }
+
+    fun isString() r: Bool {
+        return this.kind == 3
+    }
+
+    fun isArray() r: Bool {
+        return this.kind == 4
+    }
+
+    fun isObject() r: Bool {
+        return this.kind == 5
+    }
+
+    fun getBool() r: Bool {
+        return this.boolValue
+    }
+
+    fun getNumber() r: Float {
+        return this.numberValue
+    }
+
+    fun getInt() r: Int {
+        return this.numberValue.toInt()
+    }
+
+    fun getString() r: String {
+        return this.stringValue
+    }
+
+    fun getArray() r: Array<JsonValue> {
+        return this.arrayValue
+    }
+
+    fun get(key: String) r: JsonValue? {
+        if this.kind != 5 {
+            return null
+        }
+        var i = 0
+        while i < this.objectKeys.length() {
+            if this.objectKeys[i] == key {
+                return this.objectValues[i]
+            }
+            i = i + 1
+        }
+        return null
+    }
+
+    fun getAt(index: Int) r: JsonValue? {
+        if this.kind != 4 {
+            return null
+        }
+        if index < 0 or index >= this.arrayValue.length() {
+            return null
+        }
+        return this.arrayValue[index]
+    }
+
+    fun keys() r: Array<String> {
+        return this.objectKeys
+    }
+
+    fun length() r: Int {
+        if this.kind == 4 {
+            return this.arrayValue.length()
+        }
+        if this.kind == 5 {
+            return this.objectKeys.length()
+        }
+        return 0
+    }
+
+    fun set(key: String, value: JsonValue) r: Void {
+        if this.kind != 5 {
+            return
+        }
+        var i = 0
+        while i < this.objectKeys.length() {
+            if this.objectKeys[i] == key {
+                this.objectValues[i] = value
+                return
+            }
+            i = i + 1
+        }
+        this.objectKeys.push(key)
+        this.objectValues.push(value)
+    }
+
+    fun push(value: JsonValue) r: Void {
+        if this.kind == 4 {
+            this.arrayValue.push(value)
+        }
+    }
+
+    fun hasKey(key: String) r: Bool {
+        if this.kind != 5 {
+            return false
+        }
+        var i = 0
+        while i < this.objectKeys.length() {
+            if this.objectKeys[i] == key {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+// Free functions (formerly static methods on JsonValue)
+
+fun JsonValue_nullValue() r: JsonValue {
+    let v = JsonValue()
+    v.kind = 0
+    v.boolValue = false
+    v.numberValue = 0.0
+    v.stringValue = ""
+    v.arrayValue = Array<JsonValue>()
+    v.objectKeys = Array<String>()
+    v.objectValues = Array<JsonValue>()
+    return v
+}
+
+fun JsonValue_fromBool(value: Bool) r: JsonValue {
+    let v = JsonValue()
+    v.kind = 1
+    v.boolValue = value
+    v.numberValue = 0.0
+    v.stringValue = ""
+    v.arrayValue = Array<JsonValue>()
+    v.objectKeys = Array<String>()
+    v.objectValues = Array<JsonValue>()
+    return v
+}
+
+// Alias for fromBool - creates a JSON boolean value
+fun JsonValue_bool(value: Bool) r: JsonValue {
+    return JsonValue_fromBool(value)
+}
+
+fun JsonValue_number(value: Int) r: JsonValue {
+    let v = JsonValue()
+    v.kind = 2
+    v.boolValue = false
+    v.numberValue = value.toFloat()
+    v.stringValue = ""
+    v.arrayValue = Array<JsonValue>()
+    v.objectKeys = Array<String>()
+    v.objectValues = Array<JsonValue>()
+    return v
+}
+
+fun JsonValue_numberFloat(value: Float) r: JsonValue {
+    let v = JsonValue()
+    v.kind = 2
+    v.boolValue = false
+    v.numberValue = value
+    v.stringValue = ""
+    v.arrayValue = Array<JsonValue>()
+    v.objectKeys = Array<String>()
+    v.objectValues = Array<JsonValue>()
+    return v
+}
+
+fun JsonValue_string(value: String) r: JsonValue {
+    let v = JsonValue()
+    v.kind = 3
+    v.boolValue = false
+    v.numberValue = 0.0
+    v.stringValue = value
+    v.arrayValue = Array<JsonValue>()
+    v.objectKeys = Array<String>()
+    v.objectValues = Array<JsonValue>()
+    return v
+}
+
+fun JsonValue_array(values: Array<JsonValue>) r: JsonValue {
+    let v = JsonValue()
+    v.kind = 4
+    v.boolValue = false
+    v.numberValue = 0.0
+    v.stringValue = ""
+    v.arrayValue = values
+    v.objectKeys = Array<String>()
+    v.objectValues = Array<JsonValue>()
+    return v
+}
+
+fun JsonValue_emptyArray() r: JsonValue {
+    return JsonValue_array(Array<JsonValue>())
+}
+
+fun JsonValue_object(keys: Array<String>, values: Array<JsonValue>) r: JsonValue {
+    let v = JsonValue()
+    v.kind = 5
+    v.boolValue = false
+    v.numberValue = 0.0
+    v.stringValue = ""
+    v.arrayValue = Array<JsonValue>()
+    v.objectKeys = keys
+    v.objectValues = values
+    return v
+}
+
+fun JsonValue_emptyObject() r: JsonValue {
+    return JsonValue_object(Array<String>(), Array<JsonValue>())
+}

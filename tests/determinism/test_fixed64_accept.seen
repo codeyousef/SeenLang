@@ -1,0 +1,12 @@
+// Test: Fixed64 types should be accepted in deterministic profile
+// Expected: PASS with --profile deterministic
+
+import uww.fixed.{Fixed64, fixed, fixedFrac}
+
+fun main() r: Int {
+    let x = fixed(3)
+    let y = fixedFrac(14, 100)  // 0.14
+    let pi = x.add(y)  // 3.14 in Fixed64
+    println("Pi approx: " + pi.toString())
+    return 0
+}

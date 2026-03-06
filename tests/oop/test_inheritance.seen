@@ -1,0 +1,165 @@
+// OOP Inheritance Test
+// Tests: class extension, method override, super calls, virtual dispatch
+// Expected: Inheritance features work correctly
+
+class Animal {
+    var name: String
+    var age: Int
+
+    static fun new(name: String, age: Int) r: Animal {
+        return Animal { name: name, age: age }
+    }
+
+    fun speak() r: String {
+        return "Some animal sound"
+    }
+
+    fun describe() r: String {
+        return name + " is " + age.toString() + " years old"
+    }
+
+    fun getAge() r: Int {
+        return age
+    }
+}
+
+class Dog extends Animal {
+    var breed: String
+
+    static fun new(name: String, age: Int, breed: String) r: Dog {
+        return Dog { name: name, age: age, breed: breed }
+    }
+
+    override fun speak() r: String {
+        return "Woof!"
+    }
+
+    fun getBreed() r: String {
+        return breed
+    }
+
+    override fun describe() r: String {
+        return name + " is a " + breed + " dog, " + age.toString() + " years old"
+    }
+}
+
+class Cat extends Animal {
+    var indoor: Bool
+
+    static fun new(name: String, age: Int, indoor: Bool) r: Cat {
+        return Cat { name: name, age: age, indoor: indoor }
+    }
+
+    override fun speak() r: String {
+        return "Meow!"
+    }
+
+    fun isIndoor() r: Bool {
+        return indoor
+    }
+}
+
+fun main() r: Int {
+    println("Testing OOP Inheritance...")
+
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Base class instantiation
+    println("\n=== Test 1: Base Class ===")
+    let animal = Animal.new("Generic", 5)
+    if animal.name == "Generic" and animal.age == 5 {
+        println("PASS: Base class works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Base class incorrect")
+        failed = failed + 1
+    }
+
+    // Test 2: Derived class instantiation
+    println("\n=== Test 2: Derived Class ===")
+    let dog = Dog.new("Buddy", 3, "Golden Retriever")
+    if dog.name == "Buddy" and dog.age == 3 and dog.breed == "Golden Retriever" {
+        println("PASS: Derived class instantiated correctly")
+        passed = passed + 1
+    } else {
+        println("FAIL: Derived class instantiation failed")
+        failed = failed + 1
+    }
+
+    // Test 3: Inherited fields access
+    println("\n=== Test 3: Inherited Field Access ===")
+    if dog.getAge() == 3 {
+        println("PASS: Inherited methods work")
+        passed = passed + 1
+    } else {
+        println("FAIL: Inherited method failed")
+        failed = failed + 1
+    }
+
+    // Test 4: Method override
+    println("\n=== Test 4: Method Override ===")
+    if dog.speak() == "Woof!" and animal.speak() == "Some animal sound" {
+        println("PASS: Method override works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Method override incorrect")
+        failed = failed + 1
+    }
+
+    // Test 5: Polymorphism (virtual dispatch)
+    println("\n=== Test 5: Polymorphism ===")
+    let cat = Cat.new("Whiskers", 2, true)
+    if cat.speak() == "Meow!" {
+        println("PASS: Polymorphism works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Polymorphism failed")
+        failed = failed + 1
+    }
+
+    // Test 6: Derived class specific methods
+    println("\n=== Test 6: Derived-Specific Methods ===")
+    if dog.getBreed() == "Golden Retriever" and cat.isIndoor() == true {
+        println("PASS: Derived-specific methods work")
+        passed = passed + 1
+    } else {
+        println("FAIL: Derived-specific methods failed")
+        failed = failed + 1
+    }
+
+    // Test 7: Override with different implementation
+    println("\n=== Test 7: Override describe() ===")
+    let dogDesc = dog.describe()
+    if dogDesc == "Buddy is a Golden Retriever dog, 3 years old" {
+        println("PASS: Override with complex logic works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Override describe failed: " + dogDesc)
+        failed = failed + 1
+    }
+
+    // Test 8: Multiple derived classes
+    println("\n=== Test 8: Multiple Derived Classes ===")
+    let cat2 = Cat.new("Fluffy", 1, false)
+    if cat2.speak() == "Meow!" and dog.speak() == "Woof!" {
+        println("PASS: Multiple derived classes work independently")
+        passed = passed + 1
+    } else {
+        println("FAIL: Multiple derived classes interfere")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("\n==================================================")
+    println("OOP Inheritance Results: " + passed.toString() + "/" + (passed + failed).toString())
+    println("==================================================")
+
+    if failed > 0 {
+        println("FAIL: Some inheritance tests failed")
+        return 1
+    }
+
+    println("PASS: All OOP inheritance tests passed!")
+    return 0
+}

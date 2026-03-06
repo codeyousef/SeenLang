@@ -1,0 +1,6 @@
+fun main() {
+    println("Start");
+    let t = __GetTime();
+    println("Time: " + __FloatToString(t));
+    println("End");
+}

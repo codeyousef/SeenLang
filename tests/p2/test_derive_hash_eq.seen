@@ -1,0 +1,15 @@
+@derive(Hash, Eq)
+class Pair {
+    a: Int
+    b: Int
+}
+
+fun main() r: Int {
+    let p1 = Pair(1, 2)
+    let p2 = Pair(1, 2)
+    let h1 = p1.hash()
+    let h2 = p2.hash()
+    let eq = p1.eq(p2)
+    println("PASS: derive_hash_eq")
+    return 0
+}

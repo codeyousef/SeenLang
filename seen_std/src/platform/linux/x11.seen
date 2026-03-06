@@ -1,0 +1,318 @@
+/**
+ * X11/XCB FFI bindings for Linux.
+ *
+ * Low-level bindings to the X Window System via XCB (X C Binding).
+ * Provides window creation, event handling, and Vulkan surface creation
+ * for X11-based display servers and XWayland compatibility.
+ *
+ * Link with: -lxcb
+ */
+
+// ============================================================================
+// XCB event type constants
+// ============================================================================
+
+let XCB_KEY_PRESS: Int = 2
+let XCB_KEY_RELEASE: Int = 3
+let XCB_BUTTON_PRESS: Int = 4
+let XCB_BUTTON_RELEASE: Int = 5
+let XCB_MOTION_NOTIFY: Int = 6
+let XCB_ENTER_NOTIFY: Int = 7
+let XCB_LEAVE_NOTIFY: Int = 8
+let XCB_FOCUS_IN: Int = 9
+let XCB_FOCUS_OUT: Int = 10
+let XCB_EXPOSE: Int = 12
+let XCB_GRAPHICS_EXPOSURE: Int = 13
+let XCB_VISIBILITY_NOTIFY: Int = 15
+let XCB_CREATE_NOTIFY: Int = 16
+let XCB_DESTROY_NOTIFY: Int = 17
+let XCB_UNMAP_NOTIFY: Int = 18
+let XCB_MAP_NOTIFY: Int = 19
+let XCB_REPARENT_NOTIFY: Int = 21
+let XCB_CONFIGURE_NOTIFY: Int = 22
+let XCB_PROPERTY_NOTIFY: Int = 28
+let XCB_SELECTION_NOTIFY: Int = 31
+let XCB_CLIENT_MESSAGE: Int = 33
+let XCB_MAPPING_NOTIFY: Int = 34
+
+// ============================================================================
+// XCB event mask constants
+// ============================================================================
+
+let XCB_EVENT_MASK_NO_EVENT: Int = 0
+let XCB_EVENT_MASK_KEY_PRESS: Int = 0x00000001
+let XCB_EVENT_MASK_KEY_RELEASE: Int = 0x00000002
+let XCB_EVENT_MASK_BUTTON_PRESS: Int = 0x00000004
+let XCB_EVENT_MASK_BUTTON_RELEASE: Int = 0x00000008
+let XCB_EVENT_MASK_ENTER_WINDOW: Int = 0x00000010
+let XCB_EVENT_MASK_LEAVE_WINDOW: Int = 0x00000020
+let XCB_EVENT_MASK_POINTER_MOTION: Int = 0x00000040
+let XCB_EVENT_MASK_EXPOSURE: Int = 0x00008000
+let XCB_EVENT_MASK_STRUCTURE_NOTIFY: Int = 0x00020000
+let XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY: Int = 0x00080000
+let XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT: Int = 0x00100000
+let XCB_EVENT_MASK_FOCUS_CHANGE: Int = 0x00200000
+let XCB_EVENT_MASK_PROPERTY_CHANGE: Int = 0x00400000
+
+// Combined mask for typical game/application windows
+let XCB_EVENT_MASK_DEFAULT: Int = 0x006280FF
+
+// ============================================================================
+// XCB window class constants
+// ============================================================================
+
+let XCB_WINDOW_CLASS_INPUT_OUTPUT: Int = 1
+let XCB_WINDOW_CLASS_INPUT_ONLY: Int = 2
+
+// ============================================================================
+// XCB mouse button codes
+// ============================================================================
+
+let XCB_BUTTON_LEFT: Int = 1
+let XCB_BUTTON_MIDDLE: Int = 2
+let XCB_BUTTON_RIGHT: Int = 3
+let XCB_BUTTON_SCROLL_UP: Int = 4
+let XCB_BUTTON_SCROLL_DOWN: Int = 5
+
+// ============================================================================
+// XCB config window value masks
+// ============================================================================
+
+let XCB_CONFIG_WINDOW_X: Int = 0x01
+let XCB_CONFIG_WINDOW_Y: Int = 0x02
+let XCB_CONFIG_WINDOW_WIDTH: Int = 0x04
+let XCB_CONFIG_WINDOW_HEIGHT: Int = 0x08
+let XCB_CONFIG_WINDOW_BORDER_WIDTH: Int = 0x10
+let XCB_CONFIG_WINDOW_SIBLING: Int = 0x20
+let XCB_CONFIG_WINDOW_STACK_MODE: Int = 0x40
+
+// ============================================================================
+// FFI Declarations - seen_xcb_* functions
+// ============================================================================
+
+// Connection management
+extern fun seen_xcb_connect(display: String) r: Int
+extern fun seen_xcb_disconnect(conn: Int) r: Void
+extern fun seen_xcb_flush(conn: Int) r: Int
+extern fun seen_xcb_get_fd(conn: Int) r: Int
+extern fun seen_xcb_connection_has_error(conn: Int) r: Int
+
+// Window management
+extern fun seen_xcb_create_window(conn: Int, x: Int, y: Int, w: Int, h: Int) r: Int
+extern fun seen_xcb_destroy_window(conn: Int, window: Int) r: Void
+extern fun seen_xcb_map_window(conn: Int, window: Int) r: Void
+extern fun seen_xcb_unmap_window(conn: Int, window: Int) r: Void
+extern fun seen_xcb_set_title(conn: Int, window: Int, title: String) r: Void
+extern fun seen_xcb_resize(conn: Int, window: Int, w: Int, h: Int) r: Void
+extern fun seen_xcb_move(conn: Int, window: Int, x: Int, y: Int) r: Void
+extern fun seen_xcb_set_min_size(conn: Int, window: Int, w: Int, h: Int) r: Void
+extern fun seen_xcb_set_max_size(conn: Int, window: Int, w: Int, h: Int) r: Void
+
+// Event handling
+extern fun seen_xcb_poll_event(conn: Int) r: Int
+extern fun seen_xcb_wait_event(conn: Int) r: Int
+extern fun seen_xcb_get_event_type(event: Int) r: Int
+extern fun seen_xcb_get_event_window(event: Int) r: Int
+extern fun seen_xcb_get_event_x(event: Int) r: Int
+extern fun seen_xcb_get_event_y(event: Int) r: Int
+extern fun seen_xcb_get_event_button(event: Int) r: Int
+extern fun seen_xcb_get_event_keycode(event: Int) r: Int
+extern fun seen_xcb_get_event_state(event: Int) r: Int
+extern fun seen_xcb_get_event_width(event: Int) r: Int
+extern fun seen_xcb_get_event_height(event: Int) r: Int
+extern fun seen_xcb_free_event(event: Int) r: Void
+
+// WM_DELETE_WINDOW protocol (close button handling)
+extern fun seen_xcb_setup_close_protocol(conn: Int, window: Int) r: Int
+extern fun seen_xcb_is_close_event(event: Int, closeAtom: Int) r: Int
+
+// Vulkan integration
+extern fun seen_xcb_vk_surface_create(conn: Int, window: Int, vkInstance: Int) r: Int
+
+// ============================================================================
+// X11Window - high-level window wrapper
+// ============================================================================
+
+/**
+ * High-level X11/XCB window abstraction.
+ *
+ * Manages an XCB connection and window to provide a simple windowing API.
+ * Handles WM_DELETE_WINDOW for proper close-button support.
+ * Uses Int handles for all XCB objects.
+ *
+ * Example:
+ *   let win = X11Window.create("My App", 800, 600)
+ *   if win.isValid() == 1 {
+ *       while win.isRunning() == 1 {
+ *           let evType = win.pollEvents()
+ *           // handle events...
+ *       }
+ *       win.close()
+ *   }
+ */
+class X11Window {
+    var handle: Int
+    var conn: Int
+    var window: Int
+    var closeAtom: Int
+    var width: Int
+    var height: Int
+    var running: Int
+
+    /**
+     * Create a new X11 window with the given title and dimensions.
+     * Connects to the default X display (display = "").
+     * Returns a window with handle=0 and running=0 on failure.
+     */
+    static fun create(title: String, w: Int, h: Int) r: X11Window {
+        let connection = seen_xcb_connect("")
+        if connection == 0 {
+            return X11Window {
+                handle: 0, conn: 0, window: 0,
+                closeAtom: 0, width: 0, height: 0, running: 0
+            }
+        }
+
+        if seen_xcb_connection_has_error(connection) != 0 {
+            seen_xcb_disconnect(connection)
+            return X11Window {
+                handle: 0, conn: 0, window: 0,
+                closeAtom: 0, width: 0, height: 0, running: 0
+            }
+        }
+
+        let win = seen_xcb_create_window(connection, 0, 0, w, h)
+        if win == 0 {
+            seen_xcb_disconnect(connection)
+            return X11Window {
+                handle: 0, conn: 0, window: 0,
+                closeAtom: 0, width: 0, height: 0, running: 0
+            }
+        }
+
+        seen_xcb_set_title(connection, win, title)
+        let atom = seen_xcb_setup_close_protocol(connection, win)
+        seen_xcb_map_window(connection, win)
+        seen_xcb_flush(connection)
+
+        return X11Window {
+            handle: win,
+            conn: connection,
+            window: win,
+            closeAtom: atom,
+            width: w,
+            height: h,
+            running: 1
+        }
+    }
+
+    /**
+     * Check if the window was created successfully.
+     * Returns 1 if valid, 0 otherwise.
+     */
+    fun isValid() r: Int {
+        if this.conn != 0 {
+            return 1
+        }
+        return 0
+    }
+
+    /**
+     * Poll for pending X11 events (non-blocking).
+     * Handles WM_DELETE_WINDOW and CONFIGURE_NOTIFY internally.
+     * Returns the XCB event type, or 0 if no event is pending.
+     */
+    fun pollEvents() r: Int {
+        let event = seen_xcb_poll_event(this.conn)
+        if event == 0 {
+            return 0
+        }
+
+        let evType = seen_xcb_get_event_type(event)
+
+        // Handle close button (WM_DELETE_WINDOW via CLIENT_MESSAGE)
+        if evType == XCB_CLIENT_MESSAGE {
+            if seen_xcb_is_close_event(event, this.closeAtom) != 0 {
+                this.running = 0
+            }
+        }
+
+        // Handle window resize
+        if evType == XCB_CONFIGURE_NOTIFY {
+            let newW = seen_xcb_get_event_width(event)
+            let newH = seen_xcb_get_event_height(event)
+            if newW > 0 {
+                this.width = newW
+            }
+            if newH > 0 {
+                this.height = newH
+            }
+        }
+
+        // Handle destroy notification
+        if evType == XCB_DESTROY_NOTIFY {
+            this.running = 0
+        }
+
+        seen_xcb_free_event(event)
+        return evType
+    }
+
+    /**
+     * Check if the window is still running.
+     * Returns 1 if running, 0 if closed or error.
+     */
+    fun isRunning() r: Int {
+        return this.running
+    }
+
+    /**
+     * Set the window title.
+     */
+    fun setTitle(title: String) r: Void {
+        seen_xcb_set_title(this.conn, this.window, title)
+        seen_xcb_flush(this.conn)
+    }
+
+    /**
+     * Resize the window to the given dimensions.
+     */
+    fun resize(w: Int, h: Int) r: Void {
+        this.width = w
+        this.height = h
+        seen_xcb_resize(this.conn, this.window, w, h)
+        seen_xcb_flush(this.conn)
+    }
+
+    /**
+     * Create a Vulkan surface (VkSurfaceKHR) for this window.
+     * Returns the Vulkan surface handle, or 0 on failure.
+     */
+    fun createVulkanSurface(vkInstance: Int) r: Int {
+        return seen_xcb_vk_surface_create(this.conn, this.window, vkInstance)
+    }
+
+    /**
+     * Close the window and release all X11/XCB resources.
+     */
+    fun close() r: Void {
+        this.running = 0
+        if this.window != 0 {
+            seen_xcb_destroy_window(this.conn, this.window)
+            this.window = 0
+        }
+        if this.conn != 0 {
+            seen_xcb_flush(this.conn)
+            seen_xcb_disconnect(this.conn)
+            this.conn = 0
+        }
+    }
+
+    /**
+     * Get the file descriptor for the XCB connection.
+     * Useful for integrating with external event loops (epoll/poll).
+     */
+    fun getFd() r: Int {
+        return seen_xcb_get_fd(this.conn)
+    }
+}

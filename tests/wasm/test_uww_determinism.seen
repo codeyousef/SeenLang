@@ -1,0 +1,68 @@
+// Test UWW determinism requirements
+// This file should compile successfully with --target uww
+
+// Import UWW runtime functions (provided by UWW host)
+// Note: These are extern declarations that map to UWW imports
+
+// Deterministic random number generator using Fixed64
+import uww.fixed.{Fixed64, fixed, fixedFrac}
+
+// Simple state machine using only integers
+class GameState {
+    var score: Int
+    var level: Int
+    var seed: Int
+
+    fun new(initialSeed: Int) r: GameState {
+        score = 0
+        level = 1
+        seed = initialSeed
+    }
+
+    // Deterministic pseudo-random using LCG
+    fun nextRandom() r: Int {
+        // Linear Congruential Generator
+        // Parameters from MINSTD
+        seed = (seed * 48271) % 2147483647
+        return seed
+    }
+
+    fun addScore(points: Int) r: Void {
+        score = score + points
+    }
+
+    fun nextLevel() r: Void {
+        level = level + 1
+    }
+}
+
+// Fixed-point math for deterministic physics
+fun simulatePhysics(posX: Fixed64, posY: Fixed64, velX: Fixed64, velY: Fixed64, dt: Fixed64) r: Fixed64 {
+    // Simple position update: pos += vel * dt
+    let newX = posX.add(velX.mul(dt))
+    return newX
+}
+
+// Main entry point - must be deterministic
+fun main() r: Int {
+    // Initialize with fixed seed for determinism
+    let state = GameState.new(12345)
+
+    // Run deterministic game loop
+    var i = 0
+    while i < 10 {
+        let random = state.nextRandom()
+        let points = random % 100
+        state.addScore(points)
+        i = i + 1
+    }
+
+    // Fixed-point physics test
+    let posX = fixed(10)
+    let velX = fixedFrac(1, 2)  // 0.5
+    let dt = fixedFrac(1, 60)   // 1/60 second
+    let newPosX = simulatePhysics(posX, fixed(0), velX, fixed(0), dt)
+
+    // Return score as result (deterministic for same seed)
+    return state.score % 256
+}

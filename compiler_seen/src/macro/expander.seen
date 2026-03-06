@@ -1,0 +1,299 @@
+// MacroExpander - Transforms AST by expanding user-defined macros
+// This is the main entry point for the macro expansion phase
+
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, AnnotationNode}
+import macro.registry.{MacroRegistry}
+import macro.interpreter.{ComptimeInterpreter, ComptimeValue}
+import macro.ast_node.{AstNode}
+
+// Result of macro expansion
+class MacroExpansionResult {
+    var success: Bool
+    var errors: Array<String>
+    var program: ProgramNode
+
+    static fun new() r: MacroExpansionResult {
+        return MacroExpansionResult{
+            success: true,
+            errors: Array<String>(),
+            program: ProgramNode.new()
+        }
+    }
+
+    fun addError(msg: String) r: Void {
+        errors.push(msg)
+        success = false
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+}
+
+// Main macro expander class
+class MacroExpander {
+    var registry: MacroRegistry
+    var interpreter: ComptimeInterpreter
+    var errors: Array<String>
+
+    static fun new() r: MacroExpander {
+        return MacroExpander{
+            registry: MacroRegistry.new(),
+            interpreter: ComptimeInterpreter.new(),
+            errors: Array<String>()
+        }
+    }
+
+    // Main entry point: expand all macros in a program
+    fun expandProgram(program: ProgramNode) r: MacroExpansionResult {
+        let result = MacroExpansionResult.new()
+        errors = Array<String>()
+
+        // Pass 1: Collect all macro definitions
+        collectMacros(program)
+
+        // If no macros defined, return program unchanged
+        if registry.count() == 0 {
+            result.program = program
+            return result
+        }
+
+        // Pass 2: Expand macro usages in functions and classes
+        let transformedProgram = transformProgram(program)
+
+        // Copy errors to result
+        var i = 0
+        while i < errors.length() {
+            result.addError(errors[i])
+            i = i + 1
+        }
+
+        result.program = transformedProgram
+        return result
+    }
+
+    // Pass 1: Collect all @macro decorated functions
+    fun collectMacros(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                let fn = item.function
+                if fn.hasDecorator("macro") {
+                    // Validate macro function signature
+                    if fn.params.length() != 1 {
+                        errors.push("Macro '" + fn.name + "' must have exactly one parameter (target: AstNode)")
+                    } else {
+                        // Register the macro
+                        registry.register(fn.name, fn)
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    // Pass 2: Transform program by expanding macro usages
+    fun transformProgram(program: ProgramNode) r: ProgramNode {
+        let newProgram = ProgramNode.new()
+
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+
+            // Skip macro definitions - they don't appear in output
+            if item.itemType == "Function" {
+                let fn = item.function
+                if fn.hasDecorator("macro") {
+                    i = i + 1
+                    continue
+                }
+            }
+
+            // Process regular functions
+            if item.itemType == "Function" {
+                let expandedItem = expandFunctionItem(item)
+                newProgram.items.push(expandedItem)
+            // Process classes
+            } else if item.itemType == "Class" {
+                let expandedItem = expandClassItem(item)
+                newProgram.items.push(expandedItem)
+            // Keep other items unchanged
+            } else {
+                newProgram.items.push(item)
+            }
+
+            i = i + 1
+        }
+
+        return newProgram
+    }
+
+    // Expand macros on a function item
+    fun expandFunctionItem(item: ItemNode) r: ItemNode {
+        var currentFunction = item.function
+
+        // Check each decorator to see if it's a user-defined macro
+        var j = 0
+        while j < currentFunction.decorators.length() {
+            let decorator = currentFunction.decorators[j]
+
+            // Skip built-in decorators
+            if isBuiltinDecorator(decorator.name) {
+                j = j + 1
+                continue
+            }
+
+            // Check if this decorator is a user-defined macro
+            if registry.lookupExists(decorator.name) {
+                let macroFn = registry.lookup(decorator.name)
+
+                // Execute the macro
+                let target = AstNode.fromFunction(currentFunction)
+                let result = interpreter.evaluate(macroFn, target)
+
+                if result.isError() {
+                    errors.push("Macro '" + decorator.name + "' failed: " + result.errorMessage)
+                } else if result.kind == "AstNode" {
+                    // Check if the result is an error node
+                    if result.astValue.isError {
+                        errors.push("Macro '" + decorator.name + "' error: " + result.astValue.errorMessage)
+                    } else if result.astValue.hasFunction {
+                        // Replace the function with the transformed version
+                        currentFunction = result.astValue.toFunction()
+                    } else {
+                        errors.push("Macro '" + decorator.name + "' must return an AstNode of kind Function")
+                    }
+                } else {
+                    errors.push("Macro '" + decorator.name + "' must return an AstNode, got " + result.kind)
+                }
+            }
+
+            j = j + 1
+        }
+
+        // Remove macro decorators from the transformed function
+        currentFunction = removeMacroDecorators(currentFunction)
+
+        // Create new item with transformed function
+        let newItem = ItemNode.new()
+        newItem.itemType = "Function"
+        newItem.name = currentFunction.name
+        newItem.visibility = item.visibility
+        newItem.function = currentFunction
+        return newItem
+    }
+
+    // Expand macros on a class item
+    fun expandClassItem(item: ItemNode) r: ItemNode {
+        var currentClass = item.classNode
+
+        // Check each decorator to see if it's a user-defined macro
+        var j = 0
+        while j < currentClass.decorators.length() {
+            let decorator = currentClass.decorators[j]
+
+            // Skip built-in decorators
+            if isBuiltinDecorator(decorator.name) {
+                j = j + 1
+                continue
+            }
+
+            // Check if this decorator is a user-defined macro
+            if registry.lookupExists(decorator.name) {
+                let macroFn = registry.lookup(decorator.name)
+
+                // Execute the macro
+                let target = AstNode.fromClass(currentClass)
+                let result = interpreter.evaluate(macroFn, target)
+
+                if result.isError() {
+                    errors.push("Macro '" + decorator.name + "' failed: " + result.errorMessage)
+                } else if result.kind == "AstNode" {
+                    if result.astValue.isError {
+                        errors.push("Macro '" + decorator.name + "' error: " + result.astValue.errorMessage)
+                    } else if result.astValue.hasClass {
+                        currentClass = result.astValue.toClass()
+                    } else {
+                        errors.push("Macro '" + decorator.name + "' must return an AstNode of kind Class")
+                    }
+                } else {
+                    errors.push("Macro '" + decorator.name + "' must return an AstNode, got " + result.kind)
+                }
+            }
+
+            j = j + 1
+        }
+
+        // Remove macro decorators from the transformed class
+        currentClass = removeMacroDecoratorsClass(currentClass)
+
+        // Create new item with transformed class
+        let newItem = ItemNode.new()
+        newItem.itemType = "Class"
+        newItem.name = currentClass.name
+        newItem.visibility = item.visibility
+        newItem.classNode = currentClass
+        return newItem
+    }
+
+    // Check if a decorator name is a built-in decorator
+    fun isBuiltinDecorator(name: String) r: Bool {
+        // List of all built-in decorators
+        if name == "deterministic" { return true }
+        if name == "nondeterministic" { return true }
+        if name == "extern" { return true }
+        if name == "inline" { return true }
+        if name == "async" { return true }
+        if name == "test" { return true }
+        if name == "allow_allocator_optimizations" { return true }
+        if name == "macro" { return true }
+        if name == "_c_import" { return true }
+        if name == "syscall" { return true }
+        if name == "profile" { return true }
+        if name == "component" { return true }
+        if name == "store" { return true }
+        if name == "middleware_stack" { return true }
+        if name == "executor" { return true }
+        if name == "hot_reload" { return true }
+        if name == "derive" { return true }
+        return false
+    }
+
+    // Remove user-defined macro decorators from a function
+    fun removeMacroDecorators(fn: FunctionNode) r: FunctionNode {
+        let newDecorators = Array<AnnotationNode>()
+        var i = 0
+        while i < fn.decorators.length() {
+            let decorator = fn.decorators[i]
+            // Keep only built-in decorators
+            if isBuiltinDecorator(decorator.name) {
+                newDecorators.push(decorator)
+            }
+            i = i + 1
+        }
+        fn.decorators = newDecorators
+        return fn
+    }
+
+    // Remove user-defined macro decorators from a class
+    fun removeMacroDecoratorsClass(cls: ClassNode) r: ClassNode {
+        let newDecorators = Array<AnnotationNode>()
+        var i = 0
+        while i < cls.decorators.length() {
+            let decorator = cls.decorators[i]
+            // Keep only built-in decorators
+            if isBuiltinDecorator(decorator.name) {
+                newDecorators.push(decorator)
+            }
+            i = i + 1
+        }
+        cls.decorators = newDecorators
+        return cls
+    }
+
+    // Get all errors
+    fun getErrors() r: Array<String> {
+        return errors
+    }
+}

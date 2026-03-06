@@ -1,0 +1,7 @@
+name = "Russian"
+description = "Russian Literal Keywords"
+
+[keywords]
+"истина" = "KeywordTrue"
+"ложь" = "KeywordFalse"
+"ноль" = "KeywordNull"

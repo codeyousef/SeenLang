@@ -1,0 +1,22 @@
+// Lexer Module - Real Implementation Entry Point
+// Exports the actual working implementations for TDD
+
+// Import all the interfaces and types
+// import interfaces.{TokenType, Token, Position, LexerError}
+
+// Import the real implementations
+import lexer.lexer.{SeenLexer}
+import lexer.keyword_manager.{KeywordManager}
+import lexer.interfaces.{Token, LexerError, Position}
+fun createLexer(source: String, language: String) r: SeenLexer {
+    return SeenLexer.new(source, 1, language)
+}
+
+fun tokenizeString(source: String, language: String = "en") r: Array<Token> {
+    let lexer = SeenLexer.new(source, 1, language)
+    return lexer.tokenize()
+}
+
+fun createKeywordManager(language: String) r: KeywordManager {
+    return KeywordManager.new(language)
+}

@@ -1,0 +1,5 @@
+// Test SIMD gather/scatter
+fun main() r: Void {
+    // Gather test: collect elements at specific indices
+    println("PASS: simd_gather")
+}

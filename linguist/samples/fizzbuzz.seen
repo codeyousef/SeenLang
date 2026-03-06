@@ -1,0 +1,20 @@
+// FizzBuzz in Seen — demonstrates loops, conditionals, and string output
+fun fizzbuzz(n: Int) -> String {
+    if n % 15 == 0 {
+        return "FizzBuzz"
+    } else if n % 3 == 0 {
+        return "Fizz"
+    } else if n % 5 == 0 {
+        return "Buzz"
+    } else {
+        return n.toString()
+    }
+}
+
+fun main() {
+    var i = 1
+    while i <= 100 {
+        println(fizzbuzz(i))
+        i = i + 1
+    }
+}

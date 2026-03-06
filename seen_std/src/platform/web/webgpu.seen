@@ -1,0 +1,335 @@
+/**
+ * WebGPU API bindings for browser WASM target.
+ *
+ * Low-level bindings to the WebGPU API via JavaScript host imports.
+ * Provides GPU device management, buffer/texture creation, shader
+ * compilation, render and compute pipeline construction, and
+ * command encoding for GPU workloads in the browser.
+ *
+ * These functions are imported from the JavaScript host environment
+ * when compiling to WASM. The runtime shim is provided by the
+ * Seen WASM runtime (seen_wasm_runtime.js).
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// ============================================================
+// Power preference constants
+// ============================================================
+
+let GPU_POWER_LOW: Int = 0
+let GPU_POWER_HIGH: Int = 1
+
+// ============================================================
+// Buffer usage flags (combinable with bitwise OR)
+// ============================================================
+
+let GPU_BUFFER_USAGE_MAP_READ: Int = 1
+let GPU_BUFFER_USAGE_MAP_WRITE: Int = 2
+let GPU_BUFFER_USAGE_COPY_SRC: Int = 4
+let GPU_BUFFER_USAGE_COPY_DST: Int = 8
+let GPU_BUFFER_USAGE_INDEX: Int = 16
+let GPU_BUFFER_USAGE_VERTEX: Int = 32
+let GPU_BUFFER_USAGE_UNIFORM: Int = 64
+let GPU_BUFFER_USAGE_STORAGE: Int = 128
+let GPU_BUFFER_USAGE_INDIRECT: Int = 256
+let GPU_BUFFER_USAGE_QUERY_RESOLVE: Int = 512
+
+// ============================================================
+// Texture format constants
+// ============================================================
+
+let GPU_TEXTURE_FORMAT_RGBA8_UNORM: Int = 1
+let GPU_TEXTURE_FORMAT_RGBA8_SNORM: Int = 2
+let GPU_TEXTURE_FORMAT_RGBA8_UINT: Int = 3
+let GPU_TEXTURE_FORMAT_RGBA8_SINT: Int = 4
+let GPU_TEXTURE_FORMAT_BGRA8_UNORM: Int = 5
+let GPU_TEXTURE_FORMAT_RGBA16_FLOAT: Int = 6
+let GPU_TEXTURE_FORMAT_RGBA32_FLOAT: Int = 7
+let GPU_TEXTURE_FORMAT_DEPTH24_PLUS: Int = 8
+let GPU_TEXTURE_FORMAT_DEPTH24_PLUS_STENCIL8: Int = 9
+let GPU_TEXTURE_FORMAT_DEPTH32_FLOAT: Int = 10
+let GPU_TEXTURE_FORMAT_R8_UNORM: Int = 11
+let GPU_TEXTURE_FORMAT_RG8_UNORM: Int = 12
+
+// ============================================================
+// Texture usage flags (combinable with bitwise OR)
+// ============================================================
+
+let GPU_TEXTURE_USAGE_COPY_SRC: Int = 1
+let GPU_TEXTURE_USAGE_COPY_DST: Int = 2
+let GPU_TEXTURE_USAGE_TEXTURE_BINDING: Int = 4
+let GPU_TEXTURE_USAGE_STORAGE_BINDING: Int = 8
+let GPU_TEXTURE_USAGE_RENDER_ATTACHMENT: Int = 16
+
+// ============================================================
+// Shader stage visibility flags (combinable with bitwise OR)
+// ============================================================
+
+let GPU_SHADER_VERTEX: Int = 1
+let GPU_SHADER_FRAGMENT: Int = 2
+let GPU_SHADER_COMPUTE: Int = 4
+
+// ============================================================
+// Primitive topology constants
+// ============================================================
+
+let GPU_PRIMITIVE_POINT_LIST: Int = 0
+let GPU_PRIMITIVE_LINE_LIST: Int = 1
+let GPU_PRIMITIVE_LINE_STRIP: Int = 2
+let GPU_PRIMITIVE_TRIANGLE_LIST: Int = 3
+let GPU_PRIMITIVE_TRIANGLE_STRIP: Int = 4
+
+// ============================================================
+// Load/store operations for render passes
+// ============================================================
+
+let GPU_LOAD_OP_CLEAR: Int = 0
+let GPU_LOAD_OP_LOAD: Int = 1
+let GPU_STORE_OP_STORE: Int = 0
+let GPU_STORE_OP_DISCARD: Int = 1
+
+// ============================================================
+// Vertex format constants
+// ============================================================
+
+let GPU_VERTEX_FORMAT_FLOAT32: Int = 1
+let GPU_VERTEX_FORMAT_FLOAT32X2: Int = 2
+let GPU_VERTEX_FORMAT_FLOAT32X3: Int = 3
+let GPU_VERTEX_FORMAT_FLOAT32X4: Int = 4
+let GPU_VERTEX_FORMAT_UINT32: Int = 5
+let GPU_VERTEX_FORMAT_SINT32: Int = 6
+
+// ============================================================
+// FFI declarations (imported from JS host via WASM imports)
+// ============================================================
+
+// Adapter and device creation
+extern fun seen_wgpu_request_adapter(powerPref: Int) r: Int
+extern fun seen_wgpu_adapter_request_device(adapter: Int) r: Int
+extern fun seen_wgpu_device_destroy(device: Int) r: Void
+
+// Buffer management
+extern fun seen_wgpu_device_create_buffer(device: Int, size: Int, usage: Int) r: Int
+extern fun seen_wgpu_buffer_write(buffer: Int, data: Int, size: Int) r: Void
+extern fun seen_wgpu_buffer_read(buffer: Int, dest: Int, size: Int) r: Void
+extern fun seen_wgpu_buffer_destroy(buffer: Int) r: Void
+extern fun seen_wgpu_buffer_map_async(buffer: Int, mode: Int, offset: Int, size: Int) r: Int
+extern fun seen_wgpu_buffer_get_mapped_range(buffer: Int, offset: Int, size: Int) r: Int
+extern fun seen_wgpu_buffer_unmap(buffer: Int) r: Void
+
+// Texture management
+extern fun seen_wgpu_device_create_texture(device: Int, w: Int, h: Int, format: Int, usage: Int) r: Int
+extern fun seen_wgpu_texture_create_view(texture: Int) r: Int
+extern fun seen_wgpu_texture_destroy(texture: Int) r: Void
+
+// Sampler
+extern fun seen_wgpu_device_create_sampler(device: Int) r: Int
+
+// Shader modules
+extern fun seen_wgpu_device_create_shader(device: Int, code: String) r: Int
+
+// Bind group layout and bind group
+extern fun seen_wgpu_device_create_bind_group_layout(device: Int, entryCount: Int) r: Int
+extern fun seen_wgpu_device_create_bind_group(device: Int, layout: Int, entryCount: Int) r: Int
+
+// Pipeline layout
+extern fun seen_wgpu_device_create_pipeline_layout(device: Int, bglCount: Int) r: Int
+
+// Render pipeline
+extern fun seen_wgpu_device_create_render_pipeline(device: Int, shader: Int, layout: Int) r: Int
+
+// Compute pipeline
+extern fun seen_wgpu_device_create_compute_pipeline(device: Int, shader: Int, layout: Int) r: Int
+
+// Command encoding
+extern fun seen_wgpu_device_create_command_encoder(device: Int) r: Int
+extern fun seen_wgpu_encoder_begin_render_pass(encoder: Int, view: Int) r: Int
+extern fun seen_wgpu_encoder_begin_compute_pass(encoder: Int) r: Int
+extern fun seen_wgpu_encoder_copy_buffer_to_buffer(encoder: Int, src: Int, srcOff: Int, dst: Int, dstOff: Int, size: Int) r: Void
+extern fun seen_wgpu_encoder_finish(encoder: Int) r: Int
+
+// Render pass commands
+extern fun seen_wgpu_render_pass_set_pipeline(pass: Int, pipeline: Int) r: Void
+extern fun seen_wgpu_render_pass_set_vertex_buffer(pass: Int, slot: Int, buffer: Int) r: Void
+extern fun seen_wgpu_render_pass_set_index_buffer(pass: Int, buffer: Int, format: Int) r: Void
+extern fun seen_wgpu_render_pass_set_bind_group(pass: Int, index: Int, group: Int) r: Void
+extern fun seen_wgpu_render_pass_draw(pass: Int, vertexCount: Int, instanceCount: Int) r: Void
+extern fun seen_wgpu_render_pass_draw_indexed(pass: Int, indexCount: Int, instanceCount: Int) r: Void
+extern fun seen_wgpu_pass_end(pass: Int) r: Void
+
+// Compute pass commands
+extern fun seen_wgpu_compute_pass_set_pipeline(pass: Int, pipeline: Int) r: Void
+extern fun seen_wgpu_compute_pass_set_bind_group(pass: Int, index: Int, group: Int) r: Void
+extern fun seen_wgpu_compute_pass_dispatch(pass: Int, x: Int, y: Int, z: Int) r: Void
+
+// Queue submission
+extern fun seen_wgpu_queue_submit(device: Int, cmdBuffer: Int) r: Void
+extern fun seen_wgpu_queue_write_buffer(device: Int, buffer: Int, offset: Int, data: Int, size: Int) r: Void
+
+// Canvas / surface
+extern fun seen_wgpu_canvas_get_context(canvasId: String) r: Int
+extern fun seen_wgpu_context_get_current_texture(ctx: Int) r: Int
+
+// ============================================================
+// GPUBuffer wrapper class
+// ============================================================
+
+/**
+ * Wrapper around a WebGPU buffer handle.
+ *
+ * Tracks the device, size, and usage for convenience. Provides
+ * write/read/destroy lifecycle methods.
+ */
+class GPUBuffer {
+    var handle: Int
+    var deviceHandle: Int
+    var size: Int
+    var usage: Int
+
+    /**
+     * Write data into the buffer from a host pointer.
+     */
+    fun write(data: Int, dataSize: Int) r: Void {
+        seen_wgpu_buffer_write(this.handle, data, dataSize)
+    }
+
+    /**
+     * Read data from the buffer into a host pointer.
+     */
+    fun read(dest: Int, dataSize: Int) r: Void {
+        seen_wgpu_buffer_read(this.handle, dest, dataSize)
+    }
+
+    /**
+     * Destroy the buffer and release GPU memory.
+     */
+    fun destroy() r: Void {
+        seen_wgpu_buffer_destroy(this.handle)
+        this.handle = 0
+    }
+}
+
+// ============================================================
+// GPUDevice wrapper class
+// ============================================================
+
+/**
+ * High-level wrapper around a WebGPU device.
+ *
+ * Manages adapter selection, device creation, and provides
+ * factory methods for buffers, shaders, pipelines, and
+ * command encoding.
+ *
+ * Example:
+ *   let gpu = GPUDevice.init(GPU_POWER_HIGH)
+ *   let buf = gpu.createBuffer(1024, GPU_BUFFER_USAGE_STORAGE | GPU_BUFFER_USAGE_COPY_DST)
+ *   let shader = gpu.createShader(wgslCode)
+ *   let layout = gpu.createPipelineLayout(1)
+ *   let pipeline = gpu.createComputePipeline(shader, layout)
+ *   let encoder = gpu.createCommandEncoder()
+ *   let pass = seen_wgpu_encoder_begin_compute_pass(encoder)
+ *   seen_wgpu_compute_pass_set_pipeline(pass, pipeline)
+ *   seen_wgpu_compute_pass_dispatch(pass, 64, 1, 1)
+ *   seen_wgpu_pass_end(pass)
+ *   let cmd = seen_wgpu_encoder_finish(encoder)
+ *   gpu.submit(cmd)
+ *   gpu.destroy()
+ */
+class GPUDevice {
+    var adapterHandle: Int
+    var deviceHandle: Int
+    var valid: Int   // 1 = valid, 0 = invalid (avoid Bool)
+
+    /**
+     * Request an adapter and device with the given power preference.
+     * Returns a GPUDevice with valid=1 on success, valid=0 on failure.
+     */
+    static fun init(powerPref: Int) r: GPUDevice {
+        let adapter = seen_wgpu_request_adapter(powerPref)
+        if adapter == 0 {
+            return GPUDevice {
+                adapterHandle: 0,
+                deviceHandle: 0,
+                valid: 0
+            }
+        }
+        let device = seen_wgpu_adapter_request_device(adapter)
+        var v = 0
+        if device != 0 {
+            v = 1
+        }
+        return GPUDevice {
+            adapterHandle: adapter,
+            deviceHandle: device,
+            valid: v
+        }
+    }
+
+    /**
+     * Create a GPU buffer with the specified size and usage flags.
+     */
+    fun createBuffer(size: Int, usage: Int) r: GPUBuffer {
+        let handle = seen_wgpu_device_create_buffer(this.deviceHandle, size, usage)
+        return GPUBuffer {
+            handle: handle,
+            deviceHandle: this.deviceHandle,
+            size: size,
+            usage: usage
+        }
+    }
+
+    /**
+     * Compile a WGSL shader module from source code.
+     * Returns the shader module handle, or 0 on failure.
+     */
+    fun createShader(code: String) r: Int {
+        return seen_wgpu_device_create_shader(this.deviceHandle, code)
+    }
+
+    /**
+     * Create a pipeline layout with the given number of bind group layouts.
+     */
+    fun createPipelineLayout(bglCount: Int) r: Int {
+        return seen_wgpu_device_create_pipeline_layout(this.deviceHandle, bglCount)
+    }
+
+    /**
+     * Create a render pipeline from a shader module and pipeline layout.
+     */
+    fun createRenderPipeline(shader: Int, layout: Int) r: Int {
+        return seen_wgpu_device_create_render_pipeline(this.deviceHandle, shader, layout)
+    }
+
+    /**
+     * Create a compute pipeline from a shader module and pipeline layout.
+     */
+    fun createComputePipeline(shader: Int, layout: Int) r: Int {
+        return seen_wgpu_device_create_compute_pipeline(this.deviceHandle, shader, layout)
+    }
+
+    /**
+     * Create a command encoder for recording GPU commands.
+     */
+    fun createCommandEncoder() r: Int {
+        return seen_wgpu_device_create_command_encoder(this.deviceHandle)
+    }
+
+    /**
+     * Submit a finished command buffer to the device queue.
+     */
+    fun submit(cmdBuffer: Int) r: Void {
+        seen_wgpu_queue_submit(this.deviceHandle, cmdBuffer)
+    }
+
+    /**
+     * Destroy the device and release all GPU resources.
+     */
+    fun destroy() r: Void {
+        if this.valid == 1 {
+            seen_wgpu_device_destroy(this.deviceHandle)
+            this.valid = 0
+        }
+    }
+}

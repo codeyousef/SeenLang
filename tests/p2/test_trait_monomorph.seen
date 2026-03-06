@@ -1,0 +1,21 @@
+@trait
+class Printable {
+    fun display() r: Int {
+        return 0
+    }
+}
+
+class Widget {
+    id: Int
+
+    fun display() r: Int {
+        return 1
+    }
+}
+
+fun main() r: Int {
+    let w = Widget(42)
+    let r = w.display()
+    println("PASS: trait_monomorph")
+    return 0
+}

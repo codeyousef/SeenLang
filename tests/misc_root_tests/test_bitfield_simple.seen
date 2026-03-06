@@ -1,0 +1,58 @@
+// Simple Bitfield8 test to debug the issue
+
+class Bitfield8 {
+    var raw: Int
+
+    static fun new(value: Int) r: Bitfield8 {
+        var masked = value % 256
+        if masked < 0 {
+            masked = masked + 256
+        }
+        println("new(): masked = " + masked.toString())
+        let result = Bitfield8{raw: masked}
+        println("new(): created struct")
+        return result
+    }
+
+    static fun zero() r: Bitfield8 {
+        return Bitfield8{raw: 0}
+    }
+
+    fun toInt() r: Int {
+        println("toInt(): raw = " + raw.toString())
+        return raw
+    }
+}
+
+fun main() r: Int {
+    println("Testing Bitfield8...")
+
+    // Test 1: Create a value
+    println("Creating Bitfield8.new(165)...")
+    let bf = Bitfield8.new(165)
+    println("Created bf")
+
+    // Test 2: Get the value back
+    println("Calling bf.toInt()...")
+    let val = bf.toInt()
+    println("val = " + val.toString())
+
+    if val != 165 {
+        println("FAIL: expected 165, got " + val.toString())
+        return 1
+    }
+
+    // Test 3: Zero
+    println("Creating Bitfield8.zero()...")
+    let zf = Bitfield8.zero()
+    let zval = zf.toInt()
+    println("zval = " + zval.toString())
+
+    if zval != 0 {
+        println("FAIL: expected 0, got " + zval.toString())
+        return 1
+    }
+
+    println("PASS")
+    return 0
+}

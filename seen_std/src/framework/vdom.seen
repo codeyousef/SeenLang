@@ -1,0 +1,834 @@
+// Virtual DOM Framework for Seen Language
+// Provides deterministic Virtual DOM primitives with guaranteed diffing results
+// All collections use BTreeMap/Vec for deterministic iteration order
+
+import collections.btree_map.{BTreeMap}
+import collections.vec.{Vec}
+import core.option.{Option, Some, None}
+
+// ============================================================================
+// Node Types
+// ============================================================================
+
+// VNode type discriminator
+data VNodeType {
+    Element,    // HTML-like element with tag, attributes, children
+    Text,       // Plain text content
+    Component,  // Component reference (for future expansion)
+    Fragment    // Multiple children without wrapper element
+}
+
+// Core VNode structure - deterministic fields only
+class VNode {
+    var nodeType: VNodeType
+    var tag: String                           // Element tag or component name
+    var text: String                          // Text content (for Text nodes)
+    var key: String                           // Optional key for diffing (empty = no key)
+    var attributes: BTreeMap<String, String>  // Deterministic ordered attributes
+    var children: Vec<VNode>                  // Ordered children
+    var eventHandlers: Vec<String>            // Handler names (deterministic order)
+
+    static fun new() r: VNode {
+        return VNode{
+            nodeType: VNodeType.Element,
+            tag: "",
+            text: "",
+            key: "",
+            attributes: BTreeMap<String, String>.new(),
+            children: Vec<VNode>.new(),
+            eventHandlers: Vec<String>.new()
+        }
+    }
+
+    // Check if this node has a key for diffing
+    fun hasKey() r: Bool {
+        return this.key.length() > 0
+    }
+
+    // Check if two nodes are same type for diffing purposes
+    fun isSameType(other: VNode) r: Bool {
+        if this.nodeType != other.nodeType {
+            return false
+        }
+        if this.nodeType == VNodeType.Element {
+            return this.tag == other.tag
+        }
+        if this.nodeType == VNodeType.Component {
+            return this.tag == other.tag
+        }
+        return true
+    }
+
+    // Clone this node (shallow - children reference same nodes)
+    fun clone() r: VNode {
+        var cloned = VNode.new()
+        cloned.nodeType = this.nodeType
+        cloned.tag = this.tag
+        cloned.text = this.text
+        cloned.key = this.key
+        // Note: attributes and children are shared references
+        // For deep clone, would need to iterate and copy
+        cloned.attributes = this.attributes
+        cloned.children = this.children
+        cloned.eventHandlers = this.eventHandlers
+        return cloned
+    }
+
+    // Add a child node
+    fun addChild(child: VNode) r: Void {
+        this.children.push(child)
+    }
+
+    // Set an attribute
+    fun setAttribute(name: String, value: String) r: Void {
+        this.attributes.insert(name, value)
+    }
+
+    // Get an attribute
+    fun getAttribute(name: String) r: Option<String> {
+        return this.attributes.get(name)
+    }
+
+    // Add an event handler name
+    fun addEventHandler(handler: String) r: Void {
+        this.eventHandlers.push(handler)
+    }
+}
+
+// ============================================================================
+// Factory Functions
+// ============================================================================
+
+// Create an element node
+fun createElement(tag: String, attrs: BTreeMap<String, String>, children: Vec<VNode>) r: VNode {
+    var node = VNode.new()
+    node.nodeType = VNodeType.Element
+    node.tag = tag
+    node.attributes = attrs
+    node.children = children
+    return node
+}
+
+// Create an element node with just a tag (no attrs/children)
+fun createEmptyElement(tag: String) r: VNode {
+    var node = VNode.new()
+    node.nodeType = VNodeType.Element
+    node.tag = tag
+    return node
+}
+
+// Create a text node
+fun createText(content: String) r: VNode {
+    var node = VNode.new()
+    node.nodeType = VNodeType.Text
+    node.text = content
+    return node
+}
+
+// Create a keyed element (for efficient list diffing)
+fun createKeyedElement(tag: String, key: String, attrs: BTreeMap<String, String>, children: Vec<VNode>) r: VNode {
+    var node = VNode.new()
+    node.nodeType = VNodeType.Element
+    node.tag = tag
+    node.key = key
+    node.attributes = attrs
+    node.children = children
+    return node
+}
+
+// Create a fragment (multiple children without wrapper)
+fun createFragment(children: Vec<VNode>) r: VNode {
+    var node = VNode.new()
+    node.nodeType = VNodeType.Fragment
+    node.children = children
+    return node
+}
+
+// Create a component reference node
+fun createComponent(name: String, props: BTreeMap<String, String>) r: VNode {
+    var node = VNode.new()
+    node.nodeType = VNodeType.Component
+    node.tag = name
+    node.attributes = props
+    return node
+}
+
+// ============================================================================
+// Patch Types
+// ============================================================================
+
+// Patch operation types
+data PatchType {
+    None,           // No operation
+    Replace,        // Replace entire node
+    UpdateAttrs,    // Update attributes only
+    UpdateText,     // Update text content
+    InsertChild,    // Insert child at index
+    RemoveChild,    // Remove child at index
+    MoveChild,      // Move child from one index to another
+    ReorderChildren // Reorder multiple children (batch move)
+}
+
+// A single patch operation
+class Patch {
+    var patchType: PatchType
+    var path: Vec<Int>                        // Path to target node (child indices)
+    var node: Option<VNode>                   // New node (for Replace/Insert)
+    var attributes: BTreeMap<String, String>  // Attribute updates (for UpdateAttrs)
+    var removedAttrs: Vec<String>             // Attributes to remove
+    var text: String                          // Text update (for UpdateText)
+    var fromIndex: Int                        // Source index (for Move)
+    var toIndex: Int                          // Target index (for Insert/Move)
+    var childOrder: Vec<Int>                  // New child order (for Reorder)
+
+    static fun new() r: Patch {
+        return Patch{
+            patchType: PatchType.None,
+            path: Vec<Int>.new(),
+            node: None<VNode>(),
+            attributes: BTreeMap<String, String>.new(),
+            removedAttrs: Vec<String>.new(),
+            text: "",
+            fromIndex: 0 - 1,
+            toIndex: 0 - 1,
+            childOrder: Vec<Int>.new()
+        }
+    }
+
+    // Create a replace patch
+    static fun replace(path: Vec<Int>, newNode: VNode) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = PatchType.Replace
+        patch.path = path
+        patch.node = Some<VNode>(newNode)
+        return patch
+    }
+
+    // Create an attribute update patch
+    static fun updateAttrs(path: Vec<Int>, attrs: BTreeMap<String, String>, removed: Vec<String>) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = PatchType.UpdateAttrs
+        patch.path = path
+        patch.attributes = attrs
+        patch.removedAttrs = removed
+        return patch
+    }
+
+    // Create a text update patch
+    static fun updateText(path: Vec<Int>, newText: String) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = PatchType.UpdateText
+        patch.path = path
+        patch.text = newText
+        return patch
+    }
+
+    // Create an insert child patch
+    static fun insertChild(path: Vec<Int>, index: Int, child: VNode) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = PatchType.InsertChild
+        patch.path = path
+        patch.toIndex = index
+        patch.node = Some<VNode>(child)
+        return patch
+    }
+
+    // Create a remove child patch
+    static fun removeChild(path: Vec<Int>, index: Int) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = PatchType.RemoveChild
+        patch.path = path
+        patch.fromIndex = index
+        return patch
+    }
+
+    // Create a move child patch
+    static fun moveChild(path: Vec<Int>, fromIdx: Int, toIdx: Int) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = PatchType.MoveChild
+        patch.path = path
+        patch.fromIndex = fromIdx
+        patch.toIndex = toIdx
+        return patch
+    }
+}
+
+// ============================================================================
+// Helper for child matching during diffing
+// ============================================================================
+
+class ChildMatch {
+    var oldIndex: Int
+    var newIndex: Int
+    var matched: Bool
+
+    static fun new(oldIdx: Int, newIdx: Int) r: ChildMatch {
+        return ChildMatch{
+            oldIndex: oldIdx,
+            newIndex: newIdx,
+            matched: true
+        }
+    }
+
+    static fun unmatched(oldIdx: Int) r: ChildMatch {
+        return ChildMatch{
+            oldIndex: oldIdx,
+            newIndex: 0 - 1,
+            matched: false
+        }
+    }
+}
+
+// ============================================================================
+// VDOM Differ - Deterministic diffing algorithm
+// ============================================================================
+
+class VDOMDiffer {
+    // Compare two VNode trees and produce deterministic patches
+    // Patches are generated in depth-first order
+    fun diff(oldNode: VNode, newNode: VNode) r: Vec<Patch> {
+        var patches = Vec<Patch>.new()
+        var rootPath = Vec<Int>.new()
+        this.diffNodes(oldNode, newNode, rootPath, patches)
+        return patches
+    }
+
+    // Internal: diff two nodes at a given path
+    fun diffNodes(oldNode: VNode, newNode: VNode, path: Vec<Int>, patches: Vec<Patch>) r: Void {
+        // If nodes are not the same type, replace entirely
+        if not oldNode.isSameType(newNode) {
+            patches.push(Patch.replace(this.clonePath(path), newNode))
+            return
+        }
+
+        // Handle different node types
+        if oldNode.nodeType == VNodeType.Text {
+            this.diffTextNodes(oldNode, newNode, path, patches)
+            return
+        }
+
+        if oldNode.nodeType == VNodeType.Element or oldNode.nodeType == VNodeType.Component {
+            this.diffElementNodes(oldNode, newNode, path, patches)
+            return
+        }
+
+        if oldNode.nodeType == VNodeType.Fragment {
+            this.diffChildren(oldNode.children, newNode.children, path, patches)
+            return
+        }
+    }
+
+    // Diff text nodes
+    fun diffTextNodes(oldNode: VNode, newNode: VNode, path: Vec<Int>, patches: Vec<Patch>) r: Void {
+        if oldNode.text != newNode.text {
+            patches.push(Patch.updateText(this.clonePath(path), newNode.text))
+        }
+    }
+
+    // Diff element/component nodes
+    fun diffElementNodes(oldNode: VNode, newNode: VNode, path: Vec<Int>, patches: Vec<Patch>) r: Void {
+        // Diff attributes
+        let attrPatch = this.diffAttributes(oldNode.attributes, newNode.attributes)
+        if attrPatch.attributes.size() > 0 or attrPatch.removedAttrs.len() > 0 {
+            var patch = Patch.updateAttrs(this.clonePath(path), attrPatch.attributes, attrPatch.removedAttrs)
+            patches.push(patch)
+        }
+
+        // Diff children
+        this.diffChildren(oldNode.children, newNode.children, path, patches)
+    }
+
+    // Diff attributes - returns changed/added attrs and removed attr names
+    // BTreeMap ensures deterministic iteration order (sorted by key)
+    fun diffAttributes(oldAttrs: BTreeMap<String, String>, newAttrs: BTreeMap<String, String>) r: AttrDiffResult {
+        var changed = BTreeMap<String, String>.new()
+        var removed = Vec<String>.new()
+
+        // Find changed and added attributes (iterate new attrs in sorted order)
+        let newKeys = newAttrs.keys()
+        var i = 0
+        while i < newKeys.len() {
+            let key = newKeys.get(i)
+            let newValue = newAttrs.get(key).unwrap()
+            let oldValueOpt = oldAttrs.get(key)
+            if oldValueOpt.isNone() {
+                // New attribute
+                changed.insert(key, newValue)
+            } else {
+                let oldValue = oldValueOpt.unwrap()
+                if oldValue != newValue {
+                    // Changed attribute
+                    changed.insert(key, newValue)
+                }
+            }
+            i = i + 1
+        }
+
+        // Find removed attributes (iterate old attrs in sorted order)
+        let oldKeys = oldAttrs.keys()
+        i = 0
+        while i < oldKeys.len() {
+            let key = oldKeys.get(i)
+            if not newAttrs.containsKey(key) {
+                removed.push(key)
+            }
+            i = i + 1
+        }
+
+        return AttrDiffResult{ attributes: changed, removedAttrs: removed }
+    }
+
+    // Diff children with key-based matching for efficiency
+    fun diffChildren(oldChildren: Vec<VNode>, newChildren: Vec<VNode>, parentPath: Vec<Int>, patches: Vec<Patch>) r: Void {
+        let oldLen = oldChildren.len()
+        let newLen = newChildren.len()
+
+        // Check if any children have keys
+        var hasKeyedChildren = false
+        var i = 0
+        while i < oldLen {
+            if oldChildren.get(i).hasKey() {
+                hasKeyedChildren = true
+                i = oldLen  // break
+            }
+            i = i + 1
+        }
+        if not hasKeyedChildren {
+            i = 0
+            while i < newLen {
+                if newChildren.get(i).hasKey() {
+                    hasKeyedChildren = true
+                    i = newLen  // break
+                }
+                i = i + 1
+            }
+        }
+
+        if hasKeyedChildren {
+            this.diffKeyedChildren(oldChildren, newChildren, parentPath, patches)
+        } else {
+            this.diffUnkeyedChildren(oldChildren, newChildren, parentPath, patches)
+        }
+    }
+
+    // Diff children without keys (positional matching)
+    fun diffUnkeyedChildren(oldChildren: Vec<VNode>, newChildren: Vec<VNode>, parentPath: Vec<Int>, patches: Vec<Patch>) r: Void {
+        let oldLen = oldChildren.len()
+        let newLen = newChildren.len()
+        let minLen = if oldLen < newLen { oldLen } else { newLen }
+
+        // Diff common children by position
+        var i = 0
+        while i < minLen {
+            var childPath = this.clonePath(parentPath)
+            childPath.push(i)
+            this.diffNodes(oldChildren.get(i), newChildren.get(i), childPath, patches)
+            i = i + 1
+        }
+
+        // Handle removed children (from end to start for correct indices)
+        if oldLen > newLen {
+            i = oldLen - 1
+            while i >= newLen {
+                patches.push(Patch.removeChild(this.clonePath(parentPath), i))
+                i = i - 1
+            }
+        }
+
+        // Handle added children
+        if newLen > oldLen {
+            i = oldLen
+            while i < newLen {
+                patches.push(Patch.insertChild(this.clonePath(parentPath), i, newChildren.get(i)))
+                i = i + 1
+            }
+        }
+    }
+
+    // Diff children with keys (more efficient for reordering)
+    fun diffKeyedChildren(oldChildren: Vec<VNode>, newChildren: Vec<VNode>, parentPath: Vec<Int>, patches: Vec<Patch>) r: Void {
+        // Build key -> index map for old children
+        var oldKeyMap = BTreeMap<String, Int>.new()
+        var i = 0
+        while i < oldChildren.len() {
+            let child = oldChildren.get(i)
+            if child.hasKey() {
+                oldKeyMap.insert(child.key, i)
+            }
+            i = i + 1
+        }
+
+        // Track which old indices have been matched
+        var matchedOld = Vec<Bool>.new()
+        i = 0
+        while i < oldChildren.len() {
+            matchedOld.push(false)
+            i = i + 1
+        }
+
+        // Match new children to old by key, and diff matched pairs
+        i = 0
+        while i < newChildren.len() {
+            let newChild = newChildren.get(i)
+            if newChild.hasKey() {
+                let oldIdxOpt = oldKeyMap.get(newChild.key)
+                if oldIdxOpt.isSome() {
+                    let oldIdx = oldIdxOpt.unwrap()
+                    matchedOld.set(oldIdx, true)
+                    let oldChild = oldChildren.get(oldIdx)
+
+                    // Diff the matched nodes
+                    var childPath = this.clonePath(parentPath)
+                    childPath.push(i)
+                    this.diffNodes(oldChild, newChild, childPath, patches)
+
+                    // If position changed, generate move patch
+                    if oldIdx != i {
+                        patches.push(Patch.moveChild(this.clonePath(parentPath), oldIdx, i))
+                    }
+                } else {
+                    // New keyed child - insert
+                    patches.push(Patch.insertChild(this.clonePath(parentPath), i, newChild))
+                }
+            } else {
+                // Unkeyed child in keyed context - treat as new
+                patches.push(Patch.insertChild(this.clonePath(parentPath), i, newChild))
+            }
+            i = i + 1
+        }
+
+        // Remove unmatched old children (reverse order for index stability)
+        i = oldChildren.len() - 1
+        while i >= 0 {
+            if not matchedOld.get(i) {
+                patches.push(Patch.removeChild(this.clonePath(parentPath), i))
+            }
+            i = i - 1
+        }
+    }
+
+    // Helper to clone a path (Vec<Int>)
+    fun clonePath(path: Vec<Int>) r: Vec<Int> {
+        var cloned = Vec<Int>.new()
+        var i = 0
+        while i < path.len() {
+            cloned.push(path.get(i))
+            i = i + 1
+        }
+        return cloned
+    }
+}
+
+// Helper struct for attribute diff result
+class AttrDiffResult {
+    var attributes: BTreeMap<String, String>
+    var removedAttrs: Vec<String>
+}
+
+// ============================================================================
+// VDOM Patcher - Apply patches to produce new tree
+// ============================================================================
+
+class VDOMPatcher {
+    // Apply patches to a VNode tree (returns new tree)
+    // Note: This creates a new tree structure, original is unchanged
+    fun applyPatches(root: VNode, patches: Vec<Patch>) r: VNode {
+        var result = root.clone()
+        var i = 0
+        while i < patches.len() {
+            result = this.applyPatch(result, patches.get(i))
+            i = i + 1
+        }
+        return result
+    }
+
+    // Apply a single patch
+    fun applyPatch(root: VNode, patch: Patch) r: VNode {
+        if patch.patchType == PatchType.None {
+            return root
+        }
+
+        // Navigate to target node and apply operation
+        return this.applyAtPath(root, patch.path, patch, 0)
+    }
+
+    // Navigate to path and apply operation
+    fun applyAtPath(node: VNode, path: Vec<Int>, patch: Patch, depth: Int) r: VNode {
+        // If we've reached the target depth, apply the patch
+        if depth >= path.len() {
+            return this.applyPatchToNode(node, patch)
+        }
+
+        // Navigate deeper
+        let childIndex = path.get(depth)
+        var result = node.clone()
+
+        if childIndex < result.children.len() {
+            let newChild = this.applyAtPath(result.children.get(childIndex), path, patch, depth + 1)
+            result.children.set(childIndex, newChild)
+        }
+
+        return result
+    }
+
+    // Apply patch directly to target node
+    fun applyPatchToNode(node: VNode, patch: Patch) r: VNode {
+        if patch.patchType == PatchType.Replace {
+            return patch.node.unwrap()
+        }
+
+        var result = node.clone()
+
+        if patch.patchType == PatchType.UpdateText {
+            result.text = patch.text
+            return result
+        }
+
+        if patch.patchType == PatchType.UpdateAttrs {
+            // Apply attribute changes
+            let keys = patch.attributes.keys()
+            var i = 0
+            while i < keys.len() {
+                let key = keys.get(i)
+                let value = patch.attributes.get(key).unwrap()
+                result.attributes.insert(key, value)
+                i = i + 1
+            }
+            // Remove deleted attributes
+            i = 0
+            while i < patch.removedAttrs.len() {
+                result.attributes.remove(patch.removedAttrs.get(i))
+                i = i + 1
+            }
+            return result
+        }
+
+        if patch.patchType == PatchType.InsertChild {
+            // Insert child at index
+            // For simplicity, we rebuild the children vec
+            var newChildren = Vec<VNode>.new()
+            var i = 0
+            while i < result.children.len() {
+                if i == patch.toIndex {
+                    newChildren.push(patch.node.unwrap())
+                }
+                newChildren.push(result.children.get(i))
+                i = i + 1
+            }
+            // Handle append case
+            if patch.toIndex >= result.children.len() {
+                newChildren.push(patch.node.unwrap())
+            }
+            result.children = newChildren
+            return result
+        }
+
+        if patch.patchType == PatchType.RemoveChild {
+            var newChildren = Vec<VNode>.new()
+            var i = 0
+            while i < result.children.len() {
+                if i != patch.fromIndex {
+                    newChildren.push(result.children.get(i))
+                }
+                i = i + 1
+            }
+            result.children = newChildren
+            return result
+        }
+
+        if patch.patchType == PatchType.MoveChild {
+            // Move child from fromIndex to toIndex
+            var newChildren = Vec<VNode>.new()
+            let movedChild = result.children.get(patch.fromIndex)
+
+            var i = 0
+            while i < result.children.len() {
+                if i == patch.fromIndex {
+                    // Skip the moved child at original position
+                    i = i + 1
+                    continue
+                }
+                if i == patch.toIndex {
+                    newChildren.push(movedChild)
+                }
+                if i < result.children.len() {
+                    newChildren.push(result.children.get(i))
+                }
+                i = i + 1
+            }
+            // Handle move to end
+            if patch.toIndex >= result.children.len() - 1 {
+                newChildren.push(movedChild)
+            }
+            result.children = newChildren
+            return result
+        }
+
+        return result
+    }
+}
+
+// ============================================================================
+// Global VDOM Engine
+// ============================================================================
+
+class VDOMEngine {
+    var currentTree: Option<VNode>
+    var differ: VDOMDiffer
+    var patcher: VDOMPatcher
+    var patchCount: Int  // Total patches applied (for debugging)
+
+    static fun new() r: VDOMEngine {
+        return VDOMEngine{
+            currentTree: None<VNode>(),
+            differ: VDOMDiffer{},
+            patcher: VDOMPatcher{},
+            patchCount: 0
+        }
+    }
+
+    // Mount initial tree
+    fun mount(node: VNode) r: Void {
+        this.currentTree = Some<VNode>(node)
+        this.patchCount = 0
+    }
+
+    // Update with new tree, returns patches for rendering
+    fun update(newNode: VNode) r: Vec<Patch> {
+        if this.currentTree.isNone() {
+            // No current tree - just mount
+            this.mount(newNode)
+            return Vec<Patch>.new()
+        }
+
+        let oldNode = this.currentTree.unwrap()
+        let patches = this.differ.diff(oldNode, newNode)
+        this.currentTree = Some<VNode>(newNode)
+        this.patchCount = this.patchCount + patches.len()
+        return patches
+    }
+
+    // Get current tree
+    fun getTree() r: Option<VNode> {
+        return this.currentTree
+    }
+
+    // Unmount (clear tree)
+    fun unmount() r: Void {
+        this.currentTree = None<VNode>()
+    }
+
+    // Get total patch count
+    fun getPatchCount() r: Int {
+        return this.patchCount
+    }
+}
+
+// Global engine instance
+var g_vdomEngine: VDOMEngine = VDOMEngine.new()
+
+// ============================================================================
+// Public API Functions
+// ============================================================================
+
+// Initialize the VDOM engine
+fun initVDOM() r: Void {
+    g_vdomEngine = VDOMEngine.new()
+}
+
+// Mount a VNode tree
+fun vdomMount(node: VNode) r: Void {
+    g_vdomEngine.mount(node)
+}
+
+// Update the VDOM and get patches
+fun vdomUpdate(newNode: VNode) r: Vec<Patch> {
+    return g_vdomEngine.update(newNode)
+}
+
+// Get current tree
+fun vdomGetTree() r: Option<VNode> {
+    return g_vdomEngine.getTree()
+}
+
+// Unmount the VDOM
+fun vdomUnmount() r: Void {
+    g_vdomEngine.unmount()
+}
+
+// Create a new differ instance (for standalone use)
+fun createDiffer() r: VDOMDiffer {
+    return VDOMDiffer{}
+}
+
+// Create a new patcher instance (for standalone use)
+fun createPatcher() r: VDOMPatcher {
+    return VDOMPatcher{}
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+// Check if two VNode trees are structurally equal
+fun vdomEqual(a: VNode, b: VNode) r: Bool {
+    if not a.isSameType(b) {
+        return false
+    }
+
+    if a.nodeType == VNodeType.Text {
+        return a.text == b.text
+    }
+
+    if a.nodeType == VNodeType.Element or a.nodeType == VNodeType.Component {
+        if a.tag != b.tag {
+            return false
+        }
+        if a.key != b.key {
+            return false
+        }
+        // Compare attributes
+        if a.attributes.size() != b.attributes.size() {
+            return false
+        }
+        let aKeys = a.attributes.keys()
+        var i = 0
+        while i < aKeys.len() {
+            let key = aKeys.get(i)
+            let aVal = a.attributes.get(key)
+            let bVal = b.attributes.get(key)
+            if aVal.isNone() or bVal.isNone() {
+                return false
+            }
+            if aVal.unwrap() != bVal.unwrap() {
+                return false
+            }
+            i = i + 1
+        }
+    }
+
+    // Compare children
+    if a.children.len() != b.children.len() {
+        return false
+    }
+    var i = 0
+    while i < a.children.len() {
+        if not vdomEqual(a.children.get(i), b.children.get(i)) {
+            return false
+        }
+        i = i + 1
+    }
+
+    return true
+}
+
+// Count total nodes in a tree
+fun vdomNodeCount(node: VNode) r: Int {
+    var count = 1
+    var i = 0
+    while i < node.children.len() {
+        count = count + vdomNodeCount(node.children.get(i))
+        i = i + 1
+    }
+    return count
+}

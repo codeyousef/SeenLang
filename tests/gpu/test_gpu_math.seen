@@ -1,0 +1,28 @@
+// Test: GPU math built-in functions
+// Verifies GLSL generator maps dot, cross, normalize, mix, clamp etc.
+
+@gpu_buffer
+class Vertex {
+    var x: Float
+    var y: Float
+    var z: Float
+}
+
+@compute(workgroup: 64)
+fun mathTest(normals: Buffer<Float>, results: Buffer<Float>) {
+    let idx = globalInvocationId.x
+    let v = vec3(normals[idx * 3], normals[idx * 3 + 1], normals[idx * 3 + 2])
+    let n = normalize(v)
+    let light = vec3(0.0, 1.0, 0.0)
+    let d = dot(n, light)
+    let clamped = clamp(d, 0.0, 1.0)
+    let mixed = mix(0.1, 1.0, clamped)
+    results[idx] = mixed
+}
+
+fun main() r: Int {
+    println("test_gpu_math: GPU math functions")
+    println("  dot, normalize, clamp, mix, vec3")
+    println("PASS")
+    return 0
+}

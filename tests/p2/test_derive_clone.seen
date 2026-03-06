@@ -1,0 +1,12 @@
+@derive(Clone)
+class Vec2 {
+    x: Int
+    y: Int
+}
+
+fun main() r: Int {
+    let v = Vec2(5, 10)
+    let v2 = v.clone()
+    println("PASS: derive_clone")
+    return 0
+}

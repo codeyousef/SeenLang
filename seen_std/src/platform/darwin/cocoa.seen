@@ -1,0 +1,252 @@
+/**
+ * Cocoa/AppKit FFI bindings for macOS.
+ *
+ * Low-level bindings to Apple Cocoa via libseen_platform.dylib shim.
+ * Provides NSApplication, NSWindow, NSEvent handling, and Metal layer
+ * integration for native macOS windowing and input.
+ *
+ * Link with: -framework Cocoa -framework Metal
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// ============================================================
+// NSEvent type constants
+// ============================================================
+
+let NS_EVENT_TYPE_LEFT_MOUSE_DOWN: Int = 1
+let NS_EVENT_TYPE_LEFT_MOUSE_UP: Int = 2
+let NS_EVENT_TYPE_RIGHT_MOUSE_DOWN: Int = 3
+let NS_EVENT_TYPE_RIGHT_MOUSE_UP: Int = 4
+let NS_EVENT_TYPE_MOUSE_MOVED: Int = 5
+let NS_EVENT_TYPE_KEY_DOWN: Int = 10
+let NS_EVENT_TYPE_KEY_UP: Int = 11
+let NS_EVENT_TYPE_SCROLL_WHEEL: Int = 22
+let NS_EVENT_TYPE_OTHER_MOUSE_DOWN: Int = 25
+let NS_EVENT_TYPE_OTHER_MOUSE_UP: Int = 26
+
+// ============================================================
+// NSWindowStyleMask constants
+// ============================================================
+
+let NS_WINDOW_STYLE_MASK_BORDERLESS: Int = 0
+let NS_WINDOW_STYLE_MASK_TITLED: Int = 1
+let NS_WINDOW_STYLE_MASK_CLOSABLE: Int = 2
+let NS_WINDOW_STYLE_MASK_MINIATURIZABLE: Int = 4
+let NS_WINDOW_STYLE_MASK_RESIZABLE: Int = 8
+let NS_WINDOW_STYLE_MASK_FULLSCREEN: Int = 16384
+let NS_WINDOW_STYLE_MASK_DEFAULT: Int = 15  // Titled | Closable | Miniaturizable | Resizable
+
+// ============================================================
+// NSBackingStoreType constants
+// ============================================================
+
+let NS_BACKING_STORE_BUFFERED: Int = 2
+
+// ============================================================
+// Key code constants (subset of macOS virtual key codes)
+// ============================================================
+
+let KEY_CODE_A: Int = 0
+let KEY_CODE_S: Int = 1
+let KEY_CODE_D: Int = 2
+let KEY_CODE_F: Int = 3
+let KEY_CODE_W: Int = 13
+let KEY_CODE_R: Int = 15
+let KEY_CODE_Q: Int = 12
+let KEY_CODE_E: Int = 14
+let KEY_CODE_SPACE: Int = 49
+let KEY_CODE_ESCAPE: Int = 53
+let KEY_CODE_RETURN: Int = 36
+let KEY_CODE_TAB: Int = 48
+let KEY_CODE_DELETE: Int = 51
+let KEY_CODE_LEFT: Int = 123
+let KEY_CODE_RIGHT: Int = 124
+let KEY_CODE_DOWN: Int = 125
+let KEY_CODE_UP: Int = 126
+
+// ============================================================
+// Modifier key flags
+// ============================================================
+
+let NS_EVENT_MODIFIER_FLAG_SHIFT: Int = 131072
+let NS_EVENT_MODIFIER_FLAG_CONTROL: Int = 262144
+let NS_EVENT_MODIFIER_FLAG_OPTION: Int = 524288
+let NS_EVENT_MODIFIER_FLAG_COMMAND: Int = 1048576
+
+// ============================================================
+// FFI declarations (provided by libseen_platform.dylib)
+// ============================================================
+
+// Application lifecycle
+extern fun seen_cocoa_app_init() r: Int
+extern fun seen_cocoa_app_run(app: Int) r: Void
+extern fun seen_cocoa_app_stop(app: Int) r: Void
+extern fun seen_cocoa_app_poll_event(app: Int) r: Int
+extern fun seen_cocoa_app_terminate(app: Int) r: Void
+
+// Window management
+extern fun seen_cocoa_window_create(title: String, x: Int, y: Int, w: Int, h: Int, style: Int) r: Int
+extern fun seen_cocoa_window_close(window: Int) r: Void
+extern fun seen_cocoa_window_set_title(window: Int, title: String) r: Void
+extern fun seen_cocoa_window_make_key(window: Int) r: Void
+extern fun seen_cocoa_window_content_view(window: Int) r: Int
+extern fun seen_cocoa_window_set_frame(window: Int, x: Int, y: Int, w: Int, h: Int) r: Void
+extern fun seen_cocoa_window_get_width(window: Int) r: Int
+extern fun seen_cocoa_window_get_height(window: Int) r: Int
+extern fun seen_cocoa_window_is_visible(window: Int) r: Int
+extern fun seen_cocoa_window_miniaturize(window: Int) r: Void
+extern fun seen_cocoa_window_deminiaturize(window: Int) r: Void
+extern fun seen_cocoa_window_toggle_fullscreen(window: Int) r: Void
+
+// Metal integration
+extern fun seen_cocoa_metal_layer_create(view: Int) r: Int
+extern fun seen_cocoa_metal_device_create() r: Int
+
+// Input state
+extern fun seen_cocoa_get_mouse_x() r: Int
+extern fun seen_cocoa_get_mouse_y() r: Int
+extern fun seen_cocoa_get_key_code(event: Int) r: Int
+extern fun seen_cocoa_get_modifier_flags(event: Int) r: Int
+
+// Cursor management
+extern fun seen_cocoa_cursor_hide() r: Void
+extern fun seen_cocoa_cursor_show() r: Void
+extern fun seen_cocoa_cursor_set_position(x: Int, y: Int) r: Void
+
+// ============================================================
+// CocoaWindow wrapper class
+// ============================================================
+
+/**
+ * High-level wrapper around an NSWindow with event polling.
+ *
+ * Manages an NSApplication and a single NSWindow. Provides
+ * a poll-based event loop suitable for game engines and
+ * real-time applications.
+ *
+ * Example:
+ *   let win = CocoaWindow.create("My App", 800, 600)
+ *   while win.isOpen() {
+ *       let evt = win.pollEvent()
+ *       if evt == NS_EVENT_TYPE_KEY_DOWN {
+ *           let key = win.lastKeyCode()
+ *           if key == KEY_CODE_ESCAPE {
+ *               win.close()
+ *           }
+ *       }
+ *       // render frame ...
+ *   }
+ *   win.destroy()
+ */
+class CocoaWindow {
+    var appHandle: Int
+    var windowHandle: Int
+    var viewHandle: Int
+    var metalLayerHandle: Int
+    var width: Int
+    var height: Int
+    var open: Int        // 1 = open, 0 = closed (avoid Bool)
+    var lastEvent: Int
+    var lastKey: Int
+
+    /**
+     * Create a new Cocoa window centered on screen.
+     */
+    static fun create(title: String, w: Int, h: Int) r: CocoaWindow {
+        let app = seen_cocoa_app_init()
+        let style = NS_WINDOW_STYLE_MASK_DEFAULT
+        let win = seen_cocoa_window_create(title, 100, 100, w, h, style)
+        let view = seen_cocoa_window_content_view(win)
+        seen_cocoa_window_make_key(win)
+
+        return CocoaWindow {
+            appHandle: app,
+            windowHandle: win,
+            viewHandle: view,
+            metalLayerHandle: 0,
+            width: w,
+            height: h,
+            open: 1,
+            lastEvent: 0,
+            lastKey: 0
+        }
+    }
+
+    /**
+     * Attach a CAMetalLayer to the content view for GPU rendering.
+     * Returns the Metal layer handle, or 0 on failure.
+     */
+    fun attachMetalLayer() r: Int {
+        let layer = seen_cocoa_metal_layer_create(this.viewHandle)
+        this.metalLayerHandle = layer
+        return layer
+    }
+
+    /**
+     * Poll for the next event. Returns the event type, or 0 if none.
+     */
+    fun pollEvent() r: Int {
+        let evt = seen_cocoa_app_poll_event(this.appHandle)
+        this.lastEvent = evt
+        if evt == NS_EVENT_TYPE_KEY_DOWN {
+            this.lastKey = seen_cocoa_get_key_code(evt)
+        }
+        if evt == NS_EVENT_TYPE_KEY_UP {
+            this.lastKey = seen_cocoa_get_key_code(evt)
+        }
+        return evt
+    }
+
+    /**
+     * Get the key code from the last key event.
+     */
+    fun lastKeyCode() r: Int {
+        return this.lastKey
+    }
+
+    /**
+     * Get current mouse position relative to the window.
+     */
+    fun mouseX() r: Int {
+        return seen_cocoa_get_mouse_x()
+    }
+
+    fun mouseY() r: Int {
+        return seen_cocoa_get_mouse_y()
+    }
+
+    /**
+     * Check whether the window is still open.
+     */
+    fun isOpen() r: Int {
+        return this.open
+    }
+
+    /**
+     * Set the window title.
+     */
+    fun setTitle(title: String) r: Void {
+        seen_cocoa_window_set_title(this.windowHandle, title)
+    }
+
+    /**
+     * Close the window and mark it as no longer open.
+     */
+    fun close() r: Void {
+        seen_cocoa_window_close(this.windowHandle)
+        this.open = 0
+    }
+
+    /**
+     * Destroy the window and terminate the application.
+     */
+    fun destroy() r: Void {
+        if this.open == 1 {
+            seen_cocoa_window_close(this.windowHandle)
+            this.open = 0
+        }
+        seen_cocoa_app_stop(this.appHandle)
+    }
+}

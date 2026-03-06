@@ -1,0 +1,4 @@
+fun main() -> Int {
+    println("Hello from seen_std test fixture!")
+    return 0
+}

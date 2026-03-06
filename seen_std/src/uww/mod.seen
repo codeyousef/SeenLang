@@ -1,0 +1,170 @@
+// seen_std.uww.mod
+// Universal World Wide (UWW) runtime bindings for deterministic WASM execution.
+// These functions are provided by the UWW runtime environment and enable
+// deterministic computation across different hosts.
+
+// UWW Runtime Imports
+// These are imported from the UWW host environment
+
+// Get deterministic timestamp
+// Returns a consistent timestamp value across all UWW nodes
+// The timestamp is determined by consensus, not local system time
+@extern("uww", "timestamp")
+extern fun uww_timestamp() r: Int
+
+// Get deterministic random number
+// Takes a seed and returns a deterministic pseudo-random value
+// All UWW nodes will produce the same sequence for the same seed
+@extern("uww", "deterministic_rand")
+extern fun uww_deterministic_rand(seed: Int) r: Int
+
+// Storage operations - persistent key-value storage
+
+// Get a value from UWW persistent storage
+// Key is a pointer to a null-terminated string in WASM memory
+// Returns pointer to value string, or 0 if not found
+@extern("uww", "storage_get")
+extern fun uww_storage_get(keyPtr: Int) r: Int
+
+// Set a value in UWW persistent storage
+// Key and value are pointers to null-terminated strings in WASM memory
+// Returns 1 on success, 0 on failure
+@extern("uww", "storage_set")
+extern fun uww_storage_set(keyPtr: Int, valuePtr: Int) r: Int
+
+// Delete a value from UWW persistent storage
+// Returns 1 if key existed and was deleted, 0 if key not found
+@extern("uww", "storage_delete")
+extern fun uww_storage_delete(keyPtr: Int) r: Int
+
+// Check if a key exists in UWW persistent storage
+// Returns 1 if key exists, 0 if not found
+@extern("uww", "storage_exists")
+extern fun uww_storage_exists(keyPtr: Int) r: Int
+
+// Logging - deterministic log output
+
+// Log a message to the UWW runtime
+// Message is a pointer to a null-terminated string
+// Logs are collected by the UWW runtime and may be included in execution proof
+@extern("uww", "log")
+extern fun uww_log(messagePtr: Int) r: Void
+
+// Log with level (0=debug, 1=info, 2=warn, 3=error)
+@extern("uww", "log_level")
+extern fun uww_log_level(level: Int, messagePtr: Int) r: Void
+
+// Cryptographic operations (deterministic)
+
+// SHA256 hash of data
+// dataPtr: pointer to data, dataLen: length in bytes
+// outputPtr: pointer to 32-byte output buffer
+@extern("uww", "sha256")
+extern fun uww_sha256(dataPtr: Int, dataLen: Int, outputPtr: Int) r: Void
+
+// Verify Ed25519 signature
+// Returns 1 if valid, 0 if invalid
+@extern("uww", "verify_ed25519")
+extern fun uww_verify_ed25519(messagePtr: Int, messageLen: Int, signaturePtr: Int, publicKeyPtr: Int) r: Int
+
+// High-level wrapper functions for easier use
+
+// Deterministic Random Number Generator
+class UWWRandom {
+    var seed: Int
+
+    fun new(initialSeed: Int) r: UWWRandom {
+        seed = initialSeed
+    }
+
+    // Get next random number
+    fun next() r: Int {
+        seed = uww_deterministic_rand(seed)
+        return seed
+    }
+
+    // Get random number in range [0, max)
+    fun nextInRange(max: Int) r: Int {
+        if max <= 0 {
+            return 0
+        }
+        let value = next()
+        // Ensure positive result
+        let positiveValue = if value < 0 { -value } else { value }
+        return positiveValue % max
+    }
+
+    // Get random number in range [min, max)
+    fun nextInRangeBetween(min: Int, max: Int) r: Int {
+        if max <= min {
+            return min
+        }
+        return min + nextInRange(max - min)
+    }
+
+    // Get random boolean
+    fun nextBool() r: Bool {
+        return (next() % 2) == 1
+    }
+}
+
+// UWW Storage wrapper with string-based API
+// Note: Actual string pointer handling requires memory management
+class UWWStorage {
+    // Get value by key
+    // Note: In WASM, strings need to be serialized to memory
+    // This is a conceptual API - actual implementation needs memory helpers
+    fun get(key: String) r: String? {
+        // In real implementation:
+        // 1. Write key string to WASM memory
+        // 2. Call uww_storage_get
+        // 3. Read result string from returned pointer
+        // For now, return null to indicate API shape
+        return null
+    }
+
+    fun set(key: String, value: String) r: Bool {
+        // Similar to get - needs memory serialization
+        return false
+    }
+
+    fun delete(key: String) r: Bool {
+        return false
+    }
+
+    fun exists(key: String) r: Bool {
+        return false
+    }
+}
+
+// UWW execution context
+class UWWContext {
+    var rng: UWWRandom
+    var storage: UWWStorage
+
+    fun new(seed: Int) r: UWWContext {
+        rng = UWWRandom.new(seed)
+        storage = UWWStorage.new()
+    }
+
+    // Get current deterministic timestamp
+    fun timestamp() r: Int {
+        return uww_timestamp()
+    }
+
+    // Get RNG instance
+    fun random() r: UWWRandom {
+        return rng
+    }
+}
+
+// Log levels for uww_log_level
+let UWW_LOG_DEBUG: Int = 0
+let UWW_LOG_INFO: Int = 1
+let UWW_LOG_WARN: Int = 2
+let UWW_LOG_ERROR: Int = 3
+
+// Create a new UWW context with given seed
+fun createUWWContext(seed: Int) r: UWWContext {
+    return UWWContext.new(seed)
+}

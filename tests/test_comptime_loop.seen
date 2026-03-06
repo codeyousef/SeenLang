@@ -1,0 +1,13 @@
+// Test comptime loops
+fun main() r: Void {
+    comptime {
+        let count = 3
+        var i = 0
+        while i < count {
+            i = i + 1
+        }
+    }
+    // The comptime while loop unrolled 3 iterations
+    println("comptime loop unrolled")
+    println("PASS: comptime_loop")
+}

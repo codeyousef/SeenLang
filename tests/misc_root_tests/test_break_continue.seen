@@ -1,0 +1,117 @@
+// Test break and continue in loops
+
+fun testBreak() r: Void {
+    // Break should exit a while loop early
+    var i = 0
+    while i < 100 {
+        if i == 5 {
+            break
+        }
+        i = i + 1
+    }
+    if i == 5 {
+        println("PASS: break exits loop at i=5")
+    }
+    if i != 5 {
+        println("FAIL: break did not exit loop, i=" + i.toString())
+    }
+}
+
+fun testContinue() r: Void {
+    // Continue should skip even numbers, only sum odds
+    var i = 0
+    var sum = 0
+    while i < 10 {
+        i = i + 1
+        if i % 2 == 0 {
+            continue
+        }
+        sum = sum + i
+    }
+    // sum of odds 1+3+5+7+9 = 25
+    if sum == 25 {
+        println("PASS: continue skips evens, sum=25")
+    }
+    if sum != 25 {
+        println("FAIL: continue sum=" + sum.toString() + ", expected 25")
+    }
+}
+
+fun testNestedBreak() r: Void {
+    // Inner break should not exit outer loop
+    var outerCount = 0
+    var i = 0
+    while i < 5 {
+        var j = 0
+        while j < 10 {
+            if j == 3 {
+                break
+            }
+            j = j + 1
+        }
+        outerCount = outerCount + 1
+        i = i + 1
+    }
+    if outerCount == 5 {
+        println("PASS: nested break, outer ran 5 times")
+    }
+    if outerCount != 5 {
+        println("FAIL: nested break, outerCount=" + outerCount.toString())
+    }
+}
+
+fun testNestedContinue() r: Void {
+    // Inner continue should not affect outer loop
+    var total = 0
+    var i = 0
+    while i < 3 {
+        var j = 0
+        var innerSum = 0
+        while j < 5 {
+            j = j + 1
+            if j == 3 {
+                continue
+            }
+            innerSum = innerSum + j
+        }
+        // innerSum = 1+2+4+5 = 12
+        total = total + innerSum
+        i = i + 1
+    }
+    // total = 12 * 3 = 36
+    if total == 36 {
+        println("PASS: nested continue, total=36")
+    }
+    if total != 36 {
+        println("FAIL: nested continue, total=" + total.toString())
+    }
+}
+
+fun testBreakAccumulator() r: Void {
+    // Break with accumulator - verify value after break
+    var sum = 0
+    var i = 0
+    while i < 1000 {
+        sum = sum + i
+        if sum > 100 {
+            break
+        }
+        i = i + 1
+    }
+    // 0+1+2+...+13 = 91, +14 = 105 > 100 => break at i=14
+    if sum == 105 {
+        println("PASS: break accumulator, sum=105")
+    }
+    if sum != 105 {
+        println("FAIL: break accumulator, sum=" + sum.toString())
+    }
+}
+
+fun main() r: Void {
+    testBreak()
+    testContinue()
+    testNestedBreak()
+    testNestedContinue()
+    testBreakAccumulator()
+    println("All break/continue tests done")
+}
