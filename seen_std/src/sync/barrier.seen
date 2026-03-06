@@ -1,0 +1,25 @@
+// Barrier — Synchronization point for N threads.
+// All threads block until count threads have called wait().
+
+extern fun seen_barrier_new(count: Int) r: Int
+extern fun seen_barrier_wait(handle: Int) r: Int
+extern fun seen_barrier_destroy(handle: Int) r: Void
+
+class Barrier {
+    var handle: Int
+
+    fun new(count: Int) r: Barrier {
+        let h = seen_barrier_new(count)
+        return Barrier { handle: h }
+    }
+
+    // Returns true for exactly one thread (the "serial" thread).
+    fun wait() r: Bool {
+        let result = seen_barrier_wait(this.handle)
+        return result == 1
+    }
+
+    fun destroy() r: Void {
+        seen_barrier_destroy(this.handle)
+    }
+}

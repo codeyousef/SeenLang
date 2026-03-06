@@ -1,0 +1,22 @@
+// Test medium array
+
+fun main() -> Int {
+    __Print("Creating array (10x10)\n")
+    let size = 100
+    let arr = Array<Float>.withCapacity(size)
+    
+    __Print("Filling\n")
+    var i = 0
+    while i < size {
+        arr.push(i as Float)
+        i = i + 1
+    }
+    
+    __Print("First: ")
+    __PrintFloat(arr[0])
+    __Print("\nLast: ")
+    __PrintFloat(arr[99])
+    __Print("\n")
+    
+    return 0
+}

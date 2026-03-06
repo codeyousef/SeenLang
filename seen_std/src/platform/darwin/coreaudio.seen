@@ -1,0 +1,60 @@
+/**
+ * CoreAudio FFI bindings for macOS.
+ *
+ * Low-level bindings to Apple CoreAudio via libseen_platform.dylib shim.
+ * Provides audio output, input, and device management for macOS applications.
+ *
+ * Link with: -lseen_platform (which wraps CoreAudio.framework + AudioToolbox.framework)
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// Audio format flags
+let AUDIO_FORMAT_LINEAR_PCM: Int = 1819304813  // 'lpcm'
+let AUDIO_FORMAT_FLAG_FLOAT: Int = 1
+let AUDIO_FORMAT_FLAG_BIG_ENDIAN: Int = 2
+let AUDIO_FORMAT_FLAG_SIGNED_INTEGER: Int = 4
+let AUDIO_FORMAT_FLAG_PACKED: Int = 8
+let AUDIO_FORMAT_FLAG_NON_INTERLEAVED: Int = 32
+
+// Common sample rates
+let SAMPLE_RATE_44100: Float = 44100.0
+let SAMPLE_RATE_48000: Float = 48000.0
+let SAMPLE_RATE_96000: Float = 96000.0
+
+// Audio error codes
+let AUDIO_OK: Int = 0
+let AUDIO_ERR_DEVICE_NOT_FOUND: Int = -1
+let AUDIO_ERR_FORMAT_UNSUPPORTED: Int = -2
+let AUDIO_ERR_BUFFER_OVERFLOW: Int = -3
+let AUDIO_ERR_INITIALIZATION_FAILED: Int = -4
+
+/**
+ * Audio stream configuration.
+ */
+class AudioConfig {
+    let sampleRate: Float
+    let channels: Int
+    let bitsPerSample: Int
+    let bufferSize: Int
+
+    fun new() r: AudioConfig {
+        return AudioConfig{
+            sampleRate: SAMPLE_RATE_48000,
+            channels: 2,
+            bitsPerSample: 32,
+            bufferSize: 1024
+        }
+    }
+}
+
+// FFI declarations (provided by libseen_platform.dylib)
+extern fun seen_audio_create_output(sampleRate: Float, channels: Int, bufferSize: Int) r: Int
+extern fun seen_audio_start(stream: Int) r: Int
+extern fun seen_audio_stop(stream: Int) r: Int
+extern fun seen_audio_destroy(stream: Int) r: Void
+extern fun seen_audio_write(stream: Int, buffer: Int, frames: Int) r: Int
+extern fun seen_audio_get_default_device() r: Int
+extern fun seen_audio_get_device_name(device: Int) r: Int
+extern fun seen_audio_get_device_sample_rate(device: Int) r: Float

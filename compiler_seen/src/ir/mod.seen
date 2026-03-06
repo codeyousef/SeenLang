@@ -1,0 +1,21 @@
+// IR Generation Module - Real Implementation Entry Point
+// Exports the actual working implementations for TDD
+
+// Import all the interfaces and types
+import interfaces.{IRModule, IRFunction, IRBasicBlock, IRInstruction, IRValue, IRType, IRError, IRBuilder}
+
+// Import the real implementation
+import generator.{IRGenerator}
+
+// Utility functions for tests
+fun createIRGenerator() r: IRGenerator {
+    return IRGenerator.new()
+}
+
+fun createIRModule(name: String) r: IRModule {
+    return IRModule.new(name)
+}
+
+fun createIRBuilder() r: IRBuilder {
+    return IRBuilder.new()
+}

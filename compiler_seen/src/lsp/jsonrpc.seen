@@ -1,0 +1,305 @@
+// JSON-RPC 2.0 Message Handler for LSP
+// Handles reading/writing LSP messages over stdio
+
+import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string, JsonValue_number, JsonValue_nullValue, JsonValue_bool}
+import json.parser.{parseJson}
+import json.builder.{jsonToString}
+import io.stdio.{readLine, readBytes, flushStdout, printRaw, parseInt, ContentLengthReader, ContentLengthReader_new}
+
+// ============================================================================
+// JSON-RPC Error Codes
+// ============================================================================
+
+let JSONRPC_PARSE_ERROR = -32700
+let JSONRPC_INVALID_REQUEST = -32600
+let JSONRPC_METHOD_NOT_FOUND = -32601
+let JSONRPC_INVALID_PARAMS = -32602
+let JSONRPC_INTERNAL_ERROR = -32603
+
+// LSP-specific error codes
+let LSP_SERVER_NOT_INITIALIZED = -32002
+let LSP_UNKNOWN_ERROR_CODE = -32001
+let LSP_REQUEST_FAILED = -32803
+let LSP_SERVER_CANCELLED = -32802
+let LSP_CONTENT_MODIFIED = -32801
+let LSP_REQUEST_CANCELLED = -32800
+
+// ============================================================================
+// JSON-RPC Message Types
+// ============================================================================
+
+// Incoming message (request or notification)
+class LspMessage {
+    var jsonrpc: String
+    var id: Int           // -1 for notifications
+    var method: String
+    var params: JsonValue?
+
+    fun isNotification() r: Bool {
+        return this.id == -1
+    }
+}
+
+// Free function (formerly static method on LspMessage)
+
+fun LspMessage_fromJson(json: JsonValue) r: LspMessage? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+
+    let msg = LspMessage()
+    msg.jsonrpc = "2.0"
+    msg.id = -1  // Default to notification
+    msg.method = ""
+    msg.params = null
+
+    // Parse id (if present, it's a request)
+    let idVal = json.get("id")
+    if idVal != null {
+        let idJson = idVal.unwrap()
+        if idJson.isNumber() {
+            msg.id = idJson.getInt()
+        } else {
+            if idJson.isString() {
+                // Some clients send string IDs
+                msg.id = parseInt(idJson.getString())
+            }
+        }
+    }
+
+    // Parse method
+    let methodVal = json.get("method")
+    if methodVal == null {
+        return null  // method is required
+    }
+    let methodJsonVal = methodVal.unwrap()
+    msg.method = methodJsonVal.getString()
+
+    // Parse params (optional)
+    let paramsVal = json.get("params")
+    if paramsVal != null {
+        msg.params = paramsVal.unwrap()
+    }
+
+    return msg
+}
+
+// JSON-RPC Error
+class LspError {
+    var code: Int
+    var message: String
+    var data: JsonValue?
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("code", JsonValue_number(this.code))
+        obj.set("message", JsonValue_string(this.message))
+        if this.data != null {
+            obj.set("data", this.data.unwrap())
+        }
+        return obj
+    }
+}
+
+// Free function (formerly static method on LspError)
+
+fun LspError_new(code: Int, message: String) r: LspError {
+    let err = LspError()
+    err.code = code
+    err.message = message
+    err.data = null
+    return err
+}
+
+// Outgoing response
+class LspResponse {
+    var jsonrpc: String
+    var id: Int
+    var result: JsonValue?
+    var error: LspError?
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("jsonrpc", JsonValue_string(this.jsonrpc))
+        obj.set("id", JsonValue_number(this.id))
+        if this.error != null {
+            let errObj = this.error.unwrap()
+            let errJson = errObj.toJson()
+            obj.set("error", errJson)
+        } else {
+            if this.result != null {
+                obj.set("result", this.result.unwrap())
+            } else {
+                obj.set("result", JsonValue_nullValue())
+            }
+        }
+        return obj
+    }
+}
+
+// Free functions (formerly static methods on LspResponse)
+
+fun LspResponse_success(id: Int, result: JsonValue) r: LspResponse {
+    let resp = LspResponse()
+    resp.jsonrpc = "2.0"
+    resp.id = id
+    resp.result = result
+    resp.error = null
+    return resp
+}
+
+fun LspResponse_failure(id: Int, error: LspError) r: LspResponse {
+    let resp = LspResponse()
+    resp.jsonrpc = "2.0"
+    resp.id = id
+    resp.result = null
+    resp.error = error
+    return resp
+}
+
+// ============================================================================
+// JSON-RPC Handler
+// ============================================================================
+
+class JsonRpcHandler {
+    var reader: ContentLengthReader
+    var running: Bool
+    var lastError: String
+
+    // Read a complete LSP message from stdin
+    fun readMessage() r: LspMessage? {
+        let body = this.reader.readMessage()
+        if body == null {
+            this.lastError = this.reader.getLastError()
+            return null
+        }
+
+        // Parse JSON
+        let parseResult = parseJson(body.unwrap())
+        if parseResult.success == 1 {
+            // fall through
+        } else {
+            this.lastError = "JSON parse error: " + parseResult.error
+            return null
+        }
+
+        // Parse into LspMessage
+        let parseResultValue = parseResult.value
+        let parsedJson = parseResultValue.unwrap()
+        let msg = LspMessage_fromJson(parsedJson)
+        if msg == null {
+            this.lastError = "Invalid JSON-RPC message"
+            return null
+        }
+
+        return msg
+    }
+
+    // Send a response
+    fun sendResponse(response: LspResponse) r: Void {
+        let json = jsonToString(response.toJson())
+        this.sendRaw(json)
+    }
+
+    // Send a notification (no id)
+    fun sendNotification(method: String, params: JsonValue) r: Void {
+        let obj = JsonValue_emptyObject()
+        obj.set("jsonrpc", JsonValue_string("2.0"))
+        obj.set("method", JsonValue_string(method))
+        obj.set("params", params)
+        let json = jsonToString(obj)
+        this.sendRaw(json)
+    }
+
+    // Send raw JSON with Content-Length header
+    fun sendRaw(json: String) r: Void {
+        let header = "Content-Length: " + json.length().toString() + "\r\n\r\n"
+        printRaw(header)
+        printRaw(json)
+        flushStdout()
+    }
+
+    // Send an error response
+    fun sendError(id: Int, code: Int, message: String) r: Void {
+        let error = LspError_new(code, message)
+        let response = LspResponse_failure(id, error)
+        this.sendResponse(response)
+    }
+
+    // Get the last error message
+    fun getLastError() r: String {
+        return this.lastError
+    }
+
+    // Stop the message loop
+    fun stop() r: Void {
+        this.running = false
+    }
+
+    // Check if running
+    fun isRunning() r: Bool {
+        return this.running
+    }
+}
+
+// Free function (formerly static method on JsonRpcHandler)
+
+fun JsonRpcHandler_new() r: JsonRpcHandler {
+    let handler = JsonRpcHandler()
+    handler.reader = ContentLengthReader_new()
+    handler.running = true
+    handler.lastError = ""
+    return handler
+}
+
+// ============================================================================
+// Message Dispatcher
+// ============================================================================
+
+// Callback type for message handlers
+// Using a class to hold the handler function reference
+class MessageHandler {
+    var name: String
+}
+
+// Free function (formerly static method on MessageHandler)
+
+fun MessageHandler_new(name: String) r: MessageHandler {
+    let h = MessageHandler()
+    h.name = name
+    return h
+}
+
+// Message dispatcher that routes messages to handlers
+class MessageDispatcher {
+    var handlers: Array<String>  // Method names that are registered
+    var rpc: JsonRpcHandler
+
+    // Register a method (just tracks that it exists)
+    fun register(method: String) r: Void {
+        this.handlers.push(method)
+    }
+
+    // Check if a method is registered
+    fun hasMethod(method: String) r: Bool {
+        var i = 0
+        while i < this.handlers.length() {
+            if this.handlers[i] == method {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+// Free function (formerly static method on MessageDispatcher)
+
+fun MessageDispatcher_new(rpc: JsonRpcHandler) r: MessageDispatcher {
+    let dispatcher = MessageDispatcher()
+    dispatcher.handlers = Array<String>()
+    dispatcher.rpc = rpc
+    return dispatcher
+}

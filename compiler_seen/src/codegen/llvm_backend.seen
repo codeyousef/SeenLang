@@ -1,0 +1,578 @@
+// LLVM Backend - Compiles LLVM IR to Native Executables
+// Handles the complete compilation pipeline from LLVM IR to optimized binaries
+
+import io.file.{writeText as stdWriteText, readText as stdReadText}
+import time.time.{nowNanos}
+import process.process.{execCommand, CommandResult}
+
+class LLVMBackend {
+    var optimizationLevel: Int
+    var targetTriple: String
+    var outputPath: String
+    var tempDir: String
+    
+    fun new() r: LLVMBackend {
+        return LLVMBackend{
+            optimizationLevel: 3,
+            targetTriple: detectHostTriple(),
+            outputPath: "",
+            tempDir: "/tmp"
+        }
+    }
+
+    fun detectHostTriple() r: String {
+        let unameS: CommandResult = execCommand("uname -s")
+        let unameM: CommandResult = execCommand("uname -m")
+        var os = "linux"
+        var arch = "x86_64"
+        if unameS.success {
+            if unameS.output.contains("Darwin") {
+                os = "darwin"
+            }
+        }
+        if unameM.success {
+            if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
+                arch = "arm64"
+            }
+        }
+        if os == "darwin" {
+            if arch == "arm64" {
+                return "arm64-apple-darwin"
+            }
+            return "x86_64-apple-darwin"
+        }
+        if arch == "arm64" {
+            return "aarch64-unknown-linux-gnu"
+        }
+        return "x86_64-unknown-linux-gnu"
+    }
+
+    fun isDarwin() r: Bool {
+        let unameS: CommandResult = execCommand("uname -s")
+        if unameS.success {
+            return unameS.output.contains("Darwin")
+        }
+        return false
+    }
+    
+    fun compileToExecutable(llvmIR: String, outputPath: String) r: Bool {
+        println("[LLVM] Backend - Compiling to native executable")
+        
+        outputPath = outputPath
+        
+        // Step 1: Write LLVM IR to file
+        let irFile = tempDir + "/program.ll"
+        if not writeFile(irFile, llvmIR) {
+            println("[ERROR] Failed to write LLVM IR file")
+            return false
+        }
+        
+        println("   [OK] LLVM IR written: " + irFile)
+        
+        // Step 2: Optimize LLVM IR with opt
+        let optimizedIR = tempDir + "/program_opt.ll"
+        if not optimizeIR(irFile, optimizedIR) {
+            println("[ERROR] LLVM optimization failed")
+            return false
+        }
+        
+        // Step 3: Compile to object file
+        let objectFile = tempDir + "/program.o"
+        if not compileToObject(optimizedIR, objectFile) {
+            println("[ERROR] Object file compilation failed")
+            return false
+        }
+        
+        // Step 4: Link to executable
+        if not linkExecutable(objectFile, outputPath) {
+            println("[ERROR] Linking failed")
+            return false
+        }
+        
+        println("   [OK] Native executable created: " + outputPath)
+        println("   [OPT] Optimizations: -O3, vectorization, target-specific")
+        
+        return true
+    }
+    
+    fun optimizeIR(inputFile: String, outputFile: String) r: Bool {
+        println("   [OPT] Optimizing LLVM IR with -O3...")
+        
+        // Build optimization command with aggressive flags
+        let optCommand = "opt -O3" +
+            " -vectorize-loops" +
+            " -slp-vectorizer" +
+            " -unroll-loops" +
+            " -inline-threshold=1000" +
+            " -loop-unroll-threshold=1000" +
+            " -enable-load-store-vectorizer" +
+            " -enable-loop-distribute" +
+            " -enable-loop-interchange" +
+            " -enable-matrix" +
+            " -instcombine" +
+            " -reassociate" +
+            " -gvn" +
+            " -sccp" +
+            " -dce" +
+            " -adce" +
+            " -dse" +
+            " -simplifycfg" +
+            " -mem2reg" +
+            " -licm" +
+            " -loop-deletion" +
+            " -loop-idiom" +
+            " -loop-rotate" +
+            " -correlated-propagation" +
+            " -jump-threading" +
+            " -tailcallelim" +
+            " " + inputFile +
+            " -o " + outputFile
+        
+        let res: CommandResult = execCommand(optCommand)
+        
+        if res.success {
+            println("     [OK] LLVM optimization completed")
+            return true
+        } else {
+            println("     [ERROR] Optimization failed with exit code/output: " + res.output)
+            return false
+        }
+    }
+    
+    fun compileToObject(irFile: String, objectFile: String) r: Bool {
+        println("   [ASM] Compiling to object file...")
+        
+        // Use LLC with aggressive optimization and target-specific features
+        let llcCommand = "llc" +
+            " -filetype=obj" +
+            " -O=" + optimizationLevel.toString() +
+            " -mcpu=native" +
+            " -enable-misched" +
+            " -enable-post-ra-scheduler" +
+            " -pre-RA-sched=source" +
+            " -enable-aa-sched-mi" +
+            " -enable-shrink-wrap" +
+            " -tail-dup-limit=4" +
+            " -jump-table-density=40" +
+            " -align-all-blocks=4" +
+            " " + irFile +
+            " -o " + objectFile
+        
+        let res: CommandResult = execCommand(llcCommand)
+        
+        if res.success {
+            println("     [OK] Object file generated")
+            return true
+        } else {
+            println("     [ERROR] LLC compilation failed: " + res.output)
+            return false
+        }
+    }
+    
+    fun linkExecutable(objectFile: String, executablePath: String) r: Bool {
+        println("   [LINK] Linking executable...")
+
+        var linkCommand = ""
+        if isDarwin() {
+            // macOS: no -fuse-ld=lld, no -static, no -lrt
+            linkCommand = "clang" +
+                " -O3" +
+                " -flto" +
+                " -march=native" +
+                " -mtune=native" +
+                " -ffast-math" +
+                " -funroll-loops" +
+                " -fvectorize" +
+                " -fslp-vectorize" +
+                " " + objectFile +
+                " -o " + executablePath +
+                " -lm -lpthread"
+        } else {
+            // Linux: original flags
+            linkCommand = "clang" +
+                " -O3" +
+                " -flto" +
+                " -fuse-ld=lld" +
+                " -march=native" +
+                " -mtune=native" +
+                " -ffast-math" +
+                " -funroll-loops" +
+                " -fvectorize" +
+                " -fslp-vectorize" +
+                " " + objectFile +
+                " -o " + executablePath +
+                " -lm -lpthread -lrt"
+        }
+
+        let res: CommandResult = execCommand(linkCommand)
+
+        if res.success {
+            println("     [OK] Executable linked successfully")
+
+            // Make executable
+            execCommand("chmod +x " + executablePath)
+            return true
+        } else {
+            println("     [ERROR] Linking failed: " + res.output)
+
+            // Try fallback linking without LTO
+            return linkExecutableFallback(objectFile, executablePath)
+        }
+    }
+
+    fun linkExecutableFallback(objectFile: String, executablePath: String) r: Bool {
+        println("     [RETRY] Trying fallback linking...")
+
+        var fallbackCommand = ""
+        if isDarwin() {
+            // macOS: no -lrt
+            fallbackCommand = "clang" +
+                " -O3" +
+                " -march=native" +
+                " " + objectFile +
+                " -o " + executablePath +
+                " -lm -lpthread"
+        } else {
+            // Linux: original flags
+            fallbackCommand = "clang" +
+                " -O3" +
+                " -march=native" +
+                " " + objectFile +
+                " -o " + executablePath +
+                " -lm -lpthread -lrt"
+        }
+
+        let exitCode = executeCommand(fallbackCommand)
+
+        if exitCode == 0 {
+            println("     [OK] Fallback linking successful")
+            executeCommand("chmod +x " + executablePath)
+            return true
+        } else {
+            println("     [ERROR] Fallback linking also failed")
+            return false
+        }
+    }
+    
+    fun compileWithProfile(llvmIR: String, outputPath: String, profileData: String) r: Bool {
+        println("[PGO] Profile-Guided Optimization")
+        
+        // Step 1: Compile with instrumentation
+        let instrumentedPath = outputPath + ".instrumented"
+        if not compileWithInstrumentation(llvmIR, instrumentedPath) {
+            return false
+        }
+        
+        // Step 2: Use profile data to optimize
+        return compileWithProfileData(llvmIR, outputPath, profileData)
+    }
+    
+    fun compileWithInstrumentation(llvmIR: String, outputPath: String) r: Bool {
+        println("   [REPORT] Compiling with instrumentation for profiling...")
+        
+        let irFile = tempDir + "/profile_program.ll"
+        writeFile(irFile, llvmIR)
+        
+        let objectFile = tempDir + "/profile_program.o"
+        
+        // Compile to object file (PGO instrumentation handled by clang, not llc)
+        let llcCommand = "llc" +
+            " -filetype=obj" +
+            " -O3" +
+            " " + irFile +
+            " -o " + objectFile
+        
+        executeCommand(llcCommand)
+        
+        let linkCommand = "clang" +
+            " -O3" +
+            " -fprofile-instr-generate" +
+            " " + objectFile +
+            " -o " + outputPath
+        
+        return executeCommand(linkCommand) == 0
+    }
+    
+    fun compileWithProfileData(llvmIR: String, outputPath: String, profileData: String) r: Bool {
+        println("   [PGO] Compiling with profile-guided optimization...")
+        
+        let irFile = tempDir + "/pgo_program.ll"
+        writeFile(irFile, llvmIR)
+        
+        let objectFile = tempDir + "/pgo_program.o"
+        
+        // Compile to object file (PGO profile use handled by clang, not llc)
+        let llcCommand = "llc" +
+            " -filetype=obj" +
+            " -O3" +
+            " " + irFile +
+            " -o " + objectFile
+        
+        executeCommand(llcCommand)
+        
+        let linkCommand = "clang" +
+            " -O3" +
+            " -fprofile-instr-use=" + profileData +
+            " " + objectFile +
+            " -o " + outputPath
+        
+        return executeCommand(linkCommand) == 0
+    }
+    
+    fun generateAssembly(llvmIR: String, outputPath: String) r: Bool {
+        println("[ASM] Generating optimized assembly code")
+        
+        let irFile = tempDir + "/asm_program.ll"
+        writeFile(irFile, llvmIR)
+        
+        let asmCommand = "llc" +
+            " -O=" + optimizationLevel.toString() +
+            " -mcpu=native" +
+            " " + irFile +
+            " -o " + outputPath
+        
+        return executeCommand(asmCommand) == 0
+    }
+    
+    fun benchmarkExecutable(executablePath: String) r: BenchmarkResult {
+        println("[PERF] Running performance benchmark")
+        
+        let result = BenchmarkResult.new()
+        
+        // Run the executable and measure performance
+        let startTime = getCurrentTimeNanos()
+        let exitCode = executeCommand(executablePath)
+        let endTime = getCurrentTimeNanos()
+        
+        if exitCode == 0 {
+            result.success = true
+            result.executionTime = endTime - startTime
+            
+            // For benchmark programs, calculate ops/sec
+            // Assuming 1 billion operations
+            let operations = 1000000000
+            result.opsPerSecond = (operations * 1000000000) / result.executionTime
+            
+            println("   [PERF] Performance: " + result.opsPerSecond.toString() + " ops/sec")
+            println("   [TIME] Execution time: " + (result.executionTime / 1000000).toString() + "ms")
+        } else {
+            println("   [ERROR] Benchmark execution failed")
+        }
+        
+        return result
+    }
+    
+    fun optimizeForBenchmark(llvmIR: String) r: String {
+        println("[OPT] Applying benchmark-specific optimizations")
+        
+        // Apply additional transformations for benchmark code
+        let optimized = llvmIR
+        
+        // Add function attributes for hot paths
+        optimized = optimized.replace("define i32 @benchmark", "define i32 @benchmark hot")
+        optimized = optimized.replace("define void @benchmark", "define void @benchmark hot")
+        
+        // Add loop unrolling hints
+        optimized = addLoopUnrollingHints(optimized)
+        
+        // Add vectorization hints
+        optimized = addVectorizationHints(optimized)
+        
+        // Add inline hints for small functions
+        optimized = addInlineHints(optimized)
+        
+        return optimized
+    }
+    
+    fun addLoopUnrollingHints(ir: String) r: String {
+        // Add metadata for loop unrolling
+        let lines = ir.split("\n")
+        let result = ""
+        
+        for line in lines {
+            result = result + line + "\n"
+            
+            if line.contains("br label %") and line.contains("!prof") {
+                // Add loop unroll metadata after branch with profiling info
+                result = result + "!llvm.loop !{!llvm.loop.unroll.enable, !llvm.loop.unroll.count, i32 8}\n"
+            }
+        }
+        
+        return result
+    }
+    
+    fun addVectorizationHints(ir: String) r: String {
+        // Add vectorization metadata
+        let lines = ir.split("\n")
+        let result = ""
+        
+        for line in lines {
+            result = result + line + "\n"
+            
+            if line.contains("for.body:") {
+                // Add vectorization metadata for loop bodies
+                result = result + "!llvm.loop.vectorize.enable = !{!0}\n"
+                result = result + "!llvm.loop.vectorize.width = !{i32 8}\n"
+            }
+        }
+        
+        return result
+    }
+    
+    fun addInlineHints(ir: String) r: String {
+        // Mark small functions for inlining
+        return ir.replace("define i32 @small_", "define i32 @small_ alwaysinline")
+    }
+    
+    fun checkLLVMTools() r: Bool {
+        println("[LLVM] Checking LLVM toolchain availability")
+        
+        let tools = ["opt", "llc", "clang"]
+        let allAvailable = true
+        
+        for tool in tools {
+            let checkCommand = "which " + tool
+            let exitCode = executeCommand(checkCommand)
+            
+            if exitCode == 0 {
+                println("   [OK] " + tool + " available")
+            } else {
+                println("   [ERROR] " + tool + " not found")
+                allAvailable = false
+            }
+        }
+        
+        if not allAvailable {
+            if isDarwin() {
+                println("   [HINT] Install LLVM tools: brew install llvm or install Xcode Command Line Tools")
+            } else {
+                println("   [HINT] Install LLVM tools: sudo apt install llvm clang")
+            }
+        }
+        
+        return allAvailable
+    }
+    
+    fun getOptimizationReport(irFile: String) r: String {
+        println("[REPORT] Generating optimization report")
+        
+        let reportFile = tempDir + "/opt_report.txt"
+        
+        let reportCommand = "opt" +
+            " -O3" +
+            " -print-stats" +
+            " -print-module" +
+            " " + irFile +
+            " > " + reportFile + " 2>&1"
+        
+        executeCommand(reportCommand)
+        
+        let report = readFile(reportFile)
+        return if report != null { report } else { "No report generated" }
+    }
+    
+    // Helper functions
+    
+    fun executeCommand(command: String) r: Int {
+        println("     [CMD] " + command)
+        let res: CommandResult = execCommand(command)
+        return if res.success { 0 } else { 1 }
+    }
+    
+    fun writeFile(path: String, content: String) r: Bool {
+        return stdWriteText(path, content)
+    }
+    
+    fun readFile(path: String) r: String? {
+        return stdReadText(path)
+    }
+    
+    fun getCurrentTimeNanos() r: Int {
+        return nowNanos()
+    }
+}
+
+// Result structure for benchmark measurements
+class BenchmarkResult {
+    var executionTime: Int;  // nanoseconds
+    var opsPerSecond: Int
+    var success: Bool
+    
+    fun new() r: BenchmarkResult {
+        return BenchmarkResult{
+            executionTime: 0,
+            opsPerSecond: 0,
+            success: false
+        }
+    }
+    
+    fun toString() r: String {
+        return "BenchmarkResult{" +
+            "time=" + executionTime.toString() + "ns, " +
+            "ops/sec=" + opsPerSecond.toString() + ", " +
+            "success=" + success.toString() + "}"
+    }
+}
+
+// Advanced compilation configuration
+class CompilationConfig {
+    var optimizationLevel: Int
+    var enableLTO: Bool
+    var enablePGO: Bool
+    var targetCPU: String
+    var vectorWidth: Int
+    var unrollFactor: Int
+    var enableFastMath: Bool
+    
+    fun new() r: CompilationConfig {
+        return CompilationConfig{
+            optimizationLevel: 3,
+            enableLTO: true,
+            enablePGO: false,
+            targetCPU: "native",
+            vectorWidth: 8,
+            unrollFactor: 8,
+            enableFastMath: true
+        }
+    }
+    
+    fun forBenchmarks() r: CompilationConfig {
+        return CompilationConfig{
+            optimizationLevel: 3,
+            enableLTO: true,
+            enablePGO: true,
+            targetCPU: "native",
+            vectorWidth: 16,
+            unrollFactor: 16,
+            enableFastMath: true
+        }
+    }
+}
+
+// Compilation statistics and metrics
+class CompilationStats {
+    var llvmIRLines: Int
+    var optimizationPasses: Int
+    var compilationTimeMs: Int
+    var objectSize: Int
+    var executableSize: Int
+    
+    fun new() r: CompilationStats {
+        return CompilationStats{
+            llvmIRLines: 0,
+            optimizationPasses: 0,
+            compilationTimeMs: 0,
+            objectSize: 0,
+            executableSize: 0
+        }
+    }
+    
+    fun report() {
+        println("[REPORT] Compilation Statistics:")
+        println("   LLVM IR lines: " + llvmIRLines.toString())
+        println("   Optimization passes: " + optimizationPasses.toString())
+        println("   Compilation time: " + compilationTimeMs.toString() + "ms")
+        println("   Object file size: " + objectSize.toString() + " bytes")
+        println("   Executable size: " + executableSize.toString() + " bytes")
+    }
+}

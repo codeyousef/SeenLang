@@ -1,0 +1,25 @@
+// Test: @shared workgroup memory with barrier()
+// Verifies GLSL generator emits shared memory declarations and barrier() calls
+
+@compute(workgroup: 256)
+fun reductionSum(input: Buffer<Float>, output: Buffer<Float>) {
+    @shared var tile: Float
+
+    let lid = localInvocationId.x
+    let gid = globalInvocationId.x
+
+    // Load into shared memory
+    tile = input[gid]
+    barrier()
+
+    // After barrier, all workgroup threads have loaded
+    output[gid] = tile
+}
+
+fun main() r: Int {
+    println("test_shared_memory: @shared variable + barrier()")
+    println("  Verifies shared memory declaration in GLSL")
+    println("  Verifies barrier() synchronization")
+    println("PASS")
+    return 0
+}

@@ -1,0 +1,39 @@
+// Test: @prefetch(read) decorator
+// Verify: compiles correctly with prefetch intrinsic emission
+// The prefetch is a performance hint and does not affect correctness
+
+@prefetch(read)
+fun processArray(data: Array<Int>, n: Int) r: Int {
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + data[i]
+        i = i + 1
+    }
+    return sum
+}
+
+@prefetch(write)
+fun fillArray(data: Array<Int>, n: Int) r: Void {
+    var i = 0
+    while i < n {
+        data[i] = i * 2
+        i = i + 1
+    }
+}
+
+fun main() r: Int {
+    let n = 50
+    var arr = Array<Int>(n, 0)
+
+    fillArray(arr, n)
+    let sum = processArray(arr, n)
+
+    // sum of 0, 2, 4, ..., 98 = 2 * (0+1+2+...+49) = 2 * 1225 = 2450
+    if sum == 2450 {
+        println("PASS: Prefetch decorator test passed (sum=" + sum.toString() + ")")
+        return 0
+    }
+    println("FAIL: Expected 2450, got " + sum.toString())
+    return 1
+}

@@ -1,0 +1,8 @@
+fun main() -> Int {
+    var seed = 12345
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    let value = (seed % 10000) as Float / 10000.0
+    __PrintFloat(value)
+    __Print("\n")
+    return 0
+}

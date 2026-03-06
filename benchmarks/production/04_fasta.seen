@@ -1,0 +1,203 @@
+// FASTA Generation Benchmark
+// DNA sequence generation with optimized random number generation
+// Uses parallel arrays instead of Array<Freq> for stage1 compat
+// Optimized: pre-allocated arrays, early-break in frequency search, cached lengths
+
+class Random {
+    var seed: Int
+
+    fun new(seed: Int) -> Random {
+        return Random { seed: seed }
+    }
+
+    fun next() -> Float {
+        this.seed = (this.seed * 3877 + 29573) % 139968
+        return this.seed.toFloat() / 139968.0
+    }
+}
+
+// Freq stored as parallel arrays: freq_chars and freq_probs
+fun make_cumulative(freq_probs: Array<Float>, count: Int) -> Void {
+    var cumulative = 0.0
+    var i = 0
+    while i < count {
+        cumulative = cumulative + freq_probs[i]
+        freq_probs[i] = cumulative
+        i = i + 1
+    }
+}
+
+fun repeat_fasta(s: Array<Int>, n: Int) -> Array<Int> {
+    let result: Array<Int> = Array<Int>(n, 0)
+    let len = s.length()
+    var i = 0
+    while i < n {
+        result[i] = s[i % len]
+        i = i + 1
+    }
+    return result
+}
+
+fun random_fasta(freq_chars: Array<Int>, freq_probs: Array<Float>, num_freqs: Int, n: Int, rng: Random) -> Array<Int> {
+    let result: Array<Int> = Array<Int>(n, 0)
+    var i = 0
+    while i < n {
+        let r = rng.next()
+        // Early-break search: stop scanning as soon as we find the match
+        var si = 0
+        while si < num_freqs {
+            if r < freq_probs[si] {
+                result[i] = freq_chars[si]
+                break
+            }
+            si = si + 1
+        }
+        if si == num_freqs {
+            result[i] = freq_chars[num_freqs - 1]
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fun compute_checksum(data: Array<Int>) -> Int {
+    var sum = 0
+    var i = 0
+    let len = data.length()
+    while i < len {
+        sum = sum + data[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun main() -> Int {
+    let n = 5000000
+
+    __Print("FASTA Generation Benchmark\n")
+    __Print("Generating ")
+    __PrintInt(n)
+    __Print(" nucleotides\n")
+
+    let alu: Array<Int> = Array<Int>()
+    let alu_str = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA"
+    var ai = 0
+    while ai < 287 {
+        alu.push(alu_str.charCodeAt(ai))
+        ai = ai + 1
+    }
+
+    // Homo sapiens frequency table (4 entries)
+    let hs_chars = Array<Int>(4, 0)
+    let hs_probs = Array<Float>(4, 0.0)
+    hs_chars[0] = 97
+    hs_probs[0] = 0.3029549426680
+    hs_chars[1] = 99
+    hs_probs[1] = 0.1979883004921
+    hs_chars[2] = 103
+    hs_probs[2] = 0.1975473066391
+    hs_chars[3] = 116
+    hs_probs[3] = 0.3015094502008
+    make_cumulative(hs_probs, 4)
+
+    // IUB frequency table (15 entries)
+    let iub_chars = Array<Int>(15, 0)
+    let iub_probs = Array<Float>(15, 0.0)
+    iub_chars[0] = 97
+    iub_probs[0] = 0.27
+    iub_chars[1] = 99
+    iub_probs[1] = 0.12
+    iub_chars[2] = 103
+    iub_probs[2] = 0.12
+    iub_chars[3] = 116
+    iub_probs[3] = 0.27
+    iub_chars[4] = 66
+    iub_probs[4] = 0.02
+    iub_chars[5] = 68
+    iub_probs[5] = 0.02
+    iub_chars[6] = 72
+    iub_probs[6] = 0.02
+    iub_chars[7] = 75
+    iub_probs[7] = 0.02
+    iub_chars[8] = 77
+    iub_probs[8] = 0.02
+    iub_chars[9] = 78
+    iub_probs[9] = 0.02
+    iub_chars[10] = 82
+    iub_probs[10] = 0.02
+    iub_chars[11] = 83
+    iub_probs[11] = 0.02
+    iub_chars[12] = 86
+    iub_probs[12] = 0.02
+    iub_chars[13] = 87
+    iub_probs[13] = 0.02
+    iub_chars[14] = 89
+    iub_probs[14] = 0.02
+    make_cumulative(iub_probs, 15)
+
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let rng_warmup = Random.new(42)
+        let seq1_warmup = repeat_fasta(alu, n * 2)
+        let seq2_warmup = random_fasta(iub_chars, iub_probs, 15, n * 3, rng_warmup)
+        let seq3_warmup = random_fasta(hs_chars, hs_probs, 4, n * 5, rng_warmup)
+        seq1_warmup.free()
+        seq2_warmup.free()
+        seq3_warmup.free()
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_seq1 = Array<Int>()
+    var result_seq2 = Array<Int>()
+    var result_seq3 = Array<Int>()
+
+    var iter = 0
+    while iter < iterations {
+        let rng = Random.new(42)
+
+        let start = __GetTime()
+        let seq1 = repeat_fasta(alu, n * 2)
+        let seq2 = random_fasta(iub_chars, iub_probs, 15, n * 3, rng)
+        let seq3 = random_fasta(hs_chars, hs_probs, 4, n * 5, rng)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_seq1.free()
+            result_seq2.free()
+            result_seq3.free()
+            result_seq1 = seq1
+            result_seq2 = seq2
+            result_seq3 = seq3
+        } else {
+            seq1.free()
+            seq2.free()
+            seq3.free()
+        }
+        iter = iter + 1
+    }
+
+    let checksum = compute_checksum(result_seq1) + compute_checksum(result_seq2) + compute_checksum(result_seq3)
+    let total_bp = result_seq1.length() + result_seq2.length() + result_seq3.length()
+
+    __Print("Total base pairs: ")
+    __PrintInt(total_bp)
+    __Print("\nChecksum: ")
+    __PrintInt(checksum)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Throughput: ")
+    __PrintFloat(total_bp.toFloat() / (min_time / 1000.0) / 1000000.0)
+    __Print(" Mbp/s\n")
+
+    return 0
+}

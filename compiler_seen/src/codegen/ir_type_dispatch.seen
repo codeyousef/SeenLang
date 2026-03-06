@@ -1,0 +1,683 @@
+// Collection method dispatch: Vec, BTreeMap, HashMap, LinkedList
+// Extracted from ir_type_tables.seen
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+// --- Collection method helpers ---
+
+// Vec runtime function suffix based on element type
+fun vecSuffix(hasStr: Bool, hasFloat: Bool) r: String {
+    if hasStr { return "_str" }
+    if hasFloat { return "_float" }
+    return ""
+}
+
+// Vec LLVM arg/return type based on element type
+fun vecArgType(hasStr: Bool, hasFloat: Bool) r: String {
+    if hasStr { return "%SeenString" }
+    if hasFloat { return "double" }
+    return "i64"
+}
+
+// Emit LLVM IR for Vec method calls
+// vecPtrReg must already be a ptr (inttoptr done by caller)
+// arg0/arg1 are pre-generated argument registers ("0" if unused)
+fun emitVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, vecPtrReg: String, arg0: String, arg1: String, hasStr: Bool, hasFloat: Bool) r: String {
+    let suffix = vecSuffix(hasStr, hasFloat)
+    let argType = vecArgType(hasStr, hasFloat)
+
+    // len/length
+    if methodName == "len" or methodName == "length" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_len" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return resultReg
+    }
+
+    // isEmpty
+    if methodName == "isEmpty" {
+        let lenReg = getNextRegFn(regBox)
+        output.append("  " + lenReg + " = call i64 @Vec_len" + suffix + "(ptr " + vecPtrReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = icmp eq i64 " + lenReg + ", 0\n")
+        return resultReg
+    }
+
+    // push
+    if methodName == "push" {
+        output.append("  call void @Vec_push" + suffix + "(ptr " + vecPtrReg + ", " + argType + " " + arg0 + ")\n")
+        return "0"
+    }
+
+    // get
+    if methodName == "get" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + argType + " @Vec_get" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // set
+    if methodName == "set" {
+        output.append("  call void @Vec_set" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ", " + argType + " " + arg1 + ")\n")
+        return "0"
+    }
+
+    // pop
+    if methodName == "pop" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call %SeenString @Vec_pop_str(ptr " + vecPtrReg + ")\n")
+        } else {
+            if hasFloat {
+                output.append("  " + resultReg + " = call double @Vec_pop_float(ptr " + vecPtrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @Vec_pop(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // clear
+    if methodName == "clear" {
+        output.append("  call void @Vec_clear" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return "0"
+    }
+
+    // contains
+    if methodName == "contains" {
+        let rawReg = getNextRegFn(regBox)
+        output.append("  " + rawReg + " = call i64 @Vec_contains" + suffix + "(ptr " + vecPtrReg + ", " + argType + " " + arg0 + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = trunc i64 " + rawReg + " to i1\n")
+        return resultReg
+    }
+
+    // indexOf
+    if methodName == "indexOf" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_indexOf" + suffix + "(ptr " + vecPtrReg + ", " + argType + " " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // reverse
+    if methodName == "reverse" {
+        output.append("  call void @Vec_reverse" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return "0"
+    }
+
+    // remove
+    if methodName == "remove" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + argType + " @Vec_remove" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // insert
+    if methodName == "insert" {
+        output.append("  call void @Vec_insert" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ", " + argType + " " + arg1 + ")\n")
+        return "0"
+    }
+
+    // first
+    if methodName == "first" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call %SeenString @Vec_first_str(ptr " + vecPtrReg + ")\n")
+        } else {
+            if hasFloat {
+                output.append("  " + resultReg + " = call double @Vec_first_float(ptr " + vecPtrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @Vec_first(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // last
+    if methodName == "last" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call %SeenString @Vec_last_str(ptr " + vecPtrReg + ")\n")
+        } else {
+            if hasFloat {
+                output.append("  " + resultReg + " = call double @Vec_last_float(ptr " + vecPtrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @Vec_last(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // sort (Int and Float only)
+    if methodName == "sort" {
+        if hasFloat {
+            output.append("  call void @Vec_sort_float(ptr " + vecPtrReg + ")\n")
+        } else {
+            if not hasStr {
+                output.append("  call void @Vec_sort(ptr " + vecPtrReg + ")\n")
+            }
+        }
+        return "0"
+    }
+
+    // Unhandled method — return empty to signal fallthrough
+    return ""
+}
+
+// --- Map method helpers ---
+
+// 4-way suffix for BTreeMap/HashMap based on key/value string types
+fun mapSuffix4Way(hasStrKey: Bool, hasStrVal: Bool) r: String {
+    if hasStrKey {
+        if hasStrVal { return "_str_str" }
+        return "_str"
+    }
+    if hasStrVal { return "_int_str" }
+    return ""
+}
+
+fun mapKeyType(hasStrKey: Bool) r: String {
+    if hasStrKey { return "%SeenString" }
+    return "i64"
+}
+
+fun mapValType(hasStrVal: Bool) r: String {
+    if hasStrVal { return "%SeenString" }
+    return "i64"
+}
+
+// Emit LLVM IR for BTreeMap method calls
+// mapPtrReg must already be a ptr (inttoptr done by caller)
+// arg0/arg1 are pre-generated argument registers ("0" if unused)
+// For size/len and isEmpty: uses runtime calls for str variants, GEP for int/int
+fun emitBTreeMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrKey: Bool, hasStrVal: Bool) r: String {
+    let suffix = mapSuffix4Way(hasStrKey, hasStrVal)
+    let keyType = mapKeyType(hasStrKey)
+
+    // size/len
+    if methodName == "size" or methodName == "len" {
+        if hasStrKey and hasStrVal {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @BTreeMap_size_str_str(ptr " + mapPtrReg + ")\n")
+            return resultReg
+        }
+        if hasStrVal {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = call i64 @BTreeMap_size_int_str(ptr " + mapPtrReg + ")\n")
+            return resultReg
+        }
+        let lenPtrReg = getNextRegFn(regBox)
+        output.append("  " + lenPtrReg + " = getelementptr inbounds { ptr, i64, i64 }, ptr " + mapPtrReg + ", i32 0, i32 2\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = load i64, ptr " + lenPtrReg + "\n")
+        return resultReg
+    }
+
+    // isEmpty
+    if methodName == "isEmpty" {
+        if hasStrKey and hasStrVal {
+            let sizeReg = getNextRegFn(regBox)
+            output.append("  " + sizeReg + " = call i64 @BTreeMap_size_str_str(ptr " + mapPtrReg + ")\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = icmp eq i64 " + sizeReg + ", 0\n")
+            return resultReg
+        }
+        if hasStrVal {
+            let sizeReg = getNextRegFn(regBox)
+            output.append("  " + sizeReg + " = call i64 @BTreeMap_size_int_str(ptr " + mapPtrReg + ")\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = icmp eq i64 " + sizeReg + ", 0\n")
+            return resultReg
+        }
+        let lenPtrReg = getNextRegFn(regBox)
+        output.append("  " + lenPtrReg + " = getelementptr inbounds { ptr, i64, i64 }, ptr " + mapPtrReg + ", i32 0, i32 2\n")
+        let lenReg = getNextRegFn(regBox)
+        output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = icmp eq i64 " + lenReg + ", 0\n")
+        return resultReg
+    }
+
+    // insert
+    if methodName == "insert" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @BTreeMap_insert_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @BTreeMap_insert_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @BTreeMap_insert_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @BTreeMap_insert(ptr " + mapPtrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // get
+    if methodName == "get" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @BTreeMap_get_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @BTreeMap_get_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @BTreeMap_get_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @BTreeMap_get(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // containsKey
+    if methodName == "containsKey" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @BTreeMap_containsKey_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @BTreeMap_containsKey_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @BTreeMap_containsKey_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @BTreeMap_containsKey(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // keys
+    if methodName == "keys" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call ptr @BTreeMap_keys" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return resultReg
+    }
+
+    // remove
+    if methodName == "remove" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @BTreeMap_remove_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @BTreeMap_remove_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @BTreeMap_remove_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @BTreeMap_remove(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // clear
+    if methodName == "clear" {
+        output.append("  call void @BTreeMap_clear" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return "0"
+    }
+
+    // values
+    if methodName == "values" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call ptr @BTreeMap_values" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return resultReg
+    }
+
+    return ""
+}
+
+// Emit LLVM IR for HashMap method calls
+// mapPtrReg must already be a ptr (inttoptr done by caller)
+fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrKey: Bool, hasStrVal: Bool) r: String {
+    let suffix = mapSuffix4Way(hasStrKey, hasStrVal)
+    let keyType = mapKeyType(hasStrKey)
+    let valType = mapValType(hasStrVal)
+
+    // size/len
+    if methodName == "size" or methodName == "len" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @HashMap_size" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return resultReg
+    }
+
+    // isEmpty
+    if methodName == "isEmpty" {
+        let sizeReg = getNextRegFn(regBox)
+        output.append("  " + sizeReg + " = call i64 @HashMap_size" + suffix + "(ptr " + mapPtrReg + ")\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = icmp eq i64 " + sizeReg + ", 0\n")
+        return resultReg
+    }
+
+    // insert
+    if methodName == "insert" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @HashMap_insert_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @HashMap_insert_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @HashMap_insert_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @HashMap_insert(ptr " + mapPtrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // get
+    if methodName == "get" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @HashMap_get_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_get_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @HashMap_get_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_get(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // getOrDefault
+    if methodName == "getOrDefault" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call %SeenString @HashMap_getOrDefault_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_getOrDefault_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call %SeenString @HashMap_getOrDefault_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ", %SeenString " + arg1 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_getOrDefault(ptr " + mapPtrReg + ", i64 " + arg0 + ", i64 " + arg1 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // containsKey
+    if methodName == "containsKey" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsKey_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsKey_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsKey_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i1 @HashMap_containsKey(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // keys
+    if methodName == "keys" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call ptr @HashMap_keys" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return resultReg
+    }
+
+    // remove
+    if methodName == "remove" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrKey {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @HashMap_remove_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_remove_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+            }
+        } else {
+            if hasStrVal {
+                output.append("  " + resultReg + " = call i64 @HashMap_remove_int_str(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @HashMap_remove(ptr " + mapPtrReg + ", i64 " + arg0 + ")\n")
+            }
+        }
+        return resultReg
+    }
+
+    // clear
+    if methodName == "clear" {
+        output.append("  call void @HashMap_clear" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return "0"
+    }
+
+    // values
+    if methodName == "values" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call ptr @HashMap_values" + suffix + "(ptr " + mapPtrReg + ")\n")
+        return resultReg
+    }
+
+    return ""
+}
+
+// Emit LLVM IR for LinkedList method calls
+// llPtrReg must already be a ptr (inttoptr done by caller)
+fun emitLinkedListMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, llPtrReg: String, arg0: String, hasStr: Bool) r: String {
+    let suffix = ""
+    if hasStr {
+        let suffix = "_str"
+    }
+
+    // size/len
+    if methodName == "size" or methodName == "len" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_size_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_size(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // isEmpty
+    if methodName == "isEmpty" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i1 @LinkedList_isEmpty_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i1 @LinkedList_isEmpty(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // pushFront
+    if methodName == "pushFront" {
+        if hasStr {
+            output.append("  call void @LinkedList_pushFront_str(ptr " + llPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  call void @LinkedList_pushFront(ptr " + llPtrReg + ", i64 " + arg0 + ")\n")
+        }
+        return "0"
+    }
+
+    // pushBack
+    if methodName == "pushBack" {
+        if hasStr {
+            output.append("  call void @LinkedList_pushBack_str(ptr " + llPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  call void @LinkedList_pushBack(ptr " + llPtrReg + ", i64 " + arg0 + ")\n")
+        }
+        return "0"
+    }
+
+    // popFront
+    if methodName == "popFront" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_popFront_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_popFront(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // popBack
+    if methodName == "popBack" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_popBack_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_popBack(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // peekFront
+    if methodName == "peekFront" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_peekFront_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_peekFront(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // peekBack
+    if methodName == "peekBack" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStr {
+            output.append("  " + resultReg + " = call i64 @LinkedList_peekBack_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @LinkedList_peekBack(ptr " + llPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    // clear
+    if methodName == "clear" {
+        if hasStr {
+            output.append("  call void @LinkedList_clear_str(ptr " + llPtrReg + ")\n")
+        } else {
+            output.append("  call void @LinkedList_clear(ptr " + llPtrReg + ")\n")
+        }
+        return "0"
+    }
+
+    return ""
+}
+
+// Collection method dispatch: Vec, BTreeMap, HashMap, LinkedList
+// Consolidates duplicated dispatch logic from complex and simple receiver paths
+fun dispatchCollectionMethodImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, receiverReg: String, receiverType: String,
+    arg0: String, arg1: String) r: String {
+    // Vec dispatch
+    let isVecType = receiverType == "Vec" or receiverType.startsWith("Vec<")
+    if isVecType {
+        let vecPtrReg = getNextRegFn(regBox)
+        output.append("  " + vecPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        let hasStringElement = receiverType.contains("<String>")
+        let hasFloatElement = receiverType.contains("<Float>")
+        let vecResult = emitVecMethodImpl(output, regBox, methodName, vecPtrReg, arg0, arg1, hasStringElement, hasFloatElement)
+        if vecResult != "" {
+            return vecResult
+        }
+    }
+
+    // BTreeMap dispatch
+    let isBTreeMapType = receiverType == "BTreeMap" or receiverType.startsWith("BTreeMap<")
+    if isBTreeMapType {
+        let mapPtrReg = getNextRegFn(regBox)
+        output.append("  " + mapPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        if methodName == "size" or methodName == "len" {
+            let lenPtrReg = getNextRegFn(regBox)
+            output.append("  " + lenPtrReg + " = getelementptr inbounds { ptr, i64, i64 }, ptr " + mapPtrReg + ", i32 0, i32 2\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = load i64, ptr " + lenPtrReg + "\n")
+            return resultReg
+        }
+        if methodName == "isEmpty" {
+            let lenPtrReg = getNextRegFn(regBox)
+            output.append("  " + lenPtrReg + " = getelementptr inbounds { ptr, i64, i64 }, ptr " + mapPtrReg + ", i32 0, i32 2\n")
+            let lenReg = getNextRegFn(regBox)
+            output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = icmp eq i64 " + lenReg + ", 0\n")
+            return resultReg
+        }
+        let hasStringKey = receiverType.contains("<String")
+        let hasStringValue = receiverType.contains(", String>") or receiverType.contains(",String>")
+        let btResult = emitBTreeMapMethodImpl(output, regBox, methodName, mapPtrReg, arg0, arg1, hasStringKey, hasStringValue)
+        if btResult != "" {
+            return btResult
+        }
+    }
+
+    // HashMap dispatch
+    let isHashMapType = receiverType == "HashMap" or receiverType.startsWith("HashMap<")
+    if isHashMapType {
+        let mapPtrReg = getNextRegFn(regBox)
+        output.append("  " + mapPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        let hasStringKey = receiverType.contains("<String")
+        let hasStringValue = receiverType.contains(", String>") or receiverType.contains(",String>")
+        if methodName == "size" or methodName == "len" or methodName == "length" {
+            let resultReg = getNextRegFn(regBox)
+            if hasStringKey and hasStringValue {
+                output.append("  " + resultReg + " = call i64 @HashMap_size_str_str(ptr " + mapPtrReg + ")\n")
+            } else {
+                if hasStringKey {
+                    output.append("  " + resultReg + " = call i64 @HashMap_size_str(ptr " + mapPtrReg + ")\n")
+                } else {
+                    output.append("  " + resultReg + " = call i64 @HashMap_size(ptr " + mapPtrReg + ")\n")
+                }
+            }
+            return resultReg
+        }
+        let hmResult = emitHashMapMethodImpl(output, regBox, methodName, mapPtrReg, arg0, arg1, hasStringKey, hasStringValue)
+        if hmResult != "" {
+            return hmResult
+        }
+    }
+
+    // LinkedList dispatch
+    let isLinkedListType = receiverType == "LinkedList" or receiverType.startsWith("LinkedList<")
+    if isLinkedListType {
+        let llPtrReg = getNextRegFn(regBox)
+        output.append("  " + llPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        let hasStringElement = receiverType.contains("<String")
+        if methodName == "size" or methodName == "len" or methodName == "length" {
+            let resultReg = getNextRegFn(regBox)
+            if hasStringElement {
+                output.append("  " + resultReg + " = call i64 @LinkedList_size_str(ptr " + llPtrReg + ")\n")
+            } else {
+                output.append("  " + resultReg + " = call i64 @LinkedList_size(ptr " + llPtrReg + ")\n")
+            }
+            return resultReg
+        }
+        let llResult = emitLinkedListMethodImpl(output, regBox, methodName, llPtrReg, arg0, hasStringElement)
+        if llResult != "" {
+            return llResult
+        }
+    }
+
+    return ""
+}

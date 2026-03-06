@@ -1,0 +1,13 @@
+name = "Arabic"
+description = "Arabic Miscellaneous Keywords"
+
+[keywords]
+"هو" = "KeywordIs"
+"ك" = "KeywordAs"
+"بواسطة" = "KeywordBy"
+"و" = "KeywordAnd"
+"أو" = "KeywordOr"
+"ليس" = "KeywordNot"
+"إلى" = "KeywordTo"
+"من" = "KeywordFrom"
+"تأثير" = "KeywordEffect"

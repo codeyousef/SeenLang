@@ -1,0 +1,20 @@
+data Matrix {
+    rows: int,
+    cols: int,
+}
+
+fun Matrix.get(self, i: int, j: int) -> int {
+    __PrintInt(self.rows);
+    return 0;
+}
+
+fun test_call(a: Matrix) -> int {
+    __PrintInt(a.rows);
+    return a.get(0, 0);
+}
+
+fun main() {
+    let m: Matrix = Matrix { rows: 2, cols: 3 };
+    test_call(m);
+    return 0;
+}

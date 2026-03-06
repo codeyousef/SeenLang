@@ -1,0 +1,273 @@
+/**
+ * SDL3 FFI bindings for Linux.
+ *
+ * Low-level bindings to libSDL3 for window management, input handling,
+ * and Vulkan surface support. Prefer using the higher-level Window class
+ * from platform.linux.window for most applications.
+ *
+ * Link with: -lSDL3
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// SDL3 initialization flags - bitwise OR these for SDL_Init()
+let SDL_INIT_VIDEO: Int = 0x00000020
+let SDL_INIT_AUDIO: Int = 0x00000010
+let SDL_INIT_EVENTS: Int = 0x00004000
+let SDL_INIT_GAMEPAD: Int = 0x00002000
+
+// SDL3 window flags
+let SDL_WINDOW_VULKAN: Int = 0x10000000
+let SDL_WINDOW_RESIZABLE: Int = 0x00000020
+let SDL_WINDOW_FULLSCREEN: Int = 0x00000001
+let SDL_WINDOW_BORDERLESS: Int = 0x00000010
+let SDL_WINDOW_HIDDEN: Int = 0x00000008
+let SDL_WINDOW_MAXIMIZED: Int = 0x00000080
+let SDL_WINDOW_MINIMIZED: Int = 0x00000040
+let SDL_WINDOW_HIGH_PIXEL_DENSITY: Int = 0x00002000
+
+// SDL3 event types
+let SDL_EVENT_QUIT: Int = 0x100
+let SDL_EVENT_KEY_DOWN: Int = 0x300
+let SDL_EVENT_KEY_UP: Int = 0x301
+let SDL_EVENT_TEXT_INPUT: Int = 0x303
+let SDL_EVENT_MOUSE_MOTION: Int = 0x400
+let SDL_EVENT_MOUSE_BUTTON_DOWN: Int = 0x401
+let SDL_EVENT_MOUSE_BUTTON_UP: Int = 0x402
+let SDL_EVENT_MOUSE_WHEEL: Int = 0x403
+let SDL_EVENT_GAMEPAD_ADDED: Int = 0x600
+let SDL_EVENT_GAMEPAD_REMOVED: Int = 0x601
+let SDL_EVENT_GAMEPAD_BUTTON_DOWN: Int = 0x650
+let SDL_EVENT_GAMEPAD_BUTTON_UP: Int = 0x651
+let SDL_EVENT_GAMEPAD_AXIS_MOTION: Int = 0x652
+let SDL_EVENT_WINDOW_RESIZED: Int = 0x203
+let SDL_EVENT_WINDOW_CLOSE_REQUESTED: Int = 0x202
+
+// SDL3 mouse buttons
+let SDL_BUTTON_LEFT: Int = 1
+let SDL_BUTTON_MIDDLE: Int = 2
+let SDL_BUTTON_RIGHT: Int = 3
+
+// SDL3 scancodes (partial list - common keys)
+let SDL_SCANCODE_UNKNOWN: Int = 0
+let SDL_SCANCODE_A: Int = 4
+let SDL_SCANCODE_B: Int = 5
+let SDL_SCANCODE_C: Int = 6
+let SDL_SCANCODE_D: Int = 7
+let SDL_SCANCODE_E: Int = 8
+let SDL_SCANCODE_F: Int = 9
+let SDL_SCANCODE_G: Int = 10
+let SDL_SCANCODE_H: Int = 11
+let SDL_SCANCODE_I: Int = 12
+let SDL_SCANCODE_J: Int = 13
+let SDL_SCANCODE_K: Int = 14
+let SDL_SCANCODE_L: Int = 15
+let SDL_SCANCODE_M: Int = 16
+let SDL_SCANCODE_N: Int = 17
+let SDL_SCANCODE_O: Int = 18
+let SDL_SCANCODE_P: Int = 19
+let SDL_SCANCODE_Q: Int = 20
+let SDL_SCANCODE_R: Int = 21
+let SDL_SCANCODE_S: Int = 22
+let SDL_SCANCODE_T: Int = 23
+let SDL_SCANCODE_U: Int = 24
+let SDL_SCANCODE_V: Int = 25
+let SDL_SCANCODE_W: Int = 26
+let SDL_SCANCODE_X: Int = 27
+let SDL_SCANCODE_Y: Int = 28
+let SDL_SCANCODE_Z: Int = 29
+let SDL_SCANCODE_1: Int = 30
+let SDL_SCANCODE_2: Int = 31
+let SDL_SCANCODE_3: Int = 32
+let SDL_SCANCODE_4: Int = 33
+let SDL_SCANCODE_5: Int = 34
+let SDL_SCANCODE_6: Int = 35
+let SDL_SCANCODE_7: Int = 36
+let SDL_SCANCODE_8: Int = 37
+let SDL_SCANCODE_9: Int = 38
+let SDL_SCANCODE_0: Int = 39
+let SDL_SCANCODE_RETURN: Int = 40
+let SDL_SCANCODE_ESCAPE: Int = 41
+let SDL_SCANCODE_BACKSPACE: Int = 42
+let SDL_SCANCODE_TAB: Int = 43
+let SDL_SCANCODE_SPACE: Int = 44
+let SDL_SCANCODE_F1: Int = 58
+let SDL_SCANCODE_F2: Int = 59
+let SDL_SCANCODE_F3: Int = 60
+let SDL_SCANCODE_F4: Int = 61
+let SDL_SCANCODE_F5: Int = 62
+let SDL_SCANCODE_F6: Int = 63
+let SDL_SCANCODE_F7: Int = 64
+let SDL_SCANCODE_F8: Int = 65
+let SDL_SCANCODE_F9: Int = 66
+let SDL_SCANCODE_F10: Int = 67
+let SDL_SCANCODE_F11: Int = 68
+let SDL_SCANCODE_F12: Int = 69
+let SDL_SCANCODE_RIGHT: Int = 79
+let SDL_SCANCODE_LEFT: Int = 80
+let SDL_SCANCODE_DOWN: Int = 81
+let SDL_SCANCODE_UP: Int = 82
+let SDL_SCANCODE_LCTRL: Int = 224
+let SDL_SCANCODE_LSHIFT: Int = 225
+let SDL_SCANCODE_LALT: Int = 226
+let SDL_SCANCODE_RCTRL: Int = 228
+let SDL_SCANCODE_RSHIFT: Int = 229
+let SDL_SCANCODE_RALT: Int = 230
+
+/**
+ * Initialize the SDL library.
+ *
+ * Must be called before any other SDL function. Call SDL_Quit()
+ * to clean up. Returns 0 on success, negative on failure.
+ */
+extern "C" fun SDL_Init(flags: UInt32) r: Int
+extern "C" fun SDL_Quit() r: Void
+extern "C" fun SDL_GetError() r: *Char
+extern "C" fun SDL_ClearError() r: Void
+
+/**
+ * Create a window with the specified title, size, and flags.
+ *
+ * Returns null on failure. Call SDL_GetError() for details.
+ */
+extern "C" fun SDL_CreateWindow(title: *Char, w: Int, h: Int, flags: UInt64) r: *Void
+extern "C" fun SDL_DestroyWindow(window: *Void) r: Void
+extern "C" fun SDL_GetWindowSize(window: *Void, w: *Int, h: *Int) r: Void
+extern "C" fun SDL_SetWindowSize(window: *Void, w: Int, h: Int) r: Int
+extern "C" fun SDL_GetWindowPosition(window: *Void, x: *Int, y: *Int) r: Void
+extern "C" fun SDL_SetWindowPosition(window: *Void, x: Int, y: Int) r: Int
+extern "C" fun SDL_SetWindowTitle(window: *Void, title: *Char) r: Int
+extern "C" fun SDL_GetWindowTitle(window: *Void) r: *Char
+extern "C" fun SDL_ShowWindow(window: *Void) r: Int
+extern "C" fun SDL_HideWindow(window: *Void) r: Int
+extern "C" fun SDL_RaiseWindow(window: *Void) r: Int
+extern "C" fun SDL_MaximizeWindow(window: *Void) r: Int
+extern "C" fun SDL_MinimizeWindow(window: *Void) r: Int
+extern "C" fun SDL_RestoreWindow(window: *Void) r: Int
+extern "C" fun SDL_SetWindowFullscreen(window: *Void, fullscreen: Int) r: Int
+extern "C" fun SDL_GetWindowFlags(window: *Void) r: UInt64
+
+/**
+ * Poll for pending events. Returns 1 if an event was retrieved.
+ *
+ * SDL_Event is a 128-byte union; pass a pointer to a buffer.
+ */
+extern "C" fun SDL_PollEvent(event: *Void) r: Int
+extern "C" fun SDL_WaitEvent(event: *Void) r: Int
+extern "C" fun SDL_WaitEventTimeout(event: *Void, timeoutMs: Int) r: Int
+extern "C" fun SDL_PushEvent(event: *Void) r: Int
+
+// Keyboard state
+extern "C" fun SDL_GetKeyboardState(numkeys: *Int) r: *UInt8
+extern "C" fun SDL_GetKeyName(key: Int) r: *Char
+extern "C" fun SDL_GetScancodeFromName(name: *Char) r: Int
+extern "C" fun SDL_GetModState() r: UInt16
+
+// Mouse state
+extern "C" fun SDL_GetMouseState(x: *Float, y: *Float) r: UInt32
+extern "C" fun SDL_GetRelativeMouseState(x: *Float, y: *Float) r: UInt32
+extern "C" fun SDL_WarpMouseInWindow(window: *Void, x: Float, y: Float) r: Void
+extern "C" fun SDL_SetRelativeMouseMode(enabled: Int) r: Int
+extern "C" fun SDL_GetRelativeMouseMode() r: Int
+extern "C" fun SDL_ShowCursor() r: Int
+extern "C" fun SDL_HideCursor() r: Int
+extern "C" fun SDL_CursorVisible() r: Int
+
+// Gamepad support
+extern "C" fun SDL_GetGamepads(count: *Int) r: *UInt32
+extern "C" fun SDL_OpenGamepad(instanceId: UInt32) r: *Void
+extern "C" fun SDL_CloseGamepad(gamepad: *Void) r: Void
+extern "C" fun SDL_GetGamepadName(gamepad: *Void) r: *Char
+extern "C" fun SDL_GetGamepadAxis(gamepad: *Void, axis: Int) r: Int16
+extern "C" fun SDL_GetGamepadButton(gamepad: *Void, button: Int) r: UInt8
+extern "C" fun SDL_RumbleGamepad(gamepad: *Void, lowFreq: UInt16, highFreq: UInt16, durationMs: UInt32) r: Int
+
+/**
+ * Create a Vulkan rendering surface for the window.
+ *
+ * Window must have been created with SDL_WINDOW_VULKAN flag.
+ * Returns non-zero on success.
+ */
+extern "C" fun SDL_Vulkan_CreateSurface(window: *Void, instance: *Void, allocator: *Void, surface: *UInt64) r: Int
+extern "C" fun SDL_Vulkan_GetInstanceExtensions(count: *UInt32) r: **Char
+extern "C" fun SDL_Vulkan_GetDrawableSize(window: *Void, w: *Int, h: *Int) r: Void
+
+// Clipboard
+extern "C" fun SDL_SetClipboardText(text: *Char) r: Int
+extern "C" fun SDL_GetClipboardText() r: *Char
+extern "C" fun SDL_HasClipboardText() r: Int
+
+// Time utilities
+extern "C" fun SDL_GetTicks() r: UInt64
+extern "C" fun SDL_GetPerformanceCounter() r: UInt64
+extern "C" fun SDL_GetPerformanceFrequency() r: UInt64
+extern "C" fun SDL_Delay(ms: UInt32) r: Void
+
+/**
+ * Convert a C string pointer to a Seen String.
+ *
+ * Returns empty string if the pointer is null.
+ */
+fun cstr_to_string(cstr: *Char) r: String {
+    if cstr == null {
+        return ""
+    }
+    // Use intrinsic or iterate to find null terminator
+    return String.fromCString(cstr)
+}
+
+/**
+ * Safe wrapper for SDL_Init with Result return type.
+ */
+fun sdl_init(flags: Int) r: Result<Unit, String> {
+    let result = SDL_Init(flags as UInt32)
+    if result < 0 {
+        return Err(cstr_to_string(SDL_GetError()))
+    }
+    return Ok(Unit{})
+}
+
+fun sdl_quit() r: Void {
+    SDL_Quit()
+}
+
+fun sdl_get_error() r: String {
+    return cstr_to_string(SDL_GetError())
+}
+
+fun sdl_create_window(title: String, width: Int, height: Int, flags: Int) r: Result<*Void, String> {
+    let window = SDL_CreateWindow(title.toCString(), width, height, flags as UInt64)
+    if window == null {
+        return Err(cstr_to_string(SDL_GetError()))
+    }
+    return Ok(window)
+}
+
+fun sdl_destroy_window(window: *Void) r: Void {
+    SDL_DestroyWindow(window)
+}
+
+fun sdl_get_ticks() r: UInt64 {
+    return SDL_GetTicks()
+}
+
+fun sdl_delay(ms: Int) r: Void {
+    SDL_Delay(ms as UInt32)
+}
+
+fun sdl_set_clipboard(text: String) r: Result<Unit, String> {
+    let result = SDL_SetClipboardText(text.toCString())
+    if result < 0 {
+        return Err(cstr_to_string(SDL_GetError()))
+    }
+    return Ok(Unit{})
+}
+
+fun sdl_get_clipboard() r: String {
+    return cstr_to_string(SDL_GetClipboardText())
+}
+
+fun sdl_has_clipboard() r: Bool {
+    return SDL_HasClipboardText() != 0
+}

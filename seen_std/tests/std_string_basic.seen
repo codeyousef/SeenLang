@@ -1,0 +1,29 @@
+import collections.std_string.{StdString}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let s = StdString.new()
+    expect(s.isEmpty(), "new StdString should be empty")
+    s.push("Seen")
+    s.pushChar(' ')
+    s.push("Std")
+    expect(s.len() == 8, "length should include appended text")
+    expect(s.toString() == "Seen Std", "toString mismatch")
+
+    let copy = StdString.fromString("Lang")
+    expect(copy.toString() == "Lang", "from should copy text")
+
+    s.reserve(64)
+    expect(s.capacity() >= 64, "reserve should grow buffer")
+
+    let drained = s.intoString()
+    expect(drained == "Seen Std", "intoString should return accumulated text")
+    expect(s.isEmpty(), "intoString should clear buffer")
+
+    return 0
+}

@@ -1,0 +1,45 @@
+// Conversion traits: From/Into pattern
+// Uses free-function convention: TypeName_from_SourceType(value) -> TargetType
+
+@trait
+class Convertible {
+    // Marker trait for types that support conversion
+}
+
+// Int conversions
+fun Int_from_Float(value: Float) r: Int {
+    return value.toInt()
+}
+
+fun Int_from_String(value: String) r: Int {
+    return value.toInt()
+}
+
+fun Int_from_Bool(value: Int) r: Int {
+    return value
+}
+
+// Float conversions
+fun Float_from_Int(value: Int) r: Float {
+    return value.toFloat()
+}
+
+fun Float_from_String(value: String) r: Float {
+    return value.toFloat()
+}
+
+// String conversions (FromString pattern)
+fun String_from_Int(value: Int) r: String {
+    return value.toString()
+}
+
+fun String_from_Float(value: Float) r: String {
+    return value.toString()
+}
+
+fun String_from_Bool(value: Int) r: String {
+    if value == 1 {
+        return "true"
+    }
+    return "false"
+}

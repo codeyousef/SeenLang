@@ -1,0 +1,1616 @@
+// GLSL Code Generator - Generates GLSL #version 450 from @compute/@vertex/@fragment AST nodes
+// Pipeline: Seen AST -> GLSL text -> glslc -> SPIR-V binary
+// Follows the same pattern as c_gen.seen
+
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode}
+import str.string.{StringBuilder}
+import io.file.{readText, writeText, exists}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+
+// Shader stage constants
+var STAGE_COMPUTE: Int = 0
+var STAGE_VERTEX: Int = 1
+var STAGE_FRAGMENT: Int = 2
+
+// Binding descriptor for shader reflection
+class BindingDescriptor {
+    var set: Int
+    var binding: Int
+    var name: String
+    var bindingType: String
+    var elementType: String
+    var accessMode: String
+
+    static fun new(set: Int, binding: Int, name: String, bindingType: String, elementType: String, accessMode: String) r: BindingDescriptor {
+        return BindingDescriptor{
+            set: set,
+            binding: binding,
+            name: name,
+            bindingType: bindingType,
+            elementType: elementType,
+            accessMode: accessMode
+        }
+    }
+}
+
+// Shader reflection data
+class ShaderReflection {
+    var bindings: Array<BindingDescriptor>
+    var workgroupX: Int
+    var workgroupY: Int
+    var workgroupZ: Int
+    var stage: Int
+    var shaderName: String
+
+    static fun new(name: String, stage: Int) r: ShaderReflection {
+        return ShaderReflection{
+            bindings: Array<BindingDescriptor>(),
+            workgroupX: 1,
+            workgroupY: 1,
+            workgroupZ: 1,
+            stage: stage,
+            shaderName: name
+        }
+    }
+
+    fun toJSON() r: String {
+        let sb = StringBuilder.new()
+        sb.append("{\n")
+        sb.append("  \"name\": \"" + shaderName + "\",\n")
+        let stageStr = stageToString(stage)
+        sb.append("  \"stage\": \"" + stageStr + "\",\n")
+        if stage == 0 {
+            sb.append("  \"workgroupSize\": [" + workgroupX.toString() + ", " + workgroupY.toString() + ", " + workgroupZ.toString() + "],\n")
+        }
+        sb.append("  \"bindings\": [\n")
+        var i = 0
+        while i < bindings.length() {
+            let b = bindings[i]
+            sb.append("    {")
+            sb.append("\"set\": " + b.set.toString() + ", ")
+            sb.append("\"binding\": " + b.binding.toString() + ", ")
+            sb.append("\"name\": \"" + b.name + "\", ")
+            sb.append("\"type\": \"" + b.bindingType + "\", ")
+            sb.append("\"elementType\": \"" + b.elementType + "\", ")
+            sb.append("\"access\": \"" + b.accessMode + "\"")
+            sb.append("}")
+            if i < bindings.length() - 1 {
+                sb.append(",")
+            }
+            sb.append("\n")
+            i = i + 1
+        }
+        sb.append("  ]\n")
+        sb.append("}")
+        return sb.toString()
+    }
+}
+
+fun stageToString(stage: Int) r: String {
+    if stage == 0 {
+        return "compute"
+    }
+    if stage == 1 {
+        return "vertex"
+    }
+    if stage == 2 {
+        return "fragment"
+    }
+    return "unknown"
+}
+
+fun stageToGlslc(stage: Int) r: String {
+    if stage == 0 {
+        return "comp"
+    }
+    if stage == 1 {
+        return "vert"
+    }
+    if stage == 2 {
+        return "frag"
+    }
+    return "comp"
+}
+
+// GPU function info extracted from AST
+class GpuFunctionInfo {
+    var fn: FunctionNode
+    var stage: Int
+    var workgroupX: Int
+    var workgroupY: Int
+    var workgroupZ: Int
+    var outputName: String
+    var setOverrides: String
+
+    static fun new(fn: FunctionNode, stage: Int) r: GpuFunctionInfo {
+        return GpuFunctionInfo{
+            fn: fn,
+            stage: stage,
+            workgroupX: 64,
+            workgroupY: 1,
+            workgroupZ: 1,
+            outputName: fn.name,
+            setOverrides: ""
+        }
+    }
+}
+
+// Main GLSL generator class
+class GLSLGenerator {
+    var sb: StringBuilder
+    var indentLevel: Int
+    var currentStage: Int
+    var currentReflection: ShaderReflection
+    var bindingCounter: Int
+    var gpuFunctions: Array<GpuFunctionInfo>
+    var gpuStructs: Array<ClassNode>
+    var reflections: Array<ShaderReflection>
+    var regCounter: Int
+    var localVarNames: String
+    var localVarTypes: String
+    var localVarCount: Int
+    var sharedVars: String
+    var sharedVarCount: Int
+
+    static fun new() r: GLSLGenerator {
+        return GLSLGenerator{
+            sb: StringBuilder.new(),
+            indentLevel: 0,
+            currentStage: 0,
+            currentReflection: ShaderReflection.new("", 0),
+            bindingCounter: 0,
+            gpuFunctions: Array<GpuFunctionInfo>(),
+            gpuStructs: Array<ClassNode>(),
+            reflections: Array<ShaderReflection>(),
+            regCounter: 0,
+            localVarNames: "",
+            localVarTypes: "",
+            localVarCount: 0,
+            sharedVars: "",
+            sharedVarCount: 0
+        }
+    }
+
+    // --- Main Entry Point ---
+
+    fun generateAll(program: ProgramNode, outputDir: String) r: Int {
+        // Pass 1: Scan for GPU functions and structs
+        extractGpuFunctions(program)
+        extractGpuStructs(program)
+
+        if gpuFunctions.length() == 0 {
+            return 0
+        }
+
+        // Ensure output directory exists
+        let mkdirResult: CommandResult = runCommand("mkdir -p " + outputDir)
+
+        var successCount = 0
+        var failCount = 0
+
+        // Pass 2: Generate GLSL for each shader function
+        var i = 0
+        while i < gpuFunctions.length() {
+            let info = gpuFunctions[i]
+            let glslSource = generateShader(info)
+            let glslPath = outputDir + "/" + info.outputName + "." + stageToGlslc(info.stage) + ".glsl"
+            let spvPath = outputDir + "/" + info.outputName + "." + stageToGlslc(info.stage) + ".spv"
+
+            // Write GLSL source
+            writeText(glslPath, glslSource)
+
+            // Pass 3: Compile to SPIR-V
+            let compileOk = compileToSpirv(glslPath, spvPath, info.stage)
+            if compileOk {
+                successCount = successCount + 1
+            } else {
+                failCount = failCount + 1
+            }
+
+            // Write reflection JSON
+            let reflJson = currentReflection.toJSON()
+            let reflPath = outputDir + "/" + info.outputName + ".reflect.json"
+            writeText(reflPath, reflJson)
+
+            i = i + 1
+        }
+
+        if failCount > 0 {
+            println("[GPU] " + failCount.toString() + " shader(s) failed to compile")
+        }
+        if successCount > 0 {
+            println("[GPU] " + successCount.toString() + " shader(s) compiled to SPIR-V")
+        }
+
+        return failCount
+    }
+
+    // --- GPU Function/Struct Extraction ---
+
+    fun extractGpuFunctions(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            if program.items[i].itemType == "Function" {
+                let fn = program.items[i].function
+                var stage = -1
+                var wgX = 64
+                var wgY = 1
+                var wgZ = 1
+                var setOverride = ""
+
+                var di = 0
+                while di < fn.decorators.length() {
+                    let dec = fn.decorators[di]
+                    if dec.name == "compute" {
+                        stage = 0
+                        // Parse workgroup size from decorator arguments
+                        if dec.arguments.length() >= 1 {
+                            let arg0 = dec.arguments[0]
+                            // Handle "workgroup:N" or just "N"
+                            if arg0.contains(":") {
+                                let parts = arg0.split(":")
+                                if parts.length() >= 2 {
+                                    wgX = parseInt(parts[1])
+                                }
+                            } else if arg0.startsWith("[") {
+                                // [X,Y,Z] format
+                                let inner = arg0.substring(1, arg0.length() - 1)
+                                let dims = inner.split(",")
+                                if dims.length() >= 1 {
+                                    wgX = parseInt(dims[0])
+                                }
+                                if dims.length() >= 2 {
+                                    wgY = parseInt(dims[1])
+                                }
+                                if dims.length() >= 3 {
+                                    wgZ = parseInt(dims[2])
+                                }
+                            } else {
+                                wgX = parseInt(arg0)
+                            }
+                        }
+                        if dec.arguments.length() >= 2 {
+                            wgY = parseInt(dec.arguments[1])
+                        }
+                        if dec.arguments.length() >= 3 {
+                            wgZ = parseInt(dec.arguments[2])
+                        }
+                    }
+                    if dec.name == "vertex" {
+                        stage = 1
+                    }
+                    if dec.name == "fragment" {
+                        stage = 2
+                    }
+                    if dec.name == "set" {
+                        if dec.arguments.length() >= 1 {
+                            setOverride = dec.arguments[0]
+                        }
+                    }
+                    di = di + 1
+                }
+
+                if stage >= 0 {
+                    let info = GpuFunctionInfo.new(fn, stage)
+                    info.workgroupX = wgX
+                    info.workgroupY = wgY
+                    info.workgroupZ = wgZ
+                    info.setOverrides = setOverride
+                    gpuFunctions.push(info)
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    fun extractGpuStructs(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            if program.items[i].itemType == "Class" {
+                let cls = program.items[i].classNode
+                var isGpuBuffer = false
+                var di = 0
+                while di < cls.decorators.length() {
+                    if cls.decorators[di].name == "gpu_buffer" {
+                        isGpuBuffer = true
+                    }
+                    di = di + 1
+                }
+                if isGpuBuffer {
+                    gpuStructs.push(cls)
+                }
+            }
+            i = i + 1
+        }
+
+        // Also collect structs referenced in GPU function parameters
+        var fi = 0
+        while fi < gpuFunctions.length() {
+            let fn = gpuFunctions[fi].fn
+            var pi = 0
+            while pi < fn.params.length() {
+                let pTypeName = fn.params[pi].paramType.typeName
+                // Check if it references a user struct (not a built-in type)
+                if not isBuiltinGpuType(pTypeName) {
+                    let innerType = extractInnerType(pTypeName)
+                    if innerType != "" {
+                        // Find the class in program items
+                        var ci = 0
+                        while ci < program.items.length() {
+                            if program.items[ci].itemType == "Class" {
+                                if program.items[ci].classNode.name == innerType {
+                                    // Check not already in gpuStructs
+                                    var alreadyAdded = false
+                                    var gi = 0
+                                    while gi < gpuStructs.length() {
+                                        if gpuStructs[gi].name == innerType {
+                                            alreadyAdded = true
+                                        }
+                                        gi = gi + 1
+                                    }
+                                    if not alreadyAdded {
+                                        gpuStructs.push(program.items[ci].classNode)
+                                    }
+                                }
+                            }
+                            ci = ci + 1
+                        }
+                    }
+                }
+                pi = pi + 1
+            }
+            fi = fi + 1
+        }
+    }
+
+    fun isBuiltinGpuType(typeName: String) r: Bool {
+        if typeName == "Float" or typeName == "Int" or typeName == "Bool" {
+            return true
+        }
+        if typeName == "f32" or typeName == "f64" or typeName == "i32" or typeName == "i64" {
+            return true
+        }
+        if typeName == "f32x4" or typeName == "f32x8" or typeName == "i32x4" or typeName == "i32x8" {
+            return true
+        }
+        if typeName == "f64x2" or typeName == "f64x4" {
+            return true
+        }
+        if typeName.startsWith("Buffer<") or typeName.startsWith("Uniform<") or typeName.startsWith("Image<") {
+            return true
+        }
+        return false
+    }
+
+    fun extractInnerType(typeName: String) r: String {
+        if typeName.startsWith("Buffer<") {
+            return typeName.substring(7, typeName.length() - 1)
+        }
+        if typeName.startsWith("Uniform<") {
+            return typeName.substring(8, typeName.length() - 1)
+        }
+        if typeName.startsWith("Image<") {
+            return typeName.substring(6, typeName.length() - 1)
+        }
+        return ""
+    }
+
+    // --- Shader Generation ---
+
+    fun generateShader(info: GpuFunctionInfo) r: String {
+        sb = StringBuilder.new()
+        currentStage = info.stage
+        bindingCounter = 0
+        localVarNames = ""
+        localVarTypes = ""
+        localVarCount = 0
+        sharedVars = ""
+        sharedVarCount = 0
+
+        currentReflection = ShaderReflection.new(info.fn.name, info.stage)
+        currentReflection.workgroupX = info.workgroupX
+        currentReflection.workgroupY = info.workgroupY
+        currentReflection.workgroupZ = info.workgroupZ
+
+        // Version header
+        emitVersionHeader(info.stage)
+
+        // Compute shader local size
+        if info.stage == 0 {
+            sb.append("layout(local_size_x = " + info.workgroupX.toString())
+            sb.append(", local_size_y = " + info.workgroupY.toString())
+            sb.append(", local_size_z = " + info.workgroupZ.toString())
+            sb.append(") in;\n\n")
+        }
+
+        // Struct definitions
+        emitStructDefinitions()
+
+        // Scan for @shared variables in the function body
+        scanSharedVariables(info.fn)
+        emitSharedVariables()
+
+        // Binding declarations based on function parameters
+        emitBindings(info.fn, info.stage, info.setOverrides)
+
+        // Vertex inputs / fragment outputs
+        if info.stage == 1 {
+            emitVertexInputs(info.fn)
+        }
+        if info.stage == 2 {
+            emitFragmentOutputs(info.fn)
+        }
+
+        // Main function wrapping the shader body
+        sb.append("\nvoid main() {\n")
+        indentLevel = 1
+
+        // For vertex/fragment, set up parameter variables from in/out
+        if info.stage == 1 or info.stage == 2 {
+            emitParameterSetup(info.fn)
+        }
+
+        // Generate function body
+        if info.fn.body.statements.length() > 0 {
+            generateBlock(info.fn.body)
+        }
+
+        sb.append("}\n")
+
+        reflections.push(currentReflection)
+        return sb.toString()
+    }
+
+    fun emitVersionHeader(stage: Int) r: Void {
+        sb.append("#version 450\n")
+        if stage == 0 {
+            sb.append("// Compute shader generated by Seen compiler\n\n")
+        }
+        if stage == 1 {
+            sb.append("// Vertex shader generated by Seen compiler\n\n")
+        }
+        if stage == 2 {
+            sb.append("// Fragment shader generated by Seen compiler\n\n")
+        }
+    }
+
+    fun emitStructDefinitions() r: Void {
+        if gpuStructs.length() == 0 {
+            return
+        }
+        sb.append("// Struct definitions\n")
+        var i = 0
+        while i < gpuStructs.length() {
+            let cls = gpuStructs[i]
+            sb.append("struct " + cls.name + " {\n")
+            var fi = 0
+            while fi < cls.fields.length() {
+                let field = cls.fields[fi]
+                let glslType = mapSeenTypeToGLSL(field.fieldType.typeName)
+                sb.append("    " + glslType + " " + field.name + ";\n")
+                fi = fi + 1
+            }
+            sb.append("};\n\n")
+            i = i + 1
+        }
+    }
+
+    fun scanSharedVariables(fn: FunctionNode) r: Void {
+        // Walk function body looking for @shared decorated variables
+        var i = 0
+        while i < fn.body.statements.length() {
+            let stmt = fn.body.statements[i]
+            if stmt.kind == "Let" or stmt.kind == "Var" {
+                // Check if variable has @shared decorator
+                var isShared = false
+                var di = 0
+                while di < stmt.decorators.length() {
+                    if stmt.decorators[di].name == "shared" {
+                        isShared = true
+                    }
+                    di = di + 1
+                }
+                if isShared {
+                    if sharedVarCount > 0 {
+                        sharedVars = sharedVars + "|"
+                    }
+                    sharedVars = sharedVars + stmt.name + ":" + stmt.typeAnnotation.typeName
+                    sharedVarCount = sharedVarCount + 1
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    fun emitSharedVariables() r: Void {
+        if sharedVarCount == 0 {
+            return
+        }
+        sb.append("// Shared workgroup memory\n")
+        // Parse pipe-delimited "name:type" entries
+        var remaining = sharedVars
+        while remaining != "" {
+            var entry = remaining
+            let pipeIdx = remaining.indexOf("|")
+            if pipeIdx >= 0 {
+                entry = remaining.substring(0, pipeIdx)
+                remaining = remaining.substring(pipeIdx + 1, remaining.length())
+            } else {
+                remaining = ""
+            }
+            let colonIdx = entry.indexOf(":")
+            if colonIdx >= 0 {
+                let varName = entry.substring(0, colonIdx)
+                let varType = entry.substring(colonIdx + 1, entry.length())
+                let glslType = mapSeenTypeToGLSL(varType)
+                sb.append("shared " + glslType + " " + varName + ";\n")
+            }
+        }
+        sb.append("\n")
+    }
+
+    fun emitBindings(fn: FunctionNode, stage: Int, setOverrides: String) r: Void {
+        var setNum = 0
+        if setOverrides != "" {
+            setNum = parseInt(setOverrides)
+        }
+
+        sb.append("// Buffer and uniform bindings\n")
+        var pi = 0
+        while pi < fn.params.length() {
+            let param = fn.params[pi]
+            let pType = param.paramType.typeName
+
+            if pType.startsWith("Buffer<") {
+                let innerType = pType.substring(7, pType.length() - 1)
+                let glslInner = mapSeenTypeToGLSL(innerType)
+                // Check if it's a user struct or primitive
+                var isStructType = false
+                var si = 0
+                while si < gpuStructs.length() {
+                    if gpuStructs[si].name == innerType {
+                        isStructType = true
+                    }
+                    si = si + 1
+                }
+
+                sb.append("layout(std430, set = " + setNum.toString() + ", binding = " + bindingCounter.toString() + ") buffer " + param.name + "_buf {\n")
+                if isStructType {
+                    sb.append("    " + innerType + " " + param.name + "[];\n")
+                } else {
+                    sb.append("    " + glslInner + " " + param.name + "[];\n")
+                }
+                sb.append("};\n")
+
+                let bd = BindingDescriptor.new(setNum, bindingCounter, param.name, "storage", innerType, "readwrite")
+                currentReflection.bindings.push(bd)
+                bindingCounter = bindingCounter + 1
+            }
+            if pType.startsWith("Uniform<") {
+                let innerType = pType.substring(8, pType.length() - 1)
+                let glslInner = mapSeenTypeToGLSL(innerType)
+
+                sb.append("layout(std140, set = " + setNum.toString() + ", binding = " + bindingCounter.toString() + ") uniform " + param.name + "_ubo {\n")
+                sb.append("    " + glslInner + " " + param.name + ";\n")
+                sb.append("};\n")
+
+                let bd = BindingDescriptor.new(setNum, bindingCounter, param.name, "uniform", innerType, "readonly")
+                currentReflection.bindings.push(bd)
+                bindingCounter = bindingCounter + 1
+            }
+            if pType.startsWith("Image<") {
+                let innerType = pType.substring(6, pType.length() - 1)
+                let glslFormat = mapImageFormat(innerType)
+
+                sb.append("layout(set = " + setNum.toString() + ", binding = " + bindingCounter.toString() + ", " + glslFormat + ") uniform image2D " + param.name + ";\n")
+
+                let bd = BindingDescriptor.new(setNum, bindingCounter, param.name, "image", innerType, "readwrite")
+                currentReflection.bindings.push(bd)
+                bindingCounter = bindingCounter + 1
+            }
+            // Scalar parameters get pushed as push constants or uniform
+            if not pType.startsWith("Buffer<") and not pType.startsWith("Uniform<") and not pType.startsWith("Image<") {
+                if isScalarGpuType(pType) {
+                    let glslType = mapSeenTypeToGLSL(pType)
+                    sb.append("layout(std140, set = " + setNum.toString() + ", binding = " + bindingCounter.toString() + ") uniform " + param.name + "_pc {\n")
+                    sb.append("    " + glslType + " " + param.name + ";\n")
+                    sb.append("};\n")
+
+                    let bd = BindingDescriptor.new(setNum, bindingCounter, param.name, "uniform", pType, "readonly")
+                    currentReflection.bindings.push(bd)
+                    bindingCounter = bindingCounter + 1
+                }
+            }
+            pi = pi + 1
+        }
+        sb.append("\n")
+    }
+
+    fun isScalarGpuType(typeName: String) r: Bool {
+        if typeName == "Float" or typeName == "Int" or typeName == "Bool" {
+            return true
+        }
+        if typeName == "f32" or typeName == "f64" or typeName == "i32" or typeName == "i64" {
+            return true
+        }
+        return false
+    }
+
+    fun emitVertexInputs(fn: FunctionNode) r: Void {
+        sb.append("// Vertex inputs\n")
+        var loc = 0
+        var pi = 0
+        while pi < fn.params.length() {
+            let param = fn.params[pi]
+            let pType = param.paramType.typeName
+            if not pType.startsWith("Buffer<") and not pType.startsWith("Uniform<") and not pType.startsWith("Image<") {
+                let glslType = mapSeenTypeToGLSL(pType)
+                sb.append("layout(location = " + loc.toString() + ") in " + glslType + " in_" + param.name + ";\n")
+                loc = loc + 1
+            }
+            pi = pi + 1
+        }
+
+        // Output to fragment shader
+        sb.append("\n// Vertex outputs\n")
+        let retType = fn.returnType.typeName
+        if retType != "Void" and retType != "" {
+            // Find the struct definition for the return type
+            var si = 0
+            while si < gpuStructs.length() {
+                if gpuStructs[si].name == retType {
+                    let cls = gpuStructs[si]
+                    var fi = 0
+                    while fi < cls.fields.length() {
+                        let field = cls.fields[fi]
+                        if field.name != "position" {
+                            let glslType = mapSeenTypeToGLSL(field.fieldType.typeName)
+                            sb.append("layout(location = " + fi.toString() + ") out " + glslType + " out_" + field.name + ";\n")
+                        }
+                        fi = fi + 1
+                    }
+                }
+                si = si + 1
+            }
+        }
+        sb.append("\n")
+    }
+
+    fun emitFragmentOutputs(fn: FunctionNode) r: Void {
+        sb.append("// Fragment inputs (from vertex shader)\n")
+        // Fragment inputs match vertex outputs - scan parameters for struct types
+        var pi = 0
+        var loc = 0
+        while pi < fn.params.length() {
+            let param = fn.params[pi]
+            let pType = param.paramType.typeName
+            // Find struct definition
+            var si = 0
+            while si < gpuStructs.length() {
+                if gpuStructs[si].name == pType {
+                    let cls = gpuStructs[si]
+                    var fi = 0
+                    while fi < cls.fields.length() {
+                        let field = cls.fields[fi]
+                        if field.name != "position" {
+                            let glslType = mapSeenTypeToGLSL(field.fieldType.typeName)
+                            sb.append("layout(location = " + loc.toString() + ") in " + glslType + " in_" + field.name + ";\n")
+                            loc = loc + 1
+                        }
+                        fi = fi + 1
+                    }
+                }
+                si = si + 1
+            }
+            pi = pi + 1
+        }
+
+        sb.append("\n// Fragment output\n")
+        sb.append("layout(location = 0) out vec4 fragColor;\n\n")
+    }
+
+    fun emitParameterSetup(fn: FunctionNode) r: Void {
+        // Map Seen function parameters to GLSL in variables
+        if currentStage == 1 {
+            var pi = 0
+            while pi < fn.params.length() {
+                let param = fn.params[pi]
+                let pType = param.paramType.typeName
+                if not pType.startsWith("Buffer<") and not pType.startsWith("Uniform<") and not pType.startsWith("Image<") {
+                    let glslType = mapSeenTypeToGLSL(pType)
+                    emitIndent()
+                    sb.append(glslType + " " + param.name + " = in_" + param.name + ";\n")
+                }
+                pi = pi + 1
+            }
+        }
+        if currentStage == 2 {
+            var pi = 0
+            while pi < fn.params.length() {
+                let param = fn.params[pi]
+                let pType = param.paramType.typeName
+                // For struct params, create local variables from the in_ fields
+                var si = 0
+                while si < gpuStructs.length() {
+                    if gpuStructs[si].name == pType {
+                        let cls = gpuStructs[si]
+                        // Create a local struct-like variable
+                        emitIndent()
+                        sb.append("// " + param.name + " fields from vertex shader\n")
+                    }
+                    si = si + 1
+                }
+                pi = pi + 1
+            }
+        }
+    }
+
+    // --- Code Generation ---
+
+    fun generateBlock(block: BlockNode) r: Void {
+        var i = 0
+        while i < block.statements.length() {
+            generateStatement(block.statements[i])
+            i = i + 1
+        }
+    }
+
+    fun generateStatement(stmt: StatementNode) r: Void {
+        if stmt.kind == "Let" or stmt.kind == "Var" {
+            // Skip @shared variables (already declared as workgroup memory)
+            var isShared = false
+            var di = 0
+            while di < stmt.decorators.length() {
+                if stmt.decorators[di].name == "shared" {
+                    isShared = true
+                }
+                di = di + 1
+            }
+            if isShared {
+                return
+            }
+
+            emitIndent()
+            let varType = inferExpressionType(stmt.value, stmt.typeAnnotation)
+            let glslType = mapSeenTypeToGLSL(varType)
+            sb.append(glslType + " " + stmt.name)
+            if stmt.value.kind != "" {
+                sb.append(" = ")
+                generateExpression(stmt.value)
+            }
+            sb.append(";\n")
+
+            // Track local variable for type lookups
+            if localVarCount > 0 {
+                localVarNames = localVarNames + "|"
+                localVarTypes = localVarTypes + "|"
+            }
+            localVarNames = localVarNames + stmt.name
+            localVarTypes = localVarTypes + varType
+            localVarCount = localVarCount + 1
+        }
+        if stmt.kind == "Assignment" {
+            emitIndent()
+            generateExpression(stmt.target)
+            sb.append(" = ")
+            generateExpression(stmt.value)
+            sb.append(";\n")
+        }
+        if stmt.kind == "CompoundAssignment" {
+            emitIndent()
+            generateExpression(stmt.target)
+            sb.append(" " + stmt.operator + " ")
+            generateExpression(stmt.value)
+            sb.append(";\n")
+        }
+        if stmt.kind == "If" {
+            emitIndent()
+            sb.append("if (")
+            generateExpression(stmt.condition)
+            sb.append(") {\n")
+            indentLevel = indentLevel + 1
+            generateBlock(stmt.body)
+            indentLevel = indentLevel - 1
+            emitIndent()
+            sb.append("}")
+            if stmt.elseBody.statements.length() > 0 {
+                sb.append(" else {\n")
+                indentLevel = indentLevel + 1
+                generateBlock(stmt.elseBody)
+                indentLevel = indentLevel - 1
+                emitIndent()
+                sb.append("}")
+            }
+            sb.append("\n")
+        }
+        if stmt.kind == "While" {
+            emitIndent()
+            sb.append("while (")
+            generateExpression(stmt.condition)
+            sb.append(") {\n")
+            indentLevel = indentLevel + 1
+            generateBlock(stmt.body)
+            indentLevel = indentLevel - 1
+            emitIndent()
+            sb.append("}\n")
+        }
+        if stmt.kind == "ForIn" {
+            // Convert Seen for-in range to GLSL for loop
+            emitIndent()
+            sb.append("for (int " + stmt.name + " = ")
+            generateExpression(stmt.rangeStart)
+            sb.append("; " + stmt.name + " < ")
+            generateExpression(stmt.rangeEnd)
+            sb.append("; " + stmt.name + "++) {\n")
+            indentLevel = indentLevel + 1
+            generateBlock(stmt.body)
+            indentLevel = indentLevel - 1
+            emitIndent()
+            sb.append("}\n")
+        }
+        if stmt.kind == "Return" {
+            // In GLSL void main(), returns are handled differently
+            if currentStage == 1 {
+                // Vertex shader: set gl_Position and out variables
+                if stmt.value.kind == "Call" {
+                    emitIndent()
+                    sb.append("// Return via gl_Position and out variables\n")
+                    emitVertexReturn(stmt.value)
+                } else {
+                    emitIndent()
+                    sb.append("return;\n")
+                }
+            } else if currentStage == 2 {
+                // Fragment shader: set fragColor
+                emitIndent()
+                sb.append("fragColor = ")
+                generateExpression(stmt.value)
+                sb.append(";\n")
+            } else {
+                emitIndent()
+                sb.append("return;\n")
+            }
+        }
+        if stmt.kind == "Expression" {
+            emitIndent()
+            generateExpression(stmt.value)
+            sb.append(";\n")
+        }
+        if stmt.kind == "Block" {
+            emitIndent()
+            sb.append("{\n")
+            indentLevel = indentLevel + 1
+            generateBlock(stmt.body)
+            indentLevel = indentLevel - 1
+            emitIndent()
+            sb.append("}\n")
+        }
+        if stmt.kind == "Break" {
+            emitIndent()
+            sb.append("break;\n")
+        }
+        if stmt.kind == "Continue" {
+            emitIndent()
+            sb.append("continue;\n")
+        }
+    }
+
+    fun emitVertexReturn(expr: ParserExpressionNode) r: Void {
+        // For vertex shader, the return struct gets split into gl_Position and out variables
+        if expr.kind == "Call" {
+            var ai = 0
+            while ai < expr.arguments.length() {
+                let arg = expr.arguments[ai]
+                let argName = expr.argumentNames[ai]
+                if argName == "position" {
+                    emitIndent()
+                    sb.append("gl_Position = ")
+                    generateExpression(arg)
+                    sb.append(";\n")
+                } else {
+                    emitIndent()
+                    sb.append("out_" + argName + " = ")
+                    generateExpression(arg)
+                    sb.append(";\n")
+                }
+                ai = ai + 1
+            }
+        }
+    }
+
+    fun generateExpression(expr: ParserExpressionNode) r: Void {
+        if expr.kind == "Literal" {
+            sb.append(expr.literalValue)
+        }
+        if expr.kind == "BoolLiteral" {
+            if expr.literalValue == "true" {
+                sb.append("true")
+            } else {
+                sb.append("false")
+            }
+        }
+        if expr.kind == "Variable" or expr.kind == "Identifier" {
+            let mapped = mapGpuBuiltinVar(expr.literalValue)
+            sb.append(mapped)
+        }
+        if expr.kind == "Binary" {
+            sb.append("(")
+            generateExpression(expr.left)
+            sb.append(" " + mapOperator(expr.operator) + " ")
+            generateExpression(expr.right)
+            sb.append(")")
+        }
+        if expr.kind == "Unary" {
+            sb.append(expr.operator)
+            generateExpression(expr.operand)
+        }
+        if expr.kind == "Call" {
+            let funcName = expr.literalValue
+            // Check for GPU builtin function mapping
+            let gpuBuiltin = mapGpuBuiltin(funcName)
+            sb.append(gpuBuiltin)
+            sb.append("(")
+            var ai = 0
+            while ai < expr.arguments.length() {
+                if ai > 0 {
+                    sb.append(", ")
+                }
+                generateExpression(expr.arguments[ai])
+                ai = ai + 1
+            }
+            sb.append(")")
+        }
+        if expr.kind == "MemberAccess" {
+            let objExpr = expr.left
+            let fieldName = expr.literalValue
+            // Check for GPU built-in member access (e.g., globalInvocationId.x)
+            if objExpr.kind == "Variable" or objExpr.kind == "Identifier" {
+                let mapped = mapGpuBuiltinVar(objExpr.literalValue)
+                if mapped != objExpr.literalValue {
+                    sb.append(mapped + "." + fieldName)
+                } else {
+                    generateExpression(objExpr)
+                    sb.append("." + fieldName)
+                }
+            } else {
+                generateExpression(objExpr)
+                sb.append("." + fieldName)
+            }
+        }
+        if expr.kind == "IndexAccess" {
+            generateExpression(expr.left)
+            sb.append("[")
+            generateExpression(expr.right)
+            sb.append("]")
+        }
+        if expr.kind == "Cast" {
+            let targetType = mapSeenTypeToGLSL(expr.typeAnnotation.typeName)
+            sb.append(targetType + "(")
+            generateExpression(expr.operand)
+            sb.append(")")
+        }
+        if expr.kind == "MethodCall" {
+            let objExpr = expr.left
+            let methodName = expr.literalValue
+            // Check for GPU builtin methods
+            let gpuMethod = mapGpuBuiltin(methodName)
+            if gpuMethod != methodName {
+                // GPU builtin: emit as free function with object as first arg
+                sb.append(gpuMethod + "(")
+                generateExpression(objExpr)
+                var ai = 0
+                while ai < expr.arguments.length() {
+                    sb.append(", ")
+                    generateExpression(expr.arguments[ai])
+                    ai = ai + 1
+                }
+                sb.append(")")
+            } else {
+                generateExpression(objExpr)
+                sb.append("." + methodName + "(")
+                var ai = 0
+                while ai < expr.arguments.length() {
+                    if ai > 0 {
+                        sb.append(", ")
+                    }
+                    generateExpression(expr.arguments[ai])
+                    ai = ai + 1
+                }
+                sb.append(")")
+            }
+        }
+    }
+
+    // --- Type Mapping ---
+
+    fun mapSeenTypeToGLSL(typeName: String) r: String {
+        if typeName == "Float" or typeName == "f32" {
+            return "float"
+        }
+        if typeName == "f64" {
+            return "double"
+        }
+        if typeName == "Int" or typeName == "i64" {
+            return "int"
+        }
+        if typeName == "i32" {
+            return "int"
+        }
+        if typeName == "Bool" {
+            return "bool"
+        }
+        if typeName == "f32x4" or typeName == "Vec4" {
+            return "vec4"
+        }
+        if typeName == "f32x2" or typeName == "Vec2" {
+            return "vec2"
+        }
+        if typeName == "f32x3" or typeName == "Vec3" {
+            return "vec3"
+        }
+        if typeName == "i32x4" {
+            return "ivec4"
+        }
+        if typeName == "i32x2" {
+            return "ivec2"
+        }
+        if typeName == "i32x3" {
+            return "ivec3"
+        }
+        if typeName == "f64x2" {
+            return "dvec2"
+        }
+        if typeName == "f64x4" {
+            return "dvec4"
+        }
+        if typeName == "f32x8" {
+            return "mat2x4"
+        }
+        if typeName == "Mat4" or typeName == "mat4" {
+            return "mat4"
+        }
+        if typeName == "Mat3" or typeName == "mat3" {
+            return "mat3"
+        }
+        if typeName == "Void" or typeName == "" {
+            return "void"
+        }
+        // Array types
+        if typeName.startsWith("Array<") {
+            let inner = typeName.substring(6, typeName.length() - 1)
+            let glslInner = mapSeenTypeToGLSL(inner)
+            return glslInner + "[]"
+        }
+        // User-defined struct types pass through
+        return typeName
+    }
+
+    fun mapImageFormat(typeName: String) r: String {
+        if typeName == "Float" or typeName == "f32" {
+            return "r32f"
+        }
+        if typeName == "f32x4" or typeName == "Vec4" {
+            return "rgba32f"
+        }
+        if typeName == "i32" or typeName == "Int" {
+            return "r32i"
+        }
+        if typeName == "i32x4" {
+            return "rgba32i"
+        }
+        return "rgba32f"
+    }
+
+    // --- GPU Built-in Mappings ---
+
+    fun mapGpuBuiltinVar(name: String) r: String {
+        if name == "globalInvocationId" {
+            return "gl_GlobalInvocationID"
+        }
+        if name == "localInvocationId" {
+            return "gl_LocalInvocationID"
+        }
+        if name == "workgroupId" {
+            return "gl_WorkGroupID"
+        }
+        if name == "numWorkgroups" {
+            return "gl_NumWorkGroups"
+        }
+        if name == "localInvocationIndex" {
+            return "gl_LocalInvocationIndex"
+        }
+        if name == "vertexIndex" {
+            return "gl_VertexIndex"
+        }
+        if name == "instanceIndex" {
+            return "gl_InstanceIndex"
+        }
+        if name == "fragCoord" {
+            return "gl_FragCoord"
+        }
+        return name
+    }
+
+    fun mapGpuBuiltin(name: String) r: String {
+        // Texture/sampling
+        if name == "sample" {
+            return "texture"
+        }
+        // Math functions (same name in GLSL)
+        if name == "dot" {
+            return "dot"
+        }
+        if name == "cross" {
+            return "cross"
+        }
+        if name == "normalize" {
+            return "normalize"
+        }
+        if name == "mix" {
+            return "mix"
+        }
+        if name == "clamp" {
+            return "clamp"
+        }
+        if name == "abs" {
+            return "abs"
+        }
+        if name == "min" {
+            return "min"
+        }
+        if name == "max" {
+            return "max"
+        }
+        if name == "sqrt" {
+            return "sqrt"
+        }
+        if name == "sin" {
+            return "sin"
+        }
+        if name == "cos" {
+            return "cos"
+        }
+        if name == "pow" {
+            return "pow"
+        }
+        if name == "floor" {
+            return "floor"
+        }
+        if name == "ceil" {
+            return "ceil"
+        }
+        if name == "fract" {
+            return "fract"
+        }
+        if name == "length" {
+            return "length"
+        }
+        if name == "distance" {
+            return "distance"
+        }
+        if name == "reflect" {
+            return "reflect"
+        }
+        if name == "refract" {
+            return "refract"
+        }
+        if name == "smoothstep" {
+            return "smoothstep"
+        }
+        if name == "step" {
+            return "step"
+        }
+        if name == "inversesqrt" {
+            return "inversesqrt"
+        }
+        // Atomic operations
+        if name == "atomicAdd" {
+            return "atomicAdd"
+        }
+        if name == "atomicMin" {
+            return "atomicMin"
+        }
+        if name == "atomicMax" {
+            return "atomicMax"
+        }
+        if name == "atomicAnd" {
+            return "atomicAnd"
+        }
+        if name == "atomicOr" {
+            return "atomicOr"
+        }
+        if name == "atomicXor" {
+            return "atomicXor"
+        }
+        if name == "atomicExchange" {
+            return "atomicExchange"
+        }
+        if name == "atomicCompSwap" {
+            return "atomicCompSwap"
+        }
+        // Synchronization
+        if name == "barrier" {
+            return "barrier"
+        }
+        if name == "memoryBarrier" {
+            return "memoryBarrier"
+        }
+        if name == "memoryBarrierBuffer" {
+            return "memoryBarrierBuffer"
+        }
+        if name == "memoryBarrierShared" {
+            return "memoryBarrierShared"
+        }
+        if name == "groupMemoryBarrier" {
+            return "groupMemoryBarrier"
+        }
+        // Image operations
+        if name == "imageLoad" {
+            return "imageLoad"
+        }
+        if name == "imageStore" {
+            return "imageStore"
+        }
+        if name == "imageSize" {
+            return "imageSize"
+        }
+        // Vector constructors
+        if name == "vec2" {
+            return "vec2"
+        }
+        if name == "vec3" {
+            return "vec3"
+        }
+        if name == "vec4" {
+            return "vec4"
+        }
+        if name == "ivec2" {
+            return "ivec2"
+        }
+        if name == "ivec3" {
+            return "ivec3"
+        }
+        if name == "ivec4" {
+            return "ivec4"
+        }
+        if name == "mat3" {
+            return "mat3"
+        }
+        if name == "mat4" {
+            return "mat4"
+        }
+        if name == "Vec2" {
+            return "vec2"
+        }
+        if name == "Vec3" {
+            return "vec3"
+        }
+        if name == "Vec4" {
+            return "vec4"
+        }
+        return name
+    }
+
+    fun mapOperator(op: String) r: String {
+        // Most operators are the same in GLSL
+        if op == "==" {
+            return "=="
+        }
+        if op == "!=" {
+            return "!="
+        }
+        if op == "<" {
+            return "<"
+        }
+        if op == ">" {
+            return ">"
+        }
+        if op == "<=" {
+            return "<="
+        }
+        if op == ">=" {
+            return ">="
+        }
+        if op == "and" or op == "&&" {
+            return "&&"
+        }
+        if op == "or" or op == "||" {
+            return "||"
+        }
+        return op
+    }
+
+    // --- Helper Functions ---
+
+    fun emitIndent() r: Void {
+        var i = 0
+        while i < indentLevel {
+            sb.append("    ")
+            i = i + 1
+        }
+    }
+
+    fun inferExpressionType(expr: ParserExpressionNode, typeAnnotation: TypeNode) r: String {
+        if typeAnnotation.typeName != "" {
+            return typeAnnotation.typeName
+        }
+        if expr.kind == "Literal" {
+            if expr.literalValue.contains(".") {
+                return "Float"
+            }
+            return "Int"
+        }
+        if expr.kind == "BoolLiteral" {
+            return "Bool"
+        }
+        return "Float"
+    }
+
+    fun parseInt(s: String) r: Int {
+        var result = 0
+        var i = 0
+        let trimmed = s.trim()
+        while i < trimmed.length() {
+            let ch = trimmed.byteAt(i)
+            if ch >= 48 and ch <= 57 {
+                result = result * 10 + (ch - 48)
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    // --- SPIR-V Compilation ---
+
+    fun compileToSpirv(glslPath: String, spvPath: String, stage: Int) r: Bool {
+        let stageFlag = stageToGlslc(stage)
+        // Try glslc first (Vulkan SDK)
+        let glslcCmd = "glslc -fshader-stage=" + stageFlag + " -O " + glslPath + " -o " + spvPath + " 2>&1"
+        let glslcResult: CommandResult = runCommand(glslcCmd)
+        if commandWasSuccessful(glslcResult) {
+            return true
+        }
+
+        // Fallback to glslangValidator
+        let validatorCmd = "glslangValidator -V -S " + stageFlag + " -o " + spvPath + " " + glslPath + " 2>&1"
+        let validatorResult: CommandResult = runCommand(validatorCmd)
+        if commandWasSuccessful(validatorResult) {
+            return true
+        }
+
+        println("[GPU] Failed to compile shader: " + glslPath)
+        println("[GPU] glslc output: " + glslcResult.output)
+        println("[GPU] glslangValidator output: " + validatorResult.output)
+        return false
+    }
+
+    // --- Shader Permutations ---
+
+    fun generatePermutations(program: ProgramNode, outputDir: String) r: Int {
+        var totalFailed = 0
+        var fi = 0
+        while fi < gpuFunctions.length() {
+            let info = gpuFunctions[fi]
+            let fn = info.fn
+
+            // Scan for @cfg decorators on statements in the shader body
+            var features = Array<String>()
+            scanCfgFeatures(fn.body, features)
+
+            if features.length() == 0 {
+                fi = fi + 1
+                continue
+            }
+
+            // Generate 2^N permutations (capped at reasonable limit)
+            let numPerms = 1
+            var pi = 0
+            // For simplicity, generate one variant per feature (feature on/off)
+            while pi < features.length() {
+                let featureName = features[pi]
+
+                // Variant with feature enabled
+                let variantGlsl = generateShaderWithDefines(info, featureName)
+                let variantName = info.outputName + "_" + featureName
+                let glslPath = outputDir + "/" + variantName + "." + stageToGlslc(info.stage) + ".glsl"
+                let spvPath = outputDir + "/" + variantName + "." + stageToGlslc(info.stage) + ".spv"
+                writeText(glslPath, variantGlsl)
+
+                let ok = compileToSpirv(glslPath, spvPath, info.stage)
+                if not ok {
+                    totalFailed = totalFailed + 1
+                }
+
+                pi = pi + 1
+            }
+
+            fi = fi + 1
+        }
+        return totalFailed
+    }
+
+    fun scanCfgFeatures(block: BlockNode, features: Array<String>) r: Void {
+        var i = 0
+        while i < block.statements.length() {
+            let stmt = block.statements[i]
+            var di = 0
+            while di < stmt.decorators.length() {
+                if stmt.decorators[di].name == "cfg" {
+                    if stmt.decorators[di].arguments.length() > 0 {
+                        let featurePred = stmt.decorators[di].arguments[0]
+                        if featurePred.startsWith("feature:") {
+                            let featureName = featurePred.substring(8, featurePred.length()).trim()
+                            // Check not already added
+                            var alreadyExists = false
+                            var fi = 0
+                            while fi < features.length() {
+                                if features[fi] == featureName {
+                                    alreadyExists = true
+                                }
+                                fi = fi + 1
+                            }
+                            if not alreadyExists {
+                                features.push(featureName)
+                            }
+                        }
+                    }
+                }
+                di = di + 1
+            }
+            // Recurse into nested blocks
+            if stmt.body.statements.length() > 0 {
+                scanCfgFeatures(stmt.body, features)
+            }
+            if stmt.elseBody.statements.length() > 0 {
+                scanCfgFeatures(stmt.elseBody, features)
+            }
+            i = i + 1
+        }
+    }
+
+    fun generateShaderWithDefines(info: GpuFunctionInfo, featureName: String) r: String {
+        // Save current state
+        let savedSb = sb
+        sb = StringBuilder.new()
+
+        // Emit #version + #define
+        sb.append("#version 450\n")
+        sb.append("#define " + featureName.toUpperCase() + " 1\n")
+        sb.append("// Shader permutation: " + featureName + " enabled\n\n")
+
+        // Re-generate the shader body (simplified - just append the base shader minus the version line)
+        let baseShader = generateShader(info)
+        // Skip the first line (#version 450) from baseShader
+        let newlineIdx = baseShader.indexOf("\n")
+        if newlineIdx >= 0 {
+            sb.append(baseShader.substring(newlineIdx + 1, baseShader.length()))
+        }
+
+        let result = sb.toString()
+        sb = savedSb
+        return result
+    }
+
+    // --- Layout Validation ---
+
+    fun validateCpuGpuLayout(cls: ClassNode) r: Bool {
+        // Compare field order and types between CPU struct and GLSL struct
+        // std430 rules: scalars align to own size, vec2 aligns to 8, vec3/vec4 align to 16
+        var offset = 0
+        var valid = true
+        var fi = 0
+        while fi < cls.fields.length() {
+            let field = cls.fields[fi]
+            let glslType = mapSeenTypeToGLSL(field.fieldType.typeName)
+            let alignment = getStd430Alignment(glslType)
+            let size = getStd430Size(glslType)
+
+            // Align offset
+            if alignment > 0 {
+                let rem = offset - (offset / alignment) * alignment
+                if rem != 0 {
+                    offset = offset + (alignment - rem)
+                }
+            }
+            offset = offset + size
+            fi = fi + 1
+        }
+        return valid
+    }
+
+    fun getStd430Alignment(glslType: String) r: Int {
+        if glslType == "float" or glslType == "int" or glslType == "uint" or glslType == "bool" {
+            return 4
+        }
+        if glslType == "double" {
+            return 8
+        }
+        if glslType == "vec2" {
+            return 8
+        }
+        if glslType == "vec3" or glslType == "vec4" {
+            return 16
+        }
+        if glslType == "ivec2" {
+            return 8
+        }
+        if glslType == "ivec3" or glslType == "ivec4" {
+            return 16
+        }
+        if glslType == "dvec2" {
+            return 16
+        }
+        if glslType == "dvec4" {
+            return 32
+        }
+        if glslType == "mat4" {
+            return 16
+        }
+        if glslType == "mat3" {
+            return 16
+        }
+        return 4
+    }
+
+    fun getStd430Size(glslType: String) r: Int {
+        if glslType == "float" or glslType == "int" or glslType == "uint" or glslType == "bool" {
+            return 4
+        }
+        if glslType == "double" {
+            return 8
+        }
+        if glslType == "vec2" {
+            return 8
+        }
+        if glslType == "vec3" {
+            return 12
+        }
+        if glslType == "vec4" {
+            return 16
+        }
+        if glslType == "ivec2" {
+            return 8
+        }
+        if glslType == "ivec3" {
+            return 12
+        }
+        if glslType == "ivec4" {
+            return 16
+        }
+        if glslType == "dvec2" {
+            return 16
+        }
+        if glslType == "dvec4" {
+            return 32
+        }
+        if glslType == "mat4" {
+            return 64
+        }
+        if glslType == "mat3" {
+            return 48
+        }
+        return 4
+    }
+
+    // --- Shared Include Support ---
+
+    fun processIncludeDecorators(fn: FunctionNode) r: String {
+        let includes = StringBuilder.new()
+        var di = 0
+        while di < fn.decorators.length() {
+            if fn.decorators[di].name == "include" {
+                if fn.decorators[di].arguments.length() > 0 {
+                    let includePath = fn.decorators[di].arguments[0]
+                    let includeContent = readText(includePath)
+                    if includeContent != "" {
+                        includes.append("// Included from: " + includePath + "\n")
+                        includes.append(includeContent)
+                        includes.append("\n")
+                    }
+                }
+            }
+            di = di + 1
+        }
+        return includes.toString()
+    }
+}

@@ -1,0 +1,13 @@
+name = "Japanese"
+description = "Japanese Miscellaneous Keywords"
+
+[keywords]
+"である" = "KeywordIs"
+"として" = "KeywordAs"
+"により" = "KeywordBy"
+"且つ" = "KeywordAnd"
+"又は" = "KeywordOr"
+"非" = "KeywordNot"
+"まで" = "KeywordTo"
+"から" = "KeywordFrom"
+"効果" = "KeywordEffect"

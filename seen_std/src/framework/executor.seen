@@ -1,0 +1,264 @@
+// Executor Framework for Seen Language
+// Provides single-threaded async task execution with FIFO ordering
+// Used with the @executor decorator
+
+// Task state
+data TaskState {
+    Pending,
+    Running,
+    Completed,
+    Cancelled
+}
+
+// Poll result for async operations
+data PollResult {
+    Ready(value: Int),
+    Pending,
+    Error(message: String)
+}
+
+// Simple task representation
+class Task {
+    var id: Int
+    var name: String
+    var state: TaskState
+    var priority: Int
+    var result: Int
+
+    static fun new(id: Int, name: String) r: Task {
+        return Task{
+            id: id,
+            name: name,
+            state: TaskState.Pending,
+            priority: 0,
+            result: 0
+        }
+    }
+
+    static fun withPriority(id: Int, name: String, priority: Int) r: Task {
+        return Task{
+            id: id,
+            name: name,
+            state: TaskState.Pending,
+            priority: priority,
+            result: 0
+        }
+    }
+
+    fun isPending() r: Bool {
+        // Check if state is Pending
+        return true  // Simplified - would need pattern matching
+    }
+
+    fun setRunning() r: Void {
+        state = TaskState.Running
+    }
+
+    fun setCompleted(res: Int) r: Void {
+        state = TaskState.Completed
+        result = res
+    }
+
+    fun setCancelled() r: Void {
+        state = TaskState.Cancelled
+    }
+}
+
+// Task handle returned when spawning
+class TaskHandle {
+    var taskId: Int
+
+    static fun new(id: Int) r: TaskHandle {
+        return TaskHandle{
+            taskId: id
+        }
+    }
+
+    fun getId() r: Int {
+        return taskId
+    }
+}
+
+// Simple single-threaded executor with FIFO task queue
+@executor
+class SimpleExecutor {
+    var tasks: Array<Task>
+    var taskQueue: Array<Int>  // Queue of task IDs
+    var nextTaskId: Int
+    var running: Bool
+
+    static fun new() r: SimpleExecutor {
+        return SimpleExecutor{
+            tasks: Array<Task>(),
+            taskQueue: Array<Int>(),
+            nextTaskId: 1,
+            running: false
+        }
+    }
+
+    // Spawn a new task
+    fun spawn(name: String) r: TaskHandle {
+        let taskId = nextTaskId
+        nextTaskId = nextTaskId + 1
+
+        let task = Task.new(taskId, name)
+        tasks.push(task)
+        taskQueue.push(taskId)
+
+        return TaskHandle.new(taskId)
+    }
+
+    // Spawn with priority
+    fun spawnWithPriority(name: String, priority: Int) r: TaskHandle {
+        let taskId = nextTaskId
+        nextTaskId = nextTaskId + 1
+
+        let task = Task.withPriority(taskId, name, priority)
+        tasks.push(task)
+        taskQueue.push(taskId)
+
+        return TaskHandle.new(taskId)
+    }
+
+    // Get task by ID
+    fun getTask(taskId: Int) r: Option<Task> {
+        var i = 0
+        while i < tasks.length() {
+            if tasks[i].id == taskId {
+                return Some(tasks[i])
+            }
+            i = i + 1
+        }
+        return None()
+    }
+
+    // Poll a single task from the queue (FIFO)
+    fun poll() r: Option<Task> {
+        if taskQueue.length() == 0 {
+            return None()
+        }
+
+        // Get first task ID (FIFO)
+        let taskId = taskQueue[0]
+
+        // Remove from queue (shift left)
+        var newQueue = Array<Int>()
+        var i = 1
+        while i < taskQueue.length() {
+            newQueue.push(taskQueue[i])
+            i = i + 1
+        }
+        taskQueue = newQueue
+
+        return getTask(taskId)
+    }
+
+    // Run until all tasks complete
+    fun runUntilComplete() r: Int {
+        running = true
+        var completedCount = 0
+
+        while taskQueue.length() > 0 {
+            let taskOpt = poll()
+            if taskOpt.isSome() {
+                let task = taskOpt.unwrap()
+                task.setRunning()
+                println("  Executor: Running task " + task.id.toString() + " (" + task.name + ")")
+                // Simulate task completion
+                task.setCompleted(0)
+                completedCount = completedCount + 1
+            }
+        }
+
+        running = false
+        return completedCount
+    }
+
+    // Run a single step (poll one task)
+    fun runOne() r: Bool {
+        let taskOpt = poll()
+        if taskOpt.isNone() {
+            return false
+        }
+
+        let task = taskOpt.unwrap()
+        task.setRunning()
+        println("  Executor: Running task " + task.id.toString() + " (" + task.name + ")")
+        task.setCompleted(0)
+        return true
+    }
+
+    // Get pending task count
+    fun pendingCount() r: Int {
+        return taskQueue.length()
+    }
+
+    // Get total task count
+    fun totalTasks() r: Int {
+        return tasks.length()
+    }
+
+    // Check if running
+    fun isRunning() r: Bool {
+        return running
+    }
+
+    // Cancel a task
+    fun cancel(handle: TaskHandle) r: Bool {
+        let taskOpt = getTask(handle.getId())
+        if taskOpt.isNone() {
+            return false
+        }
+
+        let task = taskOpt.unwrap()
+        task.setCancelled()
+
+        // Remove from queue
+        var newQueue = Array<Int>()
+        var i = 0
+        while i < taskQueue.length() {
+            if taskQueue[i] != handle.getId() {
+                newQueue.push(taskQueue[i])
+            }
+            i = i + 1
+        }
+        taskQueue = newQueue
+
+        return true
+    }
+}
+
+// Global executor instance
+var g_executor: SimpleExecutor = SimpleExecutor.new()
+
+// Public API functions
+
+// Initialize executor
+fun initExecutor() r: Void {
+    g_executor = SimpleExecutor.new()
+}
+
+// Spawn a task on the global executor
+fun spawnTask(name: String) r: TaskHandle {
+    return g_executor.spawn(name)
+}
+
+// Run all pending tasks
+fun runAllTasks() r: Int {
+    return g_executor.runUntilComplete()
+}
+
+// Run one task
+fun runOneTask() r: Bool {
+    return g_executor.runOne()
+}
+
+// Get pending task count
+fun getPendingTaskCount() r: Int {
+    return g_executor.pendingCount()
+}
+
+// Cancel a task
+fun cancelTask(handle: TaskHandle) r: Bool {
+    return g_executor.cancel(handle)
+}

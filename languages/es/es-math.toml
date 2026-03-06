@@ -1,0 +1,54 @@
+name = "Spanish"
+description = "Spanish Math Standard Library"
+
+[std_lib]
+# Trigonometria
+"seno" = "seen_std.math.sin"
+"coseno" = "seen_std.math.cos"
+"tangente" = "seen_std.math.tan"
+"arcoseno" = "seen_std.math.asin"
+"arcocoseno" = "seen_std.math.acos"
+"arcotangente" = "seen_std.math.atan"
+"arcotangente2" = "seen_std.math.atan2"
+
+# Raices y Potencias
+"raiz" = "seen_std.math.sqrt"
+"raiz_cubica" = "seen_std.math.cbrt"
+"potencia" = "seen_std.math.pow"
+"hipotenusa" = "seen_std.math.hypot"
+
+# Exponencial y Logaritmico
+"exponencial" = "seen_std.math.exp"
+"logaritmo_natural" = "seen_std.math.ln"
+"logaritmo2" = "seen_std.math.log2"
+"logaritmo10" = "seen_std.math.log10"
+
+# Redondeo
+"piso" = "seen_std.math.floor"
+"techo" = "seen_std.math.ceil"
+"redondeo" = "seen_std.math.round"
+
+# Basico
+"absoluto" = "seen_std.math.abs"
+"minimo" = "seen_std.math.min"
+"maximo" = "seen_std.math.max"
+"limitar" = "seen_std.math.clamp"
+"signo" = "seen_std.math.sign"
+
+# Interpolacion
+"interpolacion_lineal" = "seen_std.math.lerp"
+"paso_suave" = "seen_std.math.smoothstep"
+
+# Verificaciones IEEE
+"es_nan" = "seen_std.math.isnan"
+"es_infinito" = "seen_std.math.isinf"
+"es_finito" = "seen_std.math.isfinite"
+
+# Entero
+"mcd" = "seen_std.math.gcd"
+
+# Constantes
+"PI" = "seen_std.math.PI"
+"TAU" = "seen_std.math.TAU"
+"E" = "seen_std.math.E"
+"EPSILON" = "seen_std.math.EPSILON"

@@ -1,0 +1,46 @@
+// HashSet implementation
+import collections.hash_map.{HashMap}
+
+@nondeterministic
+class HashSet<T> {
+    var map: HashMap<T, Bool>
+    
+    fun new() -> HashSet<T> {
+        return HashSet {
+            map: HashMap<T, Bool>.new()
+        }
+    }
+    
+    fun withCapacity(capacity: Int) -> HashSet<T> {
+        return HashSet {
+            map: HashMap<T, Bool>.withCapacity(capacity)
+        }
+    }
+    
+    fun insert(value: T) -> Bool {
+        let hadValue = this.map.containsKey(value)
+        this.map.insert(value, true)
+        return not hadValue
+    }
+    
+    fun remove(value: T) -> Bool {
+        let result = this.map.remove(value)
+        return result.isSome()
+    }
+    
+    fun contains(value: T) -> Bool {
+        return this.map.containsKey(value)
+    }
+    
+    fun len() -> Int {
+        return this.map.size()
+    }
+    
+    fun isEmpty() -> Bool {
+        return this.map.isEmpty()
+    }
+    
+    fun clear() -> Void {
+        this.map.clear()
+    }
+}

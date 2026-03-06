@@ -1,0 +1,41 @@
+// P2 : Network Packet Utilities
+// Helpers for @packet decorated classes
+
+// Usage:
+//   @packet(id=1)
+//   class MovePacket {
+//       x: Int
+//       y: Int
+//       z: Int
+//   }
+//   let pkt = MovePacket(10, 20, 30)
+//   let buf = pkt.writePacket()    // serializes with header
+//   let pkt2 = MovePacket.readPacket(buf) // deserializes
+
+// Packet header utilities
+// Header format: 4 bytes packet_id + 4 bytes payload_length
+// seen_packet_read_header returns: (id << 32) | length
+
+fun packetHeaderId(header: Int) r: Int {
+    // Extract upper 32 bits
+    var id = header
+    // Arithmetic right shift by 32
+    var i = 0
+    while i < 32 {
+        id = id / 2
+        i = i + 1
+    }
+    return id
+}
+
+fun packetHeaderLength(header: Int) r: Int {
+    // Extract lower 32 bits (mask with 0xFFFFFFFF)
+    // Use bitwise AND equivalent: header - (header / 4294967296) * 4294967296
+    var upper = header
+    var i = 0
+    while i < 32 {
+        upper = upper / 2
+        i = i + 1
+    }
+    return header - upper * 4294967296
+}

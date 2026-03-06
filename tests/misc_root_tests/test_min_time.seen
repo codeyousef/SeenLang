@@ -1,0 +1,17 @@
+fun main() -> Int {
+    let iterations = 5
+    var min_time = 1000000.0
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let end = __GetTime()
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+        }
+        i = i + 1
+    }
+    __PrintFloat(min_time)
+    __Print("\n")
+    return 0
+}

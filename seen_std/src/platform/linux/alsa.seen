@@ -1,0 +1,321 @@
+/**
+ * ALSA audio FFI bindings for Linux.
+ *
+ * Low-level bindings to ALSA (Advanced Linux Sound Architecture) via
+ * libseen_platform.so shim. Provides PCM audio playback and capture.
+ * Prefer the higher-level AudioDevice from audio.audio module.
+ *
+ * Link with: -lseen_platform (which wraps libasound.so.2)
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// ALSA PCM stream direction
+let SND_PCM_STREAM_PLAYBACK: Int = 0
+let SND_PCM_STREAM_CAPTURE: Int = 1
+
+// ALSA PCM open mode flags
+let SND_PCM_NONBLOCK: Int = 0x00000001
+let SND_PCM_ASYNC: Int = 0x00000002
+
+// ALSA PCM formats
+let SND_PCM_FORMAT_UNKNOWN: Int = -1
+let SND_PCM_FORMAT_S8: Int = 0
+let SND_PCM_FORMAT_U8: Int = 1
+let SND_PCM_FORMAT_S16_LE: Int = 2
+let SND_PCM_FORMAT_S16_BE: Int = 3
+let SND_PCM_FORMAT_U16_LE: Int = 4
+let SND_PCM_FORMAT_U16_BE: Int = 5
+let SND_PCM_FORMAT_S24_LE: Int = 6
+let SND_PCM_FORMAT_S24_BE: Int = 7
+let SND_PCM_FORMAT_U24_LE: Int = 8
+let SND_PCM_FORMAT_U24_BE: Int = 9
+let SND_PCM_FORMAT_S32_LE: Int = 10
+let SND_PCM_FORMAT_S32_BE: Int = 11
+let SND_PCM_FORMAT_U32_LE: Int = 12
+let SND_PCM_FORMAT_U32_BE: Int = 13
+let SND_PCM_FORMAT_FLOAT_LE: Int = 14
+let SND_PCM_FORMAT_FLOAT_BE: Int = 15
+let SND_PCM_FORMAT_FLOAT64_LE: Int = 16
+let SND_PCM_FORMAT_FLOAT64_BE: Int = 17
+
+// Native endianness aliases (assuming little-endian Linux)
+let SND_PCM_FORMAT_S16: Int = SND_PCM_FORMAT_S16_LE
+let SND_PCM_FORMAT_S24: Int = SND_PCM_FORMAT_S24_LE
+let SND_PCM_FORMAT_S32: Int = SND_PCM_FORMAT_S32_LE
+let SND_PCM_FORMAT_FLOAT: Int = SND_PCM_FORMAT_FLOAT_LE
+let SND_PCM_FORMAT_FLOAT64: Int = SND_PCM_FORMAT_FLOAT64_LE
+
+// ALSA PCM access types
+let SND_PCM_ACCESS_MMAP_INTERLEAVED: Int = 0
+let SND_PCM_ACCESS_MMAP_NONINTERLEAVED: Int = 1
+let SND_PCM_ACCESS_MMAP_COMPLEX: Int = 2
+let SND_PCM_ACCESS_RW_INTERLEAVED: Int = 3
+let SND_PCM_ACCESS_RW_NONINTERLEAVED: Int = 4
+
+// ALSA PCM state
+let SND_PCM_STATE_OPEN: Int = 0
+let SND_PCM_STATE_SETUP: Int = 1
+let SND_PCM_STATE_PREPARED: Int = 2
+let SND_PCM_STATE_RUNNING: Int = 3
+let SND_PCM_STATE_XRUN: Int = 4
+let SND_PCM_STATE_DRAINING: Int = 5
+let SND_PCM_STATE_PAUSED: Int = 6
+let SND_PCM_STATE_SUSPENDED: Int = 7
+let SND_PCM_STATE_DISCONNECTED: Int = 8
+
+// Common device names
+let ALSA_DEFAULT_DEVICE: String = "default"
+let ALSA_PLUGHW_DEVICE: String = "plughw:0,0"
+let ALSA_HW_DEVICE: String = "hw:0,0"
+
+// ============================================================================
+// Shim FFI Declarations - Link to libseen_platform.so
+// ============================================================================
+
+extern "C" fun seen_alsa_open(pcm: **Void, name: *Char, stream: Int32, mode: Int32) r: Int32
+extern "C" fun seen_alsa_close(pcm: *Void) r: Int32
+extern "C" fun seen_alsa_set_params(pcm: *Void, format: Int32, access: Int32, channels: Int32, rate: Int32, softResample: Int32, latency: Int32) r: Int32
+extern "C" fun seen_alsa_writei(pcm: *Void, buffer: *Void, frames: UInt64) r: Int64
+extern "C" fun seen_alsa_prepare(pcm: *Void) r: Int32
+extern "C" fun seen_alsa_drain(pcm: *Void) r: Int32
+extern "C" fun seen_alsa_recover(pcm: *Void, err: Int32, silent: Int32) r: Int32
+extern "C" fun seen_alsa_strerror(errnum: Int32) r: *Char
+
+// ============================================================================
+// Safe Wrapper Functions
+// ============================================================================
+
+// Get error string
+fun alsa_strerror(err: Int) r: String {
+    let cstr = seen_alsa_strerror(err as Int32)
+    if cstr == null {
+        return "Unknown error"
+    }
+    return String.fromCString(cstr)
+}
+
+// PCM state enum
+enum AlsaPcmState {
+    Open
+    Setup
+    Prepared
+    Running
+    Xrun
+    Draining
+    Paused
+    Suspended
+    Disconnected
+    Unknown
+}
+
+fun parseAlsaPcmState(state: Int) r: AlsaPcmState {
+    if state == SND_PCM_STATE_OPEN { return AlsaPcmState.Open }
+    if state == SND_PCM_STATE_SETUP { return AlsaPcmState.Setup }
+    if state == SND_PCM_STATE_PREPARED { return AlsaPcmState.Prepared }
+    if state == SND_PCM_STATE_RUNNING { return AlsaPcmState.Running }
+    if state == SND_PCM_STATE_XRUN { return AlsaPcmState.Xrun }
+    if state == SND_PCM_STATE_DRAINING { return AlsaPcmState.Draining }
+    if state == SND_PCM_STATE_PAUSED { return AlsaPcmState.Paused }
+    if state == SND_PCM_STATE_SUSPENDED { return AlsaPcmState.Suspended }
+    if state == SND_PCM_STATE_DISCONNECTED { return AlsaPcmState.Disconnected }
+    return AlsaPcmState.Unknown
+}
+
+/**
+ * ALSA audio format configuration.
+ */
+class AlsaAudioFormat {
+    var format: Int
+    var access: Int
+    var channels: Int
+    var sampleRate: Int
+    var latencyUs: Int  // Latency in microseconds
+
+    static fun floatStereo(sampleRate: Int) r: AlsaAudioFormat {
+        return AlsaAudioFormat {
+            format: SND_PCM_FORMAT_FLOAT,
+            access: SND_PCM_ACCESS_RW_INTERLEAVED,
+            channels: 2,
+            sampleRate: sampleRate,
+            latencyUs: 50000  // 50ms default latency
+        }
+    }
+
+    static fun floatMono(sampleRate: Int) r: AlsaAudioFormat {
+        return AlsaAudioFormat {
+            format: SND_PCM_FORMAT_FLOAT,
+            access: SND_PCM_ACCESS_RW_INTERLEAVED,
+            channels: 1,
+            sampleRate: sampleRate,
+            latencyUs: 50000
+        }
+    }
+
+    static fun s16Stereo(sampleRate: Int) r: AlsaAudioFormat {
+        return AlsaAudioFormat {
+            format: SND_PCM_FORMAT_S16,
+            access: SND_PCM_ACCESS_RW_INTERLEAVED,
+            channels: 2,
+            sampleRate: sampleRate,
+            latencyUs: 50000
+        }
+    }
+
+    static fun default() r: AlsaAudioFormat {
+        return AlsaAudioFormat.floatStereo(48000)
+    }
+
+    fun withLatency(latencyUs: Int) r: AlsaAudioFormat {
+        this.latencyUs = latencyUs
+        return this
+    }
+
+    fun withLowLatency() r: AlsaAudioFormat {
+        this.latencyUs = 10000  // 10ms
+        return this
+    }
+}
+
+/**
+ * ALSA PCM device wrapper for audio playback and capture.
+ */
+class AlsaPcm {
+    var pcmHandle: *Void
+    var deviceName: String
+    var format: AlsaAudioFormat
+    var isPlayback: Bool
+
+    static fun openPlayback(device: String, format: AlsaAudioFormat) r: Result<AlsaPcm, String> {
+        var handlePtr: *Void = null
+        let result = seen_alsa_open(&handlePtr, device.toCString(), SND_PCM_STREAM_PLAYBACK as Int32, 0)
+
+        if result < 0 {
+            return Err("Failed to open ALSA device '" + device + "': " + alsa_strerror(result))
+        }
+
+        var pcm = AlsaPcm {
+            pcmHandle: handlePtr,
+            deviceName: device,
+            format: format,
+            isPlayback: true
+        }
+
+        // Configure parameters
+        let configResult = pcm.configure()
+        if configResult.isErr() {
+            let _ = seen_alsa_close(handlePtr)
+            return Err(configResult.unwrapErr())
+        }
+
+        return Ok(pcm)
+    }
+
+    static fun openCapture(device: String, format: AlsaAudioFormat) r: Result<AlsaPcm, String> {
+        var handlePtr: *Void = null
+        let result = seen_alsa_open(&handlePtr, device.toCString(), SND_PCM_STREAM_CAPTURE as Int32, 0)
+
+        if result < 0 {
+            return Err("Failed to open ALSA device '" + device + "': " + alsa_strerror(result))
+        }
+
+        var pcm = AlsaPcm {
+            pcmHandle: handlePtr,
+            deviceName: device,
+            format: format,
+            isPlayback: false
+        }
+
+        let configResult = pcm.configure()
+        if configResult.isErr() {
+            let _ = seen_alsa_close(handlePtr)
+            return Err(configResult.unwrapErr())
+        }
+
+        return Ok(pcm)
+    }
+
+    // Simple playback open with defaults
+    static fun openDefault(format: AlsaAudioFormat) r: Result<AlsaPcm, String> {
+        return AlsaPcm.openPlayback(ALSA_DEFAULT_DEVICE, format)
+    }
+
+    // Configure PCM with format parameters
+    fun configure() r: Result<Unit, String> {
+        let result = seen_alsa_set_params(
+            this.pcmHandle,
+            this.format.format as Int32,
+            this.format.access as Int32,
+            this.format.channels as Int32,
+            this.format.sampleRate as Int32,
+            1,  // Enable soft resampling
+            this.format.latencyUs as Int32
+        )
+
+        if result < 0 {
+            return Err("Failed to set ALSA parameters: " + alsa_strerror(result))
+        }
+
+        return Ok(Unit{})
+    }
+
+    // Prepare for playback/capture
+    fun prepare() r: Result<Unit, String> {
+        let result = seen_alsa_prepare(this.pcmHandle)
+        if result < 0 {
+            return Err("Failed to prepare PCM: " + alsa_strerror(result))
+        }
+        return Ok(Unit{})
+    }
+
+    // Stop after playing all buffered data
+    fun drain() r: Result<Unit, String> {
+        let result = seen_alsa_drain(this.pcmHandle)
+        if result < 0 {
+            return Err("Failed to drain PCM: " + alsa_strerror(result))
+        }
+        return Ok(Unit{})
+    }
+
+    // Recover from errors (xrun, etc.)
+    fun recover(err: Int, silent: Bool) r: Result<Unit, String> {
+        let silentFlag = if silent { 1 } else { 0 }
+        let result = seen_alsa_recover(this.pcmHandle, err as Int32, silentFlag as Int32)
+        if result < 0 {
+            return Err("Failed to recover PCM: " + alsa_strerror(result))
+        }
+        return Ok(Unit{})
+    }
+
+    // Close the PCM device
+    fun close() r: Result<Unit, String> {
+        if this.pcmHandle != null {
+            let result = seen_alsa_close(this.pcmHandle)
+            this.pcmHandle = null
+            if result < 0 {
+                return Err("Failed to close PCM: " + alsa_strerror(result))
+            }
+        }
+        return Ok(Unit{})
+    }
+}
+
+/**
+ * Check if ALSA is available on the system.
+ */
+fun alsa_is_available() r: Bool {
+    var pcmHandle: *Void = null
+    let result = seen_alsa_open(&pcmHandle, "null".toCString(), SND_PCM_STREAM_PLAYBACK as Int32, SND_PCM_NONBLOCK as Int32)
+    if result >= 0 {
+        let _ = seen_alsa_close(pcmHandle)
+        return true
+    }
+    // Try default device
+    let result2 = seen_alsa_open(&pcmHandle, "default".toCString(), SND_PCM_STREAM_PLAYBACK as Int32, SND_PCM_NONBLOCK as Int32)
+    if result2 >= 0 {
+        let _ = seen_alsa_close(pcmHandle)
+        return true
+    }
+    return false
+}

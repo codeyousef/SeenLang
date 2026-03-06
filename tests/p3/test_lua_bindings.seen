@@ -1,0 +1,18 @@
+// : Lua C API bindings — compile-only
+
+fun main() r: Int {
+    let LUA_OK = 0
+    let LUA_TNIL = 0
+    let LUA_TBOOLEAN = 1
+    let LUA_TNUMBER = 3
+    let LUA_TSTRING = 4
+    let LUA_TTABLE = 5
+
+    if LUA_TSTRING != 4 {
+        println("FAIL: LUA_TSTRING constant")
+        return 1
+    }
+
+    println("PASS: Lua bindings test (compile-only)")
+    return 0
+}

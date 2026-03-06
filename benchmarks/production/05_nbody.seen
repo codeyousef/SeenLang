@@ -1,0 +1,204 @@
+// N-Body Simulation Benchmark
+// Solar system simulation with gravitational forces
+// Uses pre-allocated Float arrays with loop-based pair interactions
+
+fun advance(bx: Array<Float>, by: Array<Float>, bz: Array<Float>, bvx: Array<Float>, bvy: Array<Float>, bvz: Array<Float>, bmass: Array<Float>, dt: Float, n: Int) -> Void {
+    var i = 0
+    while i < n {
+        var j = i + 1
+        while j < n {
+            let dx = bx[i] - bx[j]
+            let dy = by[i] - by[j]
+            let dz = bz[i] - bz[j]
+
+            let dist_sq = dx * dx + dy * dy + dz * dz
+            let dist = __Sqrt(dist_sq)
+            let mag = dt / (dist_sq * dist)
+
+            let mj_mag = bmass[j] * mag
+            let mi_mag = bmass[i] * mag
+
+            bvx[i] = bvx[i] - dx * mj_mag
+            bvy[i] = bvy[i] - dy * mj_mag
+            bvz[i] = bvz[i] - dz * mj_mag
+
+            bvx[j] = bvx[j] + dx * mi_mag
+            bvy[j] = bvy[j] + dy * mi_mag
+            bvz[j] = bvz[j] + dz * mi_mag
+
+            j = j + 1
+        }
+        i = i + 1
+    }
+
+    var k = 0
+    while k < n {
+        bx[k] = bx[k] + dt * bvx[k]
+        by[k] = by[k] + dt * bvy[k]
+        bz[k] = bz[k] + dt * bvz[k]
+        k = k + 1
+    }
+}
+
+fun energy(bx: Array<Float>, by: Array<Float>, bz: Array<Float>, bvx: Array<Float>, bvy: Array<Float>, bvz: Array<Float>, bmass: Array<Float>, n: Int) -> Float {
+    var e = 0.0
+
+    var i = 0
+    while i < n {
+        e = e + 0.5 * bmass[i] * (bvx[i] * bvx[i] + bvy[i] * bvy[i] + bvz[i] * bvz[i])
+
+        var j = i + 1
+        while j < n {
+            let dx = bx[i] - bx[j]
+            let dy = by[i] - by[j]
+            let dz = bz[i] - bz[j]
+
+            let distance = __Sqrt(dx * dx + dy * dy + dz * dz)
+            e = e - (bmass[i] * bmass[j]) / distance
+
+            j = j + 1
+        }
+        i = i + 1
+    }
+
+    return e
+}
+
+fun offset_momentum(bvx: Array<Float>, bvy: Array<Float>, bvz: Array<Float>, bmass: Array<Float>, n: Int, solar_mass: Float) -> Void {
+    var px = 0.0
+    var py = 0.0
+    var pz = 0.0
+
+    var i = 0
+    while i < n {
+        px = px + bvx[i] * bmass[i]
+        py = py + bvy[i] * bmass[i]
+        pz = pz + bvz[i] * bmass[i]
+        i = i + 1
+    }
+
+    bvx[0] = 0.0 - px / solar_mass
+    bvy[0] = 0.0 - py / solar_mass
+    bvz[0] = 0.0 - pz / solar_mass
+}
+
+fun init_bodies(bx: Array<Float>, by: Array<Float>, bz: Array<Float>, bvx: Array<Float>, bvy: Array<Float>, bvz: Array<Float>, bmass: Array<Float>, solar_mass: Float, days_per_year: Float) -> Void {
+    // Sun
+    bx[0] = 0.0
+    by[0] = 0.0
+    bz[0] = 0.0
+    bvx[0] = 0.0
+    bvy[0] = 0.0
+    bvz[0] = 0.0
+    bmass[0] = solar_mass
+
+    // Jupiter
+    bx[1] = 4.84143144246472090e+00
+    by[1] = 0.0 - 1.16032004402742839e+00
+    bz[1] = 0.0 - 1.03622044471123109e-01
+    bvx[1] = 1.66007664274403694e-03 * days_per_year
+    bvy[1] = 7.69901118419740425e-03 * days_per_year
+    bvz[1] = 0.0 - 6.90460016972063023e-05 * days_per_year
+    bmass[1] = 9.54791938424326609e-04 * solar_mass
+
+    // Saturn
+    bx[2] = 8.34336671824457987e+00
+    by[2] = 4.12479856412430479e+00
+    bz[2] = 0.0 - 4.03523417114321381e-01
+    bvx[2] = 0.0 - 2.76742510726862411e-03 * days_per_year
+    bvy[2] = 4.99852801234917238e-03 * days_per_year
+    bvz[2] = 2.30417297573763929e-05 * days_per_year
+    bmass[2] = 2.85885980666130812e-04 * solar_mass
+
+    // Uranus
+    bx[3] = 1.28943695621391310e+01
+    by[3] = 0.0 - 1.51111514016986312e+01
+    bz[3] = 0.0 - 2.23307578892655734e-01
+    bvx[3] = 2.96460137564761618e-03 * days_per_year
+    bvy[3] = 2.37847173959480950e-03 * days_per_year
+    bvz[3] = 0.0 - 2.96589568540237556e-05 * days_per_year
+    bmass[3] = 4.36624404335156298e-05 * solar_mass
+
+    // Neptune
+    bx[4] = 1.53796971148509165e+01
+    by[4] = 0.0 - 2.59193146099879641e+01
+    bz[4] = 1.79258772950371181e-01
+    bvx[4] = 2.68067772490389322e-03 * days_per_year
+    bvy[4] = 1.62824170038242295e-03 * days_per_year
+    bvz[4] = 0.0 - 9.51592254519715870e-05 * days_per_year
+    bmass[4] = 5.15138902046611451e-05 * solar_mass
+}
+
+fun main() -> Int {
+    let solar_mass = 4.0 * 3.141592653589793 * 3.141592653589793
+    let days_per_year = 365.24
+    let dt = 0.01
+    let n = 5
+    let num_steps = 50000000
+
+    __Print("N-Body Simulation Benchmark\n")
+    __Print("Simulating ")
+    __PrintInt(num_steps)
+    __Print(" steps\n")
+
+    let bx = Array<Float>(n, 0.0)
+    let by = Array<Float>(n, 0.0)
+    let bz = Array<Float>(n, 0.0)
+    let bvx = Array<Float>(n, 0.0)
+    let bvy = Array<Float>(n, 0.0)
+    let bvz = Array<Float>(n, 0.0)
+    let bmass = Array<Float>(n, 0.0)
+
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs at n/100)...\n")
+    var w = 0
+    while w < warmup_runs {
+        init_bodies(bx, by, bz, bvx, bvy, bvz, bmass, solar_mass, days_per_year)
+        offset_momentum(bvx, bvy, bvz, bmass, n, solar_mass)
+        var j = 0
+        while j < num_steps / 100 {
+            advance(bx, by, bz, bvx, bvy, bvz, bmass, dt, n)
+            j = j + 1
+        }
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 3
+    var min_time = 1000000.0
+    var checksum = 0.0
+
+    var iter = 0
+    while iter < iterations {
+        init_bodies(bx, by, bz, bvx, bvy, bvz, bmass, solar_mass, days_per_year)
+        offset_momentum(bvx, bvy, bvz, bmass, n, solar_mass)
+
+        let start = __GetTime()
+        var i = 0
+        while i < num_steps {
+            advance(bx, by, bz, bvx, bvy, bvz, bmass, dt, n)
+            i = i + 1
+        }
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+        }
+        checksum = energy(bx, by, bz, bvx, bvy, bvz, bmass, n)
+        iter = iter + 1
+    }
+
+    __Print("Checksum: ")
+    __PrintFloat(checksum)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Steps per second: ")
+    __PrintFloat(num_steps.toFloat() / (min_time / 1000.0) / 1000000.0)
+    __Print(" million\n")
+
+    return 0
+}

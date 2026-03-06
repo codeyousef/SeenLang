@@ -1,0 +1,101 @@
+// Test 32-bit index arena allocator
+// Verifies seen_arena_new, seen_arena_alloc, seen_arena_get, seen_arena_reset, seen_arena_free
+
+extern fun seen_arena_new(capacity: Int) r: Int  // returns ptr as Int
+extern fun seen_arena_alloc(arena: Int, size: Int) r: Int  // returns 32-bit index
+extern fun seen_arena_get(arena: Int, index: Int) r: Int   // returns ptr as Int
+extern fun seen_arena_reset(arena: Int)
+extern fun seen_arena_free(arena: Int)
+extern fun seen_arena_used(arena: Int) r: Int
+extern fun seen_arena_remaining(arena: Int) r: Int
+
+fun main() r: Int {
+    println("=== Arena Allocator Test ===")
+
+    // Create a 4KB arena
+    let arena = seen_arena_new(4096)
+    if arena == 0 {
+        println("FAIL: arena creation returned null")
+        return 1
+    }
+    println("Arena created (4096 bytes)")
+
+    // Check initial state
+    let used0 = seen_arena_used(arena)
+    if used0 != 0 {
+        println("FAIL: initial used should be 0, got " + used0.toString())
+        return 1
+    }
+
+    let remaining0 = seen_arena_remaining(arena)
+    if remaining0 != 4096 {
+        println("FAIL: initial remaining should be 4096, got " + remaining0.toString())
+        return 1
+    }
+
+    // Allocate 64 bytes
+    let idx1 = seen_arena_alloc(arena, 64)
+    if idx1 < 0 {
+        println("FAIL: first alloc failed")
+        return 1
+    }
+    println("Alloc 1: index=" + idx1.toString())
+
+    // Allocate another 128 bytes
+    let idx2 = seen_arena_alloc(arena, 128)
+    if idx2 < 0 {
+        println("FAIL: second alloc failed")
+        return 1
+    }
+    println("Alloc 2: index=" + idx2.toString())
+
+    // Verify indices are different and ordered
+    if idx2 <= idx1 {
+        println("FAIL: second index should be > first")
+        return 1
+    }
+
+    // Check used space
+    let used1 = seen_arena_used(arena)
+    println("Used after 2 allocs: " + used1.toString())
+    if used1 <= 0 {
+        println("FAIL: used should be > 0 after allocs")
+        return 1
+    }
+
+    // Get pointers from indices
+    let ptr1 = seen_arena_get(arena, idx1)
+    let ptr2 = seen_arena_get(arena, idx2)
+    if ptr1 == 0 {
+        println("FAIL: get for idx1 returned null")
+        return 1
+    }
+    if ptr2 == 0 {
+        println("FAIL: get for idx2 returned null")
+        return 1
+    }
+
+    // Reset the arena
+    seen_arena_reset(arena)
+    let usedAfterReset = seen_arena_used(arena)
+    if usedAfterReset != 0 {
+        println("FAIL: used should be 0 after reset, got " + usedAfterReset.toString())
+        return 1
+    }
+    println("Reset: used=" + usedAfterReset.toString())
+
+    // Allocate again after reset (should succeed)
+    let idx3 = seen_arena_alloc(arena, 32)
+    if idx3 < 0 {
+        println("FAIL: alloc after reset failed")
+        return 1
+    }
+    println("Alloc after reset: index=" + idx3.toString())
+
+    // Free the arena
+    seen_arena_free(arena)
+    println("Arena freed")
+
+    println("=== All arena tests passed ===")
+    return 0
+}

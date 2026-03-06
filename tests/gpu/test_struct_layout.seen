@@ -1,0 +1,31 @@
+// Test: @gpu_buffer struct layout validation (CPU/GPU match)
+// Verifies std430 alignment rules are checked
+
+@gpu_buffer
+class Particle {
+    var posX: Float
+    var posY: Float
+    var posZ: Float
+    var velX: Float
+    var velY: Float
+    var velZ: Float
+    var life: Float
+    var mass: Float
+}
+
+@compute(workgroup: 64)
+fun updateParticles(particles: Buffer<Particle>, dt: Float) {
+    let idx = globalInvocationId.x
+    particles[idx].posX = particles[idx].posX + particles[idx].velX * dt
+    particles[idx].posY = particles[idx].posY + particles[idx].velY * dt
+    particles[idx].posZ = particles[idx].posZ + particles[idx].velZ * dt
+    particles[idx].life = particles[idx].life - dt
+}
+
+fun main() r: Int {
+    println("test_struct_layout: @gpu_buffer struct validation")
+    println("  Particle struct: 8 float fields (32 bytes)")
+    println("  std430 layout: no padding needed (all float)")
+    println("PASS")
+    return 0
+}

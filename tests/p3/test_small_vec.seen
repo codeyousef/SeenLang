@@ -1,0 +1,67 @@
+// : SmallVec — inline storage with heap fallback
+fun main() r: Int {
+    // Create a SmallVec using simple constructor
+    let sv = SmallVec(4)
+
+    // Push values (should stay inline for first 4)
+    sv.push(10)
+    sv.push(20)
+    sv.push(30)
+    sv.push(40)
+
+    // Verify length
+    let len1 = sv.length()
+    if len1 == 4 {
+        println("OK: length is 4")
+    } else {
+        println("FAIL: expected length 4")
+        return 1
+    }
+
+    // Verify values
+    let v0 = sv.get(0)
+    let v3 = sv.get(3)
+    if v0 == 10 {
+        println("OK: v0 is 10")
+    } else {
+        println("FAIL: v0 wrong")
+        return 1
+    }
+    if v3 == 40 {
+        println("OK: v3 is 40")
+    } else {
+        println("FAIL: v3 wrong")
+        return 1
+    }
+
+    // Push beyond inline capacity (triggers heap fallback)
+    sv.push(50)
+    sv.push(60)
+    let len2 = sv.length()
+    if len2 == 6 {
+        println("OK: length is 6 after overflow")
+    } else {
+        println("FAIL: expected length 6")
+        return 1
+    }
+    let v5 = sv.get(5)
+    if v5 == 60 {
+        println("OK: v5 is 60")
+    } else {
+        println("FAIL: v5 wrong")
+        return 1
+    }
+
+    // Clear and verify
+    sv.clear()
+    let len3 = sv.length()
+    if len3 == 0 {
+        println("OK: length is 0 after clear")
+    } else {
+        println("FAIL: expected length 0")
+        return 1
+    }
+
+    println("PASS: SmallVec tests")
+    return 0
+}

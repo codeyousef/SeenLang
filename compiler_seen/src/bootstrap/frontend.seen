@@ -1,0 +1,182 @@
+// frontend.seen — Frontend pipeline orchestrator
+//
+// Pipeline stage: Stage 4 (frontend integration)
+// Input: Raw source code string + file label + language code
+// Output: FrontendResult containing AST (ProgramNode), diagnostics, success flag
+//
+// Orchestrates the first three compiler stages in sequence:
+//   1. Lexer (SeenLexer.tokenize) → Array<Token>
+//   2. Parser (RealParser.parse) → ProgramNode (AST)
+//   3. Type Checker (TypeChecker.check) → TypeInferenceResult
+//   4. Macro Expander (MacroExpander.expandProgram) → transformed AST
+//
+// Errors from any stage are collected into FrontendDiagnostic objects with
+// source locations. The pipeline short-circuits on type errors (returns
+// before macro expansion) but does NOT short-circuit on warnings.
+//
+// Used by both the user-facing CLI (main.seen) and the bootstrap driver
+// (main_compiler.seen). The FrontendResult.program field carries the AST
+// through to IR generation.
+
+import lexer.{SeenLexer, LexerError}
+import parser.real_parser.{RealParser, ProgramNode}
+import typechecker.interfaces.{TypeChecker}
+import typechecker.interfaces.{TypeError}
+import macro.expander.{MacroExpander}
+
+class FrontendDiagnostic {
+    var file: String
+    var line: Int
+    var column: Int
+    var severity: String
+    var message: String
+
+    fun new(file: String, line: Int, column: Int, severity: String, message: String) r: FrontendDiagnostic {
+        return FrontendDiagnostic{
+            file: file,
+            line: line,
+            column: column,
+            severity: severity,
+            message: message
+        }
+    }
+}
+
+// Result container for the frontend pipeline. Carries the parsed AST,
+// accumulated diagnostics (errors + warnings), and a success flag.
+// Consumed by buildCommandWithOptions() to decide whether to proceed to codegen.
+class FrontendResult {
+    var success: Bool
+    var diagnostics: Array<FrontendDiagnostic>
+    var program: ProgramNode
+
+    fun getDiagnostics() r: Array<FrontendDiagnostic> { return diagnostics }
+    fun setSuccess(v: Bool) r: Void { success = v }
+
+    fun addDiagnostic(diag: FrontendDiagnostic) r: Void {
+        diagnostics.push(diag)
+    }
+
+    fun hasErrors() r: Bool {
+        var i = 0
+        while i < diagnostics.length() {
+            let diag = diagnostics[i]
+            if diag.severity == "error" {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    fun hasWarnings() r: Bool {
+        var i = 0
+        while i < diagnostics.length() {
+            let diag = diagnostics[i]
+            if diag.severity == "warning" {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // BOOTSTRAP CONSTRAINT: new() must be the LAST method in this class.
+    // Stage2's parser may exit the class body after parsing new() because the
+    // generic constructor Array<FrontendDiagnostic>() causes a brace mismatch
+    // cascade in older compilers. Any methods after new() would be silently lost.
+    static fun new() r: FrontendResult {
+        return FrontendResult{
+            success: false,
+            diagnostics: Array<FrontendDiagnostic>(),
+            program: ProgramNode.new()
+        }
+    }
+}
+
+// Main frontend entry point. Runs lexer → parser → type checker → macro expansion.
+// Returns a FrontendResult with success=true if all stages pass, or with
+// diagnostics populated on failure. The resulting AST is in result.program.
+fun run_frontend(source: String, fileLabel: String, language: String = "en") r: FrontendResult {
+    let result = FrontendResult.new()
+
+    // Without try/catch, we assume the pipeline succeeds.
+    // Error handling is done via result types from the lexer/parser/checker.
+    let lexer = SeenLexer.new(source, 1, language)
+    let tokens = lexer.tokenize()
+
+    let parser = RealParser.new(tokens)
+    let ast = parser.parse()
+    result.program = ast
+    // Reduced tracing to avoid string allocation crashes
+    let checker = TypeChecker.new()
+    let typeResult = checker.check(ast)
+
+    if typeResult.errors.length() > 0 {
+        let typeErrors = typeResult.errors
+        let i: Int = 0
+        while i < typeErrors.length() {
+            let error = typeErrors[i]
+            result.addDiagnostic(diagnostic_from_type_error(error, fileLabel))
+            i = i + 1
+        }
+        return result
+    }
+
+    if typeResult.warnings.length() > 0 {
+        let typeWarnings = typeResult.warnings
+        let j: Int = 0
+        while j < typeWarnings.length() {
+            let warning = typeWarnings[j]
+            result.addDiagnostic(
+                FrontendDiagnostic.new(fileLabel, 0, 0, "warning", warning)
+            )
+            j = j + 1
+        }
+    }
+
+    // Macro expansion phase
+    let expander = MacroExpander.new()
+    let macroResult = expander.expandProgram(ast)
+
+    // Report macro expansion errors
+    if macroResult.hasErrors() {
+        let macroErrors = macroResult.errors
+        var mi = 0
+        while mi < macroErrors.length() {
+            let errMsg = macroErrors[mi]
+            result.addDiagnostic(FrontendDiagnostic.new(
+                fileLabel, 0, 0, "error", errMsg
+            ))
+            mi = mi + 1
+        }
+        return result
+    }
+
+    // Use macro-transformed program
+    result.program = macroResult.program
+
+    result.success = true
+    return result
+}
+
+fun diagnostic_from_type_error(error: TypeError, fileLabel: String) r: FrontendDiagnostic {
+    let location = error.location
+    let expected = error.expected
+    let actual = error.actual
+
+    var context = ""
+    if error.context != "" {
+        context = " [" + error.context + "]"
+    }
+
+    let message = error.message + context + " (expected " + expected.name + ", got " + actual.name + ")"
+    return FrontendDiagnostic.new(
+        fileLabel,
+        location.line,
+        location.column,
+        "error",
+        message
+    )
+}
+

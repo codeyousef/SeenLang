@@ -1,0 +1,12 @@
+@derive(Serialize, Deserialize)
+class Point {
+    x: Int
+    y: Int
+}
+
+fun main() r: Int {
+    let p = Point(10, 20)
+    let bytes = p.toBytes()
+    println("PASS: derive_serialize")
+    return 0
+}

@@ -1,0 +1,15 @@
+// Minimal test to verify bootstrap compiler basic functionality
+fun main() -> Int {
+    println("Bootstrap compiler test")
+    
+    // Test basic features that should work
+    let x = 42
+    let y = "hello world"
+    
+    if x > 0 {
+        println("x is positive: {x}")
+    }
+    
+    println("y is: {y}")
+    return 0
+}

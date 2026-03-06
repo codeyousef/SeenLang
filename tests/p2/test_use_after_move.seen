@@ -1,0 +1,10 @@
+@move
+class Resource {
+    handle: Int
+}
+
+fun main() r: Int {
+    let r1 = Resource(42)
+    println("PASS: use_after_move")
+    return 0
+}

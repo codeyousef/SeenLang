@@ -1,0 +1,38 @@
+import collections.string_hash_map.{StringHashMap}
+import core.option.{Option}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    let map = StringHashMap<Int>.new()
+    expect(map.isEmpty(), "map should start empty")
+
+    map.insert("alpha", 1)
+    map.insert("beta", 2)
+    map.insert("gamma", 3)
+
+    expect(map.len() == 3, "len mismatch after inserts")
+    expect(map.contains("beta"), "contains should see key")
+
+    let betaValue = map.get("beta")
+    expect(betaValue.isSome() and betaValue.unwrapOr(0) == 2, "get should return inserted value")
+
+    map.insert("beta", 10)
+    expect(map.get("beta").unwrapOr(0) == 10, "insert should overwrite existing key")
+
+    expect(map.remove("alpha"), "remove should succeed")
+    expect(not map.contains("alpha"), "key should be gone after remove")
+
+    var index = 0
+    while index < 64 {
+        map.insert("k{index}", index)
+        index = index + 1
+    }
+    expect(map.len() >= 64, "map should grow while inserting many keys")
+
+    return 0
+}

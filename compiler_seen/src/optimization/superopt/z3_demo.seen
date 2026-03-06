@@ -1,0 +1,246 @@
+// Z3 Solver Demo - Demonstrates SMT-based superoptimization
+// This file shows how to use the Z3 solver for equivalence checking
+
+import z3_solver.{
+    Z3Solver, SMTExpression, SMTVariableFactory, InstructionEncoder,
+    EquivalenceResult, ProgramSpecification, SynthesizedProgram,
+    createZ3Solver
+}
+import ffi.z3_ffi.{Z3Result}
+
+// ============================================================================
+// Demo: Basic SMT Operations
+// ============================================================================
+
+fun demoBasicOperations() r: Void {
+    println("=== Z3 SMT Solver Demo: Basic Operations ===")
+    
+    // Create a new solver
+    let solver = createZ3Solver()
+    
+    // Create variables
+    let x = solver.mkVar("x", 32)
+    let y = solver.mkVar("y", 32)
+    
+    // Create constants
+    let five = solver.mkConst(5, 32)
+    let ten = solver.mkConst(10, 32)
+    
+    // Build expressions: x + 5 and y - 10
+    let expr1 = solver.mkBinOp("add", x, five)
+    let expr2 = solver.mkBinOp("sub", y, ten)
+    
+    println("Expression 1: {expr1.toString()}")
+    println("Expression 2: {expr2.toString()}")
+    
+    // Cleanup
+    solver.dispose()
+    
+    println("Basic operations demo complete.")
+}
+
+// ============================================================================
+// Demo: Equivalence Checking
+// ============================================================================
+
+fun demoEquivalenceChecking() r: Void {
+    println("\n=== Z3 SMT Solver Demo: Equivalence Checking ===")
+    
+    let solver = createZ3Solver()
+    
+    // Example: Prove that (x + x) is equivalent to (x * 2)
+    let x = solver.mkVar("x", 32)
+    let two = solver.mkConst(2, 32)
+    
+    // Expression 1: x + x
+    let expr1 = solver.mkBinOp("add", x, x)
+    
+    // Expression 2: x * 2
+    let expr2 = solver.mkBinOp("mul", x, two)
+    
+    println("Checking equivalence of:")
+    println("  Expr1: x + x")
+    println("  Expr2: x * 2")
+    
+    // Check equivalence
+    let isEquiv = solver.proveEquivalence(expr1, expr2)
+    
+    if isEquiv {
+        println("✓ Expressions are equivalent!")
+        println("  -> Can replace 'x + x' with 'x << 1' for optimization")
+    } else {
+        println("✗ Expressions are NOT equivalent")
+    }
+    
+    // Another example: x + 0 vs x
+    let zero = solver.mkConst(0, 32)
+    let expr3 = solver.mkBinOp("add", x, zero)
+    
+    println("\nChecking equivalence of:")
+    println("  Expr1: x + 0")
+    println("  Expr2: x")
+    
+    let isEquiv2 = solver.proveEquivalence(expr3, x)
+    
+    if isEquiv2 {
+        println("✓ Expressions are equivalent!")
+        println("  -> Can remove redundant '+ 0' operation")
+    } else {
+        println("✗ Expressions are NOT equivalent")
+    }
+    
+    solver.dispose()
+    println("Equivalence checking demo complete.")
+}
+
+// ============================================================================
+// Demo: Superoptimization
+// ============================================================================
+
+fun demoSuperoptimization() r: Void {
+    println("\n=== Z3 SMT Solver Demo: Superoptimization ===")
+    
+    let solver = createZ3Solver()
+    
+    // Define a specification: multiply by 8
+    let spec = ProgramSpecification.new(
+        numInputs: 1,
+        bitWidth: 32,
+        description: "mul_by_8"
+    )
+    
+    println("Synthesizing optimal program for: x * 8")
+    
+    // Available instruction set
+    let instructionSet = Array<String>()
+    instructionSet.push("add")
+    instructionSet.push("sub")
+    instructionSet.push("shl")
+    instructionSet.push("mul")
+    
+    // Try to find optimal sequence
+    let result = solver.findOptimalSequence(spec, maxLength: 3, instructionSet)
+    
+    if result != null {
+        println("Found optimal program:")
+        println(result.toString())
+        println("Expected: x << 3 (shift left by 3 = multiply by 8)")
+    } else {
+        println("No solution found within constraints")
+        println("Note: Full synthesis requires more setup")
+    }
+    
+    solver.dispose()
+    println("Superoptimization demo complete.")
+}
+
+// ============================================================================
+// Demo: Bit-Vector Operations
+// ============================================================================
+
+fun demoBitvectorOperations() r: Void {
+    println("\n=== Z3 SMT Solver Demo: Bit-Vector Operations ===")
+    
+    let solver = createZ3Solver()
+    
+    // Create variables
+    let a = solver.mkVar("a", 64)
+    let b = solver.mkVar("b", 64)
+    
+    // Demonstrate various operations
+    let add = solver.mkBinOp("add", a, b)
+    let sub = solver.mkBinOp("sub", a, b)
+    let mul = solver.mkBinOp("mul", a, b)
+    let and_op = solver.mkBinOp("and", a, b)
+    let or_op = solver.mkBinOp("or", a, b)
+    let xor_op = solver.mkBinOp("xor", a, b)
+    let shl = solver.mkBinOp("shl", a, b)
+    
+    println("Bit-vector operations (64-bit):")
+    println("  ADD: {add.toString()}")
+    println("  SUB: {sub.toString()}")
+    println("  MUL: {mul.toString()}")
+    println("  AND: {and_op.toString()}")
+    println("  OR:  {or_op.toString()}")
+    println("  XOR: {xor_op.toString()}")
+    println("  SHL: {shl.toString()}")
+    
+    solver.dispose()
+    println("Bit-vector operations demo complete.")
+}
+
+// ============================================================================
+// Demo: Optimization Rule Verification
+// ============================================================================
+
+fun demoRuleVerification() r: Void {
+    println("\n=== Z3 SMT Solver Demo: Optimization Rule Verification ===")
+    
+    let solver = createZ3Solver()
+    
+    // Verify common optimization rules
+    let x = solver.mkVar("x", 32)
+    let y = solver.mkVar("y", 32)
+    let zero = solver.mkConst(0, 32)
+    let one = solver.mkConst(1, 32)
+    
+    // Rule 1: x + 0 == x (additive identity)
+    let add_zero = solver.mkBinOp("add", x, zero)
+    let rule1 = solver.proveEquivalence(add_zero, x)
+    println("Rule: x + 0 == x  =>  {if rule1 then "✓ VERIFIED" else "✗ FAILED"}")
+    
+    // Rule 2: x * 0 == 0 (multiplicative zero)
+    let mul_zero = solver.mkBinOp("mul", x, zero)
+    let rule2 = solver.proveEquivalence(mul_zero, zero)
+    println("Rule: x * 0 == 0  =>  {if rule2 then "✓ VERIFIED" else "✗ FAILED"}")
+    
+    // Rule 3: x * 1 == x (multiplicative identity)
+    let mul_one = solver.mkBinOp("mul", x, one)
+    let rule3 = solver.proveEquivalence(mul_one, x)
+    println("Rule: x * 1 == x  =>  {if rule3 then "✓ VERIFIED" else "✗ FAILED"}")
+    
+    // Rule 4: x & 0 == 0 (and with zero)
+    let and_zero = solver.mkBinOp("and", x, zero)
+    let rule4 = solver.proveEquivalence(and_zero, zero)
+    println("Rule: x & 0 == 0  =>  {if rule4 then "✓ VERIFIED" else "✗ FAILED"}")
+    
+    // Rule 5: x | 0 == x (or with zero)
+    let or_zero = solver.mkBinOp("or", x, zero)
+    let rule5 = solver.proveEquivalence(or_zero, x)
+    println("Rule: x | 0 == x  =>  {if rule5 then "✓ VERIFIED" else "✗ FAILED"}")
+    
+    // Rule 6: x ^ 0 == x (xor with zero)
+    let xor_zero = solver.mkBinOp("xor", x, zero)
+    let rule6 = solver.proveEquivalence(xor_zero, x)
+    println("Rule: x ^ 0 == x  =>  {if rule6 then "✓ VERIFIED" else "✗ FAILED"}")
+    
+    // Rule 7: x ^ x == 0 (xor with self)
+    let xor_self = solver.mkBinOp("xor", x, x)
+    let rule7 = solver.proveEquivalence(xor_self, zero)
+    println("Rule: x ^ x == 0  =>  {if rule7 then "✓ VERIFIED" else "✗ FAILED"}")
+    
+    solver.dispose()
+    println("Optimization rule verification demo complete.")
+}
+
+// ============================================================================
+// Main Demo Entry Point
+// ============================================================================
+
+fun runZ3Demos() r: Void {
+    println("╔══════════════════════════════════════════════════════════════╗")
+    println("║         Z3 SMT Solver Integration Demo                       ║")
+    println("║         SMT-based Superoptimization for Seen                 ║")
+    println("╚══════════════════════════════════════════════════════════════╝")
+    
+    // Run all demos
+    demoBasicOperations()
+    demoEquivalenceChecking()
+    demoSuperoptimization()
+    demoBitvectorOperations()
+    demoRuleVerification()
+    
+    println("\n╔══════════════════════════════════════════════════════════════╗")
+    println("║         All Z3 Demos Complete!                               ║")
+    println("╚══════════════════════════════════════════════════════════════╝")
+}

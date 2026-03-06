@@ -1,0 +1,14 @@
+name = "Japanese"
+description = "Japanese Collections Standard Library"
+
+[std_lib]
+"ベクタ" = "Vec"
+"配列" = "Array"
+"ハッシュマップ" = "HashMap"
+"文字列ハッシュマップ" = "StringHashMap"
+"ハッシュセット" = "HashSet"
+"Bツリーマップ" = "BTreeMap"
+"連結リスト" = "LinkedList"
+"両端キュー" = "VecDeque"
+"ビットセット" = "BitSet"
+"プール" = "Pool"

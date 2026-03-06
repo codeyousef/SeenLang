@@ -1,0 +1,507 @@
+// Capability Checker for Seen Language
+// Validates @using(Token) annotations for function-level security constraints
+// Functions calling restricted operations must declare required capability tokens
+
+import parser.real_parser.{ProgramNode, FunctionNode, ItemNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode, AnnotationNode}
+
+// Capability tokens - each controls access to a set of restricted operations
+// FileToken - File I/O operations
+// NetToken - Network operations
+// ProcessToken - Process execution
+// EnvToken - Environment access
+// DynLoadToken - Dynamic loading
+// AllToken - All capabilities (legacy/trusted code)
+
+// Result of capability checking
+class CapabilityCheckResult {
+    var success: Bool
+    var errors: Array<CapabilityError>
+    var warnings: Array<String>
+
+    static fun new() r: CapabilityCheckResult {
+        return CapabilityCheckResult{
+            success: true,
+            errors: Array<CapabilityError>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(error: CapabilityError) r: Void {
+        errors.push(error)
+        success = false
+    }
+
+    fun addWarning(warning: String) r: Void {
+        warnings.push(warning)
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+}
+
+// Capability-specific error
+class CapabilityError {
+    var message: String
+    var functionName: String
+    var calledFunction: String
+    var requiredToken: String
+    var line: Int
+    var column: Int
+
+    static fun new(message: String, functionName: String, calledFunction: String, requiredToken: String) r: CapabilityError {
+        return CapabilityError{
+            message: message,
+            functionName: functionName,
+            calledFunction: calledFunction,
+            requiredToken: requiredToken,
+            line: 0,
+            column: 0
+        }
+    }
+
+    fun withLocation(l: Int, c: Int) r: CapabilityError {
+        line = l
+        column = c
+        return this
+    }
+
+    fun toString() r: String {
+        var result = "Capability Error: " + message
+        if functionName != "" {
+            result = result + " in function '" + functionName + "'"
+        }
+        if calledFunction != "" {
+            result = result + " when calling '" + calledFunction + "'"
+        }
+        if requiredToken != "" {
+            result = result + " (requires @using(" + requiredToken + "))"
+        }
+        return result
+    }
+
+    fun getMessage() r: String {
+        return message
+    }
+
+    fun getFunctionName() r: String {
+        return functionName
+    }
+
+    fun getCalledFunction() r: String {
+        return calledFunction
+    }
+
+    fun getRequiredToken() r: String {
+        return requiredToken
+    }
+}
+
+// Capability Checker
+class CapabilityChecker {
+    // Store functions for capability lookups
+    var functions: Array<FunctionNode>
+    var functionNames: Array<String>
+    // Results collection
+    var result: CapabilityCheckResult
+
+    static fun new() r: CapabilityChecker {
+        return CapabilityChecker{
+            functions: Array<FunctionNode>(),
+            functionNames: Array<String>(),
+            result: CapabilityCheckResult.new()
+        }
+    }
+
+    // Check a program for capability violations
+    fun check(program: ProgramNode) r: CapabilityCheckResult {
+        result = CapabilityCheckResult.new()
+        functions = Array<FunctionNode>()
+        functionNames = Array<String>()
+
+        // First pass: collect all functions
+        collectFunctions(program)
+
+        // Second pass: check each function for capability violations
+        checkFunctions(program)
+
+        return result
+    }
+
+    // Collect all functions for later lookup
+    fun collectFunctions(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                let func = item.function
+                functions.push(func)
+                functionNames.push(func.name)
+            }
+            if item.itemType == "Class" {
+                let cls = item.classNode
+                var mi = 0
+                while mi < cls.methods.length() {
+                    let method = cls.methods[mi]
+                    functions.push(method)
+                    functionNames.push(cls.name + "." + method.name)
+                    mi = mi + 1
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    // Get function by name for propagation checking
+    fun getFunctionByName(name: String) r: FunctionNode {
+        var i = 0
+        while i < functionNames.length() {
+            if functionNames[i] == name {
+                return functions[i]
+            }
+            i = i + 1
+        }
+        return FunctionNode.new()
+    }
+
+    // Check if function has a specific capability token
+    fun functionHasCapability(func: FunctionNode, token: String) r: Bool {
+        var di = 0
+        while di < func.decorators.length() {
+            let decorator = func.decorators[di]
+            if decorator.name == "using" {
+                var ai = 0
+                while ai < decorator.arguments.length() {
+                    let arg = decorator.arguments[ai]
+                    if arg == token {
+                        return true
+                    }
+                    if arg == "AllToken" {
+                        return true
+                    }
+                    ai = ai + 1
+                }
+            }
+            di = di + 1
+        }
+        return false
+    }
+
+    // Get all capability tokens from function
+    fun getFunctionCapabilities(func: FunctionNode) r: Array<String> {
+        let caps = Array<String>()
+        var di = 0
+        while di < func.decorators.length() {
+            let decorator = func.decorators[di]
+            if decorator.name == "using" {
+                var ai = 0
+                while ai < decorator.arguments.length() {
+                    caps.push(decorator.arguments[ai])
+                    ai = ai + 1
+                }
+            }
+            di = di + 1
+        }
+        return caps
+    }
+
+    // Check all functions for capability violations
+    fun checkFunctions(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                let func = item.function
+                checkFunction(func, func.name)
+            }
+            if item.itemType == "Class" {
+                let cls = item.classNode
+                var mi = 0
+                while mi < cls.methods.length() {
+                    let method = cls.methods[mi]
+                    let methodName = cls.name + "." + method.name
+                    checkFunction(method, methodName)
+                    mi = mi + 1
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    // Check a function for capability violations
+    fun checkFunction(func: FunctionNode, funcName: String) r: Void {
+        checkBlock(func, funcName, func.body, func.line)
+    }
+
+    // Check a block for capability violations
+    fun checkBlock(func: FunctionNode, funcName: String, block: BlockNode, funcLine: Int) r: Void {
+        var i = 0
+        while i < block.statements.length() {
+            let stmt = block.statements[i]
+            checkStatement(func, funcName, stmt, funcLine)
+            i = i + 1
+        }
+    }
+
+    // Check a statement for capability violations
+    fun checkStatement(func: FunctionNode, funcName: String, stmt: StatementNode, funcLine: Int) r: Void {
+        if stmt.kind == "Expression" or stmt.kind == "Return" {
+            checkExpression(func, funcName, stmt.expression, funcLine)
+            checkExpression(func, funcName, stmt.returnValue, funcLine)
+        }
+
+        if stmt.kind == "Let" or stmt.kind == "Var" {
+            checkExpression(func, funcName, stmt.initializer, funcLine)
+        }
+
+        if stmt.kind == "If" {
+            checkExpression(func, funcName, stmt.condition, funcLine)
+            checkBlock(func, funcName, stmt.thenBranch, funcLine)
+            checkBlock(func, funcName, stmt.elseBranch, funcLine)
+        }
+
+        if stmt.kind == "While" {
+            checkExpression(func, funcName, stmt.loopCondition, funcLine)
+            checkBlock(func, funcName, stmt.loopBody, funcLine)
+        }
+    }
+
+    // Check an expression for capability violations
+    fun checkExpression(func: FunctionNode, funcName: String, expr: ParserExpressionNode, funcLine: Int) r: Void {
+        if expr.kind == "None" or expr.kind == "" {
+            return
+        }
+
+        // Check function calls
+        if expr.kind == "Call" {
+            let calledName = expr.callee
+            checkCalledFunction(func, funcName, calledName, funcLine)
+
+            // Check arguments
+            var i = 0
+            while i < expr.arguments.length() {
+                checkExpression(func, funcName, expr.arguments[i], funcLine)
+                i = i + 1
+            }
+        }
+
+        // Check method calls
+        if expr.kind == "MethodCall" or expr.kind == "MemberAccess" {
+            let methodName = expr.callee
+            let fullMethodName = expr.variableName + "." + methodName
+            checkCalledFunction(func, funcName, fullMethodName, funcLine)
+            checkCalledFunction(func, funcName, methodName, funcLine)
+
+            // Check arguments
+            var i = 0
+            while i < expr.arguments.length() {
+                checkExpression(func, funcName, expr.arguments[i], funcLine)
+                i = i + 1
+            }
+        }
+
+        // Check binary operators
+        if expr.kind == "Binary" {
+            var i = 0
+            while i < expr.operands.length() {
+                checkExpression(func, funcName, expr.operands[i], funcLine)
+                i = i + 1
+            }
+        }
+    }
+
+    // Check if calling a function requires capabilities we don't have
+    fun checkCalledFunction(callerFunc: FunctionNode, callerName: String, calledName: String, funcLine: Int) r: Void {
+        // First check if calledName is a restricted stdlib function
+        let requiredToken = getRequiredToken(calledName)
+        if requiredToken != "" {
+            if not functionHasCapability(callerFunc, requiredToken) {
+                let error = CapabilityError.new(
+                    "Missing capability token for restricted operation",
+                    callerName,
+                    calledName,
+                    requiredToken
+                )
+                error.line = funcLine
+                result.addError(error)
+            }
+        }
+
+        // Then check propagation - called user function might require capabilities
+        let calledFunc = getFunctionByName(calledName)
+        if calledFunc.name != "" {
+            let calledCaps = getFunctionCapabilities(calledFunc)
+            var i = 0
+            while i < calledCaps.length() {
+                let cap = calledCaps[i]
+                if not functionHasCapability(callerFunc, cap) {
+                    let error = CapabilityError.new(
+                        "Calling function that requires capability token",
+                        callerName,
+                        calledName,
+                        cap
+                    )
+                    error.line = funcLine
+                    result.addError(error)
+                }
+                i = i + 1
+            }
+        }
+    }
+
+    // Get the required token for a stdlib function call
+    fun getRequiredToken(calledFunc: String) r: String {
+        if isFileRestricted(calledFunc) {
+            return "FileToken"
+        }
+        if isNetRestricted(calledFunc) {
+            return "NetToken"
+        }
+        if isProcessRestricted(calledFunc) {
+            return "ProcessToken"
+        }
+        if isEnvRestricted(calledFunc) {
+            return "EnvToken"
+        }
+        if isDynLoadRestricted(calledFunc) {
+            return "DynLoadToken"
+        }
+        return ""
+    }
+
+    // Check if function is file-restricted
+    fun isFileRestricted(funcName: String) r: Bool {
+        if funcName == "readText" or funcName == "writeText" or funcName == "exists" {
+            return true
+        }
+        if funcName == "deleteFile" or funcName == "createDirectory" {
+            return true
+        }
+        if funcName == "FsFile.open" or funcName == "FsFile.read" {
+            return true
+        }
+        if funcName == "FsFile.write" or funcName == "FsFile.close" {
+            return true
+        }
+        if funcName == "readFile" or funcName == "writeFile" or funcName == "appendFile" {
+            return true
+        }
+        if funcName == "readDir" or funcName == "createDir" {
+            return true
+        }
+        if funcName == "removeFile" or funcName == "removeDir" {
+            return true
+        }
+        if funcName == "rename" or funcName == "copy" or funcName == "pathExists" {
+            return true
+        }
+        return false
+    }
+
+    // Check if function is network-restricted
+    fun isNetRestricted(funcName: String) r: Bool {
+        if funcName == "TcpListener.bind" or funcName == "TcpStream.connect" {
+            return true
+        }
+        if funcName == "TcpStream.read" or funcName == "TcpStream.write" {
+            return true
+        }
+        if funcName == "fetch" or funcName == "httpGet" or funcName == "httpPost" {
+            return true
+        }
+        if funcName == "socket" or funcName == "connect" or funcName == "listen" {
+            return true
+        }
+        if funcName == "UdpSocket.bind" or funcName == "UdpSocket.send" {
+            return true
+        }
+        if funcName == "UdpSocket.recv" {
+            return true
+        }
+        return false
+    }
+
+    // Check if function is process-restricted
+    fun isProcessRestricted(funcName: String) r: Bool {
+        if funcName == "execCommand" or funcName == "runProgram" or funcName == "runCommand" {
+            return true
+        }
+        if funcName == "spawn" or funcName == "exec" or funcName == "fork" {
+            return true
+        }
+        if funcName == "Command.run" or funcName == "Command.output" {
+            return true
+        }
+        return false
+    }
+
+    // Check if function is environment-restricted
+    fun isEnvRestricted(funcName: String) r: Bool {
+        if funcName == "env.get" or funcName == "env.set" {
+            return true
+        }
+        if funcName == "env.removeEnv" or funcName == "env.args" {
+            return true
+        }
+        if funcName == "getEnv" or funcName == "setEnv" or funcName == "getArgs" {
+            return true
+        }
+        if funcName == "currentDir" or funcName == "homeDir" {
+            return true
+        }
+        return false
+    }
+
+    // Check if function is dynamic-loading-restricted
+    fun isDynLoadRestricted(funcName: String) r: Bool {
+        if funcName == "HotModule.load" or funcName == "HotModule.getFunction" {
+            return true
+        }
+        if funcName == "dlopen" or funcName == "dlsym" or funcName == "loadLibrary" {
+            return true
+        }
+        return false
+    }
+}
+
+// Convenience function to check a program for capability violations
+fun checkCapabilities(program: ProgramNode) r: CapabilityCheckResult {
+    let checker = CapabilityChecker.new()
+    return checker.check(program)
+}
+
+// Print capability errors
+fun printCapabilityErrors(result: CapabilityCheckResult) r: Void {
+    if result.hasErrors() {
+        println("=== Capability Check Errors ===")
+        var i = 0
+        while i < result.errors.length() {
+            let err: CapabilityError = result.errors[i]
+            let msg: String = err.getMessage()
+            let funcName: String = err.getFunctionName()
+            let called: String = err.getCalledFunction()
+            let token: String = err.getRequiredToken()
+            var errStr: String = "Capability Error: " + msg
+            if funcName.length() > 0 {
+                errStr = errStr + " in function '" + funcName + "'"
+            }
+            if called.length() > 0 {
+                errStr = errStr + " when calling '" + called + "'"
+            }
+            if token.length() > 0 {
+                errStr = errStr + " (requires @using(" + token + "))"
+            }
+            println(errStr)
+            i = i + 1
+        }
+    }
+
+    if result.warnings.length() > 0 {
+        println("=== Capability Check Warnings ===")
+        var i = 0
+        while i < result.warnings.length() {
+            println(result.warnings[i])
+            i = i + 1
+        }
+    }
+}

@@ -1,0 +1,129 @@
+// Async stdlib test -- self-contained version
+// Tests async coroutine scheduling with manual poll loop
+// All logic inline in main() to avoid module-level array type inference issues
+
+extern fun seen_coro_done(handle: ptr) -> Int
+extern fun llvm_coro_resume(handle: ptr) -> Void
+extern fun llvm_coro_destroy(handle: ptr) -> Void
+
+@async
+fun compute_square(x: Int) -> Int {
+    return x * x
+}
+
+@async
+fun compute_sum(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Simple await
+    let sq = await compute_square(7)
+    if sq == 49 {
+        println("PASS: await compute_square(7) = 49")
+        passed = passed + 1
+    } else {
+        println("FAIL: await compute_square(7) = " + sq.toString())
+        failed = failed + 1
+    }
+
+    // Test 2: Single task spawn + manual poll
+    let h1 = compute_square(3)
+    llvm_coro_resume(h1)
+    var done1 = seen_coro_done(h1)
+    while done1 == 0 {
+        llvm_coro_resume(h1)
+        done1 = seen_coro_done(h1)
+    }
+    llvm_coro_destroy(h1)
+    println("PASS: Test 2 - single task polled to completion")
+    passed = passed + 1
+
+    // Test 3: Multiple concurrent coroutines with round-robin polling
+    let h2 = compute_square(3)
+    let h3 = compute_square(5)
+    let h4 = compute_sum(10, 20)
+
+    // Resume all
+    llvm_coro_resume(h2)
+    llvm_coro_resume(h3)
+    llvm_coro_resume(h4)
+
+    // Check all done
+    var d2 = seen_coro_done(h2)
+    var d3 = seen_coro_done(h3)
+    var d4 = seen_coro_done(h4)
+
+    // Poll remaining (simple functions complete in 1 resume)
+    while d2 == 0 {
+        llvm_coro_resume(h2)
+        d2 = seen_coro_done(h2)
+    }
+    while d3 == 0 {
+        llvm_coro_resume(h3)
+        d3 = seen_coro_done(h3)
+    }
+    while d4 == 0 {
+        llvm_coro_resume(h4)
+        d4 = seen_coro_done(h4)
+    }
+
+    llvm_coro_destroy(h2)
+    llvm_coro_destroy(h3)
+    llvm_coro_destroy(h4)
+
+    if d2 == 1 {
+        if d3 == 1 {
+            if d4 == 1 {
+                println("PASS: Test 3 - 3 concurrent tasks completed")
+                passed = passed + 1
+            } else {
+                println("FAIL: Test 3 - task 4 not done")
+                failed = failed + 1
+            }
+        } else {
+            println("FAIL: Test 3 - task 3 not done")
+            failed = failed + 1
+        }
+    } else {
+        println("FAIL: Test 3 - task 2 not done")
+        failed = failed + 1
+    }
+
+    // Test 4: Verify await results with multiple values
+    let r1 = await compute_square(2)
+    let r2 = await compute_square(4)
+    if r1 == 4 {
+        println("PASS: Test 4a - 2^2 = 4")
+        passed = passed + 1
+    } else {
+        println("FAIL: Test 4a - expected 4, got " + r1.toString())
+        failed = failed + 1
+    }
+
+    if r2 == 16 {
+        println("PASS: Test 4b - 4^2 = 16")
+        passed = passed + 1
+    } else {
+        println("FAIL: Test 4b - expected 16, got " + r2.toString())
+        failed = failed + 1
+    }
+
+    // Test 5: Nested async (await result used in another await)
+    let a = await compute_sum(10, 20)
+    let b = await compute_square(a)
+    if b == 900 {
+        println("PASS: Test 5 - (10+20)^2 = 900")
+        passed = passed + 1
+    } else {
+        println("FAIL: Test 5 - expected 900, got " + b.toString())
+        failed = failed + 1
+    }
+
+    println("")
+    println("Results: " + passed.toString() + " passed, " + failed.toString() + " failed")
+    return failed
+}

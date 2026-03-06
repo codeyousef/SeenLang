@@ -1,0 +1,16 @@
+// Test UWW float rejection
+// This file should FAIL to compile with --target uww
+// because it uses floating-point types which are non-deterministic
+
+fun calculateDistance(x1: Float, y1: Float, x2: Float, y2: Float) r: Float {
+    let dx = x2 - x1
+    let dy = y2 - y1
+    // sqrt would also be a float operation
+    return dx * dx + dy * dy
+}
+
+fun main() r: Int {
+    // Using floats - should be rejected in UWW mode
+    let distance = calculateDistance(0.0, 0.0, 3.0, 4.0)
+    return 0
+}

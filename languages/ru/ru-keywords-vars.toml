@@ -1,0 +1,10 @@
+name = "Russian"
+description = "Russian Variable Declaration Keywords"
+
+[keywords]
+"пусть" = "KeywordLet"
+"изменяемый" = "KeywordMut"
+"константа" = "KeywordConst"
+"статический" = "KeywordStatic"
+"значение" = "KeywordVal"
+"переменная" = "KeywordVar"

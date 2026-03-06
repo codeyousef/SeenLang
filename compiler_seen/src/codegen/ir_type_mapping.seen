@@ -1,0 +1,1034 @@
+// Type mapping, SIMD helpers, comptime evaluation, struct field resolution
+// Extracted from ir_type_info.seen
+
+import parser.real_parser.{ParserExpressionNode}
+
+fun parseSimpleIntImpl(s: String) r: Int {
+    if s == "" { return -9999999 }
+    var result = 0
+    var neg = false
+    var i = 0
+    if s.length() > 0 and s.charAt(0) == '-' {
+        neg = true
+        i = 1
+    }
+    while i < s.length() {
+        let c = s.byteAt(i)
+        if c >= 48 and c <= 57 {
+            result = result * 10 + (c - 48)
+        } else {
+            return -9999999
+        }
+        i = i + 1
+    }
+    if neg { return 0 - result }
+    return result
+}
+
+// Look up a comptime variable value from pipe-delimited parallel arrays
+fun lookupComptimeVarImpl(name: String, comptimeNames: String, comptimeValues: String, comptimeCount: Int) r: Int {
+    if comptimeCount == 0 or name == "" { return -9999999 }
+    var searchPos = 0
+    var idx = 0
+    while idx < comptimeCount {
+        var ctName = ""
+        var nextPipe = comptimeNames.indexOf("|", searchPos)
+        if nextPipe < 0 {
+            ctName = comptimeNames.substring(searchPos, comptimeNames.length())
+        } else {
+            ctName = comptimeNames.substring(searchPos, nextPipe)
+            searchPos = nextPipe + 1
+        }
+        if ctName == name {
+            // Found — extract value at same index
+            var valSearchPos = 0
+            var valIdx = 0
+            while valIdx < idx {
+                var vp = comptimeValues.indexOf("|", valSearchPos)
+                if vp >= 0 { valSearchPos = vp + 1 }
+                valIdx = valIdx + 1
+            }
+            var valStr = ""
+            var valEnd = comptimeValues.indexOf("|", valSearchPos)
+            if valEnd < 0 {
+                valStr = comptimeValues.substring(valSearchPos, comptimeValues.length())
+            } else {
+                valStr = comptimeValues.substring(valSearchPos, valEnd)
+            }
+            return parseSimpleIntImpl(valStr)
+        }
+        idx = idx + 1
+    }
+    return -9999999
+}
+
+// Look up a comptime string variable
+fun lookupComptimeStrVarImpl(name: String, comptimeStrNames: String, comptimeStrValues: String, comptimeStrCount: Int) r: String {
+    if comptimeStrCount == 0 or name == "" { return "__EVAL_FAIL__" }
+    var searchPos = 0
+    var valPos = 0
+    var idx = 0
+    while idx < comptimeStrCount {
+        var curName = ""
+        var nextPipe = comptimeStrNames.indexOf("|", searchPos)
+        if nextPipe < 0 {
+            curName = comptimeStrNames.substring(searchPos, comptimeStrNames.length())
+        } else {
+            curName = comptimeStrNames.substring(searchPos, nextPipe)
+            searchPos = nextPipe + 1
+        }
+        var curVal = ""
+        var nextValPipe = comptimeStrValues.indexOf("|", valPos)
+        if nextValPipe < 0 {
+            curVal = comptimeStrValues.substring(valPos, comptimeStrValues.length())
+        } else {
+            curVal = comptimeStrValues.substring(valPos, nextValPipe)
+            valPos = nextValPipe + 1
+        }
+        if curName == name {
+            return curVal
+        }
+        idx = idx + 1
+    }
+    return "__EVAL_FAIL__"
+}
+
+// Comptime sizeof for common types
+fun comptimeSizeofImpl(typeName: String) r: Int {
+    if typeName == "Int" or typeName == "Float" or typeName == "String" { return 8 }
+    if typeName == "Bool" { return 1 }
+    if typeName == "Char" { return 8 }
+    if typeName == "f32x4" or typeName == "i32x4" { return 16 }
+    if typeName == "f32x8" or typeName == "i32x8" { return 32 }
+    if typeName == "f64x2" { return 16 }
+    if typeName == "f64x4" { return 32 }
+    return -9999999
+}
+
+// Comptime type field count — look up struct by name, count comma-separated fields
+fun comptimeTypeFieldCountImpl(typeName: String, structNames: Array<String>, structFieldNames: Array<String>) r: Int {
+    let sIdx = findStructIdx(structNames, typeName)
+    if sIdx < 0 { return -9999999 }
+    let fieldsCsv = structFieldNames[sIdx]
+    if fieldsCsv == "" { return 0 }
+    var count = 1
+    var fci = 0
+    while fci < fieldsCsv.length() {
+        if fieldsCsv.byteAt(fci) == 44 {
+            count = count + 1
+        }
+        fci = fci + 1
+    }
+    return count
+}
+
+// Comptime type field name — get Nth field name from struct
+fun comptimeTypeFieldNameImpl(typeName: String, fieldIdx: Int, structNames: Array<String>, structFieldNames: Array<String>) r: String {
+    let sIdx = findStructIdx(structNames, typeName)
+    if sIdx < 0 { return "__EVAL_FAIL__" }
+    let fieldsCsv = structFieldNames[sIdx]
+    var pos = 0
+    var curIdx = 0
+    while pos < fieldsCsv.length() {
+        var nextComma = fieldsCsv.indexOf(",", pos)
+        if nextComma < 0 { nextComma = fieldsCsv.length() }
+        if curIdx == fieldIdx {
+            return fieldsCsv.substring(pos, nextComma)
+        }
+        pos = nextComma + 1
+        curIdx = curIdx + 1
+    }
+    return "__EVAL_FAIL__"
+}
+
+// Comptime type field type — get Nth field type from struct
+fun comptimeTypeFieldTypeImpl(typeName: String, fieldIdx: Int, structNames: Array<String>, structFieldTypes: Array<String>) r: String {
+    let sIdx = findStructIdx(structNames, typeName)
+    if sIdx < 0 { return "__EVAL_FAIL__" }
+    let typesCsv = structFieldTypes[sIdx]
+    var pos = 0
+    var curIdx = 0
+    while pos < typesCsv.length() {
+        var nextComma = typesCsv.indexOf(",", pos)
+        if nextComma < 0 { nextComma = typesCsv.length() }
+        if curIdx == fieldIdx {
+            return typesCsv.substring(pos, nextComma)
+        }
+        pos = nextComma + 1
+        curIdx = curIdx + 1
+    }
+    return "__EVAL_FAIL__"
+}
+
+// Evaluate a constant expression as a string at compile time
+fun evaluateConstExprStrImpl(expr: ParserExpressionNode, comptimeNames: String, comptimeValues: String, comptimeCount: Int, comptimeStrNames: String, comptimeStrValues: String, comptimeStrCount: Int, structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+    if expr.kind == "Literal" {
+        if expr.literalType == "String" {
+            return expr.literalValue
+        }
+    }
+    if expr.kind == "Variable" {
+        let ctStrName = expr.literalValue
+        if ctStrName == "" {
+            return lookupComptimeStrVarImpl(expr.variableName, comptimeStrNames, comptimeStrValues, comptimeStrCount)
+        }
+        return lookupComptimeStrVarImpl(ctStrName, comptimeStrNames, comptimeStrValues, comptimeStrCount)
+    }
+    if expr.kind == "Binary" {
+        if expr.operator == "+" {
+            let leftStr = evaluateConstExprStrImpl(expr.operands[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            let rightStr = evaluateConstExprStrImpl(expr.operands[1], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if leftStr != "__EVAL_FAIL__" and rightStr != "__EVAL_FAIL__" {
+                return leftStr + rightStr
+            }
+        }
+    }
+    if expr.kind == "Call" {
+        if expr.callee == "toString" and expr.arguments.length() > 0 {
+            let intVal = evaluateConstExprImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if intVal != -9999999 {
+                return intVal.toString()
+            }
+        }
+        if expr.callee == "typeFieldName" and expr.arguments.length() >= 2 {
+            let tyName = evaluateConstExprStrImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            let tyIdx = evaluateConstExprImpl(expr.arguments[1], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if tyName != "__EVAL_FAIL__" and tyIdx != -9999999 {
+                return comptimeTypeFieldNameImpl(tyName, tyIdx, structNames, structFieldNames)
+            }
+        }
+        if expr.callee == "typeFieldType" and expr.arguments.length() >= 2 {
+            let tyName = evaluateConstExprStrImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            let tyIdx = evaluateConstExprImpl(expr.arguments[1], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if tyName != "__EVAL_FAIL__" and tyIdx != -9999999 {
+                return comptimeTypeFieldTypeImpl(tyName, tyIdx, structNames, structFieldTypes)
+            }
+        }
+    }
+    return "__EVAL_FAIL__"
+}
+
+// Evaluate a constant expression at compile time
+fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, comptimeValues: String, comptimeCount: Int, comptimeStrNames: String, comptimeStrValues: String, comptimeStrCount: Int, structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: Int {
+    if expr.kind == "Literal" {
+        if expr.literalType == "Int" {
+            return parseSimpleIntImpl(expr.literalValue)
+        }
+        if expr.literalType == "Bool" {
+            if expr.literalValue == "true" { return 1 }
+            return 0
+        }
+    }
+    if expr.kind == "Variable" {
+        let ctName = expr.literalValue
+        if ctName == "" {
+            let ctName2 = expr.variableName
+            return lookupComptimeVarImpl(ctName2, comptimeNames, comptimeValues, comptimeCount)
+        }
+        return lookupComptimeVarImpl(ctName, comptimeNames, comptimeValues, comptimeCount)
+    }
+    // Comptime platform/feature detection
+    if expr.kind == "MemberAccess" {
+        if expr.literalValue == "target" {
+            if expr.variableName == "isLinux" { return 1 }
+            if expr.variableName == "isMacos" { return 0 }
+            if expr.variableName == "isWindows" { return 0 }
+            if expr.variableName == "isX86_64" { return 1 }
+            if expr.variableName == "isAarch64" { return 0 }
+            if expr.variableName == "hasSSE2" { return 1 }
+            if expr.variableName == "hasAVX2" { return 1 }
+            if expr.variableName == "hasAVX512" { return 0 }
+            if expr.variableName == "hasFMA" { return 1 }
+            if expr.variableName == "hasNeon" { return 0 }
+            if expr.variableName == "pointerSize" { return 8 }
+        }
+    }
+    if expr.kind == "Binary" {
+        let leftVal = evaluateConstExprImpl(expr.operands[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+        let rightVal = evaluateConstExprImpl(expr.operands[1], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+        if leftVal == -9999999 or rightVal == -9999999 {
+            return -9999999
+        }
+        if expr.operator == "+" { return leftVal + rightVal }
+        if expr.operator == "-" { return leftVal - rightVal }
+        if expr.operator == "*" { return leftVal * rightVal }
+        if expr.operator == "/" {
+            if rightVal != 0 { return leftVal / rightVal }
+            return -9999999
+        }
+        if expr.operator == "==" {
+            if leftVal == rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == "!=" {
+            if leftVal != rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == "<" {
+            if leftVal < rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == ">" {
+            if leftVal > rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == "<=" {
+            if leftVal <= rightVal { return 1 }
+            return 0
+        }
+        if expr.operator == ">=" {
+            if leftVal >= rightVal { return 1 }
+            return 0
+        }
+    }
+    if expr.kind == "Unary" {
+        if expr.operator == "-" {
+            let val = evaluateConstExprImpl(expr.operands[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if val != -9999999 { return 0 - val }
+        }
+        if expr.operator == "not" or expr.operator == "!" {
+            let val = evaluateConstExprImpl(expr.operands[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+            if val != -9999999 {
+                if val == 0 { return 1 }
+                return 0
+            }
+        }
+    }
+    if expr.kind == "Call" {
+        if expr.callee == "sizeof" and expr.arguments.length() > 0 {
+            let typeName = expr.arguments[0].literalValue
+            if typeName == "" and expr.arguments[0].kind == "Variable" {
+                let tn2 = expr.arguments[0].variableName
+                return comptimeSizeofImpl(tn2)
+            }
+            return comptimeSizeofImpl(typeName)
+        }
+        if expr.callee == "typeFields" or expr.callee == "typeFieldCount" {
+            if expr.arguments.length() > 0 {
+                var tiTypeName = expr.arguments[0].literalValue
+                if tiTypeName == "" {
+                    tiTypeName = evaluateConstExprStrImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+                }
+                if tiTypeName != "" and tiTypeName != "__EVAL_FAIL__" {
+                    return comptimeTypeFieldCountImpl(tiTypeName, structNames, structFieldNames)
+                }
+            }
+        }
+        if expr.callee == "typeFieldSize" {
+            if expr.arguments.length() > 0 {
+                var tiTypeName = expr.arguments[0].literalValue
+                if tiTypeName == "" {
+                    tiTypeName = evaluateConstExprStrImpl(expr.arguments[0], comptimeNames, comptimeValues, comptimeCount, comptimeStrNames, comptimeStrValues, comptimeStrCount, structNames, structFieldNames, structFieldTypes)
+                }
+                if tiTypeName != "" and tiTypeName != "__EVAL_FAIL__" {
+                    return comptimeTypeFieldCountImpl(tiTypeName, structNames, structFieldNames)
+                }
+            }
+        }
+    }
+    return -9999999  // cannot evaluate
+}
+
+fun isSimdVectorTypeImpl(t: String) r: Int {
+    if t == "f32x4" or t == "f32x8" or t == "i32x4" or t == "i32x8" or t == "f64x2" or t == "f64x4" {
+        return 1
+    }
+    return 0
+}
+
+fun simdScalarTypeImpl(t: String) r: String {
+    if t == "f32x4" or t == "f32x8" { return "float" }
+    if t == "f64x2" or t == "f64x4" { return "double" }
+    if t == "i32x4" or t == "i32x8" { return "i32" }
+    return "i64"
+}
+
+fun simdLaneCountImpl(t: String) r: Int {
+    if t == "f32x4" or t == "i32x4" { return 4 }
+    if t == "f32x8" or t == "i32x8" { return 8 }
+    if t == "f64x2" { return 2 }
+    if t == "f64x4" { return 4 }
+    return 0
+}
+
+fun isSwizzlePatternImpl(s: String, lanes: Int) r: Int {
+    if s.length() == 0 or s.length() > lanes { return 0 }
+    var swzI = 0
+    while swzI < s.length() {
+        let swzC = s.substring(swzI, swzI + 1)
+        if lanes <= 4 {
+            if swzC != "x" and swzC != "y" and swzC != "z" and swzC != "w" { return 0 }
+        } else {
+            if swzC != "a" and swzC != "b" and swzC != "c" and swzC != "d" and swzC != "e" and swzC != "f" and swzC != "g" and swzC != "h" { return 0 }
+        }
+        swzI = swzI + 1
+    }
+    return 1
+}
+
+fun swizzleLaneIndexImpl(c: String) r: Int {
+    if c == "x" or c == "a" { return 0 }
+    if c == "y" or c == "b" { return 1 }
+    if c == "z" or c == "c" { return 2 }
+    if c == "w" or c == "d" { return 3 }
+    if c == "e" { return 4 }
+    if c == "f" { return 5 }
+    if c == "g" { return 6 }
+    if c == "h" { return 7 }
+    return 0
+}
+
+fun simdLlvmSuffixImpl(t: String) r: String {
+    if t == "f32x4" { return "v4f32" }
+    if t == "f32x8" { return "v8f32" }
+    if t == "i32x4" { return "v4i32" }
+    if t == "i32x8" { return "v8i32" }
+    if t == "f64x2" { return "v2f64" }
+    if t == "f64x4" { return "v4f64" }
+    return "v4f32"
+}
+
+// ============================================================
+// isDataType — check if a Seen type is a data type (inline struct)
+// ============================================================
+
+fun isDataTypeImpl(seenType: String) r: Int {
+    let baseType = getBaseTypeNameImpl(seenType)
+    if baseType == "TypeNode" or baseType == "ImportPathInfo" or baseType == "CommandResult" or baseType == "RemovalResult" or baseType == "CompilerInfo" or baseType == "VerificationResult" or baseType == "StageArtifact" or baseType == "BinaryComparison" or baseType == "FunctionSummary" or baseType == "ModuleMetadata" {
+        return 1
+    }
+    return 0
+}
+
+// ============================================================
+// isClassType — check if a Seen type is a class type (heap-allocated, i64)
+// ============================================================
+
+fun isClassTypeImpl(name: String, structNames: Array<String>) r: Int {
+    let baseType = getBaseTypeNameImpl(name)
+    if baseType == "" {
+        return 0
+    }
+    if baseType == "Int" or baseType == "Char" or baseType == "Bool" or baseType == "Boolean" or baseType == "Float" or baseType == "String" or baseType == "Void" {
+        return 0
+    }
+    if name.startsWith("Array<") or baseType == "Array" {
+        return 0
+    }
+    if name.startsWith("List<") or baseType == "List" {
+        return 0
+    }
+    if isDataTypeImpl(baseType) == 1 {
+        return 0
+    }
+    if findStructIdx(structNames, baseType) >= 0 {
+        return 1
+    }
+    if baseType == "FrontendResult" or baseType == "LLVMIRGenerator" or baseType == "ProgramNode" or baseType == "FrontendDiagnostic" or baseType == "Point" or baseType == "TypeInferenceResult" or baseType == "TypeChecker" or baseType == "RealParser" or baseType == "SeenLexer" or baseType == "TypeError" or baseType == "Location" or baseType == "Type" or baseType == "FsFileResult" or baseType == "FsFile" or baseType == "Result" or baseType == "Unit" or baseType == "Optional" or baseType == "Option" or baseType == "FunctionNode" or baseType == "ClassNode" or baseType == "EnumNode" or baseType == "BlockNode" or baseType == "Environment" or baseType == "ImportNode" or baseType == "Token" or baseType == "StringBuilder" or baseType == "Map" or baseType == "Vec" or baseType == "VecChunk" or baseType == "VecSlot" {
+        return 1
+    }
+    if baseType == "StatementNode" or baseType == "ParserExpressionNode" or baseType == "LexerError" or baseType == "KeywordManager" or baseType == "ClassType" or baseType == "FunctionType" or baseType == "InterfaceType" or baseType == "ImportSymbolNode" or baseType == "ItemNode" or baseType == "ParamNode" {
+        return 1
+    }
+    if baseType == "JsonValue" or baseType == "JsonParser" or baseType == "JsonBuilder" {
+        return 1
+    }
+    if baseType == "JsonRpcHandler" or baseType == "LspMessage" or baseType == "LspError" or baseType == "LspResponse" or baseType == "MessageDispatcher" or baseType == "MessageHandler" {
+        return 1
+    }
+    if baseType == "LspServer" or baseType == "SeenLspServer" or baseType == "Document" or baseType == "LspPosition" or baseType == "Position" or baseType == "Range" or baseType == "Location" or baseType == "Diagnostic" or baseType == "TextEdit" or baseType == "CompletionItem" or baseType == "CompletionList" or baseType == "Hover" or baseType == "MarkupContent" or baseType == "SignatureHelp" or baseType == "SignatureInformation" or baseType == "ParameterInformation" {
+        return 1
+    }
+    if baseType == "TextDocumentIdentifier" or baseType == "VersionedTextDocumentIdentifier" or baseType == "TextDocumentItem" or baseType == "TextDocumentPositionParams" or baseType == "TextDocumentContentChangeEvent" {
+        return 1
+    }
+    if baseType == "DidOpenTextDocumentParams" or baseType == "DidChangeTextDocumentParams" or baseType == "DidCloseTextDocumentParams" or baseType == "DidSaveTextDocumentParams" {
+        return 1
+    }
+    if baseType == "CodeAction" or baseType == "CodeActionContext" or baseType == "CodeActionParams" or baseType == "DocumentFormattingParams" {
+        return 1
+    }
+    if baseType == "ClientCapabilities" or baseType == "InitializeParams" or baseType == "InitializeResult" or baseType == "ServerCapabilities" or baseType == "ServerInfo" or baseType == "CompletionOptions" or baseType == "TextDocumentSyncOptions" {
+        return 1
+    }
+    if baseType == "PublishDiagnosticsParams" {
+        return 1
+    }
+    if baseType == "ContentLengthReader" or baseType == "StdinReader" {
+        return 1
+    }
+    if name.startsWith("Result<") or name.startsWith("Optional<") or name.startsWith("Option<") {
+        return 1
+    }
+    if baseType == "Vec" or name.startsWith("Vec<") {
+        return 1
+    }
+    if baseType == "BTreeMap" or name.startsWith("BTreeMap<") {
+        return 1
+    }
+    if baseType == "VNode" or baseType == "Patch" or baseType == "VDOMDiffer" or baseType == "VDOMPatcher" or baseType == "VDOMEngine" or baseType == "AttrDiffResult" {
+        return 1
+    }
+    return 0
+}
+
+// ============================================================
+// mapType — map Seen type name to LLVM IR type
+// ============================================================
+
+fun mapTypeImpl(seenType: String, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: String {
+    let trimmed = trimSpacesImpl(seenType)
+    let baseType = getBaseTypeNameImpl(trimmed)
+    // Resolve type aliases before standard type resolution
+    if typeAliasCount > 0 {
+        var taIdx = 0
+        var taSearchPos = 0
+        while taIdx < typeAliasCount {
+            var taName = ""
+            var taNextPipe = typeAliasNames.indexOf("|", taSearchPos)
+            if taNextPipe < 0 {
+                taName = typeAliasNames.substring(taSearchPos, typeAliasNames.length())
+            } else {
+                taName = typeAliasNames.substring(taSearchPos, taNextPipe)
+                taSearchPos = taNextPipe + 1
+            }
+            if taName == baseType {
+                var taTargetPos = 0
+                var taTargetIdx = 0
+                while taTargetIdx < taIdx {
+                    var tatp = typeAliasTargets.indexOf("|", taTargetPos)
+                    if tatp >= 0 {
+                        taTargetPos = tatp + 1
+                    }
+                    taTargetIdx = taTargetIdx + 1
+                }
+                var taTarget = ""
+                var taTargetEnd = typeAliasTargets.indexOf("|", taTargetPos)
+                if taTargetEnd < 0 {
+                    taTarget = typeAliasTargets.substring(taTargetPos, typeAliasTargets.length())
+                } else {
+                    taTarget = typeAliasTargets.substring(taTargetPos, taTargetEnd)
+                }
+                return mapTypeImpl(taTarget, structNames, typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+            }
+            taIdx = taIdx + 1
+        }
+    }
+    if trimmed == "SmallVec" or trimmed.startsWith("SmallVec<") or trimmed.startsWith("SmallVec[") {
+        return "i64"
+    }
+    if trimmed.startsWith("Buffer<") or trimmed.startsWith("Uniform<") or trimmed.startsWith("Image<") {
+        return "i64"
+    }
+    if trimmed.startsWith("*") {
+        return "ptr"
+    }
+    if trimmed.startsWith("ErrorUnion<") {
+        return "i64"
+    }
+    if trimmed.startsWith("dyn ") {
+        return "ptr"
+    }
+    if baseType.length() == 1 {
+        let c = baseType.substring(0, 1)
+        if c == "T" or c == "K" or c == "V" or c == "E" or c == "R" or c == "S" or c == "U" {
+            return "i64"
+        }
+    }
+    if baseType == "f32x4" { return "<4 x float>" }
+    if baseType == "f32x8" { return "<8 x float>" }
+    if baseType == "i32x4" { return "<4 x i32>" }
+    if baseType == "i32x8" { return "<8 x i32>" }
+    if baseType == "f64x2" { return "<2 x double>" }
+    if baseType == "f64x4" { return "<4 x double>" }
+    if baseType == "Int" {
+        return "i64"
+    }
+    if baseType == "Char" {
+        return "i64"
+    }
+    if baseType == "Bool" or baseType == "Boolean" {
+        return "i1"
+    }
+    if baseType == "String" {
+        return "%SeenString"
+    }
+    if baseType == "Float" {
+        return "double"
+    }
+    if baseType == "Void" or baseType == "" or baseType == "Unknown" {
+        return "void"
+    }
+    if baseType == "SeenTokenType" {
+        return "i64"
+    }
+    if trimmed.startsWith("Array<") or baseType == "Array" {
+        return "ptr"
+    }
+    if trimmed.startsWith("List<") or baseType == "List" {
+        return "ptr"
+    }
+    if baseType == "Option" or baseType == "Result" or baseType == "Map" or
+       baseType == "HashMap" or baseType == "BTreeMap" or baseType == "Vec" or
+       baseType == "LinkedList" {
+        return "i64"
+    }
+    if isDataTypeImpl(baseType) == 1 {
+        return "%" + baseType
+    }
+    if isClassTypeImpl(baseType, structNames) == 1 {
+        return "i64"
+    }
+    if enumTypeNames != "" {
+        let enumSearch = "|" + enumTypeNames + "|"
+        let enumTarget = "|" + baseType + "|"
+        if enumSearch.contains(enumTarget) {
+            return "i64"
+        }
+    }
+    return "ptr"
+}
+
+// Map a field name (possibly chained like "program.items") to its Seen receiver type.
+// Returns empty string if unknown. Used by generateMethodCall for type inference.
+fun mapFieldNameToReceiverType(fieldName: String) r: String {
+    if fieldName.endsWith(".items") or fieldName == "items" { return "Array<ItemNode>" }
+    if fieldName.endsWith(".diagnostics") or fieldName == "diagnostics" { return "Array<FrontendDiagnostic>" }
+    if fieldName.endsWith(".importPath") or fieldName == "importPath" { return "Array<String>" }
+    if fieldName.endsWith(".line") or fieldName == "line" or fieldName.endsWith(".column") or fieldName == "column" { return "Int" }
+    if fieldName.endsWith(".severity") or fieldName == "severity" or fieldName.endsWith(".message") or fieldName == "message" or fieldName.endsWith(".file") or fieldName == "file" or fieldName.endsWith(".output") or fieldName == "output" { return "String" }
+    if fieldName.endsWith(".program") or fieldName == "program" { return "ProgramNode" }
+    if fieldName.endsWith(".function") or fieldName == "function" { return "FunctionNode" }
+    if fieldName.endsWith(".classNode") or fieldName == "classNode" { return "ClassNode" }
+    if fieldName.endsWith(".methods") or fieldName == "methods" { return "Array<FunctionNode>" }
+    if fieldName.endsWith(".params") or fieldName == "params" { return "Array<ParamNode>" }
+    if fieldName.endsWith(".fields") or fieldName == "fields" { return "Array<ParamNode>" }
+    if fieldName.endsWith(".itemType") or fieldName == "itemType" { return "String" }
+    if fieldName.endsWith(".statements") or fieldName == "statements" { return "Array<StatementNode>" }
+    if fieldName.endsWith(".operands") or fieldName == "operands" or fieldName.endsWith(".arguments") or fieldName == "arguments" { return "Array<ParserExpressionNode>" }
+    if fieldName.endsWith(".errors") or fieldName == "errors" { return "Array<TypeError>" }
+    if fieldName.endsWith(".warnings") or fieldName == "warnings" { return "Array<String>" }
+    return ""
+}
+
+// Unified struct field lookup: resolves (layout, fieldIndex, fieldType) for known struct types.
+// Returns the LLVM struct layout string. Sets g_resolvedFieldIndex and g_resolvedFieldType.
+// Used by generateFieldAccess and generateFieldAccessPtr in llvm_ir_gen.seen.
+fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String {
+    let lb = "{"
+    let rb = "}"
+    g_resolvedFieldIndex = 0
+    g_resolvedFieldTypeCode = 0
+    if structType == "FrontendResult" {
+        g_resolvedFieldTypeCode = 0
+        if fieldName == "success" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "diagnostics" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "program" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        return lb + " i1, ptr, i64 " + rb
+    }
+    if structType == "FrontendDiagnostic" {
+        if fieldName == "file" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "line" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "column" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "severity" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "message" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString, i64, i64, %SeenString, %SeenString " + rb
+    }
+    if structType == "CommandResult" {
+        if fieldName == "success" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "output" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        return lb + " i1, %SeenString " + rb
+    }
+    if structType == "Point" {
+        if fieldName == "x" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "y" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, i64 " + rb
+    }
+    if structType == "Counter" {
+        if fieldName == "value" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64 " + rb
+    }
+    if structType == "ImportPathInfo" {
+        if fieldName == "text" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "segments" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        return lb + " %SeenString, ptr " + rb
+    }
+    if structType == "ProgramNode" {
+        if fieldName == "items" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 2 }
+        return lb + " ptr " + rb
+    }
+    if structType == "ItemNode" {
+        if fieldName == "itemType" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "name" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "visibility" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "importPath" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "importSymbols" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "function" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "classNode" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "enumNode" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64 " + rb
+    }
+    if structType == "TypeInferenceResult" {
+        if fieldName == "success" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "type" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "errors" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "warnings" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "environment" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
+        return lb + " i1, i64, ptr, ptr, i64 " + rb
+    }
+    if structType == "FsFileResult" {
+        if fieldName == "isOk" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "file" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "error" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        return lb + " i1, i64, %SeenString " + rb
+    }
+    if structType == "FsFile" {
+        if fieldName == "fd" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "path" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        return lb + " i64, %SeenString " + rb
+    }
+    if structType == "FunctionNode" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "params" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "returnType" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 4 }
+        if fieldName == "body" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "isAsync" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "isInline" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "isStatic" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "isExtern" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "isDeterministic" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "isNondeterministic" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "decorators" { g_resolvedFieldIndex = 10; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "line" { g_resolvedFieldIndex = 11; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "column" { g_resolvedFieldIndex = 12; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "isOverride" { g_resolvedFieldIndex = 13; g_resolvedFieldTypeCode = 1 }
+        return lb + " %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 " + rb
+    }
+    if structType == "ClassNode" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "fields" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "methods" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "decorators" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "isNondeterministic" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "parentName" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString, ptr, ptr, ptr, i1, %SeenString " + rb
+    }
+    if structType == "TypeNode" {
+        if fieldName == "typeName" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "isNullable" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 1 }
+        return lb + " %SeenString, i1 " + rb
+    }
+    if structType == "FieldNode" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "fieldType" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 4 }
+        if fieldName == "isMutable" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "defaultValue" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "visibility" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString, %TypeNode, i1, i64, %SeenString " + rb
+    }
+    if structType == "ParamNode" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "paramType" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 4 }
+        if fieldName == "isMutable" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 1 }
+        return lb + " %SeenString, %TypeNode, i1 " + rb
+    }
+    if structType == "ParserExpressionNode" {
+        if fieldName == "kind" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "operands" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "operator" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "literalValue" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "literalType" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "variableName" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "callee" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "arguments" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 2 }
+        return lb + " %SeenString, ptr, %SeenString, %SeenString, %SeenString, %SeenString, %SeenString, ptr " + rb
+    }
+    if structType == "Type" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "isNullable" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 1 }
+        return lb + " %SeenString, i1 " + rb
+    }
+    if structType == "FunctionType" {
+        if fieldName == "parameters" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "returnType" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "isAsync" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 1 }
+        return lb + " ptr, i64, i1 " + rb
+    }
+    if structType == "ClassType" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString " + rb
+    }
+    if structType == "InterfaceType" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString " + rb
+    }
+    if structType == "Location" {
+        if fieldName == "line" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "column" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "file" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        return lb + " i64, i64, %SeenString " + rb
+    }
+    if structType == "TypeError" {
+        if fieldName == "message" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "location" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "expected" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "actual" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "context" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString, i64, i64, i64, %SeenString " + rb
+    }
+    if structType == "Environment" {
+        if fieldName == "parent" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 2 }
+        return lb + " ptr " + rb
+    }
+    if structType == "BlockNode" {
+        if fieldName == "statements" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 2 }
+        return lb + " ptr " + rb
+    }
+    if structType == "StatementNode" {
+        if fieldName == "kind" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "variableName" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "variableType" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 4 }
+        if fieldName == "initializer" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "expression" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "condition" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "thenBranch" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "elseBranch" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "loopCondition" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "loopBody" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "returnValue" { g_resolvedFieldIndex = 10; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, %SeenString, %TypeNode, i64, i64, i64, i64, i64, i64, i64, i64 " + rb
+    }
+    // LSP types
+    if structType == "LspMessage" {
+        if fieldName == "jsonrpc" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "id" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "method" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "params" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, i64, %SeenString, i64 " + rb
+    }
+    if structType == "LspError" {
+        if fieldName == "code" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "message" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "data" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, %SeenString, i64 " + rb
+    }
+    if structType == "LspResponse" {
+        if fieldName == "jsonrpc" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "id" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "result" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "error" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, i64, i64, i64 " + rb
+    }
+    if structType == "Document" {
+        if fieldName == "uri" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "content" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "version" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "languageId" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString, %SeenString, i64, %SeenString " + rb
+    }
+    // VDOM types
+    if structType == "VNode" {
+        if fieldName == "nodeType" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "tag" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "text" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "key" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "attributes" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "children" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "eventHandlers" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 0 }
+        return lb + " ptr, %SeenString, %SeenString, %SeenString, i64, i64, i64 " + rb
+    }
+    if structType == "Patch" {
+        if fieldName == "patchType" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "path" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 5 }
+        if fieldName == "node" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "attributes" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "removedAttrs" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "text" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "fromIndex" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "toIndex" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, %SeenArray, i64, i64, i64, %SeenString, i64, i64 " + rb
+    }
+    if structType == "VDOMDiffer" {
+        if fieldName == "patches" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64 " + rb
+    }
+    if structType == "VDOMPatcher" {
+        if fieldName == "patchCount" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64 " + rb
+    }
+    if structType == "VDOMEngine" {
+        if fieldName == "tree" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "differ" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "patcher" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "patchCount" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, i64, i64, i64 " + rb
+    }
+    if structType == "LspPosition" {
+        if fieldName == "line" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "character" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, i64 " + rb
+    }
+    if structType == "Range" {
+        if fieldName == "start" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 7 }
+        if fieldName == "end" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 7 }
+        return lb + " %LspPosition, %LspPosition " + rb
+    }
+    if structType == "Diagnostic" {
+        if fieldName == "range" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 6 }
+        if fieldName == "severity" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "code" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "source" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "message" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 3 }
+        return lb + " %Range, i64, %SeenString, %SeenString, %SeenString " + rb
+    }
+    if structType == "TextDocumentIdentifier" {
+        if fieldName == "uri" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString " + rb
+    }
+    if structType == "VersionedTextDocumentIdentifier" {
+        if fieldName == "uri" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "version" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, i64 " + rb
+    }
+    if structType == "TextDocumentItem" {
+        if fieldName == "uri" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "languageId" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "version" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "text" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString, %SeenString, i64, %SeenString " + rb
+    }
+    if structType == "TextDocumentContentChangeEvent" {
+        if fieldName == "text" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString " + rb
+    }
+    if structType == "TextDocumentPositionParams" {
+        if fieldName == "textDocument" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "position" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 7 }
+        return lb + " i64, %LspPosition " + rb
+    }
+    if structType == "CompletionItem" {
+        if fieldName == "label" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "kind" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "detail" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "documentation" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "insertText" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "insertTextFormat" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, i64, %SeenString, %SeenString, %SeenString, i64 " + rb
+    }
+    if structType == "CompletionList" {
+        if fieldName == "isIncomplete" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "items" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        return lb + " i1, ptr " + rb
+    }
+    if structType == "Hover" {
+        if fieldName == "contents" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "range" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, i64 " + rb
+    }
+    if structType == "MarkupContent" {
+        if fieldName == "kind" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "value" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString, %SeenString " + rb
+    }
+    if structType == "TextEdit" {
+        if fieldName == "range" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 6 }
+        if fieldName == "newText" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        return lb + " %Range, %SeenString " + rb
+    }
+    if structType == "CodeAction" {
+        if fieldName == "title" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "kind" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "isPreferred" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "diagnostics" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "edit" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
+        return lb + " %SeenString, %SeenString, i1, ptr, i64 " + rb
+    }
+    if structType == "PublishDiagnosticsParams" {
+        if fieldName == "uri" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "diagnostics" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        return lb + " %SeenString, ptr " + rb
+    }
+    if structType == "SeenLspServer" {
+        if fieldName == "rpc" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "initialized" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "shutdown" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "documents" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "documentUris" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 2 }
+        return lb + " i64, i1, i1, ptr, ptr " + rb
+    }
+    if structType == "JsonRpcHandler" {
+        if fieldName == "reader" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "running" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "lastError" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
+        return lb + " i64, i1, %SeenString " + rb
+    }
+    if structType == "ContentLengthReader" {
+        if fieldName == "lastError" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString " + rb
+    }
+    // LSP params types
+    if structType == "DidOpenTextDocumentParams" {
+        if fieldName == "textDocument" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64 " + rb
+    }
+    if structType == "DidChangeTextDocumentParams" {
+        if fieldName == "textDocument" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "contentChanges" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        return lb + " i64, ptr " + rb
+    }
+    if structType == "DidCloseTextDocumentParams" {
+        if fieldName == "textDocument" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64 " + rb
+    }
+    if structType == "DidSaveTextDocumentParams" {
+        if fieldName == "textDocument" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "text" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        return lb + " i64, %SeenString " + rb
+    }
+    if structType == "CodeActionContext" {
+        if fieldName == "diagnostics" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 2 }
+        return lb + " ptr " + rb
+    }
+    if structType == "CodeActionParams" {
+        if fieldName == "textDocument" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "range" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 6 }
+        if fieldName == "context" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, %Range, i64 " + rb
+    }
+    if structType == "DocumentFormattingParams" {
+        if fieldName == "textDocument" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64 " + rb
+    }
+    if structType == "InitializeParams" {
+        if fieldName == "processId" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "rootUri" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "capabilities" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, %SeenString, i64 " + rb
+    }
+    if structType == "InitializeResult" {
+        if fieldName == "capabilities" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "serverInfo" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        return lb + " i64, i64 " + rb
+    }
+    if structType == "ServerCapabilities" {
+        if fieldName == "textDocumentSync" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "completionProvider" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
+        if fieldName == "hoverProvider" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "definitionProvider" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "referencesProvider" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "documentHighlightProvider" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "documentSymbolProvider" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "codeActionProvider" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "documentFormattingProvider" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 1 }
+        return lb + " i64, i64, i1, i1, i1, i1, i1, i1, i1 " + rb
+    }
+    if structType == "ServerInfo" {
+        if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
+        if fieldName == "version" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }
+        return lb + " %SeenString, %SeenString " + rb
+    }
+    // Not a known type — return empty to signal "not found"
+    return ""
+}

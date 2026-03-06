@@ -1,0 +1,147 @@
+// Portable SIMD Vector Types
+// Wraps platform-specific SIMD operations via C runtime functions
+// Auto-dispatches between SSE (4-wide) and AVX2 (8-wide)
+
+// 4-wide float vector (SSE, 128-bit)
+class SimdFloat4 {
+    let handle: Int  // opaque pointer to __m128
+
+    fun new(handle: Int) r: SimdFloat4 {
+        return SimdFloat4{ handle: handle }
+    }
+}
+
+// Create a SimdFloat4 with all lanes set to the same value
+fun simd_f4_splat(value: Float) r: SimdFloat4 {
+    let h: Int = __simd_f4_splat(value)
+    return SimdFloat4.new(h)
+}
+
+// Load 4 floats from a pointer
+fun simd_f4_load(ptr: Int) r: SimdFloat4 {
+    let h: Int = __simd_f4_load(ptr)
+    return SimdFloat4.new(h)
+}
+
+// Store 4 floats to a pointer
+fun simd_f4_store(vec: SimdFloat4, ptr: Int) r: Void {
+    __simd_f4_store(vec.handle, ptr)
+}
+
+// Element-wise addition
+fun simd_f4_add(a: SimdFloat4, b: SimdFloat4) r: SimdFloat4 {
+    let h: Int = __simd_f4_add(a.handle, b.handle)
+    return SimdFloat4.new(h)
+}
+
+// Element-wise subtraction
+fun simd_f4_sub(a: SimdFloat4, b: SimdFloat4) r: SimdFloat4 {
+    let h: Int = __simd_f4_sub(a.handle, b.handle)
+    return SimdFloat4.new(h)
+}
+
+// Element-wise multiplication
+fun simd_f4_mul(a: SimdFloat4, b: SimdFloat4) r: SimdFloat4 {
+    let h: Int = __simd_f4_mul(a.handle, b.handle)
+    return SimdFloat4.new(h)
+}
+
+// Element-wise division
+fun simd_f4_div(a: SimdFloat4, b: SimdFloat4) r: SimdFloat4 {
+    let h: Int = __simd_f4_div(a.handle, b.handle)
+    return SimdFloat4.new(h)
+}
+
+// Element-wise minimum
+fun simd_f4_min(a: SimdFloat4, b: SimdFloat4) r: SimdFloat4 {
+    let h: Int = __simd_f4_min(a.handle, b.handle)
+    return SimdFloat4.new(h)
+}
+
+// Element-wise maximum
+fun simd_f4_max(a: SimdFloat4, b: SimdFloat4) r: SimdFloat4 {
+    let h: Int = __simd_f4_max(a.handle, b.handle)
+    return SimdFloat4.new(h)
+}
+
+// Horizontal sum of all 4 lanes
+fun simd_f4_sum(a: SimdFloat4) r: Float {
+    return __simd_f4_sum(a.handle)
+}
+
+// Dot product of two 4-wide vectors
+fun simd_f4_dot(a: SimdFloat4, b: SimdFloat4) r: Float {
+    return __simd_f4_dot(a.handle, b.handle)
+}
+
+// 8-wide float vector (AVX2, 256-bit)
+class SimdFloat8 {
+    let handle: Int  // opaque pointer to __m256
+
+    fun new(handle: Int) r: SimdFloat8 {
+        return SimdFloat8{ handle: handle }
+    }
+}
+
+// Create a SimdFloat8 with all lanes set to the same value
+fun simd_f8_splat(value: Float) r: SimdFloat8 {
+    let h: Int = __simd_f8_splat(value)
+    return SimdFloat8.new(h)
+}
+
+// Load 8 floats from a pointer
+fun simd_f8_load(ptr: Int) r: SimdFloat8 {
+    let h: Int = __simd_f8_load(ptr)
+    return SimdFloat8.new(h)
+}
+
+// Store 8 floats to a pointer
+fun simd_f8_store(vec: SimdFloat8, ptr: Int) r: Void {
+    __simd_f8_store(vec.handle, ptr)
+}
+
+// Element-wise addition
+fun simd_f8_add(a: SimdFloat8, b: SimdFloat8) r: SimdFloat8 {
+    let h: Int = __simd_f8_add(a.handle, b.handle)
+    return SimdFloat8.new(h)
+}
+
+// Element-wise subtraction
+fun simd_f8_sub(a: SimdFloat8, b: SimdFloat8) r: SimdFloat8 {
+    let h: Int = __simd_f8_sub(a.handle, b.handle)
+    return SimdFloat8.new(h)
+}
+
+// Element-wise multiplication
+fun simd_f8_mul(a: SimdFloat8, b: SimdFloat8) r: SimdFloat8 {
+    let h: Int = __simd_f8_mul(a.handle, b.handle)
+    return SimdFloat8.new(h)
+}
+
+// Element-wise division
+fun simd_f8_div(a: SimdFloat8, b: SimdFloat8) r: SimdFloat8 {
+    let h: Int = __simd_f8_div(a.handle, b.handle)
+    return SimdFloat8.new(h)
+}
+
+// Element-wise minimum
+fun simd_f8_min(a: SimdFloat8, b: SimdFloat8) r: SimdFloat8 {
+    let h: Int = __simd_f8_min(a.handle, b.handle)
+    return SimdFloat8.new(h)
+}
+
+// Element-wise maximum
+fun simd_f8_max(a: SimdFloat8, b: SimdFloat8) r: SimdFloat8 {
+    let h: Int = __simd_f8_max(a.handle, b.handle)
+    return SimdFloat8.new(h)
+}
+
+// Horizontal sum of all 8 lanes
+fun simd_f8_sum(a: SimdFloat8) r: Float {
+    return __simd_f8_sum(a.handle)
+}
+
+// Dot product of two 8-wide vectors
+fun simd_f8_dot(a: SimdFloat8, b: SimdFloat8) r: Float {
+    return __simd_f8_dot(a.handle, b.handle)
+}

@@ -1,0 +1,10 @@
+name = "test_project"
+version = "1.0.0"
+
+[dependencies]
+lib1 = "1.0"
+lib2 = "2.0"
+features = ["feature1","feature2","feature3","feature4"]
+
+[build]
+target = "native"

@@ -1,0 +1,62 @@
+MIT License
+
+Copyright (c) 2025 Seen Language Project
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Additional Terms for the Seen Language Implementation:
+
+1. COMMERCIAL USE: Commercial use of this software is explicitly permitted 
+   and encouraged, including but not limited to:
+   - Building commercial applications using the Seen language
+   - Distributing the Seen compiler as part of commercial products
+   - Using Seen in enterprise and proprietary software development
+   - Selling products or services built with or incorporating Seen
+
+2. CONTRIBUTIONS: Contributions to this project are welcomed under the 
+   following terms:
+   - All contributions become part of this project under the same MIT License
+   - Contributors retain copyright to their original contributions
+   - By contributing, you grant the project maintainer(s) perpetual rights
+     to use, modify, and distribute your contributions
+   - Contributors are encouraged to be credited in project documentation
+
+3. ATTRIBUTION: While not legally required under MIT License, attribution
+   is appreciated when:
+   - Using substantial portions of the compiler implementation
+   - Creating derivative programming languages based on Seen
+   - Publishing research or articles about techniques used in Seen
+
+4. FAIR USE OF PROJECT NAME: 
+   While you may create derivative works, please be respectful and:
+   - Avoid creating competing languages that use the exact name "Seen" 
+     in a way that would confuse users
+   - If creating derivatives, clearly indicate they are based on or 
+     inspired by this project
+   - Give appropriate credit when building upon this work
+
+This license is designed to:
+✓ Allow free commercial use of Seen language
+✓ Encourage contributions and collaboration  
+✓ Request (but not legally require) respectful use of the project name
+✓ Remain fully compatible with standard MIT License terms
+✓ Keep things simple and legally straightforward
+
+For questions about licensing or collaboration, please open an issue 
+in the project repository.

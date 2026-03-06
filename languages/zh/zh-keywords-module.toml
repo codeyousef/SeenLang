@@ -1,0 +1,8 @@
+name = "Chinese"
+description = "Chinese Module System Keywords"
+
+[keywords]
+"模块" = "KeywordModule"
+"导入" = "KeywordImport"
+"使用" = "KeywordUse"
+"外部" = "KeywordExternal"

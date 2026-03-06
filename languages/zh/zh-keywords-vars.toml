@@ -1,0 +1,10 @@
+name = "Chinese"
+description = "Chinese Variable Declaration Keywords"
+
+[keywords]
+"让" = "KeywordLet"
+"可变" = "KeywordMut"
+"常量" = "KeywordConst"
+"静态" = "KeywordStatic"
+"值" = "KeywordVal"
+"变量" = "KeywordVar"

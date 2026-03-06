@@ -1,0 +1,12 @@
+name = "Chinese"
+description = "Chinese IO Standard Library"
+
+[std_lib]
+"读文本" = "seen_std.io.file.readText"
+"写文本" = "seen_std.io.file.writeText"
+"删除文件" = "seen_std.io.file.deleteFile"
+"存在" = "seen_std.io.file.exists"
+"追加文本" = "seen_std.io.file.appendText"
+"读行" = "seen_std.io.file.readLine"
+"创建目录" = "seen_std.io.file.createDirectory"
+"刷新输出" = "seen_std.io.file.flushStdout"

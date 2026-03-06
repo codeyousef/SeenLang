@@ -1,0 +1,65 @@
+// Fibonacci Benchmark
+// Compute sum of first N fibonacci numbers using iterative method
+// Tests loop performance and integer arithmetic
+// N = 80000000, expected checksum depends on mod arithmetic (i64 overflow wraps)
+
+fun benchmark_fib(n: Int) -> Int {
+    var a = 0
+    var b = 1
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + a
+        let c = a + b
+        a = b
+        b = c
+        i = i + 1
+    }
+    return sum
+}
+
+fun main() -> Int {
+    let n = 1000000000
+
+    __Print("Fibonacci Benchmark\n")
+    __Print("Computing sum of first ")
+    __PrintInt(n)
+    __Print(" fibonacci numbers\n")
+
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let warmup_result = benchmark_fib(n / 10)
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result = 0
+
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let answer = benchmark_fib(n)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result = answer
+        }
+        i = i + 1
+    }
+
+    __Print("Checksum: ")
+    __PrintInt(result)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+
+    return 0
+}

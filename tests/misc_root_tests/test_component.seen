@@ -1,0 +1,143 @@
+// Test for @component decorator
+// Tests lifecycle management and component hierarchy
+
+// A simple counter component
+@component
+class Counter {
+    var value: Int
+    var componentId: Int
+
+    static fun new(initial: Int) r: Counter {
+        return Counter{
+            value: initial,
+            componentId: 0
+        }
+    }
+
+    // Required: init() - initialization logic
+    fun init() r: Void {
+        println("Counter.init(): value = " + value.toString())
+    }
+
+    // Optional: mount() - called when component is attached
+    fun mount() r: Void {
+        println("Counter.mount(): ready to use")
+    }
+
+    // Optional: unmount() - called when component is detached
+    fun unmount() r: Void {
+        println("Counter.unmount(): cleaning up")
+    }
+
+    // Optional: destroy() - called when component is destroyed
+    fun destroy() r: Void {
+        println("Counter.destroy(): final cleanup")
+    }
+
+    // Component methods
+    fun increment() r: Void {
+        value = value + 1
+    }
+
+    fun getValue() r: Int {
+        return value
+    }
+}
+
+// A parent component with child components
+@component
+class Dashboard {
+    var title: String
+    var counter1: Counter
+    var counter2: Counter
+    var componentId: Int
+
+    static fun new(title: String) r: Dashboard {
+        return Dashboard{
+            title: title,
+            counter1: Counter.new(0),
+            counter2: Counter.new(100),
+            componentId: 0
+        }
+    }
+
+    fun init() r: Void {
+        println("Dashboard.init(): " + title)
+        counter1.init()
+        counter2.init()
+    }
+
+    fun mount() r: Void {
+        println("Dashboard.mount(): " + title + " is now active")
+    }
+
+    fun unmount() r: Void {
+        println("Dashboard.unmount(): " + title + " is being deactivated")
+    }
+
+    fun destroy() r: Void {
+        println("Dashboard.destroy(): " + title + " resources released")
+    }
+
+    fun showStatus() r: Void {
+        println("Dashboard Status:")
+        println("  Counter 1: " + counter1.getValue().toString())
+        println("  Counter 2: " + counter2.getValue().toString())
+    }
+}
+
+// A minimal component with only required init()
+@component
+class MinimalComponent {
+    var name: String
+
+    static fun new(name: String) r: MinimalComponent {
+        return MinimalComponent{
+            name: name
+        }
+    }
+
+    fun init() r: Void {
+        println("MinimalComponent.init(): " + name)
+    }
+}
+
+fun main() r: Int {
+    println("=== Component Lifecycle Test ===")
+    println("")
+
+    // Test 1: Simple component
+    println("--- Test 1: Simple Counter ---")
+    let counter = Counter.new(42)
+    counter.init()
+    counter.mount()
+    counter.increment()
+    counter.increment()
+    println("Final value: " + counter.getValue().toString())
+    counter.unmount()
+    counter.destroy()
+    println("")
+
+    // Test 2: Nested components
+    println("--- Test 2: Nested Components (Dashboard) ---")
+    let dashboard = Dashboard.new("Main Dashboard")
+    dashboard.init()
+    dashboard.mount()
+    dashboard.showStatus()
+    dashboard.counter1.increment()
+    dashboard.counter1.increment()
+    dashboard.counter2.increment()
+    dashboard.showStatus()
+    dashboard.unmount()
+    dashboard.destroy()
+    println("")
+
+    // Test 3: Minimal component
+    println("--- Test 3: Minimal Component ---")
+    let minimal = MinimalComponent.new("Test")
+    minimal.init()
+    println("")
+
+    println("=== All Component Tests Passed ===")
+    return 0
+}

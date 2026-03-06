@@ -1,0 +1,22 @@
+class SeenTypeChecker {
+    var smartCastContext: Map<String, Type>
+    var strictMode: Bool
+    var environment: Map<String, Type>
+    var errors: Array<String>
+    var warnings: Array<String>
+
+    fun new() r: SeenTypeChecker {
+        return SeenTypeChecker{
+            smartCastContext: Map<String, Type>.new(),
+            strictMode: true,
+            environment: Map<String, Type>.new(),
+            errors: Array<String>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun check(program: Any) r: Bool {
+        println("[typechecker-core] noop")
+        return true
+    }
+}

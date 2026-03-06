@@ -1,0 +1,91 @@
+// Prueba E2E: Palabras clave de literales (Espanol)
+// Palabras probadas: verdadero, falso, nulo
+
+función esPositivo(n: entero) r: entero {
+    si n > 0 {
+        retornar 1
+    }
+    retornar 0
+}
+
+función principal() r: entero {
+    // Prueba 1: verdadero en condicion
+    variable bandera = 0
+    si verdadero {
+        bandera = 1
+    }
+    si bandera == 1 {
+        imprimir("EXITO: literal verdadero")
+    } sino {
+        imprimir("FALLO: literal verdadero")
+        retornar 1
+    }
+
+    // Prueba 2: falso en condicion
+    variable bandera2 = 1
+    si falso {
+        bandera2 = 0
+    }
+    si bandera2 == 1 {
+        imprimir("EXITO: literal falso")
+    } sino {
+        imprimir("FALLO: literal falso")
+        retornar 1
+    }
+
+    // Prueba 3: verdadero y verdadero
+    variable resultado = 0
+    si verdadero y verdadero {
+        resultado = 1
+    }
+    si resultado == 1 {
+        imprimir("EXITO: verdadero y verdadero")
+    } sino {
+        imprimir("FALLO: verdadero y verdadero")
+        retornar 1
+    }
+
+    // Prueba 4: verdadero y falso
+    variable resultado2 = 1
+    si verdadero y falso {
+        resultado2 = 0
+    }
+    si resultado2 == 1 {
+        imprimir("EXITO: verdadero y falso")
+    } sino {
+        imprimir("FALLO: verdadero y falso")
+        retornar 1
+    }
+
+    // Prueba 5: no falso
+    variable resultado3 = 0
+    si no falso {
+        resultado3 = 1
+    }
+    si resultado3 == 1 {
+        imprimir("EXITO: no falso")
+    } sino {
+        imprimir("FALLO: no falso")
+        retornar 1
+    }
+
+    // Prueba 6: verificacion de valor
+    sea val = esPositivo(5)
+    si val == 1 {
+        imprimir("EXITO: valor no nulo")
+    } sino {
+        imprimir("FALLO: valor no nulo")
+        retornar 1
+    }
+
+    sea val2 = esPositivo(-3)
+    si val2 == 0 {
+        imprimir("EXITO: valor cero/nulo")
+    } sino {
+        imprimir("FALLO: valor cero/nulo")
+        retornar 1
+    }
+
+    imprimir("EXITO: todas las pruebas de literales pasaron")
+    retornar 0
+}

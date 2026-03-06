@@ -1,0 +1,704 @@
+// ir_decl_parser.seen — Parser and typechecker runtime declarations
+
+import str.string.{StringBuilder}
+import codegen.ir_declarations.{isFuncDefinedInModule}
+
+fun emitParserDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void {
+    // Frontend functions (from imported modules - conditionally declared)
+    // run_frontend returns FrontendResult (class type stored as i64)
+    if not isFuncDefinedInModule("run_frontend", definedFuncs) {
+        output.append("declare i64 @run_frontend(%SeenString, %SeenString, %SeenString) nounwind\n")
+    }
+    // getDiagnostics returns Array pointer (not a class type itself, stays as ptr)
+    if not isFuncDefinedInModule("FrontendResult_getDiagnostics", definedFuncs) {
+        output.append("declare ptr @FrontendResult_getDiagnostics(ptr) nounwind\n")
+    }
+    // LLVMIRGenerator_new returns LLVMIRGenerator (class type stored as i64)
+    if not isFuncDefinedInModule("LLVMIRGenerator_new", definedFuncs) {
+        output.append("declare i64 @LLVMIRGenerator_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("LLVMIRGenerator_generate", definedFuncs) {
+        // ProgramNode is a class type (stored as i64)
+        output.append("declare %SeenString @LLVMIRGenerator_generate(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("LLVMIRGenerator_generateMultiple", definedFuncs) {
+        output.append("declare %SeenString @LLVMIRGenerator_generateMultiple(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("LLVMIRGenerator_generateSingle", definedFuncs) {
+        // ProgramNode is a class type (stored as i64), i64 is for optional module index
+        output.append("declare %SeenString @LLVMIRGenerator_generateSingle(ptr, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("LLVMIRGenerator_registerDeclarations", definedFuncs) {
+        // ProgramNode is a class type (stored as i64)
+        output.append("declare void @LLVMIRGenerator_registerDeclarations(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("LLVMIRGenerator_reset", definedFuncs) {
+        output.append("declare void @LLVMIRGenerator_reset(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("LLVMIRGenerator_setTypeHeaderPath", definedFuncs) {
+        output.append("declare void @LLVMIRGenerator_setTypeHeaderPath(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("LLVMIRGenerator_setPanicOnOverflow", definedFuncs) {
+        output.append("declare void @LLVMIRGenerator_setPanicOnOverflow(ptr, i1) nounwind\n")
+    }
+    // setter methods for safety flags
+    if not isFuncDefinedInModule("LLVMIRGenerator_setBoundsCheckEnabled", definedFuncs) {
+        output.append("declare void @LLVMIRGenerator_setBoundsCheckEnabled(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("LLVMIRGenerator_setWarnUnusedResult", definedFuncs) {
+        output.append("declare void @LLVMIRGenerator_setWarnUnusedResult(ptr, i64) nounwind\n")
+    }
+
+    // Other class constructors (conditionally declared, return class types as i64)
+    if not isFuncDefinedInModule("ProgramNode_new", definedFuncs) {
+        output.append("declare i64 @ProgramNode_new() nounwind\n")
+    }
+    // These constructors return class types (stored as i64)
+    if not isFuncDefinedInModule("TypeChecker_new", definedFuncs) {
+        output.append("declare i64 @TypeChecker_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_new", definedFuncs) {
+        output.append("declare i64 @RealParser_new(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("SeenLexer_new", definedFuncs) {
+        output.append("declare i64 @SeenLexer_new(%SeenString, i64, %SeenString) nounwind\n")
+    }
+    // These return class types (stored as i64)
+    if not isFuncDefinedInModule("TypeChecker_check", definedFuncs) {
+        // ProgramNode is a class type (stored as i64)
+        output.append("declare i64 @TypeChecker_check(ptr, i64) nounwind\n")
+    }
+    // Determinism checker functions (from typechecker.determinism module)
+    if not isFuncDefinedInModule("DeterminismChecker_new", definedFuncs) {
+        output.append("declare ptr @DeterminismChecker_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("DeterminismChecker_check", definedFuncs) {
+        output.append("declare ptr @DeterminismChecker_check(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("DeterminismChecker_setDeterministicProfile", definedFuncs) {
+        output.append("declare void @DeterminismChecker_setDeterministicProfile(ptr, i1) nounwind\n")
+    }
+    if not isFuncDefinedInModule("DeterminismChecker_setUWWMode", definedFuncs) {
+        output.append("declare void @DeterminismChecker_setUWWMode(ptr, i1) nounwind\n")
+    }
+    if not isFuncDefinedInModule("DeterminismCheckResult_new", definedFuncs) {
+        output.append("declare ptr @DeterminismCheckResult_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("DeterminismCheckResult_hasErrors", definedFuncs) {
+        output.append("declare i1 @DeterminismCheckResult_hasErrors(ptr) nounwind readonly\n")
+    }
+    if not isFuncDefinedInModule("DeterminismCheckResult_addError", definedFuncs) {
+        output.append("declare void @DeterminismCheckResult_addError(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("DeterminismCheckResult_addWarning", definedFuncs) {
+        output.append("declare void @DeterminismCheckResult_addWarning(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("DeterminismError_new", definedFuncs) {
+        output.append("declare ptr @DeterminismError_new(%SeenString, %SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("DeterminismError_toString", definedFuncs) {
+        output.append("declare %SeenString @DeterminismError_toString(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("checkDeterminism", definedFuncs) {
+        output.append("declare ptr @checkDeterminism(i64, i1) nounwind\n")
+    }
+    if not isFuncDefinedInModule("checkDeterminismWithProfile", definedFuncs) {
+        output.append("declare ptr @checkDeterminismWithProfile(i64, i1) nounwind\n")
+    }
+    if not isFuncDefinedInModule("printDeterminismErrors", definedFuncs) {
+        output.append("declare void @printDeterminismErrors(ptr) nounwind\n")
+    }
+    // LSP server functions (from lsp.server module)
+    if not isFuncDefinedInModule("runLspServer", definedFuncs) {
+        output.append("declare i64 @runLspServer() nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parse", definedFuncs) {
+        output.append("declare i64 @RealParser_parse(ptr) nounwind\n")
+    }
+    // RealParser utility methods (may be in different module)
+    // These return Token which is a class type, so return i64
+    if not isFuncDefinedInModule("RealParser_advance", definedFuncs) {
+        output.append("declare i64 @RealParser_advance(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_peek", definedFuncs) {
+        output.append("declare i64 @RealParser_peek(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_previous", definedFuncs) {
+        output.append("declare i64 @RealParser_previous(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_isAtEnd", definedFuncs) {
+        output.append("declare i1 @RealParser_isAtEnd(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_consume", definedFuncs) {
+        output.append("declare i64 @RealParser_consume(ptr, i64, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_matchTokenStr", definedFuncs) {
+        output.append("declare i1 @RealParser_matchTokenStr(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_checkToken", definedFuncs) {
+        output.append("declare i1 @RealParser_checkToken(ptr, i64) nounwind\n")
+    }
+    // RealParser parse methods that may be in different modules
+    if not isFuncDefinedInModule("RealParser_parseExpressionStatementField", definedFuncs) {
+        output.append("declare i64 @RealParser_parseExpressionStatementField(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseIfStatementInto", definedFuncs) {
+        output.append("declare void @RealParser_parseIfStatementInto(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseExpressionInto", definedFuncs) {
+        output.append("declare void @RealParser_parseExpressionInto(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_makeImportSymbol", definedFuncs) {
+        output.append("declare ptr @RealParser_makeImportSymbol(ptr, %SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_inferVisibility", definedFuncs) {
+        output.append("declare %SeenString @RealParser_inferVisibility(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_peekTokenType", definedFuncs) {
+        output.append("declare i64 @RealParser_peekTokenType(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_peekTokenTypeStr", definedFuncs) {
+        output.append("declare %SeenString @RealParser_peekTokenTypeStr(ptr) nounwind\n")
+    }
+    // RealParser parse statement field methods (return void as i64)
+    if not isFuncDefinedInModule("RealParser_parseWhileStatementField", definedFuncs) {
+        output.append("declare i64 @RealParser_parseWhileStatementField(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseLetStatementField", definedFuncs) {
+        output.append("declare i64 @RealParser_parseLetStatementField(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseVarStatementField", definedFuncs) {
+        output.append("declare i64 @RealParser_parseVarStatementField(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseReturnStatementField", definedFuncs) {
+        output.append("declare i64 @RealParser_parseReturnStatementField(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseIfStatementField", definedFuncs) {
+        output.append("declare i64 @RealParser_parseIfStatementField(ptr) nounwind\n")
+    }
+    // RealParser parse Into methods (return void as i64)
+    if not isFuncDefinedInModule("RealParser_parseStatementInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseStatementInto(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseLetStatementInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseLetStatementInto(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseVarStatementInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseVarStatementInto(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseReturnStatementInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseReturnStatementInto(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseWhileStatementInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseWhileStatementInto(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseExpressionStatementInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseExpressionStatementInto(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseFunctionItemInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseFunctionItemInto(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseClassItemInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseClassItemInto(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseEnumItemInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseEnumItemInto(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseImportItemInto", definedFuncs) {
+        output.append("declare i64 @RealParser_parseImportItemInto(ptr) nounwind\n")
+    }
+    // RealParser parse methods returning class types (all AST nodes stored as i64)
+    if not isFuncDefinedInModule("RealParser_parseFunctionItem", definedFuncs) {
+        output.append("declare i64 @RealParser_parseFunctionItem(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseClassItem", definedFuncs) {
+        output.append("declare i64 @RealParser_parseClassItem(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseEnumItem", definedFuncs) {
+        output.append("declare i64 @RealParser_parseEnumItem(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseImportItem", definedFuncs) {
+        output.append("declare i64 @RealParser_parseImportItem(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseBlock", definedFuncs) {
+        output.append("declare i64 @RealParser_parseBlock(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseStatement", definedFuncs) {
+        output.append("declare i64 @RealParser_parseStatement(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseLetStatement", definedFuncs) {
+        output.append("declare i64 @RealParser_parseLetStatement(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseVarStatement", definedFuncs) {
+        output.append("declare i64 @RealParser_parseVarStatement(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseReturnStatement", definedFuncs) {
+        output.append("declare i64 @RealParser_parseReturnStatement(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseIfStatement", definedFuncs) {
+        output.append("declare i64 @RealParser_parseIfStatement(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseWhileStatement", definedFuncs) {
+        output.append("declare i64 @RealParser_parseWhileStatement(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseExpressionStatement", definedFuncs) {
+        output.append("declare i64 @RealParser_parseExpressionStatement(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseExpression", definedFuncs) {
+        output.append("declare i64 @RealParser_parseExpression(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseAssignment", definedFuncs) {
+        output.append("declare i64 @RealParser_parseAssignment(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseOr", definedFuncs) {
+        output.append("declare i64 @RealParser_parseOr(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseAnd", definedFuncs) {
+        output.append("declare i64 @RealParser_parseAnd(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseEquality", definedFuncs) {
+        output.append("declare i64 @RealParser_parseEquality(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseComparison", definedFuncs) {
+        output.append("declare i64 @RealParser_parseComparison(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseTerm", definedFuncs) {
+        output.append("declare i64 @RealParser_parseTerm(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseFactor", definedFuncs) {
+        output.append("declare i64 @RealParser_parseFactor(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseUnary", definedFuncs) {
+        output.append("declare i64 @RealParser_parseUnary(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseCall", definedFuncs) {
+        output.append("declare i64 @RealParser_parseCall(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parsePrimary", definedFuncs) {
+        output.append("declare i64 @RealParser_parsePrimary(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseParam", definedFuncs) {
+        output.append("declare i64 @RealParser_parseParam(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseTypeNode", definedFuncs) {
+        output.append("declare %TypeNode @RealParser_parseTypeNode(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseOptionalTypeAnnotation", definedFuncs) {
+        output.append("declare %TypeNode @RealParser_parseOptionalTypeAnnotation(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseOptionalReturnType", definedFuncs) {
+        output.append("declare %TypeNode @RealParser_parseOptionalReturnType(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseImportPath", definedFuncs) {
+        output.append("declare %ImportPathInfo @RealParser_parseImportPath(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseImportSymbols", definedFuncs) {
+        output.append("declare ptr @RealParser_parseImportSymbols(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseParameterList", definedFuncs) {
+        output.append("declare i64 @RealParser_parseParameterList(ptr, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseParameterListField", definedFuncs) {
+        output.append("declare i64 @RealParser_parseParameterListField(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseExpressionIntoField", definedFuncs) {
+        output.append("declare i64 @RealParser_parseExpressionIntoField(ptr, ptr) nounwind\n")
+    }
+    // ByIdx methods
+    if not isFuncDefinedInModule("RealParser_parseLetStatementByIdx", definedFuncs) {
+        output.append("declare i64 @RealParser_parseLetStatementByIdx(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseVarStatementByIdx", definedFuncs) {
+        output.append("declare i64 @RealParser_parseVarStatementByIdx(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseReturnStatementByIdx", definedFuncs) {
+        output.append("declare i64 @RealParser_parseReturnStatementByIdx(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseIfStatementByIdx", definedFuncs) {
+        output.append("declare i64 @RealParser_parseIfStatementByIdx(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseWhileStatementByIdx", definedFuncs) {
+        output.append("declare i64 @RealParser_parseWhileStatementByIdx(ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_parseExpressionStatementByIdx", definedFuncs) {
+        output.append("declare i64 @RealParser_parseExpressionStatementByIdx(ptr, i64) nounwind\n")
+    }
+    // Other RealParser utility methods
+    if not isFuncDefinedInModule("RealParser_skipExpression", definedFuncs) {
+        output.append("declare i64 @RealParser_skipExpression(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_toArray", definedFuncs) {
+        output.append("declare ptr @RealParser_toArray(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("RealParser_joinSegments", definedFuncs) {
+        output.append("declare %SeenString @RealParser_joinSegments(ptr, ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("SeenLexer_tokenize", definedFuncs) {
+        output.append("declare ptr @SeenLexer_tokenize(ptr) nounwind\n")
+    }
+}
+
+// Emit typechecker, token, AST, and type-related declarations
+fun emitTypecheckerDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, definedFuncs: Array<String>) r: Void {
+    // Token class methods (Token is class type stored as i64)
+    if not isFuncDefinedInModule("Token_new", definedFuncs) {
+        output.append("declare i64 @Token_new(i64, %SeenString, i64, i64, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Token_getType", definedFuncs) {
+        output.append("declare i64 @Token_getType(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Token_getValue", definedFuncs) {
+        output.append("declare %SeenString @Token_getValue(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Token_getLine", definedFuncs) {
+        output.append("declare i64 @Token_getLine(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Token_getColumn", definedFuncs) {
+        output.append("declare i64 @Token_getColumn(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Token_getLength", definedFuncs) {
+        output.append("declare i64 @Token_getLength(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Token_getFileId", definedFuncs) {
+        output.append("declare i64 @Token_getFileId(ptr) nounwind\n")
+    }
+    // Free-standing Token functions
+    if not isFuncDefinedInModule("getType", definedFuncs) {
+        output.append("declare i64 @getType(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("getValue", definedFuncs) {
+        output.append("declare %SeenString @getValue(ptr) nounwind\n")
+    }
+    // Position class methods (from lexer.interfaces module)
+    if not isFuncDefinedInModule("Position_new", definedFuncs) {
+        output.append("declare ptr @Position_new(i64, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Position_getLine", definedFuncs) {
+        output.append("declare i64 @Position_getLine(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Position_getColumn", definedFuncs) {
+        output.append("declare i64 @Position_getColumn(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Position_getFileId", definedFuncs) {
+        output.append("declare i64 @Position_getFileId(ptr) nounwind\n")
+    }
+    // LexerError class methods (LexerError is class type stored as i64)
+    if not isFuncDefinedInModule("LexerError_new", definedFuncs) {
+        output.append("declare i64 @LexerError_new(%SeenString, ptr, %SeenString) nounwind\n")
+    }
+    // getPosition returns Position which may be a struct (keep as ptr for now)
+    if not isFuncDefinedInModule("LexerError_getPosition", definedFuncs) {
+        output.append("declare ptr @LexerError_getPosition(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("LexerError_getCharacter", definedFuncs) {
+        output.append("declare %SeenString @LexerError_getCharacter(ptr) nounwind\n")
+    }
+    // Token type helper functions (from token_type module)
+    if not isFuncDefinedInModule("getLeftParenType", definedFuncs) {
+        output.append("declare i64 @getLeftParenType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getRightParenType", definedFuncs) {
+        output.append("declare i64 @getRightParenType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getSemicolonType", definedFuncs) {
+        output.append("declare i64 @getSemicolonType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getDotType", definedFuncs) {
+        output.append("declare i64 @getDotType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getLeftBraceType", definedFuncs) {
+        output.append("declare i64 @getLeftBraceType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordAsType", definedFuncs) {
+        output.append("declare i64 @getKeywordAsType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getIdentifierType", definedFuncs) {
+        output.append("declare i64 @getIdentifierType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getColonType", definedFuncs) {
+        output.append("declare i64 @getColonType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getRightBraceType", definedFuncs) {
+        output.append("declare i64 @getRightBraceType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getCommaType", definedFuncs) {
+        output.append("declare i64 @getCommaType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getEndOfFileType", definedFuncs) {
+        output.append("declare i64 @getEndOfFileType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordFunType", definedFuncs) {
+        output.append("declare i64 @getKeywordFunType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordImportType", definedFuncs) {
+        output.append("declare i64 @getKeywordImportType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordUseType", definedFuncs) {
+        output.append("declare i64 @getKeywordUseType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordClassType", definedFuncs) {
+        output.append("declare i64 @getKeywordClassType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getLeftBracketType", definedFuncs) {
+        output.append("declare i64 @getLeftBracketType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getRightBracketType", definedFuncs) {
+        output.append("declare i64 @getRightBracketType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordLetType", definedFuncs) {
+        output.append("declare i64 @getKeywordLetType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordVarType", definedFuncs) {
+        output.append("declare i64 @getKeywordVarType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordIfType", definedFuncs) {
+        output.append("declare i64 @getKeywordIfType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordElseType", definedFuncs) {
+        output.append("declare i64 @getKeywordElseType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordWhileType", definedFuncs) {
+        output.append("declare i64 @getKeywordWhileType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordForType", definedFuncs) {
+        output.append("declare i64 @getKeywordForType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordReturnType", definedFuncs) {
+        output.append("declare i64 @getKeywordReturnType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordBreakType", definedFuncs) {
+        output.append("declare i64 @getKeywordBreakType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordContinueType", definedFuncs) {
+        output.append("declare i64 @getKeywordContinueType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordEnumType", definedFuncs) {
+        output.append("declare i64 @getKeywordEnumType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getKeywordStaticType", definedFuncs) {
+        output.append("declare i64 @getKeywordStaticType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getArrowType", definedFuncs) {
+        output.append("declare i64 @getArrowType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getEqualsType", definedFuncs) {
+        output.append("declare i64 @getEqualsType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getPlusType", definedFuncs) {
+        output.append("declare i64 @getPlusType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getMinusType", definedFuncs) {
+        output.append("declare i64 @getMinusType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getStarType", definedFuncs) {
+        output.append("declare i64 @getStarType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getSlashType", definedFuncs) {
+        output.append("declare i64 @getSlashType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getLessThanType", definedFuncs) {
+        output.append("declare i64 @getLessThanType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("getGreaterThanType", definedFuncs) {
+        output.append("declare i64 @getGreaterThanType() nounwind\n")
+    }
+    // KeywordManager class methods (KeywordManager is class type stored as i64)
+    if not isFuncDefinedInModule("KeywordManager_new", definedFuncs) {
+        output.append("declare i64 @KeywordManager_new(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_getKeywordCount", definedFuncs) {
+        output.append("declare i64 @KeywordManager_getKeywordCount(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_isKeyword", definedFuncs) {
+        output.append("declare i1 @KeywordManager_isKeyword(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_getKeywordType", definedFuncs) {
+        output.append("declare i64 @KeywordManager_getKeywordType(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_initTokenNameMap", definedFuncs) {
+        output.append("declare void @KeywordManager_initTokenNameMap(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_loadFromToml", definedFuncs) {
+        output.append("declare void @KeywordManager_loadFromToml(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_loadStdlibFromToml", definedFuncs) {
+        output.append("declare void @KeywordManager_loadStdlibFromToml(ptr, %SeenString, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_loadStdlibAliases", definedFuncs) {
+        output.append("declare void @KeywordManager_loadStdlibAliases(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_resolveStdlibAlias", definedFuncs) {
+        output.append("declare %SeenString @KeywordManager_resolveStdlibAlias(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_getAllKeywords", definedFuncs) {
+        output.append("declare ptr @KeywordManager_getAllKeywords(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_isDynamic", definedFuncs) {
+        output.append("declare i1 @KeywordManager_isDynamic(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_getSources", definedFuncs) {
+        output.append("declare ptr @KeywordManager_getSources(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("KeywordManager_hasTranslation", definedFuncs) {
+        output.append("declare i1 @KeywordManager_hasTranslation(ptr, %SeenString) nounwind\n")
+    }
+
+    // Environment class methods (Environment is class type stored as i64)
+    if not isFuncDefinedInModule("Environment_new", definedFuncs) {
+        output.append("declare i64 @Environment_new() nounwind\n")
+    }
+    // lookup methods return Type which is a class type
+    if not isFuncDefinedInModule("Environment_lookup", definedFuncs) {
+        output.append("declare i64 @Environment_lookup(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Environment_define", definedFuncs) {
+        output.append("declare i64 @Environment_define(ptr, %SeenString, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Environment_defineFunction", definedFuncs) {
+        output.append("declare i64 @Environment_defineFunction(ptr, %SeenString, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Environment_lookupFunction", definedFuncs) {
+        output.append("declare i64 @Environment_lookupFunction(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Environment_defineClass", definedFuncs) {
+        output.append("declare i64 @Environment_defineClass(ptr, %SeenString, ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("Environment_lookupClass", definedFuncs) {
+        output.append("declare i64 @Environment_lookupClass(ptr, %SeenString) nounwind\n")
+    }
+    // Type-related functions (Type is class type stored as i64)
+    if not isFuncDefinedInModule("Type_new", definedFuncs) {
+        output.append("declare i64 @Type_new(%SeenString, i1) nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeInt", definedFuncs) {
+        output.append("declare i64 @typeInt() nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeFloat", definedFuncs) {
+        output.append("declare i64 @typeFloat() nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeString", definedFuncs) {
+        output.append("declare i64 @typeString() nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeBool", definedFuncs) {
+        output.append("declare i64 @typeBool() nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeVoid", definedFuncs) {
+        output.append("declare i64 @typeVoid() nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeUnit", definedFuncs) {
+        output.append("declare i64 @typeUnit() nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeAny", definedFuncs) {
+        output.append("declare i64 @typeAny() nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeNever", definedFuncs) {
+        output.append("declare i64 @typeNever() nounwind\n")
+    }
+    if not isFuncDefinedInModule("typeUnknown", definedFuncs) {
+        output.append("declare i64 @typeUnknown() nounwind\n")
+    }
+    // Typechecker class constructors (class types stored as i64)
+    if not isFuncDefinedInModule("ClassType", definedFuncs) {
+        output.append("declare i64 @ClassType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("FunctionType", definedFuncs) {
+        output.append("declare i64 @FunctionType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("InterfaceType", definedFuncs) {
+        output.append("declare ptr @InterfaceType() nounwind\n")
+    }
+    if not isFuncDefinedInModule("Location", definedFuncs) {
+        output.append("declare i64 @Location() nounwind\n")
+    }
+    if not isFuncDefinedInModule("TypeError", definedFuncs) {
+        output.append("declare i64 @TypeError() nounwind\n")
+    }
+    if not isFuncDefinedInModule("Environment", definedFuncs) {
+        output.append("declare i64 @Environment() nounwind\n")
+    }
+
+    // AST node constructors
+    // Class types (heap-allocated, stored as i64)
+    if not isFuncDefinedInModule("FunctionNode_new", definedFuncs) {
+        output.append("declare i64 @FunctionNode_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("FunctionNode_hasDecorator", definedFuncs) {
+        output.append("declare i1 @FunctionNode_hasDecorator(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("ClassNode_new", definedFuncs) {
+        output.append("declare i64 @ClassNode_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("ClassNode_hasDecorator", definedFuncs) {
+        output.append("declare i1 @ClassNode_hasDecorator(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("EnumNode_new", definedFuncs) {
+        output.append("declare i64 @EnumNode_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("BlockNode_new", definedFuncs) {
+        output.append("declare i64 @BlockNode_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("StatementNode_new", definedFuncs) {
+        output.append("declare i64 @StatementNode_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("ParserExpressionNode_new", definedFuncs) {
+        output.append("declare i64 @ParserExpressionNode_new() nounwind\n")
+    }
+    // Class types (heap-allocated, returned as i64 handles)
+    if not isFuncDefinedInModule("ImportSymbolNode_new", definedFuncs) {
+        output.append("declare i64 @ImportSymbolNode_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("ItemNode_new", definedFuncs) {
+        output.append("declare i64 @ItemNode_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("ParamNode_new", definedFuncs) {
+        output.append("declare i64 @ParamNode_new() nounwind\n")
+    }
+    // TypeNode stays as data type (inline struct, returned by value)
+    if not isFuncDefinedInModule("TypeNode_new", definedFuncs) {
+        output.append("declare %TypeNode @TypeNode_new() nounwind\n")
+    }
+
+    // TypeError, Location, Type, and Result methods - also included in runtime header
+    // Note: TypeError method declarations (getMessage, getLocation, etc.) are NOT emitted here.
+    // The g_xmDeclareNames mechanism auto-generates them for modules that call them.
+    // Emitting them here would cause duplicate declarations (redefinition errors).
+    if not runtimeDeclsLoaded {
+        // Location/Type field accessors
+        output.append("declare i64 @Location_line(ptr) nounwind\n")
+        output.append("declare i64 @Location_column(ptr) nounwind\n")
+        output.append("declare %SeenString @Type_name(ptr) nounwind\n")
+
+        // Result methods
+        output.append("declare i1 @Result_isOkay(ptr) nounwind\n")
+        output.append("declare i1 @Result_isErr(ptr) nounwind\n")
+        output.append("declare ptr @Result_unwrap(ptr) nounwind\n")
+        output.append("declare %SeenString @Result_unwrapErr(ptr) nounwind\n")
+        // Ok and Err return Result which is a class type (stored as i64)
+        output.append("declare i64 @Err(%SeenString) nounwind\n")
+        output.append("declare i64 @Ok(i64) nounwind\n")
+    }
+
+    // FsFile methods (conditionally declared, return FsFileResult/Result class types as i64)
+    if not isFuncDefinedInModule("FsFile_open", definedFuncs) {
+        output.append("declare i64 @FsFile_open(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("FsFile_create", definedFuncs) {
+        output.append("declare i64 @FsFile_create(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("FsFile_readContent", definedFuncs) {
+        output.append("declare i64 @FsFile_readContent(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("FsFile_writeContent", definedFuncs) {
+        output.append("declare i64 @FsFile_writeContent(ptr, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("FsFile_closeFile", definedFuncs) {
+        output.append("declare i64 @FsFile_closeFile(ptr) nounwind\n")
+    }
+    // FsFileResult_unwrap returns FsFile (class type as i64)
+    if not isFuncDefinedInModule("FsFileResult_unwrap", definedFuncs) {
+        output.append("declare i64 @FsFileResult_unwrap(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("FsFileResult_unwrapErr", definedFuncs) {
+        output.append("declare %SeenString @FsFileResult_unwrapErr(ptr) nounwind\n")
+    }
+}

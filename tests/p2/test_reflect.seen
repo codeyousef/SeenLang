@@ -1,0 +1,15 @@
+@reflect
+class Entity {
+    id: Int
+    health: Int
+    speed: Int
+}
+
+fun main() r: Int {
+    let e = Entity(1, 100, 5)
+    let name = e.getTypeName()
+    let count = e.getFieldCount()
+    println(name)
+    println("PASS: reflect")
+    return 0
+}

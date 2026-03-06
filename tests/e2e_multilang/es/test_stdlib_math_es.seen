@@ -1,0 +1,117 @@
+// Prueba E2E: Operaciones matematicas (Espanol)
+// NOTA: Las funciones de stdlib de Float (raiz, seno, coseno, absoluto, piso, techo, potencia)
+// retornan i64 en vez de double por bug de codegen. Probando solo matematicas de enteros.
+// Modulo (%) esta roto, usando alternativa: a - (a/b)*b
+
+función principal() r: entero {
+    // Prueba 1: valor absoluto de entero via condicional
+    variable x = -5
+    si x < 0 {
+        x = 0 - x
+    }
+    si x == 5 {
+        imprimir("EXITO: absoluto de entero")
+    } sino {
+        imprimir("FALLO: absoluto de entero")
+        retornar 1
+    }
+
+    // Prueba 2: minimo de enteros via comparacion
+    sea a = 10
+    sea b = 20
+    variable mn = a
+    si b < a {
+        mn = b
+    }
+    si mn == 10 {
+        imprimir("EXITO: minimo de enteros")
+    } sino {
+        imprimir("FALLO: minimo de enteros")
+        retornar 1
+    }
+
+    // Prueba 3: maximo de enteros via comparacion
+    variable mx = a
+    si b > a {
+        mx = b
+    }
+    si mx == 20 {
+        imprimir("EXITO: maximo de enteros")
+    } sino {
+        imprimir("FALLO: maximo de enteros")
+        retornar 1
+    }
+
+    // Prueba 4: potencia de enteros (2^10 = 1024) via bucle
+    variable resultado = 1
+    variable i = 0
+    mientras i < 10 {
+        resultado = resultado * 2
+        i = i + 1
+    }
+    si resultado == 1024 {
+        imprimir("EXITO: potencia de enteros 2^10")
+    } sino {
+        imprimir("FALLO: potencia de enteros 2^10, obtuvo " + resultado.aTexto())
+        retornar 1
+    }
+
+    // Prueba 5: modulo via alternativa (% esta roto)
+    sea m = 17
+    sea d = 5
+    sea resto = m - (m / d) * d
+    si resto == 2 {
+        imprimir("EXITO: alternativa de modulo de enteros")
+    } sino {
+        imprimir("FALLO: alternativa de modulo de enteros, obtuvo " + resto.aTexto())
+        retornar 1
+    }
+
+    // Prueba 6: division de enteros
+    sea divResultado = 100 / 7
+    si divResultado == 14 {
+        imprimir("EXITO: division de enteros")
+    } sino {
+        imprimir("FALLO: division de enteros, obtuvo " + divResultado.aTexto())
+        retornar 1
+    }
+
+    // Prueba 7: numeros negativos
+    sea neg = 0 - 42
+    si neg == -42 {
+        imprimir("EXITO: numeros negativos")
+    } sino {
+        imprimir("FALLO: numeros negativos")
+        retornar 1
+    }
+
+    // Prueba 8: orden de operaciones (multiplicacion antes de suma)
+    sea expr = 2 + 3 * 4
+    si expr == 14 {
+        imprimir("EXITO: orden de operaciones")
+    } sino {
+        imprimir("FALLO: orden de operaciones, obtuvo " + expr.aTexto())
+        retornar 1
+    }
+
+    // Prueba 9: expresiones con parentesis
+    sea paren = (2 + 3) * 4
+    si paren == 20 {
+        imprimir("EXITO: expresiones con parentesis")
+    } sino {
+        imprimir("FALLO: expresiones con parentesis, obtuvo " + paren.aTexto())
+        retornar 1
+    }
+
+    // Prueba 10: multiplicacion encadenada
+    sea encadenado = 2 * 3 * 4
+    si encadenado == 24 {
+        imprimir("EXITO: multiplicacion encadenada")
+    } sino {
+        imprimir("FALLO: multiplicacion encadenada, obtuvo " + encadenado.aTexto())
+        retornar 1
+    }
+
+    imprimir("EXITO: todas las pruebas de matematicas pasaron")
+    retornar 0
+}

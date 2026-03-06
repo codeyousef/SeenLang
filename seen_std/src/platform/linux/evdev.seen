@@ -1,0 +1,440 @@
+/**
+ * evdev FFI bindings for Linux.
+ *
+ * Low-level bindings to libevdev for raw input device access.
+ * Provides keyboard, mouse, gamepad, and touchscreen event handling.
+ * Prefer the higher-level Gamepad class from input.gamepad for controllers.
+ *
+ * Link with: -lseen_platform (which wraps libevdev.so.2)
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// Event types
+let EV_SYN: Int = 0x00
+let EV_KEY: Int = 0x01
+let EV_REL: Int = 0x02
+let EV_ABS: Int = 0x03
+let EV_MSC: Int = 0x04
+let EV_SW: Int = 0x05
+let EV_LED: Int = 0x11
+let EV_SND: Int = 0x12
+let EV_REP: Int = 0x14
+let EV_FF: Int = 0x15
+let EV_PWR: Int = 0x16
+let EV_FF_STATUS: Int = 0x17
+
+// Synchronization events
+let SYN_REPORT: Int = 0
+let SYN_CONFIG: Int = 1
+let SYN_MT_REPORT: Int = 2
+let SYN_DROPPED: Int = 3
+
+// Key/button codes (partial list)
+let KEY_RESERVED: Int = 0
+let KEY_ESC: Int = 1
+let KEY_1: Int = 2
+let KEY_2: Int = 3
+let KEY_3: Int = 4
+let KEY_4: Int = 5
+let KEY_5: Int = 6
+let KEY_6: Int = 7
+let KEY_7: Int = 8
+let KEY_8: Int = 9
+let KEY_9: Int = 10
+let KEY_0: Int = 11
+let KEY_MINUS: Int = 12
+let KEY_EQUAL: Int = 13
+let KEY_BACKSPACE: Int = 14
+let KEY_TAB: Int = 15
+let KEY_Q: Int = 16
+let KEY_W: Int = 17
+let KEY_E: Int = 18
+let KEY_R: Int = 19
+let KEY_T: Int = 20
+let KEY_Y: Int = 21
+let KEY_U: Int = 22
+let KEY_I: Int = 23
+let KEY_O: Int = 24
+let KEY_P: Int = 25
+let KEY_LEFTBRACE: Int = 26
+let KEY_RIGHTBRACE: Int = 27
+let KEY_ENTER: Int = 28
+let KEY_LEFTCTRL: Int = 29
+let KEY_A: Int = 30
+let KEY_S: Int = 31
+let KEY_D: Int = 32
+let KEY_F: Int = 33
+let KEY_G: Int = 34
+let KEY_H: Int = 35
+let KEY_J: Int = 36
+let KEY_K: Int = 37
+let KEY_L: Int = 38
+let KEY_SEMICOLON: Int = 39
+let KEY_APOSTROPHE: Int = 40
+let KEY_GRAVE: Int = 41
+let KEY_LEFTSHIFT: Int = 42
+let KEY_BACKSLASH: Int = 43
+let KEY_Z: Int = 44
+let KEY_X: Int = 45
+let KEY_C: Int = 46
+let KEY_V: Int = 47
+let KEY_B: Int = 48
+let KEY_N: Int = 49
+let KEY_M: Int = 50
+let KEY_COMMA: Int = 51
+let KEY_DOT: Int = 52
+let KEY_SLASH: Int = 53
+let KEY_RIGHTSHIFT: Int = 54
+let KEY_KPASTERISK: Int = 55
+let KEY_LEFTALT: Int = 56
+let KEY_SPACE: Int = 57
+let KEY_CAPSLOCK: Int = 58
+let KEY_F1: Int = 59
+let KEY_F2: Int = 60
+let KEY_F3: Int = 61
+let KEY_F4: Int = 62
+let KEY_F5: Int = 63
+let KEY_F6: Int = 64
+let KEY_F7: Int = 65
+let KEY_F8: Int = 66
+let KEY_F9: Int = 67
+let KEY_F10: Int = 68
+let KEY_F11: Int = 87
+let KEY_F12: Int = 88
+let KEY_UP: Int = 103
+let KEY_LEFT: Int = 105
+let KEY_RIGHT: Int = 106
+let KEY_DOWN: Int = 108
+let KEY_RIGHTCTRL: Int = 97
+let KEY_RIGHTALT: Int = 100
+
+// Mouse buttons
+let BTN_MISC: Int = 0x100
+let BTN_0: Int = 0x100
+let BTN_1: Int = 0x101
+let BTN_2: Int = 0x102
+let BTN_MOUSE: Int = 0x110
+let BTN_LEFT: Int = 0x110
+let BTN_RIGHT: Int = 0x111
+let BTN_MIDDLE: Int = 0x112
+let BTN_SIDE: Int = 0x113
+let BTN_EXTRA: Int = 0x114
+
+// Gamepad buttons
+let BTN_GAMEPAD: Int = 0x130
+let BTN_SOUTH: Int = 0x130  // A / Cross
+let BTN_EAST: Int = 0x131   // B / Circle
+let BTN_NORTH: Int = 0x133  // Y / Triangle
+let BTN_WEST: Int = 0x134   // X / Square
+let BTN_TL: Int = 0x136     // Left bumper
+let BTN_TR: Int = 0x137     // Right bumper
+let BTN_TL2: Int = 0x138    // Left trigger
+let BTN_TR2: Int = 0x139    // Right trigger
+let BTN_SELECT: Int = 0x13a
+let BTN_START: Int = 0x13b
+let BTN_MODE: Int = 0x13c   // Guide button
+let BTN_THUMBL: Int = 0x13d // Left stick click
+let BTN_THUMBR: Int = 0x13e // Right stick click
+let BTN_DPAD_UP: Int = 0x220
+let BTN_DPAD_DOWN: Int = 0x221
+let BTN_DPAD_LEFT: Int = 0x222
+let BTN_DPAD_RIGHT: Int = 0x223
+
+// Relative axes (mouse)
+let REL_X: Int = 0x00
+let REL_Y: Int = 0x01
+let REL_Z: Int = 0x02
+let REL_RX: Int = 0x03
+let REL_RY: Int = 0x04
+let REL_RZ: Int = 0x05
+let REL_HWHEEL: Int = 0x06
+let REL_DIAL: Int = 0x07
+let REL_WHEEL: Int = 0x08
+let REL_MISC: Int = 0x09
+
+// Absolute axes (gamepad, touchscreen)
+let ABS_X: Int = 0x00
+let ABS_Y: Int = 0x01
+let ABS_Z: Int = 0x02
+let ABS_RX: Int = 0x03
+let ABS_RY: Int = 0x04
+let ABS_RZ: Int = 0x05
+let ABS_THROTTLE: Int = 0x06
+let ABS_RUDDER: Int = 0x07
+let ABS_WHEEL: Int = 0x08
+let ABS_GAS: Int = 0x09
+let ABS_BRAKE: Int = 0x0a
+let ABS_HAT0X: Int = 0x10
+let ABS_HAT0Y: Int = 0x11
+let ABS_HAT1X: Int = 0x12
+let ABS_HAT1Y: Int = 0x13
+let ABS_HAT2X: Int = 0x14
+let ABS_HAT2Y: Int = 0x15
+let ABS_HAT3X: Int = 0x16
+let ABS_HAT3Y: Int = 0x17
+
+// Multi-touch absolute axes
+let ABS_MT_SLOT: Int = 0x2f
+let ABS_MT_TOUCH_MAJOR: Int = 0x30
+let ABS_MT_TOUCH_MINOR: Int = 0x31
+let ABS_MT_WIDTH_MAJOR: Int = 0x32
+let ABS_MT_WIDTH_MINOR: Int = 0x33
+let ABS_MT_ORIENTATION: Int = 0x34
+let ABS_MT_POSITION_X: Int = 0x35
+let ABS_MT_POSITION_Y: Int = 0x36
+let ABS_MT_TOOL_TYPE: Int = 0x37
+let ABS_MT_BLOB_ID: Int = 0x38
+let ABS_MT_TRACKING_ID: Int = 0x39
+let ABS_MT_PRESSURE: Int = 0x3a
+let ABS_MT_DISTANCE: Int = 0x3b
+
+// Read flags for libevdev_next_event
+let LIBEVDEV_READ_FLAG_SYNC: Int = 1
+let LIBEVDEV_READ_FLAG_NORMAL: Int = 2
+let LIBEVDEV_READ_FLAG_FORCE_SYNC: Int = 4
+let LIBEVDEV_READ_FLAG_BLOCKING: Int = 8
+
+// Read status
+let LIBEVDEV_READ_STATUS_SUCCESS: Int = 0
+let LIBEVDEV_READ_STATUS_SYNC: Int = 1
+
+// Device type flags
+let DEVICE_TYPE_KEYBOARD: Int = 1
+let DEVICE_TYPE_MOUSE: Int = 2
+let DEVICE_TYPE_GAMEPAD: Int = 4
+let DEVICE_TYPE_TOUCHSCREEN: Int = 8
+let DEVICE_TYPE_TABLET: Int = 16
+let DEVICE_TYPE_TOUCHPAD: Int = 32
+
+// ============================================================================
+// Shim FFI Declarations - Link to libseen_platform.so
+// ============================================================================
+
+extern "C" fun seen_evdev_new() r: *Void
+extern "C" fun seen_evdev_free(dev: *Void) r: Void
+extern "C" fun seen_evdev_set_fd(dev: *Void, fd: Int32) r: Int32
+extern "C" fun seen_evdev_get_name(dev: *Void) r: *Char
+extern "C" fun seen_evdev_get_id_vendor(dev: *Void) r: Int32
+extern "C" fun seen_evdev_get_id_product(dev: *Void) r: Int32
+extern "C" fun seen_evdev_has_event_type(dev: *Void, eventType: Int32) r: Int32
+extern "C" fun seen_evdev_has_event_code(dev: *Void, eventType: Int32, code: Int32) r: Int32
+extern "C" fun seen_evdev_next_event(dev: *Void, flags: Int32, eventType: *Int32, code: *Int32, value: *Int32) r: Int32
+extern "C" fun seen_evdev_open_device(path: *Char) r: Int32
+extern "C" fun seen_evdev_close_device(fd: Int32) r: Int32
+
+// ============================================================================
+// Safe Wrapper Classes
+// ============================================================================
+
+/**
+ * Raw input event from an evdev device.
+ */
+class InputEvent {
+    var eventType: Int
+    var code: Int
+    var value: Int
+    var timeSec: Int
+    var timeUsec: Int
+
+    static fun new(eventType: Int, code: Int, value: Int, timeSec: Int, timeUsec: Int) r: InputEvent {
+        return InputEvent {
+            eventType: eventType,
+            code: code,
+            value: value,
+            timeSec: timeSec,
+            timeUsec: timeUsec
+        }
+    }
+
+    fun isKeyPress() r: Bool {
+        return this.eventType == EV_KEY and this.value == 1
+    }
+
+    fun isKeyRelease() r: Bool {
+        return this.eventType == EV_KEY and this.value == 0
+    }
+
+    fun isKeyRepeat() r: Bool {
+        return this.eventType == EV_KEY and this.value == 2
+    }
+
+    fun isSync() r: Bool {
+        return this.eventType == EV_SYN and this.code == SYN_REPORT
+    }
+
+    fun getTimestampMs() r: Int {
+        return this.timeSec * 1000 + this.timeUsec / 1000
+    }
+}
+
+/**
+ * Wrapper for a libevdev input device.
+ *
+ * Opens /dev/input/eventN devices and provides event polling.
+ * Automatically detects device type (keyboard, mouse, gamepad, etc.).
+ */
+class EvdevDevice {
+    var devHandle: *Void
+    var fd: Int
+    var name: String
+    var path: String
+    var vendorId: Int
+    var productId: Int
+    var deviceType: Int
+
+    static fun open(path: String) r: Result<EvdevDevice, String> {
+        // Open the device file
+        let fdVal = seen_evdev_open_device(path.toCString())
+        if fdVal < 0 {
+            return Err("Failed to open device: " + path)
+        }
+
+        // Create libevdev devHandle
+        let devPtr = seen_evdev_new()
+        if devPtr == null {
+            seen_evdev_close_device(fdVal as Int32)
+            return Err("Failed to create libevdev device")
+        }
+
+        // Set the file descriptor
+        let result = seen_evdev_set_fd(devPtr, fdVal as Int32)
+        if result < 0 {
+            seen_evdev_free(devPtr)
+            seen_evdev_close_device(fdVal as Int32)
+            return Err("Failed to initialize libevdev with fd")
+        }
+
+        // Get device info
+        let nameCstr = seen_evdev_get_name(devPtr)
+        let nameStr = if nameCstr != null { String.fromCString(nameCstr) } else { "Unknown" }
+        let vendorVal = seen_evdev_get_id_vendor(devPtr)
+        let productVal = seen_evdev_get_id_product(devPtr)
+
+        // Detect device type
+        var devType = 0
+        if seen_evdev_has_event_type(devPtr, EV_KEY as Int32) != 0 {
+            if seen_evdev_has_event_code(devPtr, EV_KEY as Int32, KEY_A as Int32) != 0 {
+                devType = devType | DEVICE_TYPE_KEYBOARD
+            }
+            if seen_evdev_has_event_code(devPtr, EV_KEY as Int32, BTN_LEFT as Int32) != 0 {
+                devType = devType | DEVICE_TYPE_MOUSE
+            }
+            if seen_evdev_has_event_code(devPtr, EV_KEY as Int32, BTN_GAMEPAD as Int32) != 0 {
+                devType = devType | DEVICE_TYPE_GAMEPAD
+            }
+        }
+        if seen_evdev_has_event_type(devPtr, EV_ABS as Int32) != 0 {
+            if seen_evdev_has_event_code(devPtr, EV_ABS as Int32, ABS_MT_POSITION_X as Int32) != 0 {
+                devType = devType | DEVICE_TYPE_TOUCHSCREEN
+            }
+            if seen_evdev_has_event_code(devPtr, EV_ABS as Int32, ABS_X as Int32) != 0 and
+               seen_evdev_has_event_code(devPtr, EV_KEY as Int32, BTN_GAMEPAD as Int32) != 0 {
+                devType = devType | DEVICE_TYPE_GAMEPAD
+            }
+        }
+
+        return Ok(EvdevDevice {
+            devHandle: devPtr,
+            fd: fdVal,
+            name: nameStr,
+            path: path,
+            vendorId: vendorVal as Int,
+            productId: productVal as Int,
+            deviceType: devType
+        })
+    }
+
+    // Check if device has event type
+    fun hasEventType(eventType: Int) r: Bool {
+        return seen_evdev_has_event_type(this.devHandle, eventType as Int32) != 0
+    }
+
+    // Check if device has event code
+    fun hasEventCode(eventType: Int, code: Int) r: Bool {
+        return seen_evdev_has_event_code(this.devHandle, eventType as Int32, code as Int32) != 0
+    }
+
+    // Check device type flags
+    fun isKeyboard() r: Bool {
+        return (this.deviceType & DEVICE_TYPE_KEYBOARD) != 0
+    }
+
+    fun isMouse() r: Bool {
+        return (this.deviceType & DEVICE_TYPE_MOUSE) != 0
+    }
+
+    fun isGamepad() r: Bool {
+        return (this.deviceType & DEVICE_TYPE_GAMEPAD) != 0
+    }
+
+    fun isTouchscreen() r: Bool {
+        return (this.deviceType & DEVICE_TYPE_TOUCHSCREEN) != 0
+    }
+
+    // Read next event (non-blocking)
+    fun pollEvent() r: Result<InputEvent, String> {
+        var eventType: Int32 = 0
+        var code: Int32 = 0
+        var value: Int32 = 0
+
+        let result = seen_evdev_next_event(this.devHandle, LIBEVDEV_READ_FLAG_NORMAL as Int32, &eventType, &code, &value)
+
+        if result < 0 {
+            return Err("No event available")
+        }
+
+        return Ok(InputEvent.new(eventType as Int, code as Int, value as Int, 0, 0))
+    }
+
+    // Close the device
+    fun close() r: Void {
+        if this.devHandle != null {
+            seen_evdev_free(this.devHandle)
+            this.devHandle = null
+        }
+        if this.fd >= 0 {
+            seen_evdev_close_device(this.fd as Int32)
+            this.fd = -1
+        }
+    }
+}
+
+/**
+ * List all potential input device paths (/dev/input/event0-31).
+ */
+fun listInputDevices() r: Array<String> {
+    var paths = Array<String>()
+    var i = 0
+    while i < 32 {
+        paths.push("/dev/input/event" + i.toString())
+        i = i + 1
+    }
+    return paths
+}
+
+/**
+ * Find input devices matching the specified type flags.
+ *
+ * Use DEVICE_TYPE_KEYBOARD, DEVICE_TYPE_MOUSE, DEVICE_TYPE_GAMEPAD, etc.
+ */
+fun findDevicesByType(deviceType: Int) r: Array<String> {
+    var found = Array<String>()
+    let paths = listInputDevices()
+
+    var i = 0
+    while i < paths.length() {
+        let openResult = EvdevDevice.open(paths[i])
+        if openResult.isOkay() {
+            let device = openResult.unwrap()
+            if (device.deviceType & deviceType) != 0 {
+                found.push(paths[i])
+            }
+            device.close()
+        }
+        i = i + 1
+    }
+
+    return found
+}

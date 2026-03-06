@@ -1,0 +1,690 @@
+/**
+ * Safe window abstraction over SDL3.
+ *
+ * Provides a Window class and event handling for Linux applications.
+ * This module wraps SDL3's low-level API with type-safe Seen classes
+ * for window management, input handling, and Vulkan surface creation.
+ *
+ * Link with: -lSDL3
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import platform.linux.sdl3.{
+    SDL_INIT_VIDEO, SDL_INIT_EVENTS, SDL_INIT_GAMEPAD,
+    SDL_WINDOW_VULKAN, SDL_WINDOW_RESIZABLE, SDL_WINDOW_FULLSCREEN,
+    SDL_WINDOW_BORDERLESS, SDL_WINDOW_HIDDEN, SDL_WINDOW_MAXIMIZED,
+    SDL_EVENT_QUIT, SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP,
+    SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP,
+    SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_WINDOW_CLOSE_REQUESTED,
+    SDL_EVENT_GAMEPAD_BUTTON_DOWN, SDL_EVENT_GAMEPAD_BUTTON_UP, SDL_EVENT_GAMEPAD_AXIS_MOTION,
+    SDL_Init, SDL_Quit, SDL_GetError, SDL_CreateWindow, SDL_DestroyWindow,
+    SDL_GetTicks, SDL_Delay,
+    SDL_PollEvent, SDL_GetWindowSize, SDL_SetWindowSize,
+    SDL_SetWindowTitle, SDL_GetWindowTitle,
+    SDL_ShowWindow, SDL_HideWindow, SDL_MaximizeWindow, SDL_MinimizeWindow,
+    SDL_SetWindowFullscreen, SDL_GetWindowFlags,
+    SDL_GetMouseState, SDL_GetKeyboardState, SDL_GetModState,
+    SDL_Vulkan_CreateSurface, SDL_Vulkan_GetInstanceExtensions, SDL_Vulkan_GetDrawableSize,
+    cstr_to_string
+}
+
+/**
+ * Event types for the window event system.
+ *
+ * Maps SDL3 event types to a type-safe enum for use with
+ * Window.pollEvent() and Window.pollEvents().
+ */
+enum EventType {
+    Quit
+    KeyDown
+    KeyUp
+    MouseMove
+    MouseButtonDown
+    MouseButtonUp
+    MouseWheel
+    WindowResized
+    WindowCloseRequested
+    GamepadButtonDown
+    GamepadButtonUp
+    GamepadAxisMotion
+    Unknown
+}
+
+/**
+ * Keyboard event data.
+ *
+ * Contains scancode, keycode, modifier state, and repeat flag
+ * for keyboard press/release events.
+ */
+class KeyEvent {
+    var scancode: Int
+    var keycode: Int
+    var modifiers: Int
+    var repeat: Bool
+
+    static fun new(scancode: Int, keycode: Int, modifiers: Int, repeat: Bool) r: KeyEvent {
+        return KeyEvent {
+            scancode: scancode,
+            keycode: keycode,
+            modifiers: modifiers,
+            repeat: repeat
+        }
+    }
+
+    fun isShiftDown() r: Bool {
+        return (this.modifiers & 0x0003) != 0
+    }
+
+    fun isCtrlDown() r: Bool {
+        return (this.modifiers & 0x00C0) != 0
+    }
+
+    fun isAltDown() r: Bool {
+        return (this.modifiers & 0x0300) != 0
+    }
+}
+
+/**
+ * Mouse event data.
+ *
+ * Contains position, button, click count, and delta movement
+ * for mouse motion and button events.
+ */
+class MouseEvent {
+    var x: Int
+    var y: Int
+    var button: Int
+    var clicks: Int
+    var deltaX: Int
+    var deltaY: Int
+
+    static fun new(x: Int, y: Int, button: Int, clicks: Int, deltaX: Int, deltaY: Int) r: MouseEvent {
+        return MouseEvent {
+            x: x,
+            y: y,
+            button: button,
+            clicks: clicks,
+            deltaX: deltaX,
+            deltaY: deltaY
+        }
+    }
+}
+
+/**
+ * Mouse wheel/scroll event data.
+ *
+ * Contains position and scroll delta in both axes.
+ * Positive deltaY indicates scrolling up/forward.
+ */
+class WheelEvent {
+    var x: Int
+    var y: Int
+    var deltaX: Float
+    var deltaY: Float
+
+    static fun new(x: Int, y: Int, deltaX: Float, deltaY: Float) r: WheelEvent {
+        return WheelEvent {
+            x: x,
+            y: y,
+            deltaX: deltaX,
+            deltaY: deltaY
+        }
+    }
+}
+
+/**
+ * Window resize event data.
+ *
+ * Contains the new width and height after a window resize.
+ * Also used for querying window and drawable dimensions.
+ */
+class ResizeEvent {
+    var width: Int
+    var height: Int
+
+    static fun new(width: Int, height: Int) r: ResizeEvent {
+        return ResizeEvent { width: width, height: height }
+    }
+}
+
+/**
+ * Gamepad event data.
+ *
+ * Contains gamepad ID, button/axis info, and value for
+ * controller input events received through SDL3.
+ */
+class GamepadEvent {
+    var gamepadId: Int
+    var button: Int
+    var axis: Int
+    var value: Int
+
+    static fun new(gamepadId: Int, button: Int, axis: Int, value: Int) r: GamepadEvent {
+        return GamepadEvent {
+            gamepadId: gamepadId,
+            button: button,
+            axis: axis,
+            value: value
+        }
+    }
+}
+
+/**
+ * Unified event structure.
+ *
+ * Contains an event type and data for all supported event kinds.
+ * Only the data corresponding to eventType is valid.
+ */
+class Event {
+    var eventType: EventType
+    var keyEvent: KeyEvent
+    var mouseEvent: MouseEvent
+    var wheelEvent: WheelEvent
+    var resizeEvent: ResizeEvent
+    var gamepadEvent: GamepadEvent
+
+    static fun quit() r: Event {
+        return Event {
+            eventType: EventType.Quit,
+            keyEvent: KeyEvent.new(0, 0, 0, false),
+            mouseEvent: MouseEvent.new(0, 0, 0, 0, 0, 0),
+            wheelEvent: WheelEvent.new(0, 0, 0.0, 0.0),
+            resizeEvent: ResizeEvent.new(0, 0),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    static fun keyDown(scancode: Int, keycode: Int, modifiers: Int, repeat: Bool) r: Event {
+        return Event {
+            eventType: EventType.KeyDown,
+            keyEvent: KeyEvent.new(scancode, keycode, modifiers, repeat),
+            mouseEvent: MouseEvent.new(0, 0, 0, 0, 0, 0),
+            wheelEvent: WheelEvent.new(0, 0, 0.0, 0.0),
+            resizeEvent: ResizeEvent.new(0, 0),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    static fun keyUp(scancode: Int, keycode: Int, modifiers: Int) r: Event {
+        return Event {
+            eventType: EventType.KeyUp,
+            keyEvent: KeyEvent.new(scancode, keycode, modifiers, false),
+            mouseEvent: MouseEvent.new(0, 0, 0, 0, 0, 0),
+            wheelEvent: WheelEvent.new(0, 0, 0.0, 0.0),
+            resizeEvent: ResizeEvent.new(0, 0),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    static fun mouseMove(x: Int, y: Int, deltaX: Int, deltaY: Int) r: Event {
+        return Event {
+            eventType: EventType.MouseMove,
+            keyEvent: KeyEvent.new(0, 0, 0, false),
+            mouseEvent: MouseEvent.new(x, y, 0, 0, deltaX, deltaY),
+            wheelEvent: WheelEvent.new(0, 0, 0.0, 0.0),
+            resizeEvent: ResizeEvent.new(0, 0),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    static fun mouseButtonDown(x: Int, y: Int, button: Int, clicks: Int) r: Event {
+        return Event {
+            eventType: EventType.MouseButtonDown,
+            keyEvent: KeyEvent.new(0, 0, 0, false),
+            mouseEvent: MouseEvent.new(x, y, button, clicks, 0, 0),
+            wheelEvent: WheelEvent.new(0, 0, 0.0, 0.0),
+            resizeEvent: ResizeEvent.new(0, 0),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    static fun mouseButtonUp(x: Int, y: Int, button: Int) r: Event {
+        return Event {
+            eventType: EventType.MouseButtonUp,
+            keyEvent: KeyEvent.new(0, 0, 0, false),
+            mouseEvent: MouseEvent.new(x, y, button, 0, 0, 0),
+            wheelEvent: WheelEvent.new(0, 0, 0.0, 0.0),
+            resizeEvent: ResizeEvent.new(0, 0),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    static fun mouseWheel(x: Int, y: Int, deltaX: Float, deltaY: Float) r: Event {
+        return Event {
+            eventType: EventType.MouseWheel,
+            keyEvent: KeyEvent.new(0, 0, 0, false),
+            mouseEvent: MouseEvent.new(0, 0, 0, 0, 0, 0),
+            wheelEvent: WheelEvent.new(x, y, deltaX, deltaY),
+            resizeEvent: ResizeEvent.new(0, 0),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    static fun windowResized(width: Int, height: Int) r: Event {
+        return Event {
+            eventType: EventType.WindowResized,
+            keyEvent: KeyEvent.new(0, 0, 0, false),
+            mouseEvent: MouseEvent.new(0, 0, 0, 0, 0, 0),
+            wheelEvent: WheelEvent.new(0, 0, 0.0, 0.0),
+            resizeEvent: ResizeEvent.new(width, height),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    static fun unknown() r: Event {
+        return Event {
+            eventType: EventType.Unknown,
+            keyEvent: KeyEvent.new(0, 0, 0, false),
+            mouseEvent: MouseEvent.new(0, 0, 0, 0, 0, 0),
+            wheelEvent: WheelEvent.new(0, 0, 0.0, 0.0),
+            resizeEvent: ResizeEvent.new(0, 0),
+            gamepadEvent: GamepadEvent.new(0, 0, 0, 0)
+        }
+    }
+
+    fun isQuit() r: Bool {
+        return this.eventType == EventType.Quit or this.eventType == EventType.WindowCloseRequested
+    }
+}
+
+/**
+ * Window configuration using a builder pattern.
+ *
+ * Create with WindowConfig.new() then chain methods like
+ * withVulkan(), withFullscreen(), etc. Pass to Window.create().
+ */
+class WindowConfig {
+    var title: String
+    var width: Int
+    var height: Int
+    var vulkan: Bool
+    var resizable: Bool
+    var fullscreen: Bool
+    var borderless: Bool
+    var hidden: Bool
+    var maximized: Bool
+
+    static fun new(title: String, width: Int, height: Int) r: WindowConfig {
+        return WindowConfig {
+            title: title,
+            width: width,
+            height: height,
+            vulkan: false,
+            resizable: true,
+            fullscreen: false,
+            borderless: false,
+            hidden: false,
+            maximized: false
+        }
+    }
+
+    fun withVulkan() r: WindowConfig {
+        this.vulkan = true
+        return this
+    }
+
+    fun withResizable(resizable: Bool) r: WindowConfig {
+        this.resizable = resizable
+        return this
+    }
+
+    fun withFullscreen() r: WindowConfig {
+        this.fullscreen = true
+        return this
+    }
+
+    fun withBorderless() r: WindowConfig {
+        this.borderless = true
+        return this
+    }
+
+    fun withHidden() r: WindowConfig {
+        this.hidden = true
+        return this
+    }
+
+    fun withMaximized() r: WindowConfig {
+        this.maximized = true
+        return this
+    }
+
+    fun getFlags() r: Int {
+        var flags = 0
+        if this.vulkan {
+            flags = flags | SDL_WINDOW_VULKAN
+        }
+        if this.resizable {
+            flags = flags | SDL_WINDOW_RESIZABLE
+        }
+        if this.fullscreen {
+            flags = flags | SDL_WINDOW_FULLSCREEN
+        }
+        if this.borderless {
+            flags = flags | SDL_WINDOW_BORDERLESS
+        }
+        if this.hidden {
+            flags = flags | SDL_WINDOW_HIDDEN
+        }
+        if this.maximized {
+            flags = flags | SDL_WINDOW_MAXIMIZED
+        }
+        return flags
+    }
+}
+
+// Helper function to get event buffer (workaround for module-level var issues)
+fun getEventBuffer() r: Array<UInt8> {
+    return Array<UInt8>.withCapacity(128)
+}
+
+/**
+ * Main window class for creating and managing application windows.
+ *
+ * Wraps SDL3 window functionality with a safe, object-oriented API.
+ * Handles initialization, event polling, and Vulkan surface creation.
+ *
+ * Example:
+ *   let window = Window.new("My App", 800, 600).unwrap()
+ *   while not window.shouldClose() {
+ *       let events = window.pollEvents()
+ *       // nativeHandle events...
+ *   }
+ *   window.destroy()
+ */
+class Window {
+    var nativeHandle: *Void
+    var width: Int
+    var height: Int
+    var title: String
+    var shouldCloseFlag: Bool
+
+    /**
+     * Create a window with the specified configuration.
+     *
+     * Initializes SDL3 with video, events, and gamepad subsystems.
+     * Returns an error if SDL initialization or window creation fails.
+     */
+    static fun create(config: WindowConfig) r: Result<Window, String> {
+        // Initialize SDL with video and events
+        let initFlags = (SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD) as UInt32
+        let initResult = SDL_Init(initFlags)
+        if initResult < 0 {
+            return Err("SDL initialization failed: " + cstr_to_string(SDL_GetError()))
+        }
+
+        // Create the window
+        let flags = config.getFlags() as UInt64
+        let windowPtr = SDL_CreateWindow(config.title.toCString(), config.width, config.height, flags)
+        if windowPtr == null {
+            return Err("Window creation failed: " + cstr_to_string(SDL_GetError()))
+        }
+
+        return Ok(Window {
+            nativeHandle: windowPtr,
+            width: config.width,
+            height: config.height,
+            title: config.title,
+            shouldCloseFlag: false
+        })
+    }
+
+    /**
+     * Create a basic resizable window with default settings.
+     */
+    static fun new(title: String, width: Int, height: Int) r: Result<Window, String> {
+        let config = WindowConfig.new(title, width, height)
+        return Window.create(config)
+    }
+
+    /**
+     * Create a window with Vulkan rendering support enabled.
+     */
+    static fun newVulkan(title: String, width: Int, height: Int) r: Result<Window, String> {
+        let config = WindowConfig.new(title, width, height).withVulkan()
+        return Window.create(config)
+    }
+
+    /**
+     * Poll for a single event (non-blocking).
+     *
+     * Returns Err("No event") if no events are pending.
+     */
+    fun pollEvent() r: Result<Event, String> {
+        // SDL_Event is 128 bytes, use raw memory for it
+        let eventPtr = getEventBuffer().data() as *Void
+        let hasEvent = SDL_PollEvent(eventPtr)
+        if hasEvent == 0 {
+            return Err("No event")
+        }
+
+        // Extract event type from first 4 bytes of SDL_Event
+        let eventType = *(eventPtr as *UInt32) as Int
+
+        return Ok(this.parseEvent(eventType, eventPtr))
+    }
+
+    /**
+     * Poll and return all pending events.
+     *
+     * Automatically sets shouldCloseFlag when quit/close events
+     * are received. Call this once per frame in your game loop.
+     */
+    fun pollEvents() r: Array<Event> {
+        var events = Array<Event>()
+        let eventPtr = getEventBuffer().data() as *Void
+
+        while SDL_PollEvent(eventPtr) != 0 {
+            let eventType = *(eventPtr as *UInt32) as Int
+            let event = this.parseEvent(eventType, eventPtr)
+            events.push(event)
+
+            if event.isQuit() {
+                this.shouldCloseFlag = true
+            }
+        }
+
+        return events
+    }
+
+    // Parse raw SDL event into Event structure
+    fun parseEvent(eventType: Int, eventPtr: *Void) r: Event {
+        if eventType == SDL_EVENT_QUIT or eventType == SDL_EVENT_WINDOW_CLOSE_REQUESTED {
+            return Event.quit()
+        }
+
+        if eventType == SDL_EVENT_KEY_DOWN {
+            // SDL3 keyboard event layout at offset 20 for scancode
+            let scancode = *((eventPtr + 20) as *UInt32) as Int
+            let keycode = *((eventPtr + 24) as *UInt32) as Int
+            let modifiers = SDL_GetModState() as Int
+            return Event.keyDown(scancode, keycode, modifiers, false)
+        }
+
+        if eventType == SDL_EVENT_KEY_UP {
+            let scancode = *((eventPtr + 20) as *UInt32) as Int
+            let keycode = *((eventPtr + 24) as *UInt32) as Int
+            let modifiers = SDL_GetModState() as Int
+            return Event.keyUp(scancode, keycode, modifiers)
+        }
+
+        if eventType == SDL_EVENT_MOUSE_MOTION {
+            // SDL3 mouse motion event has x/y as floats at offset 20
+            let xf = *((eventPtr + 20) as *Float)
+            let yf = *((eventPtr + 24) as *Float)
+            let x = xf as Int
+            let y = yf as Int
+            return Event.mouseMove(x, y, 0, 0)
+        }
+
+        if eventType == SDL_EVENT_MOUSE_BUTTON_DOWN {
+            let button = *((eventPtr + 16) as *UInt8) as Int
+            let clicks = *((eventPtr + 17) as *UInt8) as Int
+            let xf = *((eventPtr + 20) as *Float)
+            let yf = *((eventPtr + 24) as *Float)
+            let x = xf as Int
+            let y = yf as Int
+            return Event.mouseButtonDown(x, y, button, clicks)
+        }
+
+        if eventType == SDL_EVENT_MOUSE_BUTTON_UP {
+            let button = *((eventPtr + 16) as *UInt8) as Int
+            let xf = *((eventPtr + 20) as *Float)
+            let yf = *((eventPtr + 24) as *Float)
+            let x = xf as Int
+            let y = yf as Int
+            return Event.mouseButtonUp(x, y, button)
+        }
+
+        if eventType == SDL_EVENT_WINDOW_RESIZED {
+            // SDL3 window event has data1/data2 at offset 20/24 for width/height
+            let newWidth = *((eventPtr + 20) as *Int32) as Int
+            let newHeight = *((eventPtr + 24) as *Int32) as Int
+            this.width = newWidth
+            this.height = newHeight
+            return Event.windowResized(newWidth, newHeight)
+        }
+
+        return Event.unknown()
+    }
+
+    // Check if window should close
+    fun shouldClose() r: Bool {
+        return this.shouldCloseFlag
+    }
+
+    // Request window close
+    fun close() r: Void {
+        this.shouldCloseFlag = true
+    }
+
+    // Get current window size
+    fun getSize() r: ResizeEvent {
+        var w: Int = 0
+        var h: Int = 0
+        SDL_GetWindowSize(this.nativeHandle, &w, &h)
+        this.width = w
+        this.height = h
+        return ResizeEvent.new(w, h)
+    }
+
+    // Set window size
+    fun setSize(width: Int, height: Int) r: Result<Unit, String> {
+        let result = SDL_SetWindowSize(this.nativeHandle, width, height)
+        if result < 0 {
+            return Err(cstr_to_string(SDL_GetError()))
+        }
+        this.width = width
+        this.height = height
+        return Ok(Unit{})
+    }
+
+    // Set window title
+    fun setTitle(title: String) r: Result<Unit, String> {
+        let result = SDL_SetWindowTitle(this.nativeHandle, title.toCString())
+        if result < 0 {
+            return Err(cstr_to_string(SDL_GetError()))
+        }
+        this.title = title
+        return Ok(Unit{})
+    }
+
+    // Show the window
+    fun show() r: Result<Unit, String> {
+        let result = SDL_ShowWindow(this.nativeHandle)
+        if result < 0 {
+            return Err(cstr_to_string(SDL_GetError()))
+        }
+        return Ok(Unit{})
+    }
+
+    // Hide the window
+    fun hide() r: Result<Unit, String> {
+        let result = SDL_HideWindow(this.nativeHandle)
+        if result < 0 {
+            return Err(cstr_to_string(SDL_GetError()))
+        }
+        return Ok(Unit{})
+    }
+
+    // Maximize the window
+    fun maximize() r: Result<Unit, String> {
+        let result = SDL_MaximizeWindow(this.nativeHandle)
+        if result < 0 {
+            return Err(cstr_to_string(SDL_GetError()))
+        }
+        return Ok(Unit{})
+    }
+
+    // Minimize the window
+    fun minimize() r: Result<Unit, String> {
+        let result = SDL_MinimizeWindow(this.nativeHandle)
+        if result < 0 {
+            return Err(cstr_to_string(SDL_GetError()))
+        }
+        return Ok(Unit{})
+    }
+
+    // Set fullscreen mode
+    fun setFullscreen(fullscreen: Bool) r: Result<Unit, String> {
+        let fullscreenFlag = if fullscreen { 1 } else { 0 }
+        let result = SDL_SetWindowFullscreen(this.nativeHandle, fullscreenFlag)
+        if result < 0 {
+            return Err(cstr_to_string(SDL_GetError()))
+        }
+        return Ok(Unit{})
+    }
+
+    /**
+     * Create a Vulkan surface for this window.
+     *
+     * Requires the window to be created with withVulkan().
+     * The surface must be destroyed before the Vulkan instance.
+     */
+    fun getVulkanSurface(vkInstance: *Void) r: Result<UInt64, String> {
+        var surface: UInt64 = 0
+        let result = SDL_Vulkan_CreateSurface(this.nativeHandle, vkInstance, null, &surface)
+        if result == 0 {
+            return Err("Failed to create Vulkan surface: " + cstr_to_string(SDL_GetError()))
+        }
+        return Ok(surface)
+    }
+
+    /**
+     * Get the Vulkan drawable size in pixels.
+     *
+     * May differ from window size on high-DPI displays.
+     * Use this for swapchain extent and framebuffer dimensions.
+     */
+    fun getVulkanDrawableSize() r: ResizeEvent {
+        var w: Int = 0
+        var h: Int = 0
+        SDL_Vulkan_GetDrawableSize(this.nativeHandle, &w, &h)
+        return ResizeEvent.new(w, h)
+    }
+
+    /**
+     * Destroy the window and cleanup SDL resources.
+     *
+     * Must be called when done with the window. After calling,
+     * the Window object should not be used.
+     */
+    fun destroy() r: Void {
+        SDL_DestroyWindow(this.nativeHandle)
+        SDL_Quit()
+    }
+}
+
+/**
+ * Get elapsed time since SDL initialization in milliseconds.
+ */
+fun getTicksMs() r: UInt64 {
+    return SDL_GetTicks()
+}
+
+/**
+ * Delay execution for the specified number of milliseconds.
+ */
+fun delay(ms: Int) r: Void {
+    SDL_Delay(ms as UInt32)
+}

@@ -1,0 +1,89 @@
+// TCP networking
+class TcpListener {
+    socket: Int
+    addr: String
+    
+    fun bind(addr: String) -> Result<TcpListener, String> {
+        let socket = __TcpBind(addr)
+        if socket < 0 {
+            return Err("Failed to bind to: " + addr)
+        }
+        Ok(TcpListener { socket: socket, addr: addr })
+    }
+    
+    fun accept() -> Result<TcpStream, String> {
+        let client_socket = __TcpAccept(this.socket)
+        if client_socket < 0 {
+            return Err("Failed to accept connection")
+        }
+        Ok(TcpStream { socket: client_socket })
+    }
+    
+    fun close() -> Result<Unit, String> {
+        let result = __TcpClose(this.socket)
+        if result < 0 {
+            return Err("Failed to close listener")
+        }
+        Ok(Unit{})
+    }
+}
+
+class TcpStream {
+    socket: Int
+    
+    fun connect(addr: String) -> Result<TcpStream, String> {
+        let socket = __TcpConnect(addr)
+        if socket < 0 {
+            return Err("Failed to connect to: " + addr)
+        }
+        Ok(TcpStream { socket: socket })
+    }
+    
+    fun read() -> Result<String, String> {
+        let data = __TcpRead(this.socket)
+        if data == "" and __TcpError(this.socket) {
+            return Err("Failed to read from socket")
+        }
+        Ok(data)
+    }
+    
+    fun read_bytes(size: Int) -> Result<Array<Byte>, String> {
+        let bytes = __TcpReadBytes(this.socket, size)
+        if bytes.len() == 0 and __TcpError(this.socket) {
+            return Err("Failed to read from socket")
+        }
+        Ok(bytes)
+    }
+    
+    fun write(data: String) -> Result<Int, String> {
+        let written = __TcpWrite(this.socket, data)
+        if written < 0 {
+            return Err("Failed to write to socket")
+        }
+        Ok(written)
+    }
+    
+    fun write_bytes(bytes: Array<Byte>) -> Result<Int, String> {
+        let written = __TcpWriteBytes(this.socket, bytes)
+        if written < 0 {
+            return Err("Failed to write bytes to socket")
+        }
+        Ok(written)
+    }
+    
+    fun close() -> Result<Unit, String> {
+        let result = __TcpClose(this.socket)
+        if result < 0 {
+            return Err("Failed to close stream")
+        }
+        Ok(Unit{})
+    }
+    
+    fun set_nonblocking(nonblocking: Bool) -> Result<Unit, String> {
+        let result = __TcpSetNonblocking(this.socket, nonblocking)
+        if result < 0 {
+            return Err("Failed to set nonblocking mode")
+        }
+        Ok(Unit{})
+    }
+}

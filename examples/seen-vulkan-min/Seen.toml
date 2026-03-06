@@ -1,0 +1,13 @@
+[project]
+name = "seen-vulkan-min"
+version = "0.1.0"
+language = "en"
+description = "Deterministic Vulkan-style triangle sample for the Seen MVP."
+
+[build]
+entry = "src/main.seen"
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-linux-android"]
+optimize = "speed"
+
+[assets]
+shaders = ["shaders/triangle.spv"]

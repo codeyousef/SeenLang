@@ -1,0 +1,7 @@
+fun main() -> Int {
+    var current_seed = 12345
+    current_seed = (current_seed * 1103515245 + 12345) & 0x7fffffff
+    __PrintInt(current_seed)
+    __Print("\n")
+    return 0
+}

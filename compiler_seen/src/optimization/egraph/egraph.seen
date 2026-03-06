@@ -1,0 +1,256 @@
+// E-graph Core Data Structure with Union-Find
+// Based on "egg: Fast and Extensible Equality Saturation" (Willsey et al.)
+// Uses integer-indexed arrays for stage1 compatibility
+
+// An e-node: operation + children (e-class ids)
+class ENode {
+    let op: String              // operation name (e.g., "add", "mul", "const_0")
+    let children: Array<Int>    // e-class ids of children
+
+    fun new(op: String, children: Array<Int>) r: ENode {
+        return ENode{
+            op: op,
+            children: children
+        }
+    }
+
+    // Check if two e-nodes are structurally equal
+    fun equals(other: ENode) r: Bool {
+        if op != other.op {
+            return false
+        }
+        if children.length() != other.children.length() {
+            return false
+        }
+        var i = 0
+        while i < children.length() {
+            if children[i] != other.children[i] {
+                return false
+            }
+            i = i + 1
+        }
+        return true
+    }
+}
+
+// E-graph: the core equality saturation data structure
+class EGraph {
+    // Union-find parent array (maps e-class id -> parent id)
+    var parents: Array<Int>
+    // Union-find rank array (for union by rank)
+    var ranks: Array<Int>
+    // E-class id -> list of e-node indices in this class
+    // Stored as flattened: classNodes[id*maxNodesPerClass .. (id+1)*maxNodesPerClass]
+    // We use a simpler approach: one Array<Int> per class mapped by nodeClassMap
+    var nodeOps: Array<String>        // e-node operation at index i
+    var nodeChildrenFlat: Array<Int>  // flattened children: [numChildren, child0, child1, ...]
+    var nodeChildrenOffsets: Array<Int> // offset into nodeChildrenFlat for node i
+    var nodeClassId: Array<Int>       // which e-class does node i belong to?
+    var numClasses: Int
+    var numNodes: Int
+    var dirty: Bool                   // needs rebuild?
+
+    fun new() r: EGraph {
+        return EGraph{
+            parents: Array<Int>(),
+            ranks: Array<Int>(),
+            nodeOps: Array<String>(),
+            nodeChildrenFlat: Array<Int>(),
+            nodeChildrenOffsets: Array<Int>(),
+            nodeClassId: Array<Int>(),
+            numClasses: 0,
+            numNodes: 0,
+            dirty: false
+        }
+    }
+
+    // Find the canonical representative of an e-class (with path compression)
+    fun find(id: Int) r: Int {
+        if id < 0 {
+            return id
+        }
+        if id >= parents.length() {
+            return id
+        }
+        var current = id
+        // Walk up to root
+        while parents[current] != current {
+            current = parents[current]
+        }
+        let root = current
+        // Path compression: set all nodes on path to point directly to root
+        current = id
+        while parents[current] != root {
+            let next = parents[current]
+            parents[current] = root
+            current = next
+        }
+        return root
+    }
+
+    // Add an e-node to the graph, returning its e-class id
+    // If an equivalent node already exists, returns its class
+    fun add(op: String, children: Array<Int>) r: Int {
+        // Canonicalize children
+        var canonChildren = Array<Int>()
+        var ci = 0
+        while ci < children.length() {
+            canonChildren.push(find(children[ci]))
+            ci = ci + 1
+        }
+
+        // Check if equivalent node already exists (deduplication)
+        var ni = 0
+        while ni < numNodes {
+            if nodeOps[ni] == op {
+                // Check if children match
+                let offset = nodeChildrenOffsets[ni]
+                let numKids = nodeChildrenFlat[offset]
+                if numKids == canonChildren.length() {
+                    var matchInt = 1
+                    var ki = 0
+                    while ki < numKids {
+                        if find(nodeChildrenFlat[offset + 1 + ki]) != canonChildren[ki] {
+                            matchInt = 0
+                            ki = numKids  // break
+                        }
+                        ki = ki + 1
+                    }
+                    if matchInt == 1 {
+                        return find(nodeClassId[ni])
+                    }
+                }
+            }
+            ni = ni + 1
+        }
+
+        // Create new e-class
+        let classId = numClasses
+        parents.push(classId)
+        ranks.push(0)
+        numClasses = numClasses + 1
+
+        // Create new e-node
+        let nodeIdx = numNodes
+        nodeOps.push(op)
+        nodeClassId.push(classId)
+        let flatOffset = nodeChildrenFlat.length()
+        nodeChildrenOffsets.push(flatOffset)
+        nodeChildrenFlat.push(canonChildren.length())
+        var cj = 0
+        while cj < canonChildren.length() {
+            nodeChildrenFlat.push(canonChildren[cj])
+            cj = cj + 1
+        }
+        numNodes = numNodes + 1
+
+        return classId
+    }
+
+    // Merge two e-classes (union)
+    fun merge(id1: Int, id2: Int) r: Int {
+        let root1 = find(id1)
+        let root2 = find(id2)
+        if root1 == root2 {
+            return root1
+        }
+
+        // Union by rank
+        if ranks[root1] < ranks[root2] {
+            parents[root1] = root2
+            dirty = true
+            return root2
+        }
+        if ranks[root1] > ranks[root2] {
+            parents[root2] = root1
+            dirty = true
+            return root1
+        }
+        // Equal rank: pick root1 as new root, increment rank
+        parents[root2] = root1
+        ranks[root1] = ranks[root1] + 1
+        dirty = true
+        return root1
+    }
+
+    // Rebuild: re-canonicalize all e-nodes after merges
+    fun rebuild() r: Bool {
+        if not dirty {
+            return false
+        }
+        // Re-canonicalize children of all nodes
+        var ni = 0
+        while ni < numNodes {
+            let offset = nodeChildrenOffsets[ni]
+            let numKids = nodeChildrenFlat[offset]
+            var ki = 0
+            while ki < numKids {
+                nodeChildrenFlat[offset + 1 + ki] = find(nodeChildrenFlat[offset + 1 + ki])
+                ki = ki + 1
+            }
+            // Re-canonicalize the node's class
+            nodeClassId[ni] = find(nodeClassId[ni])
+            ni = ni + 1
+        }
+        dirty = false
+        return true
+    }
+
+    // Get the operation of a node
+    fun nodeOp(nodeIdx: Int) r: String {
+        if nodeIdx < 0 {
+            return ""
+        }
+        if nodeIdx >= numNodes {
+            return ""
+        }
+        return nodeOps[nodeIdx]
+    }
+
+    // Get the children e-class ids of a node
+    fun nodeChildren(nodeIdx: Int) r: Array<Int> {
+        var result = Array<Int>()
+        if nodeIdx < 0 {
+            return result
+        }
+        if nodeIdx >= numNodes {
+            return result
+        }
+        let offset = nodeChildrenOffsets[nodeIdx]
+        let numKids = nodeChildrenFlat[offset]
+        var ki = 0
+        while ki < numKids {
+            result.push(find(nodeChildrenFlat[offset + 1 + ki]))
+            ki = ki + 1
+        }
+        return result
+    }
+
+    // Get all node indices belonging to an e-class
+    fun classNodes(classId: Int) r: Array<Int> {
+        let canon = find(classId)
+        var result = Array<Int>()
+        var ni = 0
+        while ni < numNodes {
+            if find(nodeClassId[ni]) == canon {
+                result.push(ni)
+            }
+            ni = ni + 1
+        }
+        return result
+    }
+
+    // Get total number of e-classes
+    fun classCount() r: Int {
+        // Count unique canonical representatives
+        var count = 0
+        var i = 0
+        while i < numClasses {
+            if find(i) == i {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+}

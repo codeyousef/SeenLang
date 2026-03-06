@@ -1,0 +1,140 @@
+// Seen Standard Library - Shader Compilation and Reflection
+// Provides utilities for compiling GLSL to SPIR-V and reading reflection data
+
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import io.file.{readText, writeText, exists}
+import str.string.{StringBuilder}
+
+// Shader stages
+var SHADER_STAGE_COMPUTE: Int = 0
+var SHADER_STAGE_VERTEX: Int = 1
+var SHADER_STAGE_FRAGMENT: Int = 2
+
+// --- ShaderCompiler ---
+
+class ShaderCompiler {
+    var glslcPath: String
+    var optimizationLevel: String
+
+    static fun new() r: ShaderCompiler {
+        return ShaderCompiler{
+            glslcPath: "glslc",
+            optimizationLevel: "-O"
+        }
+    }
+
+    fun compile(glslPath: String, spvPath: String, stage: Int) r: Bool {
+        var stageFlag = "comp"
+        if stage == 1 {
+            stageFlag = "vert"
+        }
+        if stage == 2 {
+            stageFlag = "frag"
+        }
+
+        let cmd = glslcPath + " -fshader-stage=" + stageFlag + " " + optimizationLevel + " " + glslPath + " -o " + spvPath + " 2>&1"
+        let result: CommandResult = runCommand(cmd)
+        if commandWasSuccessful(result) {
+            return true
+        }
+
+        // Fallback to glslangValidator
+        let fallbackCmd = "glslangValidator -V -S " + stageFlag + " -o " + spvPath + " " + glslPath + " 2>&1"
+        let fallbackResult: CommandResult = runCommand(fallbackCmd)
+        return commandWasSuccessful(fallbackResult)
+    }
+
+    fun compileWithDefines(glslPath: String, spvPath: String, stage: Int, defines: Array<String>) r: Bool {
+        var stageFlag = "comp"
+        if stage == 1 {
+            stageFlag = "vert"
+        }
+        if stage == 2 {
+            stageFlag = "frag"
+        }
+
+        var defineFlags = ""
+        var i = 0
+        while i < defines.length() {
+            defineFlags = defineFlags + " -D" + defines[i]
+            i = i + 1
+        }
+
+        let cmd = glslcPath + " -fshader-stage=" + stageFlag + " " + optimizationLevel + defineFlags + " " + glslPath + " -o " + spvPath + " 2>&1"
+        let result: CommandResult = runCommand(cmd)
+        return commandWasSuccessful(result)
+    }
+}
+
+// --- ShaderReflectionData ---
+
+class ShaderReflectionData {
+    var name: String
+    var stage: Int
+    var bindingCount: Int
+    var workgroupX: Int
+    var workgroupY: Int
+    var workgroupZ: Int
+
+    static fun new(name: String, stage: Int) r: ShaderReflectionData {
+        return ShaderReflectionData{
+            name: name,
+            stage: stage,
+            bindingCount: 0,
+            workgroupX: 1,
+            workgroupY: 1,
+            workgroupZ: 1
+        }
+    }
+
+    static fun loadFromJSON(jsonPath: String) r: ShaderReflectionData {
+        let content = readText(jsonPath)
+        // Simple JSON parsing for reflection data
+        let refl = ShaderReflectionData.new("", 0)
+        if content == "" {
+            return refl
+        }
+        // Parse name field
+        let nameIdx = content.indexOf("\"name\"")
+        if nameIdx >= 0 {
+            let colonIdx = content.indexOf(":", nameIdx)
+            if colonIdx >= 0 {
+                let quoteStart = content.indexOf("\"", colonIdx + 1)
+                if quoteStart >= 0 {
+                    let quoteEnd = content.indexOf("\"", quoteStart + 1)
+                    if quoteEnd >= 0 {
+                        refl.name = content.substring(quoteStart + 1, quoteEnd)
+                    }
+                }
+            }
+        }
+        return refl
+    }
+}
+
+// --- ShaderPermutation ---
+
+class ShaderPermutation {
+    var featureName: String
+    var spvPath: String
+    var defines: Array<String>
+
+    static fun new(featureName: String, spvPath: String) r: ShaderPermutation {
+        return ShaderPermutation{
+            featureName: featureName,
+            spvPath: spvPath,
+            defines: Array<String>()
+        }
+    }
+}
+
+// Compile a single shader file (convenience function)
+fun compileShader(glslPath: String, spvPath: String, stage: Int) r: Bool {
+    let compiler = ShaderCompiler.new()
+    return compiler.compile(glslPath, spvPath, stage)
+}
+
+// Load reflection data from a JSON file (convenience function)
+fun loadReflection(jsonPath: String) r: ShaderReflectionData {
+    return ShaderReflectionData.loadFromJSON(jsonPath)
+}

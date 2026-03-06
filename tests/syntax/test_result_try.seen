@@ -1,0 +1,27 @@
+fun divide(a: Int, b: Int) r: Result<Int, String> {
+    if b == 0 { return Err("division by zero") }
+    return Ok(a / b)
+}
+
+fun compute_ok() r: Result<Int, String> {
+    let x = divide(10, 2)?
+    return Ok(x)
+}
+
+fun compute_err() r: Result<Int, String> {
+    let x = divide(10, 2)?
+    let y = divide(x, 0)?
+    return Ok(y)
+}
+
+fun main() r: Int {
+    let r1 = compute_ok()
+    let r2 = compute_err()
+    // r1 should be Ok(5), r2 should be Err
+    if r1.isOkay() {
+        if not r2.isOkay() {
+            return 42
+        }
+    }
+    return 1
+}

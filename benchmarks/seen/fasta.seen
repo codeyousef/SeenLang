@@ -1,0 +1,108 @@
+// FASTA Generation Benchmark
+// Random sequence generation with weighted selection
+
+class Random {
+    var seed: Int
+    
+    fun new(seed: Int) -> Random {
+        return Random { seed: seed }
+    }
+    
+    fun next() -> Float {
+        let IM = 139968
+        let IA = 3877
+        let IC = 29573
+        this.seed = (this.seed * IA + IC) % IM
+        return this.seed.toFloat() / IM.toFloat()
+    }
+}
+
+data Nucleotide {
+    c: String
+    prob: Float
+}
+
+fun select_nucleotide(rng: Random, table: Array<Nucleotide>) -> String {
+    let r = rng.next()
+    var cumulative = 0.0
+    
+    for i in range(0, table.length()) {
+        cumulative = cumulative + table.get(i).prob
+        if r < cumulative {
+            return table.get(i).c
+        }
+    }
+    
+    return table.get(table.length() - 1).c
+}
+
+fun generate_fasta(count: Int, table: Array<Nucleotide>, seed: Int) -> String {
+    let rng = Random.new(seed)
+    var result = ""
+    let line_len = 60
+    
+    var pos = 0
+    while pos < count {
+        let char = select_nucleotide(rng, table)
+        result = result + char
+        pos = pos + 1
+        
+        if result.length() % (line_len + 1) == line_len {
+            result = result + "\n"
+        }
+    }
+    
+    if !result.endsWith("\n") {
+        result = result + "\n"
+    }
+    
+    return result
+}
+
+fun main() {
+    let n = 1000
+    
+    let alu = [
+        Nucleotide { c: "G", prob: 0.25 },
+        Nucleotide { c: "C", prob: 0.25 },
+        Nucleotide { c: "A", prob: 0.25 },
+        Nucleotide { c: "T", prob: 0.25 }
+    ]
+    
+    let iub = [
+        Nucleotide { c: "a", prob: 0.27 },
+        Nucleotide { c: "c", prob: 0.12 },
+        Nucleotide { c: "g", prob: 0.12 },
+        Nucleotide { c: "t", prob: 0.27 },
+        Nucleotide { c: "B", prob: 0.02 },
+        Nucleotide { c: "D", prob: 0.02 },
+        Nucleotide { c: "H", prob: 0.02 },
+        Nucleotide { c: "K", prob: 0.02 },
+        Nucleotide { c: "M", prob: 0.02 },
+        Nucleotide { c: "N", prob: 0.02 },
+        Nucleotide { c: "R", prob: 0.02 },
+        Nucleotide { c: "S", prob: 0.02 },
+        Nucleotide { c: "V", prob: 0.02 },
+        Nucleotide { c: "W", prob: 0.02 },
+        Nucleotide { c: "Y", prob: 0.02 }
+    ]
+    
+    let homosapiens = [
+        Nucleotide { c: "a", prob: 0.3029549426680 },
+        Nucleotide { c: "c", prob: 0.1979883004921 },
+        Nucleotide { c: "g", prob: 0.1975473066391 },
+        Nucleotide { c: "t", prob: 0.3015094502008 }
+    ]
+    
+    println(">ONE Homo sapiens alu")
+    let s1 = generate_fasta(n * 2, alu, 42)
+    println(s1)
+    
+    println(">TWO IUB ambiguity codes")
+    let s2 = generate_fasta(n * 3, iub, 42)
+    println(s2)
+    
+    println(">THREE Homo sapiens frequency")
+    let s3 = generate_fasta(n * 5, homosapiens, 42)
+    println(s3)
+}

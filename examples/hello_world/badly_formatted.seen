@@ -1,0 +1,10 @@
+fun main(){
+    println("Hello");
+    if true{
+        println("World");
+        if false{
+            println("Never executed");
+        }
+    }
+    println("Done");
+}

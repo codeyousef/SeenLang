@@ -1,0 +1,38 @@
+// Test @noinline and @cold decorators
+// Verify: compile with --emit-llvm, grep for 'noinline' and 'cold' in function defs
+
+@noinline
+fun heavyComputation(x: Int) r: Int {
+    var result = x
+    var i = 0
+    while i < 10 {
+        result = result + i
+        i = i + 1
+    }
+    return result
+}
+
+@cold
+fun errorHandler(code: Int) r: Int {
+    println("Error: " + code.toString())
+    return code
+}
+
+@noinline
+@cold
+fun rareErrorPath(msg: String) r: Void {
+    println("RARE ERROR: " + msg)
+}
+
+fun main() r: Int {
+    let result = heavyComputation(5)
+    println("Result: " + result.toString())
+
+    if result > 100 {
+        let code = errorHandler(42)
+        rareErrorPath("overflow")
+    }
+
+    println("PASS: @noinline and @cold decorators compiled")
+    return 0
+}

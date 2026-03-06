@@ -1,0 +1,401 @@
+// C Import Generator - Parses C headers for @_c_import decorator
+// Uses clang to parse C headers and generates Seen extern declarations
+
+import process.process.{runCommand, CommandResult}
+import io.file.{readText, writeText, exists}
+import str.string.{StringBuilder}
+
+// Result of importing a C header
+data CImportResult {
+    success: Bool
+    functions: Array<CImportedFunction>
+    errors: Array<String>
+    warnings: Array<String>
+}
+
+fun CImportResult.new() r: CImportResult {
+    return CImportResult{
+        success: true,
+        functions: Array<CImportedFunction>(),
+        errors: Array<String>(),
+        warnings: Array<String>()
+    }
+}
+
+fun CImportResult.addError(msg: String) r: Void {
+    errors.push(msg)
+    success = false
+}
+
+fun CImportResult.addWarning(msg: String) r: Void {
+    warnings.push(msg)
+}
+
+// Represents a C function to be imported
+data CImportedFunction {
+    name: String
+    returnType: String
+    paramNames: Array<String>
+    paramTypes: Array<String>
+    isVariadic: Bool
+    headerPath: String
+}
+
+fun CImportedFunction.new() r: CImportedFunction {
+    return CImportedFunction{
+        name: "",
+        returnType: "void",
+        paramNames: Array<String>(),
+        paramTypes: Array<String>(),
+        isVariadic: false,
+        headerPath: ""
+    }
+}
+
+class CImportGenerator {
+    var headerPath: String
+    var includePaths: Array<String>
+    var outputFunctions: Array<CImportedFunction>
+    var parseErrors: Array<String>
+
+    static fun new(header: String) r: CImportGenerator {
+        return CImportGenerator{
+            headerPath: header,
+            includePaths: Array<String>(),
+            outputFunctions: Array<CImportedFunction>(),
+            parseErrors: Array<String>()
+        }
+    }
+
+    fun addIncludePath(path: String) r: Void {
+        includePaths.push(path)
+    }
+
+    // Parse the C header using clang's AST dump
+    fun parseHeader() r: CImportResult {
+        var result = CImportResult.new()
+
+        // Check if header exists
+        if not exists(headerPath) {
+            result.addError("Header file not found: " + headerPath)
+            return result
+        }
+
+        // Build clang command
+        var cmd = "clang -Xclang -ast-dump -fsyntax-only"
+
+        // Add include paths
+        var i = 0
+        while i < includePaths.length() {
+            cmd = cmd + " -I" + includePaths[i]
+            i = i + 1
+        }
+
+        cmd = cmd + " " + headerPath + " 2>&1"
+
+        // Run clang
+        let cmdResult: CommandResult = runCommand(cmd)
+        if not cmdResult.success {
+            result.addError("clang failed: " + cmdResult.output)
+            return result
+        }
+
+        // Parse the AST dump output
+        parseClangAstDump(cmdResult.output, result)
+
+        return result
+    }
+
+    // Parse clang's AST dump text format
+    fun parseClangAstDump(astDump: String, result: CImportResult) r: Void {
+        let lines = astDump.split("\n")
+
+        var i = 0
+        while i < lines.length() {
+            let line = lines[i]
+
+            // Look for FunctionDecl
+            if line.contains("FunctionDecl") and not line.contains("invalid") {
+                // Parse function declaration
+                let fn = parseFunctionDecl(line, lines, i)
+                if fn.name != "" and not fn.name.startsWith("__") {
+                    outputFunctions.push(fn)
+                    result.functions.push(fn)
+                }
+            }
+
+            i = i + 1
+        }
+    }
+
+    // Parse a FunctionDecl from the AST dump
+    fun parseFunctionDecl(declLine: String, lines: Array<String>, startIdx: Int) r: CImportedFunction {
+        var fn = CImportedFunction.new()
+        fn.headerPath = headerPath
+
+        // Extract function name and return type from the declaration line
+        // Format: `-FunctionDecl ... <name> '<return_type> (<params>)'
+        let parts = declLine.split(" ")
+
+        var foundName = false
+        var nameIdx = 0
+        var idx = 0
+        while idx < parts.length() {
+            let part = parts[idx]
+
+            // Look for the function name (identifier before the type signature)
+            if not foundName and part.length() > 0 {
+                // Skip clang AST metadata
+                if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
+                    if not part.contains("<") and not part.contains(">") and not part.contains(":") {
+                        if part != "FunctionDecl" and part != "used" and part != "extern" and part != "implicit" {
+                            // Check if this looks like a C identifier
+                            if isValidCIdentifier(part) {
+                                fn.name = part
+                                foundName = true
+                                nameIdx = idx
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Look for return type (in quotes after the name)
+            if foundName and part.startsWith("'") {
+                // Parse type signature like 'int (int, char *)'
+                let typeStr = extractQuotedType(parts, idx)
+                parseTypeSignature(typeStr, fn)
+                break
+            }
+
+            idx = idx + 1
+        }
+
+        return fn
+    }
+
+    // Check if a string is a valid C identifier
+    fun isValidCIdentifier(s: String) r: Bool {
+        if s.length() == 0 {
+            return false
+        }
+
+        // First char must be letter or underscore
+        let first = s.charAt(0)
+        if not ((first >= 'a' and first <= 'z') or (first >= 'A' and first <= 'Z') or first == '_') {
+            return false
+        }
+
+        // Rest can be letters, digits, or underscore
+        var i = 1
+        while i < s.length() {
+            let c = s.charAt(i)
+            if not ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_') {
+                return false
+            }
+            i = i + 1
+        }
+
+        return true
+    }
+
+    // Extract a quoted type from parts array
+    fun extractQuotedType(parts: Array<String>, startIdx: Int) r: String {
+        var result = ""
+        var inQuote = false
+
+        var i = startIdx
+        while i < parts.length() {
+            let part = parts[i]
+
+            if part.startsWith("'") {
+                inQuote = true
+                result = part.substring(1, part.length())
+                if result.endsWith("'") {
+                    result = result.substring(0, result.length() - 1)
+                    return result
+                }
+            } else if inQuote {
+                result = result + " " + part
+                if part.endsWith("'") {
+                    result = result.substring(0, result.length() - 1)
+                    return result
+                }
+            }
+
+            i = i + 1
+        }
+
+        return result
+    }
+
+    // Parse a C type signature like "int (int, char *)"
+    fun parseTypeSignature(typeStr: String, fn: CImportedFunction) r: Void {
+        // Find the opening paren that separates return type from params
+        let parenIdx = typeStr.indexOf("(", 0)
+
+        if parenIdx < 0 {
+            // No params - treat whole thing as return type
+            fn.returnType = typeStr.trim()
+            return
+        }
+
+        // Return type is before the paren
+        fn.returnType = typeStr.substring(0, parenIdx).trim()
+
+        // Parameters are inside parens
+        let closeIdx = typeStr.lastIndexOf(")")
+        if closeIdx > parenIdx {
+            let paramsStr = typeStr.substring(parenIdx + 1, closeIdx)
+            parseParams(paramsStr, fn)
+        }
+    }
+
+    // Parse parameter list
+    fun parseParams(paramsStr: String, fn: CImportedFunction) r: Void {
+        let trimmed = paramsStr.trim()
+
+        if trimmed == "" or trimmed == "void" {
+            return
+        }
+
+        // Check for variadic
+        if trimmed.endsWith("...") {
+            fn.isVariadic = true
+        }
+
+        // Split by comma
+        let params = trimmed.split(",")
+
+        var i = 0
+        while i < params.length() {
+            let param = params[i].trim()
+
+            if param == "..." {
+                // Skip variadic marker
+                i = i + 1
+                continue
+            }
+
+            if param.length() > 0 and param != "void" {
+                // Extract type (may include param name in AST)
+                fn.paramTypes.push(param)
+                fn.paramNames.push("arg" + i.toString())
+            }
+
+            i = i + 1
+        }
+    }
+
+    // Generate Seen extern declarations
+    fun generateExternDeclarations() r: String {
+        var sb = StringBuilder.new()
+
+        sb.append("// Auto-generated from: " + headerPath + "\n")
+        sb.append("// Generated by @_c_import\n\n")
+
+        var i = 0
+        while i < outputFunctions.length() {
+            let fn = outputFunctions[i]
+
+            // Generate extern declaration
+            sb.append("@extern\n")
+            sb.append("extern fun " + fn.name + "(")
+
+            var pi = 0
+            while pi < fn.paramTypes.length() {
+                if pi > 0 {
+                    sb.append(", ")
+                }
+                sb.append(fn.paramNames[pi] + ": ")
+                sb.append(cTypeToSeenType(fn.paramTypes[pi]))
+                pi = pi + 1
+            }
+
+            sb.append(") r: ")
+            sb.append(cTypeToSeenType(fn.returnType))
+            sb.append("\n\n")
+
+            i = i + 1
+        }
+
+        return sb.toString()
+    }
+
+    // Map C type to Seen type
+    fun cTypeToSeenType(cType: String) r: String {
+        let normalized = cType.trim()
+
+        // Integer types
+        if normalized == "int" or normalized == "int32_t" or normalized == "signed int" {
+            return "Int"
+        }
+        if normalized == "long" or normalized == "int64_t" or normalized == "long long" {
+            return "Int"
+        }
+        if normalized == "short" or normalized == "int16_t" {
+            return "Int"
+        }
+        if normalized == "unsigned int" or normalized == "uint32_t" {
+            return "Int"
+        }
+        if normalized == "unsigned long" or normalized == "uint64_t" or normalized == "size_t" {
+            return "Int"
+        }
+
+        // Character types
+        if normalized == "char" {
+            return "Char"
+        }
+
+        // String types
+        if normalized.contains("char *") or normalized.contains("char*") {
+            return "String"
+        }
+
+        // Boolean
+        if normalized == "bool" or normalized == "_Bool" {
+            return "Bool"
+        }
+
+        // Floating point
+        if normalized == "float" or normalized == "double" {
+            return "Float"
+        }
+
+        // Void
+        if normalized == "void" {
+            return "Void"
+        }
+
+        // Pointers
+        if normalized.endsWith("*") or normalized.contains("*") {
+            return "*Void"
+        }
+
+        // Unknown - default to Int
+        return "Int"
+    }
+}
+
+// Helper function to find last index of substring
+fun String.lastIndexOf(needle: String) r: Int {
+    let needleLen = needle.length()
+    if needleLen == 0 {
+        return length()
+    }
+
+    var lastIdx = -1
+    var searchStart = 0
+
+    while searchStart <= length() - needleLen {
+        let idx = indexOf(needle, searchStart)
+        if idx < 0 {
+            break
+        }
+        lastIdx = idx
+        searchStart = idx + 1
+    }
+
+    return lastIdx
+}

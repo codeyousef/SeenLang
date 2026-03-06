@@ -1,0 +1,15 @@
+@derive(Clone, Hash, Eq)
+class Triple {
+    a: Int
+    b: Int
+    c: Int
+}
+
+fun main() r: Int {
+    let t = Triple(1, 2, 3)
+    let t2 = t.clone()
+    let h = t.hash()
+    let eq = t.eq(t2)
+    println("PASS: custom_derive")
+    return 0
+}

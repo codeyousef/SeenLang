@@ -1,0 +1,346 @@
+// Rewrite Rules System for E-graph Equality Saturation
+// Implements algebraic, bitwise, comparison, and strength-reduction rules
+
+// A rewrite rule: if lhsOp matches, replace with rhsOp
+class RewriteRule {
+    let name: String       // human-readable rule name
+    let lhsOp: String      // left-hand side operation to match
+    let rhsOp: String      // right-hand side replacement operation
+    let lhsArity: Int      // expected number of children for LHS
+    let constArg: Int       // which child must be a constant (-1 if none)
+    let constValue: String  // required constant value (e.g., "0", "1")
+
+    fun new(name: String, lhsOp: String, rhsOp: String, lhsArity: Int, constArg: Int, constValue: String) r: RewriteRule {
+        return RewriteRule{
+            name: name,
+            lhsOp: lhsOp,
+            rhsOp: rhsOp,
+            lhsArity: lhsArity,
+            constArg: constArg,
+            constValue: constValue
+        }
+    }
+}
+
+// Legacy compatibility alias
+class RewriteRuleEngine {
+    fun new() r: RewriteRuleEngine {
+        return RewriteRuleEngine{}
+    }
+
+    fun loadStandardRules() r: Array<RewriteRule> {
+        return loadStandardRuleSet()
+    }
+}
+
+// Attempt to apply a rewrite rule to a node in the e-graph.
+// Returns the e-class id of the rewritten result, or -1 if rule doesn't apply.
+fun applyRule(graph: EGraph, rule: RewriteRule, nodeIdx: Int) r: Int {
+    let op = graph.nodeOp(nodeIdx)
+    if op != rule.lhsOp {
+        return -1
+    }
+
+    let children = graph.nodeChildren(nodeIdx)
+    if children.length() != rule.lhsArity {
+        return -1
+    }
+
+    // Check constant argument constraint
+    if rule.constArg >= 0 {
+        if rule.constArg >= children.length() {
+            return -1
+        }
+        let childClassId = children[rule.constArg]
+        // Find a constant node in that class
+        let childNodes = graph.classNodes(childClassId)
+        var foundConst = false
+        var ci = 0
+        while ci < childNodes.length() {
+            let childOp = graph.nodeOp(childNodes[ci])
+            if childOp == "const_" + rule.constValue {
+                foundConst = true
+                ci = childNodes.length()  // break
+            }
+            ci = ci + 1
+        }
+        if not foundConst {
+            return -1
+        }
+    }
+
+    // Apply the rule: create the replacement node
+    if rule.rhsOp == "identity_0" {
+        // x op 0 -> x : return child 0
+        if children.length() > 0 {
+            return children[0]
+        }
+        return -1
+    }
+    if rule.rhsOp == "identity_1" {
+        // 0 op x -> x : return child 1
+        if children.length() > 1 {
+            return children[1]
+        }
+        return -1
+    }
+    if rule.rhsOp == "const_0" {
+        return graph.add("const_0", Array<Int>())
+    }
+    if rule.rhsOp == "const_1" {
+        return graph.add("const_1", Array<Int>())
+    }
+    if rule.rhsOp == "const_true" {
+        return graph.add("const_true", Array<Int>())
+    }
+    if rule.rhsOp == "const_false" {
+        return graph.add("const_false", Array<Int>())
+    }
+    if rule.rhsOp == "shl_1" {
+        // x * 2 -> x << 1
+        if children.length() > 0 {
+            let one = graph.add("const_1", Array<Int>())
+            var shlChildren = Array<Int>()
+            shlChildren.push(children[0])
+            shlChildren.push(one)
+            return graph.add("shl", shlChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "shl_2" {
+        // x * 4 -> x << 2
+        if children.length() > 0 {
+            let two = graph.add("const_2", Array<Int>())
+            var shlChildren = Array<Int>()
+            shlChildren.push(children[0])
+            shlChildren.push(two)
+            return graph.add("shl", shlChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "shl_3" {
+        // x * 8 -> x << 3
+        if children.length() > 0 {
+            let three = graph.add("const_3", Array<Int>())
+            var shlChildren = Array<Int>()
+            shlChildren.push(children[0])
+            shlChildren.push(three)
+            return graph.add("shl", shlChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "shl_4" {
+        // x * 16 -> x << 4
+        if children.length() > 0 {
+            let four = graph.add("const_4", Array<Int>())
+            var shlChildren = Array<Int>()
+            shlChildren.push(children[0])
+            shlChildren.push(four)
+            return graph.add("shl", shlChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "shl_5" {
+        // x * 32 -> x << 5
+        if children.length() > 0 {
+            let five = graph.add("const_5", Array<Int>())
+            var shlChildren = Array<Int>()
+            shlChildren.push(children[0])
+            shlChildren.push(five)
+            return graph.add("shl", shlChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "shr_1" {
+        // x / 2 -> x >> 1
+        if children.length() > 0 {
+            let one = graph.add("const_1", Array<Int>())
+            var shrChildren = Array<Int>()
+            shrChildren.push(children[0])
+            shrChildren.push(one)
+            return graph.add("shr", shrChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "and_mask" {
+        // x % N -> x & (N-1) for power-of-2 N
+        if children.length() > 0 {
+            let mask = graph.add("const_" + rule.constValue + "_mask", Array<Int>())
+            var andChildren = Array<Int>()
+            andChildren.push(children[0])
+            andChildren.push(mask)
+            return graph.add("and", andChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "neg" {
+        // x * -1 -> neg(x)
+        if children.length() > 0 {
+            var negChildren = Array<Int>()
+            negChildren.push(children[0])
+            return graph.add("neg", negChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "mul_2" {
+        // x + x -> x * 2
+        if children.length() > 0 {
+            let two = graph.add("const_2", Array<Int>())
+            var mulChildren = Array<Int>()
+            mulChildren.push(children[0])
+            mulChildren.push(two)
+            return graph.add("mul", mulChildren)
+        }
+        return -1
+    }
+    if rule.rhsOp == "const_neg1" {
+        return graph.add("const_neg1", Array<Int>())
+    }
+    if rule.rhsOp == "const_fzero" {
+        return graph.add("const_fzero", Array<Int>())
+    }
+    // Default: create a new node with same children
+    return graph.add(rule.rhsOp, children)
+}
+
+// Load the standard set of algebraic rewrite rules
+fun loadStandardRuleSet() r: Array<RewriteRule> {
+    var rules = Array<RewriteRule>()
+
+    // Arithmetic identity rules
+    rules.push(RewriteRule.new("add_zero_right", "add", "identity_0", 2, 1, "0"))
+    rules.push(RewriteRule.new("add_zero_left", "add", "identity_1", 2, 0, "0"))
+    rules.push(RewriteRule.new("mul_one_right", "mul", "identity_0", 2, 1, "1"))
+    rules.push(RewriteRule.new("mul_one_left", "mul", "identity_1", 2, 0, "1"))
+    rules.push(RewriteRule.new("mul_zero_right", "mul", "const_0", 2, 1, "0"))
+    rules.push(RewriteRule.new("mul_zero_left", "mul", "const_0", 2, 0, "0"))
+    rules.push(RewriteRule.new("sub_zero", "sub", "identity_0", 2, 1, "0"))
+
+    // Strength reduction
+    rules.push(RewriteRule.new("mul_two_to_shl", "mul", "shl_1", 2, 1, "2"))
+
+    // Bitwise identity rules
+    rules.push(RewriteRule.new("and_zero", "and", "const_0", 2, 1, "0"))
+    rules.push(RewriteRule.new("or_zero", "or", "identity_0", 2, 1, "0"))
+    rules.push(RewriteRule.new("xor_zero", "xor", "identity_0", 2, 1, "0"))
+
+    // Division rules
+    rules.push(RewriteRule.new("div_one", "div", "identity_0", 2, 1, "1"))
+
+    // Power-of-two strength reduction (mul -> shl)
+    rules.push(RewriteRule.new("mul_four_to_shl2", "mul", "shl_2", 2, 1, "4"))
+    rules.push(RewriteRule.new("mul_eight_to_shl3", "mul", "shl_3", 2, 1, "8"))
+    rules.push(RewriteRule.new("mul_sixteen_to_shl4", "mul", "shl_4", 2, 1, "16"))
+    rules.push(RewriteRule.new("mul_thirtytwo_to_shl5", "mul", "shl_5", 2, 1, "32"))
+
+    // Power-of-two strength reduction (div -> shr)
+    rules.push(RewriteRule.new("div_two_to_shr1", "div", "shr_1", 2, 1, "2"))
+
+    // Modular arithmetic -> bitwise AND (rem % N -> and (N-1))
+    rules.push(RewriteRule.new("rem_mod2_to_and1", "rem", "and_mask", 2, 1, "2"))
+    rules.push(RewriteRule.new("rem_mod4_to_and3", "rem", "and_mask", 2, 1, "4"))
+    rules.push(RewriteRule.new("rem_mod8_to_and7", "rem", "and_mask", 2, 1, "8"))
+    rules.push(RewriteRule.new("rem_mod16_to_and15", "rem", "and_mask", 2, 1, "16"))
+    rules.push(RewriteRule.new("rem_mod32_to_and31", "rem", "and_mask", 2, 1, "32"))
+
+    // Floating point identity rules
+    rules.push(RewriteRule.new("fadd_zero_right", "fadd", "identity_0", 2, 1, "fzero"))
+    rules.push(RewriteRule.new("fadd_zero_left", "fadd", "identity_1", 2, 0, "fzero"))
+    rules.push(RewriteRule.new("fmul_one_right", "fmul", "identity_0", 2, 1, "fone"))
+    rules.push(RewriteRule.new("fmul_one_left", "fmul", "identity_1", 2, 0, "fone"))
+    rules.push(RewriteRule.new("fmul_zero_right", "fmul", "const_fzero", 2, 1, "fzero"))
+    rules.push(RewriteRule.new("fmul_zero_left", "fmul", "const_fzero", 2, 0, "fzero"))
+    rules.push(RewriteRule.new("fsub_zero", "fsub", "identity_0", 2, 1, "fzero"))
+
+    // Boolean logic rules
+    rules.push(RewriteRule.new("and_true_right", "and", "identity_0", 2, 1, "true"))
+    rules.push(RewriteRule.new("and_true_left", "and", "identity_1", 2, 0, "true"))
+    rules.push(RewriteRule.new("and_false_right", "and", "const_false", 2, 1, "false"))
+    rules.push(RewriteRule.new("and_false_left", "and", "const_false", 2, 0, "false"))
+    rules.push(RewriteRule.new("or_false_right", "or", "identity_0", 2, 1, "false"))
+    rules.push(RewriteRule.new("or_false_left", "or", "identity_1", 2, 0, "false"))
+    rules.push(RewriteRule.new("or_true_right", "or", "const_true", 2, 1, "true"))
+    rules.push(RewriteRule.new("or_true_left", "or", "const_true", 2, 0, "true"))
+
+    // Additional arithmetic
+    rules.push(RewriteRule.new("mul_neg1_to_neg", "mul", "neg", 2, 1, "neg1"))
+    rules.push(RewriteRule.new("shl_zero_identity", "shl", "identity_0", 2, 1, "0"))
+    rules.push(RewriteRule.new("shr_zero_identity", "shr", "identity_0", 2, 1, "0"))
+
+    // Bitwise with all-ones (-1)
+    rules.push(RewriteRule.new("and_neg1_identity", "and", "identity_0", 2, 1, "neg1"))
+    rules.push(RewriteRule.new("or_neg1_allones", "or", "const_neg1", 2, 1, "neg1"))
+    rules.push(RewriteRule.new("xor_neg1_not", "xor", "identity_0", 2, 1, "0"))
+
+    // Double-negation elimination
+    rules.push(RewriteRule.new("neg_neg_identity", "neg", "identity_0", 1, -1, ""))
+    rules.push(RewriteRule.new("not_not_identity", "not", "identity_0", 1, -1, ""))
+
+    // Shift identities
+    rules.push(RewriteRule.new("shl_zero_left", "shl", "const_0", 2, 0, "0"))
+    rules.push(RewriteRule.new("shr_zero_left", "shr", "const_0", 2, 0, "0"))
+
+    // Floating-point division by one
+    rules.push(RewriteRule.new("fdiv_one", "fdiv", "identity_0", 2, 1, "fone"))
+
+    // Additional strength reduction (div by power of 2)
+    rules.push(RewriteRule.new("div_four_to_shr2", "div", "shr_1", 2, 1, "4"))
+    rules.push(RewriteRule.new("div_eight_to_shr3", "div", "shr_1", 2, 1, "8"))
+
+    return rules
+}
+
+// Self-comparison rules: checks if both children are in same e-class
+fun applySelfComparisonRules(graph: EGraph, nodeIdx: Int) r: Int {
+    let op = graph.nodeOp(nodeIdx)
+    let children = graph.nodeChildren(nodeIdx)
+    if children.length() != 2 {
+        return -1
+    }
+
+    let left = graph.find(children[0])
+    let right = graph.find(children[1])
+    if left != right {
+        return -1
+    }
+
+    // Both operands are in same e-class
+    if op == "eq" {
+        return graph.add("const_true", Array<Int>())
+    }
+    if op == "ne" {
+        return graph.add("const_false", Array<Int>())
+    }
+    if op == "sub" {
+        return graph.add("const_0", Array<Int>())
+    }
+    if op == "div" {
+        return graph.add("const_1", Array<Int>())
+    }
+    if op == "and" {
+        return left
+    }
+    if op == "or" {
+        return left
+    }
+    if op == "lt" {
+        return graph.add("const_false", Array<Int>())
+    }
+    if op == "gt" {
+        return graph.add("const_false", Array<Int>())
+    }
+    if op == "lte" {
+        return graph.add("const_true", Array<Int>())
+    }
+    if op == "gte" {
+        return graph.add("const_true", Array<Int>())
+    }
+    if op == "rem" {
+        return graph.add("const_0", Array<Int>())
+    }
+    if op == "xor" {
+        return graph.add("const_0", Array<Int>())
+    }
+
+    return -1
+}

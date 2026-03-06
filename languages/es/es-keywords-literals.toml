@@ -1,0 +1,7 @@
+name = "Spanish"
+description = "Spanish Literal Keywords"
+
+[keywords]
+"verdadero" = "KeywordTrue"
+"falso" = "KeywordFalse"
+"nulo" = "KeywordNull"

@@ -1,0 +1,43 @@
+// seen_std.str.char
+// Char classification and conversion utilities.
+// These are thin wrappers around C runtime functions (Char_*).
+
+fun isDigit(ch: Char) r: Bool {
+    let code = ch.toInt()
+    return code >= 48 and code <= 57
+}
+
+fun isAlpha(ch: Char) r: Bool {
+    let code = ch.toInt()
+    return (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
+}
+
+fun isAlphanumeric(ch: Char) r: Bool {
+    return isAlpha(ch) or isDigit(ch)
+}
+
+fun isUpperCase(ch: Char) r: Bool {
+    let code = ch.toInt()
+    return code >= 65 and code <= 90
+}
+
+fun isLowerCase(ch: Char) r: Bool {
+    let code = ch.toInt()
+    return code >= 97 and code <= 122
+}
+
+fun toUpperCase(ch: Char) r: Char {
+    if isLowerCase(ch) {
+        let code = ch.toInt() - 32
+        return String.fromCharCode(code).charAt(0)
+    }
+    return ch
+}
+
+fun toLowerCase(ch: Char) r: Char {
+    if isUpperCase(ch) {
+        let code = ch.toInt() + 32
+        return String.fromCharCode(code).charAt(0)
+    }
+    return ch
+}

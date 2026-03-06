@@ -1,0 +1,357 @@
+// Bootstrap Verifier Module - Real Implementation
+// Verifies that each stage of bootstrap produces identical output
+
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import io.file.{readText, appendText, exists}
+import process.process.{execCommand, CommandResult, commandWasSuccessful, commandOutput}
+import str.string.{replace}
+
+fun FileExists(path: String) r: Bool {
+    return exists(path)
+}
+
+fun GetFileSize(path: String) r: Int {
+    return readText(path).length()
+}
+
+fun GetFileHash(path: String) r: String {
+    return hashToHex(readText(path))
+}
+
+fun escapePath(path: String) r: String {
+    return replace(path, "'", "'\\''")
+}
+
+fun hashToHex(data: String) r: String {
+    var hash = 2166136261
+    var index = 0
+    while index < data.length() {
+        let slice: String = data.substring(index, index + 1)
+        let code = slice.charCodeAt(0)
+        hash = hash ^ code
+        hash = (hash * 16777619) % 2147483647
+        index = index + 1
+    }
+    return formatHash(hash)
+}
+
+fun formatHash(value: Int) r: String {
+    let hexChars = "0123456789abcdef"
+    var remaining = if value < 0 { -value } else { value }
+    var result = ""
+    var digits = 0
+    while digits < 8 {
+        let nibble = remaining % 16
+        let digit = hexChars.substring(nibble, nibble + 1)
+        result = digit + result
+        remaining = remaining / 16
+        digits = digits + 1
+    }
+    return result
+}
+
+class BootstrapVerifier {
+    let Stages: Array<CompilerInfo>
+    var CurrentStage: Int
+    var LogPath: String
+    
+    fun new(logPath: String = "bootstrap_verification.log") r: BootstrapVerifier {
+        let verifier = BootstrapVerifier{
+            Stages: Array<CompilerInfo>(),
+            CurrentStage: 0,
+            LogPath: logPath
+        }
+        verifier.log("Creating BootstrapVerifier - Ready for 3-stage verification")
+        return verifier
+    }
+    
+    fun addStage(compilerPath: String, name: String) r: Void {
+        let stage = CompilerInfo.new(compilerPath, name, CurrentStage)
+        Stages.push(stage)
+        CurrentStage = CurrentStage + 1
+        this.log("Added stage {CurrentStage}: {name} at {compilerPath}")
+    }
+    
+    fun verify() r: Result<VerificationResult, String> {
+        this.log("\\n🚀 Starting 3-stage bootstrap verification...")
+        
+        if Stages.length() < 3 {
+            return Err("Need at least 3 stages for verification, got {Stages.length()}")
+        }
+        
+        let result: VerificationResult = VerificationResult.new()
+        
+        // Stage 1: Compile with Rust bootstrap
+        let stage1Result = compileWithStage(0, "compiler_seen/src/main.seen", "stage1_compiler")
+        if stage1Result.isErr() {
+            let error = stage1Result.unwrapErr()
+            return Err("Stage 1 compilation failed: {error}")
+        }
+        result.addStageArtifact(1, stage1Result.unwrap())
+        
+        // Stage 2: Compile with Stage 1 output
+        let stage2Result = compileWithStage(1, "compiler_seen/src/main.seen", "stage2_compiler")
+        if stage2Result.isErr() {
+            let error = stage2Result.unwrapErr()
+            return Err("Stage 2 compilation failed: {error}")
+        }
+        result.addStageArtifact(2, stage2Result.unwrap())
+        
+        // Stage 3: Compile with Stage 2 output
+        let stage3Result = compileWithStage(2, "compiler_seen/src/main.seen", "stage3_compiler")
+        if stage3Result.isErr() {
+            let error = stage3Result.unwrapErr()
+            return Err("Stage 3 compilation failed: {error}")
+        }
+        result.addStageArtifact(3, stage3Result.unwrap())
+        
+        // Verify Stage 2 and Stage 3 produce identical output
+        let verificationResult = compareExecutables("stage2_compiler", "stage3_compiler")
+        if verificationResult.isErr() {
+            let error = verificationResult.unwrapErr()
+            this.log("[ERROR] FAILURE: {error}")
+            return Err(error)
+        }
+        let comparison: BinaryComparison = verificationResult.unwrap()
+        result.BinaryIdentical = comparison.isIdentical()
+        result.HashMatch = comparison.hashesMatch()
+        
+        if comparison.isIdentical() {
+            this.log("[OK] SUCCESS: Stage 2 and Stage 3 produce identical binaries!")
+            this.log("   Hash: {comparison.hashValue()}")
+            this.log("   Size: {comparison.sizeBytes()} bytes")
+            result.Message = "Bootstrap verification successful - self-hosting achieved!"
+            return Ok(result)
+        } else {
+            this.log("[ERROR] FAILURE: Stage 2 and Stage 3 produce different binaries")
+            this.log("   Stage 2 hash: {comparison.stage2HashValue()}")
+            this.log("   Stage 3 hash: {comparison.stage3HashValue()}")
+            result.Message = "Bootstrap verification failed - binaries differ"
+            return Err(result.Message)
+        }
+    }
+    
+    fun compileWithStage(stageIndex: Int, sourcePath: String, outputPath: String) r: Result<StageArtifact, String> {
+        let compiler = Stages[stageIndex]
+        this.log("\\n📦 Compiling with {compiler.Name}...")
+        
+        let command = "{compiler.Path} compile {sourcePath} {outputPath}"
+        this.log("   Command: {command}")
+        
+        let startTime = getCurrentTime()
+        let result: CommandResult = execCommand(command)
+        let endTime = getCurrentTime()
+        let duration = endTime - startTime
+        
+        this.log("   Duration: {duration}ms")
+        
+        if commandWasSuccessful(result) {
+            if FileExists(outputPath) {
+                let size = GetFileSize(outputPath)
+                let hash = GetFileHash(outputPath)
+                this.log("   [OK] Success: Generated {outputPath} ({size} bytes, hash: {hash})")
+                return Ok(StageArtifact.new(outputPath, hash, size, duration))
+            } else {
+                this.log("   [ERROR] Error: Expected output file not found: {outputPath}")
+                return Err("Output file not created: {outputPath}")
+            }
+        } else {
+            this.log("   [ERROR] Error: Compilation failed")
+            let output = commandOutput(result)
+            this.log("   Output: {output}")
+            return Err("Compilation failed: {output}")
+        }
+    }
+    
+    fun compareExecutables(path1: String, path2: String) r: Result<BinaryComparison, String> {
+        this.log("\\n🔍 Comparing binaries: {path1} vs {path2}")
+        
+        if !FileExists(path1) or !FileExists(path2) {
+            return Err("One or both files don't exist for comparison: {path1}, {path2}")
+        }
+        
+        let hash1 = GetFileHash(path1)
+        let hash2 = GetFileHash(path2)
+        let size1 = GetFileSize(path1)
+        let size2 = GetFileSize(path2)
+        
+        this.log("   {path1}: {size1} bytes, hash {hash1}")
+        this.log("   {path2}: {size2} bytes, hash {hash2}")
+        
+        let identical = hash1 == hash2 and size1 == size2
+        
+        return Ok(BinaryComparison.new(
+            identical,
+            hash1 == hash2,
+            hash1,
+            hash2,
+            if identical { hash1 } else { "" },
+            if identical { size1 } else { 0 }
+        ))
+    }
+    
+    fun log(message: String) r: Void {
+        println(message)
+        let appended = appendText(LogPath, "{message}\\n")
+        if not appended {
+            println("bootstrap_verifier: failed to append to {LogPath}")
+        }
+        return
+    }
+    
+    fun getStageCount() r: Int {
+        return Stages.length()
+    }
+    
+    fun getStage(index: Int) r: Option<CompilerInfo> {
+        if index >= 0 and index < Stages.length() {
+            return Some(Stages[index])
+        }
+        return None()
+    }
+}
+
+data CompilerInfo {
+    Path: String
+    Name: String
+    StageNumber: Int
+}
+
+fun CompilerInfo.new(path: String, name: String, stageNumber: Int) r: CompilerInfo {
+    return CompilerInfo{
+        Path: path,
+        Name: name,
+        StageNumber: stageNumber
+    }
+}
+
+data VerificationResult {
+    Message: String
+    BinaryIdentical: Bool
+    HashMatch: Bool
+    StageArtifacts: Map<Int, StageArtifact>
+}
+
+fun VerificationResult.new() r: VerificationResult {
+    return VerificationResult{
+        Message: "",
+        BinaryIdentical: false,
+        HashMatch: false,
+        StageArtifacts: Map<Int, StageArtifact>.new()
+    }
+}
+
+fun VerificationResult.addStageArtifact(stage: Int, artifact: StageArtifact) r: Void {
+    StageArtifacts.put(stage, artifact)
+}
+
+fun VerificationResult.getStageArtifact(stage: Int) r: Option<StageArtifact> {
+    let artifact = StageArtifacts.get(stage)
+    if artifact != null {
+        return Some(artifact)
+    }
+    return None()
+}
+
+data StageArtifact {
+    OutputPath: String
+    Hash: String
+    Size: Int
+    CompilationTime: Int
+}
+
+fun StageArtifact.new(outputPath: String, hash: String, size: Int, compilationTime: Int) r: StageArtifact {
+    return StageArtifact{
+        OutputPath: outputPath,
+        Hash: hash,
+        Size: size,
+        CompilationTime: compilationTime
+    }
+}
+
+data BinaryComparison {
+    Identical: Bool
+    HashMatch: Bool
+    Stage2Hash: String
+    Stage3Hash: String
+    Hash: String
+    Size: Int
+}
+
+fun BinaryComparison.new(identical: Bool, hashMatch: Bool, stage2Hash: String, stage3Hash: String, hash: String, size: Int) r: BinaryComparison {
+    return BinaryComparison{
+        Identical: identical,
+        HashMatch: hashMatch,
+        Stage2Hash: stage2Hash,
+        Stage3Hash: stage3Hash,
+        Hash: hash,
+        Size: size
+    }
+}
+
+fun BinaryComparison.isIdentical(self: BinaryComparison) r: Bool {
+    return self.Identical
+}
+
+fun BinaryComparison.hashValue(self: BinaryComparison) r: String {
+    return self.Hash
+}
+
+fun BinaryComparison.sizeBytes(self: BinaryComparison) r: Int {
+    return self.Size
+}
+
+fun BinaryComparison.stage2HashValue(self: BinaryComparison) r: String {
+    return self.Stage2Hash
+}
+
+fun BinaryComparison.stage3HashValue(self: BinaryComparison) r: String {
+    return self.Stage3Hash
+}
+
+fun BinaryComparison.hashesMatch(self: BinaryComparison) r: Bool {
+    return self.HashMatch
+}
+
+// Utility functions for bootstrap verification
+fun runBootstrapVerification() r: Result<VerificationResult, String> {
+    let verifier = BootstrapVerifier.new()
+    
+    // Add the three stages
+    verifier.addStage("cargo run -p seen_cli --", "Rust Bootstrap Compiler")
+    verifier.addStage("./stage1_compiler", "Stage 1 Seen Compiler")
+    verifier.addStage("./stage2_compiler", "Stage 2 Seen Compiler")
+    
+        let verification = verifier.verify()
+    
+        if verification.isOk() {
+            let summary: VerificationResult = verification.unwrap()
+        println("\\n🎉 BOOTSTRAP VERIFICATION SUCCESSFUL!")
+        if summary.Message != "" {
+            println("   {summary.Message}")
+        } else {
+            println("   The Seen compiler can successfully compile itself!")
+            println("   Stage 2 and Stage 3 produce identical binaries.")
+        }
+        return Ok(summary)
+    }
+    
+    let error = verification.unwrapErr()
+    println("\\n[ERROR] BOOTSTRAP VERIFICATION FAILED!")
+    println("   Error: {error}")
+    return Err(error)
+}
+
+// Helper functions that will be implemented by the runtime
+fun getCurrentTime() r: Int {
+    // Returns current time in milliseconds since epoch using system clock
+    let result = execCommand("date +%s")
+    if commandWasSuccessful(result) {
+        let out = commandOutput(result).trim()
+        if out.length() > 0 {
+            return out.toInt() * 1000
+        }
+    }
+    return 0
+}

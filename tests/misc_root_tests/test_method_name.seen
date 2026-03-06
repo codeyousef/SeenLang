@@ -1,0 +1,45 @@
+// Test if method name 'toInt' is treated specially
+
+class MyInt {
+    var value: Int
+
+    static fun create(v: Int) r: MyInt {
+        return MyInt{value: v}
+    }
+
+    fun get() r: Int {
+        println("get() called")
+        return value
+    }
+
+    fun toInt() r: Int {
+        println("toInt() called")
+        return value
+    }
+}
+
+fun main() r: Int {
+    let obj = MyInt.create(42)
+
+    println("Calling get()...")
+    let v1 = obj.get()
+    println("v1 = " + v1.toString())
+
+    println("")
+    println("Calling toInt()...")
+    let v2 = obj.toInt()
+    println("v2 = " + v2.toString())
+
+    if v1 != 42 {
+        println("FAIL get()")
+        return 1
+    }
+
+    if v2 != 42 {
+        println("FAIL toInt()")
+        return 1
+    }
+
+    println("PASS")
+    return 0
+}

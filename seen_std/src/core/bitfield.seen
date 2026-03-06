@@ -1,0 +1,1107 @@
+// seen_std.core.bitfield
+// Deterministic bitfield types with guaranteed memory layout across platforms.
+// Used for network protocols, hardware interfaces, and binary file formats.
+//
+// All bitfield types provide:
+// - Single-bit access via getBit/setBit
+// - Multi-bit field access via getField/setField
+// - Endianness conversion via toBigEndian/toLittleEndian
+// - Raw value access for serialization
+//
+// NOTE: Implementation uses arithmetic operations (division, modulo, multiplication)
+// to simulate bitwise operations since Seen doesn't have bitwise operators.
+
+// ============================================================================
+// Helper function for power of 2 calculations
+// ============================================================================
+
+fun pow2(n: Int) r: Int {
+    var result = 1
+    var i = 0
+    while i < n {
+        result = result * 2
+        i = i + 1
+    }
+    return result
+}
+
+// ============================================================================
+// Bitfield8 - 8-bit packed bit field
+// ============================================================================
+class Bitfield8 {
+    var raw: Int  // Stores 8-bit value (masked to 0-255)
+
+    // Constructor from raw value
+    static fun new(value: Int) r: Bitfield8 {
+        var masked = value % 256
+        if masked < 0 {
+            masked = masked + 256
+        }
+        return Bitfield8{raw: masked}
+    }
+
+    // Create zero-initialized bitfield
+    static fun zero() r: Bitfield8 {
+        return Bitfield8{raw: 0}
+    }
+
+    // Create from individual bits (LSB first)
+    static fun fromBits(b0: Bool, b1: Bool, b2: Bool, b3: Bool,
+                        b4: Bool, b5: Bool, b6: Bool, b7: Bool) r: Bitfield8 {
+        var rawVal = 0
+        if b0 { rawVal = rawVal + 1 }
+        if b1 { rawVal = rawVal + 2 }
+        if b2 { rawVal = rawVal + 4 }
+        if b3 { rawVal = rawVal + 8 }
+        if b4 { rawVal = rawVal + 16 }
+        if b5 { rawVal = rawVal + 32 }
+        if b6 { rawVal = rawVal + 64 }
+        if b7 { rawVal = rawVal + 128 }
+        return Bitfield8{raw: rawVal}
+    }
+
+    // Get a single bit (0-7)
+    fun getBit(pos: Int) r: Bool {
+        if pos < 0 or pos > 7 {
+            return false
+        }
+        // (raw / 2^pos) % 2 == 1
+        let divisor = pow2(pos)
+        let shifted = raw / divisor
+        let bit = shifted % 2
+        return bit == 1
+    }
+
+    // Set a single bit (0-7)
+    fun setBit(pos: Int, value: Bool) r: Void {
+        if pos < 0 or pos > 7 {
+            return
+        }
+        let bitValue = pow2(pos)
+        let currentBit = getBit(pos)
+        if value and not currentBit {
+            raw = raw + bitValue
+        } else if not value and currentBit {
+            raw = raw - bitValue
+        }
+    }
+
+    // Get a multi-bit field (start is LSB position, width is number of bits)
+    fun getField(start: Int, width: Int) r: Int {
+        if start < 0 or width <= 0 or start + width > 8 {
+            return 0
+        }
+        let divisor = pow2(start)
+        let mask = pow2(width)
+        let shifted = raw / divisor
+        return shifted % mask
+    }
+
+    // Set a multi-bit field
+    fun setField(start: Int, width: Int, value: Int) r: Void {
+        if start < 0 or width <= 0 or start + width > 8 {
+            return
+        }
+        let currentValue = getField(start, width)
+        let bitStart = pow2(start)
+        let fieldContribution = currentValue * bitStart
+        let mask = pow2(width)
+        let newValue = value % mask
+        let newContribution = newValue * bitStart
+        raw = raw - fieldContribution + newContribution
+    }
+
+    // Endianness conversion (no-op for 8-bit)
+    fun toBigEndian() r: Int {
+        return raw
+    }
+
+    fun toLittleEndian() r: Int {
+        return raw
+    }
+
+    // Raw value access
+    fun toInt() r: Int {
+        return raw
+    }
+
+    fun toUnsigned() r: Int {
+        var result = raw % 256
+        if result < 0 {
+            result = result + 256
+        }
+        return result
+    }
+
+    // Bitwise operations
+    fun bitwiseAnd(other: Bitfield8) r: Bitfield8 {
+        var result = 0
+        var i = 0
+        while i < 8 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a and b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield8{raw: result}
+    }
+
+    fun bitwiseOr(other: Bitfield8) r: Bitfield8 {
+        var result = 0
+        var i = 0
+        while i < 8 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a or b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield8{raw: result}
+    }
+
+    fun bitwiseXor(other: Bitfield8) r: Bitfield8 {
+        var result = 0
+        var i = 0
+        while i < 8 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            let xorBit = (a and not b) or (not a and b)
+            if xorBit {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield8{raw: result}
+    }
+
+    fun bitwiseNot() r: Bitfield8 {
+        return Bitfield8{raw: 255 - raw}
+    }
+
+    fun shiftLeft(count: Int) r: Bitfield8 {
+        let shifted = raw * pow2(count)
+        var masked = shifted % 256
+        if masked < 0 {
+            masked = masked + 256
+        }
+        return Bitfield8{raw: masked}
+    }
+
+    fun shiftRight(count: Int) r: Bitfield8 {
+        let shifted = raw / pow2(count)
+        return Bitfield8{raw: shifted}
+    }
+
+    // Count operations
+    fun countOnes() r: Int {
+        var count = 0
+        var i = 0
+        while i < 8 {
+            if getBit(i) {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+
+    fun countZeros() r: Int {
+        return 8 - countOnes()
+    }
+
+    fun leadingZeros() r: Int {
+        if raw == 0 { return 8 }
+        var count = 0
+        var i = 7
+        while i >= 0 {
+            if getBit(i) {
+                return count
+            }
+            count = count + 1
+            i = i - 1
+        }
+        return 8
+    }
+
+    fun trailingZeros() r: Int {
+        if raw == 0 { return 8 }
+        var count = 0
+        var i = 0
+        while i < 8 {
+            if getBit(i) {
+                return count
+            }
+            count = count + 1
+            i = i + 1
+        }
+        return 8
+    }
+
+    // String representation
+    fun toBinaryString() r: String {
+        var result = ""
+        var i = 7
+        while i >= 0 {
+            if getBit(i) {
+                result = result + "1"
+            } else {
+                result = result + "0"
+            }
+            i = i - 1
+        }
+        return result
+    }
+
+    fun toHexString() r: String {
+        let hexChars = "0123456789ABCDEF"
+        let hi = raw / 16
+        let lo = raw % 16
+        return hexChars.substring(hi, hi + 1) + hexChars.substring(lo, lo + 1)
+    }
+
+    fun toString() r: String {
+        return "Bitfield8(0x" + toHexString() + ")"
+    }
+}
+
+// ============================================================================
+// Bitfield16 - 16-bit packed bit field
+// ============================================================================
+class Bitfield16 {
+    var raw: Int  // Stores 16-bit value (masked to 0-65535)
+
+    static fun new(value: Int) r: Bitfield16 {
+        var masked = value % 65536
+        if masked < 0 {
+            masked = masked + 65536
+        }
+        return Bitfield16{raw: masked}
+    }
+
+    static fun zero() r: Bitfield16 {
+        return Bitfield16{raw: 0}
+    }
+
+    // Create from two bytes (big-endian: hi is MSB)
+    static fun fromBytes(hi: Int, lo: Int) r: Bitfield16 {
+        let hiMasked = hi % 256
+        let loMasked = lo % 256
+        return Bitfield16{raw: (hiMasked * 256) + loMasked}
+    }
+
+    // Get a single bit (0-15)
+    fun getBit(pos: Int) r: Bool {
+        if pos < 0 or pos > 15 {
+            return false
+        }
+        let divisor = pow2(pos)
+        let shifted = raw / divisor
+        let bit = shifted % 2
+        return bit == 1
+    }
+
+    // Set a single bit (0-15)
+    fun setBit(pos: Int, value: Bool) r: Void {
+        if pos < 0 or pos > 15 {
+            return
+        }
+        let bitValue = pow2(pos)
+        let currentBit = getBit(pos)
+        if value and not currentBit {
+            raw = raw + bitValue
+        } else if not value and currentBit {
+            raw = raw - bitValue
+        }
+    }
+
+    // Get a multi-bit field
+    fun getField(start: Int, width: Int) r: Int {
+        if start < 0 or width <= 0 or start + width > 16 {
+            return 0
+        }
+        let divisor = pow2(start)
+        let mask = pow2(width)
+        let shifted = raw / divisor
+        return shifted % mask
+    }
+
+    // Set a multi-bit field
+    fun setField(start: Int, width: Int, value: Int) r: Void {
+        if start < 0 or width <= 0 or start + width > 16 {
+            return
+        }
+        let currentValue = getField(start, width)
+        let bitStart = pow2(start)
+        let fieldContribution = currentValue * bitStart
+        let mask = pow2(width)
+        let newValue = value % mask
+        let newContribution = newValue * bitStart
+        raw = raw - fieldContribution + newContribution
+    }
+
+    // Byte access
+    fun getHighByte() r: Int {
+        return raw / 256
+    }
+
+    fun getLowByte() r: Int {
+        return raw % 256
+    }
+
+    fun setHighByte(value: Int) r: Void {
+        let lo = raw % 256
+        let hi = value % 256
+        raw = (hi * 256) + lo
+    }
+
+    fun setLowByte(value: Int) r: Void {
+        let hi = raw / 256
+        let lo = value % 256
+        raw = (hi * 256) + lo
+    }
+
+    // Endianness conversion (byte swap)
+    fun toBigEndian() r: Int {
+        let hi = raw / 256
+        let lo = raw % 256
+        return (lo * 256) + hi
+    }
+
+    fun toLittleEndian() r: Int {
+        return raw
+    }
+
+    fun swapBytes() r: Bitfield16 {
+        let hi = raw / 256
+        let lo = raw % 256
+        return Bitfield16{raw: (lo * 256) + hi}
+    }
+
+    // Raw value access
+    fun toInt() r: Int {
+        return raw
+    }
+
+    fun toUnsigned() r: Int {
+        var result = raw % 65536
+        if result < 0 {
+            result = result + 65536
+        }
+        return result
+    }
+
+    // Bitwise operations
+    fun bitwiseAnd(other: Bitfield16) r: Bitfield16 {
+        var result = 0
+        var i = 0
+        while i < 16 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a and b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield16{raw: result}
+    }
+
+    fun bitwiseOr(other: Bitfield16) r: Bitfield16 {
+        var result = 0
+        var i = 0
+        while i < 16 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a or b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield16{raw: result}
+    }
+
+    fun bitwiseXor(other: Bitfield16) r: Bitfield16 {
+        var result = 0
+        var i = 0
+        while i < 16 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            let xorBit = (a and not b) or (not a and b)
+            if xorBit {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield16{raw: result}
+    }
+
+    fun bitwiseNot() r: Bitfield16 {
+        return Bitfield16{raw: 65535 - raw}
+    }
+
+    fun shiftLeft(count: Int) r: Bitfield16 {
+        let shifted = raw * pow2(count)
+        var masked = shifted % 65536
+        if masked < 0 {
+            masked = masked + 65536
+        }
+        return Bitfield16{raw: masked}
+    }
+
+    fun shiftRight(count: Int) r: Bitfield16 {
+        let shifted = raw / pow2(count)
+        return Bitfield16{raw: shifted}
+    }
+
+    // Count operations
+    fun countOnes() r: Int {
+        var count = 0
+        var i = 0
+        while i < 16 {
+            if getBit(i) {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+
+    fun countZeros() r: Int {
+        return 16 - countOnes()
+    }
+
+    fun leadingZeros() r: Int {
+        if raw == 0 { return 16 }
+        var count = 0
+        var i = 15
+        while i >= 0 {
+            if getBit(i) {
+                return count
+            }
+            count = count + 1
+            i = i - 1
+        }
+        return 16
+    }
+
+    fun trailingZeros() r: Int {
+        if raw == 0 { return 16 }
+        var count = 0
+        var i = 0
+        while i < 16 {
+            if getBit(i) {
+                return count
+            }
+            count = count + 1
+            i = i + 1
+        }
+        return 16
+    }
+
+    // String representation
+    fun toBinaryString() r: String {
+        var result = ""
+        var i = 15
+        while i >= 0 {
+            if getBit(i) {
+                result = result + "1"
+            } else {
+                result = result + "0"
+            }
+            i = i - 1
+        }
+        return result
+    }
+
+    fun toHexString() r: String {
+        let hexChars = "0123456789ABCDEF"
+        var result = ""
+        var shift = 12
+        while shift >= 0 {
+            let nibble = (raw / pow2(shift)) % 16
+            result = result + hexChars.substring(nibble, nibble + 1)
+            shift = shift - 4
+        }
+        return result
+    }
+
+    fun toString() r: String {
+        return "Bitfield16(0x" + toHexString() + ")"
+    }
+}
+
+// ============================================================================
+// Bitfield32 - 32-bit packed bit field
+// ============================================================================
+class Bitfield32 {
+    var raw: Int  // Stores 32-bit value
+
+    // Mask for 32-bit value
+    static let MASK32: Int = 4294967295  // 0xFFFFFFFF
+
+    static fun new(value: Int) r: Bitfield32 {
+        var masked = value % 4294967296
+        if masked < 0 {
+            masked = masked + 4294967296
+        }
+        return Bitfield32{raw: masked}
+    }
+
+    static fun zero() r: Bitfield32 {
+        return Bitfield32{raw: 0}
+    }
+
+    // Create from two 16-bit words
+    static fun fromWords(hi: Int, lo: Int) r: Bitfield32 {
+        let hiMasked = hi % 65536
+        let loMasked = lo % 65536
+        return Bitfield32{raw: (hiMasked * 65536) + loMasked}
+    }
+
+    // Get a single bit (0-31)
+    fun getBit(pos: Int) r: Bool {
+        if pos < 0 or pos > 31 {
+            return false
+        }
+        let divisor = pow2(pos)
+        let shifted = raw / divisor
+        let bit = shifted % 2
+        return bit == 1
+    }
+
+    // Set a single bit (0-31)
+    fun setBit(pos: Int, value: Bool) r: Void {
+        if pos < 0 or pos > 31 {
+            return
+        }
+        let bitValue = pow2(pos)
+        let currentBit = getBit(pos)
+        if value and not currentBit {
+            raw = raw + bitValue
+        } else if not value and currentBit {
+            raw = raw - bitValue
+        }
+    }
+
+    // Get a multi-bit field
+    fun getField(start: Int, width: Int) r: Int {
+        if start < 0 or width <= 0 or start + width > 32 {
+            return 0
+        }
+        let divisor = pow2(start)
+        let mask = pow2(width)
+        let shifted = raw / divisor
+        return shifted % mask
+    }
+
+    // Set a multi-bit field
+    fun setField(start: Int, width: Int, value: Int) r: Void {
+        if start < 0 or width <= 0 or start + width > 32 {
+            return
+        }
+        let currentValue = getField(start, width)
+        let bitStart = pow2(start)
+        let fieldContribution = currentValue * bitStart
+        let mask = pow2(width)
+        let newValue = value % mask
+        let newContribution = newValue * bitStart
+        raw = raw - fieldContribution + newContribution
+    }
+
+    // Word access (0=low, 1=high)
+    fun getWord(index: Int) r: Int {
+        if index == 0 {
+            return raw % 65536
+        } else if index == 1 {
+            return (raw / 65536) % 65536
+        }
+        return 0
+    }
+
+    fun setWord(index: Int, value: Int) r: Void {
+        let valueMasked = value % 65536
+        if index == 0 {
+            let hi = raw / 65536
+            raw = (hi * 65536) + valueMasked
+        } else if index == 1 {
+            let lo = raw % 65536
+            raw = (valueMasked * 65536) + lo
+        }
+    }
+
+    // Endianness conversion (byte swap)
+    fun toBigEndian() r: Int {
+        let b0 = raw % 256
+        let b1 = (raw / 256) % 256
+        let b2 = (raw / 65536) % 256
+        let b3 = (raw / 16777216) % 256
+        return (b0 * 16777216) + (b1 * 65536) + (b2 * 256) + b3
+    }
+
+    fun toLittleEndian() r: Int {
+        return raw
+    }
+
+    fun swapBytes() r: Bitfield32 {
+        return Bitfield32{raw: toBigEndian()}
+    }
+
+    // Raw value access
+    fun toInt() r: Int {
+        return raw
+    }
+
+    // Bitwise operations
+    fun bitwiseAnd(other: Bitfield32) r: Bitfield32 {
+        var result = 0
+        var i = 0
+        while i < 32 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a and b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield32{raw: result}
+    }
+
+    fun bitwiseOr(other: Bitfield32) r: Bitfield32 {
+        var result = 0
+        var i = 0
+        while i < 32 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a or b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield32{raw: result}
+    }
+
+    fun bitwiseXor(other: Bitfield32) r: Bitfield32 {
+        var result = 0
+        var i = 0
+        while i < 32 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            let xorBit = (a and not b) or (not a and b)
+            if xorBit {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield32{raw: result}
+    }
+
+    fun bitwiseNot() r: Bitfield32 {
+        return Bitfield32{raw: 4294967295 - raw}
+    }
+
+    fun shiftLeft(count: Int) r: Bitfield32 {
+        let shifted = raw * pow2(count)
+        var masked = shifted % 4294967296
+        if masked < 0 {
+            masked = masked + 4294967296
+        }
+        return Bitfield32{raw: masked}
+    }
+
+    fun shiftRight(count: Int) r: Bitfield32 {
+        let shifted = raw / pow2(count)
+        return Bitfield32{raw: shifted}
+    }
+
+    // Count operations
+    fun countOnes() r: Int {
+        var count = 0
+        var i = 0
+        while i < 32 {
+            if getBit(i) {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+
+    fun countZeros() r: Int {
+        return 32 - countOnes()
+    }
+
+    fun leadingZeros() r: Int {
+        if raw == 0 { return 32 }
+        var count = 0
+        var i = 31
+        while i >= 0 {
+            if getBit(i) {
+                return count
+            }
+            count = count + 1
+            i = i - 1
+        }
+        return 32
+    }
+
+    fun trailingZeros() r: Int {
+        if raw == 0 { return 32 }
+        var count = 0
+        var i = 0
+        while i < 32 {
+            if getBit(i) {
+                return count
+            }
+            count = count + 1
+            i = i + 1
+        }
+        return 32
+    }
+
+    // String representation
+    fun toBinaryString() r: String {
+        var result = ""
+        var i = 31
+        while i >= 0 {
+            if getBit(i) {
+                result = result + "1"
+            } else {
+                result = result + "0"
+            }
+            i = i - 1
+        }
+        return result
+    }
+
+    fun toHexString() r: String {
+        let hexChars = "0123456789ABCDEF"
+        var result = ""
+        var shift = 28
+        while shift >= 0 {
+            let nibble = (raw / pow2(shift)) % 16
+            result = result + hexChars.substring(nibble, nibble + 1)
+            shift = shift - 4
+        }
+        return result
+    }
+
+    fun toString() r: String {
+        return "Bitfield32(0x" + toHexString() + ")"
+    }
+}
+
+// ============================================================================
+// Bitfield64 - 64-bit packed bit field
+// ============================================================================
+class Bitfield64 {
+    var raw: Int  // Stores full 64-bit value
+
+    static fun new(value: Int) r: Bitfield64 {
+        return Bitfield64{raw: value}
+    }
+
+    static fun zero() r: Bitfield64 {
+        return Bitfield64{raw: 0}
+    }
+
+    // Create from two 32-bit words
+    static fun fromWords(hi: Int, lo: Int) r: Bitfield64 {
+        // hi << 32 | lo = hi * 2^32 + lo
+        let hiContrib = hi * 4294967296
+        let loMasked = lo % 4294967296
+        return Bitfield64{raw: hiContrib + loMasked}
+    }
+
+    // Get a single bit (0-63)
+    fun getBit(pos: Int) r: Bool {
+        if pos < 0 or pos > 63 {
+            return false
+        }
+        let divisor = pow2(pos)
+        let shifted = raw / divisor
+        let bit = shifted % 2
+        return bit == 1
+    }
+
+    // Set a single bit (0-63)
+    fun setBit(pos: Int, value: Bool) r: Void {
+        if pos < 0 or pos > 63 {
+            return
+        }
+        let bitValue = pow2(pos)
+        let currentBit = getBit(pos)
+        if value and not currentBit {
+            raw = raw + bitValue
+        } else if not value and currentBit {
+            raw = raw - bitValue
+        }
+    }
+
+    // Get a multi-bit field
+    fun getField(start: Int, width: Int) r: Int {
+        if start < 0 or width <= 0 or start + width > 64 {
+            return 0
+        }
+        let divisor = pow2(start)
+        var mask = pow2(width)
+        // Handle full 64-bit width specially
+        if width == 64 {
+            mask = -1  // All bits set
+        }
+        let shifted = raw / divisor
+        return shifted % mask
+    }
+
+    // Set a multi-bit field
+    fun setField(start: Int, width: Int, value: Int) r: Void {
+        if start < 0 or width <= 0 or start + width > 64 {
+            return
+        }
+        let currentValue = getField(start, width)
+        let bitStart = pow2(start)
+        let fieldContribution = currentValue * bitStart
+        var mask = pow2(width)
+        if width == 64 {
+            mask = -1
+        }
+        let newValue = value % mask
+        let newContribution = newValue * bitStart
+        raw = raw - fieldContribution + newContribution
+    }
+
+    // Word access (32-bit words, 0=low, 1=high)
+    fun getWord32(index: Int) r: Int {
+        if index == 0 {
+            return raw % 4294967296
+        } else if index == 1 {
+            return (raw / 4294967296) % 4294967296
+        }
+        return 0
+    }
+
+    fun setWord32(index: Int, value: Int) r: Void {
+        let valueMasked = value % 4294967296
+        if index == 0 {
+            let hi = raw / 4294967296
+            raw = (hi * 4294967296) + valueMasked
+        } else if index == 1 {
+            let lo = raw % 4294967296
+            raw = (valueMasked * 4294967296) + lo
+        }
+    }
+
+    // Endianness conversion (byte swap)
+    fun toBigEndian() r: Int {
+        let b0 = raw % 256
+        let b1 = (raw / 256) % 256
+        let b2 = (raw / 65536) % 256
+        let b3 = (raw / 16777216) % 256
+        let b4 = (raw / 4294967296) % 256
+        let b5 = (raw / 1099511627776) % 256
+        let b6 = (raw / 281474976710656) % 256
+        let b7 = (raw / 72057594037927936) % 256
+        let hi = (b0 * 16777216) + (b1 * 65536) + (b2 * 256) + b3
+        let lo = (b4 * 16777216) + (b5 * 65536) + (b6 * 256) + b7
+        return (hi * 4294967296) + lo
+    }
+
+    fun toLittleEndian() r: Int {
+        return raw
+    }
+
+    fun swapBytes() r: Bitfield64 {
+        return Bitfield64{raw: toBigEndian()}
+    }
+
+    // Raw value access
+    fun toInt() r: Int {
+        return raw
+    }
+
+    // Bitwise operations
+    fun bitwiseAnd(other: Bitfield64) r: Bitfield64 {
+        var result = 0
+        var i = 0
+        while i < 64 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a and b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield64{raw: result}
+    }
+
+    fun bitwiseOr(other: Bitfield64) r: Bitfield64 {
+        var result = 0
+        var i = 0
+        while i < 64 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a or b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield64{raw: result}
+    }
+
+    fun bitwiseXor(other: Bitfield64) r: Bitfield64 {
+        var result = 0
+        var i = 0
+        while i < 64 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            let xorBit = (a and not b) or (not a and b)
+            if xorBit {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield64{raw: result}
+    }
+
+    fun bitwiseNot() r: Bitfield64 {
+        return Bitfield64{raw: -1 - raw}
+    }
+
+    fun shiftLeft(count: Int) r: Bitfield64 {
+        let shifted = raw * pow2(count)
+        return Bitfield64{raw: shifted}
+    }
+
+    fun shiftRight(count: Int) r: Bitfield64 {
+        let shifted = raw / pow2(count)
+        return Bitfield64{raw: shifted}
+    }
+
+    // Count operations
+    fun countOnes() r: Int {
+        var count = 0
+        var i = 0
+        while i < 64 {
+            if getBit(i) {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+
+    fun countZeros() r: Int {
+        return 64 - countOnes()
+    }
+
+    fun leadingZeros() r: Int {
+        if raw == 0 { return 64 }
+        var count = 0
+        var i = 63
+        while i >= 0 {
+            if getBit(i) {
+                return count
+            }
+            count = count + 1
+            i = i - 1
+        }
+        return 64
+    }
+
+    fun trailingZeros() r: Int {
+        if raw == 0 { return 64 }
+        var count = 0
+        var i = 0
+        while i < 64 {
+            if getBit(i) {
+                return count
+            }
+            count = count + 1
+            i = i + 1
+        }
+        return 64
+    }
+
+    // String representation
+    fun toBinaryString() r: String {
+        var result = ""
+        var i = 63
+        while i >= 0 {
+            if getBit(i) {
+                result = result + "1"
+            } else {
+                result = result + "0"
+            }
+            i = i - 1
+        }
+        return result
+    }
+
+    fun toHexString() r: String {
+        let hexChars = "0123456789ABCDEF"
+        var result = ""
+        var shift = 60
+        while shift >= 0 {
+            let nibble = (raw / pow2(shift)) % 16
+            result = result + hexChars.substring(nibble, nibble + 1)
+            shift = shift - 4
+        }
+        return result
+    }
+
+    fun toString() r: String {
+        return "Bitfield64(0x" + toHexString() + ")"
+    }
+}
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
+
+// Create bitfields from raw values
+fun bitfield8(value: Int) r: Bitfield8 {
+    return Bitfield8.new(value)
+}
+
+fun bitfield16(value: Int) r: Bitfield16 {
+    return Bitfield16.new(value)
+}
+
+fun bitfield32(value: Int) r: Bitfield32 {
+    return Bitfield32.new(value)
+}
+
+fun bitfield64(value: Int) r: Bitfield64 {
+    return Bitfield64.new(value)
+}
+
+// ============================================================================
+// Network Byte Order Utilities
+// ============================================================================
+
+// Host to network byte order (big-endian)
+fun htons(value: Int) r: Int {
+    return Bitfield16.new(value).toBigEndian()
+}
+
+fun htonl(value: Int) r: Int {
+    return Bitfield32.new(value).toBigEndian()
+}
+
+fun htonll(value: Int) r: Int {
+    return Bitfield64.new(value).toBigEndian()
+}
+
+// Network to host byte order (from big-endian to native)
+fun ntohs(value: Int) r: Int {
+    return Bitfield16.new(value).swapBytes().toInt()
+}
+
+fun ntohl(value: Int) r: Int {
+    return Bitfield32.new(value).swapBytes().toInt()
+}
+
+fun ntohll(value: Int) r: Int {
+    return Bitfield64.new(value).swapBytes().toInt()
+}

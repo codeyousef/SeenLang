@@ -1,0 +1,29 @@
+import bootstrap.frontend.{run_frontend}
+
+fun main() r: Int {
+    let snippet = """
+fun demo() r: Int {
+    let value = 10
+    return value
+}
+"""
+
+    let result = run_frontend(snippet, "inline_demo", "en")
+    if not result.success {
+        println("frontend failed unexpectedly")
+        for diag in result.diagnostics {
+            println("{diag.severity}: {diag.message}")
+        }
+        return 1
+    }
+
+    if result.hasWarnings() {
+        for diag in result.diagnostics {
+            if diag.severity == "warning" {
+                println("warning: {diag.message}")
+            }
+        }
+    }
+
+    return 0
+}

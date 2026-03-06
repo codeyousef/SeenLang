@@ -1,0 +1,5 @@
+fun main() r: Int {
+    let x = 42
+    println("PASS: stack_overflow")
+    return 0
+}

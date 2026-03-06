@@ -1,0 +1,116 @@
+// E-Graph Golden Fixture Tests (self-contained)
+// Verifies algebraic simplification rules
+// Tests: x+0->x, x*1->x, x*2->x<<1, x-x->0, x/1->x, x*0->0, x==x->true
+
+// Encode node ops as integers to avoid module-level Array<String>
+// var_x=1, const_0=2, const_1=3, const_2=4, const_true=5
+// add=10, mul=11, sub=12, div=13, shl=14, eq=15
+
+fun opCost(op: Int) r: Int {
+    if op >= 1 and op <= 5 { return 0 }  // constants/vars
+    if op == 14 { return 2 }             // shl
+    if op == 10 or op == 12 { return 3 } // add, sub
+    if op == 11 { return 4 }             // mul
+    if op == 13 { return 5 }             // div
+    if op == 15 { return 3 }             // eq
+    return 10
+}
+
+fun opName(op: Int) r: String {
+    if op == 1 { return "var_x" }
+    if op == 2 { return "const_0" }
+    if op == 3 { return "const_1" }
+    if op == 4 { return "const_2" }
+    if op == 5 { return "const_true" }
+    if op == 10 { return "add" }
+    if op == 11 { return "mul" }
+    if op == 12 { return "sub" }
+    if op == 13 { return "div" }
+    if op == 14 { return "shl" }
+    if op == 15 { return "eq" }
+    return "unknown"
+}
+
+// Apply rewrite rules: given (op, left, right), return simplified op
+// Returns the op of the best (cheapest) equivalent expression
+fun rewrite(op: Int, left: Int, right: Int) r: Int {
+    // x + 0 -> x (left)
+    if op == 10 and right == 2 { return left }
+    // x * 1 -> x (left)
+    if op == 11 and right == 3 { return left }
+    // x * 0 -> 0
+    if op == 11 and right == 2 { return 2 }
+    // x - x -> 0 (same operands)
+    if op == 12 and left == right { return 2 }
+    // x / 1 -> x (left)
+    if op == 13 and right == 3 { return left }
+    // x == x -> true (same operands)
+    if op == 15 and left == right { return 5 }
+    // x * 2 -> shl (cheaper)
+    if op == 11 and right == 4 { return 14 }
+    // No rewrite
+    return op
+}
+
+fun testRule(label: String, op: Int, left: Int, right: Int, expectedOp: Int) r: Bool {
+    println("Test: " + label)
+    let result = rewrite(op, left, right)
+    let resultName = opName(result)
+    let expectedName = opName(expectedOp)
+    if result == expectedOp {
+        println("  PASS: " + label + " -> " + resultName)
+        return true
+    }
+    println("  FAIL: expected " + expectedName + ", got " + resultName)
+    return false
+}
+
+fun main() r: Int {
+    println("=== E-Graph Golden Fixture Tests ===")
+    var passed = 0
+    var total = 8
+
+    // var_x=1, const_0=2, const_1=3, const_2=4, const_true=5
+    // add=10, mul=11, sub=12, div=13, shl=14, eq=15
+
+    // x + 0 -> x
+    if testRule("x + 0 -> x", 10, 1, 2, 1) { passed = passed + 1 }
+
+    // x * 1 -> x
+    if testRule("x * 1 -> x", 11, 1, 3, 1) { passed = passed + 1 }
+
+    // x * 2 -> shl
+    if testRule("x * 2 -> x << 1", 11, 1, 4, 14) { passed = passed + 1 }
+
+    // x - x -> 0
+    if testRule("x - x -> 0", 12, 1, 1, 2) { passed = passed + 1 }
+
+    // x / 1 -> x
+    if testRule("x / 1 -> x", 13, 1, 3, 1) { passed = passed + 1 }
+
+    // x * 0 -> 0
+    if testRule("x * 0 -> 0", 11, 1, 2, 2) { passed = passed + 1 }
+
+    // x == x -> true
+    if testRule("x == x -> true", 15, 1, 1, 5) { passed = passed + 1 }
+
+    // Cost reduction: mul(x,2) cost=4, shl cost=2
+    println("Test: cost reduction x*2")
+    let costBefore = opCost(11)
+    let costAfter = opCost(14)
+    if costAfter < costBefore {
+        println("  PASS: cost " + costBefore.toString() + " -> " + costAfter.toString())
+        passed = passed + 1
+    } else {
+        println("  FAIL: cost should decrease, before=" + costBefore.toString() + " after=" + costAfter.toString())
+    }
+
+    println("")
+    println("Results: " + passed.toString() + "/" + total.toString() + " passed")
+    if passed == total {
+        println("=== All golden fixture tests PASSED ===")
+        return 0
+    }
+    println("=== SOME TESTS FAILED ===")
+    return 1
+}

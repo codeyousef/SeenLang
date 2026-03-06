@@ -1,0 +1,41 @@
+// Minimal Enum Test
+// Tests: Can we declare and use basic enums?
+// Expected: Basic enum assignment and comparison work
+
+enum Status {
+    Active,
+    Inactive
+}
+
+fun main() r: Int {
+    println("Testing minimal enum syntax...")
+
+    // Just assign enum values
+    let status1 = Status.Active
+    let status2 = Status.Active
+    let status3 = Status.Inactive
+
+    println("Enum values assigned")
+
+    // Try simple comparison - avoiding complex patterns
+    println("Testing enum comparison...")
+
+    // Test equality
+    if status1 == status2 {
+        println("PASS: Equal enum values match")
+    } else {
+        println("FAIL: Equal enum values don't match")
+        return 1
+    }
+
+    // Test inequality
+    if status1 != status3 {
+        println("PASS: Different enum values don't match")
+    } else {
+        println("FAIL: Different enum values match")
+        return 1
+    }
+
+    println("PASS: Basic enum operations work")
+    return 0
+}

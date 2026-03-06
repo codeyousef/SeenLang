@@ -1,0 +1,32 @@
+// Test @preallocate decorator (region allocator wiring)
+// Verify: compile with --emit-llvm, grep for '__seen_region_create' and '__seen_region_destroy'
+
+@preallocate(size=4096)
+fun processData(n: Int) r: Int {
+    var total = 0
+    var i = 0
+    while i < n {
+        total = total + i
+        i = i + 1
+    }
+    return total
+}
+
+@preallocate
+fun defaultRegion(x: Int) r: Int {
+    return x * 2
+}
+
+fun main() r: Int {
+    let result = processData(100)
+    println("processData(100) = " + result.toString())
+
+    let doubled = defaultRegion(21)
+    println("defaultRegion(21) = " + doubled.toString())
+
+    if result != 4950 { println("FAIL: processData"); return 1 }
+    if doubled != 42 { println("FAIL: defaultRegion"); return 1 }
+
+    println("PASS: @preallocate region allocator compiled correctly")
+    return 0
+}

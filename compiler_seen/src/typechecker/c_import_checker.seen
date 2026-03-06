@@ -1,0 +1,166 @@
+// C Import Checker - Validates @_c_import decorator usage
+// Ensures C header imports are valid and warns about potential issues
+
+import compiler_seen.src.parser.real_parser.AnnotationNode
+import io.file.{exists}
+
+// Result of C import validation
+data CImportCheckResult {
+    isValid: Bool
+    errors: Array<String>
+    warnings: Array<String>
+    headerPath: String
+}
+
+fun CImportCheckResult.new() r: CImportCheckResult {
+    return CImportCheckResult{
+        isValid: true,
+        errors: Array<String>(),
+        warnings: Array<String>(),
+        headerPath: ""
+    }
+}
+
+fun CImportCheckResult.addError(msg: String) r: Void {
+    errors.push(msg)
+    isValid = false
+}
+
+fun CImportCheckResult.addWarning(msg: String) r: Void {
+    warnings.push(msg)
+}
+
+class CImportChecker {
+    // List of known problematic C headers that require special handling
+    var problematicHeaders: Array<String>
+
+    static fun new() r: CImportChecker {
+        var checker = CImportChecker{
+            problematicHeaders: Array<String>()
+        }
+
+        // Headers that may have issues
+        checker.problematicHeaders.push("windows.h")
+        checker.problematicHeaders.push("sys/socket.h")
+        checker.problematicHeaders.push("pthread.h")
+
+        return checker
+    }
+
+    // Check a @_c_import decorator
+    fun checkCImport(decorator: AnnotationNode) r: CImportCheckResult {
+        var result = CImportCheckResult.new()
+
+        // Must have at least one argument (the header path)
+        if decorator.arguments.length() == 0 {
+            result.addError("@_c_import requires a header path argument")
+            return result
+        }
+
+        let headerPath = decorator.arguments[0]
+        result.headerPath = headerPath
+
+        // Check if header file exists
+        if not exists(headerPath) {
+            // Try common system include paths
+            if not exists("/usr/include/" + headerPath) and not exists("/usr/local/include/" + headerPath) {
+                // It might be a system header that clang can find
+                if not isSystemHeader(headerPath) {
+                    result.addWarning("Header file may not exist: " + headerPath)
+                }
+            }
+        }
+
+        // Check for problematic headers
+        var i = 0
+        while i < problematicHeaders.length() {
+            if headerPath.contains(problematicHeaders[i]) {
+                result.addWarning("Header '" + problematicHeaders[i] + "' may require platform-specific handling")
+            }
+            i = i + 1
+        }
+
+        // Warn about C++ headers
+        if headerPath.endsWith(".hpp") or headerPath.endsWith(".hxx") or headerPath.endsWith(".hh") {
+            result.addError("@_c_import only supports C headers, not C++ headers: " + headerPath)
+        }
+
+        // Check for macro-heavy headers that may not parse well
+        if headerPath.contains("config.h") or headerPath.contains("limits.h") {
+            result.addWarning("Header '" + headerPath + "' contains many macros which cannot be imported")
+        }
+
+        return result
+    }
+
+    // Check if a header looks like a system header
+    fun isSystemHeader(path: String) r: Bool {
+        // Standard C headers
+        if path == "stdio.h" or path == "stdlib.h" or path == "string.h" {
+            return true
+        }
+        if path == "math.h" or path == "time.h" or path == "ctype.h" {
+            return true
+        }
+        if path == "errno.h" or path == "signal.h" or path == "setjmp.h" {
+            return true
+        }
+        if path == "stdint.h" or path == "stdbool.h" or path == "stddef.h" {
+            return true
+        }
+
+        // POSIX headers
+        if path.startsWith("sys/") or path.startsWith("netinet/") or path.startsWith("arpa/") {
+            return true
+        }
+        if path == "unistd.h" or path == "fcntl.h" or path == "dirent.h" {
+            return true
+        }
+
+        return false
+    }
+
+    // Validate that imported types are compatible with Seen
+    fun checkTypeCompatibility(cType: String) r: CImportCheckResult {
+        var result = CImportCheckResult.new()
+
+        // Floating point types require @nondeterministic
+        if cType == "float" or cType == "double" or cType == "long double" {
+            result.addWarning("Type '" + cType + "' is nondeterministic - functions using it should be @nondeterministic")
+        }
+
+        // Complex types are not supported
+        if cType.contains("_Complex") or cType.contains("complex") {
+            result.addError("Complex numbers are not supported: " + cType)
+        }
+
+        // Variable-length arrays are not supported
+        if cType.contains("[*]") or cType.contains("[]") {
+            result.addError("Variable-length arrays are not supported: " + cType)
+        }
+
+        // Function pointers require special handling
+        if cType.contains("(*)") or cType.contains("(*") {
+            result.addWarning("Function pointers require manual wrapping: " + cType)
+        }
+
+        // Unions require special handling
+        if cType.startsWith("union ") {
+            result.addWarning("Unions are imported as opaque pointers: " + cType)
+        }
+
+        // Bit fields are not directly supported
+        if cType.contains(":") and not cType.contains("::") {
+            result.addWarning("Bit fields cannot be directly accessed: " + cType)
+        }
+
+        return result
+    }
+
+    // Check if clang is available
+    fun checkClangAvailable() r: Bool {
+        let cmd = "which clang"
+        // In practice, we'd run this command - for now assume it exists
+        return true
+    }
+}

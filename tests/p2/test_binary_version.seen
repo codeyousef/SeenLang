@@ -1,0 +1,12 @@
+@binary(le, 2)
+class VersionedData {
+    x: Int
+    y: Int
+}
+
+fun main() r: Int {
+    let d = VersionedData(10, 20)
+    let buf = d.serialize()
+    println("PASS: binary_version")
+    return 0
+}

@@ -1,0 +1,20 @@
+// LLVM Code Generation Module
+// Exports utilities and helpers for the LLVM IR generator
+
+// String utilities (pure functions)
+import codegen.llvm.string_utils.{
+    hexToDecimal,
+    trimSpaces,
+    removeSpaces,
+    getBaseTypeName,
+    alignUp,
+    findSubstring,
+    parseDecimalInt,
+    escapeString,
+    charToCodeStr,
+    extractStructFieldTypes,
+    parseArrayLength,
+    parseArrayElementType,
+    extractArrayLiteralElementType,
+    normalizeHeaderType
+}

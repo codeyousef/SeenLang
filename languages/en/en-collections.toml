@@ -1,0 +1,14 @@
+name = "English"
+description = "English Collections Standard Library"
+
+[std_lib]
+"Vec" = "Vec"
+"Array" = "Array"
+"HashMap" = "HashMap"
+"StringHashMap" = "StringHashMap"
+"HashSet" = "HashSet"
+"BTreeMap" = "BTreeMap"
+"LinkedList" = "LinkedList"
+"VecDeque" = "VecDeque"
+"BitSet" = "BitSet"
+"Pool" = "Pool"

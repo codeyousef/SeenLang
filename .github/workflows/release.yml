@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0-alpha)'
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  sign-release:
+    name: Sign Release Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Verify release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          if gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null | head -1; then
+            echo "Release $TAG found with artifacts."
+          else
+            echo "::error::No release found for $TAG."
+            echo "Run locally first: ./scripts/build_and_upload_release.sh ${TAG#v}"
+            exit 1
+          fi
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p /tmp/sign
+          gh release download "$TAG" --dir /tmp/sign
+          cd /tmp/sign
+          for file in *; do
+            [ -f "$file" ] || continue
+            case "$file" in *.bundle|SHA256SUMS) continue ;; esac
+            cosign sign-blob --yes --bundle "${file}.bundle" "$file"
+          done
+          gh release upload "$TAG" *.bundle --clobber --repo "${{ github.repository }}"
+
+  publish-extension:
+    name: Publish VSCode Extension
+    needs: sign-release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.inputs.tag || github.ref_name, 'alpha') && !contains(github.event.inputs.tag || github.ref_name, 'beta') }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - working-directory: vscode-seen
+        run: npm ci
+
+      - working-directory: vscode-seen
+        run: npm run package
+
+      - working-directory: vscode-seen
+        run: npx vsce publish -p ${{ secrets.VSCE_TOKEN }}
+        continue-on-error: true
+
+      - working-directory: vscode-seen
+        run: npx ovsx publish -p ${{ secrets.OVSX_TOKEN }}
+        continue-on-error: true

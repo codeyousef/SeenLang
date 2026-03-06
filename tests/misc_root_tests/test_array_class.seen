@@ -1,0 +1,24 @@
+class Test {
+    data: Array<Int>
+    
+    fun new() -> Test {
+        let arr = Array<Int>.withCapacity(10)
+        arr.push(5)
+        Test { data: arr }
+    }
+    
+    fun test() -> Void {
+        var i = 0
+        while i < this.data.length() {
+            __PrintInt(this.data[i])
+            __Print("\n")
+            i = i + 1
+        }
+    }
+}
+
+fun main() -> Int {
+    let t = Test.new()
+    t.test()
+    return 0
+}

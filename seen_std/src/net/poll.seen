@@ -1,0 +1,48 @@
+// Event polling (epoll/kqueue wrapper)
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+class PollEvent {
+    token: Int
+    events: Int
+}
+
+class Poll {
+    fd: Int
+    
+    fun new() -> Result<Poll, String> {
+        let fd = __PollCreate()
+        if fd < 0 {
+            return Err("Failed to create poll instance")
+        }
+        Ok(Poll { fd: fd })
+    }
+    
+    fun register(fd: Int, token: Int, events: Int) -> Result<Unit, String> {
+        let res = __PollRegister(this.fd, fd, token, events)
+        if res < 0 {
+            return Err("Failed to register fd")
+        }
+        Ok(Unit{})
+    }
+    
+    fun unregister(fd: Int) -> Result<Unit, String> {
+        let res = __PollUnregister(this.fd, fd)
+        if res < 0 {
+            return Err("Failed to unregister fd")
+        }
+        Ok(Unit{})
+    }
+    
+    fun poll(timeout_ms: Int) -> Result<Array<PollEvent>, String> {
+        // Intrinsics are expected to return Array<PollEvent>
+        let events = __PollWait(this.fd, timeout_ms)
+        Ok(events)
+    }
+}
+
+// Constants
+let POLLIN: Int = 1
+let POLLOUT: Int = 4
+let POLLERR: Int = 8
+let POLLHUP: Int = 16

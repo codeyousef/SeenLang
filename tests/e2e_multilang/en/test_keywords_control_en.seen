@@ -1,0 +1,108 @@
+// E2E Test: Control Flow Keywords (English)
+// Keywords tested: fun, if, else, while, break, continue, return, loop
+
+fun helper_add(a: Int, b: Int) r: Int {
+    return a + b
+}
+
+fun helper_negate(x: Int) r: Int {
+    return 0 - x
+}
+
+fun main() r: Int {
+    // Test 1: fun + return
+    let result = helper_add(3, 4)
+    if result == 7 {
+        println("PASS: fun+return")
+    } else {
+        println("FAIL: fun+return")
+        return 1
+    }
+
+    // Test 2: if + else
+    let neg = helper_negate(5)
+    if neg == -5 {
+        println("PASS: if+else")
+    } else {
+        println("FAIL: if+else")
+        return 1
+    }
+
+    // Test 3: while + break
+    var i = 0
+    while i < 100 {
+        if i == 5 {
+            break
+        }
+        i = i + 1
+    }
+    if i == 5 {
+        println("PASS: while+break")
+    } else {
+        println("FAIL: while+break")
+        return 1
+    }
+
+    // Test 4: while + continue (sum odd numbers 1..10)
+    var sum = 0
+    var j = 0
+    while j < 10 {
+        j = j + 1
+        let rem = j - (j / 2) * 2
+        if rem == 0 {
+            continue
+        }
+        sum = sum + j
+    }
+    if sum == 25 {
+        println("PASS: while+continue")
+    } else {
+        println("FAIL: while+continue, got " + sum.toString())
+        return 1
+    }
+
+    // Test 5: loop + break
+    var k = 0
+    loop {
+        k = k + 1
+        if k == 3 {
+            break
+        }
+    }
+    if k == 3 {
+        println("PASS: loop+break")
+    } else {
+        println("FAIL: loop+break")
+        return 1
+    }
+
+    // Test 6: nested while loops
+    var outer = 0
+    var total = 0
+    while outer < 3 {
+        var inner = 0
+        while inner < 4 {
+            total = total + 1
+            inner = inner + 1
+        }
+        outer = outer + 1
+    }
+    if total == 12 {
+        println("PASS: nested while")
+    } else {
+        println("FAIL: nested while")
+        return 1
+    }
+
+    // Test 7: return from nested context
+    let r = helper_add(helper_add(1, 2), helper_add(3, 4))
+    if r == 10 {
+        println("PASS: nested return")
+    } else {
+        println("FAIL: nested return")
+        return 1
+    }
+
+    println("PASS: all control flow tests passed")
+    return 0
+}

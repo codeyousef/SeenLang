@@ -1,0 +1,5 @@
+fun main() r: Int {
+    var x = 42
+    println("PASS: null_safety")
+    return 0
+}

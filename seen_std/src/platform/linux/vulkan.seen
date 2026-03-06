@@ -1,0 +1,456 @@
+/**
+ * Vulkan 1.3+ FFI bindings for Linux.
+ *
+ * Low-level bindings to Vulkan via libseen_platform.so shim.
+ * Provides constants, function declarations, and helper utilities.
+ * Prefer the higher-level VulkanRenderer from graphics.renderer.
+ *
+ * Link with: -lseen_platform (which wraps libvulkan.so.1)
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// Vulkan result codes
+let VK_SUCCESS: Int = 0
+let VK_NOT_READY: Int = 1
+let VK_TIMEOUT: Int = 2
+let VK_EVENT_SET: Int = 3
+let VK_EVENT_RESET: Int = 4
+let VK_INCOMPLETE: Int = 5
+let VK_ERROR_OUT_OF_HOST_MEMORY: Int = -1
+let VK_ERROR_OUT_OF_DEVICE_MEMORY: Int = -2
+let VK_ERROR_INITIALIZATION_FAILED: Int = -3
+let VK_ERROR_DEVICE_LOST: Int = -4
+let VK_ERROR_MEMORY_MAP_FAILED: Int = -5
+let VK_ERROR_LAYER_NOT_PRESENT: Int = -6
+let VK_ERROR_EXTENSION_NOT_PRESENT: Int = -7
+let VK_ERROR_FEATURE_NOT_PRESENT: Int = -8
+let VK_ERROR_INCOMPATIBLE_DRIVER: Int = -9
+let VK_ERROR_TOO_MANY_OBJECTS: Int = -10
+let VK_ERROR_FORMAT_NOT_SUPPORTED: Int = -11
+let VK_ERROR_SURFACE_LOST_KHR: Int = -1000000000
+let VK_ERROR_OUT_OF_DATE_KHR: Int = -1000001004
+let VK_SUBOPTIMAL_KHR: Int = 1000001003
+
+// Vulkan structure types
+let VK_STRUCTURE_TYPE_APPLICATION_INFO: Int = 0
+let VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO: Int = 1
+let VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO: Int = 2
+let VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO: Int = 3
+let VK_STRUCTURE_TYPE_SUBMIT_INFO: Int = 4
+let VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO: Int = 5
+let VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE: Int = 6
+let VK_STRUCTURE_TYPE_FENCE_CREATE_INFO: Int = 8
+let VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO: Int = 9
+let VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO: Int = 12
+let VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO: Int = 14
+let VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO: Int = 15
+let VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO: Int = 16
+let VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO: Int = 18
+let VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO: Int = 19
+let VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO: Int = 20
+let VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO: Int = 22
+let VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO: Int = 23
+let VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO: Int = 24
+let VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO: Int = 25
+let VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO: Int = 26
+let VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO: Int = 27
+let VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO: Int = 30
+let VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO: Int = 31
+let VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO: Int = 32
+let VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO: Int = 33
+let VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO: Int = 34
+let VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET: Int = 35
+let VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO: Int = 37
+let VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO: Int = 38
+let VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO: Int = 39
+let VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO: Int = 40
+let VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO: Int = 42
+let VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO: Int = 43
+let VK_STRUCTURE_TYPE_PRESENT_INFO_KHR: Int = 1000001001
+let VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR: Int = 1000001000
+let VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO: Int = 28
+
+// Vulkan formats
+let VK_FORMAT_UNDEFINED: Int = 0
+let VK_FORMAT_R8G8B8A8_UNORM: Int = 37
+let VK_FORMAT_R8G8B8A8_SRGB: Int = 43
+let VK_FORMAT_B8G8R8A8_UNORM: Int = 44
+let VK_FORMAT_B8G8R8A8_SRGB: Int = 50
+let VK_FORMAT_D32_SFLOAT: Int = 126
+let VK_FORMAT_D24_UNORM_S8_UINT: Int = 129
+let VK_FORMAT_D32_SFLOAT_S8_UINT: Int = 130
+
+// Vulkan color spaces
+let VK_COLOR_SPACE_SRGB_NONLINEAR_KHR: Int = 0
+
+// Vulkan present modes
+let VK_PRESENT_MODE_IMMEDIATE_KHR: Int = 0
+let VK_PRESENT_MODE_MAILBOX_KHR: Int = 1
+let VK_PRESENT_MODE_FIFO_KHR: Int = 2
+let VK_PRESENT_MODE_FIFO_RELAXED_KHR: Int = 3
+
+// Vulkan image usage flags
+let VK_IMAGE_USAGE_TRANSFER_SRC_BIT: Int = 0x00000001
+let VK_IMAGE_USAGE_TRANSFER_DST_BIT: Int = 0x00000002
+let VK_IMAGE_USAGE_SAMPLED_BIT: Int = 0x00000004
+let VK_IMAGE_USAGE_STORAGE_BIT: Int = 0x00000008
+let VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT: Int = 0x00000010
+let VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT: Int = 0x00000020
+
+// Vulkan sharing mode
+let VK_SHARING_MODE_EXCLUSIVE: Int = 0
+let VK_SHARING_MODE_CONCURRENT: Int = 1
+
+// Vulkan composite alpha flags
+let VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR: Int = 0x00000001
+let VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR: Int = 0x00000002
+let VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR: Int = 0x00000004
+let VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR: Int = 0x00000008
+
+// Vulkan image aspect flags
+let VK_IMAGE_ASPECT_COLOR_BIT: Int = 0x00000001
+let VK_IMAGE_ASPECT_DEPTH_BIT: Int = 0x00000002
+let VK_IMAGE_ASPECT_STENCIL_BIT: Int = 0x00000004
+
+// Vulkan image view types
+let VK_IMAGE_VIEW_TYPE_1D: Int = 0
+let VK_IMAGE_VIEW_TYPE_2D: Int = 1
+let VK_IMAGE_VIEW_TYPE_3D: Int = 2
+let VK_IMAGE_VIEW_TYPE_CUBE: Int = 3
+let VK_IMAGE_VIEW_TYPE_1D_ARRAY: Int = 4
+let VK_IMAGE_VIEW_TYPE_2D_ARRAY: Int = 5
+let VK_IMAGE_VIEW_TYPE_CUBE_ARRAY: Int = 6
+
+// Vulkan component swizzle
+let VK_COMPONENT_SWIZZLE_IDENTITY: Int = 0
+let VK_COMPONENT_SWIZZLE_ZERO: Int = 1
+let VK_COMPONENT_SWIZZLE_ONE: Int = 2
+let VK_COMPONENT_SWIZZLE_R: Int = 3
+let VK_COMPONENT_SWIZZLE_G: Int = 4
+let VK_COMPONENT_SWIZZLE_B: Int = 5
+let VK_COMPONENT_SWIZZLE_A: Int = 6
+
+// Vulkan shader stages
+let VK_SHADER_STAGE_VERTEX_BIT: Int = 0x00000001
+let VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT: Int = 0x00000002
+let VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT: Int = 0x00000004
+let VK_SHADER_STAGE_GEOMETRY_BIT: Int = 0x00000008
+let VK_SHADER_STAGE_FRAGMENT_BIT: Int = 0x00000010
+let VK_SHADER_STAGE_COMPUTE_BIT: Int = 0x00000020
+let VK_SHADER_STAGE_ALL_GRAPHICS: Int = 0x0000001F
+let VK_SHADER_STAGE_ALL: Int = 0x7FFFFFFF
+
+// Vulkan primitive topology
+let VK_PRIMITIVE_TOPOLOGY_POINT_LIST: Int = 0
+let VK_PRIMITIVE_TOPOLOGY_LINE_LIST: Int = 1
+let VK_PRIMITIVE_TOPOLOGY_LINE_STRIP: Int = 2
+let VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST: Int = 3
+let VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP: Int = 4
+let VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN: Int = 5
+
+// Vulkan polygon mode
+let VK_POLYGON_MODE_FILL: Int = 0
+let VK_POLYGON_MODE_LINE: Int = 1
+let VK_POLYGON_MODE_POINT: Int = 2
+
+// Vulkan cull mode
+let VK_CULL_MODE_NONE: Int = 0
+let VK_CULL_MODE_FRONT_BIT: Int = 0x00000001
+let VK_CULL_MODE_BACK_BIT: Int = 0x00000002
+let VK_CULL_MODE_FRONT_AND_BACK: Int = 0x00000003
+
+// Vulkan front face
+let VK_FRONT_FACE_COUNTER_CLOCKWISE: Int = 0
+let VK_FRONT_FACE_CLOCKWISE: Int = 1
+
+// Vulkan sample count
+let VK_SAMPLE_COUNT_1_BIT: Int = 0x00000001
+let VK_SAMPLE_COUNT_2_BIT: Int = 0x00000002
+let VK_SAMPLE_COUNT_4_BIT: Int = 0x00000004
+let VK_SAMPLE_COUNT_8_BIT: Int = 0x00000008
+let VK_SAMPLE_COUNT_16_BIT: Int = 0x00000010
+let VK_SAMPLE_COUNT_32_BIT: Int = 0x00000020
+let VK_SAMPLE_COUNT_64_BIT: Int = 0x00000040
+
+// Vulkan blend factors
+let VK_BLEND_FACTOR_ZERO: Int = 0
+let VK_BLEND_FACTOR_ONE: Int = 1
+let VK_BLEND_FACTOR_SRC_COLOR: Int = 2
+let VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR: Int = 3
+let VK_BLEND_FACTOR_DST_COLOR: Int = 4
+let VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR: Int = 5
+let VK_BLEND_FACTOR_SRC_ALPHA: Int = 6
+let VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA: Int = 7
+let VK_BLEND_FACTOR_DST_ALPHA: Int = 8
+let VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA: Int = 9
+
+// Vulkan blend operations
+let VK_BLEND_OP_ADD: Int = 0
+let VK_BLEND_OP_SUBTRACT: Int = 1
+let VK_BLEND_OP_REVERSE_SUBTRACT: Int = 2
+let VK_BLEND_OP_MIN: Int = 3
+let VK_BLEND_OP_MAX: Int = 4
+
+// Vulkan color component flags
+let VK_COLOR_COMPONENT_R_BIT: Int = 0x00000001
+let VK_COLOR_COMPONENT_G_BIT: Int = 0x00000002
+let VK_COLOR_COMPONENT_B_BIT: Int = 0x00000004
+let VK_COLOR_COMPONENT_A_BIT: Int = 0x00000008
+let VK_COLOR_COMPONENT_ALL: Int = 0x0000000F
+
+// Vulkan attachment load/store ops
+let VK_ATTACHMENT_LOAD_OP_LOAD: Int = 0
+let VK_ATTACHMENT_LOAD_OP_CLEAR: Int = 1
+let VK_ATTACHMENT_LOAD_OP_DONT_CARE: Int = 2
+let VK_ATTACHMENT_STORE_OP_STORE: Int = 0
+let VK_ATTACHMENT_STORE_OP_DONT_CARE: Int = 1
+
+// Vulkan image layouts
+let VK_IMAGE_LAYOUT_UNDEFINED: Int = 0
+let VK_IMAGE_LAYOUT_GENERAL: Int = 1
+let VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL: Int = 2
+let VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL: Int = 3
+let VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL: Int = 4
+let VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL: Int = 5
+let VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL: Int = 6
+let VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL: Int = 7
+let VK_IMAGE_LAYOUT_PRESENT_SRC_KHR: Int = 1000001002
+
+// Vulkan pipeline bind points
+let VK_PIPELINE_BIND_POINT_GRAPHICS: Int = 0
+let VK_PIPELINE_BIND_POINT_COMPUTE: Int = 1
+
+// Vulkan command buffer levels
+let VK_COMMAND_BUFFER_LEVEL_PRIMARY: Int = 0
+let VK_COMMAND_BUFFER_LEVEL_SECONDARY: Int = 1
+
+// Vulkan command buffer usage flags
+let VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT: Int = 0x00000001
+let VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT: Int = 0x00000002
+let VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT: Int = 0x00000004
+
+// Vulkan subpass contents
+let VK_SUBPASS_CONTENTS_INLINE: Int = 0
+let VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS: Int = 1
+
+// Vulkan fence flags
+let VK_FENCE_CREATE_SIGNALED_BIT: Int = 0x00000001
+
+// Vulkan pipeline stage flags
+let VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT: Int = 0x00000001
+let VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT: Int = 0x00000002
+let VK_PIPELINE_STAGE_VERTEX_INPUT_BIT: Int = 0x00000004
+let VK_PIPELINE_STAGE_VERTEX_SHADER_BIT: Int = 0x00000008
+let VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT: Int = 0x00000080
+let VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT: Int = 0x00000100
+let VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT: Int = 0x00000200
+let VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT: Int = 0x00000400
+let VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT: Int = 0x00000800
+let VK_PIPELINE_STAGE_TRANSFER_BIT: Int = 0x00001000
+let VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT: Int = 0x00002000
+let VK_PIPELINE_STAGE_HOST_BIT: Int = 0x00004000
+let VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT: Int = 0x00008000
+let VK_PIPELINE_STAGE_ALL_COMMANDS_BIT: Int = 0x00010000
+
+// Vulkan buffer usage flags
+let VK_BUFFER_USAGE_TRANSFER_SRC_BIT: Int = 0x00000001
+let VK_BUFFER_USAGE_TRANSFER_DST_BIT: Int = 0x00000002
+let VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT: Int = 0x00000004
+let VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT: Int = 0x00000008
+let VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT: Int = 0x00000010
+let VK_BUFFER_USAGE_STORAGE_BUFFER_BIT: Int = 0x00000020
+let VK_BUFFER_USAGE_INDEX_BUFFER_BIT: Int = 0x00000040
+let VK_BUFFER_USAGE_VERTEX_BUFFER_BIT: Int = 0x00000080
+let VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT: Int = 0x00000100
+
+// Vulkan memory property flags
+let VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT: Int = 0x00000001
+let VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT: Int = 0x00000002
+let VK_MEMORY_PROPERTY_HOST_COHERENT_BIT: Int = 0x00000004
+let VK_MEMORY_PROPERTY_HOST_CACHED_BIT: Int = 0x00000008
+let VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT: Int = 0x00000010
+
+// Vulkan queue flags
+let VK_QUEUE_GRAPHICS_BIT: Int = 0x00000001
+let VK_QUEUE_COMPUTE_BIT: Int = 0x00000002
+let VK_QUEUE_TRANSFER_BIT: Int = 0x00000004
+let VK_QUEUE_SPARSE_BINDING_BIT: Int = 0x00000008
+
+// Vulkan dynamic states
+let VK_DYNAMIC_STATE_VIEWPORT: Int = 0
+let VK_DYNAMIC_STATE_SCISSOR: Int = 1
+let VK_DYNAMIC_STATE_LINE_WIDTH: Int = 2
+let VK_DYNAMIC_STATE_DEPTH_BIAS: Int = 3
+let VK_DYNAMIC_STATE_BLEND_CONSTANTS: Int = 4
+let VK_DYNAMIC_STATE_DEPTH_BOUNDS: Int = 5
+let VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK: Int = 6
+let VK_DYNAMIC_STATE_STENCIL_WRITE_MASK: Int = 7
+let VK_DYNAMIC_STATE_STENCIL_REFERENCE: Int = 8
+
+// Vulkan index types
+let VK_INDEX_TYPE_UINT16: Int = 0
+let VK_INDEX_TYPE_UINT32: Int = 1
+
+// Command pool flags
+let VK_COMMAND_POOL_CREATE_TRANSIENT_BIT: Int = 0x00000001
+let VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: Int = 0x00000002
+
+// ============================================================================
+// Shim FFI Declarations - Link to libseen_platform.so
+// ============================================================================
+
+// Instance management
+extern "C" fun seen_vk_create_instance(
+    appName: *Char, appVersion: UInt32,
+    engineName: *Char, engineVersion: UInt32,
+    apiVersion: UInt32,
+    extensions: **Char, extensionCount: UInt32,
+    layers: **Char, layerCount: UInt32,
+    outInstance: *UInt64
+) r: Int32
+
+extern "C" fun seen_vk_destroy_instance(instance: UInt64) r: Void
+
+// Physical device enumeration
+extern "C" fun seen_vk_enumerate_physical_devices(instance: UInt64, count: *UInt32, devices: *UInt64) r: Int32
+extern "C" fun seen_vk_get_physical_device_properties(device: UInt64, deviceType: *UInt32, deviceName: *Char, apiVersion: *UInt32) r: Void
+extern "C" fun seen_vk_get_physical_device_queue_family_count(device: UInt64) r: Int32
+extern "C" fun seen_vk_get_physical_device_queue_family_flags(device: UInt64, index: UInt32) r: UInt32
+extern "C" fun seen_vk_get_physical_device_surface_support(device: UInt64, queueFamily: UInt32, surface: UInt64, supported: *Int32) r: Int32
+
+// Logical device
+extern "C" fun seen_vk_create_device(
+    physicalDevice: UInt64,
+    queueFamilyIndex: UInt32, queueCount: UInt32,
+    extensions: **Char, extensionCount: UInt32,
+    outDevice: *UInt64
+) r: Int32
+
+extern "C" fun seen_vk_destroy_device(device: UInt64) r: Void
+extern "C" fun seen_vk_get_device_queue(device: UInt64, family: UInt32, index: UInt32, queue: *UInt64) r: Void
+extern "C" fun seen_vk_device_wait_idle(device: UInt64) r: Int32
+
+// Surface
+extern "C" fun seen_vk_destroy_surface(instance: UInt64, surface: UInt64) r: Void
+extern "C" fun seen_vk_get_surface_capabilities(
+    device: UInt64, surface: UInt64,
+    minImageCount: *UInt32, maxImageCount: *UInt32,
+    currentWidth: *UInt32, currentHeight: *UInt32,
+    currentTransform: *UInt32
+) r: Int32
+
+// Swapchain
+extern "C" fun seen_vk_create_swapchain(
+    device: UInt64, surface: UInt64,
+    minImageCount: UInt32, format: UInt32, colorSpace: UInt32,
+    width: UInt32, height: UInt32,
+    imageUsage: UInt32, presentMode: UInt32,
+    oldSwapchain: UInt64,
+    outSwapchain: *UInt64
+) r: Int32
+
+extern "C" fun seen_vk_destroy_swapchain(device: UInt64, swapchain: UInt64) r: Void
+extern "C" fun seen_vk_get_swapchain_images(device: UInt64, swapchain: UInt64, count: *UInt32, images: *UInt64) r: Int32
+extern "C" fun seen_vk_acquire_next_image(device: UInt64, swapchain: UInt64, timeout: UInt64, semaphore: UInt64, fence: UInt64, imageIndex: *UInt32) r: Int32
+
+// Image views
+extern "C" fun seen_vk_create_image_view(device: UInt64, image: UInt64, viewType: UInt32, format: UInt32, aspectMask: UInt32, outView: *UInt64) r: Int32
+extern "C" fun seen_vk_destroy_image_view(device: UInt64, view: UInt64) r: Void
+
+// Shader modules
+extern "C" fun seen_vk_create_shader_module(device: UInt64, code: *UInt32, codeSize: UInt32, outModule: *UInt64) r: Int32
+extern "C" fun seen_vk_destroy_shader_module(device: UInt64, module: UInt64) r: Void
+
+// Render pass
+extern "C" fun seen_vk_create_render_pass_simple(device: UInt64, colorFormat: UInt32, finalLayout: UInt32, outRenderPass: *UInt64) r: Int32
+extern "C" fun seen_vk_destroy_render_pass(device: UInt64, renderPass: UInt64) r: Void
+
+// Framebuffer
+extern "C" fun seen_vk_create_framebuffer(device: UInt64, renderPass: UInt64, attachments: *UInt64, attachmentCount: UInt32, width: UInt32, height: UInt32, outFramebuffer: *UInt64) r: Int32
+extern "C" fun seen_vk_destroy_framebuffer(device: UInt64, framebuffer: UInt64) r: Void
+
+// Command pool
+extern "C" fun seen_vk_create_command_pool(device: UInt64, queueFamily: UInt32, flags: UInt32, outPool: *UInt64) r: Int32
+extern "C" fun seen_vk_destroy_command_pool(device: UInt64, pool: UInt64) r: Void
+
+// Command buffers
+extern "C" fun seen_vk_allocate_command_buffers(device: UInt64, pool: UInt64, level: UInt32, count: UInt32, buffers: *UInt64) r: Int32
+extern "C" fun seen_vk_begin_command_buffer(buffer: UInt64, flags: UInt32) r: Int32
+extern "C" fun seen_vk_end_command_buffer(buffer: UInt64) r: Int32
+
+// Command recording
+extern "C" fun seen_vk_cmd_begin_render_pass(cmd: UInt64, renderPass: UInt64, framebuffer: UInt64, x: Int32, y: Int32, width: UInt32, height: UInt32, clearR: Float, clearG: Float, clearB: Float, clearA: Float) r: Void
+extern "C" fun seen_vk_cmd_end_render_pass(cmd: UInt64) r: Void
+extern "C" fun seen_vk_cmd_bind_pipeline(cmd: UInt64, bindPoint: UInt32, pipeline: UInt64) r: Void
+extern "C" fun seen_vk_cmd_set_viewport(cmd: UInt64, x: Float, y: Float, w: Float, h: Float, minD: Float, maxD: Float) r: Void
+extern "C" fun seen_vk_cmd_set_scissor(cmd: UInt64, x: Int32, y: Int32, w: UInt32, h: UInt32) r: Void
+extern "C" fun seen_vk_cmd_draw(cmd: UInt64, vertexCount: UInt32, instanceCount: UInt32, firstVertex: UInt32, firstInstance: UInt32) r: Void
+
+// Synchronization
+extern "C" fun seen_vk_create_semaphore(device: UInt64, outSemaphore: *UInt64) r: Int32
+extern "C" fun seen_vk_destroy_semaphore(device: UInt64, semaphore: UInt64) r: Void
+extern "C" fun seen_vk_create_fence(device: UInt64, flags: UInt32, outFence: *UInt64) r: Int32
+extern "C" fun seen_vk_destroy_fence(device: UInt64, fence: UInt64) r: Void
+extern "C" fun seen_vk_wait_for_fences(device: UInt64, count: UInt32, fences: *UInt64, waitAll: Int32, timeout: UInt64) r: Int32
+extern "C" fun seen_vk_reset_fences(device: UInt64, count: UInt32, fences: *UInt64) r: Int32
+
+// Queue operations
+extern "C" fun seen_vk_queue_submit(queue: UInt64, waitSemaphore: UInt64, waitStage: UInt32, commandBuffer: UInt64, signalSemaphore: UInt64, fence: UInt64) r: Int32
+extern "C" fun seen_vk_queue_present(queue: UInt64, waitSemaphore: UInt64, swapchain: UInt64, imageIndex: UInt32) r: Int32
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Convert a Vulkan result code to a human-readable string.
+ */
+fun vk_result_string(result: Int) r: String {
+    // Inline constants to work around negative value module constant issues
+    // Success codes (0-5)
+    if result == 0 { return "VK_SUCCESS" }
+    if result == 1 { return "VK_NOT_READY" }
+    if result == 2 { return "VK_TIMEOUT" }
+    if result == 3 { return "VK_EVENT_SET" }
+    if result == 4 { return "VK_EVENT_RESET" }
+    if result == 5 { return "VK_INCOMPLETE" }
+    // Error codes (negative)
+    if result == -1 { return "VK_ERROR_OUT_OF_HOST_MEMORY" }
+    if result == -2 { return "VK_ERROR_OUT_OF_DEVICE_MEMORY" }
+    if result == -3 { return "VK_ERROR_INITIALIZATION_FAILED" }
+    if result == -4 { return "VK_ERROR_DEVICE_LOST" }
+    if result == -5 { return "VK_ERROR_MEMORY_MAP_FAILED" }
+    if result == -6 { return "VK_ERROR_LAYER_NOT_PRESENT" }
+    if result == -7 { return "VK_ERROR_EXTENSION_NOT_PRESENT" }
+    if result == -8 { return "VK_ERROR_FEATURE_NOT_PRESENT" }
+    if result == -9 { return "VK_ERROR_INCOMPATIBLE_DRIVER" }
+    if result == -10 { return "VK_ERROR_TOO_MANY_OBJECTS" }
+    if result == -11 { return "VK_ERROR_FORMAT_NOT_SUPPORTED" }
+    if result == -1000000000 { return "VK_ERROR_SURFACE_LOST_KHR" }
+    if result == -1000001004 { return "VK_ERROR_OUT_OF_DATE_KHR" }
+    if result == 1000001003 { return "VK_SUBOPTIMAL_KHR" }
+    return "VK_UNKNOWN_ERROR"
+}
+
+// Check if result is success
+fun vk_succeeded(result: Int) r: Bool {
+    return result >= 0
+}
+
+// Check if result is an error
+fun vk_failed(result: Int) r: Bool {
+    return result < 0
+}
+
+// Make Vulkan API version
+fun vk_make_version(major: Int, minor: Int, patch: Int) r: UInt32 {
+    return ((major as UInt32) << 22) | ((minor as UInt32) << 12) | (patch as UInt32)
+}
+
+// Vulkan 1.3 API version constant
+let VK_API_VERSION_1_3: UInt32 = vk_make_version(1, 3, 0)
+let VK_API_VERSION_1_2: UInt32 = vk_make_version(1, 2, 0)
+let VK_API_VERSION_1_1: UInt32 = vk_make_version(1, 1, 0)
+let VK_API_VERSION_1_0: UInt32 = vk_make_version(1, 0, 0)

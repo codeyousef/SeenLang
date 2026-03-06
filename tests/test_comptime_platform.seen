@@ -1,0 +1,14 @@
+// Test comptime platform/feature detection
+fun main() r: Void {
+    comptime if (target.isLinux) {
+        println("Platform: Linux")
+    } else {
+        println("Platform: not Linux")
+    }
+    comptime if (target.hasAVX512) {
+        println("Has AVX-512")
+    } else {
+        println("No AVX-512")
+    }
+    println("PASS: comptime_platform")
+}

@@ -1,0 +1,10 @@
+name = "Arabic"
+description = "Arabic Environment Standard Library"
+
+[std_lib]
+"وسائط" = "seen_std.env.env.args"
+"احصل" = "seen_std.env.env.get"
+"عيّن" = "seen_std.env.env.set"
+"يملك" = "seen_std.env.env.has"
+"نفذ_أمر" = "seen_std.process.process.runCommand"
+"اخرج" = "seen_std.process.process.processExit"

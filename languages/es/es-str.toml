@@ -1,0 +1,18 @@
+name = "Spanish"
+description = "Spanish String Standard Library"
+
+[std_lib]
+"dividir" = "seen_std.str.string.split"
+"recortar" = "seen_std.str.string.trim"
+"contiene" = "seen_std.str.string.contains"
+"empiezaCon" = "seen_std.str.string.startsWith"
+"terminaCon" = "seen_std.str.string.endsWith"
+"indiceDe" = "seen_std.str.string.indexOf"
+"reemplazar" = "seen_std.str.string.replace"
+"aMayusculas" = "seen_std.str.string.String_toUpperCase"
+"aMinusculas" = "seen_std.str.string.String_toLowerCase"
+"lineas" = "seen_std.str.string.lines"
+"palabras" = "seen_std.str.string.words"
+"repetir" = "seen_std.str.string.repeat"
+"unir" = "seen_std.str.string.join"
+"ConstructorCadena" = "StringBuilder"

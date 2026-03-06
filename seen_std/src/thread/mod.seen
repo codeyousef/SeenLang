@@ -1,0 +1,26 @@
+// Thread management - basic support
+import core.result.{Result, Ok, Err}
+
+class Thread {
+    var id: Int
+    
+    fun current() -> Thread {
+        return Thread { id: __ThreadCurrent() }
+    }
+    
+    fun sleep(durationMs: Int) -> Void {
+        __ThreadSleep(durationMs)
+    }
+    
+    fun yieldNow() -> Void {
+        __ThreadYield()
+    }
+}
+
+fun sleep(durationMs: Int) -> Void {
+    __ThreadSleep(durationMs)
+}
+
+fun yieldNow() -> Void {
+    __ThreadYield()
+}

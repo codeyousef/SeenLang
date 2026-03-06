@@ -1,0 +1,187 @@
+// OOP Class Basics Test
+// Tests: instance variables, instance methods, static methods
+// Expected: All basic class features work correctly
+
+class Counter {
+    var count: Int
+    var name: String
+
+    static fun new(name: String) r: Counter {
+        return Counter { count: 0, name: name }
+    }
+
+    fun increment() r: Void {
+        this.count = this.count + 1
+    }
+
+    fun decrement() r: Void {
+        this.count = this.count - 1
+    }
+
+    fun getCount() r: Int {
+        return this.count
+    }
+
+    fun reset() r: Void {
+        this.count = 0
+    }
+
+    static fun createWithValue(name: String, value: Int) r: Counter {
+        let c = Counter { count: value, name: name }
+        return c
+    }
+}
+
+class Point {
+    var x: Int
+    var y: Int
+
+    static fun new(x: Int, y: Int) r: Point {
+        return Point { x: x, y: y }
+    }
+
+    fun distanceSquared() r: Float {
+        let xf = x.toFloat()
+        let yf = y.toFloat()
+        return xf * xf + yf * yf
+    }
+
+    fun translate(dx: Int, dy: Int) r: Void {
+        this.x = this.x + dx
+        this.y = this.y + dy
+    }
+}
+
+fun main() r: Int {
+    println("Testing OOP Class Basics...")
+
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Class instantiation
+    println("\n=== Test 1: Class Instantiation ===")
+    let counter = Counter.new("test")
+    if counter.count == 0 and counter.name == "test" {
+        println("PASS: Class instantiated with correct values")
+        passed = passed + 1
+    } else {
+        println("FAIL: Class instantiation incorrect")
+        failed = failed + 1
+    }
+
+    // Test 2: Instance method calls
+    println("\n=== Test 2: Instance Methods ===")
+    counter.increment()
+    counter.increment()
+    counter.increment()
+    if counter.getCount() == 3 {
+        println("PASS: Instance methods work")
+        passed = passed + 1
+    } else {
+        println("FAIL: Instance method calls incorrect")
+        failed = failed + 1
+    }
+
+    // Test 3: Method modifying state
+    println("\n=== Test 3: State Modification ===")
+    counter.decrement()
+    if counter.getCount() == 2 {
+        println("PASS: Methods modify state correctly")
+        passed = passed + 1
+    } else {
+        println("FAIL: State modification incorrect")
+        failed = failed + 1
+    }
+
+    // Test 4: Reset method
+    println("\n=== Test 4: Reset Method ===")
+    counter.reset()
+    if counter.getCount() == 0 {
+        println("PASS: Reset works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Reset didn't work")
+        failed = failed + 1
+    }
+
+    // Test 5: Static method with parameters
+    println("\n=== Test 5: Static Factory Method ===")
+    let counter2 = Counter.createWithValue("second", 42)
+    if counter2.getCount() == 42 and counter2.name == "second" {
+        println("PASS: Static factory method works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Static factory incorrect")
+        failed = failed + 1
+    }
+
+    // Test 6: Multiple instances independent
+    println("\n=== Test 6: Instance Independence ===")
+    counter.increment()
+    counter.increment()
+    if counter.getCount() == 2 and counter2.getCount() == 42 {
+        println("PASS: Multiple instances are independent")
+        passed = passed + 1
+    } else {
+        println("FAIL: Instances not independent")
+        failed = failed + 1
+    }
+
+    // Test 7: Second class type
+    println("\n=== Test 7: Multiple Class Types ===")
+    let p = Point.new(3, 4)
+    if p.x == 3 and p.y == 4 {
+        println("PASS: Second class type works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Second class type incorrect")
+        failed = failed + 1
+    }
+
+    // Test 8: Method with calculation
+    println("\n=== Test 8: Methods with Calculations ===")
+    let distSq = p.distanceSquared()
+    if distSq > 24.9 and distSq < 25.1 {
+        println("PASS: Method calculations work")
+        passed = passed + 1
+    } else {
+        println("FAIL: Method calculation wrong: " + distSq.toString())
+        failed = failed + 1
+    }
+
+    // Test 9: Method modifying multiple fields
+    println("\n=== Test 9: Multi-Field Modification ===")
+    p.translate(10, 20)
+    if p.x == 13 and p.y == 24 {
+        println("PASS: Multi-field modification works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Multi-field modification incorrect")
+        failed = failed + 1
+    }
+
+    // Test 10: Field access
+    println("\n=== Test 10: Direct Field Access ===")
+    p.x = 100
+    p.y = 200
+    if p.x == 100 and p.y == 200 {
+        println("PASS: Direct field access works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Field access incorrect")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("\n==================================================")
+    println("OOP Class Basics Results: " + passed.toString() + "/" + (passed + failed).toString())
+    println("==================================================")
+
+    if failed > 0 {
+        println("FAIL: Some OOP tests failed")
+        return 1
+    }
+
+    println("PASS: All OOP class basic tests passed!")
+    return 0
+}

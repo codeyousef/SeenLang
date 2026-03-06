@@ -1,0 +1,71 @@
+// Parser module stub entry points used by the bootstrap build.
+// The real parser lives in parser.real_parser; these helpers are thin shims
+// that avoid strict type coupling during early bootstrap.
+
+// Re-export types from real_parser for compatibility
+import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, ItemNode, TypeNode}
+
+// Re-export from typechecker interfaces
+import typechecker.interfaces.{AST, Expression, Statement, Function, Class}
+
+// Stub expression types for IR generator compatibility
+class BinaryExpression {
+    var left: Expression
+    var right: Expression
+    var operator: String
+    var line: Int
+    var column: Int
+}
+
+class Literal {
+    var value: String
+    var literalType: String
+    var line: Int
+    var column: Int
+}
+
+class IdentifierExpression {
+    var name: String
+    var line: Int
+    var column: Int
+}
+
+class Block {
+    var statements: Array<Statement>
+}
+
+class ReturnStatement {
+    var value: Expression?
+    var line: Int
+    var column: Int
+}
+
+class VariableDeclaration {
+    var name: String
+    var varType: Type?
+    var initializer: Expression?
+    var isMutable: Bool
+    var line: Int
+    var column: Int
+}
+
+class IfStatement {
+    var condition: Expression
+    var thenBranch: Block
+    var elseBranch: Block?
+    var line: Int
+    var column: Int
+}
+
+class Type {
+    var name: String
+    var isNullable: Bool
+}
+
+fun createParser(tokens: Array<Any>) r: Array<Any> {
+    return tokens
+}
+
+fun parseString(source: String, language: String = "en") r: Map<String, String> {
+    return Map<String, String>.new()
+}

@@ -1,0 +1,47 @@
+// Test valid @syscall decorators
+// This test should compile successfully with --profile deterministic
+
+@syscall("uww::timestamp")
+fun getTimestamp() r: Int {
+    // Placeholder - actual implementation would call the syscall
+    return 0
+}
+
+@syscall("uww::random_seed")
+fun getRandomSeed() r: Int {
+    return 0
+}
+
+@syscall("uww::input_state")
+fun getInputState() r: Int {
+    return 0
+}
+
+@syscall("uww::host_log")
+fun hostLog(message: String) r: Void {
+    // Placeholder - would log to host
+}
+
+@syscall("uww::network_hash")
+fun getNetworkHash() r: Int {
+    return 0
+}
+
+@syscall("uww::rollback_check")
+fun isRollback() r: Bool {
+    return false
+}
+
+fun main() r: Int {
+    println("Testing valid @syscall decorators...")
+
+    let ts = getTimestamp()
+    let seed = getRandomSeed()
+    let input = getInputState()
+    hostLog("Test message")
+    let hash = getNetworkHash()
+    let rollback = isRollback()
+
+    println("All valid syscalls work!")
+    return 0
+}

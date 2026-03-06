@@ -1,0 +1,11 @@
+class Test {
+    let name: String
+
+    fun new(name: String) r: Test {
+        return Test{ name: name }
+    }
+
+    fun run() r: Void {
+        println("[test] {name}")
+    }
+}

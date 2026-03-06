@@ -1,0 +1,90 @@
+// Great-Circle Distance (Haversine) Benchmark
+// Computes distances between lat/lon coordinate pairs using trig functions
+// Math functions: sin, cos, asin, sqrt (via LLVM intrinsic builtins)
+
+fun haversine(lat1: Float, lon1: Float, lat2: Float, lon2: Float) -> Float {
+    let earth_radius = 6371.0
+    let half_dlat = (lat2 - lat1) / 2.0
+    let half_dlon = (lon2 - lon1) / 2.0
+    let a = __Sin(half_dlat) * __Sin(half_dlat) + __Cos(lat1) * __Cos(lat2) * __Sin(half_dlon) * __Sin(half_dlon)
+    return earth_radius * 2.0 * __Asin(__Sqrt(a))
+}
+
+fun run_great_circle(n: Int) -> Float {
+    let pi = 3.141592653589793
+    let golden_ratio = 1.618033988749895
+    var total_distance = 0.0
+
+    // Generate pairs using golden ratio spiral on sphere
+    var i = 0
+    while i < n {
+        // Point 1 from golden spiral
+        let t1 = i.toFloat() / n.toFloat()
+        let lat1 = __Asin(2.0 * t1 - 1.0)
+        let lon1 = 2.0 * pi * golden_ratio * i.toFloat()
+
+        // Point 2 from offset golden spiral
+        let j = i + 1
+        let t2 = j.toFloat() / n.toFloat()
+        let lat2 = __Asin(2.0 * t2 - 1.0)
+        let lon2 = 2.0 * pi * golden_ratio * j.toFloat()
+
+        let dist = haversine(lat1, lon1, lat2, lon2)
+        total_distance = total_distance + dist
+
+        i = i + 1
+    }
+
+    return total_distance
+}
+
+fun main() -> Int {
+    let n = 2000000
+
+    __Print("Great-Circle Distance (Haversine) Benchmark\n")
+    __Print("Pairs: ")
+    __PrintInt(n)
+    __Print("\n")
+
+    // Warmup
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs at n=40000)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let warmup_result = run_great_circle(40000)
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result = 0.0
+
+    var iter = 0
+    while iter < iterations {
+        let start = __GetTime()
+        let checksum = run_great_circle(n)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result = checksum
+        }
+        iter = iter + 1
+    }
+
+    __Print("Total distance: ")
+    __PrintFloat(result)
+    __Print(" km\n")
+    __Print("Min time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Pairs per second: ")
+    __PrintFloat(n.toFloat() / (min_time / 1000.0) / 1000000.0)
+    __Print(" million\n")
+
+    return 0
+}

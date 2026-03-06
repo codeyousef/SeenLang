@@ -1,0 +1,67 @@
+class Vec2 {
+    var x: Int
+    var y: Int
+
+    static fun new(xv: Int, yv: Int) r: Vec2 {
+        return Vec2{x: xv, y: yv}
+    }
+
+    fun operator+(other: Vec2) r: Vec2 {
+        return Vec2{x: this.x + other.x, y: this.y + other.y}
+    }
+
+    fun operator-(other: Vec2) r: Vec2 {
+        return Vec2{x: this.x - other.x, y: this.y - other.y}
+    }
+
+    fun operator*(other: Vec2) r: Vec2 {
+        return Vec2{x: this.x * other.x, y: this.y * other.y}
+    }
+
+    fun toString() r: String {
+        return "(" + this.x.toString() + ", " + this.y.toString() + ")"
+    }
+}
+
+fun main() {
+    let a = Vec2.new(10, 20)
+    let b = Vec2.new(3, 7)
+
+    // Test operator+
+    let c = a + b
+    println("a + b = " + c.toString())
+    if c.x == 13 and c.y == 27 {
+        println("PASS: operator+ works")
+    } else {
+        println("FAIL: operator+ expected (13, 27)")
+    }
+
+    // Test operator-
+    let d = a - b
+    println("a - b = " + d.toString())
+    if d.x == 7 and d.y == 13 {
+        println("PASS: operator- works")
+    } else {
+        println("FAIL: operator- expected (7, 13)")
+    }
+
+    // Test operator*
+    let e = a * b
+    println("a * b = " + e.toString())
+    if e.x == 30 and e.y == 140 {
+        println("PASS: operator* works")
+    } else {
+        println("FAIL: operator* expected (30, 140)")
+    }
+
+    // Test chaining: a + b + b
+    let f = a + b + b
+    println("a + b + b = " + f.toString())
+    if f.x == 16 and f.y == 34 {
+        println("PASS: chained operator+ works")
+    } else {
+        println("FAIL: chained operator+ expected (16, 34)")
+    }
+
+    println("All operator overload tests complete.")
+}

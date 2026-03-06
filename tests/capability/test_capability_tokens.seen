@@ -1,0 +1,234 @@
+// Test @using(Token) capability annotations
+// This test verifies that the capability checker correctly enforces security constraints
+
+// Test 1: Missing token should fail (compile-time error expected)
+// Uncomment to test error detection:
+// fun testMissingToken() r: Void {
+//     let x = readText("file.txt")  // ERROR: lacks FileToken
+// }
+
+// Test 2: With token should pass
+@using(FileToken)
+fun testWithFileToken() r: String {
+    // This would be allowed with FileToken
+    // return readText("config.txt")
+    return "test"
+}
+
+// Test 3: Token propagation - caller must have callee's tokens
+@using(FileToken)
+fun helperReadFile() r: String {
+    // return readText("x.txt")
+    return "file contents"
+}
+
+// This should fail without FileToken (uncomment to test):
+// fun testPropagationFail() r: Void {
+//     let x = helperReadFile()  // ERROR: lacks FileToken
+// }
+
+// This should pass with FileToken
+@using(FileToken)
+fun testPropagationPass() r: String {
+    return helperReadFile()  // OK - has FileToken
+}
+
+// Test 4: Multiple tokens
+@using(FileToken, NetToken)
+fun testMultipleTokens() r: Bool {
+    // With both tokens, can do file and network ops
+    // let content = readText("urls.txt")
+    // let stream = TcpStream.connect("example.com:80")
+    return true
+}
+
+// Test 5: AllToken grants all capabilities
+@using(AllToken)
+fun testAllToken() r: Bool {
+    // AllToken grants all capabilities for legacy/trusted code
+    // readText("x.txt")        // OK with AllToken
+    // TcpStream.connect("x:80") // OK with AllToken
+    // execCommand("ls")         // OK with AllToken
+    return true
+}
+
+// Test 6: ProcessToken for execution
+@using(ProcessToken)
+fun testProcessToken() r: Bool {
+    // Would allow process execution
+    // execCommand("ls -la")
+    return true
+}
+
+// Test 7: EnvToken for environment access
+@using(EnvToken)
+fun testEnvToken() r: String {
+    // Would allow environment access
+    // return env.get("HOME")
+    return "/home/user"
+}
+
+// Test 8: DynLoadToken for dynamic loading
+@using(DynLoadToken)
+fun testDynLoadToken() r: Bool {
+    // Would allow dynamic library loading
+    // let module = HotModule.load("plugin.so")
+    return true
+}
+
+// Test 9: NetToken for network operations
+@using(NetToken)
+fun testNetToken() r: Bool {
+    // Would allow network operations
+    // let stream = TcpStream.connect("localhost:8080")
+    return true
+}
+
+// Test 10: Nested calls with capability propagation
+@using(FileToken)
+fun innerHelper() r: String {
+    return "inner"
+}
+
+@using(FileToken)
+fun outerHelper() r: String {
+    return innerHelper()
+}
+
+@using(FileToken)
+fun testNestedPropagation() r: String {
+    return outerHelper()  // OK - all have FileToken
+}
+
+// Main test function
+fun main() r: Int {
+    println("=================================")
+    println("Capability Token Tests")
+    println("=================================")
+
+    var passed = 0
+    var total = 0
+
+    // Test 1: Function with FileToken
+    println("")
+    println("Test 1: @using(FileToken)")
+    total = total + 1
+    let fileResult = testWithFileToken()
+    if fileResult == "test" {
+        println("PASS: Function with FileToken compiled")
+        passed = passed + 1
+    } else {
+        println("FAIL: Unexpected result")
+    }
+
+    // Test 2: Token propagation
+    println("")
+    println("Test 2: Token propagation")
+    total = total + 1
+    let propResult = testPropagationPass()
+    if propResult == "file contents" {
+        println("PASS: Token propagation works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Propagation failed")
+    }
+
+    // Test 3: Multiple tokens
+    println("")
+    println("Test 3: Multiple tokens @using(FileToken, NetToken)")
+    total = total + 1
+    let multiResult = testMultipleTokens()
+    if multiResult {
+        println("PASS: Multiple tokens compiled")
+        passed = passed + 1
+    } else {
+        println("FAIL: Multiple tokens failed")
+    }
+
+    // Test 4: AllToken
+    println("")
+    println("Test 4: @using(AllToken)")
+    total = total + 1
+    let allResult = testAllToken()
+    if allResult {
+        println("PASS: AllToken compiled")
+        passed = passed + 1
+    } else {
+        println("FAIL: AllToken failed")
+    }
+
+    // Test 5: ProcessToken
+    println("")
+    println("Test 5: @using(ProcessToken)")
+    total = total + 1
+    let processResult = testProcessToken()
+    if processResult {
+        println("PASS: ProcessToken compiled")
+        passed = passed + 1
+    } else {
+        println("FAIL: ProcessToken failed")
+    }
+
+    // Test 6: EnvToken
+    println("")
+    println("Test 6: @using(EnvToken)")
+    total = total + 1
+    let envResult = testEnvToken()
+    if envResult == "/home/user" {
+        println("PASS: EnvToken compiled")
+        passed = passed + 1
+    } else {
+        println("FAIL: EnvToken failed")
+    }
+
+    // Test 7: DynLoadToken
+    println("")
+    println("Test 7: @using(DynLoadToken)")
+    total = total + 1
+    let dynResult = testDynLoadToken()
+    if dynResult {
+        println("PASS: DynLoadToken compiled")
+        passed = passed + 1
+    } else {
+        println("FAIL: DynLoadToken failed")
+    }
+
+    // Test 8: NetToken
+    println("")
+    println("Test 8: @using(NetToken)")
+    total = total + 1
+    let netResult = testNetToken()
+    if netResult {
+        println("PASS: NetToken compiled")
+        passed = passed + 1
+    } else {
+        println("FAIL: NetToken failed")
+    }
+
+    // Test 9: Nested propagation
+    println("")
+    println("Test 9: Nested capability propagation")
+    total = total + 1
+    let nestedResult = testNestedPropagation()
+    if nestedResult == "inner" {
+        println("PASS: Nested propagation works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Nested propagation failed")
+    }
+
+    // Summary
+    println("")
+    println("=================================")
+    println("Capability Token Tests Complete")
+    println("=================================")
+    println("Passed: " + passed.toString() + " / " + total.toString())
+
+    if passed == total {
+        println("All capability token tests passed!")
+        return 0
+    } else {
+        println("Some tests failed")
+        return 1
+    }
+}

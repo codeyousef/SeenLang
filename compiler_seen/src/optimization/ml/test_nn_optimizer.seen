@@ -1,0 +1,627 @@
+// Tests for Neural Network-based ML Optimizer
+// Validates neural network operations, training, and decision making
+
+import optimization.ml.neural_network.{NeuralNetwork, NeuralLayer, TrainingSample, sigmoid, relu}
+import optimization.ml.training_data.{TrainingData, TrainingExample, OptimizationDecision}
+import optimization.ml.ml_optimizer_nn.{MLOptimizerNN, LoopFeaturesNN, InlineFeaturesNN}
+
+// ============ Neural Network Unit Tests ============
+
+fun test_sigmoid() r: TestResult {
+    // Test sigmoid at various points
+    let s0 = sigmoid(0.0)
+    if s0 < 0.49 or s0 > 0.51 {
+        return TestResult.failure("sigmoid(0)", "Expected ~0.5", "got " + s0.toString())
+    }
+    
+    let s5 = sigmoid(5.0)
+    if s5 < 0.99 {
+        return TestResult.failure("sigmoid(5)", "Expected ~1.0", "got " + s5.toString())
+    }
+    
+    let sNeg5 = sigmoid(-5.0)
+    if sNeg5 > 0.01 {
+        return TestResult.failure("sigmoid(-5)", "Expected ~0.0", "got " + sNeg5.toString())
+    }
+    
+    return TestResult.success("test_sigmoid")
+}
+
+fun test_relu() r: TestResult {
+    if relu(5.0) != 5.0 {
+        return TestResult.failure("relu(5)", "Expected 5.0", "got " + relu(5.0).toString())
+    }
+    
+    if relu(-3.0) != 0.0 {
+        return TestResult.failure("relu(-3)", "Expected 0.0", "got " + relu(-3.0).toString())
+    }
+    
+    if relu(0.0) != 0.0 {
+        return TestResult.failure("relu(0)", "Expected 0.0", "got " + relu(0.0).toString())
+    }
+    
+    return TestResult.success("test_relu")
+}
+
+fun test_neural_layer_forward() r: TestResult {
+    let layer = NeuralLayer.new(3, 2, true)
+    
+    let inputs = Array<Float>()
+    inputs.push(1.0)
+    inputs.push(2.0)
+    inputs.push(3.0)
+    
+    let outputs = layer.forward(inputs)
+    
+    if outputs.length() != 2 {
+        return TestResult.failure("layer output size", "Expected 2", "got " + outputs.length().toString())
+    }
+    
+    // Outputs should be non-negative (ReLU)
+    if outputs[0] < 0.0 or outputs[1] < 0.0 {
+        return TestResult.failure("ReLU output", "Expected >= 0", "got " + outputs[0].toString() + ", " + outputs[1].toString())
+    }
+    
+    return TestResult.success("test_neural_layer_forward")
+}
+
+fun test_neural_network_creation() r: TestResult {
+    let nn = NeuralNetwork.new(7, [16, 8], 4)
+    
+    if nn.inputSize != 7 {
+        return TestResult.failure("input size", "Expected 7", "got " + nn.inputSize.toString())
+    }
+    
+    if nn.outputSize != 4 {
+        return TestResult.failure("output size", "Expected 4", "got " + nn.outputSize.toString())
+    }
+    
+    if nn.layers.length() != 3 {
+        return TestResult.failure("layer count", "Expected 3", "got " + nn.layers.length().toString())
+    }
+    
+    return TestResult.success("test_neural_network_creation")
+}
+
+fun test_neural_network_predict() r: TestResult {
+    let nn = NeuralNetwork.new(3, [4], 2)
+    
+    let inputs = Array<Float>()
+    inputs.push(0.5)
+    inputs.push(0.3)
+    inputs.push(0.2)
+    
+    let outputs = nn.predict(inputs)
+    
+    if outputs.length() != 2 {
+        return TestResult.failure("predict output size", "Expected 2", "got " + outputs.length().toString())
+    }
+    
+    // Outputs should be in [0, 1] (sigmoid)
+    if outputs[0] < 0.0 or outputs[0] > 1.0 {
+        return TestResult.failure("predict output[0] range", "Expected [0,1]", "got " + outputs[0].toString())
+    }
+    
+    return TestResult.success("test_neural_network_predict")
+}
+
+fun test_neural_network_training() r: TestResult {
+    let nn = NeuralNetwork.new(2, [4], 2)
+    nn.setLearningRate(0.1)
+    
+    // Create training data for XOR-like problem
+    let samples = Array<TrainingSample>()
+    
+    // Sample 1: [0, 0] -> [0, 1]
+    let f1 = Array<Float>()
+    f1.push(0.0)
+    f1.push(0.0)
+    let t1 = Array<Float>()
+    t1.push(0.0)
+    t1.push(1.0)
+    samples.push(TrainingSample.new(f1, t1))
+    
+    // Sample 2: [0, 1] -> [1, 0]
+    let f2 = Array<Float>()
+    f2.push(0.0)
+    f2.push(1.0)
+    let t2 = Array<Float>()
+    t2.push(1.0)
+    t2.push(0.0)
+    samples.push(TrainingSample.new(f2, t2))
+    
+    // Sample 3: [1, 0] -> [1, 0]
+    let f3 = Array<Float>()
+    f3.push(1.0)
+    f3.push(0.0)
+    let t3 = Array<Float>()
+    t3.push(1.0)
+    t3.push(0.0)
+    samples.push(TrainingSample.new(f3, t3))
+    
+    // Train for a few epochs
+    let initialLoss = nn.trainBatch(samples, 10)
+    let finalLoss = nn.trainBatch(samples, 50)
+    
+    // Loss should decrease
+    if finalLoss > initialLoss {
+        return TestResult.failure("training loss", "Expected decrease", "initial=" + initialLoss.toString() + ", final=" + finalLoss.toString())
+    }
+    
+    return TestResult.success("test_neural_network_training")
+}
+
+// ============ Training Data Tests ============
+
+fun test_training_data_collection() r: TestResult {
+    let data = TrainingData.new("/tmp/test_training_data.jsonl")
+    
+    let features = LoopFeatures.new(100, 2, 10, 5, 8, 3, 1)
+    let example = data.addLoopExample(
+        features,
+        OptimizationDecision.Vectorize,
+        0.85,
+        "test.seen:42",
+        "testFunction"
+    )
+    
+    if data.examples.length() != 1 {
+        return TestResult.failure("example count", "Expected 1", "got " + data.examples.length().toString())
+    }
+    
+    if example.decision != OptimizationDecision.Vectorize {
+        return TestResult.failure("decision", "Expected Vectorize", "got other")
+    }
+    
+    return TestResult.success("test_training_data_collection")
+}
+
+fun test_feature_vector_conversion() r: TestResult {
+    let example = TrainingExample.new("test_1", OptimizationDecision.Unroll)
+    example.loopFeatures = LoopFeatures.new(100, 2, 10, 5, 8, 3, 1)
+    
+    let vector = example.toFeatureVector()
+    
+    if vector.length() != 7 {
+        return TestResult.failure("feature vector length", "Expected 7", "got " + vector.length().toString())
+    }
+    
+    // All values should be normalized to [0, 1]
+    var i = 0
+    while i < vector.length() {
+        if vector[i] < 0.0 or vector[i] > 1.0 {
+            return TestResult.failure("feature[" + i.toString() + "]", "Expected [0,1]", "got " + vector[i].toString())
+        }
+        i = i + 1
+    }
+    
+    return TestResult.success("test_feature_vector_conversion")
+}
+
+fun test_target_vector_conversion() r: TestResult {
+    let example = TrainingExample.new("test_1", OptimizationDecision.Vectorize)
+    let vector = example.toTargetVector()
+    
+    if vector.length() != 4 {
+        return TestResult.failure("target vector length", "Expected 4", "got " + vector.length().toString())
+    }
+    
+    // Vectorize should be [1, 0, 0, 0]
+    if vector[0] != 1.0 or vector[1] != 0.0 or vector[2] != 0.0 or vector[3] != 0.0 {
+        return TestResult.failure("target vector", "Expected [1,0,0,0]", "got [" + vector[0].toString() + "," + vector[1].toString() + "," + vector[2].toString() + "," + vector[3].toString() + "]")
+    }
+    
+    return TestResult.success("test_target_vector_conversion")
+}
+
+fun test_training_samples_generation() r: TestResult {
+    let data = TrainingData.new()
+    
+    // Add some examples
+    data.addLoopExample(LoopFeatures.new(100, 1, 10, 2, 5, 3, 1), OptimizationDecision.Vectorize, 0.8, "", "")
+    data.addLoopExample(LoopFeatures.new(10, 2, 5, 1, 2, 1, 1), OptimizationDecision.Unroll, 0.7, "", "")
+    data.addInlineExample(InlineFeatures.new(5, 100, 10, false), OptimizationDecision.Inline, 0.9, "", "")
+    
+    let samples = data.getTrainingSamples()
+    
+    if samples.length() != 3 {
+        return TestResult.failure("training samples count", "Expected 3", "got " + samples.length().toString())
+    }
+    
+    // Check that samples have correct dimensions
+    if samples[0].features.length() != 7 {
+        return TestResult.failure("sample features length", "Expected 7", "got " + samples[0].features.length().toString())
+    }
+    
+    if samples[0].targets.length() != 4 {
+        return TestResult.failure("sample targets length", "Expected 4", "got " + samples[0].targets.length().toString())
+    }
+    
+    return TestResult.success("test_training_samples_generation")
+}
+
+// ============ MLOptimizerNN Tests ============
+
+fun test_ml_optimizer_creation() r: TestResult {
+    let optimizer = MLOptimizerNN.new()
+    
+    if optimizer.totalDecisions != 0 {
+        return TestResult.failure("initial decisions", "Expected 0", "got " + optimizer.totalDecisions.toString())
+    }
+    
+    if optimizer.loopNetwork == null {
+        return TestResult.failure("loop network", "Expected non-null", "got null")
+    }
+    
+    if optimizer.inlineNetwork == null {
+        return TestResult.failure("inline network", "Expected non-null", "got null")
+    }
+    
+    return TestResult.success("test_ml_optimizer_creation")
+}
+
+fun test_loop_features_nn() r: TestResult {
+    let features = LoopFeaturesNN.new(
+        100,    // tripCount
+        2,      // nestingDepth
+        10,     // addOps
+        5,      // mulOps
+        8,      // loadOps
+        3,      // storeOps
+        1,      // stride
+        "test.seen:42",
+        "testFunc"
+    )
+    
+    let vector = features.toFeatureVector()
+    
+    if vector.length() != 7 {
+        return TestResult.failure("feature vector length", "Expected 7", "got " + vector.length().toString())
+    }
+    
+    // Check normalization
+    if vector[0] != 0.01 { // 100/10000
+        return TestResult.failure("tripCount norm", "Expected ~0.01", "got " + vector[0].toString())
+    }
+    
+    return TestResult.success("test_loop_features_nn")
+}
+
+fun test_inline_features_nn() r: TestResult {
+    let features = InlineFeaturesNN.new(
+        10,     // calleeSize
+        200,    // callerSize
+        5,      // callCount
+        true,   // hasLoops
+        "test.seen:100",
+        "callerFunc"
+    )
+    
+    let vector = features.toFeatureVector()
+    
+    // Should be padded to 7 features
+    if vector.length() != 7 {
+        return TestResult.failure("feature vector length", "Expected 7", "got " + vector.length().toString())
+    }
+    
+    // Check hasLoops encoding
+    if vector[3] != 1.0 {
+        return TestResult.failure("hasLoops encoding", "Expected 1.0", "got " + vector[3].toString())
+    }
+    
+    return TestResult.success("test_inline_features_nn")
+}
+
+fun test_heuristic_vectorize_decision() r: TestResult {
+    let optimizer = MLOptimizerNN.new()
+    optimizer.enableNeuralNetwork(false) // Force heuristics
+    
+    // Should vectorize: tripCount > 8, stride == 1
+    let features1 = LoopFeaturesNN.new(100, 1, 10, 2, 5, 3, 1, "", "")
+    if not optimizer.shouldVectorize(features1) {
+        return TestResult.failure("vectorize decision 1", "Expected true", "got false")
+    }
+    
+    // Should not vectorize: tripCount <= 8
+    let features2 = LoopFeaturesNN.new(5, 1, 10, 2, 5, 3, 1, "", "")
+    if optimizer.shouldVectorize(features2) {
+        return TestResult.failure("vectorize decision 2", "Expected false", "got true")
+    }
+    
+    // Should not vectorize: stride != 1
+    let features3 = LoopFeaturesNN.new(100, 1, 10, 2, 5, 3, 4, "", "")
+    if optimizer.shouldVectorize(features3) {
+        return TestResult.failure("vectorize decision 3", "Expected false", "got true")
+    }
+    
+    return TestResult.success("test_heuristic_vectorize_decision")
+}
+
+fun test_heuristic_unroll_decision() r: TestResult {
+    let optimizer = MLOptimizerNN.new()
+    optimizer.enableNeuralNetwork(false) // Force heuristics
+    
+    // Should unroll: known trip count, <= 16
+    let features1 = LoopFeaturesNN.new(10, 1, 5, 1, 2, 1, 1, "", "")
+    if not optimizer.shouldUnroll(features1) {
+        return TestResult.failure("unroll decision 1", "Expected true", "got false")
+    }
+    
+    // Should not unroll: unknown trip count (0)
+    let features2 = LoopFeaturesNN.new(0, 1, 5, 1, 2, 1, 1, "", "")
+    if optimizer.shouldUnroll(features2) {
+        return TestResult.failure("unroll decision 2", "Expected false", "got true")
+    }
+    
+    // Should not unroll: trip count > 16
+    let features3 = LoopFeaturesNN.new(20, 1, 5, 1, 2, 1, 1, "", "")
+    if optimizer.shouldUnroll(features3) {
+        return TestResult.failure("unroll decision 3", "Expected false", "got true")
+    }
+    
+    return TestResult.success("test_heuristic_unroll_decision")
+}
+
+fun test_heuristic_inline_decision() r: TestResult {
+    let optimizer = MLOptimizerNN.new()
+    optimizer.enableNeuralNetwork(false) // Force heuristics
+    
+    // Should inline: very small function
+    let features1 = InlineFeaturesNN.new(3, 100, 1, false, "", "")
+    if not optimizer.shouldInline(features1) {
+        return TestResult.failure("inline decision 1", "Expected true", "got false")
+    }
+    
+    // Should inline: small function, called many times
+    let features2 = InlineFeaturesNN.new(15, 100, 5, false, "", "")
+    if not optimizer.shouldInline(features2) {
+        return TestResult.failure("inline decision 2", "Expected true", "got false")
+    }
+    
+    // Should not inline: large function
+    let features3 = InlineFeaturesNN.new(50, 100, 1, false, "", "")
+    if optimizer.shouldInline(features3) {
+        return TestResult.failure("inline decision 3", "Expected false", "got true")
+    }
+    
+    return TestResult.success("test_heuristic_inline_decision")
+}
+
+fun test_decision_caching() r: TestResult {
+    let optimizer = MLOptimizerNN.new()
+    optimizer.enableNeuralNetwork(false)
+    
+    let features = LoopFeaturesNN.new(100, 1, 10, 2, 5, 3, 1, "", "")
+    
+    // First decision should compute
+    let d1 = optimizer.shouldVectorize(features)
+    let cacheHits1 = optimizer.cacheHits
+    
+    // Second decision should hit cache
+    let d2 = optimizer.shouldVectorize(features)
+    let cacheHits2 = optimizer.cacheHits
+    
+    if cacheHits2 != cacheHits1 + 1 {
+        return TestResult.failure("cache hit", "Expected 1 more hit", "hits before=" + cacheHits1.toString() + ", after=" + cacheHits2.toString())
+    }
+    
+    return TestResult.success("test_decision_caching")
+}
+
+fun test_optimizer_statistics() r: TestResult {
+    let optimizer = MLOptimizerNN.new()
+    optimizer.enableNeuralNetwork(false)
+    
+    // Make some decisions
+    let loopFeatures = LoopFeaturesNN.new(100, 1, 10, 2, 5, 3, 1, "", "")
+    optimizer.shouldVectorize(loopFeatures)
+    optimizer.shouldUnroll(loopFeatures)
+    
+    let inlineFeatures = InlineFeaturesNN.new(5, 100, 10, false, "", "")
+    optimizer.shouldInline(inlineFeatures)
+    
+    let stats = optimizer.getStats()
+    
+    if stats.totalDecisions != 3 {
+        return TestResult.failure("total decisions", "Expected 3", "got " + stats.totalDecisions.toString())
+    }
+    
+    if stats.heuristicDecisions != 3 {
+        return TestResult.failure("heuristic decisions", "Expected 3", "got " + stats.heuristicDecisions.toString())
+    }
+    
+    return TestResult.success("test_optimizer_statistics")
+}
+
+// ============ Integration Tests ============
+
+fun test_end_to_end_training() r: TestResult {
+    let optimizer = MLOptimizerNN.new()
+    
+    // Collect some training data
+    var i = 0
+    while i < 20 {
+        let features = LoopFeaturesNN.new(
+            50 + i * 10,
+            1 + i % 3,
+            5 + i,
+            2 + i % 5,
+            3 + i,
+            1 + i % 3,
+            1,
+            "test.seen:" + i.toString(),
+            "func" + i.toString()
+        )
+        
+        // Make some vectorize decisions
+        if i % 2 == 0 {
+            optimizer.trainingData.addLoopExample(
+                features.toLegacyFeatures(),
+                OptimizationDecision.Vectorize,
+                0.8,
+                features.sourceLocation,
+                features.functionName
+            )
+        } else {
+            optimizer.trainingData.addLoopExample(
+                features.toLegacyFeatures(),
+                OptimizationDecision.Unroll,
+                0.7,
+                features.sourceLocation,
+                features.functionName
+            )
+        }
+        
+        i = i + 1
+    }
+    
+    // Check we have data
+    if optimizer.trainingData.examples.length() != 20 {
+        return TestResult.failure("training data size", "Expected 20", "got " + optimizer.trainingData.examples.length().toString())
+    }
+    
+    // Train models
+    let result = optimizer.trainModels(10)
+    
+    // Should complete without errors
+    if not result.success {
+        return TestResult.failure("training", "Expected success", "got failure: " + result.message)
+    }
+    
+    return TestResult.success("test_end_to_end_training")
+}
+
+// ============ Test Runner ============
+
+class TestResult {
+    var passed: Bool
+    var testName: String
+    var message: String
+    
+    static fun success(name: String) r: TestResult {
+        return TestResult{
+            passed: true,
+            testName: name,
+            message: "PASSED"
+        }
+    }
+    
+    static fun failure(name: String, expected: String, actual: String) r: TestResult {
+        return TestResult{
+            passed: false,
+            testName: name,
+            message: "Expected: " + expected + ", Got: " + actual
+        }
+    }
+}
+
+fun runAllTests() r: Int {
+    let tests = Array<fun() r: TestResult>()
+    
+    // Neural network tests
+    tests.push(test_sigmoid)
+    tests.push(test_relu)
+    tests.push(test_neural_layer_forward)
+    tests.push(test_neural_network_creation)
+    tests.push(test_neural_network_predict)
+    tests.push(test_neural_network_training)
+    
+    // Training data tests
+    tests.push(test_training_data_collection)
+    tests.push(test_feature_vector_conversion)
+    tests.push(test_target_vector_conversion)
+    tests.push(test_training_samples_generation)
+    
+    // MLOptimizer tests
+    tests.push(test_ml_optimizer_creation)
+    tests.push(test_loop_features_nn)
+    tests.push(test_inline_features_nn)
+    tests.push(test_heuristic_vectorize_decision)
+    tests.push(test_heuristic_unroll_decision)
+    tests.push(test_heuristic_inline_decision)
+    tests.push(test_decision_caching)
+    tests.push(test_optimizer_statistics)
+    
+    // Integration tests
+    tests.push(test_end_to_end_training)
+    
+    var passed = 0
+    var failed = 0
+    
+    println("Running " + tests.length().toString() + " tests...")
+    println("")
+    
+    var i = 0
+    while i < tests.length() {
+        let result = tests[i]()
+        if result.passed {
+            println("✓ " + result.testName)
+            passed = passed + 1
+        } else {
+            println("✗ " + result.testName + ": " + result.message)
+            failed = failed + 1
+        }
+        i = i + 1
+    }
+    
+    println("")
+    println("Results: " + passed.toString() + " passed, " + failed.toString() + " failed")
+    
+    return failed
+}
+
+// Run tests
+fun main() {
+    let failures = runAllTests()
+    if failures > 0 {
+        println("")
+        println("SOME TESTS FAILED")
+    } else {
+        println("")
+        println("ALL TESTS PASSED!")
+    }
+}
+
+// Legacy feature classes for testing
+class LoopFeatures {
+    let tripCount: Int
+    let nestingDepth: Int
+    let addOps: Int
+    let mulOps: Int
+    let loadOps: Int
+    let storeOps: Int
+    let stride: Int
+
+    fun new(tripCount: Int, nestingDepth: Int, addOps: Int, mulOps: Int, loadOps: Int, storeOps: Int, stride: Int) r: LoopFeatures {
+        return LoopFeatures{
+            tripCount: tripCount,
+            nestingDepth: nestingDepth,
+            addOps: addOps,
+            mulOps: mulOps,
+            loadOps: loadOps,
+            storeOps: storeOps,
+            stride: stride
+        }
+    }
+}
+
+class InlineFeatures {
+    let calleeSize: Int
+    let callerSize: Int
+    let callCount: Int
+    let hasLoops: Bool
+
+    fun new(calleeSize: Int, callerSize: Int, callCount: Int, hasLoops: Bool) r: InlineFeatures {
+        return InlineFeatures{
+            calleeSize: calleeSize,
+            callerSize: callerSize,
+            callCount: callCount,
+            hasLoops: hasLoops
+        }
+    }
+}
+
+// Forward declarations
+fun println(s: String) {
+    // Placeholder
+}

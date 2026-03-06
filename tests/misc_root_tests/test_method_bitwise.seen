@@ -1,0 +1,21 @@
+class Test {
+    value: Int
+    
+    fun new(v: Int) -> Test {
+        Test { value: v }
+    }
+    
+    fun test_method() -> Int {
+        var x = 5
+        x = (x * 2 + 1) & 0x7fff
+        x
+    }
+}
+
+fun main() -> Int {
+    let t = Test.new(10)
+    let result = t.test_method()
+    __PrintInt(result)
+    __Print("\n")
+    return 0
+}

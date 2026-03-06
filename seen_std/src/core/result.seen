@@ -1,0 +1,106 @@
+// seen_std.core.result
+// Deterministic Result<T, E> container compatible with the bootstrap type checker.
+
+class Result<T, E> {
+    var isOk: Bool
+    var okStorage: Array<T>
+    var errStorage: Array<E>
+
+    static fun new() r: Result<T, E> {
+        return Result{
+            isOk: true,
+            okStorage: Array<T>(),
+            errStorage: Array<E>()
+        }
+    }
+
+    fun storeOk(value: T) r: Void {
+        if this.okStorage.length() == 0 {
+            this.okStorage.push(value)
+        } else {
+            this.okStorage[0] = value
+        }
+        this.errStorage = Array<E>()
+        this.isOk = true
+    }
+
+    fun storeErr(error: E) r: Void {
+        if this.errStorage.length() == 0 {
+            this.errStorage.push(error)
+        } else {
+            this.errStorage[0] = error
+        }
+        this.okStorage = Array<T>()
+        this.isOk = false
+    }
+
+    fun isOkay() r: Bool {
+        return this.isOk
+    }
+
+    fun isErr() r: Bool {
+        return not this.isOk
+    }
+
+    fun unwrap() r: T {
+        if not this.isOk or this.okStorage.length() == 0 {
+            abort("called unwrap() on Err result")
+        }
+        return this.okStorage[0]
+    }
+
+    fun expect(message: String) r: T {
+        if this.isOk and this.okStorage.length() > 0 {
+            return this.okStorage[0]
+        }
+        abort(message)
+        return this.unwrap()
+    }
+
+    fun unwrapOr(defaultValue: T) r: T {
+        if this.isOk and this.okStorage.length() > 0 {
+            return this.okStorage[0]
+        }
+        return defaultValue
+    }
+
+    fun unwrapErr() r: E {
+        if this.isOk or this.errStorage.length() == 0 {
+            abort("called unwrapErr() on Ok result")
+        }
+        return this.errStorage[0]
+    }
+
+    fun swap() r: Result<E, T> {
+        if this.isOk {
+            if this.okStorage.length() == 0 {
+                abort("Result.swap called without Ok payload")
+            }
+            return Err(this.okStorage[0])
+        }
+        if this.errStorage.length() == 0 {
+            abort("Result.swap called without Err payload")
+        }
+        return Ok(this.errStorage[0])
+    }
+}
+
+fun Ok<T, E>(value: T) r: Result<T, E> {
+    var okArr = Array<T>()
+    okArr.push(value)
+    return Result<T, E>{
+        isOk: true,
+        okStorage: okArr,
+        errStorage: Array<E>()
+    }
+}
+
+fun Err<T, E>(error: E) r: Result<T, E> {
+    var errArr = Array<E>()
+    errArr.push(error)
+    return Result<T, E>{
+        isOk: false,
+        okStorage: Array<T>(),
+        errStorage: errArr
+    }
+}

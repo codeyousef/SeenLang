@@ -1,0 +1,106 @@
+// Prueba E2E: Biblioteca estandar de colecciones (Espanol)
+// Tipos probados: Array<entero>, Array<cadena>, HashMap<cadena, entero>
+// NOTA: HashMap.poner() (put) no existe en runtime -- usar insert()
+// NOTA: HashMap.obtener() (get) genera IR invalido -- usar getOrDefault()
+// NOTA: HashMap.containsKey() retorna bool, usar directamente en si
+
+función principal() r: entero {
+    // Prueba 1: Array<entero> agregar y obtener
+    variable arr = Array<entero>()
+    arr.agregar(10)
+    arr.agregar(20)
+    arr.agregar(30)
+    si arr.longitud() == 3 {
+        imprimir("EXITO: longitud de arreglo")
+    } sino {
+        imprimir("FALLO: longitud de arreglo")
+        retornar 1
+    }
+
+    sea primero = arr.obtener(0)
+    si primero == 10 {
+        imprimir("EXITO: obtener(0) del arreglo")
+    } sino {
+        imprimir("FALLO: obtener(0) del arreglo")
+        retornar 1
+    }
+
+    sea ultimo = arr.obtener(2)
+    si ultimo == 30 {
+        imprimir("EXITO: obtener(2) del arreglo")
+    } sino {
+        imprimir("FALLO: obtener(2) del arreglo")
+        retornar 1
+    }
+
+    // Prueba 2: Array<cadena>
+    variable nombres = Array<cadena>()
+    nombres.agregar("hola")
+    nombres.agregar("mundo")
+    si nombres.longitud() == 2 {
+        imprimir("EXITO: longitud de arreglo de cadenas")
+    } sino {
+        imprimir("FALLO: longitud de arreglo de cadenas")
+        retornar 1
+    }
+
+    sea n0 = nombres.obtener(0)
+    si n0 == "hola" {
+        imprimir("EXITO: obtener de arreglo de cadenas")
+    } sino {
+        imprimir("FALLO: obtener de arreglo de cadenas")
+        retornar 1
+    }
+
+    // Prueba 3: HashMap<cadena, entero> con insert (no poner)
+    variable mapa = HashMap<cadena, entero>()
+    mapa.insert("a", 1)
+    mapa.insert("b", 2)
+    mapa.insert("c", 3)
+
+    // Usar getOrDefault en vez de obtener (get genera IR invalido)
+    sea va = mapa.getOrDefault("a", -1)
+    si va == 1 {
+        imprimir("EXITO: getOrDefault del mapa a")
+    } sino {
+        imprimir("FALLO: getOrDefault del mapa a")
+        retornar 1
+    }
+
+    sea vb = mapa.getOrDefault("b", -1)
+    si vb == 2 {
+        imprimir("EXITO: getOrDefault del mapa b")
+    } sino {
+        imprimir("FALLO: getOrDefault del mapa b")
+        retornar 1
+    }
+
+    // Prueba 4: HashMap containsKey
+    si mapa.containsKey("c") {
+        imprimir("EXITO: containsKey del mapa")
+    } sino {
+        imprimir("FALLO: containsKey del mapa")
+        retornar 1
+    }
+
+    // Prueba 5: HashMap size
+    sea tam = mapa.size()
+    si tam == 3 {
+        imprimir("EXITO: tamanio del mapa")
+    } sino {
+        imprimir("FALLO: tamanio del mapa, obtuvo " + tam.aTexto())
+        retornar 1
+    }
+
+    // Prueba 6: HashMap clave ausente retorna default
+    sea ausente = mapa.getOrDefault("z", -999)
+    si ausente == -999 {
+        imprimir("EXITO: clave ausente retorna default")
+    } sino {
+        imprimir("FALLO: clave ausente retorna default")
+        retornar 1
+    }
+
+    imprimir("EXITO: todas las pruebas de colecciones pasaron")
+    retornar 0
+}

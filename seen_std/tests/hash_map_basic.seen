@@ -1,0 +1,225 @@
+// HashMap<K,V> Basic Test
+// Tests core HashMap functionality
+// Expected: All HashMap operations work correctly
+
+import collections.hash_map.{HashMap}
+import core.option.{Option, Some, None}
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    println("Testing HashMap<K,V>...")
+
+    // Test 1: Create empty HashMap
+    let map = HashMap<Int, String>.new()
+    if map.size() == 0 {
+        println("PASS: new() creates empty HashMap")
+        passed = passed + 1
+    } else {
+        println("FAIL: new() HashMap not empty: " + map.size().toString())
+        failed = failed + 1
+    }
+
+    if map.isEmpty() {
+        println("PASS: isEmpty() returns true for empty map")
+        passed = passed + 1
+    } else {
+        println("FAIL: isEmpty() returns false for empty map")
+        failed = failed + 1
+    }
+
+    // Test 2: Insert and get
+    map.insert(1, "one")
+    if map.size() == 1 {
+        println("PASS: insert() increases size")
+        passed = passed + 1
+    } else {
+        println("FAIL: insert() didn't increase size: " + map.size().toString())
+        failed = failed + 1
+    }
+
+    let value1 = map.get(1)
+    if value1.isSome() {
+        if value1.unwrap() == "one" {
+            println("PASS: get() returns correct value")
+            passed = passed + 1
+        } else {
+            println("FAIL: get() returns wrong value: " + value1.unwrap())
+            failed = failed + 1
+        }
+    } else {
+        println("FAIL: get() returns None for existing key")
+        failed = failed + 1
+    }
+
+    // Test 3: Update existing key
+    map.insert(1, "ONE")
+    if map.size() == 1 {
+        println("PASS: insert() on existing key doesn't increase size")
+        passed = passed + 1
+    } else {
+        println("FAIL: insert() on existing key changed size: " + map.size().toString())
+        failed = failed + 1
+    }
+
+    let updated = map.get(1)
+    if updated.isSome() and updated.unwrap() == "ONE" {
+        println("PASS: insert() updates existing key")
+        passed = passed + 1
+    } else {
+        println("FAIL: insert() didn't update existing key")
+        failed = failed + 1
+    }
+
+    // Test 4: containsKey()
+    if map.containsKey(1) {
+        println("PASS: containsKey() returns true for existing key")
+        passed = passed + 1
+    } else {
+        println("FAIL: containsKey() returns false for existing key")
+        failed = failed + 1
+    }
+
+    if not map.containsKey(999) {
+        println("PASS: containsKey() returns false for non-existent key")
+        passed = passed + 1
+    } else {
+        println("FAIL: containsKey() returns true for non-existent key")
+        failed = failed + 1
+    }
+
+    // Test 5: Insert multiple keys
+    map.insert(2, "two")
+    map.insert(3, "three")
+    map.insert(4, "four")
+
+    if map.size() == 4 {
+        println("PASS: Multiple inserts work")
+        passed = passed + 1
+    } else {
+        println("FAIL: Multiple inserts, wrong size: " + map.size().toString())
+        failed = failed + 1
+    }
+
+    // Test 6: Get non-existent key
+    let missing = map.get(999)
+    if missing.isNone() {
+        println("PASS: get() returns None for non-existent key")
+        passed = passed + 1
+    } else {
+        println("FAIL: get() returns Some for non-existent key")
+        failed = failed + 1
+    }
+
+    // Test 7: remove()
+    let removed = map.remove(2)
+    if removed.isSome() and removed.unwrap() == "two" {
+        println("PASS: remove() returns removed value")
+        passed = passed + 1
+    } else {
+        println("FAIL: remove() didn't return correct value")
+        failed = failed + 1
+    }
+
+    if map.size() == 3 {
+        println("PASS: remove() decreases size")
+        passed = passed + 1
+    } else {
+        println("FAIL: remove() didn't decrease size: " + map.size().toString())
+        failed = failed + 1
+    }
+
+    if not map.containsKey(2) {
+        println("PASS: remove() removes key")
+        passed = passed + 1
+    } else {
+        println("FAIL: remove() didn't remove key")
+        failed = failed + 1
+    }
+
+    // Test 8: remove() non-existent key
+    let removedMissing = map.remove(999)
+    if removedMissing.isNone() {
+        println("PASS: remove() returns None for non-existent key")
+        passed = passed + 1
+    } else {
+        println("FAIL: remove() returns Some for non-existent key")
+        failed = failed + 1
+    }
+
+    // Test 9: clear()
+    map.clear()
+    if map.size() == 0 {
+        println("PASS: clear() empties map")
+        passed = passed + 1
+    } else {
+        println("FAIL: clear() didn't empty map: " + map.size().toString())
+        failed = failed + 1
+    }
+
+    if map.isEmpty() {
+        println("PASS: isEmpty() returns true after clear()")
+        passed = passed + 1
+    } else {
+        println("FAIL: isEmpty() returns false after clear()")
+        failed = failed + 1
+    }
+
+    // Test 10: withCapacity()
+    let bigMap = HashMap<Int, Int>.withCapacity(100)
+    if bigMap.isEmpty() {
+        println("PASS: withCapacity() creates empty map")
+        passed = passed + 1
+    } else {
+        println("FAIL: withCapacity() creates non-empty map")
+        failed = failed + 1
+    }
+
+    // Insert many items to test resizing
+    var i = 0
+    while i < 50 {
+        bigMap.insert(i, i * 2)
+        i = i + 1
+    }
+
+    if bigMap.size() == 50 {
+        println("PASS: HashMap handles many insertions")
+        passed = passed + 1
+    } else {
+        println("FAIL: HashMap wrong size after many insertions: " + bigMap.size().toString())
+        failed = failed + 1
+    }
+
+    // Verify all values are correct
+    var allCorrect = true
+    var j = 0
+    while j < 50 {
+        let val = bigMap.get(j)
+        if val.isNone() or val.unwrap() != j * 2 {
+            allCorrect = false
+        }
+        j = j + 1
+    }
+
+    if allCorrect {
+        println("PASS: All values correct after resize")
+        passed = passed + 1
+    } else {
+        println("FAIL: Some values incorrect after resize")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("")
+    println("HashMap Test Results:")
+    println("Passed: " + passed.toString() + "/" + (passed + failed).toString())
+
+    if failed > 0 {
+        println("FAIL: Some HashMap tests failed")
+        return 1
+    }
+
+    println("PASS: All HashMap tests passed!")
+    return 0
+}

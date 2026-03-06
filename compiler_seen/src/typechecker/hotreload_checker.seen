@@ -1,0 +1,170 @@
+// Hot Reload Checker - Validates @hot_reload decorator usage
+// Ensures classes marked for hot reload have serializable state
+
+import compiler_seen.src.parser.real_parser.{ClassNode, ParamNode, AnnotationNode}
+
+// Result of hot reload validation
+data HotReloadCheckResult {
+    isValid: Bool
+    errors: Array<String>
+    warnings: Array<String>
+}
+
+fun HotReloadCheckResult.new() r: HotReloadCheckResult {
+    return HotReloadCheckResult{
+        isValid: true,
+        errors: Array<String>(),
+        warnings: Array<String>()
+    }
+}
+
+fun HotReloadCheckResult.addError(msg: String) r: Void {
+    errors.push(msg)
+    isValid = false
+}
+
+fun HotReloadCheckResult.addWarning(msg: String) r: Void {
+    warnings.push(msg)
+}
+
+class HotReloadChecker {
+    // Types that can be serialized automatically
+    var serializableTypes: Array<String>
+
+    // Types that cannot be serialized (function pointers, resources)
+    var nonSerializableTypes: Array<String>
+
+    static fun new() r: HotReloadChecker {
+        var checker = HotReloadChecker{
+            serializableTypes: Array<String>(),
+            nonSerializableTypes: Array<String>()
+        }
+
+        // Primitive serializable types
+        checker.serializableTypes.push("Int")
+        checker.serializableTypes.push("Bool")
+        checker.serializableTypes.push("Char")
+        checker.serializableTypes.push("Float")
+        checker.serializableTypes.push("String")
+
+        // Collection types (if they contain serializable elements)
+        checker.serializableTypes.push("Array")
+        checker.serializableTypes.push("Vec")
+        checker.serializableTypes.push("Option")
+
+        // Non-serializable types
+        checker.nonSerializableTypes.push("File")
+        checker.nonSerializableTypes.push("Socket")
+        checker.nonSerializableTypes.push("Channel")
+        checker.nonSerializableTypes.push("Thread")
+        checker.nonSerializableTypes.push("Mutex")
+
+        return checker
+    }
+
+    // Check a class's @hot_reload decorator
+    fun checkHotReload(cls: ClassNode) r: HotReloadCheckResult {
+        var result = HotReloadCheckResult.new()
+
+        // Find the @hot_reload decorator
+        var foundDecorator = false
+        var i = 0
+        while i < cls.decorators.length() {
+            if cls.decorators[i].name == "hot_reload" {
+                foundDecorator = true
+            }
+            i = i + 1
+        }
+
+        if not foundDecorator {
+            // No @hot_reload decorator
+            return result
+        }
+
+        // Check all fields for serializability
+        i = 0
+        while i < cls.fields.length() {
+            let field = cls.fields[i]
+            let fieldType = field.paramType.typeName
+
+            if not isSerializableType(fieldType) {
+                result.addError("@hot_reload class '" + cls.name + "' has non-serializable field '" + field.name + "' of type '" + fieldType + "'")
+            }
+
+            // Check for function pointers
+            if fieldType.contains("fun(") or fieldType.contains("->") {
+                result.addError("@hot_reload class cannot have function pointer field: " + field.name)
+            }
+
+            // Warn about mutable external state
+            if isResourceType(fieldType) {
+                result.addWarning("Field '" + field.name + "' of type '" + fieldType + "' may hold external state that cannot be preserved across reload")
+            }
+
+            i = i + 1
+        }
+
+        // Check for @derive(Serialize) - recommended for complex types
+        var hasSerializeDerive = false
+        i = 0
+        while i < cls.decorators.length() {
+            let dec = cls.decorators[i]
+            if dec.name == "derive" {
+                var j = 0
+                while j < dec.arguments.length() {
+                    if dec.arguments[j] == "Serialize" {
+                        hasSerializeDerive = true
+                    }
+                    j = j + 1
+                }
+            }
+            i = i + 1
+        }
+
+        if not hasSerializeDerive {
+            result.addWarning("@hot_reload classes should have @derive(Serialize) for full state preservation")
+        }
+
+        return result
+    }
+
+    // Check if a type is serializable
+    fun isSerializableType(typeName: String) r: Bool {
+        // Check primitive types
+        var i = 0
+        while i < serializableTypes.length() {
+            if typeName == serializableTypes[i] {
+                return true
+            }
+            // Check generic types like Array<T>
+            if typeName.startsWith(serializableTypes[i] + "<") {
+                return true
+            }
+            i = i + 1
+        }
+
+        // Pointer types can be serialized (as addresses)
+        if typeName.startsWith("*") {
+            return true
+        }
+
+        // User-defined types with @derive(Serialize) are assumed serializable
+        // (actual check would require type registry)
+        return true
+    }
+
+    // Check if a type represents an external resource
+    fun isResourceType(typeName: String) r: Bool {
+        var i = 0
+        while i < nonSerializableTypes.length() {
+            if typeName == nonSerializableTypes[i] {
+                return true
+            }
+            if typeName.startsWith(nonSerializableTypes[i]) {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+}

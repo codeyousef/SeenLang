@@ -1,0 +1,14 @@
+name = "Arabic"
+description = "Arabic Collections Standard Library"
+
+[std_lib]
+"متجه" = "seen_std.collections.vec.Vec"
+"مصفوفة" = "Array"
+"خريطة_هاش" = "HashMap"
+"خريطة_نصية" = "seen_std.collections.string_hash_map.StringHashMap"
+"مجموعة_هاش" = "HashSet"
+"خريطة_شجرية" = "BTreeMap"
+"قائمة_مترابطة" = "LinkedList"
+"طابور_مزدوج" = "VecDeque"
+"مجموعة_بتات" = "BitSet"
+"مجمع" = "Pool"

@@ -1,0 +1,6 @@
+name = "Japanese"
+description = "Japanese Metaprogramming Keywords"
+
+[keywords]
+"コンパイル時" = "KeywordComptime"
+"マクロ" = "KeywordMacro"

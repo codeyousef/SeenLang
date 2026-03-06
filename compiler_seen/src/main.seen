@@ -1,0 +1,1181 @@
+// main.seen — User-facing CLI entry point for the Seen compiler
+//
+// Pipeline stage: Entry point (before all compilation stages)
+// Input: Command-line arguments (subcommand + flags)
+// Output: Dispatches to the appropriate compilation pipeline
+//
+// This is the production compiler binary's main(). It parses CLI arguments and
+// routes to one of several compilation paths:
+//   - "build"  → LLVM backend (default) or C backend via main_compiler.seen
+//   - "run"    → Compile to temp file + execute
+//   - "check"  → Frontend only (lexer → parser → typechecker), no codegen
+//   - "fmt"    → Basic source formatter (indent normalization)
+//   - "init"   → Project scaffolding
+//   - "import-c" → Generate Seen extern bindings from C headers
+//
+// The LLVM backend path delegates to StageCompileSeenProgram (main_compiler.seen),
+// which handles multi-module IR generation, optimization, and linking.
+// The C backend path uses CGenerator for a simpler gcc-based pipeline.
+//
+// Multi-language support: --language flag selects keyword set (en/ar/es/ru/zh/ja),
+// passed through to the lexer's KeywordManager.
+
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
+import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang}
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import io.file.{readText, writeText}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import env.env.{args}
+import collections.list_utils.{push}
+import str.string.{StringBuilder}
+import codegen.c_gen.{CGenerator}
+import tools.c_import_gen.{CImportGenerator, CImportResult}
+import tools.translator.{translateSource}
+import codegen.wasm_gen.{WASMGenerator, createWASMGenerator, createUWWGenerator}
+import codegen.interfaces.{Target, parseTarget, isWASMTarget}
+import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
+
+
+// Wrapper to avoid symbol collision with the runtime's built-in println.
+// Uses println() directly rather than writing to /dev/stdout to avoid
+// file descriptor quirks in the runtime.
+fun printLn(text: String) r: Void {
+    println(text)
+    return
+}
+
+extern fun __FileExists(path: String) r: Bool
+extern fun __OpenFile(path: String, mode: String) r: Int
+extern fun __VerifyStringABI(testString: String) r: Int
+extern fun __WriteFile(fd: Int, content: String) r: Int
+extern fun __CloseFile(fd: Int) r: Int
+
+fun myWriteText(path: String, content: String) r: Bool {
+    let abi = __VerifyStringABI(content)
+    if abi == 0 {
+        printLn("String ABI mismatch or corruption detected in myWriteText!")
+        return false
+    }
+    let fd = __OpenFile(path, "w")
+    if fd < 0 {
+        printLn("Failed to open file: " + path)
+        return false
+    }
+    let written = __WriteFile(fd, content)
+    let _ = __CloseFile(fd)
+    return written >= 0
+}
+
+// Aggregated compiler settings from CLI flag parsing.
+// Constructed by parseCompilerOptions() from positional args and flags,
+// then consumed by buildCommandWithOptions() to select backend and target.
+class CompilerOptions {
+    var sourceFile: String
+    var outputFile: String
+    var target: Target
+    var debugMode: Bool
+    var optimizationLevel: Int
+    var profile: String  // "default" or "deterministic"
+    var backend: String  // "llvm" or "c"
+    var language: String  // Source language: "en", "ar", "es", "ru", "zh", "ja"
+
+    fun new() r: CompilerOptions {
+        sourceFile = ""
+        outputFile = ""
+        target = Target.Linux_x86_64  // Default native target
+        debugMode = false
+        optimizationLevel = 2
+        profile = "default"
+        backend = "llvm"
+        language = "en"  // Default to English
+    }
+
+    fun isDeterministic() r: Bool {
+        return profile == "deterministic"
+    }
+}
+
+fun main() r: Int {
+    let args = GetCommandLineArgs()
+    if args.size() < 2 {
+        printUsage()
+        return 1
+    }
+
+    var exit: Int = 0
+    let command = args[1]
+    if command == "build" {
+        let options = parseCompilerOptions(args, 2)
+        if options.sourceFile == "" {
+            printLn("Error: build command requires a source file")
+            return 1
+        }
+        if options.outputFile == "" {
+            options.outputFile = getDefaultOutput(options.sourceFile, options.target)
+        }
+        // Read language from Seen.toml [project] if CLI didn't explicitly set --language
+        if not hasLanguageFlag(args, 2) {
+            let tc = readText("Seen.toml")
+            if tc != "" {
+                let tl = extractTomlLanguage(tc)
+                if tl != "" {
+                    options.language = tl
+                }
+            }
+        }
+        exit = buildCommandWithOptions(options)
+    } else if command == "check" {
+        let sourceFile = requireArg(args, 2, "Error: check command requires a source file")
+        // Parse language from remaining args, then check Seen.toml
+        var language = parseLanguageFlag(args, 3)
+        if not hasLanguageFlag(args, 3) {
+            let tc = readText("Seen.toml")
+            if tc != "" {
+                let tl = extractTomlLanguage(tc)
+                if tl != "" {
+                    language = tl
+                }
+            }
+        }
+        exit = checkCommand(sourceFile, language)
+
+    } else if command == "run" {
+        let sourceFile = requireArg(args, 2, "Error: run command requires a source file")
+        // Parse language from remaining args, then check Seen.toml
+        var language = parseLanguageFlag(args, 3)
+        if not hasLanguageFlag(args, 3) {
+            let tc = readText("Seen.toml")
+            if tc != "" {
+                let tl = extractTomlLanguage(tc)
+                if tl != "" {
+                    language = tl
+                }
+            }
+        }
+        exit = runCommand_seen(sourceFile, language)
+    } else if command == "init" {
+        let projectName = requireArg(args, 2, "Error: init command requires a project name")
+        exit = initCommand(projectName)
+    } else if command == "format" or command == "fmt" {
+        let sourceFile = requireArg(args, 2, "Error: format command requires a source file")
+        exit = formatCommand(sourceFile)
+    } else if command == "clean" {
+        exit = cleanCommand()
+    } else if command == "test" {
+        exit = testCommand()
+    } else if command == "lsp" {
+        exit = lspCommand()
+    } else if command == "translate" {
+        exit = translateCommand(args)
+    } else if command == "import-c" {
+        let headerFile = requireArg(args, 2, "Error: import-c command requires a header file path")
+        exit = importCCommand(headerFile)
+    } else if command == "--version" or command == "-v" {
+        printLn("Seen 1.0.0-alpha (100% self-hosted)")
+        printLn("Language: Seen")
+        printLn("Targets: native, wasm, uww, c, llvm-ir")
+        exit = 0
+    } else if command == "--help" or command == "-h" {
+        printUsage()
+        exit = 0
+    } else {
+        printLn("Error: Unknown command '" + command + "'")
+        printUsage()
+        exit = 1
+    }
+
+    return exit
+}
+
+// Parse compiler options from command line arguments
+fun parseCompilerOptions(args: List<String>, startIndex: Int) r: CompilerOptions {
+    let options = CompilerOptions.new()
+    var i = startIndex
+
+    while i < args.size() {
+        let arg = args[i]
+
+        if arg == "--target" or arg == "-t" {
+            // Next argument is the target
+            if i + 1 < args.size() {
+                let targetStr = args[i + 1]
+                options.target = parseTarget(targetStr)
+                if options.target == Target.Unsupported {
+                    printLn("Warning: Unknown target '" + targetStr + "', using default")
+                    options.target = Target.Linux_x86_64
+                }
+                i = i + 2
+            } else {
+                printLn("Error: --target requires an argument")
+                i = i + 1
+            }
+        } else if arg == "-o" or arg == "--output" {
+            // Next argument is the output file
+            if i + 1 < args.size() {
+                options.outputFile = args[i + 1]
+                i = i + 2
+            } else {
+                printLn("Error: -o requires an argument")
+                i = i + 1
+            }
+        } else if arg == "--debug" or arg == "-g" {
+            options.debugMode = true
+            i = i + 1
+        } else if arg == "-O0" {
+            options.optimizationLevel = 0
+            i = i + 1
+        } else if arg == "-O1" {
+            options.optimizationLevel = 1
+            i = i + 1
+        } else if arg == "-O2" {
+            options.optimizationLevel = 2
+            i = i + 1
+        } else if arg == "-O3" {
+            options.optimizationLevel = 3
+            i = i + 1
+        } else if arg == "--release" {
+            options.optimizationLevel = 3
+            i = i + 1
+        } else if arg == "--backend" {
+            if i + 1 < args.size() {
+                options.backend = args[i + 1]
+                i = i + 2
+            } else {
+                printLn("Error: --backend requires an argument (llvm or c)")
+                i = i + 1
+            }
+        } else if arg == "--backend=c" {
+            options.backend = "c"
+            i = i + 1
+        } else if arg == "--backend=llvm" {
+            options.backend = "llvm"
+            i = i + 1
+        } else if arg == "--profile" {
+            // Next argument is the profile name
+            if i + 1 < args.size() {
+                let profileStr = args[i + 1]
+                if profileStr == "deterministic" or profileStr == "default" {
+                    options.profile = profileStr
+                } else {
+                    printLn("Warning: Unknown profile '" + profileStr + "', using default")
+                    options.profile = "default"
+                }
+                i = i + 2
+            } else {
+                printLn("Error: --profile requires an argument")
+                i = i + 1
+            }
+        } else if arg == "--language" or arg == "-l" {
+            // Next argument is the language code
+            if i + 1 < args.size() {
+                options.language = args[i + 1]
+                i = i + 2
+            } else {
+                printLn("Error: --language requires an argument")
+                i = i + 1
+            }
+        } else if arg.startsWith("-") {
+            printLn("Warning: Unknown option '" + arg + "'")
+            i = i + 1
+        } else {
+            // Positional argument - source file
+            if options.sourceFile == "" {
+                options.sourceFile = arg
+            } else if options.outputFile == "" {
+                options.outputFile = arg
+            }
+            i = i + 1
+        }
+    }
+
+    return options
+}
+
+// Get default output filename based on target
+fun getDefaultOutput(sourceFile: String, target: Target) r: String {
+    let baseName = if sourceFile.endsWith(".seen") {
+        sourceFile.substring(0, sourceFile.length() - 5)
+    } else {
+        sourceFile
+    }
+
+    return match target {
+        Target.WASM -> baseName + ".wasm"
+        Target.UWW -> baseName + ".wasm"
+        Target.C -> baseName + ".c"
+        Target.LLVM_IR -> baseName + ".ll"
+        _ -> baseName  // Native executable
+    }
+}
+
+fun printUsage() r: Void {
+    printLn("Seen 1.0.0-alpha - 100% Self-hosted Compiler")
+    printLn("")
+    printLn("Usage: seen <command> [options]")
+    printLn("")
+    printLn("Commands:")
+    printLn("  build <source.seen> [options] Compile source file")
+    printLn("  run <source.seen>             Compile and run")
+    printLn("  check <source.seen>           Type check without building")
+    printLn("  init <project-name>           Create a new project")
+    printLn("  format <source.seen>          Format source code")
+    printLn("  translate <file> --from <lang> --to <lang> [-o <out>]  Translate source")
+    printLn("  import-c <header.h>           Generate extern bindings from C header")
+    printLn("  clean                         Remove build artifacts")
+    printLn("  test                          Run test suite")
+    printLn("  lsp                           Start language server")
+    printLn("  --version, -v                 Show version information")
+    printLn("  --help, -h                    Show this help message")
+    printLn("")
+    printLn("Build Options:")
+    printLn("  -o, --output <file>           Output file path")
+    printLn("  -t, --target <target>         Compilation target:")
+    printLn("      native                    Native executable (default)")
+    printLn("      wasm                      WebAssembly module")
+    printLn("      uww                       UWW deterministic WASM")
+    printLn("      c                         C source code")
+    printLn("      llvm-ir                   LLVM IR")
+    printLn("  -O0, -O1, -O2, -O3            Optimization level")
+    printLn("  --release                      Optimized build (alias for -O3)")
+    printLn("  --backend <backend>           Code generation backend:")
+    printLn("      llvm                      LLVM backend with -O3 (default)")
+    printLn("      c                         C backend with gcc -O2")
+    printLn("  -g, --debug                   Include debug information")
+    printLn("  --profile <profile>           Compilation profile:")
+    printLn("      default                   Standard mode (default)")
+    printLn("      deterministic             Reject HashMap/HashSet without")
+    printLn("                                @nondeterministic annotation")
+    printLn("  --language, -l <lang>         Source language (default: en)")
+    printLn("                                Supported: en, ar, es, ru, zh, ja")
+    printLn("")
+    printLn("Targets:")
+    printLn("  wasm     - Standard WebAssembly module")
+    printLn("  uww      - Universal World Wide (deterministic WASM)")
+    printLn("             Enforces: no floats, no WASI, deterministic output")
+    printLn("")
+    printLn("Profiles:")
+    printLn("  default       - Allow all collection types")
+    printLn("  deterministic - Enforce deterministic iteration order")
+    printLn("                  Use BTreeMap/BTreeSet instead of HashMap/HashSet")
+    printLn("")
+    printLn("Examples:")
+    printLn("  seen build main.seen                 Build native executable")
+    printLn("  seen build main.seen -t wasm         Build WebAssembly module")
+    printLn("  seen build main.seen -t uww          Build deterministic WASM")
+    printLn("  seen build app.seen -o app -t wasm   Custom output name")
+    printLn("  seen check src/lib.seen              Type check only")
+    printLn("  seen build main.seen --language ar   Build Arabic source code")
+    printLn("  seen build main.seen -l zh           Build Chinese source code")
+    printLn("  seen build main.seen --profile deterministic")
+    printLn("                                       Build with deterministic checks")
+    return
+}
+
+// Legacy C-backend compilation path: frontend → CGenerator → gcc.
+// Used when --backend=c is specified. Slower than LLVM but more portable.
+fun CompileSeenProgram(sourceCode: String, outputPath: String, language: String) r: Bool {
+    printLn("[trace] CompileSeenProgram: calling run_frontend...")
+    let result = run_frontend(sourceCode, "<memory>", language)
+    printLn("[trace] run_frontend returned")
+    
+    if not result.success {
+        printLn("Frontend errors detected")
+        return false
+    }
+    printLn("[trace] Frontend success. Generating C code...")
+    
+    // Generate C code from AST
+    let generator = CGenerator.new()
+    let cCode = generator.generate(result.program)
+    
+    let cFilePath = outputPath + ".c"
+    
+    if not myWriteText(cFilePath, cCode) {
+        printLn("Error: Failed to write intermediate file '" + cFilePath + "'")
+        return false
+    }
+    printLn("[trace] C code written to " + cFilePath)
+    
+    let compileCommand = "gcc -std=c99 -O2 -o " + outputPath + " " + cFilePath + " 2>&1"
+    printLn("[trace] Running GCC: " + compileCommand)
+    
+    // Fallback direct invocation while process module linking finalizes
+    // Use standard process API
+    let compileResult: CommandResult = runCommand(compileCommand)
+    printLn("[trace] GCC finished. Success: " + compileResult.success.toString())
+    if not compileResult.success {
+        printLn("GCC compilation failed:")
+        printLn(compileResult.output)
+    }
+    return commandWasSuccessful(compileResult)
+}
+
+fun buildCommand(sourceFile: String, outputFile: String) r: Int {
+    let options = CompilerOptions.new()
+    options.sourceFile = sourceFile
+    options.outputFile = outputFile
+    return buildCommandWithOptions(options)
+}
+
+// Parse language flag from args
+fun parseLanguageFlag(args: List<String>, startIndex: Int) r: String {
+    var i = startIndex
+    while i < args.size() {
+        let arg = args[i]
+        if arg == "--language" or arg == "-l" {
+            if i + 1 < args.size() {
+                return args[i + 1]
+            }
+        }
+        i = i + 1
+    }
+    return "en"  // Default to English
+}
+
+// Validate language parameter
+fun validateLanguage(language: String) r: Bool {
+    let supported = ["en", "ar", "es", "ru", "zh", "ja"]
+    var idx = 0
+    while idx < supported.length() {
+        if language == supported[idx] {
+            return true
+        }
+        idx = idx + 1
+    }
+    printLn("Error: Unsupported language '" + language + "'")
+    printLn("Supported languages: en, ar, es, ru, zh, ja")
+    return false
+}
+
+// Check if --language or -l flag is present in args starting at startIndex.
+fun hasLanguageFlag(args: List<String>, startIndex: Int) r: Bool {
+    var i = startIndex
+    while i < args.size() {
+        if args[i] == "--language" or args[i] == "-l" {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Extract language from Seen.toml [project] section. Returns "" if not found.
+fun extractTomlLanguage(content: String) r: String {
+    var inProject = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = content.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("[") and line.endsWith("]") {
+                let section = line.substring(1, line.length() - 1)
+                if section == "project" {
+                    inProject = 1
+                } else {
+                    inProject = 0
+                }
+            } else {
+                if inProject == 1 and line != "" and not line.startsWith("#") {
+                    var eqPos = line.indexOf("=", 0)
+                    if eqPos > 0 {
+                        let key = line.substring(0, eqPos).trim()
+                        if key == "language" {
+                            var langVal = line.substring(eqPos + 1, line.length()).trim()
+                            if langVal.startsWith("\"") {
+                                langVal = langVal.substring(1, langVal.length())
+                            }
+                            if langVal.endsWith("\"") {
+                                langVal = langVal.substring(0, langVal.length() - 1)
+                            }
+                            return langVal
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+// Main build dispatch: validates language, runs frontend, selects backend.
+// For native targets with LLVM backend (the default), delegates to
+// StageCompileWithLang in main_compiler.seen which handles the full
+// multi-module IR generation → opt → link pipeline.
+fun buildCommandWithOptions(options: CompilerOptions) r: Int {
+    let sourceFile = options.sourceFile
+    let outputFile = options.outputFile
+
+    // Validate language
+    if not validateLanguage(options.language) {
+        return 1
+    }
+
+    printLn("Building...")
+    printLn("Source file: " + sourceFile)
+    printLn("Target: " + targetToString(options.target))
+    if options.isDeterministic() {
+        printLn("Profile: deterministic")
+    }
+    if options.language != "en" {
+        printLn("Language: " + options.language)
+    }
+
+    // Read source file
+    let sourceCode = readText(sourceFile)
+    let sourceLen = sourceCode.len()
+
+    if sourceLen == 0 {
+        printLn("Error: Could not read file '" + sourceFile + "'")
+        return 1
+    }
+
+    // Run frontend first to get AST for determinism checking
+    let frontendResult = run_frontend(sourceCode, sourceFile, options.language)
+    if not frontendResult.success {
+        printLn("Frontend errors detected")
+        printFrontendDiagnostics(frontendResult)
+        return 1
+    }
+
+    // If deterministic profile enabled, check for nondeterministic type usage
+    if options.isDeterministic() {
+        let deterResult = checkDeterminismWithProfile(frontendResult.program, true)
+        if deterResult.hasErrors() {
+            printDeterminismErrors(deterResult)
+            return 1
+        }
+    }
+
+    // Check if target is WASM/UWW
+    if isWASMTarget(options.target) {
+        return buildWASM(sourceCode, outputFile, options)
+    }
+
+    // Use LLVM backend by default, C backend via --backend=c
+    if options.backend == "c" {
+        let success = CompileSeenProgram(sourceCode, outputFile, options.language)
+        if success {
+            printLn("Build successful: " + outputFile)
+            return 0
+        } else {
+            printLn("Build failed")
+            return 1
+        }
+    }
+
+    // LLVM backend (default): route through stage1 compiler pipeline
+    let result = StageCompileWithLang(sourceFile, outputFile, options.language)
+    if result == 0 {
+        printLn("Build successful: " + outputFile)
+    }
+    return result
+}
+
+// WASM/UWW compilation path: frontend → WAT text generation → wat2wasm → wasm-validate.
+// UWW (Universal World Wide) mode enforces determinism: no floats, no WASI, SHA-256 hashed output.
+// Currently generates a minimal WAT scaffold; full AST→IR→WASM is planned.
+fun buildWASM(sourceCode: String, outputFile: String, options: CompilerOptions) r: Int {
+    printLn("[wasm] Running frontend...")
+
+    // Run frontend (lexer+parser+typechecker)
+    let result = run_frontend(sourceCode, "<memory>", options.language)
+
+    if not result.success {
+        printLn("Frontend errors detected")
+        printFrontendDiagnostics(result)
+        return 1
+    }
+
+    printLn("[wasm] Frontend success. Generating WASM...")
+
+    // Create WASM generator (explicit type to help type tracking)
+    let wasmGen: WASMGenerator = createWASMGenerator()
+
+    // Enable UWW mode if target is UWW
+    if options.target == Target.UWW {
+        printLn("[wasm] UWW mode enabled - enforcing determinism")
+        wasmGen.enableUWW()
+    }
+
+    // Configure generator
+    wasmGen.debugMode = options.debugMode
+
+    // Generate IR from AST first (we need to adapt this)
+    // For now, we'll generate a simple WAT output
+    // In full implementation, this would go through IR generation
+
+    // Generate WAT code
+    // Note: Full implementation requires AST -> IR -> WASM conversion
+    // For now, generate a placeholder that demonstrates the pipeline
+    let watCode = generateWATFromAST(result.program, wasmGen, options.target == Target.UWW)
+
+    // Write WAT file
+    let watPath = outputFile + ".wat"
+    if not myWriteText(watPath, watCode) {
+        printLn("Error: Failed to write WAT file: " + watPath)
+        return 1
+    }
+    printLn("[wasm] WAT written to: " + watPath)
+
+    // Compile WAT to WASM using wat2wasm
+    let wasmPath = if outputFile.endsWith(".wasm") {
+        outputFile
+    } else {
+        outputFile + ".wasm"
+    }
+
+    let wat2wasmCmd = "wat2wasm " + watPath + " -o " + wasmPath
+    printLn("[wasm] Running: " + wat2wasmCmd)
+
+    let compileResult = runCommand(wat2wasmCmd)
+    if not commandWasSuccessful(compileResult) {
+        printLn("wat2wasm failed:")
+        printLn(compileResult.output)
+        printLn("Make sure wabt tools are installed: sudo apt install wabt")
+        return 1
+    }
+
+    // Validate WASM binary
+    let validateCmd = "wasm-validate " + wasmPath
+    let validateResult = runCommand(validateCmd)
+    if commandWasSuccessful(validateResult) {
+        printLn("[wasm] Validation passed")
+    } else {
+        printLn("Warning: WASM validation failed")
+        printLn(validateResult.output)
+    }
+
+    // For UWW mode, compute and display hash
+    if options.target == Target.UWW {
+        let hashCmd = "sha256sum " + wasmPath
+        let hashResult = runCommand(hashCmd)
+        if commandWasSuccessful(hashResult) {
+            printLn("[uww] SHA-256: " + hashResult.output)
+        }
+    }
+
+    printLn("Build successful: " + wasmPath)
+    return 0
+}
+
+// Generate WAT code from AST
+// This is a simplified version - full implementation would use IR generation
+fun generateWATFromAST(program: ProgramNode, wasmGen: WASMGenerator, isUWW: Bool) r: String {
+    let output = StringBuilder.new()
+
+    output.append("(module\n")
+
+    // Memory declaration
+    output.append("  (memory (export \"memory\") 16)\n")  // 1MB
+
+    // Stack pointer global
+    output.append("  (global $__stack_pointer (mut i32) (i32.const 65536))\n")
+
+    if isUWW {
+        // UWW imports
+        output.append("\n  ;; UWW Runtime Imports\n")
+        output.append("  (import \"uww\" \"timestamp\" (func $uww_timestamp (result i64)))\n")
+        output.append("  (import \"uww\" \"deterministic_rand\" (func $uww_deterministic_rand (param i64) (result i64)))\n")
+        output.append("  (import \"uww\" \"storage_get\" (func $uww_storage_get (param i32) (result i32)))\n")
+        output.append("  (import \"uww\" \"storage_set\" (func $uww_storage_set (param i32 i32) (result i32)))\n")
+        output.append("  (import \"uww\" \"log\" (func $uww_log (param i32)))\n")
+    }
+
+    output.append("\n  ;; Functions\n")
+
+    // Generate main function if present
+    // This is simplified - real implementation iterates over program.functions
+    output.append("  (func $main (export \"main\") (export \"_start\") (result i32)\n")
+    output.append("    ;; Generated from Seen source\n")
+    output.append("    i32.const 0\n")
+    output.append("    return\n")
+    output.append("  )\n")
+
+    if isUWW {
+        output.append("\n  ;; UWW Metadata\n")
+        output.append("  ;; version=1;hash=<computed>;timestamp=0\n")
+    }
+
+    output.append(")\n")
+
+    return output.toString()
+}
+
+// Convert target enum to string for display
+fun targetToString(target: Target) r: String {
+    return match target {
+        Target.LLVM_IR -> "llvm-ir"
+        Target.C -> "c"
+        Target.WASM -> "wasm"
+        Target.UWW -> "uww (deterministic wasm)"
+        Target.Linux_x86_64 -> "linux-x86_64"
+        Target.Windows_x86_64 -> "windows-x86_64"
+        Target.macOS_x86_64 -> "macos-x86_64"
+        Target.macOS_ARM64 -> "macos-arm64"
+        Target.Linux_ARM64 -> "linux-arm64"
+        Target.RISC_V -> "riscv"
+        _ -> "native"
+    }
+}
+
+fun checkCommand(sourceFile: String, language: String) r: Int {
+    printLn("[trace] checkCommand: entry")
+
+    // Validate language
+    if not validateLanguage(language) {
+        return 1
+    }
+
+    printLn("🔍 Checking " + sourceFile + "...")
+    if language != "en" {
+        printLn("Language: " + language)
+    }
+
+    let sourceCode = readText(sourceFile)
+    if sourceCode == "" {
+        printLn("Error: Could not read file '" + sourceFile + "'")
+        return 1
+    }
+
+    let result = run_frontend(sourceCode, sourceFile, language)
+    if not result.success {
+        printLn("[ERROR] Frontend validation failed.")
+        printLn("Frontend errors detected")
+        return 1
+    }
+
+    printFrontendWarnings(result)
+    printLn("[OK] Type check passed")
+    return 0
+}
+
+
+fun formatCommand(sourceFile: String) r: Int {
+    printLn("Formatting " + sourceFile + "...")
+
+    let sourceCode = readText(sourceFile)
+    if sourceCode == "" {
+        printLn("Error: Could not read file '" + sourceFile + "'")
+        return 1
+    }
+
+    // Format the code: normalize indentation, trim trailing whitespace, ensure final newline
+    let formatted = formatSource(sourceCode)
+
+    // Write back to file
+    let wrote: Bool = myWriteText(sourceFile, formatted)
+    if not wrote {
+        printLn("Error: Could not write file '" + sourceFile + "'")
+        return 1
+    }
+
+    printLn("Formatted " + sourceFile)
+    return 0
+}
+
+// Basic brace-counting formatter. Tracks indent depth by counting lines
+// ending with '{' (increase) and starting with '}' (decrease).
+// Does NOT parse the language — will misformat braces inside string literals.
+fun formatSource(source: String) r: String {
+    let lines = source.split("\n")
+    let output = StringBuilder.new()
+    var indentLevel = 0
+    var idx = 0
+
+    while idx < lines.length() {
+        let rawLine = lines[idx]
+
+        // Strip leading whitespace
+        let trimmed = rawLine.trim()
+
+        // Adjust indent for closing brace before writing
+        if trimmed.startsWith("}") {
+            indentLevel = indentLevel - 1
+            if indentLevel < 0 {
+                indentLevel = 0
+            }
+        }
+
+        // Write indented line
+        if trimmed.length() > 0 {
+            var sp = 0
+            while sp < indentLevel {
+                output.append("    ")
+                sp = sp + 1
+            }
+            output.append(trimmed)
+        }
+        output.append("\n")
+
+        // Adjust indent for opening brace after writing
+        if trimmed.endsWith("{") {
+            indentLevel = indentLevel + 1
+        }
+
+        idx = idx + 1
+    }
+
+    return output.toString()
+}
+
+
+// JIT-like "run" command: compiles to /tmp/seen_run_temp via LLVM backend,
+// executes the binary, prints output, then cleans up temp files.
+fun runCommand_seen(sourceFile: String, language: String) r: Int {
+    // Validate language
+    if not validateLanguage(language) {
+        return 1
+    }
+
+    printLn("Compiling " + sourceFile + "...")
+    if language != "en" {
+        printLn("Language: " + language)
+    }
+
+    let sourceCode = readText(sourceFile)
+    if sourceCode == "" {
+        printLn("Error: Could not read file '" + sourceFile + "'")
+        return 1
+    }
+
+    let tempOutput = "/tmp/seen_run_temp"
+    // Use LLVM backend for run command too
+    let compileResult = StageCompileWithLang(sourceFile, tempOutput, language)
+    if compileResult != 0 {
+        printLn("Compilation failed")
+        return 1
+    }
+
+    let execResult = runCommand(tempOutput)
+    if execResult.output != "" {
+        printLn(execResult.output)
+    }
+
+    // Clean up temp file
+    let _ = runCommand("rm -f " + tempOutput + " /tmp/seen_module_*")
+
+    if commandWasSuccessful(execResult) {
+        return 0
+    }
+    return 1
+}
+
+// Init command: create project scaffolding
+fun initCommand(projectName: String) r: Int {
+    printLn("Creating project '" + projectName + "'...")
+
+    // Create directory structure
+    let mkdirResult = runCommand("mkdir -p " + projectName + "/src")
+    if not commandWasSuccessful(mkdirResult) {
+        printLn("Error: Could not create project directory")
+        return 1
+    }
+
+    // Write Seen.toml
+    let tomlContent = "[project]\nname = \"" + projectName + "\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+    if not myWriteText(projectName + "/Seen.toml", tomlContent) {
+        printLn("Error: Could not write Seen.toml")
+        return 1
+    }
+
+    // Write main.seen
+    let mainContent = "fun main() r: Int {\n    println(\"Hello from " + projectName + "!\")\n    return 0\n}\n\nmain()\n"
+    if not myWriteText(projectName + "/src/main.seen", mainContent) {
+        printLn("Error: Could not write src/main.seen")
+        return 1
+    }
+
+    printLn("Created " + projectName + "/Seen.toml")
+    printLn("Created " + projectName + "/src/main.seen")
+    printLn("")
+    printLn("To build: seen build " + projectName + "/src/main.seen")
+    printLn("To run:   seen run " + projectName + "/src/main.seen")
+    return 0
+}
+
+// Clean command: remove build artifacts
+fun cleanCommand() r: Int {
+    printLn("Cleaning build artifacts...")
+    let result = runCommand("rm -rf .seen_cache/ /tmp/seen_module_* /tmp/seen_jit_* /tmp/seen_run_temp")
+    if commandWasSuccessful(result) {
+        printLn("Clean complete")
+        return 0
+    }
+    printLn("Clean failed")
+    return 1
+}
+
+// Test command: run test suite
+fun testCommand() r: Int {
+    printLn("Running tests...")
+    // Check for run_tests.seen in compiler_seen directory
+    if __FileExists("compiler_seen/run_tests.seen") {
+        let result = runCommand("./compiler_seen/target/seen run compiler_seen/run_tests.seen")
+        if result.output != "" {
+            printLn(result.output)
+        }
+        if commandWasSuccessful(result) {
+            return 0
+        }
+        return 1
+    }
+    // Fallback: check for test script
+    if __FileExists("run_all_tests.sh") {
+        let result = runCommand("bash run_all_tests.sh")
+        if result.output != "" {
+            printLn(result.output)
+        }
+        if commandWasSuccessful(result) {
+            return 0
+        }
+        return 1
+    }
+    printLn("No test suite found. Create run_all_tests.sh or compiler_seen/run_tests.seen")
+    return 1
+}
+
+// LSP command: start language server
+fun lspCommand() r: Int {
+    printLn("Starting Seen Language Server...")
+    // Delegate to the bootstrap compiler's LSP implementation
+    if __FileExists("./bootstrap/stage1_frozen") {
+        let result = runCommand("./bootstrap/stage1_frozen lsp")
+        if result.output != "" {
+            printLn(result.output)
+        }
+        if commandWasSuccessful(result) {
+            return 0
+        }
+    }
+    printLn("LSP server not available. Rebuild with: ./scripts/safe_rebuild.sh")
+    return 1
+}
+
+// Utility functions
+
+fun getDefaultOutputLegacy(sourceFile: String) r: String {
+    // Remove .seen extension if present
+    if sourceFile.endsWith(".seen") {
+        return sourceFile.substring(0, sourceFile.length() - 5)
+    }
+    return sourceFile + "_out"
+}
+
+
+fun validateFrontend(sourceCode: String, sourceFile: String, action: String, language: String) r: Bool {
+    let frontend = run_frontend(sourceCode, sourceFile, language)
+    if not frontend.success {
+        printLn("[ERROR] Frontend validation failed before " + action + ".")
+        printFrontendDiagnostics(frontend)
+        return false
+    }
+    return true
+}
+
+fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
+    let diagnostics = frontend.getDiagnostics()
+    if diagnostics.length() == 0 {
+        printLn("No diagnostics recorded.")
+        return
+    }
+    var index = 0
+    while index < diagnostics.length() {
+        let diag = diagnostics[index]
+        let lineInfo = diag.line.toString()
+        let columnInfo = diag.column.toString()
+        let location = diag.file + ":" + lineInfo + ":" + columnInfo
+        printLn("[" + diag.severity + "] " + location + " " + diag.message)
+        index = index + 1
+    }
+    return
+}
+
+fun printFrontendWarnings(frontend: FrontendResult) r: Void {
+    let diagnostics = frontend.getDiagnostics()
+    var printedHeader = false
+    var index = 0
+    while index < diagnostics.length() {
+        let diag = diagnostics[index]
+        if diag.severity == "warning" {
+            if not printedHeader {
+                printLn("Warnings:")
+                printedHeader = true
+            }
+            let lineInfo = diag.line.toString()
+            let columnInfo = diag.column.toString()
+            let location = diag.file + ":" + lineInfo + ":" + columnInfo
+            printLn("  " + location + " " + diag.message)
+        }
+        index = index + 1
+    }
+    return
+}
+
+
+// Argument helpers - refactored to avoid Option<String> for bootstrap independence
+
+fun getOptionalArg(args: List<String>, index: Int, defaultValue: String) r: String {
+    if args.size() > index {
+        return args[index]
+    }
+    return defaultValue
+}
+
+fun hasArg(args: List<String>, index: Int) r: Bool {
+    return args.size() > index
+}
+
+fun requireArg(args: List<String>, index: Int, message: String) r: String {
+    if args.size() > index {
+        let val = args[index]
+        return val
+    }
+    printLn(message)
+    abort(message)
+    return ""
+}
+
+// Translate source code between Seen's supported languages.
+// Usage: seen translate <file> --from <lang> --to <lang> [-o <output>]
+fun translateCommand(args: List<String>) r: Int {
+    if args.size() < 3 {
+        printLn("Error: translate command requires a source file")
+        printLn("Usage: seen translate <file> --from <lang> --to <lang> [-o <output>]")
+        return 1
+    }
+
+    let sourceFile = args[2]
+    var fromLang = "en"
+    var toLang = ""
+    var outputFile = ""
+
+    var i = 3
+    while i < args.size() {
+        let arg = args[i]
+        if arg == "--from" {
+            if i + 1 < args.size() {
+                fromLang = args[i + 1]
+                i = i + 2
+            } else {
+                printLn("Error: --from requires a language code")
+                return 1
+            }
+        } else if arg == "--to" {
+            if i + 1 < args.size() {
+                toLang = args[i + 1]
+                i = i + 2
+            } else {
+                printLn("Error: --to requires a language code")
+                return 1
+            }
+        } else if arg == "-o" or arg == "--output" {
+            if i + 1 < args.size() {
+                outputFile = args[i + 1]
+                i = i + 2
+            } else {
+                printLn("Error: -o requires an output file path")
+                return 1
+            }
+        } else {
+            printLn("Warning: Unknown option '" + arg + "'")
+            i = i + 1
+        }
+    }
+
+    if toLang == "" {
+        printLn("Error: --to <lang> is required")
+        printLn("Usage: seen translate <file> --from <lang> --to <lang> [-o <output>]")
+        return 1
+    }
+
+    if not validateLanguage(fromLang) {
+        return 1
+    }
+    if not validateLanguage(toLang) {
+        return 1
+    }
+
+    let sourceCode = readText(sourceFile)
+    if sourceCode.length() == 0 {
+        printLn("Error: Could not read file '" + sourceFile + "'")
+        return 1
+    }
+
+    let translated = translateSource(sourceCode, fromLang, toLang)
+
+    if outputFile != "" {
+        if myWriteText(outputFile, translated) {
+            printLn("Translated " + sourceFile + " (" + fromLang + " -> " + toLang + ") -> " + outputFile)
+            return 0
+        } else {
+            printLn("Error: Could not write output file '" + outputFile + "'")
+            return 1
+        }
+    } else {
+        // Print to stdout
+        print(translated)
+        return 0
+    }
+}
+
+// FFI binding generator: parses a C header file and emits Seen `extern fun`
+// declarations for each function found. Uses CImportGenerator from tools/.
+fun importCCommand(headerFile: String) r: Int {
+    printLn("Generating Seen bindings for: " + headerFile)
+
+    let gen = CImportGenerator.new(headerFile)
+    let result = gen.parseHeader()
+
+    if not result.success {
+        var ei = 0
+        while ei < result.errors.length() {
+            printLn("Error: " + result.errors[ei])
+            ei = ei + 1
+        }
+        return 1
+    }
+
+    // Print warnings
+    var wi = 0
+    while wi < result.warnings.length() {
+        printLn("Warning: " + result.warnings[wi])
+        wi = wi + 1
+    }
+
+    // Generate and print extern declarations
+    let declarations = gen.generateExternDeclarations()
+    printLn(declarations)
+
+    printLn("// " + result.functions.length().toString() + " functions imported")
+    return 0
+}
+
+// Converts runtime's raw args array to a List<String> for index-based CLI parsing.
+fun GetCommandLineArgs() r: List<String> {
+    let rawArgs = args()
+    printLn("[trace] rawArgs len=" + rawArgs.length().toString())
+    var list: List<String> = []
+    var index = 0
+    while index < rawArgs.length() {
+        list.push(rawArgs[index])
+        index = index + 1
+    }
+    return list
+}
+
+
+main()

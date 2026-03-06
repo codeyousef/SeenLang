@@ -1,0 +1,7 @@
+// Token Utilities for Self-hosted Lexer
+
+class TokenUtils {
+    static fun new() r: TokenUtils {
+        return TokenUtils{}
+    }
+}

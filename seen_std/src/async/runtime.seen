@@ -1,0 +1,373 @@
+// Composable Async Runtime
+// Based on AC (Composable Async I/O) approach from the research paper
+//
+// Design principles:
+// - Zero bookkeeping until blocking
+// - Lazy task creation
+// - Lock-free ready queue using SPSC (single-threaded: simple array)
+// - Minimal overhead for fast-path (non-blocking) async calls
+//
+// Architecture:
+//   The runtime manages two kinds of work:
+//   1. Coroutine tasks -- LLVM coroutine handles from @async functions
+//   2. Combinator tasks -- then()/map() chains registered in future.seen
+//
+//   Each tick of the event loop:
+//   a) Drain the ready queue (woken tasks)
+//   b) Poll all non-completed coroutine tasks
+//   c) Poll all pending combinator tasks (then/map chains)
+//   d) If nothing progressed and nothing is ready, yield CPU
+
+// Inlined from future.seen to avoid multi-module import resolution issues.
+// (collectModulePaths only scans main file imports, not transitive deps.)
+var g_ready_queue: Array<Int>
+
+fun drain_ready_queue() -> Array<Int> {
+    let snapshot = g_ready_queue
+    g_ready_queue = Array<Int>()
+    return snapshot
+}
+
+fun poll_combinators() -> Void {
+    return
+}
+
+// ============================================================================
+// CoroutineTask -- wraps an LLVM coroutine handle for the scheduler
+// ============================================================================
+
+// Coroutine frame operations -- mixed C wrappers and LLVM intrinsics.
+//
+// resume/destroy MUST use LLVM intrinsics because coroutine lowering uses
+// the fastcc calling convention for the resume/destroy function pointers.
+// C wrappers would call with the wrong convention and crash.
+//
+// done/promise are safe as C wrappers since they only read memory
+// (no function pointer calls).
+extern fun seen_coro_done(handle: ptr) -> Int
+extern fun llvm_coro_resume(handle: ptr) -> Void
+extern fun llvm_coro_destroy(handle: ptr) -> Void
+extern fun seen_coro_promise(handle: ptr) -> ptr
+extern fun __thread_yield() -> Void
+
+class CoroutineTask {
+    var id: Int
+    var handle: ptr
+    var completed: Bool
+    var name: String
+}
+
+// Free-function constructor (static methods break parser -- adds phantom fields)
+fun new_coroutine_task(task_id: Int, task_handle: ptr, task_name: String) -> CoroutineTask {
+    return CoroutineTask {
+        id: task_id,
+        handle: task_handle,
+        completed: false,
+        name: task_name
+    }
+}
+
+// Poll this task once -- resumes the coroutine and checks if it finished.
+// Returns true if the task completed on this poll, false otherwise.
+fun poll_task(task: CoroutineTask) -> Bool {
+    if task.completed {
+        return true
+    }
+
+    let h = task.handle
+    llvm_coro_resume(h)
+
+    let done = seen_coro_done(h)
+    if done == 1 {
+        task.completed = true
+        llvm_coro_destroy(h)
+        return true
+    }
+
+    return false
+}
+
+// Extract the promise value (the return value stored in the coroutine frame).
+fun task_promise(task: CoroutineTask) -> ptr {
+    let h = task.handle
+    return seen_coro_promise(h)
+}
+
+// ============================================================================
+// AsyncRuntime -- single-threaded cooperative task executor
+// ============================================================================
+
+class AsyncRuntime {
+    var tasks: Array<CoroutineTask>
+    var next_task_id: Int
+    var running: Bool
+    var max_ticks: Int
+}
+
+// Free-function constructor
+fun new_async_runtime() -> AsyncRuntime {
+    g_ready_queue = Array<Int>()
+    return AsyncRuntime {
+        tasks: Array<CoroutineTask>(),
+        next_task_id: 1,
+        running: false,
+        max_ticks: 0
+    }
+}
+
+// Spawn an @async function's coroutine handle as a task.
+// Returns the task ID for tracking.
+fun runtime_spawn(rt: AsyncRuntime, handle: ptr, name: String) -> Int {
+    let id = rt.next_task_id
+    rt.next_task_id = rt.next_task_id + 1
+
+    let task = new_coroutine_task(id, handle, name)
+    rt.tasks.push(task)
+
+    // Also add to ready queue so it gets polled immediately
+    g_ready_queue.push(id)
+
+    return id
+}
+
+// Convenience spawn without a debug name
+fun runtime_spawn_anonymous(rt: AsyncRuntime, handle: ptr) -> Int {
+    return runtime_spawn(rt, handle, "<anonymous>")
+}
+
+// Check if all tasks have completed
+fun runtime_all_completed(rt: AsyncRuntime) -> Bool {
+    var i = 0
+    let tasks = rt.tasks
+    while i < tasks.length() {
+        let task = tasks[i]
+        if not task.completed {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// Execute one tick of the event loop.
+// Returns true if any task made progress, false otherwise.
+fun runtime_tick(rt: AsyncRuntime) -> Bool {
+    var progress = false
+
+    // 1. Drain ready queue
+    let ready_ids = drain_ready_queue()
+    if ready_ids.length() > 0 {
+        progress = true
+    }
+
+    // 2. Poll all coroutine tasks
+    var i = 0
+    let tasks = rt.tasks
+    while i < tasks.length() {
+        let task = tasks[i]
+        if not task.completed {
+            let done = poll_task(task)
+            if done {
+                progress = true
+            }
+        }
+        i = i + 1
+    }
+
+    // 3. Advance future combinators (then/map chains)
+    poll_combinators()
+
+    return progress
+}
+
+// Run all spawned tasks to completion.
+fun runtime_run_until_complete(rt: AsyncRuntime) -> Void {
+    rt.running = true
+    var tick_count = 0
+
+    while rt.running {
+        let progress = runtime_tick(rt)
+
+        tick_count = tick_count + 1
+        if rt.max_ticks > 0 {
+            if tick_count >= rt.max_ticks {
+                rt.running = false
+                return
+            }
+        }
+
+        // If no task made progress this tick, check if we're done
+        if not progress {
+            let all_done = runtime_all_completed(rt)
+            if all_done {
+                rt.running = false
+                return
+            }
+            // Nothing progressed but tasks remain -- yield CPU
+            __thread_yield()
+        }
+    }
+}
+
+// Block on a void-returning async function
+fun runtime_block_on_void(rt: AsyncRuntime, handle: ptr) -> Void {
+    let task_id = runtime_spawn(rt, handle, "block_on")
+    var task_index = rt.tasks.length() - 1
+
+    let tasks = rt.tasks
+    let task = tasks[task_index]
+    while not task.completed {
+        runtime_tick(rt)
+    }
+}
+
+// Check if a specific task has completed
+fun runtime_is_completed(rt: AsyncRuntime, task_id: Int) -> Bool {
+    var i = 0
+    let tasks = rt.tasks
+    while i < tasks.length() {
+        let task = tasks[i]
+        if task.id == task_id {
+            return task.completed
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// Get count of pending (non-completed) tasks
+fun runtime_pending_count(rt: AsyncRuntime) -> Int {
+    var count = 0
+    var i = 0
+    let tasks = rt.tasks
+    while i < tasks.length() {
+        let task = tasks[i]
+        if not task.completed {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+// Get total number of tasks ever spawned
+fun runtime_total_count(rt: AsyncRuntime) -> Int {
+    return rt.tasks.length()
+}
+
+// Stop the runtime
+fun runtime_stop(rt: AsyncRuntime) -> Void {
+    rt.running = false
+}
+
+// Remove completed tasks to free memory
+fun runtime_gc(rt: AsyncRuntime) -> Void {
+    var i = 0
+    let tasks = rt.tasks
+    while i < tasks.length() {
+        let task = tasks[i]
+        if task.completed {
+            tasks.remove(i)
+        } else {
+            i = i + 1
+        }
+    }
+}
+
+// Global runtime convenience API removed -- module-level function call
+// initialization (var g_runtime = new_async_runtime()) generates invalid IR.
+// Users should create their own AsyncRuntime via new_async_runtime().
+
+extern fun __seen_promise_load_i64(handle: ptr) -> Int
+extern fun __seen_promise_load_f64(handle: ptr) -> Float
+extern fun async_yield() -> Void
+
+// Block on an Int-returning @async function, return the result.
+// Uses a direct polling loop -- does NOT go through runtime_spawn/poll_task
+// because poll_task calls llvm_coro_destroy() which would free the frame
+// before we can read the promise.
+fun runtime_block_on_int(rt: AsyncRuntime, handle: ptr) -> Int {
+    var done_flag = 0
+    while done_flag == 0 {
+        llvm_coro_resume(handle)
+        if seen_coro_done(handle) == 1 {
+            done_flag = 1
+        }
+    }
+    let result = __seen_promise_load_i64(handle)
+    llvm_coro_destroy(handle)
+    return result
+}
+
+// Block on a Float-returning @async function, return the result.
+fun runtime_block_on_float(rt: AsyncRuntime, handle: ptr) -> Float {
+    var done_flag = 0
+    while done_flag == 0 {
+        llvm_coro_resume(handle)
+        if seen_coro_done(handle) == 1 {
+            done_flag = 1
+        }
+    }
+    let result = __seen_promise_load_f64(handle)
+    llvm_coro_destroy(handle)
+    return result
+}
+
+// ============================================================================
+// Structured Concurrency — scope { spawn ... } with auto-join
+// ============================================================================
+//
+// AsyncScope ensures that all tasks spawned within the scope complete
+// before the scope exits. This provides structured concurrency guarantees:
+// - Parent waits for all spawned children
+// - Scope block doesn't return until all tasks are done
+//
+// Usage:
+//   let scope = new_async_scope(runtime)
+//   scope_spawn(scope, runtime, coroutine_handle, "task1")
+//   scope_spawn(scope, runtime, coroutine_handle2, "task2")
+//   scope_join(scope, runtime)  // waits for all spawned tasks
+
+class AsyncScope {
+    var task_ids: Array<Int>
+    var cancelled: Bool
+}
+
+fun new_async_scope(rt: AsyncRuntime) -> AsyncScope {
+    return AsyncScope {
+        task_ids: Array<Int>(),
+        cancelled: false
+    }
+}
+
+// Spawn a coroutine within the scope — tracks the task ID for joining
+fun scope_spawn(scope: AsyncScope, rt: AsyncRuntime, handle: ptr, name: String) -> Int {
+    let id = runtime_spawn(rt, handle, name)
+    scope.task_ids.push(id)
+    return id
+}
+
+// Wait for all tasks in the scope to complete
+fun scope_join(scope: AsyncScope, rt: AsyncRuntime) -> Void {
+    var all_done = false
+    while not all_done {
+        runtime_tick(rt)
+        all_done = true
+        var i = 0
+        while i < scope.task_ids.length() {
+            let tid = scope.task_ids[i]
+            if not runtime_is_completed(rt, tid) {
+                all_done = false
+            }
+            i = i + 1
+        }
+        if not all_done {
+            __thread_yield()
+        }
+    }
+}
+
+// Cancel all tasks in the scope (best-effort — marks cancelled flag)
+fun scope_cancel(scope: AsyncScope) -> Void {
+    scope.cancelled = true
+}

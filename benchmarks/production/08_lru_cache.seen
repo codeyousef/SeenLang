@@ -1,0 +1,185 @@
+// LRU Cache Benchmark
+// Real HashMap + array-based doubly-linked list for O(1) get/put
+// Same algorithm as Rust: HashMap<Int,Int> for key->node index mapping
+// Parallel arrays for keys/values/prev/next with free list
+
+fun moveToFront(nodeIdx: Int, keys: Array<Int>, values: Array<Int>, prev: Array<Int>, next: Array<Int>, headPtr: Array<Int>, tailPtr: Array<Int>) r: Void {
+    if nodeIdx == headPtr[0] {
+        return
+    }
+    // Unlink from current position
+    let p = prev[nodeIdx]
+    let nx = next[nodeIdx]
+    if p >= 0 {
+        next[p] = nx
+    }
+    if nx >= 0 {
+        prev[nx] = p
+    }
+    if nodeIdx == tailPtr[0] {
+        tailPtr[0] = p
+    }
+    // Link at front
+    prev[nodeIdx] = 0 - 1
+    next[nodeIdx] = headPtr[0]
+    let h = headPtr[0]
+    if h >= 0 {
+        prev[h] = nodeIdx
+    }
+    headPtr[0] = nodeIdx
+}
+
+fun benchmark_lru(n: Int, capacity: Int) -> Int {
+    var map = HashMap<Int, Int>(capacity * 2)
+
+    // Parallel arrays for the doubly-linked list nodes
+    let keys: Array<Int> = Array<Int>(capacity, 0)
+    let values: Array<Int> = Array<Int>(capacity, 0)
+    let prev: Array<Int> = Array<Int>(capacity, 0 - 1)
+    let next: Array<Int> = Array<Int>(capacity, 0 - 1)
+
+    // Free list: initially all indices are free
+    let freeList: Array<Int> = Array<Int>(capacity, 0)
+    var freeCount = capacity
+    var fi = 0
+    while fi < capacity {
+        freeList[fi] = fi
+        fi = fi + 1
+    }
+
+    // Use arrays of size 1 for head/tail so we can pass by reference
+    let headPtr: Array<Int> = Array<Int>(1, 0 - 1)
+    let tailPtr: Array<Int> = Array<Int>(1, 0 - 1)
+    var size = 0
+    var checksum = 0
+
+    // LCG random number generator (same as Rust)
+    var rng = 42
+
+    var i = 0
+    while i < n {
+        rng = rng * 1103515245 + 12345
+        var key = rng
+        if key < 0 {
+            key = 0 - key
+        }
+
+        // 70% get, 30% put based on i % 10
+        var rem2 = i - (i / 10) * 10
+
+        // GET operation (rem2 < 7)
+        var didGet = 0
+        if rem2 < 7 {
+            didGet = 1
+            let nodeIdx = map.getOrDefault(key, 0 - 1)
+            if nodeIdx >= 0 {
+                checksum = checksum + values[nodeIdx]
+                moveToFront(nodeIdx, keys, values, prev, next, headPtr, tailPtr)
+            }
+        }
+
+        // PUT operation (rem2 >= 7)
+        if didGet == 0 {
+            let existIdx = map.getOrDefault(key, 0 - 1)
+            if existIdx >= 0 {
+                // Update existing
+                values[existIdx] = key * 2
+                moveToFront(existIdx, keys, values, prev, next, headPtr, tailPtr)
+            }
+            if existIdx < 0 {
+                // Insert new
+                var nodeIdx = 0 - 1
+                if freeCount > 0 {
+                    freeCount = freeCount - 1
+                    nodeIdx = freeList[freeCount]
+                    size = size + 1
+                }
+                if nodeIdx < 0 {
+                    // Evict LRU (tail)
+                    nodeIdx = tailPtr[0]
+                    let oldKey = keys[nodeIdx]
+                    map.remove(oldKey)
+
+                    let p = prev[nodeIdx]
+                    tailPtr[0] = p
+                    if p >= 0 {
+                        next[p] = 0 - 1
+                    }
+                    if p < 0 {
+                        headPtr[0] = 0 - 1
+                    }
+                }
+
+                keys[nodeIdx] = key
+                values[nodeIdx] = key * 2
+                prev[nodeIdx] = 0 - 1
+                let h = headPtr[0]
+                next[nodeIdx] = h
+                if h >= 0 {
+                    prev[h] = nodeIdx
+                }
+                headPtr[0] = nodeIdx
+                if tailPtr[0] < 0 {
+                    tailPtr[0] = nodeIdx
+                }
+                map.insert(key, nodeIdx)
+            }
+        }
+
+        i = i + 1
+    }
+
+    return checksum
+}
+
+fun main() -> Int {
+    let n = 10000000
+    let capacity = 100000
+
+    __Print("LRU Cache Benchmark\n")
+    __Print("Operations: ")
+    __PrintInt(n)
+    __Print("\nCapacity: ")
+    __PrintInt(capacity)
+    __Print("\n")
+
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let checksum_warmup = benchmark_lru(n / 10, capacity)
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_checksum = 0
+
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let checksum = benchmark_lru(n, capacity)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_checksum = checksum
+        }
+        i = i + 1
+    }
+
+    __Print("Checksum: ")
+    __PrintInt(result_checksum)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Operations per second: ")
+    __PrintFloat(n.toFloat() / (min_time / 1000.0) / 1000000.0)
+    __Print(" million\n")
+
+    return 0
+}

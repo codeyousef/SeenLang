@@ -1,0 +1,39 @@
+name = "English"
+description = "English Builtin Names"
+
+[std_lib]
+# Type names
+"Int" = "seen_std.builtins.Int"
+"String" = "seen_std.builtins.String"
+"Float" = "seen_std.builtins.Float"
+"Bool" = "seen_std.builtins.Bool"
+"Void" = "seen_std.builtins.Void"
+"Char" = "seen_std.builtins.Char"
+
+# Print functions
+"println" = "seen_std.builtins.println"
+"print" = "seen_std.builtins.print"
+"eprintln" = "seen_std.builtins.eprintln"
+
+# Entry point
+"main" = "seen_std.builtins.main"
+
+# Self reference
+"this" = "seen_std.builtins.this"
+
+# Return type label
+"r" = "seen_std.builtins.r"
+
+# Conversion methods
+"toString" = "seen_std.builtins.toString"
+"toFloat" = "seen_std.builtins.toFloat"
+"toInt" = "seen_std.builtins.toInt"
+
+# Collection methods
+"length" = "seen_std.builtins.length"
+"push" = "seen_std.builtins.push"
+"get" = "seen_std.builtins.get"
+"put" = "seen_std.builtins.put"
+
+# Constructor
+"new" = "seen_std.builtins.new"

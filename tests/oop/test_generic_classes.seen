@@ -1,0 +1,173 @@
+// OOP Generic Classes Test
+// Tests: generic classes, type parameters, generic methods
+// Expected: Generic type instantiation works correctly
+
+class Box<T> {
+    var value: T
+
+    static fun new(value: T) r: Box<T> {
+        return Box<T> { value: value }
+    }
+
+    fun getValue() r: T {
+        return value
+    }
+
+    fun setValue(newValue: T) {
+        value = newValue
+    }
+}
+
+class Pair<A, B> {
+    var first: A
+    var second: B
+
+    static fun new(first: A, second: B) r: Pair<A, B> {
+        return Pair<A, B> { first: first, second: second }
+    }
+
+    fun getFirst() r: A {
+        return first
+    }
+
+    fun getSecond() r: B {
+        return second
+    }
+
+    fun swap() r: Pair<B, A> {
+        return Pair<B, A>.new(second, first)
+    }
+}
+
+fun main() r: Int {
+    println("Testing OOP Generic Classes...")
+
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Generic class with Int
+    println("\n=== Test 1: Box<Int> ===")
+    let intBox = Box<Int>.new(42)
+    if intBox.getValue() == 42 {
+        println("PASS: Box<Int> instantiation works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Box<Int> getValue returned " + intBox.getValue().toString())
+        failed = failed + 1
+    }
+
+    // Test 2: Generic class with Float
+    println("\n=== Test 2: Box<Float> ===")
+    let floatBox = Box<Float>.new(3.14)
+    let fval = floatBox.getValue()
+    if fval > 3.13 and fval < 3.15 {
+        println("PASS: Box<Float> instantiation works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Box<Float> getValue returned " + fval.toString())
+        failed = failed + 1
+    }
+
+    // Test 3: Generic setValue method
+    println("\n=== Test 3: Generic setValue ===")
+    intBox.setValue(100)
+    if intBox.getValue() == 100 {
+        println("PASS: setValue modifies generic field")
+        passed = passed + 1
+    } else {
+        println("FAIL: setValue didn't work correctly")
+        failed = failed + 1
+    }
+
+    // Test 4: Multiple type parameters
+    println("\n=== Test 4: Pair<Int, Int> ===")
+    let intPair = Pair<Int, Int>.new(10, 20)
+    if intPair.getFirst() == 10 and intPair.getSecond() == 20 {
+        println("PASS: Pair with two type parameters works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Pair instantiation incorrect")
+        failed = failed + 1
+    }
+
+    // Test 5: Pair with different types
+    println("\n=== Test 5: Pair<Int, Float> ===")
+    let mixedPair = Pair<Int, Float>.new(5, 2.5)
+    if mixedPair.getFirst() == 5 {
+        println("PASS: Pair<Int, Float> first value correct")
+        passed = passed + 1
+    } else {
+        println("FAIL: Pair<Int, Float> first value incorrect")
+        failed = failed + 1
+    }
+
+    // Test 6: Pair second value
+    println("\n=== Test 6: Pair second value ===")
+    let secondVal = mixedPair.getSecond()
+    if secondVal > 2.4 and secondVal < 2.6 {
+        println("PASS: Pair<Int, Float> second value correct")
+        passed = passed + 1
+    } else {
+        println("FAIL: Pair second value incorrect")
+        failed = failed + 1
+    }
+
+    // Test 7: Generic method returning different type
+    println("\n=== Test 7: Pair swap ===")
+    let swapped = mixedPair.swap()
+    let swappedFirst = swapped.getFirst()
+    if swappedFirst > 2.4 and swappedFirst < 2.6 {
+        println("PASS: Pair swap method works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Pair swap returned incorrect type order")
+        failed = failed + 1
+    }
+
+    // Test 8: Swapped second value
+    println("\n=== Test 8: Swapped second value ===")
+    if swapped.getSecond() == 5 {
+        println("PASS: Swapped pair second value correct")
+        passed = passed + 1
+    } else {
+        println("FAIL: Swapped pair second value incorrect")
+        failed = failed + 1
+    }
+
+    // Test 9: Multiple Box instances with different types
+    println("\n=== Test 9: Multiple Box instances ===")
+    let box1 = Box<Int>.new(1)
+    let box2 = Box<Int>.new(2)
+    let box3 = Box<Float>.new(3.0)
+    if box1.getValue() == 1 and box2.getValue() == 2 {
+        println("PASS: Multiple Box<Int> instances are independent")
+        passed = passed + 1
+    } else {
+        println("FAIL: Box instances interfere")
+        failed = failed + 1
+    }
+
+    // Test 10: Generic field modification independence
+    println("\n=== Test 10: Field modification independence ===")
+    box1.setValue(999)
+    if box1.getValue() == 999 and box2.getValue() == 2 {
+        println("PASS: Modifying one Box doesn't affect another")
+        passed = passed + 1
+    } else {
+        println("FAIL: Box instances share state incorrectly")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("\n==================================================")
+    println("OOP Generic Classes Results: " + passed.toString() + "/" + (passed + failed).toString())
+    println("==================================================")
+
+    if failed > 0 {
+        println("FAIL: Some generic class tests failed")
+        return 1
+    }
+
+    println("PASS: All OOP generic class tests passed!")
+    return 0
+}

@@ -1,0 +1,22 @@
+// Debug test for sqrt function
+// Expected: sqrt(25.0) = 5.0
+
+extern fun sqrt(x: Float) r: Float
+
+fun main() r: Int {
+    println("Testing sqrt function...")
+
+    let value: Float = 25.0
+    println("Input: " + value.toString())
+
+    let result = sqrt(value)
+    println("sqrt(25.0) = " + result.toString())
+
+    if result > 4.9 and result < 5.1 {
+        println("PASS: sqrt works correctly")
+        return 0
+    } else {
+        println("FAIL: sqrt returned " + result.toString() + " instead of 5.0")
+        return 1
+    }
+}

@@ -1,0 +1,170 @@
+// Test short-circuit evaluation of and/or operators
+// If short-circuit works correctly, side effects are only executed when needed
+
+var sideEffectCount = 0
+
+fun sideEffect() r: Bool {
+    sideEffectCount = sideEffectCount + 1
+    return true
+}
+
+fun sideEffectFalse() r: Bool {
+    sideEffectCount = sideEffectCount + 1
+    return false
+}
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    // Test 1: false and sideEffect() should NOT call sideEffect
+    sideEffectCount = 0
+    let r1 = false and sideEffect()
+    if sideEffectCount == 0 {
+        println("PASS: false and sideEffect() did not call sideEffect")
+        passed = passed + 1
+    } else {
+        println("FAIL: false and sideEffect() called sideEffect " + sideEffectCount.toString() + " times")
+        failed = failed + 1
+    }
+
+    // Test 2: true or sideEffect() should NOT call sideEffect
+    sideEffectCount = 0
+    let r2 = true or sideEffect()
+    if sideEffectCount == 0 {
+        println("PASS: true or sideEffect() did not call sideEffect")
+        passed = passed + 1
+    } else {
+        println("FAIL: true or sideEffect() called sideEffect " + sideEffectCount.toString() + " times")
+        failed = failed + 1
+    }
+
+    // Test 3: true and sideEffect() SHOULD call sideEffect
+    sideEffectCount = 0
+    let r3 = true and sideEffect()
+    if sideEffectCount == 1 {
+        println("PASS: true and sideEffect() called sideEffect once")
+        passed = passed + 1
+    } else {
+        println("FAIL: true and sideEffect() called sideEffect " + sideEffectCount.toString() + " times")
+        failed = failed + 1
+    }
+
+    // Test 4: false or sideEffect() SHOULD call sideEffect
+    sideEffectCount = 0
+    let r4 = false or sideEffect()
+    if sideEffectCount == 1 {
+        println("PASS: false or sideEffect() called sideEffect once")
+        passed = passed + 1
+    } else {
+        println("FAIL: false or sideEffect() called sideEffect " + sideEffectCount.toString() + " times")
+        failed = failed + 1
+    }
+
+    // Test 5: Result correctness - and
+    if true and true {
+        println("PASS: true and true = true")
+        passed = passed + 1
+    } else {
+        println("FAIL: true and true should be true")
+        failed = failed + 1
+    }
+
+    if true and false {
+        println("FAIL: true and false should be false")
+        failed = failed + 1
+    } else {
+        println("PASS: true and false = false")
+        passed = passed + 1
+    }
+
+    if false and true {
+        println("FAIL: false and true should be false")
+        failed = failed + 1
+    } else {
+        println("PASS: false and true = false")
+        passed = passed + 1
+    }
+
+    // Test 6: Result correctness - or
+    if false or false {
+        println("FAIL: false or false should be false")
+        failed = failed + 1
+    } else {
+        println("PASS: false or false = false")
+        passed = passed + 1
+    }
+
+    if true or false {
+        println("PASS: true or false = true")
+        passed = passed + 1
+    } else {
+        println("FAIL: true or false should be true")
+        failed = failed + 1
+    }
+
+    if false or true {
+        println("PASS: false or true = true")
+        passed = passed + 1
+    } else {
+        println("FAIL: false or true should be true")
+        failed = failed + 1
+    }
+
+    // Test 7: Nested - a and b and c
+    sideEffectCount = 0
+    let r7 = false and sideEffect() and sideEffect()
+    if sideEffectCount == 0 {
+        println("PASS: false and f() and f() short-circuits both")
+        passed = passed + 1
+    } else {
+        println("FAIL: false and f() and f() called sideEffect " + sideEffectCount.toString() + " times")
+        failed = failed + 1
+    }
+
+    // Test 8: Nested - a or b or c
+    sideEffectCount = 0
+    let r8 = true or sideEffect() or sideEffect()
+    if sideEffectCount == 0 {
+        println("PASS: true or f() or f() short-circuits both")
+        passed = passed + 1
+    } else {
+        println("FAIL: true or f() or f() called sideEffect " + sideEffectCount.toString() + " times")
+        failed = failed + 1
+    }
+
+    // Test 9: In conditions with comparisons
+    let x = 5
+    if x > 0 and x < 10 {
+        println("PASS: 5 > 0 and 5 < 10 is true")
+        passed = passed + 1
+    } else {
+        println("FAIL: 5 > 0 and 5 < 10 should be true")
+        failed = failed + 1
+    }
+
+    if x < 0 or x > 3 {
+        println("PASS: 5 < 0 or 5 > 3 is true")
+        passed = passed + 1
+    } else {
+        println("FAIL: 5 < 0 or 5 > 3 should be true")
+        failed = failed + 1
+    }
+
+    // Test 10: Guard pattern - null-safe via short-circuit
+    sideEffectCount = 0
+    let r10 = false and sideEffectFalse() or sideEffect()
+    // false and sideEffectFalse() => false (sideEffectFalse not called)
+    // false or sideEffect() => true (sideEffect called once)
+    if sideEffectCount == 1 {
+        println("PASS: (false and f1()) or f2() calls only f2")
+        passed = passed + 1
+    } else {
+        println("FAIL: (false and f1()) or f2() called side effects " + sideEffectCount.toString() + " times")
+        failed = failed + 1
+    }
+
+    println("")
+    println("Results: " + passed.toString() + " passed, " + failed.toString() + " failed")
+    return failed
+}

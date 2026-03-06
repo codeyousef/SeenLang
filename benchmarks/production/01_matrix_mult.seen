@@ -1,0 +1,139 @@
+// Matrix Multiplication Benchmark (SGEMM)
+// High-performance matrix multiplication with cache blocking
+// Uses flat Array<Float> for matrix data (no class wrapper for stage1 compat)
+
+fun matrix_new(size: Int) -> Array<Float> {
+    let total = size * size
+    let arr = Array<Float>(total, 0.0)
+    return arr
+}
+
+fun matrix_fill_random(data: Array<Float>, seed: Int) -> Void {
+    var current_seed = seed
+    var i = 0
+    while i < data.length() {
+        current_seed = (current_seed * 1103515245 + 12345) % 2147483647
+        if current_seed < 0 {
+            current_seed = 0 - current_seed
+        }
+        let value_int = current_seed % 10000
+        let value = value_int.toFloat() / 10000.0
+        data[i] = value
+        i = i + 1
+    }
+}
+
+fun min(a: Int, b: Int) -> Int {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+fun matrix_multiply(a: Array<Float>, b: Array<Float>, c: Array<Float>, size: Int) -> Void {
+    let block_size = 64
+
+    var ii = 0
+    while ii < size {
+        var jj = 0
+        while jj < size {
+            var kk = 0
+            while kk < size {
+                let i_end = min(ii + block_size, size)
+                let j_end = min(jj + block_size, size)
+                let k_end = min(kk + block_size, size)
+
+                var i = ii
+                while i < i_end {
+                    var j = jj
+                    while j < j_end {
+                        var sum = c[i * size + j]
+                        var k = kk
+                        while k < k_end {
+                            sum = sum + a[i * size + k] * b[k * size + j]
+                            k = k + 1
+                        }
+                        c[i * size + j] = sum
+                        j = j + 1
+                    }
+                    i = i + 1
+                }
+
+                kk = kk + block_size
+            }
+            jj = jj + block_size
+        }
+        ii = ii + block_size
+    }
+}
+
+fun compute_checksum(data: Array<Float>) -> Float {
+    var sum = 0.0
+    var i = 0
+    while i < data.length() {
+        sum = sum + data[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun main() -> Int {
+    let size = 1024
+
+    __Print("Matrix Multiplication Benchmark (SGEMM)\n")
+    __Print("Matrix size: ")
+    __PrintInt(size)
+    __Print("x")
+    __PrintInt(size)
+    __Print("\n")
+
+    let a = matrix_new(size)
+    let b = matrix_new(size)
+    let c = matrix_new(size)
+
+    matrix_fill_random(a, 12345)
+    matrix_fill_random(b, 67890)
+
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        matrix_multiply(a, b, c, size)
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var i = 0
+    while i < iterations {
+        let c_fresh = matrix_new(size)
+
+        let start = __GetTime()
+        matrix_multiply(a, b, c_fresh, size)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+        }
+        i = i + 1
+    }
+
+    let checksum = compute_checksum(c)
+    let size_f = size.toFloat()
+    let gflops = (2.0 * size_f * size_f * size_f) / (min_time / 1000.0) / 1000000000.0
+
+    __Print("Checksum: ")
+    __PrintFloat(checksum)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Performance: ")
+    __PrintFloat(gflops)
+    __Print(" GFLOPS\n")
+
+    return 0
+}

@@ -1,0 +1,26 @@
+// Object Pool implementation
+import core.option.{Option, Some, None}
+import collections.vec.{Vec}
+
+class Pool<T> {
+    items: Vec<T>
+    factory: () -> T
+    
+    fun new(factory: () -> T) -> Pool<T> {
+        Pool {
+            items: Vec.new(),
+            factory: factory
+        }
+    }
+    
+    fun get() -> T {
+        if this.items.len() > 0 {
+            return this.items.pop().unwrap()
+        }
+        return (this.factory)()
+    }
+    
+    fun release(item: T) {
+        this.items.push(item)
+    }
+}

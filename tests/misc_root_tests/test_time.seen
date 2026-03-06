@@ -1,0 +1,9 @@
+fun main() -> Int {
+    let start = __GetTime()
+    let end = __GetTime()
+    let elapsed = (end - start) * 1000.0
+    
+    __PrintFloat(elapsed)
+    __Print("\n")
+    return 0
+}

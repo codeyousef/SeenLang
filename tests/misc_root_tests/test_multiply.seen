@@ -1,0 +1,82 @@
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+    
+    fun get(row: Int, col: Int) -> Float {
+        this.data[row * this.cols + col]
+    }
+    
+    fun set(row: Int, col: Int, value: Float) -> Void {
+        this.data[row * this.cols + col] = value
+    }
+}
+
+fun min(a: Int, b: Int) -> Int {
+    if a < b { a } else { b }
+}
+
+fun matrix_multiply(a: Matrix, b: Matrix, c: Matrix) -> Void {
+    __Print("Starting multiply\n")
+    let block_size = 2
+    
+    var ii = 0
+    while ii < a.rows {
+        __Print("ii loop\n")
+        var jj = 0
+        while jj < b.cols {
+            __Print("jj loop\n")
+            var kk = 0
+            while kk < a.cols {
+                __Print("kk loop\n")
+                let i_end = min(ii + block_size, a.rows)
+                let j_end = min(jj + block_size, b.cols)
+                let k_end = min(kk + block_size, a.cols)
+                
+                __Print("Computing block\n")
+                var i = ii
+                while i < i_end {
+                    var j = jj
+                    while j < j_end {
+                        var sum = c.get(i, j)
+                        var k = kk
+                        while k < k_end {
+                            sum = sum + a.get(i, k) * b.get(k, j)
+                            k = k + 1
+                        }
+                        c.set(i, j, sum)
+                        j = j + 1
+                    }
+                    i = i + 1
+                }
+                
+                kk = kk + block_size
+            }
+            jj = jj + block_size
+        }
+        ii = ii + block_size
+    }
+    __Print("Done multiply\n")
+}
+
+fun main() -> Int {
+    let a = Matrix.new(2, 2)
+    let b = Matrix.new(2, 2)
+    let c = Matrix.new(2, 2)
+    
+    __Print("Calling matrix_multiply\n")
+    matrix_multiply(a, b, c)
+    __Print("Finished\n")
+    return 0
+}

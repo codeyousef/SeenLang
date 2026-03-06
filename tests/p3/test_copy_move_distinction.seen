@@ -1,0 +1,25 @@
+// /: Explicit copy vs move distinction at type level
+// Tests that @move types enforce move semantics and @trivially_copyable
+// types allow bitwise copy
+
+@trivially_copyable
+class Point {
+    var x: Int
+    var y: Int
+}
+
+fun main() r: Int {
+    // @trivially_copyable allows normal copy
+    var p1 = Point()
+    p1.x = 5
+    p1.y = 10
+    var p2 = p1  // Bitwise copy — both are valid
+
+    if p2.x != 5 {
+        println("FAIL: trivially_copyable copy failed")
+        return 1
+    }
+
+    println("PASS: Copy/move distinction test")
+    return 0
+}

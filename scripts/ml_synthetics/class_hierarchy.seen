@@ -1,0 +1,228 @@
+// Synthetic: OOP-like workload with many small functions
+// Represents: game engines, simulations, business logic
+// Avoids class-field-from-free-function pattern (stage1 limitation)
+
+fun newEntity(entities_x: Array<Float>, entities_y: Array<Float>, entities_hp: Array<Int>, entities_active: Array<Int>, x: Float, y: Float) r: Int {
+    let id = entities_x.length()
+    entities_x.push(x)
+    entities_y.push(y)
+    entities_hp.push(100)
+    entities_active.push(1)
+    return id
+}
+
+fun moveEntity(entities_x: Array<Float>, entities_y: Array<Float>, id: Int, dx: Float, dy: Float) r: Void {
+    entities_x[id] = entities_x[id] + dx
+    entities_y[id] = entities_y[id] + dy
+}
+
+fun damageEntity(entities_hp: Array<Int>, entities_active: Array<Int>, id: Int, amount: Int) r: Void {
+    let newHp = entities_hp[id] - amount
+    if newHp <= 0 {
+        entities_hp[id] = 0
+        entities_active[id] = 0
+    } else {
+        entities_hp[id] = newHp
+    }
+}
+
+fun distanceSq(entities_x: Array<Float>, entities_y: Array<Float>, a: Int, b: Int) r: Float {
+    let dx = entities_x[a] - entities_x[b]
+    let dy = entities_y[a] - entities_y[b]
+    return dx * dx + dy * dy
+}
+
+fun countActive(entities_active: Array<Int>) r: Int {
+    var count = 0
+    var i = 0
+    while i < entities_active.length() {
+        if entities_active[i] == 1 {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fun findNearest(entities_x: Array<Float>, entities_y: Array<Float>, entities_active: Array<Int>, targetId: Int) r: Int {
+    var bestId = 0 - 1
+    var bestDist = 999999999.0
+    var i = 0
+    while i < entities_x.length() {
+        if i != targetId and entities_active[i] == 1 {
+            let d = distanceSq(entities_x, entities_y, targetId, i)
+            if d < bestDist {
+                bestDist = d
+                bestId = i
+            }
+        }
+        i = i + 1
+    }
+    return bestId
+}
+
+fun sumHp(entities_hp: Array<Int>) r: Int {
+    var total = 0
+    var i = 0
+    while i < entities_hp.length() {
+        total = total + entities_hp[i]
+        i = i + 1
+    }
+    return total
+}
+
+fun avgPosition(entities_x: Array<Float>, n: Int) r: Float {
+    var sum = 0.0
+    var i = 0
+    while i < n {
+        sum = sum + entities_x[i]
+        i = i + 1
+    }
+    let nF = n.toFloat()
+    return sum / nF
+}
+
+// Rectangle operations using parallel arrays
+fun rectArea(widths: Array<Float>, heights: Array<Float>, idx: Int) r: Float {
+    return widths[idx] * heights[idx]
+}
+
+fun rectPerimeter(widths: Array<Float>, heights: Array<Float>, idx: Int) r: Float {
+    return 2.0 * (widths[idx] + heights[idx])
+}
+
+fun rectsOverlap(ox: Array<Float>, oy: Array<Float>, widths: Array<Float>, heights: Array<Float>, a: Int, b: Int) r: Bool {
+    if ox[a] + widths[a] < ox[b] { return false }
+    if ox[b] + widths[b] < ox[a] { return false }
+    if oy[a] + heights[a] < oy[b] { return false }
+    if oy[b] + heights[b] < oy[a] { return false }
+    return true
+}
+
+fun main() r: Void {
+    // Entity system using parallel arrays
+    var ex = Array<Float>()
+    var ey = Array<Float>()
+    var ehp = Array<Int>()
+    var eactive = Array<Int>()
+
+    // Create 1000 entities
+    var i = 0
+    while i < 1000 {
+        let fx = i * 7 + 13
+        let fy = i * 11 + 29
+        let posXI = fx - (fx / 1000) * 1000
+        let posYI = fy - (fy / 1000) * 1000
+        let posX = posXI.toFloat()
+        let posY = posYI.toFloat()
+        newEntity(ex, ey, ehp, eactive, posX, posY)
+        i = i + 1
+    }
+    println("Entities: " + ex.length().toString())
+
+    // Simulate movement: 50 steps
+    var step = 0
+    while step < 50 {
+        i = 0
+        while i < ex.length() {
+            if eactive[i] == 1 {
+                let iF = i.toFloat()
+                let sF = step.toFloat()
+                let dx = iF * 0.01 + sF * 0.005
+                let dy = iF * 0.007 - sF * 0.003
+                moveEntity(ex, ey, i, dx, dy)
+            }
+            i = i + 1
+        }
+        step = step + 1
+    }
+
+    let active1 = countActive(eactive)
+    println("Active after movement: " + active1.toString())
+
+    // Collision check: find pairs within distance^2 < 100
+    var collisions = 0
+    i = 0
+    while i < 100 {
+        var j = i + 1
+        while j < 100 {
+            let d = distanceSq(ex, ey, i, j)
+            if d < 100.0 {
+                collisions = collisions + 1
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    println("Collisions (first 100): " + collisions.toString())
+
+    // Find nearest neighbor for first 10 entities
+    i = 0
+    while i < 10 {
+        let nearest = findNearest(ex, ey, eactive, i)
+        println("Nearest to " + i.toString() + ": " + nearest.toString())
+        i = i + 1
+    }
+
+    // Damage some entities
+    i = 0
+    while i < ex.length() {
+        if i - (i / 3) * 3 == 0 {
+            damageEntity(ehp, eactive, i, 50)
+        }
+        if i - (i / 7) * 7 == 0 {
+            damageEntity(ehp, eactive, i, 120)
+        }
+        i = i + 1
+    }
+
+    let active2 = countActive(eactive)
+    println("Active after damage: " + active2.toString())
+
+    let totalHp = sumHp(ehp)
+    println("Total HP remaining: " + totalHp.toString())
+
+    let avgX = avgPosition(ex, ex.length())
+    println("Average X: " + avgX.toString())
+
+    // Rectangle operations
+    var rox = Array<Float>()
+    var roy = Array<Float>()
+    var rw = Array<Float>()
+    var rh = Array<Float>()
+
+    i = 0
+    while i < 200 {
+        let rxI = i * 13 - (i * 13 / 500) * 500
+        let ryI = i * 17 - (i * 17 / 500) * 500
+        let rwI = i * 3 - (i * 3 / 100) * 100 + 10
+        let rhI = i * 5 - (i * 5 / 100) * 100 + 10
+        rox.push(rxI.toFloat())
+        roy.push(ryI.toFloat())
+        rw.push(rwI.toFloat())
+        rh.push(rhI.toFloat())
+        i = i + 1
+    }
+
+    var totalArea = 0.0
+    i = 0
+    while i < 200 {
+        totalArea = totalArea + rectArea(rw, rh, i)
+        i = i + 1
+    }
+    println("Total rect area: " + totalArea.toString())
+
+    var overlaps = 0
+    i = 0
+    while i < 50 {
+        var j = i + 1
+        while j < 50 {
+            if rectsOverlap(rox, roy, rw, rh, i, j) {
+                overlaps = overlaps + 1
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    println("Rect overlaps (first 50): " + overlaps.toString())
+}

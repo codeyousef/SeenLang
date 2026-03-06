@@ -1,0 +1,13 @@
+@packet(1)
+class MovePacket {
+    x: Int
+    y: Int
+    z: Int
+}
+
+fun main() r: Int {
+    let p = MovePacket(10, 20, 30)
+    let buf = p.writePacket()
+    println("PASS: packet_delta")
+    return 0
+}

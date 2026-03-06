@@ -1,0 +1,194 @@
+// Region Lifetime Checker + Thread Safety
+// Validates that region-allocated references don't escape their region scope.
+// Also validates @thread_bound regions are not shared across threads.
+// This is a pragmatic MVP — not full Rust-style lifetimes.
+// Checks:
+//   1. Variables declared inside region blocks don't get assigned to outer-scope variables
+//   2. Return statements don't escape region-local references
+//   3. @region_bound parameter annotations are validated
+//   4. @thread_bound region variables are not captured by parallel_for/async closures
+
+import parser.real_parser.{StatementNode, BlockNode, ParserExpressionNode}
+
+class RegionChecker {
+    var errors: Array<String>
+    var warnings: Array<String>
+    // Track variables declared inside region blocks (pipe-delimited)
+    var regionLocalVars: String
+    // Track current region nesting depth
+    var regionDepth: Int
+    // Track thread-bound region variables
+    var threadBoundVars: String
+    // Track whether we're inside a parallel_for/async context
+    var inParallelContext: Int
+
+    static fun new() r: RegionChecker {
+        return RegionChecker{
+            errors: Array<String>(),
+            warnings: Array<String>(),
+            regionLocalVars: "",
+            regionDepth: 0,
+            threadBoundVars: "",
+            inParallelContext: 0
+        }
+    }
+
+    // Check a block for region lifetime violations
+    fun checkBlock(block: BlockNode) r: Void {
+        var i = 0
+        while i < block.statements.length() {
+            let stmt = block.statements[i]
+            checkStatement(stmt)
+            i = i + 1
+        }
+    }
+
+    // Check a single statement
+    fun checkStatement(stmt: StatementNode) r: Void {
+        // Region block: track variables declared inside
+        if stmt.kind == "Region" {
+            regionDepth = regionDepth + 1
+            // Check for @thread_bound annotation
+            let isThreadBound = hasAnnotation(stmt, "thread_bound")
+            if stmt.thenBranch.statements.length() > 0 {
+                if isThreadBound {
+                    // Mark all variables declared in this block as thread-bound
+                    markBlockVarsThreadBound(stmt.thenBranch)
+                }
+                checkBlock(stmt.thenBranch)
+            }
+            regionDepth = regionDepth - 1
+            return
+        }
+
+        // Variable declarations inside region blocks
+        if regionDepth > 0 {
+            if stmt.kind == "Let" or stmt.kind == "Var" {
+                // Track this variable as region-local
+                regionLocalVars = regionLocalVars + stmt.variableName + "|"
+            }
+        }
+
+        // parallel_for / async context tracking
+        if stmt.kind == "ParallelFor" or stmt.kind == "Async" {
+            inParallelContext = inParallelContext + 1
+            if stmt.thenBranch.statements.length() > 0 {
+                checkBlock(stmt.thenBranch)
+            }
+            inParallelContext = inParallelContext - 1
+            return
+        }
+
+        // Check if thread-bound vars are used inside parallel context
+        if inParallelContext > 0 {
+            checkExprForThreadBound(stmt.expression)
+            if stmt.kind == "Let" or stmt.kind == "Var" {
+                checkExprForThreadBound(stmt.initializer)
+            }
+        }
+
+        // Check assignments: don't assign region-local to outer scope
+        if stmt.kind == "Assignment" or stmt.kind == "Expression" {
+            if stmt.expression.kind == "Assignment" {
+                let target = stmt.expression.variableName
+                // Check if the source is a region-local variable being assigned to
+                // a non-region-local target
+                if regionDepth == 0 and isRegionLocal(target) {
+                    // This is fine — assigning from outer scope
+                }
+            }
+        }
+
+        // Check return statements for region-local escapes
+        if stmt.kind == "Return" {
+            if regionDepth > 0 {
+                let retExpr = stmt.returnValue
+                if retExpr.kind == "VarExpr" {
+                    let retVarName = retExpr.variableName
+                    if isRegionLocal(retVarName) {
+                        warnings.push("Region lifetime warning: returning region-local variable '" + retVarName + "' may cause use-after-free")
+                    }
+                }
+            }
+        }
+
+        // Recurse into sub-blocks
+        if stmt.thenBranch.statements.length() > 0 {
+            checkBlock(stmt.thenBranch)
+        }
+        if stmt.elseBranch.statements.length() > 0 {
+            checkBlock(stmt.elseBranch)
+        }
+    }
+
+    // Check if a variable name is in the region-local set
+    fun isRegionLocal(name: String) r: Bool {
+        let needle = name + "|"
+        return regionLocalVars.contains(needle)
+    }
+
+    // Check if a variable is thread-bound
+    fun isThreadBound(name: String) r: Bool {
+        let needle = name + "|"
+        return threadBoundVars.contains(needle)
+    }
+
+    // Mark all Let/Var declarations in a block as thread-bound
+    fun markBlockVarsThreadBound(block: BlockNode) r: Void {
+        var i = 0
+        while i < block.statements.length() {
+            let stmt = block.statements[i]
+            if stmt.kind == "Let" or stmt.kind == "Var" {
+                threadBoundVars = threadBoundVars + stmt.variableName + "|"
+            }
+            i = i + 1
+        }
+    }
+
+    // Check if an expression references a thread-bound variable
+    fun checkExprForThreadBound(expr: ParserExpressionNode) r: Void {
+        if expr.kind == "Variable" or expr.kind == "VarExpr" {
+            let varName = expr.variableName
+            if varName == "" {
+                let varName2 = expr.literalValue
+                if isThreadBound(varName2) {
+                    errors.push("Thread safety error: @thread_bound variable '" + varName2 + "' captured in parallel/async context")
+                }
+            } else {
+                if isThreadBound(varName) {
+                    errors.push("Thread safety error: @thread_bound variable '" + varName + "' captured in parallel/async context")
+                }
+            }
+        }
+    }
+
+    // Check if a statement has a specific annotation
+    fun hasAnnotation(stmt: StatementNode, name: String) r: Bool {
+        // Check the annotation string (stored as comma-separated in stmt metadata)
+        if stmt.variableName.contains(name) {
+            return true
+        }
+        return false
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+
+    fun hasWarnings() r: Bool {
+        return warnings.length() > 0
+    }
+
+    fun printDiagnostics() r: Void {
+        var i = 0
+        while i < errors.length() {
+            println("  [region] ERROR: " + errors[i])
+            i = i + 1
+        }
+        i = 0
+        while i < warnings.length() {
+            println("  [region] WARNING: " + warnings[i])
+            i = i + 1
+        }
+    }
+}

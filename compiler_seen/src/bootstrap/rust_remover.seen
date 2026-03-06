@@ -1,0 +1,256 @@
+import str.string.{lines, trim, StringBuilder, startsWith, endsWith}
+import io.file.{readText, writeText, createDirectory, deleteFile}
+import process.process.{execCommand as runCommand, shellQuote, CommandResult, commandWasSuccessful, commandOutput}
+
+data RemovalResult {
+    success: Bool
+    message: String
+    files_removed: Array<String>
+    directories_removed: Array<String>
+}
+
+class RustRemover {
+    var workingDir: String
+    var backupDir: String
+    var dryRun: Bool
+    var searchRoots: Array<String>
+
+    fun new() r: RustRemover {
+        let roots = Array<String>()
+        roots.push("compiler_seen/src")
+        roots.push("seen_cli/src")
+        roots.push("seen_std/src")
+        return RustRemover{
+            workingDir: ".",
+            backupDir: "",
+            dryRun: false,
+            searchRoots: roots
+        }
+    }
+
+    fun withWorkingDir(path: String) r: RustRemover {
+        workingDir = path
+        return this
+    }
+
+    fun withBackupDir(path: String) r: RustRemover {
+        backupDir = path
+        return this
+    }
+
+    fun dryRunMode() r: RustRemover {
+        dryRun = true
+        return this
+    }
+
+    fun addSearchRoot(path: String) r: RustRemover {
+        searchRoots.push(path)
+        return this
+    }
+
+    fun removeRustCode() r: RemovalResult {
+        let rustFiles = collectRustFiles()
+        let removedFiles = Array<String>()
+        let touchedDirectories = Array<String>()
+
+        for relative in rustFiles {
+            if relative == "" {
+                continue
+            }
+            let normalized = normalizeRelative(relative)
+            if normalized == "" {
+                continue
+            }
+            let absolute = absolutePath(normalized)
+            if backupDir != "" {
+                backupFile(normalized, absolute)
+            }
+            if not dryRun {
+                let _ = deleteFile(absolute)
+            }
+            removedFiles.push(absolute)
+            appendUnique(touchedDirectories, parentDirectory(absolute))
+        }
+
+        if not dryRun {
+            removeDirectories(touchedDirectories)
+        }
+
+        let statusMessage = if removedFiles.length() == 0 {
+            "No Rust files found in search roots"
+        } else {
+            "Processed {removedFiles.length()} Rust files"
+        }
+
+        return RemovalResult{
+            success: true,
+            message: statusMessage,
+            files_removed: removedFiles,
+            directories_removed: touchedDirectories
+        }
+    }
+
+    fun collectRustFiles() r: Array<String> {
+        let collected = Array<String>()
+        if searchRoots.length() == 0 {
+            appendAll(collected, runFindCommand("."))
+            return collected
+        }
+        for root in searchRoots {
+            appendAll(collected, runFindCommand(root))
+        }
+        return collected
+    }
+
+    fun runFindCommand(root: String) r: Array<String> {
+        let builder = StringBuilder.new()
+        builder.append("cd ")
+        builder.append(shellQuote(workingDir))
+        builder.append(" && find ")
+        builder.append(shellQuote(root))
+        builder.append(" -type f -name '*.rs'")
+        let result: CommandResult = runCommand(builder.toString())
+        if not commandWasSuccessful(result) {
+            return Array<String>()
+        }
+        return lines(commandOutput(result), true)
+    }
+
+    fun backupFile(relativePath: String, absolutePath: String) r: Void {
+        if dryRun {
+            return
+        }
+        let backupTarget = backupPath(relativePath)
+        ensureParentDirectories(backupTarget)
+        let contents = readText(absolutePath)
+        let wrote = writeText(backupTarget, contents)
+        if not wrote {
+            println("rust_remover: failed to back up {relativePath} -> {backupTarget}")
+        }
+        return
+    }
+
+    fun backupPath(relativePath: String) r: String {
+        if backupDir == "" or relativePath == "" {
+            return backupDir
+        }
+        let builder = StringBuilder.new()
+        builder.append(backupDir)
+        if not endsWith(backupDir, "/") {
+            builder.append("/")
+        }
+        builder.append(relativePath)
+        return builder.toString()
+    }
+
+    fun absolutePath(relative: String) r: String {
+        if startsWith(relative, "/") {
+            return relative
+        }
+        if workingDir == "" or workingDir == "." {
+            return relative
+        }
+        let builder = StringBuilder.new()
+        builder.append(workingDir)
+        if not endsWith(workingDir, "/") {
+            builder.append("/")
+        }
+        builder.append(relative)
+        return builder.toString()
+    }
+
+    fun normalizeRelative(path: String) r: String {
+        let trimmed = trim(path)
+        if trimmed.length() == 0 {
+            return ""
+        }
+        if startsWith(trimmed, "./") {
+            return trimmed.substring(2, trimmed.length())
+        }
+        return trimmed
+    }
+
+fun parentDirectory(path: String) r: String {
+    let lastSlash = lastSlashIndex(path)
+        if lastSlash <= 0 {
+            return "."
+        }
+        return path.substring(0, lastSlash)
+    }
+
+    fun removeDirectories(directories: Array<String>) r: Void {
+        for dir in directories {
+            if dir == "." or dir == "" {
+                continue
+            }
+            let builder = StringBuilder.new()
+            builder.append("rmdir -p --ignore-fail-on-non-empty ")
+            builder.append(shellQuote(dir))
+            let result: CommandResult = runCommand(builder.toString())
+            if not commandWasSuccessful(result) {
+                println("rust_remover: failed to remove directory {dir}")
+            }
+        }
+    }
+}
+
+fun appendAll(target: Array<String>, values: Array<String>) r: Void {
+    for value in values {
+        let trimmed = trim(value)
+        if trimmed.length() == 0 {
+            continue
+        }
+        target.push(trimmed)
+    }
+}
+
+fun appendUnique(values: Array<String>, entry: String) r: Void {
+    if entry == "" {
+        return
+    }
+    for existing in values {
+        if existing == entry {
+            return
+        }
+    }
+    values.push(entry)
+}
+
+fun ensureParentDirectories(path: String) r: Void {
+    let lastSlash = lastSlashIndex(path)
+    if lastSlash <= 0 {
+        return
+    }
+    let parent = path.substring(0, lastSlash)
+    createDirectoryRecursive(parent)
+}
+
+fun createDirectoryRecursive(path: String) r: Void {
+    if path == "" or path == "." {
+        return
+    }
+    let lastSlash = lastSlashIndex(path)
+    if lastSlash > 0 {
+        let parent = path.substring(0, lastSlash)
+        createDirectoryRecursive(parent)
+    }
+    if not createDirectory(path) {
+        // Directory may already exist; ignore errors to keep removal idempotent.
+    }
+    return
+}
+
+fun lastSlashIndex(path: String) r: Int {
+    if path.length() == 0 {
+        return -1
+    }
+    var index = path.length() - 1
+    while index >= 0 {
+        let ch: String = path.substring(index, index + 1)
+        if ch == "/" {
+            return index
+        }
+        index = index - 1
+    }
+    return -1
+}

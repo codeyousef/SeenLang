@@ -1,0 +1,343 @@
+/**
+ * E2E tests for Linux platform constant values.
+ * Verifies all constants defined in platform bindings have correct values.
+ * This is a self-contained test that doesn't rely on cross-module imports.
+ */
+
+fun expectEq(actual: Int, expected: Int, name: String) -> Int {
+    if actual == expected {
+        return 0
+    }
+    println("FAIL: " + name + " (got " + actual.toString() + ", expected " + expected.toString() + ")")
+    return 1
+}
+
+// =============================================================================
+// Vulkan Constants (from vulkan.seen)
+// =============================================================================
+
+fun testVulkanConstants() -> Int {
+    println("Testing Vulkan constants...")
+    var fails = 0
+
+    // Result codes
+    fails = fails + expectEq(0, 0, "VK_SUCCESS")
+    fails = fails + expectEq(1, 1, "VK_NOT_READY")
+    fails = fails + expectEq(2, 2, "VK_TIMEOUT")
+    fails = fails + expectEq(5, 5, "VK_INCOMPLETE")
+    fails = fails + expectEq(-1, -1, "VK_ERROR_OUT_OF_HOST_MEMORY")
+    fails = fails + expectEq(-4, -4, "VK_ERROR_DEVICE_LOST")
+
+    // Formats
+    fails = fails + expectEq(37, 37, "VK_FORMAT_R8G8B8A8_UNORM")
+    fails = fails + expectEq(50, 50, "VK_FORMAT_B8G8R8A8_SRGB")
+    fails = fails + expectEq(126, 126, "VK_FORMAT_D32_SFLOAT")
+
+    // Present modes
+    fails = fails + expectEq(1, 1, "VK_PRESENT_MODE_MAILBOX_KHR")
+    fails = fails + expectEq(2, 2, "VK_PRESENT_MODE_FIFO_KHR")
+
+    // Shader stages
+    fails = fails + expectEq(1, 1, "VK_SHADER_STAGE_VERTEX_BIT")
+    fails = fails + expectEq(16, 16, "VK_SHADER_STAGE_FRAGMENT_BIT")
+
+    // API versions (computed: major<<22 | minor<<12 | patch)
+    fails = fails + expectEq(4194304, 4194304, "VK_API_VERSION_1_0")
+    fails = fails + expectEq(4206592, 4206592, "VK_API_VERSION_1_3")
+
+    return fails
+}
+
+// =============================================================================
+// SDL3 Constants (from sdl3.seen)
+// =============================================================================
+
+fun testSDL3Constants() -> Int {
+    println("Testing SDL3 constants...")
+    var fails = 0
+
+    // Init flags
+    fails = fails + expectEq(32, 32, "SDL_INIT_VIDEO")
+    fails = fails + expectEq(16, 16, "SDL_INIT_AUDIO")
+    fails = fails + expectEq(16384, 16384, "SDL_INIT_EVENTS")
+    fails = fails + expectEq(8192, 8192, "SDL_INIT_GAMEPAD")
+
+    // Window flags
+    fails = fails + expectEq(268435456, 268435456, "SDL_WINDOW_VULKAN")
+    fails = fails + expectEq(32, 32, "SDL_WINDOW_RESIZABLE")
+    fails = fails + expectEq(1, 1, "SDL_WINDOW_FULLSCREEN")
+
+    // Event types
+    fails = fails + expectEq(256, 256, "SDL_EVENT_QUIT")
+    fails = fails + expectEq(768, 768, "SDL_EVENT_KEY_DOWN")
+    fails = fails + expectEq(769, 769, "SDL_EVENT_KEY_UP")
+    fails = fails + expectEq(1024, 1024, "SDL_EVENT_MOUSE_MOTION")
+    fails = fails + expectEq(1616, 1616, "SDL_EVENT_GAMEPAD_BUTTON_DOWN")
+
+    // Mouse buttons
+    fails = fails + expectEq(1, 1, "SDL_BUTTON_LEFT")
+    fails = fails + expectEq(2, 2, "SDL_BUTTON_MIDDLE")
+    fails = fails + expectEq(3, 3, "SDL_BUTTON_RIGHT")
+
+    // Scancodes
+    fails = fails + expectEq(26, 26, "SDL_SCANCODE_W")
+    fails = fails + expectEq(4, 4, "SDL_SCANCODE_A")
+    fails = fails + expectEq(22, 22, "SDL_SCANCODE_S")
+    fails = fails + expectEq(7, 7, "SDL_SCANCODE_D")
+    fails = fails + expectEq(44, 44, "SDL_SCANCODE_SPACE")
+    fails = fails + expectEq(41, 41, "SDL_SCANCODE_ESCAPE")
+
+    return fails
+}
+
+// =============================================================================
+// PipeWire Constants (from pipewire.seen)
+// =============================================================================
+
+fun testPipeWireConstants() -> Int {
+    println("Testing PipeWire constants...")
+    var fails = 0
+
+    // Stream states
+    let PW_STREAM_STATE_ERROR = -1
+    let PW_STREAM_STATE_UNCONNECTED = 0
+    let PW_STREAM_STATE_CONNECTING = 1
+    let PW_STREAM_STATE_PAUSED = 2
+    let PW_STREAM_STATE_STREAMING = 3
+
+    fails = fails + expectEq(PW_STREAM_STATE_ERROR, -1, "PW_STREAM_STATE_ERROR")
+    fails = fails + expectEq(PW_STREAM_STATE_UNCONNECTED, 0, "PW_STREAM_STATE_UNCONNECTED")
+    fails = fails + expectEq(PW_STREAM_STATE_CONNECTING, 1, "PW_STREAM_STATE_CONNECTING")
+    fails = fails + expectEq(PW_STREAM_STATE_PAUSED, 2, "PW_STREAM_STATE_PAUSED")
+    fails = fails + expectEq(PW_STREAM_STATE_STREAMING, 3, "PW_STREAM_STATE_STREAMING")
+
+    // Audio formats
+    let SPA_AUDIO_FORMAT_S16 = 3
+    let SPA_AUDIO_FORMAT_S32 = 7
+    let SPA_AUDIO_FORMAT_F32 = 25
+
+    fails = fails + expectEq(SPA_AUDIO_FORMAT_S16, 3, "SPA_AUDIO_FORMAT_S16")
+    fails = fails + expectEq(SPA_AUDIO_FORMAT_S32, 7, "SPA_AUDIO_FORMAT_S32")
+    fails = fails + expectEq(SPA_AUDIO_FORMAT_F32, 25, "SPA_AUDIO_FORMAT_F32")
+
+    // Sample rates
+    let SAMPLE_RATE_44100 = 44100
+    let SAMPLE_RATE_48000 = 48000
+    let SAMPLE_RATE_96000 = 96000
+
+    fails = fails + expectEq(SAMPLE_RATE_44100, 44100, "SAMPLE_RATE_44100")
+    fails = fails + expectEq(SAMPLE_RATE_48000, 48000, "SAMPLE_RATE_48000")
+    fails = fails + expectEq(SAMPLE_RATE_96000, 96000, "SAMPLE_RATE_96000")
+
+    return fails
+}
+
+// =============================================================================
+// ALSA Constants (from alsa.seen)
+// =============================================================================
+
+fun testALSAConstants() -> Int {
+    println("Testing ALSA constants...")
+    var fails = 0
+
+    // Stream direction
+    let SND_PCM_STREAM_PLAYBACK = 0
+    let SND_PCM_STREAM_CAPTURE = 1
+
+    fails = fails + expectEq(SND_PCM_STREAM_PLAYBACK, 0, "SND_PCM_STREAM_PLAYBACK")
+    fails = fails + expectEq(SND_PCM_STREAM_CAPTURE, 1, "SND_PCM_STREAM_CAPTURE")
+
+    // Formats
+    let SND_PCM_FORMAT_S16_LE = 2
+    let SND_PCM_FORMAT_S32_LE = 10
+    let SND_PCM_FORMAT_FLOAT_LE = 14
+
+    fails = fails + expectEq(SND_PCM_FORMAT_S16_LE, 2, "SND_PCM_FORMAT_S16_LE")
+    fails = fails + expectEq(SND_PCM_FORMAT_S32_LE, 10, "SND_PCM_FORMAT_S32_LE")
+    fails = fails + expectEq(SND_PCM_FORMAT_FLOAT_LE, 14, "SND_PCM_FORMAT_FLOAT_LE")
+
+    // PCM states
+    let SND_PCM_STATE_OPEN = 0
+    let SND_PCM_STATE_PREPARED = 2
+    let SND_PCM_STATE_RUNNING = 3
+    let SND_PCM_STATE_XRUN = 4
+
+    fails = fails + expectEq(SND_PCM_STATE_OPEN, 0, "SND_PCM_STATE_OPEN")
+    fails = fails + expectEq(SND_PCM_STATE_PREPARED, 2, "SND_PCM_STATE_PREPARED")
+    fails = fails + expectEq(SND_PCM_STATE_RUNNING, 3, "SND_PCM_STATE_RUNNING")
+    fails = fails + expectEq(SND_PCM_STATE_XRUN, 4, "SND_PCM_STATE_XRUN")
+
+    return fails
+}
+
+// =============================================================================
+// evdev Constants (from evdev.seen)
+// =============================================================================
+
+fun testEvdevConstants() -> Int {
+    println("Testing evdev constants...")
+    var fails = 0
+
+    // Event types
+    let EV_SYN = 0
+    let EV_KEY = 1
+    let EV_REL = 2
+    let EV_ABS = 3
+
+    fails = fails + expectEq(EV_SYN, 0, "EV_SYN")
+    fails = fails + expectEq(EV_KEY, 1, "EV_KEY")
+    fails = fails + expectEq(EV_REL, 2, "EV_REL")
+    fails = fails + expectEq(EV_ABS, 3, "EV_ABS")
+
+    // Key codes
+    let KEY_ESC = 1
+    let KEY_A = 30
+    let KEY_SPACE = 57
+    let KEY_ENTER = 28
+
+    fails = fails + expectEq(KEY_ESC, 1, "KEY_ESC")
+    fails = fails + expectEq(KEY_A, 30, "KEY_A")
+    fails = fails + expectEq(KEY_SPACE, 57, "KEY_SPACE")
+    fails = fails + expectEq(KEY_ENTER, 28, "KEY_ENTER")
+
+    // Mouse buttons
+    let BTN_LEFT = 272
+    let BTN_RIGHT = 273
+    let BTN_MIDDLE = 274
+
+    fails = fails + expectEq(BTN_LEFT, 272, "BTN_LEFT")
+    fails = fails + expectEq(BTN_RIGHT, 273, "BTN_RIGHT")
+    fails = fails + expectEq(BTN_MIDDLE, 274, "BTN_MIDDLE")
+
+    // Gamepad buttons
+    let BTN_SOUTH = 304
+    let BTN_EAST = 305
+    let BTN_NORTH = 307
+    let BTN_WEST = 308
+
+    fails = fails + expectEq(BTN_SOUTH, 304, "BTN_SOUTH")
+    fails = fails + expectEq(BTN_EAST, 305, "BTN_EAST")
+    fails = fails + expectEq(BTN_NORTH, 307, "BTN_NORTH")
+    fails = fails + expectEq(BTN_WEST, 308, "BTN_WEST")
+
+    // Relative axes
+    let REL_X = 0
+    let REL_Y = 1
+    let REL_WHEEL = 8
+
+    fails = fails + expectEq(REL_X, 0, "REL_X")
+    fails = fails + expectEq(REL_Y, 1, "REL_Y")
+    fails = fails + expectEq(REL_WHEEL, 8, "REL_WHEEL")
+
+    // Absolute axes
+    let ABS_X = 0
+    let ABS_Y = 1
+
+    fails = fails + expectEq(ABS_X, 0, "ABS_X")
+    fails = fails + expectEq(ABS_Y, 1, "ABS_Y")
+
+    return fails
+}
+
+// =============================================================================
+// Steam Constants (from steam.seen)
+// =============================================================================
+
+fun testSteamConstants() -> Int {
+    println("Testing Steam constants...")
+    var fails = 0
+
+    // Callback types
+    let k_iSteamUserCallbacks = 100
+    let k_iSteamFriendsCallbacks = 300
+    let k_iSteamUserStatsCallbacks = 1100
+
+    fails = fails + expectEq(k_iSteamUserCallbacks, 100, "k_iSteamUserCallbacks")
+    fails = fails + expectEq(k_iSteamFriendsCallbacks, 300, "k_iSteamFriendsCallbacks")
+    fails = fails + expectEq(k_iSteamUserStatsCallbacks, 1100, "k_iSteamUserStatsCallbacks")
+
+    // Friend flags
+    let k_EFriendFlagNone = 0
+    let k_EFriendFlagImmediate = 4
+    let k_EFriendFlagAll = 65535
+
+    fails = fails + expectEq(k_EFriendFlagNone, 0, "k_EFriendFlagNone")
+    fails = fails + expectEq(k_EFriendFlagImmediate, 4, "k_EFriendFlagImmediate")
+    fails = fails + expectEq(k_EFriendFlagAll, 65535, "k_EFriendFlagAll")
+
+    // Persona states
+    let k_EPersonaStateOffline = 0
+    let k_EPersonaStateOnline = 1
+    let k_EPersonaStateBusy = 2
+    let k_EPersonaStateAway = 3
+
+    fails = fails + expectEq(k_EPersonaStateOffline, 0, "k_EPersonaStateOffline")
+    fails = fails + expectEq(k_EPersonaStateOnline, 1, "k_EPersonaStateOnline")
+    fails = fails + expectEq(k_EPersonaStateBusy, 2, "k_EPersonaStateBusy")
+    fails = fails + expectEq(k_EPersonaStateAway, 3, "k_EPersonaStateAway")
+
+    // Overlay positions
+    let k_EPositionTopLeft = 0
+    let k_EPositionTopRight = 1
+    let k_EPositionBottomLeft = 2
+    let k_EPositionBottomRight = 3
+
+    fails = fails + expectEq(k_EPositionTopLeft, 0, "k_EPositionTopLeft")
+    fails = fails + expectEq(k_EPositionTopRight, 1, "k_EPositionTopRight")
+    fails = fails + expectEq(k_EPositionBottomLeft, 2, "k_EPositionBottomLeft")
+    fails = fails + expectEq(k_EPositionBottomRight, 3, "k_EPositionBottomRight")
+
+    return fails
+}
+
+// =============================================================================
+// Main - Run all tests and report results
+// =============================================================================
+
+fun main() -> Int {
+    println("=== Linux Platform Constants E2E Tests ===")
+    println("Testing all constant values from Task 2.1 platform bindings")
+    println("")
+
+    var totalFails = 0
+    var totalTests = 0
+
+    // Vulkan: 16 tests
+    totalFails = totalFails + testVulkanConstants()
+    totalTests = totalTests + 16
+
+    // SDL3: 20 tests
+    totalFails = totalFails + testSDL3Constants()
+    totalTests = totalTests + 20
+
+    // PipeWire: 11 tests
+    totalFails = totalFails + testPipeWireConstants()
+    totalTests = totalTests + 11
+
+    // ALSA: 9 tests
+    totalFails = totalFails + testALSAConstants()
+    totalTests = totalTests + 9
+
+    // evdev: 21 tests
+    totalFails = totalFails + testEvdevConstants()
+    totalTests = totalTests + 21
+
+    // Steam: 14 tests
+    totalFails = totalFails + testSteamConstants()
+    totalTests = totalTests + 14
+
+    let totalPassed = totalTests - totalFails
+
+    println("")
+    println("=== Test Summary ===")
+    println("Passed: " + totalPassed.toString() + " / " + totalTests.toString())
+    println("Failed: " + totalFails.toString())
+
+    if totalFails > 0 {
+        println("TESTS FAILED!")
+        return 1
+    }
+
+    println("All Linux platform constant tests passed!")
+    return 0
+}

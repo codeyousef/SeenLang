@@ -1,0 +1,162 @@
+// Test suite for VSD Pointer Pinning (Task 5.5)
+// Tests the @preallocate pinning extensions
+
+// Test basic @preallocate with pinning attributes
+@preallocate(size = 65536, strategy = "bump", pinned = true)
+fun testPinnedFunction() r: Int {
+    println("  Pinned function executed")
+    return 0
+}
+
+// Test @preallocate with NUMA affinity
+@preallocate(size = 8192, strategy = "bump", numa_node = 0)
+fun testNumaFunction() r: Int {
+    println("  NUMA-affine function executed")
+    return 0
+}
+
+// Test @preallocate with huge pages
+@preallocate(size = 2097152, strategy = "bump", huge_pages = true)
+fun testHugePagesFunction() r: Int {
+    println("  Huge pages function executed")
+    return 0
+}
+
+// Test @preallocate with prefaulting
+@preallocate(size = 16384, strategy = "bump", pinned = true, prefault = true)
+fun testPrefaultFunction() r: Int {
+    println("  Prefaulted function executed")
+    return 0
+}
+
+// Test @preallocate with read-only after init
+@preallocate(size = 4096, strategy = "bump", read_only = true)
+fun testReadOnlyFunction() r: Int {
+    println("  Read-only function executed")
+    return 0
+}
+
+// Test combined pinning attributes
+@preallocate(
+    size = 4194304,
+    strategy = "bump",
+    pinned = true,
+    numa_node = 0,
+    huge_pages = true,
+    prefault = true
+)
+fun testCombinedPinning() r: Int {
+    println("  Combined pinning function executed")
+    return 0
+}
+
+// Test that basic functionality still works
+fun testBasicPreallocate() r: Int {
+    println("Testing basic @preallocate...")
+
+    // Basic @preallocate should still work
+    let result = testPinnedFunction()
+    if result != 0 {
+        println("FAIL: testPinnedFunction")
+        return 1
+    }
+
+    println("  Basic @preallocate: PASS")
+    return 0
+}
+
+fun testNumaAffinity() r: Int {
+    println("Testing NUMA affinity...")
+
+    let result = testNumaFunction()
+    if result != 0 {
+        println("FAIL: testNumaFunction")
+        return 1
+    }
+
+    println("  NUMA affinity: PASS")
+    return 0
+}
+
+fun testHugePages() r: Int {
+    println("Testing huge pages...")
+
+    let result = testHugePagesFunction()
+    if result != 0 {
+        println("FAIL: testHugePagesFunction")
+        return 1
+    }
+
+    println("  Huge pages: PASS")
+    return 0
+}
+
+fun testPrefaulting() r: Int {
+    println("Testing prefaulting...")
+
+    let result = testPrefaultFunction()
+    if result != 0 {
+        println("FAIL: testPrefaultFunction")
+        return 1
+    }
+
+    println("  Prefaulting: PASS")
+    return 0
+}
+
+fun testReadOnly() r: Int {
+    println("Testing read-only...")
+
+    let result = testReadOnlyFunction()
+    if result != 0 {
+        println("FAIL: testReadOnlyFunction")
+        return 1
+    }
+
+    println("  Read-only: PASS")
+    return 0
+}
+
+fun testCombined() r: Int {
+    println("Testing combined pinning attributes...")
+
+    let result = testCombinedPinning()
+    if result != 0 {
+        println("FAIL: testCombinedPinning")
+        return 1
+    }
+
+    println("  Combined pinning: PASS")
+    return 0
+}
+
+fun main() r: Int {
+    println("=== VSD Pointer Pinning Test Suite ===")
+    println("")
+
+    var failures = 0
+
+    // Run tests
+    failures = failures + testBasicPreallocate()
+    failures = failures + testNumaAffinity()
+    failures = failures + testHugePages()
+    failures = failures + testPrefaulting()
+    failures = failures + testReadOnly()
+    failures = failures + testCombined()
+
+    println("")
+    if failures == 0 {
+        println("=== ALL TESTS PASSED ===")
+        println("")
+        println("Note: Actual memory pinning requires:")
+        println("  - CAP_IPC_LOCK capability, or")
+        println("  - Sufficient RLIMIT_MEMLOCK, or")
+        println("  - Running as root")
+        println("")
+        println("NUMA and huge pages require appropriate system configuration.")
+        return 0
+    } else {
+        println("=== " + failures.toString() + " TEST(S) FAILED ===")
+        return 1
+    }
+}

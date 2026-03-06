@@ -1,0 +1,251 @@
+// JSON Serialization Benchmark
+
+import seen_std.collections.vec { Vec }
+
+class User {
+    var id: Int
+    var name: String
+    var active: Bool
+    var score: Float
+}
+
+fun code_to_string(c: Int) -> String {
+    if c == 32 { return " " }
+    if c == 33 { return "!" }
+    if c == 34 { return "\"" }
+    if c == 35 { return "#" }
+    if c == 36 { return "$" }
+    if c == 37 { return "%" }
+    if c == 38 { return "&" }
+    if c == 39 { return "'" }
+    if c == 40 { return "(" }
+    if c == 41 { return ")" }
+    if c == 42 { return "*" }
+    if c == 43 { return "+" }
+    if c == 44 { return "," }
+    if c == 45 { return "-" }
+    if c == 46 { return "." }
+    if c == 47 { return "/" }
+    if c == 48 { return "0" }
+    if c == 49 { return "1" }
+    if c == 50 { return "2" }
+    if c == 51 { return "3" }
+    if c == 52 { return "4" }
+    if c == 53 { return "5" }
+    if c == 54 { return "6" }
+    if c == 55 { return "7" }
+    if c == 56 { return "8" }
+    if c == 57 { return "9" }
+    if c == 58 { return ":" }
+    if c == 59 { return ";" }
+    if c == 60 { return "<" }
+    if c == 61 { return "=" }
+    if c == 62 { return ">" }
+    if c == 63 { return "?" }
+    if c == 64 { return "@" }
+    if c >= 65 and c <= 90 {
+        if c == 65 { return "A" }
+        if c == 66 { return "B" }
+        if c == 67 { return "C" }
+        if c == 68 { return "D" }
+        if c == 69 { return "E" }
+        if c == 70 { return "F" }
+        if c == 71 { return "G" }
+        if c == 72 { return "H" }
+        if c == 73 { return "I" }
+        if c == 74 { return "J" }
+        if c == 75 { return "K" }
+        if c == 76 { return "L" }
+        if c == 77 { return "M" }
+        if c == 78 { return "N" }
+        if c == 79 { return "O" }
+        if c == 80 { return "P" }
+        if c == 81 { return "Q" }
+        if c == 82 { return "R" }
+        if c == 83 { return "S" }
+        if c == 84 { return "T" }
+        if c == 85 { return "U" }
+        if c == 86 { return "V" }
+        if c == 87 { return "W" }
+        if c == 88 { return "X" }
+        if c == 89 { return "Y" }
+        if c == 90 { return "Z" }
+    }
+    if c == 91 { return "[" }
+    if c == 92 { return "\\" }
+    if c == 93 { return "]" }
+    if c == 94 { return "^" }
+    if c == 95 { return "_" }
+    if c == 96 { return "`" }
+    if c >= 97 and c <= 122 {
+        if c == 97 { return "a" }
+        if c == 98 { return "b" }
+        if c == 99 { return "c" }
+        if c == 100 { return "d" }
+        if c == 101 { return "e" }
+        if c == 102 { return "f" }
+        if c == 103 { return "g" }
+        if c == 104 { return "h" }
+        if c == 105 { return "i" }
+        if c == 106 { return "j" }
+        if c == 107 { return "k" }
+        if c == 108 { return "l" }
+        if c == 109 { return "m" }
+        if c == 110 { return "n" }
+        if c == 111 { return "o" }
+        if c == 112 { return "p" }
+        if c == 113 { return "q" }
+        if c == 114 { return "r" }
+        if c == 115 { return "s" }
+        if c == 116 { return "t" }
+        if c == 117 { return "u" }
+        if c == 118 { return "v" }
+        if c == 119 { return "w" }
+        if c == 120 { return "x" }
+        if c == 121 { return "y" }
+        if c == 122 { return "z" }
+    }
+    if c == 123 { return "{" }
+    if c == 124 { return "|" }
+    if c == 125 { return "}" }
+    if c == 126 { return "~" }
+    if c == 10 { return "\n" }
+    return "?"
+}
+
+fun escape_string(s: String) -> String {
+    var result = "";
+    var i = 0;
+    let len = s.length();
+    while i < len {
+        let ch = s[i];
+        if ch == 34 { // "
+            result = result + "\\\"";
+        } else if ch == 92 { // \
+            result = result + "\\\\";
+        } else if ch == 10 { // \n
+            result = result + "\\n";
+        } else if ch == 9 { // \t
+            result = result + "\\t";
+        } else if ch == 13 { // \r
+            result = result + "\\r";
+        } else {
+            result = result + code_to_string(ch);
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+fun int_to_string(n: Int) -> String {
+    if n == 0 {
+        return "0";
+    }
+    
+    var result = "";
+    var num = n;
+    let digits = Vec<Int>.withCapacity(20);
+    
+    while num > 0 {
+        digits.push(num % 10);
+        num = num / 10;
+    }
+    
+    var i = digits.len() - 1;
+    while i >= 0 {
+        result = result + code_to_string(48 + digits.get(i));
+        i = i - 1;
+    }
+    
+    return result;
+}
+
+fun float_to_string(f: Float) -> String {
+    let int_part = f as Int;
+    let frac_part = ((f - (int_part as Float)) * 1000000.0) as Int;
+    
+    var result = int_to_string(int_part);
+    result = result + ".";
+    result = result + int_to_string(frac_part);
+    return result;
+}
+
+fun serialize_user(user: User) -> String {
+    var json = "";
+    json = json + "{\"id\":";
+    json = json + int_to_string(user.id);
+    json = json + ",\"name\":\"";
+    json = json + escape_string(user.name);
+    json = json + "\",\"active\":";
+    if user.active {
+        json = json + "true";
+    } else {
+        json = json + "false";
+    }
+    json = json + ",\"score\":";
+    json = json + float_to_string(user.score);
+    json = json + "}";
+    return json;
+}
+
+fun serialize_users(users: Vec<User>) -> String {
+    var json = "[";
+    
+    var i = 0;
+    let len = users.len();
+    while i < len {
+        if i > 0 {
+            json = json + ",";
+        }
+        json = json + serialize_user(users.get(i));
+        i = i + 1;
+    }
+    
+    json = json + "]";
+    return json;
+}
+
+fun generate_users(count: Int) -> Vec<User> {
+    let users = Vec<User>.withCapacity(count);
+    var i = 0;
+    while i < count {
+        users.push(User {
+            id: i,
+            name: "User " + int_to_string(i),
+            active: (i % 2) == 0,
+            score: (i as Float) * 1.5
+        });
+        i = i + 1;
+    }
+    return users;
+}
+
+fun main() {
+    let count = 10000;
+    
+    println("JSON Serialization Benchmark");
+    println("Users: {count}");
+    
+    println("Generating users...");
+    let users = generate_users(count);
+    
+    println("Warming up...");
+    var w = 0;
+    while w < 2 {
+        let _ = serialize_users(users);
+        w = w + 1;
+    }
+    
+    println("Running benchmark...");
+    let start = __GetTime();
+    let json = serialize_users(users);
+    let end = __GetTime();
+    
+    let time_s = end - start;
+    let size = json.length();
+    let throughput = (size as Float) / (time_s * 1024.0 * 1024.0);
+    
+    println("JSON size: {size} bytes");
+    println("Time: {time_s} s");
+    println("Throughput: {throughput} MB/s");
+}

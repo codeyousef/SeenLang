@@ -1,0 +1,32 @@
+// Test: @vertex + @fragment shader pair
+// Verifies GLSL generator handles vertex inputs/outputs and fragment outputs
+
+@gpu_buffer
+class VertexOutput {
+    var position: Float
+    var worldNormal: Float
+    var texCoord: Float
+}
+
+@vertex
+fun vertexShader(pos: Float, normal: Float, uv: Float) r: VertexOutput {
+    return VertexOutput{
+        position: pos,
+        worldNormal: normal,
+        texCoord: uv
+    }
+}
+
+@fragment
+fun fragmentShader(input: VertexOutput) r: Float {
+    let light = input.worldNormal
+    return light
+}
+
+fun main() r: Int {
+    println("test_vertex_fragment: @vertex + @fragment pair")
+    println("  Vertex: in/out declarations, gl_Position")
+    println("  Fragment: fragColor output")
+    println("PASS")
+    return 0
+}

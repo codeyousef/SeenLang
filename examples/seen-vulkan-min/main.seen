@@ -1,0 +1,113 @@
+// Minimal Vulkan-style Graphics Example
+// This simulates a graphics pipeline without actual Vulkan calls
+
+data Vec3 {
+    x: Float
+    y: Float
+    z: Float
+}
+
+data Vertex {
+    position: Vec3
+    color: Vec3
+}
+
+data Mesh {
+    vertices: Array<Vertex>
+    indices: Array<Int>
+}
+
+data Pipeline {
+    vertexCount: Int
+    indexCount: Int
+}
+
+data RenderPass {
+    clearColor: Vec3
+    width: Int
+    height: Int
+}
+
+fun createTriangleMesh() -> Mesh {
+    let vertices = Array<Vertex>()
+    
+    // Triangle vertices
+    vertices.push(Vertex{
+        position: Vec3{ x: 0.0, y: 0.5, z: 0.0 },
+        color: Vec3{ x: 1.0, y: 0.0, z: 0.0 }
+    })
+    vertices.push(Vertex{
+        position: Vec3{ x: -0.5, y: -0.5, z: 0.0 },
+        color: Vec3{ x: 0.0, y: 1.0, z: 0.0 }
+    })
+    vertices.push(Vertex{
+        position: Vec3{ x: 0.5, y: -0.5, z: 0.0 },
+        color: Vec3{ x: 0.0, y: 0.0, z: 1.0 }
+    })
+    
+    let indices = Array<Int>()
+    indices.push(0)
+    indices.push(1)
+    indices.push(2)
+    
+    return Mesh{
+        vertices: vertices,
+        indices: indices
+    }
+}
+
+fun createPipeline(mesh: Mesh) -> Pipeline {
+    return Pipeline{
+        vertexCount: mesh.vertices.length(),
+        indexCount: mesh.indices.length()
+    }
+}
+
+fun createRenderPass() -> RenderPass {
+    return RenderPass{
+        clearColor: Vec3{ x: 0.1, y: 0.1, z: 0.1 },
+        width: 800,
+        height: 600
+    }
+}
+
+fun render(pipeline: Pipeline, renderPass: RenderPass, mesh: Mesh) -> Bool {
+    // Simulate render pass
+    if pipeline.vertexCount != 3 {
+        return false
+    }
+    
+    if pipeline.indexCount != 3 {
+        return false
+    }
+    
+    if renderPass.width <= 0 or renderPass.height <= 0 {
+        return false
+    }
+    
+    // Verify mesh data
+    if mesh.vertices.length() != 3 {
+        return false
+    }
+    
+    return true
+}
+
+fun main() -> Int {
+    // Setup
+    let mesh = createTriangleMesh()
+    let pipeline = createPipeline(mesh)
+    let renderPass = createRenderPass()
+    
+    // Render frames
+    let frame = 0
+    while frame < 60 {
+        let success = render(pipeline, renderPass, mesh)
+        if not success {
+            return 1
+        }
+        frame = frame + 1
+    }
+    
+    return 0
+}

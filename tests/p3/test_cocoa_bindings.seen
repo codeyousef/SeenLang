@@ -1,0 +1,15 @@
+// : Cocoa/Metal bindings — compile-only (no macOS runtime in CI)
+
+fun main() r: Int {
+    let NS_EVENT_TYPE_KEY_DOWN = 10
+    let NS_WINDOW_STYLE_MASK_TITLED = 1
+    let NS_WINDOW_STYLE_MASK_CLOSABLE = 2
+
+    if NS_EVENT_TYPE_KEY_DOWN != 10 {
+        println("FAIL: NSEventTypeKeyDown constant")
+        return 1
+    }
+
+    println("PASS: Cocoa bindings test (compile-only)")
+    return 0
+}

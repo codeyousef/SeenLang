@@ -1,0 +1,7 @@
+name = "Chinese"
+description = "Chinese Literal Keywords"
+
+[keywords]
+"真" = "KeywordTrue"
+"假" = "KeywordFalse"
+"空" = "KeywordNull"

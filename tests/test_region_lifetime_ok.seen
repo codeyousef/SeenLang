@@ -1,0 +1,12 @@
+// : Test region lifetime annotations (valid case)
+// Region-local variables used only within scope — should compile
+
+fun main() {
+    region bump {
+        let x = 42
+        let y = x + 10
+        println("Region local: " + y.toString())
+    }
+    // x and y are no longer accessible here
+    println("Region lifetime OK test passed")
+}

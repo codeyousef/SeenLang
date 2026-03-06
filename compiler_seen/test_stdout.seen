@@ -1,0 +1,20 @@
+// Test: Just stdoutLine
+import io.file.{writeText}
+
+fun stdoutWrite(text: String) r: Void {
+    let wrote: Bool = writeText("/dev/stdout", text)
+    if not wrote {
+        abort("Failed to write to stdout")
+    }
+    return
+}
+
+fun stdoutLine(text: String) r: Void {
+    stdoutWrite(text + "\n")
+    return
+}
+
+fun main() r: Int {
+    stdoutLine("Hello")
+    return 0
+}

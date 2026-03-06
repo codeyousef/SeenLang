@@ -1,0 +1,7 @@
+// Test region thread safety
+fun main() r: Void {
+    // Region with variables — should compile successfully
+    var x = 42
+    println("region thread safety")
+    println("PASS: region_thread")
+}

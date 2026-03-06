@@ -1,0 +1,6 @@
+name = "Chinese"
+description = "Chinese Metaprogramming Keywords"
+
+[keywords]
+"编译时" = "KeywordComptime"
+"宏" = "KeywordMacro"

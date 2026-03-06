@@ -1,0 +1,28 @@
+// ThreadLocal — Per-thread storage via pthread TLS.
+// Each thread sees its own independent value.
+
+extern fun seen_tls_new() r: Int
+extern fun seen_tls_set(key: Int, value: Int) r: Void
+extern fun seen_tls_get(key: Int) r: Int
+extern fun seen_tls_destroy(key: Int) r: Void
+
+class ThreadLocal {
+    var key: Int
+
+    fun new() r: ThreadLocal {
+        let k = seen_tls_new()
+        return ThreadLocal { key: k }
+    }
+
+    fun set(value: Int) r: Void {
+        seen_tls_set(this.key, value)
+    }
+
+    fun get() r: Int {
+        return seen_tls_get(this.key)
+    }
+
+    fun destroy() r: Void {
+        seen_tls_destroy(this.key)
+    }
+}

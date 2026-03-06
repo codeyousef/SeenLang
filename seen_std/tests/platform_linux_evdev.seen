@@ -1,0 +1,300 @@
+/**
+ * E2E tests for evdev FFI bindings.
+ * Tests constants, event types, key codes, and helper classes.
+ */
+
+import platform.linux.evdev.{
+    EV_SYN, EV_KEY, EV_REL, EV_ABS, EV_MSC, EV_SW, EV_LED, EV_FF,
+    SYN_REPORT, SYN_CONFIG, SYN_DROPPED,
+    KEY_ESC, KEY_1, KEY_2, KEY_A, KEY_B, KEY_C, KEY_W, KEY_S, KEY_D,
+    KEY_SPACE, KEY_ENTER, KEY_BACKSPACE, KEY_TAB,
+    KEY_F1, KEY_F2, KEY_F10, KEY_F11, KEY_F12,
+    KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT,
+    KEY_LEFTCTRL, KEY_RIGHTCTRL, KEY_LEFTSHIFT, KEY_RIGHTSHIFT, KEY_LEFTALT, KEY_RIGHTALT,
+    BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA,
+    BTN_GAMEPAD, BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST,
+    BTN_TL, BTN_TR, BTN_TL2, BTN_TR2,
+    BTN_SELECT, BTN_START, BTN_MODE, BTN_THUMBL, BTN_THUMBR,
+    BTN_DPAD_UP, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT,
+    REL_X, REL_Y, REL_Z, REL_WHEEL, REL_HWHEEL,
+    ABS_X, ABS_Y, ABS_Z, ABS_RX, ABS_RY, ABS_RZ,
+    ABS_HAT0X, ABS_HAT0Y,
+    ABS_MT_SLOT, ABS_MT_POSITION_X, ABS_MT_POSITION_Y, ABS_MT_TRACKING_ID,
+    LIBEVDEV_READ_FLAG_SYNC, LIBEVDEV_READ_FLAG_NORMAL, LIBEVDEV_READ_FLAG_BLOCKING,
+    LIBEVDEV_READ_STATUS_SUCCESS, LIBEVDEV_READ_STATUS_SYNC,
+    DEVICE_TYPE_KEYBOARD, DEVICE_TYPE_MOUSE, DEVICE_TYPE_GAMEPAD,
+    DEVICE_TYPE_TOUCHSCREEN, DEVICE_TYPE_TABLET, DEVICE_TYPE_TOUCHPAD,
+    InputEvent, listInputDevices
+}
+
+var testsPassed: Int = 0
+var testsFailed: Int = 0
+
+fun expect(condition: Bool, message: String) -> Void {
+    if condition {
+        testsPassed = testsPassed + 1
+    } else {
+        testsFailed = testsFailed + 1
+        println("FAIL: " + message)
+    }
+}
+
+fun testEventTypes() -> Void {
+    println("Testing event type constants...")
+
+    expect(EV_SYN == 0x00, "EV_SYN should be 0x00")
+    expect(EV_KEY == 0x01, "EV_KEY should be 0x01")
+    expect(EV_REL == 0x02, "EV_REL should be 0x02")
+    expect(EV_ABS == 0x03, "EV_ABS should be 0x03")
+    expect(EV_MSC == 0x04, "EV_MSC should be 0x04")
+    expect(EV_SW == 0x05, "EV_SW should be 0x05")
+    expect(EV_LED == 0x11, "EV_LED should be 0x11")
+    expect(EV_FF == 0x15, "EV_FF should be 0x15")
+}
+
+fun testSyncEvents() -> Void {
+    println("Testing sync event constants...")
+
+    expect(SYN_REPORT == 0, "SYN_REPORT should be 0")
+    expect(SYN_CONFIG == 1, "SYN_CONFIG should be 1")
+    expect(SYN_DROPPED == 3, "SYN_DROPPED should be 3")
+}
+
+fun testKeyboardKeyCodes() -> Void {
+    println("Testing keyboard key codes...")
+
+    // Number row
+    expect(KEY_ESC == 1, "KEY_ESC should be 1")
+    expect(KEY_1 == 2, "KEY_1 should be 2")
+    expect(KEY_2 == 3, "KEY_2 should be 3")
+
+    // Letter keys
+    expect(KEY_A == 30, "KEY_A should be 30")
+    expect(KEY_B == 48, "KEY_B should be 48")
+    expect(KEY_C == 46, "KEY_C should be 46")
+    expect(KEY_W == 17, "KEY_W should be 17")
+    expect(KEY_S == 31, "KEY_S should be 31")
+    expect(KEY_D == 32, "KEY_D should be 32")
+
+    // Special keys
+    expect(KEY_SPACE == 57, "KEY_SPACE should be 57")
+    expect(KEY_ENTER == 28, "KEY_ENTER should be 28")
+    expect(KEY_BACKSPACE == 14, "KEY_BACKSPACE should be 14")
+    expect(KEY_TAB == 15, "KEY_TAB should be 15")
+
+    // Function keys
+    expect(KEY_F1 == 59, "KEY_F1 should be 59")
+    expect(KEY_F2 == 60, "KEY_F2 should be 60")
+    expect(KEY_F10 == 68, "KEY_F10 should be 68")
+    expect(KEY_F11 == 87, "KEY_F11 should be 87")
+    expect(KEY_F12 == 88, "KEY_F12 should be 88")
+
+    // Arrow keys
+    expect(KEY_UP == 103, "KEY_UP should be 103")
+    expect(KEY_DOWN == 108, "KEY_DOWN should be 108")
+    expect(KEY_LEFT == 105, "KEY_LEFT should be 105")
+    expect(KEY_RIGHT == 106, "KEY_RIGHT should be 106")
+
+    // Modifier keys
+    expect(KEY_LEFTCTRL == 29, "KEY_LEFTCTRL should be 29")
+    expect(KEY_RIGHTCTRL == 97, "KEY_RIGHTCTRL should be 97")
+    expect(KEY_LEFTSHIFT == 42, "KEY_LEFTSHIFT should be 42")
+    expect(KEY_RIGHTSHIFT == 54, "KEY_RIGHTSHIFT should be 54")
+    expect(KEY_LEFTALT == 56, "KEY_LEFTALT should be 56")
+    expect(KEY_RIGHTALT == 100, "KEY_RIGHTALT should be 100")
+}
+
+fun testMouseButtons() -> Void {
+    println("Testing mouse button codes...")
+
+    expect(BTN_LEFT == 0x110, "BTN_LEFT should be 0x110")
+    expect(BTN_RIGHT == 0x111, "BTN_RIGHT should be 0x111")
+    expect(BTN_MIDDLE == 0x112, "BTN_MIDDLE should be 0x112")
+    expect(BTN_SIDE == 0x113, "BTN_SIDE should be 0x113")
+    expect(BTN_EXTRA == 0x114, "BTN_EXTRA should be 0x114")
+}
+
+fun testGamepadButtons() -> Void {
+    println("Testing gamepad button codes...")
+
+    // Face buttons
+    expect(BTN_GAMEPAD == 0x130, "BTN_GAMEPAD should be 0x130")
+    expect(BTN_SOUTH == 0x130, "BTN_SOUTH (A/Cross) should be 0x130")
+    expect(BTN_EAST == 0x131, "BTN_EAST (B/Circle) should be 0x131")
+    expect(BTN_NORTH == 0x133, "BTN_NORTH (Y/Triangle) should be 0x133")
+    expect(BTN_WEST == 0x134, "BTN_WEST (X/Square) should be 0x134")
+
+    // Shoulder buttons
+    expect(BTN_TL == 0x136, "BTN_TL (Left Bumper) should be 0x136")
+    expect(BTN_TR == 0x137, "BTN_TR (Right Bumper) should be 0x137")
+    expect(BTN_TL2 == 0x138, "BTN_TL2 (Left Trigger) should be 0x138")
+    expect(BTN_TR2 == 0x139, "BTN_TR2 (Right Trigger) should be 0x139")
+
+    // Special buttons
+    expect(BTN_SELECT == 0x13a, "BTN_SELECT should be 0x13a")
+    expect(BTN_START == 0x13b, "BTN_START should be 0x13b")
+    expect(BTN_MODE == 0x13c, "BTN_MODE (Guide) should be 0x13c")
+    expect(BTN_THUMBL == 0x13d, "BTN_THUMBL should be 0x13d")
+    expect(BTN_THUMBR == 0x13e, "BTN_THUMBR should be 0x13e")
+
+    // D-pad buttons
+    expect(BTN_DPAD_UP == 0x220, "BTN_DPAD_UP should be 0x220")
+    expect(BTN_DPAD_DOWN == 0x221, "BTN_DPAD_DOWN should be 0x221")
+    expect(BTN_DPAD_LEFT == 0x222, "BTN_DPAD_LEFT should be 0x222")
+    expect(BTN_DPAD_RIGHT == 0x223, "BTN_DPAD_RIGHT should be 0x223")
+}
+
+fun testRelativeAxes() -> Void {
+    println("Testing relative axis codes...")
+
+    expect(REL_X == 0x00, "REL_X should be 0x00")
+    expect(REL_Y == 0x01, "REL_Y should be 0x01")
+    expect(REL_Z == 0x02, "REL_Z should be 0x02")
+    expect(REL_WHEEL == 0x08, "REL_WHEEL should be 0x08")
+    expect(REL_HWHEEL == 0x06, "REL_HWHEEL should be 0x06")
+}
+
+fun testAbsoluteAxes() -> Void {
+    println("Testing absolute axis codes...")
+
+    // Basic axes
+    expect(ABS_X == 0x00, "ABS_X should be 0x00")
+    expect(ABS_Y == 0x01, "ABS_Y should be 0x01")
+    expect(ABS_Z == 0x02, "ABS_Z should be 0x02")
+    expect(ABS_RX == 0x03, "ABS_RX should be 0x03")
+    expect(ABS_RY == 0x04, "ABS_RY should be 0x04")
+    expect(ABS_RZ == 0x05, "ABS_RZ should be 0x05")
+
+    // HAT axes (D-pad on some controllers)
+    expect(ABS_HAT0X == 0x10, "ABS_HAT0X should be 0x10")
+    expect(ABS_HAT0Y == 0x11, "ABS_HAT0Y should be 0x11")
+}
+
+fun testMultiTouchAxes() -> Void {
+    println("Testing multi-touch axis codes...")
+
+    expect(ABS_MT_SLOT == 0x2f, "ABS_MT_SLOT should be 0x2f")
+    expect(ABS_MT_POSITION_X == 0x35, "ABS_MT_POSITION_X should be 0x35")
+    expect(ABS_MT_POSITION_Y == 0x36, "ABS_MT_POSITION_Y should be 0x36")
+    expect(ABS_MT_TRACKING_ID == 0x39, "ABS_MT_TRACKING_ID should be 0x39")
+}
+
+fun testReadFlags() -> Void {
+    println("Testing libevdev read flags...")
+
+    expect(LIBEVDEV_READ_FLAG_SYNC == 1, "LIBEVDEV_READ_FLAG_SYNC should be 1")
+    expect(LIBEVDEV_READ_FLAG_NORMAL == 2, "LIBEVDEV_READ_FLAG_NORMAL should be 2")
+    expect(LIBEVDEV_READ_FLAG_BLOCKING == 8, "LIBEVDEV_READ_FLAG_BLOCKING should be 8")
+
+    // Test combining flags
+    let combined = LIBEVDEV_READ_FLAG_NORMAL | LIBEVDEV_READ_FLAG_BLOCKING
+    expect(combined == 10, "Combined NORMAL|BLOCKING should be 10")
+}
+
+fun testReadStatus() -> Void {
+    println("Testing libevdev read status...")
+
+    expect(LIBEVDEV_READ_STATUS_SUCCESS == 0, "LIBEVDEV_READ_STATUS_SUCCESS should be 0")
+    expect(LIBEVDEV_READ_STATUS_SYNC == 1, "LIBEVDEV_READ_STATUS_SYNC should be 1")
+}
+
+fun testDeviceTypeFlags() -> Void {
+    println("Testing device type flags...")
+
+    expect(DEVICE_TYPE_KEYBOARD == 1, "DEVICE_TYPE_KEYBOARD should be 1")
+    expect(DEVICE_TYPE_MOUSE == 2, "DEVICE_TYPE_MOUSE should be 2")
+    expect(DEVICE_TYPE_GAMEPAD == 4, "DEVICE_TYPE_GAMEPAD should be 4")
+    expect(DEVICE_TYPE_TOUCHSCREEN == 8, "DEVICE_TYPE_TOUCHSCREEN should be 8")
+    expect(DEVICE_TYPE_TABLET == 16, "DEVICE_TYPE_TABLET should be 16")
+    expect(DEVICE_TYPE_TOUCHPAD == 32, "DEVICE_TYPE_TOUCHPAD should be 32")
+
+    // Test combining device types
+    let keyboardMouse = DEVICE_TYPE_KEYBOARD | DEVICE_TYPE_MOUSE
+    expect(keyboardMouse == 3, "KEYBOARD|MOUSE should be 3")
+
+    // Check for specific device in combined flags
+    expect((keyboardMouse & DEVICE_TYPE_KEYBOARD) != 0, "Should detect keyboard in combined flags")
+    expect((keyboardMouse & DEVICE_TYPE_MOUSE) != 0, "Should detect mouse in combined flags")
+    expect((keyboardMouse & DEVICE_TYPE_GAMEPAD) == 0, "Should not detect gamepad in keyboard|mouse")
+}
+
+fun testInputEventClass() -> Void {
+    println("Testing InputEvent class...")
+
+    // Create a key press event
+    let keyPress = InputEvent.new(EV_KEY, KEY_A, 1, 1000, 500000)
+    expect(keyPress.eventType == EV_KEY, "Event type should be EV_KEY")
+    expect(keyPress.code == KEY_A, "Event code should be KEY_A")
+    expect(keyPress.value == 1, "Value should be 1 (pressed)")
+    expect(keyPress.timeSec == 1000, "timeSec should be 1000")
+    expect(keyPress.timeUsec == 500000, "timeUsec should be 500000")
+
+    // Test isKeyPress
+    expect(keyPress.isKeyPress(), "Should be detected as key press")
+    expect(not keyPress.isKeyRelease(), "Should not be detected as key release")
+    expect(not keyPress.isKeyRepeat(), "Should not be detected as key repeat")
+
+    // Create a key release event
+    let keyRelease = InputEvent.new(EV_KEY, KEY_A, 0, 1001, 0)
+    expect(keyRelease.isKeyRelease(), "Should be detected as key release")
+    expect(not keyRelease.isKeyPress(), "Should not be detected as key press")
+
+    // Create a key repeat event
+    let keyRepeat = InputEvent.new(EV_KEY, KEY_A, 2, 1002, 0)
+    expect(keyRepeat.isKeyRepeat(), "Should be detected as key repeat")
+    expect(not keyRepeat.isKeyPress(), "Should not be detected as key press")
+    expect(not keyRepeat.isKeyRelease(), "Should not be detected as key release")
+
+    // Create a sync event
+    let syncEvent = InputEvent.new(EV_SYN, SYN_REPORT, 0, 1003, 0)
+    expect(syncEvent.isSync(), "Should be detected as sync event")
+
+    // Test timestamp calculation
+    let timestampMs = keyPress.getTimestampMs()
+    expect(timestampMs == 1000500, "Timestamp should be 1000500ms")
+}
+
+fun testListInputDevices() -> Void {
+    println("Testing listInputDevices...")
+
+    let paths = listInputDevices()
+
+    // Should return 32 device paths
+    expect(paths.length() == 32, "listInputDevices should return 32 paths")
+
+    // Check first and last paths
+    expect(paths[0] == "/dev/input/event0", "First path should be /dev/input/event0")
+    expect(paths[31] == "/dev/input/event31", "Last path should be /dev/input/event31")
+}
+
+fun main() -> Int {
+    println("=== evdev FFI Bindings E2E Tests ===")
+    println("")
+
+    testEventTypes()
+    testSyncEvents()
+    testKeyboardKeyCodes()
+    testMouseButtons()
+    testGamepadButtons()
+    testRelativeAxes()
+    testAbsoluteAxes()
+    testMultiTouchAxes()
+    testReadFlags()
+    testReadStatus()
+    testDeviceTypeFlags()
+    testInputEventClass()
+    testListInputDevices()
+
+    println("")
+    println("=== Test Summary ===")
+    println("Passed: " + testsPassed.toString())
+    println("Failed: " + testsFailed.toString())
+
+    if testsFailed > 0 {
+        println("TESTS FAILED!")
+        return 1
+    }
+
+    println("All evdev tests passed!")
+    return 0
+}

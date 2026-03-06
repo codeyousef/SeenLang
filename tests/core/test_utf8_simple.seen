@@ -1,0 +1,73 @@
+// Simple UTF-8 String Test
+// Tests that UTF-8 strings work correctly
+// Expected: UTF-8 strings preserve their content
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    println("Testing UTF-8 string support...")
+
+    // Test 1: ASCII string
+    let asciiString = "Hello"
+    if asciiString.length() == 5 {
+        println("PASS: ASCII string length correct")
+        passed = passed + 1
+    } else {
+        println("FAIL: ASCII string length wrong: " + asciiString.length().toString())
+        failed = failed + 1
+    }
+
+    // Test 2: Arabic string
+    let arabicString = "مرحبا"
+    if arabicString.length() > 0 {
+        println("PASS: Arabic string has non-zero length")
+        passed = passed + 1
+    } else {
+        println("FAIL: Arabic string has zero length")
+        failed = failed + 1
+    }
+
+    // Test 3: Chinese string
+    let chineseString = "你好"
+    if chineseString.length() > 0 {
+        println("PASS: Chinese string has non-zero length")
+        passed = passed + 1
+    } else {
+        println("FAIL: Chinese string has zero length")
+        failed = failed + 1
+    }
+
+    // Test 4: Mixed Unicode string
+    let mixedString = "Hello世界مرحبا"
+    if mixedString.length() > 0 {
+        println("PASS: Mixed Unicode string has non-zero length")
+        passed = passed + 1
+    } else {
+        println("FAIL: Mixed Unicode string has zero length")
+        failed = failed + 1
+    }
+
+    // Test 5: Emoji string
+    let emojiString = "🚀🎉"
+    if emojiString.length() > 0 {
+        println("PASS: Emoji string has non-zero length")
+        passed = passed + 1
+    } else {
+        println("FAIL: Emoji string has zero length")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("")
+    println("UTF-8 Test Results:")
+    println("Passed: " + passed.toString() + "/" + (passed + failed).toString())
+
+    if failed > 0 {
+        println("FAIL: Some UTF-8 tests failed")
+        return 1
+    }
+
+    println("PASS: All UTF-8 tests passed!")
+    return 0
+}

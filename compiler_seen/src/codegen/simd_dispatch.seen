@@ -1,0 +1,171 @@
+// SIMD Multi-Versioned Codegen Framework
+// Generates multiple versions of a function with different target-features
+// and a dispatcher that selects the best version at runtime via seen_cpu_simd_tier()
+
+import str.string.{StringBuilder}
+
+// Represents a single SIMD variant of a function
+class SIMDVariant {
+    let name: String        // e.g., "func_avx2"
+    let tier: Int           // SIMD tier (0=scalar, 1=SSE4.2, 2=AVX2, 3=AVX-512)
+    let features: String    // LLVM target-features string
+    let attrGroup: Int      // attribute group number
+
+    fun new(name: String, tier: Int, features: String, attrGroup: Int) r: SIMDVariant {
+        return SIMDVariant{
+            name: name,
+            tier: tier,
+            features: features,
+            attrGroup: attrGroup
+        }
+    }
+}
+
+// Generates multi-versioned LLVM IR for a function
+class SIMDDispatchGenerator {
+    let nextAttrGroup: Int
+
+    fun new() r: SIMDDispatchGenerator {
+        return SIMDDispatchGenerator{
+            nextAttrGroup: 10
+        }
+    }
+
+    // Generate the scalar variant attributes
+    fun scalarAttrs(groupNum: Int) r: String {
+        return "attributes #" + groupNum.toString() + " = { \"target-features\"=\"+sse2\" }"
+    }
+
+    // Generate AVX2 variant attributes
+    fun avx2Attrs(groupNum: Int) r: String {
+        return "attributes #" + groupNum.toString() + " = { \"target-features\"=\"+avx2,+fma\" }"
+    }
+
+    // Generate AVX-512 variant attributes
+    fun avx512Attrs(groupNum: Int) r: String {
+        return "attributes #" + groupNum.toString() + " = { \"target-features\"=\"+avx512f,+avx512bw,+avx512dq,+avx512vl,+avx2,+fma\" }"
+    }
+
+    // Generate a 2-version dispatcher (scalar + AVX2) for a given function
+    // funcName: original function name (e.g., "process_array")
+    // paramTypes: LLVM IR parameter types (e.g., "ptr %arr, i64 %len")
+    // returnType: LLVM IR return type (e.g., "i64")
+    // scalarBody: LLVM IR body of the scalar version
+    // avx2Body: LLVM IR body of the AVX2 version
+    fun generateDispatch(funcName: String, paramTypes: String, paramNames: String, returnType: String, scalarBody: String, avx2Body: String) r: String {
+        var sb = StringBuilder.new()
+
+        let scalarName = funcName + "_scalar"
+        let avx2Name = funcName + "_avx2"
+        let scalarGroup = nextAttrGroup
+        let avx2Group = nextAttrGroup + 1
+
+        // Declare cpu tier function
+        sb.append("declare i32 @seen_cpu_simd_tier()\n\n")
+
+        // Scalar variant
+        sb.append("define internal " + returnType + " @" + scalarName + "(" + paramTypes + ") #" + scalarGroup.toString() + " {\n")
+        sb.append(scalarBody)
+        sb.append("\n}\n\n")
+
+        // AVX2 variant
+        sb.append("define internal " + returnType + " @" + avx2Name + "(" + paramTypes + ") #" + avx2Group.toString() + " {\n")
+        sb.append(avx2Body)
+        sb.append("\n}\n\n")
+
+        // Dispatcher function
+        sb.append("define " + returnType + " @" + funcName + "(" + paramTypes + ") {\n")
+        sb.append("entry:\n")
+        sb.append("  %tier = call i32 @seen_cpu_simd_tier()\n")
+        sb.append("  %use_avx2 = icmp sge i32 %tier, 2\n")
+        sb.append("  br i1 %use_avx2, label %avx2, label %scalar\n\n")
+        sb.append("avx2:\n")
+        sb.append("  %r1 = call " + returnType + " @" + avx2Name + "(" + paramNames + ")\n")
+        sb.append("  ret " + returnType + " %r1\n\n")
+        sb.append("scalar:\n")
+        sb.append("  %r0 = call " + returnType + " @" + scalarName + "(" + paramNames + ")\n")
+        sb.append("  ret " + returnType + " %r0\n")
+        sb.append("}\n\n")
+
+        // Attribute groups
+        sb.append(scalarAttrs(scalarGroup) + "\n")
+        sb.append(avx2Attrs(avx2Group) + "\n")
+
+        return sb.toString()
+    }
+
+    // Generate a 3-version dispatcher (scalar + AVX2 + AVX-512)
+    fun generateDispatch3(funcName: String, paramTypes: String, paramNames: String, returnType: String, scalarBody: String, avx2Body: String, avx512Body: String) r: String {
+        var sb = StringBuilder.new()
+
+        let scalarName = funcName + "_scalar"
+        let avx2Name = funcName + "_avx2"
+        let avx512Name = funcName + "_avx512"
+        let scalarGroup = nextAttrGroup
+        let avx2Group = nextAttrGroup + 1
+        let avx512Group = nextAttrGroup + 2
+
+        // Declare cpu tier function
+        sb.append("declare i32 @seen_cpu_simd_tier()\n\n")
+
+        // Scalar variant
+        sb.append("define internal " + returnType + " @" + scalarName + "(" + paramTypes + ") #" + scalarGroup.toString() + " {\n")
+        sb.append(scalarBody)
+        sb.append("\n}\n\n")
+
+        // AVX2 variant
+        sb.append("define internal " + returnType + " @" + avx2Name + "(" + paramTypes + ") #" + avx2Group.toString() + " {\n")
+        sb.append(avx2Body)
+        sb.append("\n}\n\n")
+
+        // AVX-512 variant
+        sb.append("define internal " + returnType + " @" + avx512Name + "(" + paramTypes + ") #" + avx512Group.toString() + " {\n")
+        sb.append(avx512Body)
+        sb.append("\n}\n\n")
+
+        // Dispatcher function
+        sb.append("define " + returnType + " @" + funcName + "(" + paramTypes + ") {\n")
+        sb.append("entry:\n")
+        sb.append("  %tier = call i32 @seen_cpu_simd_tier()\n")
+        sb.append("  %use_avx512 = icmp sge i32 %tier, 3\n")
+        sb.append("  br i1 %use_avx512, label %avx512, label %check_avx2\n\n")
+        sb.append("check_avx2:\n")
+        sb.append("  %use_avx2 = icmp sge i32 %tier, 2\n")
+        sb.append("  br i1 %use_avx2, label %avx2, label %scalar\n\n")
+        sb.append("avx512:\n")
+        sb.append("  %r2 = call " + returnType + " @" + avx512Name + "(" + paramNames + ")\n")
+        sb.append("  ret " + returnType + " %r2\n\n")
+        sb.append("avx2:\n")
+        sb.append("  %r1 = call " + returnType + " @" + avx2Name + "(" + paramNames + ")\n")
+        sb.append("  ret " + returnType + " %r1\n\n")
+        sb.append("scalar:\n")
+        sb.append("  %r0 = call " + returnType + " @" + scalarName + "(" + paramNames + ")\n")
+        sb.append("  ret " + returnType + " %r0\n")
+        sb.append("}\n\n")
+
+        // Attribute groups
+        sb.append(scalarAttrs(scalarGroup) + "\n")
+        sb.append(avx2Attrs(avx2Group) + "\n")
+        sb.append(avx512Attrs(avx512Group) + "\n")
+
+        return sb.toString()
+    }
+
+    // Get the LLVM target-features string for a SIMD policy
+    fun featuresForPolicy(policy: String) r: String {
+        if policy == "none" {
+            return "+sse2"
+        }
+        if policy == "sse4.2" {
+            return "+sse4.2"
+        }
+        if policy == "avx2" {
+            return "+avx2,+fma"
+        }
+        if policy == "avx512" {
+            return "+avx512f,+avx512bw,+avx512dq,+avx512vl,+avx2,+fma"
+        }
+        // auto - no explicit features, let LLVM decide
+        return ""
+    }
+}

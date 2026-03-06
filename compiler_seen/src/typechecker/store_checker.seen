@@ -1,0 +1,220 @@
+// Store Checker for Seen Language
+// Validates @store decorator usage for deterministic state management
+// Ensures stores only use deterministic types and operations
+
+import parser.real_parser.{ClassNode, FunctionNode, ProgramNode, FieldNode}
+
+// Result of store checking
+class StoreCheckResult {
+    var success: Bool
+    var errors: Array<String>
+    var warnings: Array<String>
+
+    static fun new() r: StoreCheckResult {
+        return StoreCheckResult{
+            success: true,
+            errors: Array<String>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(message: String) r: Void {
+        errors.push(message)
+        success = false
+    }
+
+    fun addWarning(message: String) r: Void {
+        warnings.push(message)
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+}
+
+// Types that are NOT allowed in @store classes (non-deterministic iteration)
+fun isNonDeterministicType(typeName: String) r: Bool {
+    // HashMap and HashSet have non-deterministic iteration order
+    if typeName == "HashMap" or typeName.startsWith("HashMap<") {
+        return true
+    }
+    if typeName == "HashSet" or typeName.startsWith("HashSet<") {
+        return true
+    }
+    // Float types have precision issues across platforms
+    if typeName == "Float" or typeName == "Float32" or typeName == "Float64" {
+        return true
+    }
+    if typeName == "f32" or typeName == "f64" {
+        return true
+    }
+    return false
+}
+
+// Types that ARE allowed in @store classes (deterministic)
+fun isDeterministicType(typeName: String) r: Bool {
+    // Primitive types
+    if typeName == "Int" or typeName == "i64" or typeName == "i32" {
+        return true
+    }
+    if typeName == "Bool" or typeName == "Char" or typeName == "String" {
+        return true
+    }
+    // Fixed-point types (deterministic)
+    if typeName == "Fixed128" or typeName == "Fixed64" {
+        return true
+    }
+    // Deterministic collections
+    if typeName == "Vec" or typeName.startsWith("Vec<") {
+        return true
+    }
+    if typeName == "Array" or typeName.startsWith("Array<") {
+        return true
+    }
+    if typeName == "BTreeMap" or typeName.startsWith("BTreeMap<") {
+        return true
+    }
+    if typeName == "BTreeSet" or typeName.startsWith("BTreeSet<") {
+        return true
+    }
+    // Option and Result
+    if typeName == "Option" or typeName.startsWith("Option<") {
+        return true
+    }
+    if typeName == "Result" or typeName.startsWith("Result<") {
+        return true
+    }
+    return false
+}
+
+// Store Checker class
+class StoreChecker {
+    var result: StoreCheckResult
+
+    static fun new() r: StoreChecker {
+        return StoreChecker{
+            result: StoreCheckResult.new()
+        }
+    }
+
+    // Check a class marked with @store
+    fun checkStore(cls: ClassNode) r: StoreCheckResult {
+        result = StoreCheckResult.new()
+
+        // Check for conflicting decorators
+        if hasDecorator(cls, "nondeterministic") {
+            result.addError("@store class '" + cls.name + "' cannot also be @nondeterministic")
+        }
+
+        // Check all fields for determinism
+        var i = 0
+        while i < cls.fields.length() {
+            let field = cls.fields[i]
+            checkFieldDeterminism(cls.name, field)
+            i = i + 1
+        }
+
+        // Warn about missing snapshot/restore methods
+        if not hasMethod(cls, "snapshot") {
+            result.addWarning("@store class '" + cls.name + "' has no snapshot() method - consider implementing for time-travel debugging")
+        }
+        if not hasMethod(cls, "restore") {
+            result.addWarning("@store class '" + cls.name + "' has no restore() method - consider implementing for state replay")
+        }
+
+        // Check for proper mutation methods (should use var fields, not let)
+        checkMutationMethods(cls)
+
+        return result
+    }
+
+    // Check if a field type is deterministic
+    fun checkFieldDeterminism(className: String, field: FieldNode) r: Void {
+        let typeName = field.paramType.typeName
+
+        if isNonDeterministicType(typeName) {
+            result.addError("@store class '" + className + "' has non-deterministic field '" + field.name + "' of type '" + typeName + "'. Use BTreeMap/BTreeSet instead of HashMap/HashSet, or Fixed128 instead of Float.")
+        }
+    }
+
+    // Check mutation methods for proper patterns
+    fun checkMutationMethods(cls: ClassNode) r: Void {
+        var i = 0
+        while i < cls.methods.length() {
+            let method = cls.methods[i]
+            // Methods that modify state should not return non-void (pure function pattern)
+            // This is a soft warning, not an error
+            if method.name.startsWith("set") or method.name.startsWith("update") or method.name.startsWith("add") or method.name.startsWith("remove") {
+                if method.returnType.typeName != "Void" and method.returnType.typeName != "" {
+                    result.addWarning("@store mutation method '" + method.name + "' in '" + cls.name + "' returns '" + method.returnType.typeName + "'. Consider returning Void for clearer state mutation semantics.")
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    // Check if a class has a specific decorator
+    fun hasDecorator(cls: ClassNode, decoratorName: String) r: Bool {
+        var i = 0
+        while i < cls.decorators.length() {
+            if cls.decorators[i].name == decoratorName {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Check if a class has a method with the given name
+    fun hasMethod(cls: ClassNode, methodName: String) r: Bool {
+        var i = 0
+        while i < cls.methods.length() {
+            if cls.methods[i].name == methodName {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+// Check all @store classes in a program
+fun checkStores(program: ProgramNode) r: StoreCheckResult {
+    let checker = StoreChecker.new()
+    var combinedResult = StoreCheckResult.new()
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            // Check if class has @store decorator
+            var hasStoreDecorator = false
+            var di = 0
+            while di < cls.decorators.length() {
+                if cls.decorators[di].name == "store" {
+                    hasStoreDecorator = true
+                }
+                di = di + 1
+            }
+
+            if hasStoreDecorator {
+                let result = checker.checkStore(cls)
+                // Merge results
+                var ei = 0
+                while ei < result.errors.length() {
+                    combinedResult.addError(result.errors[ei])
+                    ei = ei + 1
+                }
+                var wi = 0
+                while wi < result.warnings.length() {
+                    combinedResult.addWarning(result.warnings[wi])
+                    wi = wi + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return combinedResult
+}

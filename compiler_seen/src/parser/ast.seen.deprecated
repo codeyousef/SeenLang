@@ -1,0 +1,125 @@
+// Minimal AST node definitions for the bootstrap parser
+// Focused on imports, functions, and classes only.
+
+data ProgramNode {
+    items: Array<ItemNode>
+}
+
+fun ProgramNode.new() r: ProgramNode {
+    return ProgramNode{
+        items: Array<ItemNode>()
+    }
+}
+
+fun ProgramNode.getItems() r: Array<ItemNode> {
+    return items
+}
+
+data ItemNode {
+    itemType: String // "Function", "Class", "Import", or ""
+    name: String
+    visibility: String
+    importPath: Array<String>
+    importSymbols: Array<ImportSymbolNode>
+    function: FunctionNode
+    classNode: ClassNode
+}
+
+fun ItemNode.new() r: ItemNode {
+    return ItemNode{
+        itemType: "",
+        name: "",
+        visibility: "private",
+        importPath: Array<String>(),
+        importSymbols: Array<ImportSymbolNode>(),
+        function: FunctionNode.new(),
+        classNode: ClassNode.new()
+    }
+}
+
+data ImportSymbolNode {
+    name: String
+    alias: String
+}
+
+fun ImportSymbolNode.new() r: ImportSymbolNode {
+    return ImportSymbolNode{
+        name: "",
+        alias: ""
+    }
+}
+
+data FunctionNode {
+    name: String
+    params: Array<ParamNode>
+    returnType: TypeNode
+    body: BlockNode
+    isAsync: Bool
+    isInline: Bool
+}
+
+fun FunctionNode.new() r: FunctionNode {
+    return FunctionNode{
+        name: "",
+        params: Array<ParamNode>(),
+        returnType: TypeNode.new(),
+        body: BlockNode.new(),
+        isAsync: false,
+        isInline: false
+    }
+}
+
+data ParamNode {
+    name: String
+    paramType: TypeNode
+    isMutable: Bool
+}
+
+fun ParamNode.new() r: ParamNode {
+    return ParamNode{
+        name: "",
+        paramType: TypeNode.new(),
+        isMutable: false
+    }
+}
+
+data TypeNode {
+    typeName: String
+    isNullable: Bool
+}
+
+fun TypeNode.new() r: TypeNode {
+    return TypeNode{
+        typeName: "Unknown",
+        isNullable: false
+    }
+}
+
+// StatementNode - simplified version for the typechecker
+class StatementNode {
+    var kind: String
+    var variableName: String
+    var variableType: TypeNode
+
+    static fun new() r: StatementNode {
+        return StatementNode{ kind: "", variableName: "", variableType: TypeNode.new() }
+    }
+}
+
+data BlockNode {
+    statements: Array<StatementNode>
+}
+
+fun BlockNode.new() r: BlockNode {
+    return BlockNode{
+        statements: Array<StatementNode>()
+    }
+}
+
+data ClassNode {
+    name: String
+}
+
+fun ClassNode.new() r: ClassNode {
+    return ClassNode{ name: "" }
+}

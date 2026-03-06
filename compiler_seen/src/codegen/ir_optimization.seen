@@ -1,0 +1,646 @@
+// Pure optimization utility functions extracted from llvm_ir_gen.seen
+// These functions have no module-level state dependencies.
+
+import parser.real_parser.{ParserExpressionNode}
+
+// Helper to check mutability prefix from "[L|V]Type:Value" encoding (86 = 'V')
+fun parseGlobalVarMutable(encoded: String) r: Bool {
+    if encoded.length() > 0 {
+        if encoded.byteAt(0) == 86 { return true }
+    }
+    return false
+}
+
+// Helper to extract type from "[L|V]Type:Value" encoding used by GlobalVar items
+// Skips the 1-char mutability prefix (L or V) if present
+fun parseGlobalVarType(encoded: String) r: String {
+    var start = 0
+    if encoded.length() > 0 {
+        let fb = encoded.byteAt(0)
+        if fb == 76 or fb == 86 {
+            start = 1
+        }
+    }
+    var i = start
+    while i < encoded.length() {
+        if encoded.byteAt(i) == 58 {
+            return encoded.substring(start, i)
+        }
+        i = i + 1
+    }
+    return encoded.substring(start, encoded.length())
+}
+
+// Helper to extract value from "[L|V]Type:Value" encoding used by GlobalVar items
+fun parseGlobalVarValue(encoded: String) r: String {
+    var i = 0
+    while i < encoded.length() {
+        if encoded.byteAt(i) == 58 {
+            return encoded.substring(i + 1, encoded.length())
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// Constant folding: parse int literal string without .toInt() (stage1-safe)
+// Uses byteAt() to avoid per-character string allocations
+fun parseIntManual(s: String) r: Int {
+    var result = 0
+    var i = 0
+    var negative = 0
+    if s.length() > 0 {
+        if s.byteAt(0) == 45 {
+            negative = 1
+            i = 1
+        }
+    }
+    while i < s.length() {
+        let b = s.byteAt(i)
+        // ASCII '0'=48, '9'=57: digit value = b - 48
+        if b >= 48 {
+            if b <= 57 {
+                result = result * 10 + (b - 48)
+            }
+        }
+        i = i + 1
+    }
+    if negative == 1 { result = 0 - result }
+    return result
+}
+
+// Constant folding: evaluate IntLiteral op IntLiteral at compile time
+fun foldIntConstants(leftVal: String, rightVal: String, op: String) r: String {
+    let l = parseIntManual(leftVal)
+    let rv = parseIntManual(rightVal)
+    var result = 0
+    var valid = false
+    if op == "+" {
+        result = l + rv
+        valid = true
+    }
+    if op == "-" {
+        result = l - rv
+        valid = true
+    }
+    if op == "*" {
+        result = l * rv
+        valid = true
+    }
+    if op == "/" {
+        if rv != 0 {
+            result = l / rv
+            valid = true
+        }
+    }
+    if not valid { return "" }
+    return result.toString()
+}
+
+// SIMD width selection based on element type
+fun selectSimdWidth(hasFloat: Bool, isDouble: Bool) r: Int {
+    if hasFloat {
+        if isDouble { return 4 }
+        return 8
+    }
+    return 8
+}
+
+// Find Nth pipe-delimited entry in a string. Returns "" if not found.
+// Uses byteAt() to avoid per-byte string allocation (124 = '|')
+fun pipeGet(data: String, idx: Int) r: String {
+    var pos = 0
+    var count = 0
+    var start = 0
+    while pos < data.length() {
+        if data.byteAt(pos) == 124 {
+            if count == idx {
+                return data.substring(start, pos)
+            }
+            count = count + 1
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    if count == idx {
+        return data.substring(start, data.length())
+    }
+    return ""
+}
+
+// Expression cost heuristic for optimization gating
+fun exprCost(expr: ParserExpressionNode) r: Int {
+    if expr.kind == "Literal" { return 1 }
+    if expr.kind == "Variable" { return 2 }
+    if expr.kind == "Binary" {
+        if expr.operator == "+" or expr.operator == "-" { return 3 }
+        if expr.operator == "*" { return 5 }
+        if expr.operator == "/" { return 8 }
+    }
+    if expr.kind == "Call" { return 10 }
+    return 4
+}
+
+// Constant folding: evaluate IntLiteral comparison at compile time
+fun foldIntComparison(leftVal: String, rightVal: String, op: String) r: String {
+    let l = parseIntManual(leftVal)
+    let rv = parseIntManual(rightVal)
+    if op == "<" {
+        if l < rv { return "true" }
+        return "false"
+    }
+    if op == "<=" {
+        if l <= rv { return "true" }
+        return "false"
+    }
+    if op == ">" {
+        if l > rv { return "true" }
+        return "false"
+    }
+    if op == ">=" {
+        if l >= rv { return "true" }
+        return "false"
+    }
+    if op == "==" {
+        if l == rv { return "true" }
+        return "false"
+    }
+    if op == "!=" {
+        if l != rv { return "true" }
+        return "false"
+    }
+    return ""
+}
+
+// --- E-graph consolidated peephole lookup ---
+// Returns an action string for integer binary operations:
+//   "" = no optimization
+//   "identity_left" / "identity_right" = return that operand unchanged
+//   "const:N" = emit constant N (as add i64 N, 0)
+//   "shl:N" = emit shl x, N (where x is the non-literal operand)
+//   "shl_add:N" = emit (x << N) + x
+//   "shl_sub:N" = emit (x << N) - x
+//   "neg" = emit sub 0, x
+//   "and:N" = emit and x, N
+//   "ashr:N" = emit ashr x, N
+fun egraphLookup(op: String, leftLitVal: String, rightLitVal: String, leftIsLit: Bool, rightIsLit: Bool) r: String {
+    // Addition identity: x + 0 → x, 0 + x → x
+    if op == "+" {
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+        if leftIsLit and leftLitVal == "0" { return "identity_right" }
+    }
+    // Subtraction identity: x - 0 → x
+    if op == "-" {
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+    }
+    // Multiplication rules
+    if op == "*" {
+        if rightIsLit and rightLitVal == "1" { return "identity_left" }
+        if leftIsLit and leftLitVal == "1" { return "identity_right" }
+        if rightIsLit and rightLitVal == "0" { return "const:0" }
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "-1" { return "neg" }
+        // Power-of-2 strength reduction: x * 2^N → shl x, N
+        if rightIsLit and rightLitVal == "2" { return "shl:1" }
+        if rightIsLit and rightLitVal == "4" { return "shl:2" }
+        if rightIsLit and rightLitVal == "8" { return "shl:3" }
+        if rightIsLit and rightLitVal == "16" { return "shl:4" }
+        if rightIsLit and rightLitVal == "32" { return "shl:5" }
+        if rightIsLit and rightLitVal == "64" { return "shl:6" }
+        if rightIsLit and rightLitVal == "128" { return "shl:7" }
+        if rightIsLit and rightLitVal == "256" { return "shl:8" }
+        // Superopt strength reduction: x * (2^N +/- 1)
+        if rightIsLit and rightLitVal == "3" { return "shl_add:1" }
+        if rightIsLit and rightLitVal == "5" { return "shl_add:2" }
+        if rightIsLit and rightLitVal == "9" { return "shl_add:3" }
+        if rightIsLit and rightLitVal == "7" { return "shl_sub:3" }
+        if rightIsLit and rightLitVal == "15" { return "shl_sub:4" }
+        if rightIsLit and rightLitVal == "17" { return "shl_add:4" }
+        if rightIsLit and rightLitVal == "31" { return "shl_sub:5" }
+        if rightIsLit and rightLitVal == "33" { return "shl_add:5" }
+        if rightIsLit and rightLitVal == "63" { return "shl_sub:6" }
+        if rightIsLit and rightLitVal == "65" { return "shl_add:6" }
+        // Two-shift patterns: x * N → (x<<a) + (x<<b)
+        if rightIsLit and rightLitVal == "10" { return "shl_add2:3,1" }
+        if rightIsLit and rightLitVal == "12" { return "shl_add2:3,2" }
+    }
+    // Division rules
+    if op == "/" {
+        if rightIsLit and rightLitVal == "1" { return "identity_left" }
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "2" { return "ashr:1" }
+        if rightIsLit and rightLitVal == "4" { return "ashr:2" }
+        if rightIsLit and rightLitVal == "8" { return "ashr:3" }
+        if rightIsLit and rightLitVal == "16" { return "ashr:4" }
+        if rightIsLit and rightLitVal == "32" { return "ashr:5" }
+        if rightIsLit and rightLitVal == "64" { return "ashr:6" }
+        if rightIsLit and rightLitVal == "128" { return "ashr:7" }
+        if rightIsLit and rightLitVal == "256" { return "ashr:8" }
+        if rightIsLit and rightLitVal == "512" { return "ashr:9" }
+        if rightIsLit and rightLitVal == "1024" { return "ashr:10" }
+    }
+    // Modulo → bitwise AND for power-of-2: x % 2^N → x & (2^N - 1)
+    if op == "%" {
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "2" { return "and:1" }
+        if rightIsLit and rightLitVal == "4" { return "and:3" }
+        if rightIsLit and rightLitVal == "8" { return "and:7" }
+        if rightIsLit and rightLitVal == "16" { return "and:15" }
+        if rightIsLit and rightLitVal == "32" { return "and:31" }
+        if rightIsLit and rightLitVal == "64" { return "and:63" }
+        if rightIsLit and rightLitVal == "128" { return "and:127" }
+        if rightIsLit and rightLitVal == "256" { return "and:255" }
+        if rightIsLit and rightLitVal == "512" { return "and:511" }
+        if rightIsLit and rightLitVal == "1024" { return "and:1023" }
+    }
+    // Bitwise AND rules
+    if op == "&" {
+        if rightIsLit and rightLitVal == "0" { return "const:0" }
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "-1" { return "identity_left" }
+        if leftIsLit and leftLitVal == "-1" { return "identity_right" }
+    }
+    // Bitwise OR rules
+    if op == "|" {
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+        if leftIsLit and leftLitVal == "0" { return "identity_right" }
+        if rightIsLit and rightLitVal == "-1" { return "const:-1" }
+        if leftIsLit and leftLitVal == "-1" { return "const:-1" }
+    }
+    // Bitwise XOR rules
+    if op == "^" {
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+        if leftIsLit and leftLitVal == "0" { return "identity_right" }
+    }
+    // Boolean logic rules
+    if op == "and" {
+        if rightIsLit and rightLitVal == "true" { return "identity_left" }
+        if rightIsLit and rightLitVal == "false" { return "const:0" }
+        if leftIsLit and leftLitVal == "true" { return "identity_right" }
+        if leftIsLit and leftLitVal == "false" { return "const:0" }
+    }
+    if op == "or" {
+        if rightIsLit and rightLitVal == "false" { return "identity_left" }
+        if rightIsLit and rightLitVal == "true" { return "const:1" }
+        if leftIsLit and leftLitVal == "false" { return "identity_right" }
+        if leftIsLit and leftLitVal == "true" { return "const:1" }
+    }
+    // Shift rules: shl 0, x → 0, shr 0, x → 0, x << 0 → x, x >> 0 → x
+    if op == "<<" {
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+    }
+    if op == ">>" {
+        if leftIsLit and leftLitVal == "0" { return "const:0" }
+        if rightIsLit and rightLitVal == "0" { return "identity_left" }
+    }
+    return ""
+}
+
+// E-graph self-comparison detection.
+// When both sides of a binary op are the same variable, many ops simplify.
+// Returns action string: "" = no opt, "const:N" or "identity_left" etc.
+fun egraphSelfComparison(op: String) r: String {
+    if op == "-" { return "const:0" }
+    if op == "/" { return "const:1" }
+    if op == "%" { return "const:0" }
+    if op == "&" { return "identity_left" }
+    if op == "|" { return "identity_left" }
+    if op == "^" { return "const:0" }
+    if op == "==" { return "const_true" }
+    if op == "!=" { return "const_false" }
+    if op == "<" { return "const_false" }
+    if op == ">" { return "const_false" }
+    if op == "<=" { return "const_true" }
+    if op == ">=" { return "const_true" }
+    return ""
+}
+
+// Float-specific e-graph lookup.
+// Returns action string (same convention as egraphLookup).
+fun egraphLookupFloat(op: String, leftLitVal: String, rightLitVal: String, leftIsLit: Bool, rightIsLit: Bool) r: String {
+    if op == "+" {
+        if rightIsLit and (rightLitVal == "0.0" or rightLitVal == "0") { return "identity_left" }
+        if leftIsLit and (leftLitVal == "0.0" or leftLitVal == "0") { return "identity_right" }
+    }
+    if op == "-" {
+        if rightIsLit and (rightLitVal == "0.0" or rightLitVal == "0") { return "identity_left" }
+    }
+    if op == "*" {
+        if rightIsLit and rightLitVal == "1.0" { return "identity_left" }
+        if leftIsLit and leftLitVal == "1.0" { return "identity_right" }
+        if rightIsLit and (rightLitVal == "0.0" or rightLitVal == "0") { return "fconst:0.0" }
+        if leftIsLit and (leftLitVal == "0.0" or leftLitVal == "0") { return "fconst:0.0" }
+        if rightIsLit and rightLitVal == "2.0" { return "fadd_self" }
+    }
+    if op == "/" {
+        if rightIsLit and rightLitVal == "1.0" { return "identity_left" }
+        // x / 2.0 → x * 0.5 (fmul is faster than fdiv: ~5cy vs ~15cy)
+        if rightIsLit and rightLitVal == "2.0" { return "fmul_half" }
+        if rightIsLit and rightLitVal == "4.0" { return "fmul_quarter" }
+        if rightIsLit and rightLitVal == "8.0" { return "fmul_eighth" }
+        if rightIsLit and rightLitVal == "16.0" { return "fmul_sixteenth" }
+        // x / 0.5 → x + x (fadd is faster than fdiv)
+        if rightIsLit and rightLitVal == "0.5" { return "fadd_self" }
+    }
+    if op == "-" {
+        // 0.0 - x → fneg x
+        if leftIsLit and (leftLitVal == "0.0" or leftLitVal == "0") { return "fneg" }
+    }
+    if op == "*" {
+        // x * -1.0 → fneg x
+        if rightIsLit and rightLitVal == "-1.0" { return "fneg_left" }
+        if leftIsLit and leftLitVal == "-1.0" { return "fneg_right" }
+    }
+    return ""
+}
+
+// ML-guided inline decision based on body size and call count.
+// Returns: "always", "hint", "noinline", or "" (no opinion).
+fun mlShouldInline(bodySize: Int, callCount: Int) r: String {
+    // Tiny functions: always inline regardless of call count
+    if bodySize < 5 { return "always" }
+    // Small functions (< 10 stmts): always inline — covers GCD, min/max, accumulate patterns
+    if bodySize < 10 { return "always" }
+    // Small hot functions: always inline
+    if bodySize < 20 and callCount >= 3 { return "always" }
+    // Small cold functions: hint
+    if bodySize < 20 { return "hint" }
+    // Medium functions: only hint if hot
+    if bodySize <= 50 and callCount >= 5 { return "hint" }
+    // Medium functions: no opinion if not hot
+    if bodySize <= 50 { return "" }
+    // Large functions: discourage inlining
+    if bodySize > 150 { return "noinline" }
+    return ""
+}
+
+// --- ML weighted inline decision ---
+// Module-level weight variables (loaded from .seen_ml_heuristics)
+var g_inlineW0: Int = 0
+var g_inlineW1: Int = 0
+var g_inlineW2: Int = 0
+var g_inlineW3: Int = 0
+var g_inlineBias: Int = 0
+var g_mlWeightsActive: Bool = false
+
+// Weighted inline decision using trained weights (fixed-point: weights scaled by 100).
+// Falls back to threshold-based mlShouldInline if no weights loaded.
+// hasLoops: 1 if function contains loops, 0 otherwise
+// nestingDepth: max nesting depth of loops
+// hasFloatOps: 1 if function has float operations, 0 otherwise (encourages inlining for FMA)
+fun mlShouldInlineWeighted(bodySize: Int, callCount: Int, hasLoops: Int, nestingDepth: Int) r: String {
+    if not g_mlWeightsActive {
+        // Cost-aware fallback: adjust effective size based on content
+        var effectiveSize = bodySize
+        // Loop-heavy functions: inflate cost (discourage inlining) — loops expand at call site
+        if hasLoops > 0 {
+            effectiveSize = bodySize + bodySize * nestingDepth / 2
+        }
+        return mlShouldInline(effectiveSize, callCount)
+    }
+    // Fixed-point dot product: score = sum(wi * fi) + bias  (all scaled by 100)
+    let score = g_inlineW0 * bodySize + g_inlineW1 * callCount + g_inlineW2 * hasLoops + g_inlineW3 * nestingDepth + g_inlineBias
+    // Logistic model: score > 0 means >50% likely to inline
+    // Thresholds scaled by 100: 150 = strong yes (sigmoid > 0.82), 50 = hint, -100 = noinline
+    if score > 150 { return "always" }
+    if score > 50 { return "hint" }
+    if score < 0 - 100 { return "noinline" }
+    return ""
+}
+
+// Self-call detection: checks if funcName appears in its own call list.
+// Used to determine norecurse attribute.
+// selfCallNames/selfCallFuncs are pipe-delimited parallel arrays:
+//   selfCallFuncs = "foo|foo|bar" (function being defined)
+//   selfCallNames = "bar|foo|baz" (function being called)
+// If any entry has both funcName as the defining function AND as the called function, it's recursive.
+fun selfCallCheck(funcName: String, selfCallFuncs: String, selfCallNames: String, selfCallCount: Int) r: Bool {
+    var i = 0
+    while i < selfCallCount {
+        let defFunc = pipeGet(selfCallFuncs, i)
+        if defFunc == funcName {
+            let calledFunc = pipeGet(selfCallNames, i)
+            if calledFunc == funcName {
+                return true
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Parse a float-like string as fixed-point integer (multiplied by 100).
+// Handles "0.5" → 50, "-1.23" → -123, "42" → 4200
+fun parseFixedPoint100(s: String) r: Int {
+    var negative = 0
+    var i = 0
+    if s.length() > 0 {
+        if s.byteAt(0) == 45 {
+            negative = 1
+            i = 1
+        }
+    }
+    var wholePart = 0
+    var fracPart = 0
+    var inFrac = 0
+    var fracDigits = 0
+    while i < s.length() {
+        let b = s.byteAt(i)
+        if b == 46 {
+            inFrac = 1
+        } else {
+            let d = b - 48
+            if inFrac == 1 {
+                if fracDigits == 0 { fracPart = d * 10 }
+                if fracDigits == 1 { fracPart = fracPart + d }
+                fracDigits = fracDigits + 1
+            } else {
+                wholePart = wholePart * 10 + d
+            }
+        }
+        i = i + 1
+    }
+    // If only one fractional digit, multiply by 10
+    if fracDigits == 1 { fracPart = fracPart }
+    var result = wholePart * 100 + fracPart
+    if negative == 1 { result = 0 - result }
+    return result
+}
+
+// Parse a single digit character to int
+fun parseDigitChar(c: String) r: Int {
+    if c == "0" { return 0 }
+    if c == "1" { return 1 }
+    if c == "2" { return 2 }
+    if c == "3" { return 3 }
+    if c == "4" { return 4 }
+    if c == "5" { return 5 }
+    if c == "6" { return 6 }
+    if c == "7" { return 7 }
+    if c == "8" { return 8 }
+    if c == "9" { return 9 }
+    return 0
+}
+
+// --- Enum variant lookup utilities (extracted from LLVMIRGenerator) ---
+
+// Look up enum variant tag index by variant name
+fun lookupEnumVariantTagImpl(variantName: String, enumVariantNames: String, enumVariantTags: String, enumVariantCount: Int) r: Int {
+    var i = 0
+    while i < enumVariantCount {
+        let name = pipeGet(enumVariantNames, i)
+        if name == variantName {
+            let tagStr = pipeGet(enumVariantTags, i)
+            return parseIntManual(tagStr)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Look up parent enum type for a variant name
+fun lookupEnumParentImpl(variantName: String, enumVariantNames: String, enumVariantParent: String, enumVariantCount: Int) r: String {
+    var i = 0
+    while i < enumVariantCount {
+        let name = pipeGet(enumVariantNames, i)
+        if name == variantName {
+            return pipeGet(enumVariantParent, i)
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// Look up enum field type by variant name and field index
+fun lookupEnumFieldTypeImpl(variantName: String, fieldIdx: Int, enumVariantNames: String, enumVariantFieldTypes: String, enumVariantCount: Int) r: String {
+    var i = 0
+    while i < enumVariantCount {
+        let name = pipeGet(enumVariantNames, i)
+        if name == variantName {
+            let fieldTypesStr = pipeGet(enumVariantFieldTypes, i)
+            var fi = 0
+            var fStart = 0
+            var fPos = 0
+            while fPos <= fieldTypesStr.length() {
+                var fAtEnd = 0
+                if fPos == fieldTypesStr.length() { fAtEnd = 1 }
+                if fAtEnd == 0 {
+                    if fieldTypesStr.byteAt(fPos) == 44 { fAtEnd = 1 }
+                }
+                if fAtEnd == 1 {
+                    if fi == fieldIdx {
+                        return fieldTypesStr.substring(fStart, fPos)
+                    }
+                    fi = fi + 1
+                    fStart = fPos + 1
+                }
+                fPos = fPos + 1
+            }
+            return "Int"
+        }
+        i = i + 1
+    }
+    return "Int"
+}
+
+// Look up field count for a variant
+fun lookupEnumFieldCountImpl(variantName: String, enumVariantNames: String, enumVariantFieldCounts: String, enumVariantCount: Int) r: Int {
+    var i = 0
+    while i < enumVariantCount {
+        let name = pipeGet(enumVariantNames, i)
+        if name == variantName {
+            let countStr = pipeGet(enumVariantFieldCounts, i)
+            return parseIntManual(countStr)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Check if a name is a registered enum variant
+fun isEnumVariantImpl(name: String, enumVariantNames: String, enumVariantCount: Int) r: Bool {
+    if enumVariantCount == 0 {
+        return false
+    }
+    if name == "" {
+        return false
+    }
+    var i = 0
+    while i < enumVariantCount {
+        if pipeGet(enumVariantNames, i) == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Check if a pipe-delimited string contains the given needle as an entry
+// Uses byteAt() to avoid per-byte string allocation (124 = '|')
+fun pipeContains(data: String, needle: String) r: Bool {
+    if data == "" { return false }
+    var pos = 0
+    var start = 0
+    while pos <= data.length() {
+        var atEnd = 0
+        if pos == data.length() { atEnd = 1 }
+        if atEnd == 0 {
+            if data.byteAt(pos) == 124 { atEnd = 1 }
+        }
+        if atEnd == 1 {
+            if data.substring(start, pos) == needle {
+                return true
+            }
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    return false
+}
+
+// NOTE: splitPipe() and simpleHash() are defined here but NOT exported in Phase 1 bootstrap
+// to avoid changing declarationsHash. They will be enabled in Phase 2 after stage2 is built.
+// Split a pipe-delimited string into an Array<String> (one-time O(n) scan).
+fun splitPipe(data: String) r: Array<String> {
+    var result = Array<String>()
+    if data == "" { return result }
+    var start = 0
+    var pos = 0
+    while pos < data.length() {
+        if data.byteAt(pos) == 124 {
+            result.push(data.substring(start, pos))
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    result.push(data.substring(start, data.length()))
+    return result
+}
+
+fun simpleHash(name: String, bucketCount: Int) r: Int {
+    var h = 0
+    var i = 0
+    while i < name.length() {
+        h = h * 31 + name.byteAt(i)
+        i = i + 1
+    }
+    if h < 0 { h = 0 - h }
+    return h - (h / bucketCount) * bucketCount
+}
+
+// --- Boxed counter helpers ---
+// These allow extracted free functions to allocate registers and block labels
+// via reference-type Array<Int> params (mutations visible to caller)
+
+fun getNextRegFn(box: Array<Int>) r: String {
+    let reg = "%" + box[0].toString()
+    box[0] = box[0] + 1
+    return reg
+}
+
+fun getNextBlockFn(box: Array<Int>) r: String {
+    let label = "bb" + box[0].toString()
+    box[0] = box[0] + 1
+    return label
+}

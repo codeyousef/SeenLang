@@ -1,0 +1,437 @@
+// Middleware Framework for Seen Language
+// Provides composable middleware chains with FIFO execution order
+// Used with the @middleware_stack decorator
+
+// Middleware context - passed through the chain
+class MiddlewareContext {
+    var data: Array<String>      // Key-value pairs as [key, value, key, value, ...]
+    var stopped: Bool            // Whether chain execution should stop
+    var error: String            // Error message if any
+
+    static fun new() r: MiddlewareContext {
+        return MiddlewareContext{
+            data: Array<String>(),
+            stopped: false,
+            error: ""
+        }
+    }
+
+    // Set a value in the context
+    fun set(key: String, value: String) r: Void {
+        // Check if key already exists
+        var i = 0
+        while i < data.length() {
+            if i % 2 == 0 and data[i] == key {
+                // Update existing value
+                data[i + 1] = value
+                return
+            }
+            i = i + 1
+        }
+        // Add new key-value pair
+        data.push(key)
+        data.push(value)
+    }
+
+    // Get a value from the context
+    fun get(key: String) r: Option<String> {
+        var i = 0
+        while i < data.length() {
+            if i % 2 == 0 and data[i] == key {
+                return Some(data[i + 1])
+            }
+            i = i + 2
+        }
+        return None()
+    }
+
+    // Check if a key exists
+    fun has(key: String) r: Bool {
+        var i = 0
+        while i < data.length() {
+            if i % 2 == 0 and data[i] == key {
+                return true
+            }
+            i = i + 2
+        }
+        return false
+    }
+
+    // Stop the middleware chain
+    fun stop() r: Void {
+        stopped = true
+    }
+
+    // Set an error and stop the chain
+    fun setError(message: String) r: Void {
+        error = message
+        stopped = true
+    }
+
+    // Check if there's an error
+    fun hasError() r: Bool {
+        return error != ""
+    }
+
+    // Check if chain should continue
+    fun shouldContinue() r: Bool {
+        return not stopped
+    }
+}
+
+// Result of middleware execution
+data MiddlewareResult {
+    Success(context: MiddlewareContext),
+    Error(message: String),
+    Stopped(context: MiddlewareContext)
+}
+
+// Middleware function type (simple version using callbacks)
+// A middleware receives the context and returns whether to continue
+
+// Simple middleware stack with function indices
+@middleware_stack
+class SimpleMiddlewareStack {
+    var middlewareNames: Array<String>
+    var middlewareCount: Int
+
+    static fun new() r: SimpleMiddlewareStack {
+        return SimpleMiddlewareStack{
+            middlewareNames: Array<String>(),
+            middlewareCount: 0
+        }
+    }
+
+    // Register a middleware by name
+    fun use(name: String) r: Void {
+        middlewareNames.push(name)
+        middlewareCount = middlewareCount + 1
+    }
+
+    // Get middleware count
+    fun count() r: Int {
+        return middlewareCount
+    }
+
+    // Get middleware name at index
+    fun getAt(index: Int) r: String {
+        if index >= 0 and index < middlewareNames.length() {
+            return middlewareNames[index]
+        }
+        return ""
+    }
+}
+
+// Logging middleware helper
+class LoggingMiddleware {
+    var prefix: String
+
+    static fun new(prefix: String) r: LoggingMiddleware {
+        return LoggingMiddleware{
+            prefix: prefix
+        }
+    }
+
+    fun process(ctx: MiddlewareContext) r: Bool {
+        // Log the current state
+        println(prefix + ": Processing request")
+        // Continue chain
+        return true
+    }
+}
+
+// Authentication middleware helper
+class AuthMiddleware {
+    var requiredRole: String
+
+    static fun new(requiredRole: String) r: AuthMiddleware {
+        return AuthMiddleware{
+            requiredRole: requiredRole
+        }
+    }
+
+    fun process(ctx: MiddlewareContext) r: Bool {
+        let roleOpt = ctx.get("role")
+        if roleOpt.isNone() {
+            ctx.setError("No role specified")
+            return false
+        }
+        let role = roleOpt.unwrap()
+        if role != requiredRole and requiredRole != "" {
+            ctx.setError("Insufficient permissions: required " + requiredRole + ", got " + role)
+            return false
+        }
+        // Continue chain
+        return true
+    }
+}
+
+// Rate limiting middleware helper
+class RateLimitMiddleware {
+    var maxRequests: Int
+    var currentRequests: Int
+
+    static fun new(maxRequests: Int) r: RateLimitMiddleware {
+        return RateLimitMiddleware{
+            maxRequests: maxRequests,
+            currentRequests: 0
+        }
+    }
+
+    fun process(ctx: MiddlewareContext) r: Bool {
+        currentRequests = currentRequests + 1
+        if currentRequests > maxRequests {
+            ctx.setError("Rate limit exceeded")
+            return false
+        }
+        // Continue chain
+        return true
+    }
+
+    fun reset() r: Void {
+        currentRequests = 0
+    }
+}
+
+// Timing middleware helper - measures execution time
+class TimingMiddleware {
+    var startFrame: Int
+    var endFrame: Int
+
+    static fun new() r: TimingMiddleware {
+        return TimingMiddleware{
+            startFrame: 0,
+            endFrame: 0
+        }
+    }
+
+    fun before(ctx: MiddlewareContext, frame: Int) r: Void {
+        startFrame = frame
+        ctx.set("timing_start", frame.toString())
+    }
+
+    fun after(ctx: MiddlewareContext, frame: Int) r: Void {
+        endFrame = frame
+        let duration = endFrame - startFrame
+        ctx.set("timing_duration", duration.toString())
+    }
+}
+
+// ============================================================================
+// Sandbox Isolation for Nondeterministic Middleware
+// ============================================================================
+
+// A sandboxed middleware wrapper that isolates nondeterministic side effects.
+// Before execution, the context is snapshot'd. If the middleware fails or
+// produces disallowed side effects, the context is rolled back.
+class SandboxedMiddleware {
+    var name: String
+    var allowedWriteKeys: Array<String>   // Keys this middleware is allowed to set
+    var allowedReadKeys: Array<String>    // Keys this middleware is allowed to read
+    var maxExecutionSteps: Int            // Step limit (0 = unlimited)
+    var lastError: String                 // Error from last execution
+
+    static fun new(name: String) r: SandboxedMiddleware {
+        return SandboxedMiddleware{
+            name: name,
+            allowedWriteKeys: Array<String>(),
+            allowedReadKeys: Array<String>(),
+            maxExecutionSteps: 0,
+            lastError: ""
+        }
+    }
+
+    // Allow this middleware to write to a specific context key
+    fun allowWrite(key: String) r: Void {
+        allowedWriteKeys.push(key)
+    }
+
+    // Allow this middleware to read a specific context key
+    fun allowRead(key: String) r: Void {
+        allowedReadKeys.push(key)
+    }
+
+    // Set execution step limit
+    fun setMaxSteps(max: Int) r: Void {
+        maxExecutionSteps = max
+    }
+
+    // Check if a key is in the allowed write list
+    fun canWrite(key: String) r: Bool {
+        // Empty allowedWriteKeys means all writes allowed (permissive mode)
+        if allowedWriteKeys.length() == 0 {
+            return true
+        }
+        var i = 0
+        while i < allowedWriteKeys.length() {
+            if allowedWriteKeys[i] == key {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Check if a key is in the allowed read list
+    fun canRead(key: String) r: Bool {
+        // Empty allowedReadKeys means all reads allowed (permissive mode)
+        if allowedReadKeys.length() == 0 {
+            return true
+        }
+        var i = 0
+        while i < allowedReadKeys.length() {
+            if allowedReadKeys[i] == key {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Get the last error
+    fun getError() r: String {
+        return lastError
+    }
+
+    // Check if last execution had an error
+    fun hadError() r: Bool {
+        return lastError != ""
+    }
+}
+
+// A sandboxed context wrapper that enforces read/write restrictions
+class SandboxedContext {
+    var inner: MiddlewareContext          // The actual context
+    var sandbox: SandboxedMiddleware      // Sandbox rules
+    var snapshotData: Array<String>       // Context snapshot for rollback
+    var violations: Array<String>         // Recorded violations
+    var writeCount: Int                   // Number of writes performed
+    var readCount: Int                    // Number of reads performed
+
+    static fun new(ctx: MiddlewareContext, sandbox: SandboxedMiddleware) r: SandboxedContext {
+        // Take a snapshot of the current context data
+        var snapshot = Array<String>()
+        var i = 0
+        while i < ctx.data.length() {
+            snapshot.push(ctx.data[i])
+            i = i + 1
+        }
+
+        return SandboxedContext{
+            inner: ctx,
+            sandbox: sandbox,
+            snapshotData: snapshot,
+            violations: Array<String>(),
+            writeCount: 0,
+            readCount: 0
+        }
+    }
+
+    // Sandboxed set - checks write permissions
+    fun set(key: String, value: String) r: Bool {
+        if not sandbox.canWrite(key) {
+            violations.push("Write denied: key '" + key + "' not in allowed write list for " + sandbox.name)
+            return false
+        }
+        inner.set(key, value)
+        writeCount = writeCount + 1
+        return true
+    }
+
+    // Sandboxed get - checks read permissions
+    fun get(key: String) r: Option<String> {
+        if not sandbox.canRead(key) {
+            violations.push("Read denied: key '" + key + "' not in allowed read list for " + sandbox.name)
+            return None()
+        }
+        readCount = readCount + 1
+        return inner.get(key)
+    }
+
+    // Check for violations
+    fun hasViolations() r: Bool {
+        return violations.length() > 0
+    }
+
+    // Get violation count
+    fun violationCount() r: Int {
+        return violations.length()
+    }
+
+    // Get a specific violation message
+    fun getViolation(index: Int) r: String {
+        if index >= 0 and index < violations.length() {
+            return violations[index]
+        }
+        return ""
+    }
+
+    // Rollback context to snapshot state
+    fun rollback() r: Void {
+        // Clear current data and restore from snapshot
+        inner.data = Array<String>()
+        var i = 0
+        while i < snapshotData.length() {
+            inner.data.push(snapshotData[i])
+            i = i + 1
+        }
+        inner.stopped = false
+        inner.error = ""
+    }
+
+    // Commit changes (no-op, changes already applied to inner)
+    fun commit() r: Void {
+        // Changes are already in the inner context
+        // This method exists for clarity in the API
+    }
+}
+
+// Result of sandboxed middleware execution
+class SandboxExecutionResult {
+    var success: Bool
+    var continued: Bool     // Whether the chain should continue
+    var violations: Array<String>
+    var rolledBack: Bool
+
+    static fun new(success: Bool, continued: Bool) r: SandboxExecutionResult {
+        return SandboxExecutionResult{
+            success: success,
+            continued: continued,
+            violations: Array<String>(),
+            rolledBack: false
+        }
+    }
+
+    static fun failed(reason: String) r: SandboxExecutionResult {
+        var result = SandboxExecutionResult{
+            success: false,
+            continued: false,
+            violations: Array<String>(),
+            rolledBack: true
+        }
+        result.violations.push(reason)
+        return result
+    }
+}
+
+// ============================================================================
+// Global Middleware Registry
+// ============================================================================
+
+var g_middlewareCount: Int = 0
+
+// Increment middleware counter (for tracking)
+fun incrementMiddlewareCount() r: Int {
+    g_middlewareCount = g_middlewareCount + 1
+    return g_middlewareCount
+}
+
+// Get total middleware invocations
+fun getMiddlewareInvocationCount() r: Int {
+    return g_middlewareCount
+}
+
+// Reset middleware counter
+fun resetMiddlewareCount() r: Void {
+    g_middlewareCount = 0
+}

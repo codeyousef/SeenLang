@@ -1,0 +1,27 @@
+import time.time.{nowSeconds, nowMillis, parseTimestamp, Duration, since}
+import env.env.{set, remove}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    set("SEEN_DETERMINISTIC", "1")
+    set("SOURCE_DATE_EPOCH", "42")
+
+    expect(nowSeconds() == 42, "nowSeconds should honor SOURCE_DATE_EPOCH")
+    expect(nowMillis() == 42000, "nowMillis should convert to milliseconds")
+    expect(parseTimestamp("-10") == -10, "parseTimestamp negative mismatch")
+
+    let start = nowSeconds()
+    let elapsed = since(start)
+    expect(elapsed.totalSeconds() == 0, "deterministic since should be zero")
+    expect(elapsed.totalMillis() == 0, "totalMillis mismatch")
+
+    remove("SEEN_DETERMINISTIC")
+    remove("SOURCE_DATE_EPOCH")
+
+    return 0
+}

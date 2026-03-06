@@ -1,0 +1,55 @@
+// BTreeSet - Ordered set using BTreeMap for deterministic iteration
+// Unlike HashSet, BTreeSet always iterates in sorted order.
+// This is the RECOMMENDED set type for deterministic mode.
+
+import collections.btree_map.{BTreeMap}
+import collections.vec.{Vec}
+
+// BTreeSet - Ordered set with deterministic iteration
+class BTreeSet<T> {
+    var map: BTreeMap<T, Bool>
+
+    static fun new() r: BTreeSet<T> {
+        return BTreeSet<T>{
+            map: BTreeMap<T, Bool>.new()
+        }
+    }
+
+    // Insert a value, returns true if value was new
+    fun insert(value: T) r: Bool {
+        return this.map.insert(value, true)
+    }
+
+    // Remove a value, returns true if value was present
+    fun remove(value: T) r: Bool {
+        return this.map.remove(value).isSome()
+    }
+
+    // Check if value exists
+    fun contains(value: T) r: Bool {
+        return this.map.containsKey(value)
+    }
+
+    // Get all values in sorted order (deterministic)
+    fun values() r: Vec<T> {
+        return this.map.keys()
+    }
+
+    // Get number of elements
+    fun len() r: Int {
+        return this.map.size()
+    }
+
+    // Check if empty
+    fun isEmpty() r: Bool {
+        return this.map.isEmpty()
+    }
+
+    // Clear all elements
+    fun clear() r: Void {
+        this.map.clear()
+    }
+}
+
+// Convenience type alias
+// type SortedSet<T> = BTreeSet<T>

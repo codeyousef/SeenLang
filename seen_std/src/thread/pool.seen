@@ -1,0 +1,24 @@
+// Work-Stealing Thread Pool — wraps runtime C functions
+// Usage: let pool = WorkStealingPool.new(4)
+//        pool.submit(fn_ptr, arg)
+//        pool.shutdown()
+
+class WorkStealingPool {
+    var handle: Int
+
+    fun new(workers: Int) r: WorkStealingPool {
+        return WorkStealingPool { handle: seen_ws_pool_new(workers) }
+    }
+
+    fun submit(fn_ptr: Int, arg: Int) r: Void {
+        seen_ws_pool_submit(this.handle, fn_ptr, arg)
+    }
+
+    fun shutdown() r: Void {
+        seen_ws_pool_shutdown(this.handle)
+    }
+}
+
+extern fun seen_ws_pool_new(n: Int) r: Int
+extern fun seen_ws_pool_submit(handle: Int, fn_ptr: Int, arg: Int) r: Void
+extern fun seen_ws_pool_shutdown(handle: Int) r: Void

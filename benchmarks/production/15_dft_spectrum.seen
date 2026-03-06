@@ -1,0 +1,115 @@
+// Discrete Fourier Transform (Power Spectrum) Benchmark
+// Computes DFT of synthetic signal, then power spectrum in dB
+// Math functions: sin, cos, sqrt, atan2, log10
+// O(N^2) naive DFT — extremely trig-heavy
+
+// log10 via LLVM intrinsic
+fun seen_log10(x: Float) -> Float {
+    return __Log10(x)
+}
+
+fun run_dft(n: Int) -> Float {
+    let two_pi = 6.283185307179586
+
+    // Generate synthetic signal: sum of 3 sine waves
+    let signal = Array<Float>(n, 0.0)
+    var i = 0
+    while i < n {
+        let t = i.toFloat() / n.toFloat()
+        // Frequencies: 50 Hz, 120 Hz, 300 Hz (sampled at n Hz)
+        signal[i] = 1.0 * __Sin(two_pi * 50.0 * t) + 0.5 * __Sin(two_pi * 120.0 * t) + 0.3 * __Sin(two_pi * 300.0 * t)
+        i = i + 1
+    }
+
+    // Compute DFT: X[k] = sum_{n=0}^{N-1} x[n] * exp(-j*2pi*k*n/N)
+    // Real part: sum x[n] * cos(2pi*k*n/N)
+    // Imag part: -sum x[n] * sin(2pi*k*n/N)
+    let half_n = n / 2
+    let dft_re = Array<Float>(half_n, 0.0)
+    let dft_im = Array<Float>(half_n, 0.0)
+
+    var k = 0
+    while k < half_n {
+        var re_sum = 0.0
+        var im_sum = 0.0
+        var j = 0
+        while j < n {
+            let angle = two_pi * k.toFloat() * j.toFloat() / n.toFloat()
+            re_sum = re_sum + signal[j] * __Cos(angle)
+            im_sum = im_sum - signal[j] * __Sin(angle)
+            j = j + 1
+        }
+        dft_re[k] = re_sum
+        dft_im[k] = im_sum
+        k = k + 1
+    }
+
+    // Compute power spectrum in dB and phase
+    var checksum = 0.0
+    var m = 0
+    while m < half_n {
+        let power = dft_re[m] * dft_re[m] + dft_im[m] * dft_im[m]
+        var power_db = 0.0
+        if power > 0.000000001 {
+            power_db = 10.0 * seen_log10(power)
+        }
+        let phase = __Atan2(dft_im[m], dft_re[m])
+        checksum = checksum + power_db + phase
+        m = m + 1
+    }
+
+    return checksum
+}
+
+fun main() -> Int {
+    let n = 8192
+
+    __Print("DFT Power Spectrum Benchmark\n")
+    __Print("Signal length: ")
+    __PrintInt(n)
+    __Print("\n")
+
+    // Warmup
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs at n=512)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let warmup_result = run_dft(512)
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result = 0.0
+
+    var iter = 0
+    while iter < iterations {
+        let start = __GetTime()
+        let checksum = run_dft(n)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result = checksum
+        }
+        iter = iter + 1
+    }
+
+    // DFT: N/2 output bins * N multiplies * 2 trig calls = N^2 trig calls
+    let trig_calls = n.toFloat() * n.toFloat()
+
+    __Print("Checksum: ")
+    __PrintFloat(result)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Trig calls per second: ")
+    __PrintFloat(trig_calls / (min_time / 1000.0) / 1000000.0)
+    __Print(" million\n")
+
+    return 0
+}

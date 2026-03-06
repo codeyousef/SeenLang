@@ -1,0 +1,160 @@
+// ir_struct_gen.seen — Struct literal layout inference helpers
+// Extracted from llvm_ir_gen.seen generateStructLiteral() to reduce module 5 size
+// Pure analysis functions that determine struct field layouts from expressions
+
+import parser.real_parser.{ParserExpressionNode}
+
+// inferStructFieldTypeFromExpr — Infer LLVM field type from a struct literal field value expression
+// Returns inferred LLVM type and estimated size via sizeOut[0]
+fun inferStructFieldTypeFromExpr(valueExpr: ParserExpressionNode, sizeOut: Array<Int>) r: String {
+    if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
+        sizeOut[0] = 16
+        return "%SeenString"
+    }
+    if valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
+        sizeOut[0] = 8
+        return "ptr"
+    }
+    if valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
+        sizeOut[0] = 8  // Aligned
+        return "i1"
+    }
+    if valueExpr.kind == "StructLiteral" {
+        if valueExpr.literalType != "" {
+            sizeOut[0] = 24  // Estimate
+            return "%" + valueExpr.literalType
+        }
+        sizeOut[0] = 8
+        return "i64"
+    }
+    sizeOut[0] = 8
+    return "i64"
+}
+
+// resolveStructLiteralFieldFallback — Hardcoded field index/type mappings for known struct types
+// Used when struct is not in the registry
+// Returns field type string, or "" if not resolved. Sets gepIndexOut[0] to GEP index.
+fun resolveStructLiteralFieldFallback(structName: String, fieldName: String, gepIndexOut: Array<Int>) r: String {
+    if structName == "FrontendDiagnostic" and fieldName == "file" {
+        gepIndexOut[0] = 0
+        return "%SeenString"
+    }
+    if structName == "FrontendDiagnostic" and fieldName == "line" {
+        gepIndexOut[0] = 1
+        return "i64"
+    }
+    if structName == "FrontendDiagnostic" and fieldName == "column" {
+        gepIndexOut[0] = 2
+        return "i64"
+    }
+    if structName == "FrontendDiagnostic" and fieldName == "severity" {
+        gepIndexOut[0] = 3
+        return "%SeenString"
+    }
+    if structName == "FrontendDiagnostic" and fieldName == "message" {
+        gepIndexOut[0] = 4
+        return "%SeenString"
+    }
+    if structName == "CommandResult" and fieldName == "success" {
+        gepIndexOut[0] = 0
+        return "i1"
+    }
+    if structName == "CommandResult" and fieldName == "output" {
+        gepIndexOut[0] = 1
+        return "%SeenString"
+    }
+    if structName == "Point" and fieldName == "x" {
+        gepIndexOut[0] = 0
+        return "i64"
+    }
+    if structName == "Point" and fieldName == "y" {
+        gepIndexOut[0] = 1
+        return "i64"
+    }
+    if structName == "ItemNode" and fieldName == "itemType" {
+        gepIndexOut[0] = 0
+        return "%SeenString"
+    }
+    if structName == "ItemNode" and fieldName == "name" {
+        gepIndexOut[0] = 1
+        return "%SeenString"
+    }
+    if structName == "ItemNode" and fieldName == "visibility" {
+        gepIndexOut[0] = 2
+        return "%SeenString"
+    }
+    if structName == "ItemNode" and fieldName == "importPath" {
+        gepIndexOut[0] = 3
+        return "ptr"
+    }
+    if structName == "ItemNode" and fieldName == "importSymbols" {
+        gepIndexOut[0] = 4
+        return "ptr"
+    }
+    if structName == "ItemNode" and fieldName == "function" {
+        gepIndexOut[0] = 5
+        return "i64"
+    }
+    if structName == "ItemNode" and fieldName == "classNode" {
+        gepIndexOut[0] = 6
+        return "i64"
+    }
+    if structName == "ItemNode" and fieldName == "enumNode" {
+        gepIndexOut[0] = 7
+        return "i64"
+    }
+    if structName == "ImportPathInfo" and fieldName == "text" {
+        gepIndexOut[0] = 0
+        return "%SeenString"
+    }
+    if structName == "ImportPathInfo" and fieldName == "segments" {
+        gepIndexOut[0] = 1
+        return "ptr"
+    }
+    if structName == "ParamNode" and fieldName == "name" {
+        gepIndexOut[0] = 0
+        return "%SeenString"
+    }
+    if structName == "ParamNode" and fieldName == "paramType" {
+        gepIndexOut[0] = 1
+        return "%TypeNode"
+    }
+    if structName == "ParamNode" and fieldName == "isMutable" {
+        gepIndexOut[0] = 2
+        return "i1"
+    }
+    return ""
+}
+
+// inferStructLayoutFromExpressions — Infer struct layout when type is not in registry
+// Returns layout string like "{ i64, %SeenString, ptr }" and sets sizeOut[0] to total size
+fun inferStructLayoutFromExpressions(arguments: Array<ParserExpressionNode>, sizeOut: Array<Int>) r: String {
+    let fieldCount = arguments.length()
+    var totalSize = 0
+    var layoutFields = ""
+    let lb = "{"
+    let rb = "}"
+    var fieldI = 0
+    while fieldI < fieldCount {
+        if fieldI > 0 {
+            layoutFields = layoutFields + ", "
+        }
+        var inferredFieldType = "i64"
+        var fieldSize = 8
+        if fieldI < arguments.length() {
+            let fieldExpr = arguments[fieldI]
+            if fieldExpr.operands.length() > 0 {
+                let valueExpr = fieldExpr.operands[0]
+                let fSizeOut = Array<Int>()
+                fSizeOut.push(8)
+                inferredFieldType = inferStructFieldTypeFromExpr(valueExpr, fSizeOut)
+                fieldSize = fSizeOut[0]
+            }
+        }
+        totalSize = totalSize + fieldSize
+        layoutFields = layoutFields + inferredFieldType
+        fieldI = fieldI + 1
+    }
+    sizeOut[0] = totalSize
+    return lb + " " + layoutFields + " " + rb
+}

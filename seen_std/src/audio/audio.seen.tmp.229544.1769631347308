@@ -1,0 +1,595 @@
+/**
+ * Unified audio API for Linux.
+ *
+ * Provides a backend-agnostic audio interface that automatically
+ * selects PipeWire or ALSA based on availability. Supports playback
+ * of float32 and int16 audio in mono or stereo configurations.
+ *
+ * Example:
+ *   let audio = AudioDevice.new().unwrap()
+ *   audio.start()
+ *   let samples = generateSineWave(440.0, 48000, 48000, 0.5)
+ *   audio.play(samples)
+ *   audio.destroy()
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import platform.linux.pipewire.{
+    pw_init, pw_deinit, pw_is_available,
+    PwThreadLoop, PwContext, PwStream, PwAudioFormat, PwStreamState,
+    SPA_AUDIO_FORMAT_F32, SPA_AUDIO_FORMAT_S16,
+    SAMPLE_RATE_44100, SAMPLE_RATE_48000
+}
+import platform.linux.alsa.{
+    alsa_is_available, AlsaPcm, AlsaAudioFormat, AlsaPcmState,
+    SND_PCM_FORMAT_FLOAT, SND_PCM_FORMAT_S16,
+    ALSA_DEFAULT_DEVICE
+}
+
+/**
+ * Available audio backends.
+ */
+enum AudioBackend {
+    PipeWire
+    ALSA
+    None
+}
+
+/**
+ * Audio sample format for playback.
+ */
+enum AudioSampleFormat {
+    Float32
+    Int16
+}
+
+/**
+ * Audio configuration using a builder pattern.
+ *
+ * Configure sample rate, channels, format, buffer size, and backend.
+ * Use factory methods like stereo48k() for common configurations.
+ */
+class AudioConfig {
+    var sampleRate: Int
+    var channels: Int
+    var format: AudioSampleFormat
+    var bufferSizeFrames: Int
+    var preferredBackend: AudioBackend
+
+    static fun new() r: AudioConfig {
+        return AudioConfig {
+            sampleRate: 48000,
+            channels: 2,
+            format: AudioSampleFormat.Float32,
+            bufferSizeFrames: 1024,
+            preferredBackend: AudioBackend.PipeWire
+        }
+    }
+
+    static fun stereo48k() r: AudioConfig {
+        return AudioConfig.new()
+    }
+
+    static fun stereo44k() r: AudioConfig {
+        var config = AudioConfig.new()
+        config.sampleRate = 44100
+        return config
+    }
+
+    fun withSampleRate(rate: Int) r: AudioConfig {
+        this.sampleRate = rate
+        return this
+    }
+
+    fun withChannels(ch: Int) r: AudioConfig {
+        this.channels = ch
+        return this
+    }
+
+    fun withFormat(fmt: AudioSampleFormat) r: AudioConfig {
+        this.format = fmt
+        return this
+    }
+
+    fun withBufferSize(frames: Int) r: AudioConfig {
+        this.bufferSizeFrames = frames
+        return this
+    }
+
+    fun preferPipeWire() r: AudioConfig {
+        this.preferredBackend = AudioBackend.PipeWire
+        return this
+    }
+
+    fun preferALSA() r: AudioConfig {
+        this.preferredBackend = AudioBackend.ALSA
+        return this
+    }
+
+    fun mono() r: AudioConfig {
+        this.channels = 1
+        return this
+    }
+
+    fun stereo() r: AudioConfig {
+        this.channels = 2
+        return this
+    }
+}
+
+// Internal PipeWire state
+class PipeWireState {
+    var threadLoop: PwThreadLoop
+    var context: PwContext
+    var core: Int
+    var stream: PwStream
+    var initialized: Bool
+
+    static fun empty() r: PipeWireState {
+        return PipeWireState {
+            threadLoop: PwThreadLoop { handle: 0 },
+            context: PwContext { handle: 0 },
+            core: 0,
+            stream: PwStream { handle: 0, format: PwAudioFormat.default(), direction: 1, connected: false },
+            initialized: false
+        }
+    }
+}
+
+// Internal ALSA state
+class ALSAState {
+    var pcm: AlsaPcm
+    var initialized: Bool
+
+    static fun empty() r: ALSAState {
+        return ALSAState {
+            pcm: AlsaPcm {
+                handle: 0,
+                deviceName: "",
+                format: AlsaAudioFormat.default(),
+                isPlayback: true,
+                bufferSize: 0,
+                periodSize: 0
+            },
+            initialized: false
+        }
+    }
+}
+
+/**
+ * Unified audio device for playback.
+ *
+ * Manages audio output through PipeWire or ALSA backends.
+ * Automatically selects the best available backend.
+ */
+class AudioDevice {
+    var backend: AudioBackend
+    var config: AudioConfig
+    var pipewire: PipeWireState
+    var alsa: ALSAState
+    var isPlaying: Bool
+
+    /**
+     * Create audio device with automatic backend selection.
+     *
+     * Tries the preferred backend first, then falls back to
+     * the alternative if unavailable.
+     */
+    static fun create(config: AudioConfig) r: Result<AudioDevice, String> {
+        var device = AudioDevice {
+            backend: AudioBackend.None,
+            config: config,
+            pipewire: PipeWireState.empty(),
+            alsa: ALSAState.empty(),
+            isPlaying: false
+        }
+
+        // Try preferred backend first
+        if config.preferredBackend == AudioBackend.PipeWire {
+            let pwResult = device.initPipeWire()
+            if pwResult.isOkay() {
+                device.backend = AudioBackend.PipeWire
+                return Ok(device)
+            }
+
+            // Fall back to ALSA
+            let alsaResult = device.initALSA()
+            if alsaResult.isOkay() {
+                device.backend = AudioBackend.ALSA
+                return Ok(device)
+            }
+
+            return Err("No audio backend available. Tried PipeWire and ALSA.")
+        } else {
+            // Prefer ALSA
+            let alsaResult = device.initALSA()
+            if alsaResult.isOkay() {
+                device.backend = AudioBackend.ALSA
+                return Ok(device)
+            }
+
+            // Fall back to PipeWire
+            let pwResult = device.initPipeWire()
+            if pwResult.isOkay() {
+                device.backend = AudioBackend.PipeWire
+                return Ok(device)
+            }
+
+            return Err("No audio backend available. Tried ALSA and PipeWire.")
+        }
+    }
+
+    // Create with defaults (stereo, 48kHz, float32)
+    static fun new() r: Result<AudioDevice, String> {
+        return AudioDevice.create(AudioConfig.new())
+    }
+
+    // Create with specific sample rate and channels
+    static fun newWithParams(sampleRate: Int, channels: Int) r: Result<AudioDevice, String> {
+        var config = AudioConfig.new()
+        config.sampleRate = sampleRate
+        config.channels = channels
+        return AudioDevice.create(config)
+    }
+
+    // Initialize PipeWire backend
+    fun initPipeWire() r: Result<Unit, String> {
+        if not pw_is_available() {
+            return Err("PipeWire not available")
+        }
+
+        pw_init()
+
+        // Create thread loop
+        let loopResult = PwThreadLoop.new("seen-audio")
+        if loopResult.isErr() {
+            pw_deinit()
+            return Err(loopResult.unwrapErr())
+        }
+        this.pipewire.threadLoop = loopResult.unwrap()
+
+        // Get loop and create context
+        let loop = this.pipewire.threadLoop.getLoop()
+        let ctxResult = PwContext.new(loop)
+        if ctxResult.isErr() {
+            this.pipewire.threadLoop.destroy()
+            pw_deinit()
+            return Err(ctxResult.unwrapErr())
+        }
+        this.pipewire.context = ctxResult.unwrap()
+
+        // Connect to daemon
+        let coreResult = this.pipewire.context.connect()
+        if coreResult.isErr() {
+            this.pipewire.context.destroy()
+            this.pipewire.threadLoop.destroy()
+            pw_deinit()
+            return Err(coreResult.unwrapErr())
+        }
+        this.pipewire.core = coreResult.unwrap()
+
+        // Create audio format
+        var pwFormat = PwAudioFormat {
+            format: SPA_AUDIO_FORMAT_F32,
+            channels: this.config.channels,
+            sampleRate: this.config.sampleRate
+        }
+        if this.config.format == AudioSampleFormat.Int16 {
+            pwFormat.format = SPA_AUDIO_FORMAT_S16
+        }
+
+        // Create stream
+        let streamResult = PwStream.newSimple(loop, "seen-audio-out", pwFormat, true)
+        if streamResult.isErr() {
+            this.pipewire.context.destroy()
+            this.pipewire.threadLoop.destroy()
+            pw_deinit()
+            return Err(streamResult.unwrapErr())
+        }
+        this.pipewire.stream = streamResult.unwrap()
+
+        // Start thread loop
+        let startResult = this.pipewire.threadLoop.start()
+        if startResult.isErr() {
+            this.pipewire.stream.destroy()
+            this.pipewire.context.destroy()
+            this.pipewire.threadLoop.destroy()
+            pw_deinit()
+            return Err(startResult.unwrapErr())
+        }
+
+        this.pipewire.initialized = true
+        return Ok(Unit{})
+    }
+
+    // Initialize ALSA backend
+    fun initALSA() r: Result<Unit, String> {
+        if not alsa_is_available() {
+            return Err("ALSA not available")
+        }
+
+        // Create format
+        var alsaFormat = AlsaAudioFormat.floatStereo(this.config.sampleRate)
+        if this.config.format == AudioSampleFormat.Int16 {
+            alsaFormat = AlsaAudioFormat.s16Stereo(this.config.sampleRate)
+        }
+        if this.config.channels == 1 {
+            alsaFormat.channels = 1
+        }
+
+        // Calculate latency from buffer size
+        let latencyUs = (this.config.bufferSizeFrames * 1000000) / this.config.sampleRate
+        alsaFormat.latencyUs = latencyUs
+
+        // Open device
+        let pcmResult = AlsaPcm.openDefault(alsaFormat)
+        if pcmResult.isErr() {
+            return Err(pcmResult.unwrapErr())
+        }
+        this.alsa.pcm = pcmResult.unwrap()
+        this.alsa.initialized = true
+
+        return Ok(Unit{})
+    }
+
+    // Get the active backend name
+    fun getBackendName() r: String {
+        if this.backend == AudioBackend.PipeWire {
+            return "PipeWire"
+        }
+        if this.backend == AudioBackend.ALSA {
+            return "ALSA"
+        }
+        return "None"
+    }
+
+    // Get sample rate
+    fun getSampleRate() r: Int {
+        return this.config.sampleRate
+    }
+
+    // Get channel count
+    fun getChannels() r: Int {
+        return this.config.channels
+    }
+
+    // Start audio playback
+    fun start() r: Result<Unit, String> {
+        if this.backend == AudioBackend.PipeWire {
+            this.pipewire.threadLoop.lock()
+            let connectResult = this.pipewire.stream.connect()
+            this.pipewire.threadLoop.unlock()
+
+            if connectResult.isErr() {
+                return Err(connectResult.unwrapErr())
+            }
+            this.isPlaying = true
+            return Ok(Unit{})
+        }
+
+        if this.backend == AudioBackend.ALSA {
+            let prepareResult = this.alsa.pcm.prepare()
+            if prepareResult.isErr() {
+                return Err(prepareResult.unwrapErr())
+            }
+            this.isPlaying = true
+            return Ok(Unit{})
+        }
+
+        return Err("No audio backend initialized")
+    }
+
+    // Stop audio playback
+    fun stop() r: Result<Unit, String> {
+        if this.backend == AudioBackend.PipeWire {
+            this.pipewire.threadLoop.lock()
+            let result = this.pipewire.stream.setActive(false)
+            this.pipewire.threadLoop.unlock()
+            this.isPlaying = false
+            return result
+        }
+
+        if this.backend == AudioBackend.ALSA {
+            let result = this.alsa.pcm.drop()
+            this.isPlaying = false
+            return result
+        }
+
+        return Err("No audio backend initialized")
+    }
+
+    // Pause audio playback
+    fun pause() r: Result<Unit, String> {
+        if this.backend == AudioBackend.PipeWire {
+            this.pipewire.threadLoop.lock()
+            let result = this.pipewire.stream.setActive(false)
+            this.pipewire.threadLoop.unlock()
+            return result
+        }
+
+        if this.backend == AudioBackend.ALSA {
+            return this.alsa.pcm.pause()
+        }
+
+        return Err("No audio backend initialized")
+    }
+
+    // Resume audio playback
+    fun resume() r: Result<Unit, String> {
+        if this.backend == AudioBackend.PipeWire {
+            this.pipewire.threadLoop.lock()
+            let result = this.pipewire.stream.setActive(true)
+            this.pipewire.threadLoop.unlock()
+            return result
+        }
+
+        if this.backend == AudioBackend.ALSA {
+            return this.alsa.pcm.resume()
+        }
+
+        return Err("No audio backend initialized")
+    }
+
+    /**
+     * Play float32 samples in interleaved format.
+     *
+     * For stereo, samples alternate: [L0, R0, L1, R1, ...].
+     * Returns the number of frames written.
+     */
+    fun play(samples: Array<Float>) r: Result<Int, String> {
+        if this.backend == AudioBackend.PipeWire {
+            this.pipewire.threadLoop.lock()
+
+            // Dequeue buffer
+            let bufResult = this.pipewire.stream.dequeueBuffer()
+            if bufResult.isErr() {
+                this.pipewire.threadLoop.unlock()
+                return Err(bufResult.unwrapErr())
+            }
+            let buffer = bufResult.unwrap()
+
+            // Write samples
+            let writeResult = this.pipewire.stream.writeSamples(buffer, samples)
+            if writeResult.isErr() {
+                this.pipewire.threadLoop.unlock()
+                return Err(writeResult.unwrapErr())
+            }
+            let written = writeResult.unwrap()
+
+            // Queue buffer
+            let queueResult = this.pipewire.stream.queueBuffer(buffer)
+            this.pipewire.threadLoop.unlock()
+
+            if queueResult.isErr() {
+                return Err(queueResult.unwrapErr())
+            }
+
+            return Ok(written)
+        }
+
+        if this.backend == AudioBackend.ALSA {
+            return this.alsa.pcm.writeFloat(samples)
+        }
+
+        return Err("No audio backend initialized")
+    }
+
+    // Check if currently playing
+    fun playing() r: Bool {
+        if this.backend == AudioBackend.PipeWire {
+            return this.pipewire.stream.isStreaming()
+        }
+
+        if this.backend == AudioBackend.ALSA {
+            return this.alsa.pcm.isRunning()
+        }
+
+        return false
+    }
+
+    // Get current latency in frames
+    fun getLatency() r: Int {
+        if this.backend == AudioBackend.PipeWire {
+            // PipeWire handles latency internally
+            return this.config.bufferSizeFrames
+        }
+
+        if this.backend == AudioBackend.ALSA {
+            return this.alsa.pcm.delay()
+        }
+
+        return 0
+    }
+
+    // Drain all pending audio (blocking)
+    fun drain() r: Result<Unit, String> {
+        if this.backend == AudioBackend.PipeWire {
+            this.pipewire.threadLoop.lock()
+            let result = this.pipewire.stream.flush(true)
+            this.pipewire.threadLoop.unlock()
+            return result
+        }
+
+        if this.backend == AudioBackend.ALSA {
+            return this.alsa.pcm.drain()
+        }
+
+        return Err("No audio backend initialized")
+    }
+
+    // Destroy the audio device and release resources
+    fun destroy() r: Void {
+        if this.backend == AudioBackend.PipeWire and this.pipewire.initialized {
+            this.pipewire.threadLoop.stop()
+            this.pipewire.stream.destroy()
+            this.pipewire.context.destroy()
+            this.pipewire.threadLoop.destroy()
+            pw_deinit()
+            this.pipewire.initialized = false
+        }
+
+        if this.backend == AudioBackend.ALSA and this.alsa.initialized {
+            let _ = this.alsa.pcm.close()
+            this.alsa.initialized = false
+        }
+
+        this.backend = AudioBackend.None
+    }
+}
+
+// Detect available audio backends
+fun detectAudioBackends() r: Array<AudioBackend> {
+    var backends = Array<AudioBackend>()
+
+    if pw_is_available() {
+        backends.push(AudioBackend.PipeWire)
+    }
+
+    if alsa_is_available() {
+        backends.push(AudioBackend.ALSA)
+    }
+
+    return backends
+}
+
+// Check if any audio backend is available
+fun audioAvailable() r: Bool {
+    return pw_is_available() or alsa_is_available()
+}
+
+// Generate a simple sine wave for testing
+fun generateSineWave(frequency: Float, sampleRate: Int, durationSamples: Int, amplitude: Float) r: Array<Float> {
+    var samples = Array<Float>()
+    let twoPi = 6.28318530718
+
+    var i = 0
+    while i < durationSamples {
+        let t = i.toFloat() / sampleRate.toFloat()
+        let value = amplitude * sin(twoPi * frequency * t)
+        // Stereo (duplicate for both channels)
+        samples.push(value)
+        samples.push(value)
+        i = i + 1
+    }
+
+    return samples
+}
+
+// Generate white noise for testing
+fun generateWhiteNoise(durationSamples: Int, amplitude: Float) r: Array<Float> {
+    var samples = Array<Float>()
+
+    var i = 0
+    while i < durationSamples {
+        // Simple pseudo-random using linear congruential generator
+        let rand = ((i * 1103515245 + 12345) % 2147483648).toFloat() / 2147483648.0
+        let value = amplitude * (rand * 2.0 - 1.0)
+        // Stereo
+        samples.push(value)
+        samples.push(value)
+        i = i + 1
+    }
+
+    return samples
+}

@@ -1,0 +1,36 @@
+# Seen (س)
+
+> Seen is a 100% self-hosted systems programming language with multi-language keyword support (English, Arabic, Spanish, Russian, Chinese, Japanese), an LLVM backend with ThinLTO, region-based memory management (no GC), and a 5-stage compiler pipeline written entirely in Seen itself.
+
+## Docs
+
+- [README](README.md): Project overview, features, installation, examples, benchmarks
+- [CLAUDE.md](CLAUDE.md): Compiler architecture, build commands, debugging, development workflow
+
+## Source
+
+- [Compiler](compiler_seen/src/): Self-hosted compiler (62,000+ lines across 50 modules)
+  - [Main Entry](compiler_seen/src/main.seen): Production compiler CLI
+  - [Compiler Driver](compiler_seen/src/main_compiler.seen): Bootstrap compiler driver
+  - [Lexer](compiler_seen/src/lexer/): Tokenizer with multi-language keyword support
+  - [Parser](compiler_seen/src/parser/): Two-pass parser producing AST
+  - [Type Checker](compiler_seen/src/typechecker/): Type inference and validation
+  - [IR Generator](compiler_seen/src/ir/): AST to LLVM IR conversion
+  - [LLVM Backend](compiler_seen/src/codegen/llvm_backend.seen): LLVM compilation with aggressive optimizations
+  - [C Backend](compiler_seen/src/codegen/c_gen.seen): Fallback C99 code generation
+- [Standard Library](seen_std/): Vec, Array, HashMap, File, Path, Math, and more
+- [Runtime](seen_runtime/): C runtime for memory allocation, string ops, I/O
+- [Language Definitions](languages/): Multi-language keyword TOML files for en, ar, es, ru, zh, ja
+
+## Examples
+
+- [Tests](compiler_seen/tests/): Compiler test suite
+- [GPU Tests](tests/gpu/): GPU compute shader tests (Vulkan/GLSL)
+- [Benchmarks](benchmarks/production/): Performance benchmarks (matrix multiply, ray tracing, etc.)
+
+## Optional
+
+- [Design Documents](docs/): Language design specs, optimization research
+- [VS Code Extension](vscode-seen/): Syntax highlighting and snippets
+- [Bootstrap](bootstrap/): Frozen verified bootstrap compiler and integrity hashes
+- [Scripts](scripts/): Build, release, and bootstrap verification scripts

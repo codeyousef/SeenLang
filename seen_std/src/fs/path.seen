@@ -1,0 +1,220 @@
+// seen_std.fs.path
+// Deterministic path utilities (normalize/join/basename/dirname/extension).
+
+import str.string.{StringBuilder, lastIndexOf, endsWith}
+import collections.vec.{Vec}
+
+fun isSeparator(ch: Char) r: Bool {
+    return ch == '/' or ch == '\\'
+}
+
+fun isAbsolute(path: String) r: Bool {
+    if path.length() == 0 {
+        return false
+    }
+    let first = path.charAt(0)
+    if first == '/' or first == '\\' {
+        return true
+    }
+    if path.length() >= 2 and path.charAt(1) == ':' {
+        return true
+    }
+    return false
+}
+
+fun splitComponents(path: String) r: Array<String> {
+    let parts = Array<String>()
+    var current = ""
+    for ch in path {
+        if isSeparator(ch) {
+            if current.length() > 0 {
+                parts.push(current)
+                current = ""
+            }
+        } else {
+            current = current + ch
+        }
+    }
+    if current.length() > 0 {
+        parts.push(current)
+    }
+    return parts
+}
+
+fun normalize(path: String) r: String {
+    if path.length() == 0 {
+        return "."
+    }
+    let absolute = isAbsolute(path)
+    let stack = Vec<String>.new()
+    let components = splitComponents(path)
+    for component in components {
+        if component == "." or component.length() == 0 {
+            continue
+        }
+        if component == ".." {
+            if stack.len() > 0 and stack.get(stack.len() - 1) != ".." {
+                stack.pop()
+                continue
+            }
+            if not absolute {
+                stack.push("..")
+            }
+            continue
+        }
+        stack.push(component)
+    }
+    if stack.len() == 0 {
+        if absolute {
+            return "/"
+        }
+        return "."
+    }
+    let builder = StringBuilder.new()
+    if absolute {
+        builder.append("/")
+    }
+    var index = 0
+    while index < stack.len() {
+        builder.append(stack.get(index))
+        if index != stack.len() - 1 {
+            builder.append("/")
+        }
+        index = index + 1
+    }
+    return builder.toString()
+}
+
+fun join(parts: Array<String>) r: String {
+    if parts.length() == 0 {
+        return "."
+    }
+    let builder = StringBuilder.new()
+    var index = 0
+    while index < parts.length() {
+        let part = parts[index]
+        if part.length() == 0 {
+            index = index + 1
+            continue
+        }
+        if builder.length() == 0 {
+            builder.append(part)
+        } else {
+            let trimmed = trimLeadingSeparators(part)
+            if trimmed.length() == 0 {
+                index = index + 1
+                continue
+            }
+            if not endsWithSeparator(builder) {
+                builder.append("/")
+            }
+            builder.append(trimmed)
+        }
+        index = index + 1
+    }
+    return normalize(builder.toString())
+}
+
+fun trimLeadingSeparators(path: String) r: String {
+    if path.length() == 0 {
+        return path
+    }
+    var start = 0
+    while start < path.length() and isSeparator(path.charAt(start)) {
+        start = start + 1
+    }
+    if start >= path.length() {
+        return ""
+    }
+    return path.substring(start, path.length())
+}
+
+fun endsWithSeparator(builder: StringBuilder) r: Bool {
+    if builder.length() == 0 {
+        return false
+    }
+    let combined = builder.toString()
+    let last = combined.charAt(combined.length() - 1)
+    return isSeparator(last)
+}
+
+fun basename(path: String) r: String {
+    if path.length() == 0 {
+        return ""
+    }
+    let normalized = normalize(path)
+    if normalized == "/" {
+        return "/"
+    }
+    let components = splitComponents(normalized)
+    if components.length() == 0 {
+        return normalized
+    }
+    return components[components.length() - 1]
+}
+
+fun dirname(path: String) r: String {
+    if path.length() == 0 {
+        return "."
+    }
+    let normalized = normalize(path)
+    if normalized == "/" {
+        return "/"
+    }
+    let components = splitComponents(normalized)
+    if components.length() <= 1 {
+        if isAbsolute(normalized) {
+            return "/"
+        }
+        return "."
+    }
+    let builder = StringBuilder.new()
+    if isAbsolute(normalized) {
+        builder.append("/")
+    }
+    var index = 0
+    while index < components.length() - 1 {
+        builder.append(components[index])
+        if index != components.length() - 2 {
+            builder.append("/")
+        }
+        index = index + 1
+    }
+    let parent = builder.toString()
+    if parent.length() == 0 {
+        if isAbsolute(normalized) {
+            return "/"
+        } else {
+            return "."
+        }
+    }
+    return parent
+}
+
+fun pathExtension(path: String) r: String {
+    let name = basename(path)
+    let dotIndex = lastIndexOf(name, ".")
+    if dotIndex < 0 or dotIndex == 0 {
+        return ""
+    }
+    return name.substring(dotIndex + 1, name.length())
+}
+
+fun withoutExtension(path: String) r: String {
+    let name = basename(path)
+    let dotIndex = lastIndexOf(name, ".")
+    if dotIndex <= 0 {
+        return normalize(path)
+    }
+    let parent = dirname(path)
+    if parent == "." {
+        return name.substring(0, dotIndex)
+    }
+    let builder = StringBuilder.new()
+    builder.append(parent)
+    if not endsWith(parent, "/") {
+        builder.append("/")
+    }
+    builder.append(name.substring(0, dotIndex))
+    return builder.toString()
+}

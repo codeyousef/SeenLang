@@ -1,0 +1,40 @@
+// Math Utilities Module for E2E Testing
+// Provides mathematical operations for testing multi-module compilation
+
+fun factorial(n: Int) r: Int {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+fun fibonacci(n: Int) r: Int {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+fun isPrime(n: Int) r: Bool {
+    if n < 2 {
+        return false
+    }
+    var i = 2
+    while i * i <= n {
+        if n % i == 0 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun sumRange(start: Int, end: Int) r: Int {
+    var sum = 0
+    var i = start
+    while i <= end {
+        sum = sum + i
+        i = i + 1
+    }
+    return sum
+}

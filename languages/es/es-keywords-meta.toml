@@ -1,0 +1,6 @@
+name = "Spanish"
+description = "Spanish Metaprogramming Keywords"
+
+[keywords]
+"tiempo_compilación" = "KeywordComptime"
+"macro" = "KeywordMacro"

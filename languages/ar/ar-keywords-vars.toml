@@ -1,0 +1,10 @@
+name = "Arabic"
+description = "Arabic Variable Declaration Keywords"
+
+[keywords]
+"اجعل" = "KeywordLet"
+"قابل_للتغيير" = "KeywordMut"
+"ثابت_عام" = "KeywordConst"
+"ساكن" = "KeywordStatic"
+"ثابت" = "KeywordVal"
+"متغير" = "KeywordVar"

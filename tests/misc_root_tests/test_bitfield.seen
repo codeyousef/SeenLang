@@ -1,0 +1,351 @@
+// Test suite for Bitfield types (Task 5.4: Deterministic Bit-Fields)
+// Self-contained test with inline class definition
+// NOTE: Uses arithmetic operations since Seen doesn't have bitwise operators
+
+// ============================================================================
+// Helper functions for bit manipulation using arithmetic
+// ============================================================================
+
+// Calculate 2^n using multiplication
+fun pow2(n: Int) r: Int {
+    var result = 1
+    var i = 0
+    while i < n {
+        result = result * 2
+        i = i + 1
+    }
+    return result
+}
+
+// ============================================================================
+// Bitfield8 - Inline Definition for Testing
+// ============================================================================
+class Bitfield8 {
+    var raw: Int
+
+    static fun new(value: Int) r: Bitfield8 {
+        // Mask to 8 bits using modulo
+        var masked = value % 256
+        if masked < 0 {
+            masked = masked + 256
+        }
+        return Bitfield8{raw: masked}
+    }
+
+    static fun zero() r: Bitfield8 {
+        return Bitfield8{raw: 0}
+    }
+
+    fun toInt() r: Int {
+        return raw
+    }
+
+    fun getBit(pos: Int) r: Bool {
+        if pos < 0 or pos > 7 {
+            return false
+        }
+        // Check if bit at position pos is set
+        // (raw / 2^pos) % 2 == 1
+        let divisor = pow2(pos)
+        let shifted = raw / divisor
+        let bit = shifted % 2
+        return bit == 1
+    }
+
+    fun setBit(pos: Int, value: Bool) r: Void {
+        if pos < 0 or pos > 7 {
+            return
+        }
+        let bitValue = pow2(pos)
+        let currentBit = getBit(pos)
+        if value and not currentBit {
+            // Set bit: add 2^pos
+            raw = raw + bitValue
+        } else if not value and currentBit {
+            // Clear bit: subtract 2^pos
+            raw = raw - bitValue
+        }
+    }
+
+    fun getField(start: Int, width: Int) r: Int {
+        if start < 0 or width <= 0 or start + width > 8 {
+            return 0
+        }
+        // Extract field: (raw / 2^start) % 2^width
+        let divisor = pow2(start)
+        let mask = pow2(width)
+        let shifted = raw / divisor
+        let result = shifted % mask
+        return result
+    }
+
+    fun setField(start: Int, width: Int, value: Int) r: Void {
+        if start < 0 or width <= 0 or start + width > 8 {
+            return
+        }
+        // Get current field value
+        let currentValue = getField(start, width)
+        // Calculate the contribution of the current field to raw
+        let bitStart = pow2(start)
+        let fieldContribution = currentValue * bitStart
+        // Calculate the new contribution
+        let mask = pow2(width)
+        let newValue = value % mask
+        let newContribution = newValue * bitStart
+        // Update raw by removing old contribution and adding new
+        raw = raw - fieldContribution + newContribution
+    }
+
+    fun bitwiseAnd(other: Bitfield8) r: Bitfield8 {
+        // Compute AND bit by bit
+        var result = 0
+        var i = 0
+        while i < 8 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a and b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield8{raw: result}
+    }
+
+    fun bitwiseOr(other: Bitfield8) r: Bitfield8 {
+        // Compute OR bit by bit
+        var result = 0
+        var i = 0
+        while i < 8 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            if a or b {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield8{raw: result}
+    }
+
+    fun bitwiseXor(other: Bitfield8) r: Bitfield8 {
+        // Compute XOR bit by bit
+        var result = 0
+        var i = 0
+        while i < 8 {
+            let a = getBit(i)
+            let b = other.getBit(i)
+            // XOR: true if exactly one is true
+            let xorBit = (a and not b) or (not a and b)
+            if xorBit {
+                result = result + pow2(i)
+            }
+            i = i + 1
+        }
+        return Bitfield8{raw: result}
+    }
+
+    fun bitwiseNot() r: Bitfield8 {
+        // Compute NOT: 255 - raw (for 8-bit)
+        return Bitfield8{raw: 255 - raw}
+    }
+
+    fun countOnes() r: Int {
+        var count = 0
+        var i = 0
+        while i < 8 {
+            if getBit(i) {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+fun testBitfield8Basic() r: Int {
+    println("Testing Bitfield8 basic operations...")
+
+    // Test construction
+    let bf = Bitfield8.new(165)  // 0xA5 = 10100101
+    let val = bf.toInt()
+    if val != 165 {
+        println("FAIL: Bitfield8.new() - expected 165, got " + val.toString())
+        return 1
+    }
+
+    // Test zero
+    let zeroField = Bitfield8.zero()
+    let zeroVal = zeroField.toInt()
+    if zeroVal != 0 {
+        println("FAIL: Bitfield8.zero()")
+        return 1
+    }
+
+    // Test getBit
+    // 165 = 10100101 in binary
+    let bit0 = bf.getBit(0)  // Should be 1 (true)
+    if not bit0 {
+        println("FAIL: getBit(0) should be true")
+        return 1
+    }
+
+    let bit1 = bf.getBit(1)  // Should be 0 (false)
+    if bit1 {
+        println("FAIL: getBit(1) should be false")
+        return 1
+    }
+
+    let bit2 = bf.getBit(2)  // Should be 1 (true)
+    if not bit2 {
+        println("FAIL: getBit(2) should be true")
+        return 1
+    }
+
+    println("  Basic operations: PASS")
+    return 0
+}
+
+fun testBitfield8SetBit() r: Int {
+    println("Testing Bitfield8 setBit...")
+
+    var bf = Bitfield8.zero()
+
+    // Set individual bits
+    bf.setBit(0, true)
+    bf.setBit(3, true)
+    bf.setBit(7, true)
+
+    let val1 = bf.toInt()
+    if val1 != 137 {  // 10001001
+        println("FAIL: setBit - expected 137, got " + val1.toString())
+        return 1
+    }
+
+    // Clear a bit
+    bf.setBit(3, false)
+    let val2 = bf.toInt()
+    if val2 != 129 {  // 10000001
+        println("FAIL: setBit(false) - expected 129, got " + val2.toString())
+        return 1
+    }
+
+    println("  setBit: PASS")
+    return 0
+}
+
+fun testBitfield8Fields() r: Int {
+    println("Testing Bitfield8 field operations...")
+
+    var bf = Bitfield8.new(171)  // 0xAB = 10101011
+
+    // Get field (bits 0-3)
+    let low4 = bf.getField(0, 4)
+    if low4 != 11 {  // 1011
+        println("FAIL: getField(0,4) - expected 11, got " + low4.toString())
+        return 1
+    }
+
+    // Get field (bits 4-7)
+    let hi4 = bf.getField(4, 4)
+    if hi4 != 10 {  // 1010
+        println("FAIL: getField(4,4) - expected 10, got " + hi4.toString())
+        return 1
+    }
+
+    // Set field
+    bf.setField(0, 4, 15)  // Set low 4 bits to 1111
+    let val = bf.toInt()
+    if val != 175 {  // 0xAF = 10101111
+        println("FAIL: setField - expected 175, got " + val.toString())
+        return 1
+    }
+
+    println("  Field operations: PASS")
+    return 0
+}
+
+fun testBitfield8Bitwise() r: Int {
+    println("Testing Bitfield8 bitwise operations...")
+
+    let a = Bitfield8.new(240)  // 0xF0 = 11110000
+    let b = Bitfield8.new(15)   // 0x0F = 00001111
+
+    // AND
+    let andResult = a.bitwiseAnd(b)
+    let andVal = andResult.toInt()
+    if andVal != 0 {
+        println("FAIL: AND - expected 0, got " + andVal.toString())
+        return 1
+    }
+
+    // OR
+    let orResult = a.bitwiseOr(b)
+    let orVal = orResult.toInt()
+    if orVal != 255 {
+        println("FAIL: OR - expected 255, got " + orVal.toString())
+        return 1
+    }
+
+    // XOR
+    let xorResult = a.bitwiseXor(b)
+    let xorVal = xorResult.toInt()
+    if xorVal != 255 {
+        println("FAIL: XOR - expected 255, got " + xorVal.toString())
+        return 1
+    }
+
+    // NOT
+    let notResult = a.bitwiseNot()
+    let notVal = notResult.toInt()
+    if notVal != 15 {
+        println("FAIL: NOT - expected 15, got " + notVal.toString())
+        return 1
+    }
+
+    println("  Bitwise operations: PASS")
+    return 0
+}
+
+fun testBitfield8Count() r: Int {
+    println("Testing Bitfield8 count operations...")
+
+    let bf = Bitfield8.new(165)  // 0xA5 = 10100101 - 4 ones
+
+    let ones = bf.countOnes()
+    if ones != 4 {
+        println("FAIL: countOnes - expected 4, got " + ones.toString())
+        return 1
+    }
+
+    println("  Count operations: PASS")
+    return 0
+}
+
+// ============================================================================
+// Main Test Runner
+// ============================================================================
+
+fun main() r: Int {
+    println("=== Bitfield Test Suite ===")
+    println("")
+
+    var failures = 0
+
+    failures = failures + testBitfield8Basic()
+    failures = failures + testBitfield8SetBit()
+    failures = failures + testBitfield8Fields()
+    failures = failures + testBitfield8Bitwise()
+    failures = failures + testBitfield8Count()
+
+    println("")
+    if failures == 0 {
+        println("=== ALL TESTS PASSED ===")
+        return 0
+    } else {
+        println("=== " + failures.toString() + " TEST(S) FAILED ===")
+        return 1
+    }
+}

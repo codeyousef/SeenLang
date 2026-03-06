@@ -1,0 +1,87 @@
+// Test calling global functions from class methods
+
+fun double(x: Int) r: Int {
+    return x * 2
+}
+
+fun pow2(n: Int) r: Int {
+    var result = 1
+    var i = 0
+    while i < n {
+        result = result * 2
+        i = i + 1
+    }
+    return result
+}
+
+class Calculator {
+    var base: Int
+
+    static fun new(v: Int) r: Calculator {
+        return Calculator{base: v}
+    }
+
+    fun getValue() r: Int {
+        return base
+    }
+
+    // Call global function from method
+    fun doubleBase() r: Int {
+        let result = double(base)
+        return result
+    }
+
+    // Call global function with computed argument
+    fun powerOfTwo(n: Int) r: Int {
+        let result = pow2(n)
+        return result
+    }
+
+    // Do arithmetic using global function
+    fun getBaseModPow(n: Int) r: Int {
+        let p = pow2(n)
+        let result = base % p
+        return result
+    }
+}
+
+fun main() r: Int {
+    println("Testing global function calls from class methods...")
+
+    let calc = Calculator.new(42)
+
+    // Test 1: getValue
+    let v1 = calc.getValue()
+    println("getValue(): " + v1.toString())
+    if v1 != 42 {
+        println("FAIL: getValue expected 42, got " + v1.toString())
+        return 1
+    }
+
+    // Test 2: Call global function with field
+    let v2 = calc.doubleBase()
+    println("doubleBase(): " + v2.toString())
+    if v2 != 84 {
+        println("FAIL: doubleBase expected 84, got " + v2.toString())
+        return 1
+    }
+
+    // Test 3: Call pow2 global function
+    let v3 = calc.powerOfTwo(4)
+    println("powerOfTwo(4): " + v3.toString())
+    if v3 != 16 {
+        println("FAIL: powerOfTwo(4) expected 16, got " + v3.toString())
+        return 1
+    }
+
+    // Test 4: Use global function in calculation
+    let v4 = calc.getBaseModPow(4)
+    println("getBaseModPow(4): " + v4.toString())  // 42 % 16 = 10
+    if v4 != 10 {
+        println("FAIL: getBaseModPow(4) expected 10, got " + v4.toString())
+        return 1
+    }
+
+    println("PASS: All tests passed!")
+    return 0
+}

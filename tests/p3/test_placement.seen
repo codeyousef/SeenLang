@@ -1,0 +1,23 @@
+// : Placement construction — construct at specific memory address
+fun main() r: Int {
+    // Allocate raw memory on the stack
+    let rawMem = stackAlloc(128)
+
+    // Placement construct at the allocated memory
+    let obj = constructAt(rawMem)
+
+    // Verify the pointer is non-zero (construction succeeded)
+    if obj == 0 {
+        println("FAIL: constructAt returned null")
+        return 1
+    }
+
+    // Verify the pointer matches the raw memory
+    if obj != rawMem {
+        println("FAIL: constructAt returned different pointer")
+        return 1
+    }
+
+    println("PASS: Placement construction tests")
+    return 0
+}

@@ -1,0 +1,336 @@
+/**
+ * Unified gamepad abstraction across platforms.
+ *
+ * Provides a single cross-platform API for gamepad input that delegates to
+ * platform-specific backends (XInput on Windows, evdev on Linux, Game
+ * Controller framework on macOS). Supports multiple simultaneous gamepads,
+ * button/axis polling, vibration, and deadzone configuration.
+ *
+ * The seen_gamepad_* shim layer selects the correct backend at link time.
+ *
+ * Example:
+ *   var mgr = GamepadManager.create()
+ *   mgr.init()
+ *   while running {
+ *       mgr.poll()
+ *       if mgr.getButton(0, GAMEPAD_A) == 1 {
+ *           println("A pressed")
+ *       }
+ *       let lx = mgr.getAxis(0, GAMEPAD_AXIS_LEFT_X)
+ *   }
+ *   mgr.shutdown()
+ */
+
+// ============================================================================
+// Standardized button constants (Xbox-style naming)
+// ============================================================================
+
+let GAMEPAD_A: Int = 0
+let GAMEPAD_B: Int = 1
+let GAMEPAD_X: Int = 2
+let GAMEPAD_Y: Int = 3
+let GAMEPAD_LB: Int = 4           // Left bumper / shoulder
+let GAMEPAD_RB: Int = 5           // Right bumper / shoulder
+let GAMEPAD_START: Int = 6
+let GAMEPAD_BACK: Int = 7         // Back / Select / Share
+let GAMEPAD_LSTICK: Int = 8       // Left stick click
+let GAMEPAD_RSTICK: Int = 9       // Right stick click
+let GAMEPAD_DPAD_UP: Int = 10
+let GAMEPAD_DPAD_DOWN: Int = 11
+let GAMEPAD_DPAD_LEFT: Int = 12
+let GAMEPAD_DPAD_RIGHT: Int = 13
+let GAMEPAD_BUTTON_COUNT: Int = 14
+
+// ============================================================================
+// Standardized axis constants
+// ============================================================================
+
+let GAMEPAD_AXIS_LEFT_X: Int = 0
+let GAMEPAD_AXIS_LEFT_Y: Int = 1
+let GAMEPAD_AXIS_RIGHT_X: Int = 2
+let GAMEPAD_AXIS_RIGHT_Y: Int = 3
+let GAMEPAD_AXIS_LEFT_TRIGGER: Int = 4
+let GAMEPAD_AXIS_RIGHT_TRIGGER: Int = 5
+let GAMEPAD_AXIS_COUNT: Int = 6
+
+// ============================================================================
+// Cross-platform shim FFI declarations
+// ============================================================================
+
+// Initialize the gamepad subsystem. Returns 0 on success.
+extern fun seen_gamepad_init() r: Int
+
+// Shut down the gamepad subsystem and release resources.
+extern fun seen_gamepad_shutdown() r: Void
+
+// Poll all connected gamepads for updated state.
+extern fun seen_gamepad_poll() r: Void
+
+// Get the number of gamepad slots available.
+extern fun seen_gamepad_count() r: Int
+
+// Check if a gamepad at the given index is connected. Returns 1 if connected.
+extern fun seen_gamepad_is_connected(index: Int) r: Int
+
+// Get the display name of the gamepad. Returns empty string if not connected.
+extern fun seen_gamepad_get_name(index: Int) r: String
+
+// Check if a button was pressed this frame. Returns 1 if pressed.
+extern fun seen_gamepad_button_pressed(index: Int, button: Int) r: Int
+
+// Check if a button was released this frame. Returns 1 if released.
+extern fun seen_gamepad_button_released(index: Int, button: Int) r: Int
+
+// Check if a button is currently held down. Returns 1 if held.
+extern fun seen_gamepad_button_held(index: Int, button: Int) r: Int
+
+// Get axis value as fixed-point integer (-32768..32767 for sticks, 0..32767 for triggers).
+extern fun seen_gamepad_axis_value(index: Int, axis: Int) r: Int
+
+// Set vibration intensity for left and right motors (0..65535 each).
+extern fun seen_gamepad_set_vibration(index: Int, left: Int, right: Int) r: Void
+
+// Set the deadzone threshold for a gamepad's analog sticks.
+extern fun seen_gamepad_set_deadzone(index: Int, deadzone: Int) r: Void
+
+// ============================================================================
+// GamepadState - snapshot of a single gamepad's inputs
+// ============================================================================
+
+/**
+ * Snapshot of a single gamepad's input state at a point in time.
+ *
+ * Fields use var x = 0 pattern instead of Bool for codegen compatibility.
+ * Button and axis arrays store raw values from the platform layer.
+ */
+class GamepadState {
+    var connected: Int
+    var buttons: Array<Int>
+    var axes: Array<Int>
+
+    /**
+     * Create a zeroed-out gamepad state.
+     */
+    static fun create() r: GamepadState {
+        var btns = Array<Int>()
+        var i = 0
+        while i < GAMEPAD_BUTTON_COUNT {
+            btns.push(0)
+            i = i + 1
+        }
+
+        var ax = Array<Int>()
+        i = 0
+        while i < GAMEPAD_AXIS_COUNT {
+            ax.push(0)
+            i = i + 1
+        }
+
+        return GamepadState {
+            connected: 0,
+            buttons: btns,
+            axes: ax
+        }
+    }
+
+    /**
+     * Get button state (1=held, 0=released).
+     */
+    fun getButton(this, button: Int) r: Int {
+        if button >= 0 and button < GAMEPAD_BUTTON_COUNT {
+            return this.buttons[button]
+        }
+        return 0
+    }
+
+    /**
+     * Get axis value (-32768..32767 for sticks, 0..32767 for triggers).
+     */
+    fun getAxis(this, axis: Int) r: Int {
+        if axis >= 0 and axis < GAMEPAD_AXIS_COUNT {
+            return this.axes[axis]
+        }
+        return 0
+    }
+}
+
+// ============================================================================
+// GamepadManager - high-level cross-platform gamepad manager
+// ============================================================================
+
+/**
+ * Cross-platform gamepad manager.
+ *
+ * Wraps the seen_gamepad_* FFI layer with a convenient polling interface.
+ * Call init() once, poll() each frame, then query button/axis state.
+ *
+ * Example:
+ *   var mgr = GamepadManager.create()
+ *   mgr.init()
+ *   while running {
+ *       mgr.poll()
+ *       if mgr.getButton(0, GAMEPAD_A) == 1 {
+ *           // Jump
+ *       }
+ *       let stickX = mgr.getAxis(0, GAMEPAD_AXIS_LEFT_X)
+ *   }
+ *   mgr.shutdown()
+ */
+class GamepadManager {
+    var initialized: Int
+    var maxPads: Int
+
+    /**
+     * Create an uninitialized gamepad manager.
+     * Call init() before polling.
+     */
+    static fun create() r: GamepadManager {
+        return GamepadManager {
+            initialized: 0,
+            maxPads: 4
+        }
+    }
+
+    /**
+     * Initialize the platform gamepad subsystem.
+     * Returns 0 on success, non-zero on failure.
+     */
+    fun init(this) r: Int {
+        let result = seen_gamepad_init()
+        if result == 0 {
+            this.initialized = 1
+            this.maxPads = seen_gamepad_count()
+        }
+        return result
+    }
+
+    /**
+     * Shut down the gamepad subsystem and release all resources.
+     */
+    fun shutdown(this) r: Void {
+        if this.initialized == 1 {
+            seen_gamepad_shutdown()
+            this.initialized = 0
+        }
+    }
+
+    /**
+     * Poll all gamepads for updated state. Call once per frame.
+     */
+    fun poll(this) r: Void {
+        if this.initialized == 1 {
+            seen_gamepad_poll()
+        }
+    }
+
+    /**
+     * Check if a gamepad at the given index is connected.
+     * Returns 1 if connected, 0 otherwise.
+     */
+    fun isConnected(this, index: Int) r: Int {
+        if this.initialized == 0 {
+            return 0
+        }
+        return seen_gamepad_is_connected(index)
+    }
+
+    /**
+     * Get the display name of a connected gamepad.
+     */
+    fun getName(this, index: Int) r: String {
+        if this.initialized == 0 {
+            return ""
+        }
+        return seen_gamepad_get_name(index)
+    }
+
+    /**
+     * Check if a button is currently held on the specified gamepad.
+     * Returns 1 if held, 0 otherwise.
+     */
+    fun getButton(this, index: Int, button: Int) r: Int {
+        if this.initialized == 0 {
+            return 0
+        }
+        return seen_gamepad_button_held(index, button)
+    }
+
+    /**
+     * Check if a button was just pressed this frame.
+     * Returns 1 if pressed this frame, 0 otherwise.
+     */
+    fun getButtonPressed(this, index: Int, button: Int) r: Int {
+        if this.initialized == 0 {
+            return 0
+        }
+        return seen_gamepad_button_pressed(index, button)
+    }
+
+    /**
+     * Check if a button was just released this frame.
+     * Returns 1 if released this frame, 0 otherwise.
+     */
+    fun getButtonReleased(this, index: Int, button: Int) r: Int {
+        if this.initialized == 0 {
+            return 0
+        }
+        return seen_gamepad_button_released(index, button)
+    }
+
+    /**
+     * Get an axis value for the specified gamepad.
+     * Returns fixed-point integer: -32768..32767 for sticks, 0..32767 for triggers.
+     */
+    fun getAxis(this, index: Int, axis: Int) r: Int {
+        if this.initialized == 0 {
+            return 0
+        }
+        return seen_gamepad_axis_value(index, axis)
+    }
+
+    /**
+     * Set vibration intensity for a gamepad's motors (0..65535 each).
+     */
+    fun setVibration(this, index: Int, left: Int, right: Int) r: Void {
+        if this.initialized == 1 {
+            seen_gamepad_set_vibration(index, left, right)
+        }
+    }
+
+    /**
+     * Set the deadzone threshold for a gamepad's analog sticks.
+     * Values below this threshold are treated as zero by the platform layer.
+     */
+    fun setDeadzone(this, index: Int, deadzone: Int) r: Void {
+        if this.initialized == 1 {
+            seen_gamepad_set_deadzone(index, deadzone)
+        }
+    }
+
+    /**
+     * Take a snapshot of the full state for a gamepad.
+     * Returns a GamepadState with current button/axis values.
+     */
+    fun getState(this, index: Int) r: GamepadState {
+        var state = GamepadState.create()
+        if this.initialized == 0 {
+            return state
+        }
+
+        state.connected = seen_gamepad_is_connected(index)
+        if state.connected == 1 {
+            var i = 0
+            while i < GAMEPAD_BUTTON_COUNT {
+                state.buttons[i] = seen_gamepad_button_held(index, i)
+                i = i + 1
+            }
+            i = 0
+            while i < GAMEPAD_AXIS_COUNT {
+                state.axes[i] = seen_gamepad_axis_value(index, i)
+                i = i + 1
+            }
+        }
+
+        return state
+    }
+}

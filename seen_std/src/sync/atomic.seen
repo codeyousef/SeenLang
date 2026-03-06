@@ -1,0 +1,68 @@
+// Atomic operations — handle-based pattern.
+// AtomicInt/AtomicBool allocate a heap int64_t via __AtomicAlloc and store
+// the pointer-as-int as `handle`. All operations pass the handle to the C
+// runtime which dereferences it, enabling true cross-thread atomic semantics.
+
+class AtomicInt {
+    var handle: Int
+
+    fun new(initial: Int) -> AtomicInt {
+        AtomicInt { handle: __AtomicAlloc(initial) }
+    }
+
+    fun load() -> Int {
+        __AtomicLoad(this.handle)
+    }
+
+    fun load_relaxed() -> Int {
+        __AtomicLoadRelaxed(this.handle)
+    }
+
+    fun load_acquire() -> Int {
+        __AtomicLoadAcquire(this.handle)
+    }
+
+    fun store(val: Int) {
+        __AtomicStore(this.handle, val)
+    }
+
+    fun store_release(val: Int) {
+        __AtomicStoreRelease(this.handle, val)
+    }
+
+    fun add(val: Int) -> Int {
+        __AtomicAdd(this.handle, val)
+    }
+
+    fun sub(val: Int) -> Int {
+        __AtomicSub(this.handle, val)
+    }
+
+    fun compare_exchange(expected: Int, new_val: Int) -> Bool {
+        __AtomicCompareExchange(this.handle, expected, new_val)
+    }
+}
+
+class AtomicBool {
+    var handle: Int
+
+    fun new(initial: Bool) -> AtomicBool {
+        var init = 0
+        if initial {
+            init = 1
+        }
+        AtomicBool { handle: __AtomicAlloc(init) }
+    }
+
+    fun load() -> Bool {
+        __AtomicLoadBool(this.handle)
+    }
+
+    fun store(val: Bool) {
+        __AtomicStoreBool(this.handle, val)
+    }
+
+    fun compare_exchange(expected: Bool, new_val: Bool) -> Bool {
+        __AtomicCompareExchangeBool(this.handle, expected, new_val)
+    }
+}

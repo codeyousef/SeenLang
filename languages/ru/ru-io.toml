@@ -1,0 +1,12 @@
+name = "Russian"
+description = "Russian IO Standard Library"
+
+[std_lib]
+"читатьТекст" = "seen_std.io.file.readText"
+"писатьТекст" = "seen_std.io.file.writeText"
+"удалитьФайл" = "seen_std.io.file.deleteFile"
+"существует" = "seen_std.io.file.exists"
+"дописатьТекст" = "seen_std.io.file.appendText"
+"читатьСтроку" = "seen_std.io.file.readLine"
+"создатьКаталог" = "seen_std.io.file.createDirectory"
+"сброситьВывод" = "seen_std.io.file.flushStdout"

@@ -1,0 +1,36 @@
+name = "Spanish"
+description = "Spanish Builtin Names"
+
+[std_lib]
+# Nombres de tipos
+"entero" = "seen_std.builtins.Int"
+"cadena" = "seen_std.builtins.String"
+"decimal" = "seen_std.builtins.Float"
+"logico" = "seen_std.builtins.Bool"
+"vacío" = "seen_std.builtins.Void"
+"carácter" = "seen_std.builtins.Char"
+
+# Funciones de impresión
+"imprimir" = "seen_std.builtins.println"
+"escribir" = "seen_std.builtins.print"
+"error_imprimir" = "seen_std.builtins.eprintln"
+
+# Punto de entrada
+"principal" = "seen_std.builtins.main"
+
+# Referencia propia
+"esto" = "seen_std.builtins.this"
+
+# Métodos de conversión
+"aTexto" = "seen_std.builtins.toString"
+"aDecimal" = "seen_std.builtins.toFloat"
+"aEntero" = "seen_std.builtins.toInt"
+
+# Métodos de colección
+"longitud" = "seen_std.builtins.length"
+"agregar" = "seen_std.builtins.push"
+"obtener" = "seen_std.builtins.get"
+"poner" = "seen_std.builtins.put"
+
+# Constructor
+"nuevo" = "seen_std.builtins.new"

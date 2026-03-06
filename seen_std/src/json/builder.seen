@@ -1,0 +1,363 @@
+// JSON Builder
+// Builds JSON strings from JsonValue objects or incrementally
+
+import json.value.{JsonValue, JSON_NULL, JSON_BOOL, JSON_NUMBER, JSON_STRING, JSON_ARRAY, JSON_OBJECT}
+
+// Fluent JSON builder for constructing JSON strings incrementally
+// Uses String concatenation to avoid StringBuilder dependency
+class JsonBuilder {
+    var buffer: String
+    var needsComma: Int
+    var depth: Int
+
+    // Start a new object
+    fun startObject() r: JsonBuilder {
+        this.maybeComma()
+        this.buffer = this.buffer + "{"
+        this.needsComma = 0
+        this.depth = this.depth + 1
+        return this
+    }
+
+    // End the current object
+    fun endObject() r: JsonBuilder {
+        this.buffer = this.buffer + "}"
+        this.needsComma = 1
+        this.depth = this.depth - 1
+        return this
+    }
+
+    // Start a new array
+    fun startArray() r: JsonBuilder {
+        this.maybeComma()
+        this.buffer = this.buffer + "["
+        this.needsComma = 0
+        this.depth = this.depth + 1
+        return this
+    }
+
+    // End the current array
+    fun endArray() r: JsonBuilder {
+        this.buffer = this.buffer + "]"
+        this.needsComma = 1
+        this.depth = this.depth - 1
+        return this
+    }
+
+    // Add a key (for object properties)
+    fun key(name: String) r: JsonBuilder {
+        this.maybeComma()
+        this.buffer = this.buffer + escapeJsonString(name)
+        this.buffer = this.buffer + ":"
+        this.needsComma = 0
+        return this
+    }
+
+    // Add null value
+    fun nullValue() r: JsonBuilder {
+        this.maybeComma()
+        this.buffer = this.buffer + "null"
+        this.needsComma = 1
+        return this
+    }
+
+    // Add boolean value
+    fun bool(value: Int) r: JsonBuilder {
+        this.maybeComma()
+        if value == 1 {
+            this.buffer = this.buffer + "true"
+        } else {
+            this.buffer = this.buffer + "false"
+        }
+        this.needsComma = 1
+        return this
+    }
+
+    // Add integer value
+    fun number(value: Int) r: JsonBuilder {
+        this.maybeComma()
+        this.buffer = this.buffer + value.toString()
+        this.needsComma = 1
+        return this
+    }
+
+    // Add float value (uses integer representation)
+    fun numberFloat(value: Float) r: JsonBuilder {
+        this.maybeComma()
+        this.buffer = this.buffer + value.toInt().toString()
+        this.needsComma = 1
+        return this
+    }
+
+    // Add string value
+    fun string(value: String) r: JsonBuilder {
+        this.maybeComma()
+        this.buffer = this.buffer + escapeJsonString(value)
+        this.needsComma = 1
+        return this
+    }
+
+    // Add raw JSON (already formatted)
+    fun raw(json: String) r: JsonBuilder {
+        this.maybeComma()
+        this.buffer = this.buffer + json
+        this.needsComma = 1
+        return this
+    }
+
+    // Convenience: add a key-value pair with string value
+    fun stringProp(key: String, value: String) r: JsonBuilder {
+        this.key(key)
+        return this.string(value)
+    }
+
+    // Convenience: add a key-value pair with int value
+    fun intProp(key: String, value: Int) r: JsonBuilder {
+        this.key(key)
+        return this.number(value)
+    }
+
+    // Convenience: add a key-value pair with bool value
+    fun boolProp(key: String, value: Int) r: JsonBuilder {
+        this.key(key)
+        return this.bool(value)
+    }
+
+    // Convenience: add a key-value pair with null value
+    fun nullProp(key: String) r: JsonBuilder {
+        this.key(key)
+        return this.nullValue()
+    }
+
+    // Internal: add comma if needed
+    fun maybeComma() r: Void {
+        if this.needsComma == 1 {
+            this.buffer = this.buffer + ","
+        }
+    }
+
+    // Build the final JSON string
+    fun build() r: String {
+        return this.buffer
+    }
+
+    // Reset the builder for reuse
+    fun reset() r: Void {
+        this.buffer = ""
+        this.needsComma = 0
+        this.depth = 0
+    }
+}
+
+// Free function (formerly static method on JsonBuilder)
+
+fun JsonBuilder_new() r: JsonBuilder {
+    let builder = JsonBuilder()
+    builder.buffer = ""
+    builder.needsComma = 0
+    builder.depth = 0
+    return builder
+}
+
+// Escape a string for JSON (adds quotes and escapes special chars)
+fun escapeJsonString(input: String) r: String {
+    var result = "\""
+    var i = 0
+    let len = input.length()
+
+    while i < len {
+        let ch = input.charAt(i)
+
+        var escaped = ""
+        var wasEscaped = 0
+        if ch == 34 { escaped = "\\\""; wasEscaped = 1 }
+        if ch == 92 and wasEscaped == 0 { escaped = "\\\\"; wasEscaped = 1 }
+        if ch == 10 and wasEscaped == 0 { escaped = "\\n"; wasEscaped = 1 }
+        if ch == 13 and wasEscaped == 0 { escaped = "\\r"; wasEscaped = 1 }
+        if ch == 9 and wasEscaped == 0 { escaped = "\\t"; wasEscaped = 1 }
+        if ch == 8 and wasEscaped == 0 { escaped = "\\b"; wasEscaped = 1 }
+        if ch == 12 and wasEscaped == 0 { escaped = "\\f"; wasEscaped = 1 }
+        if wasEscaped == 1 {
+            result = result + escaped
+        } else {
+            if ch < 32 {
+                // Other control characters - use \uXXXX
+                result = result + "\\u00"
+                if ch < 16 {
+                    result = result + "0"
+                }
+                result = result + toHex(ch)
+            } else {
+                result = result + String.fromCharCode(ch)
+            }
+        }
+
+        i = i + 1
+    }
+
+    return result + "\""
+}
+
+// Convert a byte to hex string
+fun toHex(value: Int) r: String {
+    let hexChars = "0123456789abcdef"
+    var high = value / 16
+    var low = value % 16
+    if high < 0 { high = 0 }
+    if low < 0 { low = 0 }
+    if high > 15 { high = 15 }
+    if low > 15 { low = 15 }
+    return String.fromCharCode(hexChars.charAt(high)) + String.fromCharCode(hexChars.charAt(low))
+}
+
+// Convert a JsonValue to a JSON string
+// Named jsonToString (not toJson) to avoid classMethodBaseNames collision
+// with LSP class methods also named toJson (LspPosition.toJson, etc.)
+fun jsonToString(value: JsonValue) r: String {
+    if value.isNull() {
+        return "null"
+    }
+
+    if value.isBool() {
+        if value.boolValue {
+            return "true"
+        }
+        return "false"
+    }
+
+    if value.isNumber() {
+        // JSON number formatting: truncate to integer for simplicity
+        let num = value.getNumber()
+        let intVal = num.toInt()
+        return intVal.toString()
+    }
+
+    if value.isString() {
+        return escapeJsonString(value.getString())
+    }
+
+    if value.isArray() {
+        var result = "["
+        let arr = value.getArray()
+        var i = 0
+        while i < arr.length() {
+            if i > 0 {
+                result = result + ","
+            }
+            result = result + jsonToString(arr[i])
+            i = i + 1
+        }
+        return result + "]"
+    }
+
+    if value.isObject() {
+        var result = "{"
+        let keys = value.keys()
+        var i = 0
+        while i < keys.length() {
+            if i > 0 {
+                result = result + ","
+            }
+            result = result + escapeJsonString(keys[i])
+            result = result + ":"
+            let val = value.get(keys[i])
+            if val != null {
+                result = result + jsonToString(val.unwrap())
+            } else {
+                result = result + "null"
+            }
+            i = i + 1
+        }
+        return result + "}"
+    }
+
+    return "null"
+}
+
+// Pretty print JSON with indentation
+fun toJsonPretty(value: JsonValue, indent: Int) r: String {
+    return toJsonPrettyHelper(value, indent, 0)
+}
+
+fun toJsonPrettyHelper(value: JsonValue, indentSize: Int, depth: Int) r: String {
+    if value.isNull() {
+        return "null"
+    }
+
+    if value.isBool() {
+        if value.boolValue {
+            return "true"
+        }
+        return "false"
+    }
+
+    if value.isNumber() {
+        // JSON number formatting: truncate to integer for simplicity
+        let num = value.getNumber()
+        let intVal = num.toInt()
+        return intVal.toString()
+    }
+
+    if value.isString() {
+        return escapeJsonString(value.getString())
+    }
+
+    let indent = makeIndent(indentSize, depth)
+    let nextIndent = makeIndent(indentSize, depth + 1)
+
+    if value.isArray() {
+        let arr = value.getArray()
+        if arr.length() == 0 {
+            return "[]"
+        }
+
+        var result = "[\n"
+        var i = 0
+        while i < arr.length() {
+            if i > 0 {
+                result = result + ",\n"
+            }
+            result = result + nextIndent + toJsonPrettyHelper(arr[i], indentSize, depth + 1)
+            i = i + 1
+        }
+        return result + "\n" + indent + "]"
+    }
+
+    if value.isObject() {
+        let keys = value.keys()
+        if keys.length() == 0 {
+            return "{}"
+        }
+
+        var result = "{\n"
+        var i = 0
+        while i < keys.length() {
+            if i > 0 {
+                result = result + ",\n"
+            }
+            result = result + nextIndent + escapeJsonString(keys[i]) + ": "
+            let val = value.get(keys[i])
+            if val != null {
+                result = result + toJsonPrettyHelper(val.unwrap(), indentSize, depth + 1)
+            } else {
+                result = result + "null"
+            }
+            i = i + 1
+        }
+        return result + "\n" + indent + "}"
+    }
+
+    return "null"
+}
+
+// Helper to create indentation string
+fun makeIndent(size: Int, depth: Int) r: String {
+    var result = ""
+    var i = 0
+    let total = size * depth
+    while i < total {
+        result = result + " "
+        i = i + 1
+    }
+    return result
+}

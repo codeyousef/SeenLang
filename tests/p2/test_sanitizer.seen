@@ -1,0 +1,7 @@
+fun main() r: Int {
+    var x = 10
+    var y = 20
+    let z = x + y
+    println("PASS: sanitizer")
+    return 0
+}

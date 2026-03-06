@@ -1,0 +1,6 @@
+// Minimal WebAssembly sample for wasm32 targets
+
+fun main() -> Int {
+    let value = 42
+    return value
+}

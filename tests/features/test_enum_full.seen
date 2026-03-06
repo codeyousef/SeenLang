@@ -1,0 +1,175 @@
+// Enum Feature Test
+// Tests: enum declaration, value access, comparison
+// Expected: Enum features work correctly
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+    Yellow
+}
+
+enum Status {
+    Pending,
+    Active,
+    Completed,
+    Failed
+}
+
+enum Priority {
+    Low,
+    Medium,
+    High,
+    Critical
+}
+
+fun colorToInt(c: Color) r: Int {
+    if c == Color.Red { return 1 }
+    if c == Color.Green { return 2 }
+    if c == Color.Blue { return 3 }
+    if c == Color.Yellow { return 4 }
+    return 0
+}
+
+fun statusToInt(s: Status) r: Int {
+    if s == Status.Pending { return 0 }
+    if s == Status.Active { return 1 }
+    if s == Status.Completed { return 2 }
+    if s == Status.Failed { return -1 }
+    return 0
+}
+
+fun isPriorityHigh(p: Priority) r: Bool {
+    if p == Priority.High { return true }
+    if p == Priority.Critical { return true }
+    return false
+}
+
+fun main() r: Int {
+    println("Testing Enum Features...")
+
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Enum value assignment
+    println("\n=== Test 1: Enum Value Assignment ===")
+    let myColor = Color.Red
+    println("Assigned Color.Red")
+    passed = passed + 1
+    println("PASS: Enum value assignment works")
+
+    // Test 2: Enum comparison
+    println("\n=== Test 2: Enum Comparison ===")
+    let color1 = Color.Blue
+    let color2 = Color.Blue
+    let color3 = Color.Red
+    if color1 == color2 {
+        println("PASS: Equal enum values compare as equal")
+        passed = passed + 1
+    } else {
+        println("FAIL: Equal enum values not equal")
+        failed = failed + 1
+    }
+
+    // Test 3: Enum inequality
+    println("\n=== Test 3: Enum Inequality ===")
+    if color1 != color3 {
+        println("PASS: Different enum values compare as not equal")
+        passed = passed + 1
+    } else {
+        println("FAIL: Different enum values compare as equal")
+        failed = failed + 1
+    }
+
+    // Test 4: Enum as function parameter
+    println("\n=== Test 4: Enum as Function Parameter ===")
+    let redValue = colorToInt(Color.Red)
+    if redValue == 1 {
+        println("PASS: Enum as function parameter works")
+        passed = passed + 1
+    } else {
+        println("FAIL: colorToInt(Red) = " + redValue.toString() + ", expected 1")
+        failed = failed + 1
+    }
+
+    // Test 5: Pattern matching on enum
+    println("\n=== Test 5: Pattern Matching on Enum ===")
+    let greenValue = colorToInt(Color.Green)
+    if greenValue == 2 {
+        println("PASS: Pattern matching on enum works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Pattern matching failed")
+        failed = failed + 1
+    }
+
+    // Test 6: Multiple enum types
+    println("\n=== Test 6: Multiple Enum Types ===")
+    let status = Status.Active
+    let statusValue = statusToInt(status)
+    if statusValue == 1 {
+        println("PASS: Multiple enum types work independently")
+        passed = passed + 1
+    } else {
+        println("FAIL: Multiple enum types interfere")
+        failed = failed + 1
+    }
+
+    // Test 7: Priority check with function
+    println("\n=== Test 7: Priority Function ===")
+    let priority = Priority.Medium
+    if not isPriorityHigh(priority) {
+        println("PASS: Priority check works")
+        passed = passed + 1
+    } else {
+        println("FAIL: Priority check failed")
+        failed = failed + 1
+    }
+
+    // Test 8: High priority check
+    println("\n=== Test 8: High Priority Check ===")
+    let highPriority = Priority.Critical
+    if isPriorityHigh(highPriority) {
+        println("PASS: High priority detected correctly")
+        passed = passed + 1
+    } else {
+        println("FAIL: High priority not detected")
+        failed = failed + 1
+    }
+
+    // Test 9: All enum values accessible
+    println("\n=== Test 9: All Enum Values Accessible ===")
+    let c1 = Color.Red
+    let c2 = Color.Green
+    let c3 = Color.Blue
+    let c4 = Color.Yellow
+    println("PASS: All enum values accessible")
+    passed = passed + 1
+
+    // Test 10: Enum values are distinct
+    println("\n=== Test 10: Enum Values Distinct ===")
+    let v1 = colorToInt(Color.Red)
+    let v2 = colorToInt(Color.Green)
+    let v3 = colorToInt(Color.Blue)
+    let v4 = colorToInt(Color.Yellow)
+    if v1 != v2 and v2 != v3 and v3 != v4 {
+        println("PASS: All enum values are distinct")
+        passed = passed + 1
+    } else {
+        println("FAIL: Enum values are not distinct")
+        failed = failed + 1
+    }
+
+    // Summary
+    println("\n==================================================")
+    println("Enum Features Results: " + passed.toString() + "/" + (passed + failed).toString())
+    println("==================================================")
+
+    if failed > 0 {
+        println("FAIL: Some enum tests failed")
+        return 1
+    }
+
+    println("PASS: All enum tests passed!")
+    return 0
+}

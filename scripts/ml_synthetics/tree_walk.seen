@@ -1,0 +1,127 @@
+// Synthetic: Tree/graph traversal workload
+// Represents: compilers (AST), databases (B-trees), DOM processing
+
+class TreeNode {
+    var value: Int
+    var left: Int   // index into flat array (-1 = null)
+    var right: Int  // index into flat array (-1 = null)
+    var depth: Int
+}
+
+fun buildBalancedTree(nodes: Array<TreeNode>, parentIdx: Int, depth: Int, maxDepth: Int) r: Void {
+    if depth >= maxDepth { return }
+    let node = nodes[parentIdx]
+
+    // Create left child
+    let leftIdx = nodes.length()
+    let leftNode = TreeNode()
+    leftNode.value = node.value * 2
+    leftNode.left = 0 - 1
+    leftNode.right = 0 - 1
+    leftNode.depth = depth
+    nodes.push(leftNode)
+    node.left = leftIdx
+
+    // Create right child
+    let rightIdx = nodes.length()
+    let rightNode = TreeNode()
+    rightNode.value = node.value * 2 + 1
+    rightNode.left = 0 - 1
+    rightNode.right = 0 - 1
+    rightNode.depth = depth
+    nodes.push(rightNode)
+    node.right = rightIdx
+
+    // Recurse
+    buildBalancedTree(nodes, leftIdx, depth + 1, maxDepth)
+    buildBalancedTree(nodes, rightIdx, depth + 1, maxDepth)
+}
+
+fun sumTree(nodes: Array<TreeNode>, idx: Int) r: Int {
+    if idx < 0 { return 0 }
+    if idx >= nodes.length() { return 0 }
+    let node = nodes[idx]
+    return node.value + sumTree(nodes, node.left) + sumTree(nodes, node.right)
+}
+
+fun treeHeight(nodes: Array<TreeNode>, idx: Int) r: Int {
+    if idx < 0 { return 0 }
+    if idx >= nodes.length() { return 0 }
+    let node = nodes[idx]
+    let lh = treeHeight(nodes, node.left)
+    let rh = treeHeight(nodes, node.right)
+    if lh > rh { return lh + 1 }
+    return rh + 1
+}
+
+fun countLeaves(nodes: Array<TreeNode>, idx: Int) r: Int {
+    if idx < 0 { return 0 }
+    if idx >= nodes.length() { return 0 }
+    let node = nodes[idx]
+    if node.left < 0 and node.right < 0 { return 1 }
+    return countLeaves(nodes, node.left) + countLeaves(nodes, node.right)
+}
+
+fun inorderTraversal(nodes: Array<TreeNode>, idx: Int, result: Array<Int>) r: Void {
+    if idx < 0 { return }
+    if idx >= nodes.length() { return }
+    let node = nodes[idx]
+    inorderTraversal(nodes, node.left, result)
+    result.push(node.value)
+    inorderTraversal(nodes, node.right, result)
+}
+
+fun findInTree(nodes: Array<TreeNode>, idx: Int, target: Int) r: Bool {
+    if idx < 0 { return false }
+    if idx >= nodes.length() { return false }
+    let node = nodes[idx]
+    if node.value == target { return true }
+    if findInTree(nodes, node.left, target) { return true }
+    return findInTree(nodes, node.right, target)
+}
+
+fun main() r: Void {
+    var nodes = Array<TreeNode>()
+
+    // Root
+    let root = TreeNode()
+    root.value = 1
+    root.left = 0 - 1
+    root.right = 0 - 1
+    root.depth = 0
+    nodes.push(root)
+
+    // Build balanced tree of depth 12 (~4095 nodes)
+    buildBalancedTree(nodes, 0, 1, 12)
+    println("Tree size: " + nodes.length().toString())
+
+    // Traverse and measure
+    let sum = sumTree(nodes, 0)
+    println("Sum: " + sum.toString())
+
+    let height = treeHeight(nodes, 0)
+    println("Height: " + height.toString())
+
+    let leaves = countLeaves(nodes, 0)
+    println("Leaves: " + leaves.toString())
+
+    // Inorder traversal
+    var inorder = Array<Int>()
+    inorderTraversal(nodes, 0, inorder)
+    println("Inorder size: " + inorder.length().toString())
+
+    // Search
+    let found42 = findInTree(nodes, 0, 42)
+    if found42 {
+        println("Found 42: yes")
+    } else {
+        println("Found 42: no")
+    }
+
+    let found99999 = findInTree(nodes, 0, 99999)
+    if found99999 {
+        println("Found 99999: yes")
+    } else {
+        println("Found 99999: no")
+    }
+}

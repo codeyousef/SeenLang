@@ -1,0 +1,234 @@
+// interfaces.seen — Core type system definitions for the Seen compiler
+//
+// Pipeline stage: Stage 3 (type checking), also consumed by Stages 4-5
+// Input: ProgramNode AST from the parser
+// Output: TypeInferenceResult with errors/warnings and enriched environment
+//
+// This file defines the type representation (Type, FunctionType, ClassType),
+// the error types (TypeError with SourceLocation), the scoped symbol table
+// (Environment), and the TypeChecker class itself.
+//
+// IMPORTANT: The TypeChecker methods here are intentionally minimal stubs.
+// The real heavy lifting of type validation happens in:
+//   - determinism.seen (HashMap/HashSet determinism enforcement)
+//   - capability.seen (capability-based safety checks)
+//   - checker_utils.seen (shared type checking utilities)
+//   - The specialized domain checkers (region, SIMD, tee, etc.)
+//
+// The stub design is deliberate for bootstrap determinism: the type checker
+// must be side-effect free and produce identical results across compiler
+// stages. The actual type enforcement is primarily done at the IR generation
+// stage (llvm_ir_gen.seen) where concrete LLVM types are resolved.
+
+import parser.real_parser.{ProgramNode, FunctionNode, ClassNode}
+
+class AST {
+    var functions: Array<FunctionNode>
+    var classes: Array<ClassNode>
+}
+class Function {}
+class Expression {
+    var line: Int
+    var column: Int
+}
+class Statement {
+    var line: Int
+    var column: Int
+}
+class Class {}
+class Interface {}
+
+// Represents a Seen type. Used throughout the compiler for type checking,
+// inference results, and error reporting. Nullable types use isNullable=true
+// (displayed as "TypeName?" in toString()).
+class Type {
+    var name: String
+    var isNullable: Bool
+
+    static fun new(name: String, isNullable: Bool = false) r: Type {
+        return Type{ name: name, isNullable: isNullable }
+    }
+
+    fun getName() r: String { return name }
+
+    fun toString() r: String {
+        if isNullable {
+            return name + "?"
+        }
+        return name
+    }
+}
+
+fun typeInt() r: Type { return Type.new("Int") }
+fun typeFloat() r: Type { return Type.new("Float") }
+fun typeString() r: Type { return Type.new("String") }
+fun typeBool() r: Type { return Type.new("Bool") }
+fun typeVoid() r: Type { return Type.new("()") }
+fun typeUnit() r: Type { return typeVoid() }
+fun typeAny() r: Type { return Type.new("Any") }
+fun typeNever() r: Type { return Type.new("Never") }
+fun typeUnknown() r: Type { return Type.new("Unknown") }
+
+class FunctionType {
+    var parameters: Array<Type>
+    var returnType: Type
+    var isAsync: Bool
+
+    fun new(parameters: Array<Type>, returnType: Type, isAsync: Bool = false) r: FunctionType {
+        let f = FunctionType()
+        f.parameters = parameters
+        f.returnType = returnType
+        f.isAsync = isAsync
+        return f
+    }
+}
+
+class ClassType {
+    var name: String
+
+    fun new(name: String) r: ClassType {
+        let c = ClassType()
+        c.name = name
+        return c
+    }
+}
+
+class InterfaceType {
+    var name: String
+
+    fun new(name: String) r: InterfaceType {
+        let i = InterfaceType()
+        i.name = name
+        return i
+    }
+}
+
+class SourceLocation {
+    var line: Int
+    var column: Int
+    var file: String
+
+    fun new(line: Int, column: Int, file: String = "") r: SourceLocation {
+        let loc = SourceLocation()
+        loc.line = line
+        loc.column = column
+        loc.file = file
+        return loc
+    }
+}
+
+// A type mismatch or validation error. Carries the expected vs actual types
+// and source location for diagnostic reporting. The context field provides
+// additional info (e.g. "in return statement", "in assignment").
+// NOTE: Direct field access is used instead of getter methods to avoid
+// duplicate-declare conflicts with stage1_frozen's hardcoded IR declarations.
+class TypeError {
+    var message: String
+    var location: SourceLocation
+    var expected: Type
+    var actual: Type
+    var context: String
+
+    fun new(message: String, location: SourceLocation, expected: Type, actual: Type, context: String = "") r: TypeError {
+        let err = TypeError()
+        err.message = message
+        err.location = location
+        err.expected = expected
+        err.actual = actual
+        err.context = context
+        return err
+    }
+
+    // Note: accessor methods not defined here.
+    // Callers use direct field access (error.message, error.location, etc.)
+    // to avoid duplicate declares with stage1_frozen's hardcoded ir_declarations.
+}
+
+// Scoped symbol table for type checking. Supports nested scopes via the
+// optional parent pointer — push_scope creates a child, pop_scope returns
+// to parent. Methods are stubs; real scope resolution happens in the IR
+// generator's varNames[]/varTypes[]/structFieldNames[] arrays.
+class Environment {
+    var parent: Environment?
+
+    static fun new(parent: Environment? = null) r: Environment {
+        return Environment{ parent: parent }
+    }
+
+    fun define(name: String, type: Type) r: Void { return }
+    fun lookup(name: String) r: Type { return typeUnknown() }
+    fun defineFunction(name: String, functionType: FunctionType) r: Void { return }
+    fun lookupFunction(name: String) r: FunctionType { return FunctionType.new(Array<Type>(), typeUnknown()) }
+    fun defineClass(name: String, classType: ClassType) r: Void { return }
+    fun lookupClass(name: String) r: ClassType { return ClassType.new("") }
+}
+
+class TypeInferenceResult {
+    var success: Bool
+    var type: Type
+    var errors: Array<TypeError>
+    var warnings: Array<String>
+    var environment: Environment
+
+    static fun new(success: Bool, type: Type, environment: Environment) r: TypeInferenceResult {
+        return TypeInferenceResult{
+            success: success,
+            type: type,
+            errors: Array<TypeError>(),
+            warnings: Array<String>(),
+            environment: environment
+        }
+    }
+
+    fun addError(error: TypeError) r: Void {
+        errors.push(error)
+        success = false
+    }
+
+    fun addWarning(warning: String) r: Void { warnings.push(warning) }
+    fun getVariableType(name: String) r: Type? { return environment.lookup(name) }
+}
+
+// Main type checker class. Currently a pass-through that always succeeds —
+// real type validation is deferred to the LLVM IR generator (Stage 5).
+// The methods below define the API contract that future full type checking
+// will implement: expression inference, type unification, smart casting,
+// and method resolution.
+class TypeChecker {
+    var environment: Environment
+    var errors: Array<TypeError>
+    var warnings: Array<String>
+    var strictMode: Bool
+
+    static fun new() r: TypeChecker {
+        return TypeChecker{
+            environment: Environment.new(),
+            errors: Array<TypeError>(),
+            warnings: Array<String>(),
+            strictMode: true
+        }
+    }
+
+    fun check(ast: ProgramNode) r: TypeInferenceResult { return TypeInferenceResult.new(true, typeVoid(), environment) }
+    fun checkFunction(function: Function) r: Type { return typeVoid() }
+    fun checkExpression(expression: Expression) r: Type { return typeUnknown() }
+    fun checkStatement(statement: Statement) r: Void { return }
+    fun checkClass(classNode: Class) r: ClassType { return ClassType.new("") }
+    fun checkInterface(interfaceNode: Interface) r: InterfaceType { return InterfaceType.new("") }
+    fun inferType(expression: Expression) r: Type { return typeUnknown() }
+    fun unifyTypes(type1: Type, type2: Type) r: Type { return if type1.name == type2.name { type1 } else { typeUnknown() } }
+    fun isAssignableFrom(target: Type, source: Type) r: Bool { return target.name == source.name or target.name == typeAny().name }
+    fun resolveMethod(className: String, methodName: String, args: Array<Type>) r: FunctionType { return FunctionType.new(Array<Type>(), typeUnknown()) }
+    fun performSmartCast(variable: String, type: Type, condition: String) r: Void { return }
+    fun setStrictMode(enabled: Bool) r: Void { strictMode = enabled }
+    fun getErrors() r: Array<TypeError> { return errors }
+    fun getWarnings() r: Array<String> { return warnings }
+    fun clearErrors() r: Void { errors = Array<TypeError>(); warnings = Array<String>() }
+}
+
+fun typeCheckSource(source: String, language: String = "en") r: TypeInferenceResult {
+    return TypeInferenceResult.new(true, typeVoid(), Environment.new())
+}
+
+fun createTypeChecker() r: TypeChecker { return TypeChecker.new() }
+fun createType(name: String, nullable: Bool = false) r: Type { return Type.new(name, nullable) }

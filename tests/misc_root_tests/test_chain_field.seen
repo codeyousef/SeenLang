@@ -1,0 +1,13 @@
+class Inner {
+    value: Int
+}
+
+class Outer {
+    inner: Inner
+}
+
+fun main() -> Int {
+    let o = Outer { inner: Inner { value: 42 } }
+    let v = o.inner.value
+    v
+}

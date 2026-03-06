@@ -1,0 +1,10 @@
+name = "Spanish"
+description = "Spanish Variable Declaration Keywords"
+
+[keywords]
+"sea" = "KeywordLet"
+"mutable" = "KeywordMut"
+"constante" = "KeywordConst"
+"estático" = "KeywordStatic"
+"valor" = "KeywordVal"
+"variable" = "KeywordVar"

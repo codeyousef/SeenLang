@@ -1,0 +1,33 @@
+// Test basic macro functionality
+// This test verifies that user-defined macros can transform functions at compile time
+
+// Define a macro that wraps a function body with logging
+@macro
+fun logged(target: AstNode) r: AstNode {
+    let name = target.name()
+    let enter = AstNode.newCall("println", ["Entering: " + name])
+    let exit = AstNode.newCall("println", ["Exiting: " + name])
+    return target.wrapBody(enter, exit)
+}
+
+// Apply the macro to a function
+@logged
+fun myFunction() r: Void {
+    println("Inside function")
+}
+
+// Simple function without macro to ensure normal functions still work
+fun normalFunction() r: Void {
+    println("Normal function")
+}
+
+fun main() r: Int {
+    myFunction()
+    normalFunction()
+    // Expected output:
+    // Entering: myFunction
+    // Inside function
+    // Exiting: myFunction
+    // Normal function
+    return 0
+}

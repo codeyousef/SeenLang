@@ -1,0 +1,290 @@
+// Struct Layout Definitions for Bootstrap Safety
+//
+// This file provides canonical struct layouts that ensure consistency between:
+// - Parser struct definitions (real_parser.seen)
+// - LLVM codegen field access (llvm_ir_gen.seen)
+// - Runtime memory layouts
+//
+// CRITICAL: When adding fields to AST structs, update this file FIRST,
+// then update the struct definition and codegen together.
+//
+// Field indices are 0-based and must match the declaration order exactly.
+
+// ============================================================================
+// Layout Information Classes
+// ============================================================================
+
+class FieldLayout {
+    var name: String
+    var fieldType: String
+    var llvmType: String
+    var index: Int
+
+    static fun new(name: String, fieldType: String, llvmType: String, index: Int) r: FieldLayout {
+        return FieldLayout{
+            name: name,
+            fieldType: fieldType,
+            llvmType: llvmType,
+            index: index
+        }
+    }
+}
+
+class StructLayout {
+    var name: String
+    var fields: Array<FieldLayout>
+    var totalFields: Int
+
+    static fun new(name: String) r: StructLayout {
+        return StructLayout{
+            name: name,
+            fields: Array<FieldLayout>(),
+            totalFields: 0
+        }
+    }
+
+    fun addField(name: String, fieldType: String, llvmType: String) r: Void {
+        let field = FieldLayout.new(name, fieldType, llvmType, this.totalFields)
+        this.fields.push(field)
+        this.totalFields = this.totalFields + 1
+    }
+
+    fun getFieldIndex(fieldName: String) r: Int {
+        var i = 0
+        while i < this.fields.length() {
+            if this.fields[i].name == fieldName {
+                return this.fields[i].index
+            }
+            i = i + 1
+        }
+        return -1  // Not found
+    }
+
+    fun getFieldType(fieldName: String) r: String {
+        var i = 0
+        while i < this.fields.length() {
+            if this.fields[i].name == fieldName {
+                return this.fields[i].fieldType
+            }
+            i = i + 1
+        }
+        return ""  // Not found
+    }
+
+    fun getLLVMType(fieldName: String) r: String {
+        var i = 0
+        while i < this.fields.length() {
+            if this.fields[i].name == fieldName {
+                return this.fields[i].llvmType
+            }
+            i = i + 1
+        }
+        return ""  // Not found
+    }
+}
+
+// ============================================================================
+// AST Node Layouts
+// ============================================================================
+
+// FunctionNode layout - matches real_parser.seen class FunctionNode
+// IMPORTANT: Field order MUST match the class definition exactly
+fun getFunctionNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("FunctionNode")
+
+    // Fields in declaration order (indices 0-12) -- matches FunctionNode class in real_parser.seen
+    layout.addField("name", "String", "%SeenString")                           // 0
+    layout.addField("params", "Array<ParamNode>", "ptr")                       // 1
+    layout.addField("returnType", "TypeNode", "ptr")                           // 2
+    layout.addField("body", "BlockNode", "ptr")                                // 3
+    layout.addField("isAsync", "Bool", "i1")                                   // 4
+    layout.addField("isInline", "Bool", "i1")                                  // 5
+    layout.addField("isStatic", "Bool", "i1")                                  // 6
+    layout.addField("isExtern", "Bool", "i1")                                  // 7
+    layout.addField("isDeterministic", "Bool", "i1")                           // 8
+    layout.addField("isNondeterministic", "Bool", "i1")                        // 9
+    layout.addField("decorators", "Array<AnnotationNode>", "ptr")              // 10
+    layout.addField("line", "Int", "i64")                                      // 11
+    layout.addField("column", "Int", "i64")                                    // 12
+    layout.addField("isOverride", "Bool", "i1")                                // 13
+
+    return layout
+}
+
+// ProgramNode layout
+fun getProgramNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("ProgramNode")
+    layout.addField("items", "Array<ItemNode>", "ptr")                         // 0
+    return layout
+}
+
+// ItemNode layout
+fun getItemNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("ItemNode")
+    layout.addField("itemType", "String", "%SeenString")                       // 0
+    layout.addField("name", "String", "%SeenString")                           // 1
+    layout.addField("visibility", "String", "%SeenString")                     // 2
+    layout.addField("importPath", "String", "%SeenString")                     // 3
+    layout.addField("importSymbols", "Array<ImportSymbolNode>", "ptr")         // 4
+    layout.addField("function", "FunctionNode", "ptr")                         // 5
+    layout.addField("classNode", "ClassNode", "ptr")                           // 6
+    layout.addField("enumNode", "EnumNode", "ptr")                             // 7
+    return layout
+}
+
+// StatementNode layout (must match class def in real_parser.seen)
+fun getStatementNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("StatementNode")
+    layout.addField("kind", "String", "%SeenString")                           // 0
+    layout.addField("variableName", "String", "%SeenString")                   // 1
+    layout.addField("variableType", "TypeNode", "%TypeNode")                   // 2
+    layout.addField("initializer", "ParserExpressionNode", "i64")              // 3
+    layout.addField("returnValue", "ParserExpressionNode", "i64")              // 4
+    layout.addField("expression", "ParserExpressionNode", "i64")               // 5
+    layout.addField("condition", "ParserExpressionNode", "i64")                // 6
+    layout.addField("thenBranch", "BlockNode", "i64")                          // 7
+    layout.addField("elseBranch", "BlockNode", "i64")                          // 8
+    layout.addField("loopCondition", "ParserExpressionNode", "i64")            // 9
+    layout.addField("loopBody", "BlockNode", "i64")                            // 10
+    return layout
+}
+
+// ParserExpressionNode layout (must match class def in real_parser.seen)
+fun getParserExpressionNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("ParserExpressionNode")
+    layout.addField("kind", "String", "%SeenString")                           // 0
+    layout.addField("operands", "Array<ParserExpressionNode>", "ptr")          // 1
+    layout.addField("operator", "String", "%SeenString")                       // 2
+    layout.addField("literalValue", "String", "%SeenString")                   // 3
+    layout.addField("literalType", "String", "%SeenString")                    // 4
+    layout.addField("variableName", "String", "%SeenString")                   // 5
+    layout.addField("callee", "String", "%SeenString")                         // 6
+    layout.addField("arguments", "Array<ParserExpressionNode>", "ptr")         // 7
+    return layout
+}
+
+// BlockNode layout
+fun getBlockNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("BlockNode")
+    layout.addField("statements", "Array<StatementNode>", "ptr")               // 0
+    return layout
+}
+
+// ClassNode layout
+fun getClassNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("ClassNode")
+    layout.addField("name", "String", "%SeenString")                           // 0
+    layout.addField("fields", "Array<ParamNode>", "ptr")                       // 1
+    layout.addField("methods", "Array<FunctionNode>", "ptr")                   // 2
+    layout.addField("decorators", "Array<AnnotationNode>", "ptr")              // 3
+    layout.addField("isNondeterministic", "Bool", "i1")                        // 4
+    layout.addField("parentName", "String", "%SeenString")                     // 5
+    return layout
+}
+
+// TypeNode layout
+fun getTypeNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("TypeNode")
+    layout.addField("typeName", "String", "%SeenString")                       // 0
+    layout.addField("isOptional", "Bool", "i1")                                // 1
+    layout.addField("isArray", "Bool", "i1")                                   // 2
+    layout.addField("genericParams", "Array<TypeNode>", "ptr")                 // 3
+    return layout
+}
+
+// ParamNode layout
+fun getParamNodeLayout() r: StructLayout {
+    let layout = StructLayout.new("ParamNode")
+    layout.addField("name", "String", "%SeenString")                           // 0
+    layout.addField("paramType", "TypeNode", "ptr")                            // 1
+    layout.addField("defaultValue", "ParserExpressionNode", "ptr")             // 2
+    return layout
+}
+
+// ============================================================================
+// Compiler Infrastructure Layouts
+// ============================================================================
+
+// FrontendResult layout - from bootstrap/frontend.seen
+fun getFrontendResultLayout() r: StructLayout {
+    let layout = StructLayout.new("FrontendResult")
+    layout.addField("success", "Bool", "i1")                                   // 0
+    layout.addField("diagnostics", "Array<FrontendDiagnostic>", "ptr")         // 1
+    layout.addField("program", "ProgramNode", "i64")                           // 2 (handle)
+    return layout
+}
+
+// LLVMIRGenerator layout - simplified for reference
+fun getLLVMIRGeneratorLayout() r: StructLayout {
+    let layout = StructLayout.new("LLVMIRGenerator")
+    // Note: Full layout is complex - see llvm_ir_gen.seen for details
+    // This is a placeholder showing the approach
+    layout.addField("output", "StringBuilder", "ptr")                          // 0
+    // ... many more fields
+    return layout
+}
+
+// ============================================================================
+// Layout Registry
+// ============================================================================
+
+var layoutRegistry: Array<StructLayout>
+var layoutRegistryInitialized: Bool = false
+
+fun initLayoutRegistry() r: Void {
+    if layoutRegistryInitialized {
+        return
+    }
+
+    layoutRegistry = Array<StructLayout>()
+    layoutRegistry.push(getFunctionNodeLayout())
+    layoutRegistry.push(getProgramNodeLayout())
+    layoutRegistry.push(getItemNodeLayout())
+    layoutRegistry.push(getStatementNodeLayout())
+    layoutRegistry.push(getParserExpressionNodeLayout())
+    layoutRegistry.push(getBlockNodeLayout())
+    layoutRegistry.push(getClassNodeLayout())
+    layoutRegistry.push(getTypeNodeLayout())
+    layoutRegistry.push(getParamNodeLayout())
+    layoutRegistry.push(getFrontendResultLayout())
+
+    layoutRegistryInitialized = true
+}
+
+fun getLayout(structName: String) r: StructLayout? {
+    initLayoutRegistry()
+
+    var i = 0
+    while i < layoutRegistry.length() {
+        if layoutRegistry[i].name == structName {
+            return layoutRegistry[i]
+        }
+        i = i + 1
+    }
+    return null
+}
+
+// ============================================================================
+// Verification Utilities
+// ============================================================================
+
+// Verify that a field access is valid and return the expected index
+fun verifyFieldAccess(structName: String, fieldName: String) r: Int {
+    let layout = getLayout(structName)
+    if layout == null {
+        println("[LAYOUT WARNING] Unknown struct: " + structName)
+        return -1
+    }
+
+    let index = layout.getFieldIndex(fieldName)
+    if index < 0 {
+        println("[LAYOUT ERROR] Unknown field '" + fieldName + "' in struct '" + structName + "'")
+        println("  Available fields:")
+        var i = 0
+        while i < layout.fields.length() {
+            println("    [" + layout.fields[i].index.toString() + "] " + layout.fields[i].name)
+            i = i + 1
+        }
+    }
+    return index
+}

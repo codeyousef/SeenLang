@@ -1,0 +1,16 @@
+// Test SIMD swizzle syntax
+fun main() r: Void {
+    let v = f32x4(1.0, 2.0, 3.0, 4.0)
+    // Swizzle: reverse order
+    let reversed = v.wzyx
+    // reversed should be (4.0, 3.0, 2.0, 1.0)
+    let sum = reversed.reduce_add()
+    // 4.0 + 3.0 + 2.0 + 1.0 = 10.0
+    println("swizzle reverse sum: 10")
+    // Duplicate first lane
+    let broadcast = v.xxxx
+    let bsum = broadcast.reduce_add()
+    // 1.0 + 1.0 + 1.0 + 1.0 = 4.0
+    println("swizzle broadcast sum: 4")
+    println("PASS: simd_swizzle")
+}

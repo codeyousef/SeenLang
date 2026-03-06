@@ -1,0 +1,179 @@
+/**
+ * E2E tests for SDL3 FFI bindings.
+ * Tests constants, flags, and helper functions.
+ */
+
+import platform.linux.sdl3.{
+    SDL_INIT_VIDEO, SDL_INIT_AUDIO, SDL_INIT_EVENTS, SDL_INIT_GAMEPAD,
+    SDL_WINDOW_VULKAN, SDL_WINDOW_RESIZABLE, SDL_WINDOW_FULLSCREEN,
+    SDL_WINDOW_BORDERLESS, SDL_WINDOW_HIDDEN, SDL_WINDOW_MAXIMIZED,
+    SDL_EVENT_QUIT, SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP,
+    SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_WHEEL,
+    SDL_EVENT_GAMEPAD_ADDED, SDL_EVENT_GAMEPAD_BUTTON_DOWN, SDL_EVENT_GAMEPAD_AXIS_MOTION,
+    SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_WINDOW_CLOSE_REQUESTED,
+    SDL_BUTTON_LEFT, SDL_BUTTON_MIDDLE, SDL_BUTTON_RIGHT,
+    SDL_SCANCODE_A, SDL_SCANCODE_W, SDL_SCANCODE_S, SDL_SCANCODE_D,
+    SDL_SCANCODE_SPACE, SDL_SCANCODE_ESCAPE, SDL_SCANCODE_RETURN,
+    SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT,
+    SDL_SCANCODE_F1, SDL_SCANCODE_F12,
+    SDL_SCANCODE_LCTRL, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_LALT,
+    cstr_to_string
+}
+
+var testsPassed: Int = 0
+var testsFailed: Int = 0
+
+fun expect(condition: Bool, message: String) -> Void {
+    if condition {
+        testsPassed = testsPassed + 1
+    } else {
+        testsFailed = testsFailed + 1
+        println("FAIL: " + message)
+    }
+}
+
+fun testSDLInitFlags() -> Void {
+    println("Testing SDL initialization flags...")
+
+    expect(SDL_INIT_VIDEO == 0x00000020, "SDL_INIT_VIDEO should be 0x20")
+    expect(SDL_INIT_AUDIO == 0x00000010, "SDL_INIT_AUDIO should be 0x10")
+    expect(SDL_INIT_EVENTS == 0x00004000, "SDL_INIT_EVENTS should be 0x4000")
+    expect(SDL_INIT_GAMEPAD == 0x00002000, "SDL_INIT_GAMEPAD should be 0x2000")
+
+    // Test combining flags
+    let combined = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS
+    expect(combined == 0x00004030, "Combined flags should work with bitwise OR")
+}
+
+fun testSDLWindowFlags() -> Void {
+    println("Testing SDL window flags...")
+
+    expect(SDL_WINDOW_VULKAN == 0x10000000, "SDL_WINDOW_VULKAN should be 0x10000000")
+    expect(SDL_WINDOW_RESIZABLE == 0x00000020, "SDL_WINDOW_RESIZABLE should be 0x20")
+    expect(SDL_WINDOW_FULLSCREEN == 0x00000001, "SDL_WINDOW_FULLSCREEN should be 0x01")
+    expect(SDL_WINDOW_BORDERLESS == 0x00000010, "SDL_WINDOW_BORDERLESS should be 0x10")
+    expect(SDL_WINDOW_HIDDEN == 0x00000008, "SDL_WINDOW_HIDDEN should be 0x08")
+    expect(SDL_WINDOW_MAXIMIZED == 0x00000080, "SDL_WINDOW_MAXIMIZED should be 0x80")
+
+    // Test combining window flags
+    let vulkanResizable = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+    expect(vulkanResizable == 0x10000020, "Combined Vulkan+Resizable flags")
+}
+
+fun testSDLEventTypes() -> Void {
+    println("Testing SDL event types...")
+
+    // Quit event
+    expect(SDL_EVENT_QUIT == 0x100, "SDL_EVENT_QUIT should be 0x100")
+
+    // Keyboard events
+    expect(SDL_EVENT_KEY_DOWN == 0x300, "SDL_EVENT_KEY_DOWN should be 0x300")
+    expect(SDL_EVENT_KEY_UP == 0x301, "SDL_EVENT_KEY_UP should be 0x301")
+
+    // Mouse events
+    expect(SDL_EVENT_MOUSE_MOTION == 0x400, "SDL_EVENT_MOUSE_MOTION should be 0x400")
+    expect(SDL_EVENT_MOUSE_BUTTON_DOWN == 0x401, "SDL_EVENT_MOUSE_BUTTON_DOWN should be 0x401")
+    expect(SDL_EVENT_MOUSE_WHEEL == 0x403, "SDL_EVENT_MOUSE_WHEEL should be 0x403")
+
+    // Gamepad events
+    expect(SDL_EVENT_GAMEPAD_ADDED == 0x600, "SDL_EVENT_GAMEPAD_ADDED should be 0x600")
+    expect(SDL_EVENT_GAMEPAD_BUTTON_DOWN == 0x650, "SDL_EVENT_GAMEPAD_BUTTON_DOWN should be 0x650")
+    expect(SDL_EVENT_GAMEPAD_AXIS_MOTION == 0x652, "SDL_EVENT_GAMEPAD_AXIS_MOTION should be 0x652")
+
+    // Window events
+    expect(SDL_EVENT_WINDOW_RESIZED == 0x203, "SDL_EVENT_WINDOW_RESIZED should be 0x203")
+    expect(SDL_EVENT_WINDOW_CLOSE_REQUESTED == 0x202, "SDL_EVENT_WINDOW_CLOSE_REQUESTED should be 0x202")
+}
+
+fun testSDLMouseButtons() -> Void {
+    println("Testing SDL mouse buttons...")
+
+    expect(SDL_BUTTON_LEFT == 1, "SDL_BUTTON_LEFT should be 1")
+    expect(SDL_BUTTON_MIDDLE == 2, "SDL_BUTTON_MIDDLE should be 2")
+    expect(SDL_BUTTON_RIGHT == 3, "SDL_BUTTON_RIGHT should be 3")
+}
+
+fun testSDLScancodes() -> Void {
+    println("Testing SDL scancodes...")
+
+    // Letter keys
+    expect(SDL_SCANCODE_A == 4, "SDL_SCANCODE_A should be 4")
+    expect(SDL_SCANCODE_W == 26, "SDL_SCANCODE_W should be 26")
+    expect(SDL_SCANCODE_S == 22, "SDL_SCANCODE_S should be 22")
+    expect(SDL_SCANCODE_D == 7, "SDL_SCANCODE_D should be 7")
+
+    // Common keys
+    expect(SDL_SCANCODE_SPACE == 44, "SDL_SCANCODE_SPACE should be 44")
+    expect(SDL_SCANCODE_ESCAPE == 41, "SDL_SCANCODE_ESCAPE should be 41")
+    expect(SDL_SCANCODE_RETURN == 40, "SDL_SCANCODE_RETURN should be 40")
+
+    // Arrow keys
+    expect(SDL_SCANCODE_UP == 82, "SDL_SCANCODE_UP should be 82")
+    expect(SDL_SCANCODE_DOWN == 81, "SDL_SCANCODE_DOWN should be 81")
+    expect(SDL_SCANCODE_LEFT == 80, "SDL_SCANCODE_LEFT should be 80")
+    expect(SDL_SCANCODE_RIGHT == 79, "SDL_SCANCODE_RIGHT should be 79")
+
+    // Function keys
+    expect(SDL_SCANCODE_F1 == 58, "SDL_SCANCODE_F1 should be 58")
+    expect(SDL_SCANCODE_F12 == 69, "SDL_SCANCODE_F12 should be 69")
+
+    // Modifier keys
+    expect(SDL_SCANCODE_LCTRL == 224, "SDL_SCANCODE_LCTRL should be 224")
+    expect(SDL_SCANCODE_LSHIFT == 225, "SDL_SCANCODE_LSHIFT should be 225")
+    expect(SDL_SCANCODE_LALT == 226, "SDL_SCANCODE_LALT should be 226")
+}
+
+fun testCstrToString() -> Void {
+    println("Testing cstr_to_string helper...")
+
+    // Test with null pointer - should return empty string
+    let nullResult = cstr_to_string(null)
+    expect(nullResult == "", "cstr_to_string(null) should return empty string")
+}
+
+fun testFlagCombinations() -> Void {
+    println("Testing flag combinations for typical use cases...")
+
+    // Typical game window flags
+    let gameWindowFlags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+    expect((gameWindowFlags & SDL_WINDOW_VULKAN) != 0, "Game window should have Vulkan flag")
+    expect((gameWindowFlags & SDL_WINDOW_RESIZABLE) != 0, "Game window should have resizable flag")
+    expect((gameWindowFlags & SDL_WINDOW_FULLSCREEN) == 0, "Game window should not have fullscreen by default")
+
+    // Fullscreen borderless
+    let fullscreenBorderless = SDL_WINDOW_FULLSCREEN | SDL_WINDOW_BORDERLESS
+    expect((fullscreenBorderless & SDL_WINDOW_FULLSCREEN) != 0, "Should have fullscreen")
+    expect((fullscreenBorderless & SDL_WINDOW_BORDERLESS) != 0, "Should have borderless")
+
+    // Init for game with audio
+    let gameInit = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD
+    expect((gameInit & SDL_INIT_VIDEO) != 0, "Game init should have video")
+    expect((gameInit & SDL_INIT_AUDIO) != 0, "Game init should have audio")
+    expect((gameInit & SDL_INIT_GAMEPAD) != 0, "Game init should have gamepad")
+}
+
+fun main() -> Int {
+    println("=== SDL3 FFI Bindings E2E Tests ===")
+    println("")
+
+    testSDLInitFlags()
+    testSDLWindowFlags()
+    testSDLEventTypes()
+    testSDLMouseButtons()
+    testSDLScancodes()
+    testCstrToString()
+    testFlagCombinations()
+
+    println("")
+    println("=== Test Summary ===")
+    println("Passed: " + testsPassed.toString())
+    println("Failed: " + testsFailed.toString())
+
+    if testsFailed > 0 {
+        println("TESTS FAILED!")
+        return 1
+    }
+
+    println("All SDL3 tests passed!")
+    return 0
+}

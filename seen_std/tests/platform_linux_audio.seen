@@ -1,0 +1,298 @@
+/**
+ * E2E tests for PipeWire and ALSA audio FFI bindings.
+ * Tests constants, enums, and configuration classes.
+ */
+
+import platform.linux.pipewire.{
+    PW_STREAM_STATE_ERROR, PW_STREAM_STATE_UNCONNECTED, PW_STREAM_STATE_CONNECTING,
+    PW_STREAM_STATE_PAUSED, PW_STREAM_STATE_STREAMING,
+    PW_STREAM_FLAG_NONE, PW_STREAM_FLAG_AUTOCONNECT, PW_STREAM_FLAG_MAP_BUFFERS,
+    PW_DIRECTION_INPUT, PW_DIRECTION_OUTPUT,
+    SPA_AUDIO_FORMAT_UNKNOWN, SPA_AUDIO_FORMAT_S16, SPA_AUDIO_FORMAT_S24,
+    SPA_AUDIO_FORMAT_S32, SPA_AUDIO_FORMAT_F32, SPA_AUDIO_FORMAT_F64,
+    SAMPLE_RATE_44100, SAMPLE_RATE_48000, SAMPLE_RATE_96000,
+    PwStreamState, parsePwStreamState, PwAudioFormat
+}
+
+import platform.linux.alsa.{
+    SND_PCM_STREAM_PLAYBACK, SND_PCM_STREAM_CAPTURE,
+    SND_PCM_NONBLOCK, SND_PCM_ASYNC,
+    SND_PCM_FORMAT_S8, SND_PCM_FORMAT_U8,
+    SND_PCM_FORMAT_S16_LE, SND_PCM_FORMAT_S16_BE,
+    SND_PCM_FORMAT_S24_LE, SND_PCM_FORMAT_S32_LE,
+    SND_PCM_FORMAT_FLOAT_LE, SND_PCM_FORMAT_FLOAT64_LE,
+    SND_PCM_FORMAT_S16, SND_PCM_FORMAT_FLOAT,
+    SND_PCM_ACCESS_MMAP_INTERLEAVED, SND_PCM_ACCESS_RW_INTERLEAVED,
+    SND_PCM_STATE_OPEN, SND_PCM_STATE_PREPARED, SND_PCM_STATE_RUNNING,
+    SND_PCM_STATE_XRUN, SND_PCM_STATE_PAUSED, SND_PCM_STATE_DISCONNECTED,
+    ALSA_DEFAULT_DEVICE, ALSA_PLUGHW_DEVICE, ALSA_HW_DEVICE,
+    AlsaPcmState, parseAlsaPcmState, AlsaAudioFormat
+}
+
+var testsPassed: Int = 0
+var testsFailed: Int = 0
+
+fun expect(condition: Bool, message: String) -> Void {
+    if condition {
+        testsPassed = testsPassed + 1
+    } else {
+        testsFailed = testsFailed + 1
+        println("FAIL: " + message)
+    }
+}
+
+// ============================================================================
+// PipeWire Tests
+// ============================================================================
+
+fun testPipeWireStreamStates() -> Void {
+    println("Testing PipeWire stream state constants...")
+
+    expect(PW_STREAM_STATE_ERROR == -1, "PW_STREAM_STATE_ERROR should be -1")
+    expect(PW_STREAM_STATE_UNCONNECTED == 0, "PW_STREAM_STATE_UNCONNECTED should be 0")
+    expect(PW_STREAM_STATE_CONNECTING == 1, "PW_STREAM_STATE_CONNECTING should be 1")
+    expect(PW_STREAM_STATE_PAUSED == 2, "PW_STREAM_STATE_PAUSED should be 2")
+    expect(PW_STREAM_STATE_STREAMING == 3, "PW_STREAM_STATE_STREAMING should be 3")
+}
+
+fun testPipeWireStreamFlags() -> Void {
+    println("Testing PipeWire stream flags...")
+
+    expect(PW_STREAM_FLAG_NONE == 0, "PW_STREAM_FLAG_NONE should be 0")
+    expect(PW_STREAM_FLAG_AUTOCONNECT == 1, "PW_STREAM_FLAG_AUTOCONNECT should be 1")
+    expect(PW_STREAM_FLAG_MAP_BUFFERS == 4, "PW_STREAM_FLAG_MAP_BUFFERS should be 4")
+
+    // Test combining flags
+    let combined = PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS
+    expect(combined == 5, "Combined flags should be 5")
+}
+
+fun testPipeWireDirection() -> Void {
+    println("Testing PipeWire direction constants...")
+
+    expect(PW_DIRECTION_INPUT == 0, "PW_DIRECTION_INPUT should be 0")
+    expect(PW_DIRECTION_OUTPUT == 1, "PW_DIRECTION_OUTPUT should be 1")
+}
+
+fun testSpaAudioFormats() -> Void {
+    println("Testing SPA audio format constants...")
+
+    expect(SPA_AUDIO_FORMAT_UNKNOWN == 0, "SPA_AUDIO_FORMAT_UNKNOWN should be 0")
+    expect(SPA_AUDIO_FORMAT_S16 == 3, "SPA_AUDIO_FORMAT_S16 should be 3")
+    expect(SPA_AUDIO_FORMAT_S24 == 5, "SPA_AUDIO_FORMAT_S24 should be 5")
+    expect(SPA_AUDIO_FORMAT_S32 == 7, "SPA_AUDIO_FORMAT_S32 should be 7")
+    expect(SPA_AUDIO_FORMAT_F32 == 25, "SPA_AUDIO_FORMAT_F32 should be 25")
+    expect(SPA_AUDIO_FORMAT_F64 == 27, "SPA_AUDIO_FORMAT_F64 should be 27")
+}
+
+fun testPipeWireSampleRates() -> Void {
+    println("Testing PipeWire sample rate constants...")
+
+    expect(SAMPLE_RATE_44100 == 44100, "SAMPLE_RATE_44100 should be 44100")
+    expect(SAMPLE_RATE_48000 == 48000, "SAMPLE_RATE_48000 should be 48000")
+    expect(SAMPLE_RATE_96000 == 96000, "SAMPLE_RATE_96000 should be 96000")
+}
+
+fun testPwStreamStateParsing() -> Void {
+    println("Testing PipeWire stream state parsing...")
+
+    let errorState = parsePwStreamState(PW_STREAM_STATE_ERROR)
+    let unconnectedState = parsePwStreamState(PW_STREAM_STATE_UNCONNECTED)
+    let connectingState = parsePwStreamState(PW_STREAM_STATE_CONNECTING)
+    let pausedState = parsePwStreamState(PW_STREAM_STATE_PAUSED)
+    let streamingState = parsePwStreamState(PW_STREAM_STATE_STREAMING)
+    let unknownState = parsePwStreamState(999)
+
+    // Compare enum variants (using pattern matching or direct comparison)
+    expect(errorState == PwStreamState.Error, "parsePwStreamState(-1) should be Error")
+    expect(unconnectedState == PwStreamState.Unconnected, "parsePwStreamState(0) should be Unconnected")
+    expect(connectingState == PwStreamState.Connecting, "parsePwStreamState(1) should be Connecting")
+    expect(pausedState == PwStreamState.Paused, "parsePwStreamState(2) should be Paused")
+    expect(streamingState == PwStreamState.Streaming, "parsePwStreamState(3) should be Streaming")
+    expect(unknownState == PwStreamState.Error, "Unknown state should default to Error")
+}
+
+fun testPwAudioFormatClass() -> Void {
+    println("Testing PipeWire audio format class...")
+
+    // Test f32Stereo factory
+    let stereoFormat = PwAudioFormat.f32Stereo(48000)
+    expect(stereoFormat.format == SPA_AUDIO_FORMAT_F32, "f32Stereo format should be F32")
+    expect(stereoFormat.channels == 2, "f32Stereo should have 2 channels")
+    expect(stereoFormat.sampleRate == 48000, "f32Stereo sample rate should be 48000")
+
+    // Test f32Mono factory
+    let monoFormat = PwAudioFormat.f32Mono(44100)
+    expect(monoFormat.format == SPA_AUDIO_FORMAT_F32, "f32Mono format should be F32")
+    expect(monoFormat.channels == 1, "f32Mono should have 1 channel")
+    expect(monoFormat.sampleRate == 44100, "f32Mono sample rate should be 44100")
+
+    // Test s16Stereo factory
+    let s16Format = PwAudioFormat.s16Stereo(48000)
+    expect(s16Format.format == SPA_AUDIO_FORMAT_S16, "s16Stereo format should be S16")
+    expect(s16Format.channels == 2, "s16Stereo should have 2 channels")
+
+    // Test default factory
+    let defaultFormat = PwAudioFormat.default()
+    expect(defaultFormat.format == SPA_AUDIO_FORMAT_F32, "default format should be F32")
+    expect(defaultFormat.channels == 2, "default should have 2 channels")
+    expect(defaultFormat.sampleRate == SAMPLE_RATE_48000, "default sample rate should be 48000")
+}
+
+// ============================================================================
+// ALSA Tests
+// ============================================================================
+
+fun testAlsaStreamDirection() -> Void {
+    println("Testing ALSA stream direction constants...")
+
+    expect(SND_PCM_STREAM_PLAYBACK == 0, "SND_PCM_STREAM_PLAYBACK should be 0")
+    expect(SND_PCM_STREAM_CAPTURE == 1, "SND_PCM_STREAM_CAPTURE should be 1")
+}
+
+fun testAlsaOpenModeFlags() -> Void {
+    println("Testing ALSA open mode flags...")
+
+    expect(SND_PCM_NONBLOCK == 0x00000001, "SND_PCM_NONBLOCK should be 0x01")
+    expect(SND_PCM_ASYNC == 0x00000002, "SND_PCM_ASYNC should be 0x02")
+
+    // Test combining flags
+    let combined = SND_PCM_NONBLOCK | SND_PCM_ASYNC
+    expect(combined == 3, "Combined NONBLOCK|ASYNC should be 3")
+}
+
+fun testAlsaFormats() -> Void {
+    println("Testing ALSA PCM format constants...")
+
+    expect(SND_PCM_FORMAT_S8 == 0, "SND_PCM_FORMAT_S8 should be 0")
+    expect(SND_PCM_FORMAT_U8 == 1, "SND_PCM_FORMAT_U8 should be 1")
+    expect(SND_PCM_FORMAT_S16_LE == 2, "SND_PCM_FORMAT_S16_LE should be 2")
+    expect(SND_PCM_FORMAT_S16_BE == 3, "SND_PCM_FORMAT_S16_BE should be 3")
+    expect(SND_PCM_FORMAT_S24_LE == 6, "SND_PCM_FORMAT_S24_LE should be 6")
+    expect(SND_PCM_FORMAT_S32_LE == 10, "SND_PCM_FORMAT_S32_LE should be 10")
+    expect(SND_PCM_FORMAT_FLOAT_LE == 14, "SND_PCM_FORMAT_FLOAT_LE should be 14")
+    expect(SND_PCM_FORMAT_FLOAT64_LE == 16, "SND_PCM_FORMAT_FLOAT64_LE should be 16")
+
+    // Test native endianness aliases
+    expect(SND_PCM_FORMAT_S16 == SND_PCM_FORMAT_S16_LE, "SND_PCM_FORMAT_S16 should be little-endian alias")
+    expect(SND_PCM_FORMAT_FLOAT == SND_PCM_FORMAT_FLOAT_LE, "SND_PCM_FORMAT_FLOAT should be little-endian alias")
+}
+
+fun testAlsaAccessTypes() -> Void {
+    println("Testing ALSA access type constants...")
+
+    expect(SND_PCM_ACCESS_MMAP_INTERLEAVED == 0, "SND_PCM_ACCESS_MMAP_INTERLEAVED should be 0")
+    expect(SND_PCM_ACCESS_RW_INTERLEAVED == 3, "SND_PCM_ACCESS_RW_INTERLEAVED should be 3")
+}
+
+fun testAlsaPcmStates() -> Void {
+    println("Testing ALSA PCM state constants...")
+
+    expect(SND_PCM_STATE_OPEN == 0, "SND_PCM_STATE_OPEN should be 0")
+    expect(SND_PCM_STATE_PREPARED == 2, "SND_PCM_STATE_PREPARED should be 2")
+    expect(SND_PCM_STATE_RUNNING == 3, "SND_PCM_STATE_RUNNING should be 3")
+    expect(SND_PCM_STATE_XRUN == 4, "SND_PCM_STATE_XRUN should be 4")
+    expect(SND_PCM_STATE_PAUSED == 6, "SND_PCM_STATE_PAUSED should be 6")
+    expect(SND_PCM_STATE_DISCONNECTED == 8, "SND_PCM_STATE_DISCONNECTED should be 8")
+}
+
+fun testAlsaDeviceNames() -> Void {
+    println("Testing ALSA device name constants...")
+
+    expect(ALSA_DEFAULT_DEVICE == "default", "ALSA_DEFAULT_DEVICE should be 'default'")
+    expect(ALSA_PLUGHW_DEVICE == "plughw:0,0", "ALSA_PLUGHW_DEVICE should be 'plughw:0,0'")
+    expect(ALSA_HW_DEVICE == "hw:0,0", "ALSA_HW_DEVICE should be 'hw:0,0'")
+}
+
+fun testAlsaPcmStateParsing() -> Void {
+    println("Testing ALSA PCM state parsing...")
+
+    let openState = parseAlsaPcmState(SND_PCM_STATE_OPEN)
+    let preparedState = parseAlsaPcmState(SND_PCM_STATE_PREPARED)
+    let runningState = parseAlsaPcmState(SND_PCM_STATE_RUNNING)
+    let xrunState = parseAlsaPcmState(SND_PCM_STATE_XRUN)
+    let pausedState = parseAlsaPcmState(SND_PCM_STATE_PAUSED)
+    let disconnectedState = parseAlsaPcmState(SND_PCM_STATE_DISCONNECTED)
+    let unknownState = parseAlsaPcmState(999)
+
+    expect(openState == AlsaPcmState.Open, "parseAlsaPcmState(0) should be Open")
+    expect(preparedState == AlsaPcmState.Prepared, "parseAlsaPcmState(2) should be Prepared")
+    expect(runningState == AlsaPcmState.Running, "parseAlsaPcmState(3) should be Running")
+    expect(xrunState == AlsaPcmState.Xrun, "parseAlsaPcmState(4) should be Xrun")
+    expect(pausedState == AlsaPcmState.Paused, "parseAlsaPcmState(6) should be Paused")
+    expect(disconnectedState == AlsaPcmState.Disconnected, "parseAlsaPcmState(8) should be Disconnected")
+    expect(unknownState == AlsaPcmState.Unknown, "Unknown state should be Unknown")
+}
+
+fun testAlsaAudioFormatClass() -> Void {
+    println("Testing ALSA audio format class...")
+
+    // Test floatStereo factory
+    let floatStereo = AlsaAudioFormat.floatStereo(48000)
+    expect(floatStereo.format == SND_PCM_FORMAT_FLOAT, "floatStereo format should be FLOAT")
+    expect(floatStereo.access == SND_PCM_ACCESS_RW_INTERLEAVED, "floatStereo access should be RW_INTERLEAVED")
+    expect(floatStereo.channels == 2, "floatStereo should have 2 channels")
+    expect(floatStereo.sampleRate == 48000, "floatStereo sample rate should be 48000")
+    expect(floatStereo.latencyUs == 50000, "floatStereo default latency should be 50000us")
+
+    // Test floatMono factory
+    let floatMono = AlsaAudioFormat.floatMono(44100)
+    expect(floatMono.channels == 1, "floatMono should have 1 channel")
+    expect(floatMono.sampleRate == 44100, "floatMono sample rate should be 44100")
+
+    // Test s16Stereo factory
+    let s16Stereo = AlsaAudioFormat.s16Stereo(48000)
+    expect(s16Stereo.format == SND_PCM_FORMAT_S16, "s16Stereo format should be S16")
+    expect(s16Stereo.channels == 2, "s16Stereo should have 2 channels")
+
+    // Test default factory
+    let defaultFormat = AlsaAudioFormat.default()
+    expect(defaultFormat.format == SND_PCM_FORMAT_FLOAT, "default format should be FLOAT")
+    expect(defaultFormat.channels == 2, "default should have 2 channels")
+    expect(defaultFormat.sampleRate == 48000, "default sample rate should be 48000")
+
+    // Test latency modifiers
+    let lowLatency = AlsaAudioFormat.default().withLowLatency()
+    expect(lowLatency.latencyUs == 10000, "withLowLatency should set latency to 10000us")
+
+    let customLatency = AlsaAudioFormat.default().withLatency(25000)
+    expect(customLatency.latencyUs == 25000, "withLatency should set custom latency")
+}
+
+fun main() -> Int {
+    println("=== Audio FFI Bindings E2E Tests ===")
+    println("")
+
+    println("--- PipeWire Tests ---")
+    testPipeWireStreamStates()
+    testPipeWireStreamFlags()
+    testPipeWireDirection()
+    testSpaAudioFormats()
+    testPipeWireSampleRates()
+    testPwStreamStateParsing()
+    testPwAudioFormatClass()
+
+    println("")
+    println("--- ALSA Tests ---")
+    testAlsaStreamDirection()
+    testAlsaOpenModeFlags()
+    testAlsaFormats()
+    testAlsaAccessTypes()
+    testAlsaPcmStates()
+    testAlsaDeviceNames()
+    testAlsaPcmStateParsing()
+    testAlsaAudioFormatClass()
+
+    println("")
+    println("=== Test Summary ===")
+    println("Passed: " + testsPassed.toString())
+    println("Failed: " + testsFailed.toString())
+
+    if testsFailed > 0 {
+        println("TESTS FAILED!")
+        return 1
+    }
+
+    println("All audio tests passed!")
+    return 0
+}

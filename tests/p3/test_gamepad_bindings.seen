@@ -1,0 +1,21 @@
+// : Gamepad API bindings (XInput + unified) — compile-only
+
+fun main() r: Int {
+    // Unified gamepad constants
+    let GAMEPAD_A = 0
+    let GAMEPAD_B = 1
+    let GAMEPAD_START = 6
+    let GAMEPAD_AXIS_LEFT_X = 0
+    let GAMEPAD_AXIS_RIGHT_TRIGGER = 5
+
+    // XInput constants
+    let XINPUT_GAMEPAD_A = 4096
+
+    if GAMEPAD_A != 0 {
+        println("FAIL: GAMEPAD_A constant")
+        return 1
+    }
+
+    println("PASS: Gamepad bindings test (compile-only)")
+    return 0
+}

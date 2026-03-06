@@ -1,0 +1,51 @@
+// Test modulo operator
+
+fun main() r: Int {
+    println("Testing modulo operator...")
+
+    // Test with literals
+    let v1 = 42 % 16
+    println("42 % 16 = " + v1.toString())
+    if v1 != 10 {
+        println("FAIL: 42 % 16 expected 10, got " + v1.toString())
+        return 1
+    }
+
+    // Test with variables
+    var a = 42
+    var b = 16
+    let v2 = a % b
+    println("a % b = " + v2.toString())
+    if v2 != 10 {
+        println("FAIL: a % b expected 10, got " + v2.toString())
+        return 1
+    }
+
+    // Test with computed variable
+    var c = 4
+    var d = c * 4  // d = 16
+    println("d = " + d.toString())
+    let v3 = a % d
+    println("a % d = " + v3.toString())
+    if v3 != 10 {
+        println("FAIL: a % d expected 10, got " + v3.toString())
+        return 1
+    }
+
+    // Test modulo with function result
+    let e = computeVal()
+    println("e = " + e.toString())
+    let v4 = a % e
+    println("a % e = " + v4.toString())
+    if v4 != 10 {
+        println("FAIL: a % e expected 10, got " + v4.toString())
+        return 1
+    }
+
+    println("PASS: All modulo tests passed!")
+    return 0
+}
+
+fun computeVal() r: Int {
+    return 16
+}

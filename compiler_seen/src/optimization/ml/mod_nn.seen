@@ -1,0 +1,210 @@
+// ML-Guided Optimization Module (Neural Network Version)
+// 
+// This module provides machine learning-based optimization guidance for the Seen compiler.
+// It replaces the threshold-based heuristics with neural networks trained on real
+// compilation outcomes.
+//
+// Usage:
+//   import optimization.ml.{MLOptimizerNN, LoopFeaturesNN, InlineFeaturesNN}
+//
+//   let optimizer = MLOptimizerNN.new()
+//   optimizer.setTargetHardware("x86_64")
+//
+//   // Make vectorization decision
+//   let features = LoopFeaturesNN.new(100, 1, 10, 2, 5, 3, 1)
+//   if optimizer.shouldVectorize(features) {
+//       // Apply vectorization
+//   }
+//
+//   // Train models with collected data
+//   optimizer.trainModels(100)
+//   optimizer.saveModels()
+
+// Import all ML components
+import optimization.ml.neural_network.{
+    NeuralNetwork,
+    NeuralLayer,
+    TrainingSample,
+    sigmoid,
+    relu,
+    softmax
+}
+
+import optimization.ml.training_data.{
+    TrainingData,
+    TrainingExample,
+    OptimizationDecision,
+    OptimizationOutcome,
+    TrainingStats
+}
+
+import optimization.ml.ml_optimizer_nn.{
+    MLOptimizerNN,
+    LoopFeaturesNN,
+    InlineFeaturesNN,
+    LoopFeatures,
+    InlineFeatures,
+    OptimizationType,
+    TrainingResult,
+    OptimizerStats,
+    LLVMRemark
+}
+
+// Re-export for backwards compatibility
+class MLOptimizer {
+    var nnOptimizer: MLOptimizerNN
+
+    fun new() r: MLOptimizer {
+        return MLOptimizer{
+            nnOptimizer: MLOptimizerNN.new()
+        }
+    }
+
+    fun shouldVectorize(features: LoopFeatures) r: Bool {
+        let nnFeatures = LoopFeaturesNN.new(
+            features.tripCount,
+            features.nestingDepth,
+            features.addOps,
+            features.mulOps,
+            features.loadOps,
+            features.storeOps,
+            features.stride
+        )
+        return nnOptimizer.shouldVectorize(nnFeatures)
+    }
+
+    fun shouldUnroll(features: LoopFeatures) r: Bool {
+        let nnFeatures = LoopFeaturesNN.new(
+            features.tripCount,
+            features.nestingDepth,
+            features.addOps,
+            features.mulOps,
+            features.loadOps,
+            features.storeOps,
+            features.stride
+        )
+        return nnOptimizer.shouldUnroll(nnFeatures)
+    }
+
+    fun shouldInline(features: InlineFeatures) r: Bool {
+        let nnFeatures = InlineFeaturesNN.new(
+            features.calleeSize,
+            features.callerSize,
+            features.callCount,
+            features.hasLoops
+        )
+        return nnOptimizer.shouldInline(nnFeatures)
+    }
+
+    fun setTargetHardware(name: String) r: Void {
+        nnOptimizer.setTargetHardware(name)
+    }
+
+    fun getSummary() r: String {
+        return nnOptimizer.getSummary()
+    }
+
+    fun trainModels(epochs: Int) r: TrainingResult {
+        return nnOptimizer.trainModels(epochs)
+    }
+
+    fun saveModels() r: Bool {
+        return nnOptimizer.saveModels()
+    }
+
+    fun loadModels() r: Bool {
+        return nnOptimizer.loadModels()
+    }
+
+    fun processOptimizationRemarks(remarks: Array<LLVMRemark>) r: Void {
+        nnOptimizer.processOptimizationRemarks(remarks)
+    }
+
+    fun hasLearnedNewPatterns() r: Bool {
+        return nnOptimizer.hasLearnedNewPatterns()
+    }
+
+    fun detectRegression() r: Bool {
+        return nnOptimizer.detectRegression()
+    }
+
+    fun setConfidenceThreshold(threshold: Float) r: Void {
+        nnOptimizer.setConfidenceThreshold(threshold)
+    }
+
+    fun enableNeuralNetwork(enable: Bool) r: Void {
+        nnOptimizer.enableNeuralNetwork(enable)
+    }
+}
+
+// Factory functions for easy creation
+fun createMLOptimizer() r: MLOptimizer {
+    return MLOptimizer.new()
+}
+
+fun createMLOptimizerNN() r: MLOptimizerNN {
+    return MLOptimizerNN.new()
+}
+
+// Helper to extract loop features from IR analysis
+fun extractLoopFeaturesFromIR(
+    tripCount: Int,
+    nestingDepth: Int,
+    instructionCounts: Map<String, Int>,
+    stride: Int,
+    sourceLocation: String,
+    functionName: String
+) r: LoopFeaturesNN {
+    let addOps = if instructionCounts.hasKey("add") { instructionCounts.get("add")! } else { 0 }
+    let mulOps = if instructionCounts.hasKey("mul") { instructionCounts.get("mul")! } else { 0 }
+    let loadOps = if instructionCounts.hasKey("load") { instructionCounts.get("load")! } else { 0 }
+    let storeOps = if instructionCounts.hasKey("store") { instructionCounts.get("store")! } else { 0 }
+    
+    return LoopFeaturesNN.new(
+        tripCount,
+        nestingDepth,
+        addOps,
+        mulOps,
+        loadOps,
+        storeOps,
+        stride,
+        sourceLocation,
+        functionName
+    )
+}
+
+// Helper to extract inline features from IR analysis
+fun extractInlineFeaturesFromIR(
+    calleeInstructions: Int,
+    callerInstructions: Int,
+    callSites: Int,
+    containsLoops: Bool,
+    sourceLocation: String,
+    functionName: String
+) r: InlineFeaturesNN {
+    return InlineFeaturesNN.new(
+        calleeInstructions,
+        callerInstructions,
+        callSites,
+        containsLoops,
+        sourceLocation,
+        functionName
+    )
+}
+
+// Extension: Map operations
+data Map<K, V> {
+    // Placeholder - actual implementation in std library
+}
+
+fun Map.hasKey(key: K) r: Bool {
+    return false
+}
+
+fun Map.get(key: K) r: V? {
+    return null
+}
+
+fun Map.set(key: K, value: V) r: Void {
+    // Placeholder
+}

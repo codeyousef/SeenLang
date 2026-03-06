@@ -1,0 +1,25 @@
+// Channel for thread communication - simplified
+// Note: Full channel support requires more advanced features
+
+class Channel {
+    var id: Int
+    
+    fun new() -> Channel {
+        let id = __ChannelCreate()
+        return Channel {
+            id: id
+        }
+    }
+    
+    fun send(value: Int) -> Bool {
+        return __ChannelSend(this.id, value)
+    }
+    
+    fun receive() -> Int {
+        return __ChannelReceive(this.id)
+    }
+
+    fun close() {
+        __ChannelClose(this.id)
+    }
+}

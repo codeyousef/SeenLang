@@ -1,0 +1,18 @@
+name = "Russian"
+description = "Russian String Standard Library"
+
+[std_lib]
+"разделить" = "seen_std.str.string.split"
+"обрезать" = "seen_std.str.string.trim"
+"содержит" = "seen_std.str.string.contains"
+"начинаетсяС" = "seen_std.str.string.startsWith"
+"заканчиваетсяНа" = "seen_std.str.string.endsWith"
+"индексВ" = "seen_std.str.string.indexOf"
+"заменить" = "seen_std.str.string.replace"
+"вВерхнийРегистр" = "seen_std.str.string.String_toUpperCase"
+"вНижнийРегистр" = "seen_std.str.string.String_toLowerCase"
+"строки" = "seen_std.str.string.lines"
+"слова" = "seen_std.str.string.words"
+"повторить" = "seen_std.str.string.repeat"
+"соединить" = "seen_std.str.string.join"
+"СтрокоСтроитель" = "StringBuilder"

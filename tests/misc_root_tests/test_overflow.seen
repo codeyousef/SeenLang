@@ -1,0 +1,22 @@
+// Test --panic-on-overflow flag
+// When compiled with --panic-on-overflow, arithmetic operations that overflow
+// will cause a panic at runtime instead of silently wrapping
+
+fun safeArithmetic() r: Void {
+    // These operations won't overflow
+    let a = 100
+    let b = 50
+    let sum = a + b
+    let diff = a - b
+    let prod = a * b
+
+    println("Sum: " + sum.toString())
+    println("Diff: " + diff.toString())
+    println("Prod: " + prod.toString())
+}
+
+fun main() r: Int {
+    safeArithmetic()
+    println("All safe operations completed!")
+    return 0
+}

@@ -1,0 +1,75 @@
+// Basic test cases for the hello world example
+// This demonstrates the Seen testing framework
+
+func test_arithmetic() {
+    let result = 2 + 2;
+    assert_eq(result, 4);
+    
+    let multiplication = 5 * 6;
+    assert_eq(multiplication, 30);
+    
+    let division = 10 / 2;
+    assert_eq(division, 5);
+}
+
+func test_string_operations() {
+    let greeting = "Hello";
+    let target = "World";
+    let combined = greeting + ", " + target + "!";
+    
+    assert_eq(combined, "Hello, World!");
+    
+    let length = greeting.length();
+    assert_eq(length, 5);
+}
+
+func test_boolean_logic() {
+    let is_true = true;
+    let is_false = false;
+    
+    assert(is_true);
+    assert(!is_false);
+    
+    let and_result = is_true && is_false;
+    assert(!and_result);
+    
+    let or_result = is_true || is_false;
+    assert(or_result);
+}
+
+func test_variables_and_types() {
+    let integer_var = 42;
+    let float_var = 3.14159;
+    let string_var = "test";
+    let bool_var = true;
+    
+    // Type assertions (checking that values have expected properties)
+    assert_eq(integer_var, 42);
+    assert(float_var > 3.0);
+    assert(float_var < 4.0);
+    assert_eq(string_var, "test");
+    assert_eq(bool_var, true);
+}
+
+func test_function_calls() {
+    let result = add_two_numbers(10, 15);
+    assert_eq(result, 25);
+    
+    let greeting = format_greeting("Developer");
+    assert_eq(greeting, "Hello, Developer!");
+}
+
+// Helper functions for testing
+func add_two_numbers(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+func format_greeting(name: str) -> str {
+    return "Hello, " + name + "!";
+}
+
+// Test with expected failure (for testing framework validation)
+func test_should_fail() {
+    // This test should fail to validate our error reporting
+    assert_eq(1, 2);  // This will fail
+}

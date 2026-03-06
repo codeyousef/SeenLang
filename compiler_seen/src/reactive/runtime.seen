@@ -1,0 +1,7 @@
+// Simplified Reactive Runtime Module
+
+class ReactiveRuntime {
+    fun new() -> ReactiveRuntime {
+        println("Creating ReactiveRuntime")
+    }
+}

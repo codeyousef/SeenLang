@@ -1,0 +1,24 @@
+// Test: HashMap in @nondeterministic function should be accepted
+// Expected: PASS with --profile deterministic
+
+import collections.hash_map.{HashMap}
+
+// This function is marked as nondeterministic, so it's allowed
+// to use HashMap even in deterministic profile
+@nondeterministic
+fun processWithHash() r: Int {
+    let map = HashMap<String, Int>.new()
+    map.insert("key1", 1)
+    map.insert("key2", 2)
+
+    // This is explicitly allowed because the function is marked @nondeterministic
+    return map.size()
+}
+
+fun main() r: Int {
+    // Calling a nondeterministic function is allowed
+    // The caller should be aware that this function may have nondeterministic behavior
+    let result = processWithHash()
+    println("Result: " + result.toString())
+    return 0
+}

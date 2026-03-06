@@ -1,0 +1,2 @@
+// real_lexer shim that re-exports SeenLexer from lexer.lexer
+import lexer.lexer.{SeenLexer as RealLexer, SeenLexer}

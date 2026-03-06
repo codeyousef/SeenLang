@@ -1,0 +1,56 @@
+# E-Graph Golden Arithmetic Fixtures
+# Format: TEST <name>
+#   INPUT: op child0 child1 ...  (one node per line, nodes are 0-indexed)
+#   EXPECT_OP: <expected operation of cheapest extraction from root class>
+#   EXPECT_COST_LESS: <cost must be less than this>
+#
+# Nodes reference each other by index (0-based, order of INPUT lines).
+# The root class is always the LAST node's class.
+
+TEST add_zero_right
+  INPUT: const_0
+  INPUT: add 0
+  EXPECT_OP: const_0
+  EXPECT_COST_LESS: 2
+
+TEST add_zero_left
+  INPUT: const_0
+  INPUT: add 0
+  EXPECT_OP: const_0
+  EXPECT_COST_LESS: 2
+
+TEST mul_one_right
+  INPUT: const_1
+  INPUT: mul 0
+  EXPECT_OP: const_1
+  EXPECT_COST_LESS: 4
+
+TEST mul_one_left
+  INPUT: const_1
+  INPUT: mul 0
+  EXPECT_OP: const_1
+  EXPECT_COST_LESS: 4
+
+TEST mul_two_to_shl
+  INPUT: const_2
+  INPUT: mul 0
+  EXPECT_OP: shl
+  EXPECT_COST_LESS: 4
+
+TEST sub_self
+  INPUT: const_0
+  INPUT: sub 0 0
+  EXPECT_OP: const_0
+  EXPECT_COST_LESS: 2
+
+TEST div_one_right
+  INPUT: const_1
+  INPUT: div 0
+  EXPECT_OP: const_1
+  EXPECT_COST_LESS: 21
+
+TEST mul_zero_right
+  INPUT: const_0
+  INPUT: mul 0
+  EXPECT_OP: const_0
+  EXPECT_COST_LESS: 4

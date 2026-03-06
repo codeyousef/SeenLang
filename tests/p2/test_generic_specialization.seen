@@ -1,0 +1,10 @@
+@specialize(T=Int)
+fun identity(x: Int) r: Int {
+    return x
+}
+
+fun main() r: Int {
+    let v = identity(42)
+    println("PASS: generic_specialization")
+    return 0
+}

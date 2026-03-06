@@ -1,0 +1,26 @@
+// JSON Module
+// Provides JSON parsing, building, and value manipulation
+
+// Re-export core types and functions
+pub import json.value.{
+    JsonValue,
+    JSON_NULL,
+    JSON_BOOL,
+    JSON_NUMBER,
+    JSON_STRING,
+    JSON_ARRAY,
+    JSON_OBJECT
+}
+
+pub import json.parser.{
+    JsonParser,
+    JsonParseResult,
+    parseJson
+}
+
+pub import json.builder.{
+    JsonBuilder,
+    escapeJsonString,
+    toJson,
+    toJsonPretty
+}

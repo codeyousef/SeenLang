@@ -1,0 +1,898 @@
+// ComptimeInterpreter - Compile-time interpreter for executing macros
+// Executes macro functions at compile time to transform AST nodes
+
+import parser.real_parser.{FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode}
+import macro.ast_node.{AstNode, ParamInfo, FieldInfo}
+
+// Value types that can exist at compile time
+class ComptimeValue {
+    var kind: String  // "Int", "String", "Bool", "AstNode", "Array", "Void", "Error"
+    var intValue: Int
+    var stringValue: String
+    var boolValue: Bool
+    var astValue: AstNode
+    var arrayValue: Array<ComptimeValue>
+    var errorMessage: String
+
+    static fun new() r: ComptimeValue {
+        return ComptimeValue{
+            kind: "Void",
+            intValue: 0,
+            stringValue: "",
+            boolValue: false,
+            astValue: AstNode.new(),
+            arrayValue: Array<ComptimeValue>(),
+            errorMessage: ""
+        }
+    }
+
+    static fun fromInt(v: Int) r: ComptimeValue {
+        let cv = ComptimeValue.new()
+        cv.kind = "Int"
+        cv.intValue = v
+        return cv
+    }
+
+    static fun fromString(v: String) r: ComptimeValue {
+        let cv = ComptimeValue.new()
+        cv.kind = "String"
+        cv.stringValue = v
+        return cv
+    }
+
+    static fun fromBool(v: Bool) r: ComptimeValue {
+        let cv = ComptimeValue.new()
+        cv.kind = "Bool"
+        cv.boolValue = v
+        return cv
+    }
+
+    static fun fromAst(v: AstNode) r: ComptimeValue {
+        let cv = ComptimeValue.new()
+        cv.kind = "AstNode"
+        cv.astValue = v
+        return cv
+    }
+
+    static fun fromArray(v: Array<ComptimeValue>) r: ComptimeValue {
+        let cv = ComptimeValue.new()
+        cv.kind = "Array"
+        cv.arrayValue = v
+        return cv
+    }
+
+    static fun voidValue() r: ComptimeValue {
+        return ComptimeValue.new()
+    }
+
+    static fun error(msg: String) r: ComptimeValue {
+        let cv = ComptimeValue.new()
+        cv.kind = "Error"
+        cv.errorMessage = msg
+        return cv
+    }
+
+    fun isError() r: Bool {
+        return kind == "Error"
+    }
+
+    // Convert to string for debugging
+    fun toString() r: String {
+        if kind == "Int" {
+            return intValue.toString()
+        }
+        if kind == "String" {
+            return stringValue
+        }
+        if kind == "Bool" {
+            if boolValue { return "true" } else { return "false" }
+        }
+        if kind == "AstNode" {
+            return "<AstNode:" + astValue.kind() + ">"
+        }
+        if kind == "Array" {
+            let arrLen = arrayValue.length()
+            return "<Array[" + arrLen.toString() + "]>"
+        }
+        if kind == "Error" {
+            return "<Error:" + errorMessage + ">"
+        }
+        return "<Void>"
+    }
+}
+
+// Compile-time interpreter for macro execution
+class ComptimeInterpreter {
+    var variables: Array<ComptimeVariable>
+    var nodeLimit: Int
+    var nodesProcessed: Int
+    var recursionLimit: Int
+    var currentDepth: Int
+    var errors: Array<String>
+
+    static fun new() r: ComptimeInterpreter {
+        return ComptimeInterpreter{
+            variables: Array<ComptimeVariable>(),
+            nodeLimit: 10000,
+            nodesProcessed: 0,
+            recursionLimit: 100,
+            currentDepth: 0,
+            errors: Array<String>()
+        }
+    }
+
+    // Reset interpreter state for a new macro invocation
+    fun reset() r: Void {
+        variables = Array<ComptimeVariable>()
+        nodesProcessed = 0
+        currentDepth = 0
+        errors = Array<String>()
+    }
+
+    // Execute a macro function with a target AST node
+    fun evaluate(fn: FunctionNode, target: AstNode) r: ComptimeValue {
+        reset()
+
+        // Check recursion limit
+        if currentDepth > recursionLimit {
+            return ComptimeValue.error("Macro recursion limit exceeded (" + recursionLimit.toString() + ")")
+        }
+        currentDepth = currentDepth + 1
+
+        // Validate macro function has exactly one parameter
+        if fn.params.length() != 1 {
+            return ComptimeValue.error("Macro function must have exactly one parameter (the target AstNode)")
+        }
+
+        // Bind the target parameter
+        let paramName = fn.params[0].name
+        setVariable(paramName, ComptimeValue.fromAst(target))
+
+        // Interpret the function body
+        let result = interpretBlock(fn.body)
+
+        currentDepth = currentDepth - 1
+        return result
+    }
+
+    // Interpret a block of statements
+    fun interpretBlock(block: BlockNode) r: ComptimeValue {
+        var lastValue = ComptimeValue.voidValue()
+        var i = 0
+        while i < block.statements.length() {
+            nodesProcessed = nodesProcessed + 1
+            if nodesProcessed > nodeLimit {
+                return ComptimeValue.error("Macro node limit exceeded (" + nodeLimit.toString() + ")")
+            }
+
+            let stmt = block.statements[i]
+            let result = interpretStatement(stmt)
+            if result.isError() {
+                return result
+            }
+            // Return statement returns immediately
+            if stmt.kind == "Return" {
+                return result
+            }
+            lastValue = result
+            i = i + 1
+        }
+        return lastValue
+    }
+
+    // Interpret a single statement
+    fun interpretStatement(stmt: StatementNode) r: ComptimeValue {
+        if stmt.kind == "Let" {
+            let value = interpretExpression(stmt.initializer)
+            if value.isError() {
+                return value
+            }
+            setVariable(stmt.variableName, value)
+            return ComptimeValue.voidValue()
+        }
+
+        if stmt.kind == "Var" {
+            let value = interpretExpression(stmt.initializer)
+            if value.isError() {
+                return value
+            }
+            setVariable(stmt.variableName, value)
+            return ComptimeValue.voidValue()
+        }
+
+        if stmt.kind == "Return" {
+            return interpretExpression(stmt.returnValue)
+        }
+
+        if stmt.kind == "Expression" {
+            return interpretExpression(stmt.expression)
+        }
+
+        if stmt.kind == "If" {
+            let cond = interpretExpression(stmt.condition)
+            if cond.isError() {
+                return cond
+            }
+            if cond.kind != "Bool" {
+                return ComptimeValue.error("If condition must be a Bool, got " + cond.kind)
+            }
+            if cond.boolValue {
+                return interpretBlock(stmt.thenBranch)
+            } else {
+                return interpretBlock(stmt.elseBranch)
+            }
+        }
+
+        if stmt.kind == "While" {
+            var iterations = 0
+            while iterations < 10000 {
+                let cond = interpretExpression(stmt.loopCondition)
+                if cond.isError() {
+                    return cond
+                }
+                if cond.kind != "Bool" {
+                    return ComptimeValue.error("While condition must be a Bool, got " + cond.kind)
+                }
+                if not cond.boolValue {
+                    break
+                }
+                let bodyResult = interpretBlock(stmt.loopBody)
+                if bodyResult.isError() {
+                    return bodyResult
+                }
+                iterations = iterations + 1
+            }
+            if iterations >= 10000 {
+                return ComptimeValue.error("Macro while loop exceeded iteration limit")
+            }
+            return ComptimeValue.voidValue()
+        }
+
+        return ComptimeValue.error("Unknown statement kind: " + stmt.kind)
+    }
+
+    // Interpret an expression
+    fun interpretExpression(expr: ParserExpressionNode) r: ComptimeValue {
+        nodesProcessed = nodesProcessed + 1
+        if nodesProcessed > nodeLimit {
+            return ComptimeValue.error("Macro node limit exceeded (" + nodeLimit.toString() + ")")
+        }
+
+        if expr.kind == "None" {
+            return ComptimeValue.voidValue()
+        }
+
+        if expr.kind == "Literal" {
+            if expr.literalType == "Int" {
+                return ComptimeValue.fromInt(parseIntLiteral(expr.literalValue))
+            }
+            if expr.literalType == "String" {
+                return ComptimeValue.fromString(expr.literalValue)
+            }
+            if expr.literalType == "Bool" {
+                return ComptimeValue.fromBool(expr.literalValue == "true")
+            }
+            return ComptimeValue.fromString(expr.literalValue)
+        }
+
+        if expr.kind == "Variable" or expr.kind == "VarExpr" {
+            // Parser may use either Variable or VarExpr for variable references
+            // The variable name can be in variableName or literalValue
+            var varName = expr.variableName
+            if varName == "" {
+                varName = expr.literalValue
+            }
+            let value = getVariable(varName)
+            if value.kind == "Error" {
+                return ComptimeValue.error("Undefined variable: " + varName)
+            }
+            return value
+        }
+
+        if expr.kind == "Binary" {
+            return interpretBinaryOp(expr)
+        }
+
+        if expr.kind == "Call" {
+            return interpretCall(expr)
+        }
+
+        if expr.kind == "Member" or expr.kind == "FieldAccess" {
+            return interpretMemberAccess(expr)
+        }
+
+        if expr.kind == "MethodCall" {
+            return interpretMethodCall(expr)
+        }
+
+        if expr.kind == "ArrayLiteral" {
+            // Array literal like ["item1", "item2"]
+            // Elements are stored in arguments array
+            var result = Array<ComptimeValue>()
+            var i = 0
+            while i < expr.arguments.length() {
+                let elemValue = interpretExpression(expr.arguments[i])
+                if elemValue.kind == "Error" {
+                    return elemValue
+                }
+                result.push(elemValue)
+                i = i + 1
+            }
+            return ComptimeValue.fromArray(result)
+        }
+
+        return ComptimeValue.error("Unknown expression kind: " + expr.kind)
+    }
+
+    // Interpret a binary operation
+    fun interpretBinaryOp(expr: ParserExpressionNode) r: ComptimeValue {
+        if expr.operands.length() < 2 {
+            return ComptimeValue.error("Binary operation requires two operands")
+        }
+
+        let left = interpretExpression(expr.operands[0])
+        if left.isError() { return left }
+        let right = interpretExpression(expr.operands[1])
+        if right.isError() { return right }
+
+        // String concatenation
+        if expr.operator == "+" and left.kind == "String" {
+            return ComptimeValue.fromString(left.stringValue + right.toString())
+        }
+
+        // Integer operations
+        if left.kind == "Int" and right.kind == "Int" {
+            if expr.operator == "+" {
+                return ComptimeValue.fromInt(left.intValue + right.intValue)
+            }
+            if expr.operator == "-" {
+                return ComptimeValue.fromInt(left.intValue - right.intValue)
+            }
+            if expr.operator == "*" {
+                return ComptimeValue.fromInt(left.intValue * right.intValue)
+            }
+            if expr.operator == "/" {
+                if right.intValue == 0 {
+                    return ComptimeValue.error("Division by zero")
+                }
+                return ComptimeValue.fromInt(left.intValue / right.intValue)
+            }
+            if expr.operator == "==" {
+                return ComptimeValue.fromBool(left.intValue == right.intValue)
+            }
+            if expr.operator == "!=" {
+                return ComptimeValue.fromBool(left.intValue != right.intValue)
+            }
+            if expr.operator == "<" {
+                return ComptimeValue.fromBool(left.intValue < right.intValue)
+            }
+            if expr.operator == ">" {
+                return ComptimeValue.fromBool(left.intValue > right.intValue)
+            }
+            if expr.operator == "<=" {
+                return ComptimeValue.fromBool(left.intValue <= right.intValue)
+            }
+            if expr.operator == ">=" {
+                return ComptimeValue.fromBool(left.intValue >= right.intValue)
+            }
+        }
+
+        // Boolean operations
+        if left.kind == "Bool" and right.kind == "Bool" {
+            if expr.operator == "and" {
+                return ComptimeValue.fromBool(left.boolValue and right.boolValue)
+            }
+            if expr.operator == "or" {
+                return ComptimeValue.fromBool(left.boolValue or right.boolValue)
+            }
+            if expr.operator == "==" {
+                // Workaround: avoid direct bool == bool comparison
+                let leftBool = left.boolValue
+                let rightBool = right.boolValue
+                if leftBool and rightBool {
+                    return ComptimeValue.fromBool(true)
+                }
+                if not leftBool and not rightBool {
+                    return ComptimeValue.fromBool(true)
+                }
+                return ComptimeValue.fromBool(false)
+            }
+            if expr.operator == "!=" {
+                // Workaround: avoid direct bool != bool comparison
+                let leftBool = left.boolValue
+                let rightBool = right.boolValue
+                if leftBool and not rightBool {
+                    return ComptimeValue.fromBool(true)
+                }
+                if not leftBool and rightBool {
+                    return ComptimeValue.fromBool(true)
+                }
+                return ComptimeValue.fromBool(false)
+            }
+        }
+
+        // String comparison
+        if left.kind == "String" and right.kind == "String" {
+            if expr.operator == "==" {
+                return ComptimeValue.fromBool(left.stringValue == right.stringValue)
+            }
+            if expr.operator == "!=" {
+                return ComptimeValue.fromBool(left.stringValue != right.stringValue)
+            }
+        }
+
+        return ComptimeValue.error("Unsupported binary operation: " + left.kind + " " + expr.operator + " " + right.kind)
+    }
+
+    // Interpret a function/method call
+    fun interpretCall(expr: ParserExpressionNode) r: ComptimeValue {
+        let funcName = expr.callee
+
+        // Evaluate arguments
+        var args = Array<ComptimeValue>()
+        var i = 0
+        while i < expr.arguments.length() {
+            let argValue = interpretExpression(expr.arguments[i])
+            if argValue.isError() {
+                return argValue
+            }
+            args.push(argValue)
+            i = i + 1
+        }
+
+        // Built-in functions
+        return interpretBuiltin(funcName, args)
+    }
+
+    // Interpret member access (e.g., target.name)
+    fun interpretMemberAccess(expr: ParserExpressionNode) r: ComptimeValue {
+        // Get the object - parser stores receiver in literalValue or operands[0]
+        var obj = ComptimeValue.new()
+        obj.kind = "Error"
+
+        // First try literalValue
+        if expr.literalValue != "" {
+            let tryObj = getVariable(expr.literalValue)
+            if tryObj.kind != "Error" {
+                obj = tryObj
+            }
+        }
+
+        // If not found and operands has elements, evaluate operands[0]
+        if obj.kind == "Error" {
+            if expr.operands.length() > 0 {
+                let tryObj2 = interpretExpression(expr.operands[0])
+                if tryObj2.kind != "Error" {
+                    obj = tryObj2
+                }
+            }
+        }
+
+        // Fallback to variableName
+        if obj.kind == "Error" {
+            if expr.variableName != "" {
+                obj = getVariable(expr.variableName)
+            }
+        }
+
+        if obj.kind == "Error" {
+            return ComptimeValue.error("Undefined variable for member access: " + expr.literalValue + "/" + expr.variableName)
+        }
+
+        let memberName = expr.callee
+
+        // AstNode member access
+        if obj.kind == "AstNode" {
+            return interpretAstNodeMember(obj.astValue, memberName, Array<ComptimeValue>())
+        }
+
+        // String member access
+        if obj.kind == "String" {
+            return interpretStringMember(obj.stringValue, memberName, Array<ComptimeValue>())
+        }
+
+        // Array member access
+        if obj.kind == "Array" {
+            return interpretArrayMember(obj.arrayValue, memberName, Array<ComptimeValue>())
+        }
+
+        return ComptimeValue.error("Cannot access member '" + memberName + "' on " + obj.kind)
+    }
+
+    // Interpret method call (e.g., target.name())
+    fun interpretMethodCall(expr: ParserExpressionNode) r: ComptimeValue {
+        // Check for static method calls (e.g., AstNode.newCall)
+        // These have the type name in literalValue and aren't variable references
+        if expr.literalValue == "AstNode" {
+            // Static AstNode method call - route to builtins
+            let methodName = expr.callee
+            // Evaluate arguments
+            var args = Array<ComptimeValue>()
+            var ai = 0
+            while ai < expr.arguments.length() {
+                let argValue = interpretExpression(expr.arguments[ai])
+                if argValue.kind == "Error" {
+                    return argValue
+                }
+                args.push(argValue)
+                ai = ai + 1
+            }
+            return interpretBuiltin("AstNode." + methodName, args)
+        }
+
+        // Get the object - parser stores receiver in literalValue for simple cases,
+        // in operands[0] for chained cases
+        var obj = ComptimeValue.new()
+        obj.kind = "Error"
+
+        // First try literalValue (simple case: target.method())
+        if expr.literalValue != "" {
+            let tryObj = getVariable(expr.literalValue)
+            if tryObj.kind != "Error" {
+                obj = tryObj
+            }
+        }
+
+        // If not found and operands has elements, evaluate operands[0] (chained case)
+        if obj.kind == "Error" {
+            if expr.operands.length() > 0 {
+                let tryObj2 = interpretExpression(expr.operands[0])
+                if tryObj2.kind != "Error" {
+                    obj = tryObj2
+                }
+            }
+        }
+
+        // Fallback to variableName
+        if obj.kind == "Error" {
+            if expr.variableName != "" {
+                obj = getVariable(expr.variableName)
+            }
+        }
+
+        if obj.kind == "Error" {
+            return ComptimeValue.error("Undefined variable for method call: " + expr.literalValue + "/" + expr.variableName)
+        }
+
+        let methodName = expr.callee
+
+        // Evaluate arguments
+        var args = Array<ComptimeValue>()
+        var i = 0
+        while i < expr.arguments.length() {
+            let argValue = interpretExpression(expr.arguments[i])
+            if argValue.isError() {
+                return argValue
+            }
+            args.push(argValue)
+            i = i + 1
+        }
+
+        // AstNode methods
+        if obj.kind == "AstNode" {
+            return interpretAstNodeMember(obj.astValue, methodName, args)
+        }
+
+        // String methods
+        if obj.kind == "String" {
+            return interpretStringMember(obj.stringValue, methodName, args)
+        }
+
+        // Array methods
+        if obj.kind == "Array" {
+            return interpretArrayMember(obj.arrayValue, methodName, args)
+        }
+
+        return ComptimeValue.error("Cannot call method '" + methodName + "' on " + obj.kind)
+    }
+
+    // Interpret AstNode method/property access
+    fun interpretAstNodeMember(ast: AstNode, memberName: String, args: Array<ComptimeValue>) r: ComptimeValue {
+        // Properties (no args)
+        if memberName == "kind" {
+            return ComptimeValue.fromString(ast.kind())
+        }
+        if memberName == "name" {
+            return ComptimeValue.fromString(ast.name())
+        }
+        if memberName == "returnType" {
+            return ComptimeValue.fromString(ast.returnType())
+        }
+
+        // Methods that take arguments
+        if memberName == "hasMethod" {
+            if args.length() < 1 {
+                return ComptimeValue.error("hasMethod requires 1 argument")
+            }
+            if args[0].kind != "String" {
+                return ComptimeValue.error("hasMethod argument must be String")
+            }
+            return ComptimeValue.fromBool(ast.hasMethod(args[0].stringValue))
+        }
+
+        if memberName == "hasField" {
+            if args.length() < 1 {
+                return ComptimeValue.error("hasField requires 1 argument")
+            }
+            if args[0].kind != "String" {
+                return ComptimeValue.error("hasField argument must be String")
+            }
+            return ComptimeValue.fromBool(ast.hasField(args[0].stringValue))
+        }
+
+        if memberName == "wrapBody" {
+            if args.length() < 2 {
+                return ComptimeValue.error("wrapBody requires 2 arguments")
+            }
+            if args[0].kind != "AstNode" or args[1].kind != "AstNode" {
+                return ComptimeValue.error("wrapBody arguments must be AstNode")
+            }
+            return ComptimeValue.fromAst(ast.wrapBody(args[0].astValue, args[1].astValue))
+        }
+
+        if memberName == "withName" {
+            if args.length() < 1 {
+                return ComptimeValue.error("withName requires 1 argument")
+            }
+            if args[0].kind != "String" {
+                return ComptimeValue.error("withName argument must be String")
+            }
+            return ComptimeValue.fromAst(ast.withName(args[0].stringValue))
+        }
+
+        if memberName == "addMethod" {
+            if args.length() < 1 {
+                return ComptimeValue.error("addMethod requires 1 argument")
+            }
+            if args[0].kind != "AstNode" {
+                return ComptimeValue.error("addMethod argument must be AstNode")
+            }
+            return ComptimeValue.fromAst(ast.addMethod(args[0].astValue))
+        }
+
+        if memberName == "addField" {
+            if args.length() < 2 {
+                return ComptimeValue.error("addField requires 2 arguments")
+            }
+            return ComptimeValue.fromAst(ast.addField(args[0].stringValue, args[1].stringValue))
+        }
+
+        // Methods returning arrays - params, fields, methods, body
+        if memberName == "params" {
+            let params = ast.params()
+            var result = Array<ComptimeValue>()
+            var i = 0
+            while i < params.length() {
+                let paramAst = AstNode.new()
+                // Store param info as an object-like structure
+                var paramValue = ComptimeValue.new()
+                paramValue.kind = "ParamInfo"
+                paramValue.stringValue = params[i].name + ":" + params[i].paramType
+                result.push(paramValue)
+                i = i + 1
+            }
+            return ComptimeValue.fromArray(result)
+        }
+
+        if memberName == "body" {
+            let bodyStmts = ast.body()
+            var result = Array<ComptimeValue>()
+            var i = 0
+            while i < bodyStmts.length() {
+                result.push(ComptimeValue.fromAst(bodyStmts[i]))
+                i = i + 1
+            }
+            return ComptimeValue.fromArray(result)
+        }
+
+        if memberName == "methods" {
+            let methods = ast.methods()
+            var result = Array<ComptimeValue>()
+            var i = 0
+            while i < methods.length() {
+                result.push(ComptimeValue.fromAst(methods[i]))
+                i = i + 1
+            }
+            return ComptimeValue.fromArray(result)
+        }
+
+        if memberName == "fields" {
+            let fields = ast.fields()
+            var result = Array<ComptimeValue>()
+            var i = 0
+            while i < fields.length() {
+                var fieldValue = ComptimeValue.new()
+                fieldValue.kind = "FieldInfo"
+                fieldValue.stringValue = fields[i].name + ":" + fields[i].fieldType
+                result.push(fieldValue)
+                i = i + 1
+            }
+            return ComptimeValue.fromArray(result)
+        }
+
+        return ComptimeValue.error("Unknown AstNode member: " + memberName)
+    }
+
+    // Interpret String method access
+    fun interpretStringMember(s: String, memberName: String, args: Array<ComptimeValue>) r: ComptimeValue {
+        if memberName == "length" {
+            return ComptimeValue.fromInt(s.length())
+        }
+        if memberName == "contains" {
+            if args.length() < 1 or args[0].kind != "String" {
+                return ComptimeValue.error("contains requires String argument")
+            }
+            return ComptimeValue.fromBool(s.contains(args[0].stringValue))
+        }
+        if memberName == "startsWith" {
+            if args.length() < 1 or args[0].kind != "String" {
+                return ComptimeValue.error("startsWith requires String argument")
+            }
+            return ComptimeValue.fromBool(s.startsWith(args[0].stringValue))
+        }
+        if memberName == "endsWith" {
+            if args.length() < 1 or args[0].kind != "String" {
+                return ComptimeValue.error("endsWith requires String argument")
+            }
+            return ComptimeValue.fromBool(s.endsWith(args[0].stringValue))
+        }
+        return ComptimeValue.error("Unknown String member: " + memberName)
+    }
+
+    // Interpret Array method access
+    fun interpretArrayMember(arr: Array<ComptimeValue>, memberName: String, args: Array<ComptimeValue>) r: ComptimeValue {
+        if memberName == "length" {
+            return ComptimeValue.fromInt(arr.length())
+        }
+        if memberName == "push" {
+            if args.length() < 1 {
+                return ComptimeValue.error("push requires 1 argument")
+            }
+            arr.push(args[0])
+            return ComptimeValue.voidValue()
+        }
+        return ComptimeValue.error("Unknown Array member: " + memberName)
+    }
+
+    // Interpret built-in functions
+    fun interpretBuiltin(funcName: String, args: Array<ComptimeValue>) r: ComptimeValue {
+        // AstNode static constructors
+        if funcName == "AstNode.newCall" {
+            if args.length() < 2 {
+                return ComptimeValue.error("AstNode.newCall requires 2 arguments")
+            }
+            if args[0].kind != "String" {
+                return ComptimeValue.error("AstNode.newCall first argument must be String")
+            }
+            // Convert array of ComptimeValues to array of strings
+            var strArgs = Array<String>()
+            if args[1].kind == "Array" {
+                let argArray = args[1].arrayValue
+                var i = 0
+                while i < argArray.length() {
+                    strArgs.push(argArray[i].toString())
+                    i = i + 1
+                }
+            }
+            return ComptimeValue.fromAst(AstNode.newCall(args[0].stringValue, strArgs))
+        }
+
+        if funcName == "AstNode.newStringLiteral" {
+            if args.length() < 1 or args[0].kind != "String" {
+                return ComptimeValue.error("AstNode.newStringLiteral requires String argument")
+            }
+            return ComptimeValue.fromAst(AstNode.newStringLiteral(args[0].stringValue))
+        }
+
+        if funcName == "AstNode.newIntLiteral" {
+            if args.length() < 1 or args[0].kind != "Int" {
+                return ComptimeValue.error("AstNode.newIntLiteral requires Int argument")
+            }
+            return ComptimeValue.fromAst(AstNode.newIntLiteral(args[0].intValue))
+        }
+
+        if funcName == "AstNode.newVariable" {
+            if args.length() < 1 or args[0].kind != "String" {
+                return ComptimeValue.error("AstNode.newVariable requires String argument")
+            }
+            return ComptimeValue.fromAst(AstNode.newVariable(args[0].stringValue))
+        }
+
+        if funcName == "AstNode.newReturn" {
+            if args.length() < 1 or args[0].kind != "AstNode" {
+                return ComptimeValue.error("AstNode.newReturn requires AstNode argument")
+            }
+            return ComptimeValue.fromAst(AstNode.newReturn(args[0].astValue))
+        }
+
+        if funcName == "AstNode.error" {
+            if args.length() < 1 or args[0].kind != "String" {
+                return ComptimeValue.error("AstNode.error requires String argument")
+            }
+            return ComptimeValue.fromAst(AstNode.error(args[0].stringValue))
+        }
+
+        // Reflection builtins
+        if funcName == "typeof" {
+            if args.length() < 1 {
+                return ComptimeValue.error("typeof requires 1 argument")
+            }
+            return ComptimeValue.fromString(args[0].kind)
+        }
+
+        if funcName == "sizeof" {
+            if args.length() < 1 {
+                return ComptimeValue.error("sizeof requires 1 argument")
+            }
+            // Return estimated size based on type
+            if args[0].kind == "Int" { return ComptimeValue.fromInt(8) }
+            if args[0].kind == "Bool" { return ComptimeValue.fromInt(1) }
+            if args[0].kind == "String" { return ComptimeValue.fromInt(24) }
+            if args[0].kind == "AstNode" { return ComptimeValue.fromInt(64) }
+            return ComptimeValue.fromInt(8)
+        }
+
+        return ComptimeValue.error("Unknown function: " + funcName)
+    }
+
+    // Variable management
+    fun setVariable(name: String, value: ComptimeValue) r: Void {
+        // Update existing variable
+        var i = 0
+        while i < variables.length() {
+            if variables[i].name == name {
+                variables[i].value = value
+                return
+            }
+            i = i + 1
+        }
+        // Add new variable
+        let v = ComptimeVariable.new(name, value)
+        variables.push(v)
+    }
+
+    fun getVariable(name: String) r: ComptimeValue {
+        var i = 0
+        while i < variables.length() {
+            if variables[i].name == name {
+                return variables[i].value
+            }
+            i = i + 1
+        }
+        return ComptimeValue.error("Undefined variable: " + name)
+    }
+}
+
+// Helper class for storing variables
+class ComptimeVariable {
+    var name: String
+    var value: ComptimeValue
+
+    static fun new(name: String, value: ComptimeValue) r: ComptimeVariable {
+        return ComptimeVariable{ name: name, value: value }
+    }
+}
+
+// Parse an integer literal string to Int
+fun parseIntLiteral(s: String) r: Int {
+    var result = 0
+    var negative = false
+    var i = 0
+    if s.length() > 0 and s.charAt(0) == '-' {
+        negative = true
+        i = 1
+    }
+    let zeroChar: Char = '0'
+    let zeroInt = zeroChar.toInt()
+    while i < s.length() {
+        let c = s.charAt(i)
+        if c >= '0' and c <= '9' {
+            result = result * 10 + (c.toInt() - zeroInt)
+        }
+        i = i + 1
+    }
+    if negative {
+        return 0 - result
+    }
+    return result
+}

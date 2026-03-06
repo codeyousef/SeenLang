@@ -1,0 +1,13 @@
+name = "Arabic"
+description = "Arabic Memory Management Keywords"
+
+[keywords]
+"انقل" = "KeywordMove"
+"استعر" = "KeywordBorrow"
+"في_المكان" = "KeywordInout"
+"منطقة" = "KeywordRegion"
+"حلبة" = "KeywordArena"
+"مرجع" = "KeywordRef"
+"ملك" = "KeywordOwn"
+"تحويل" = "KeywordTransmute"
+"معالج_رسومات" = "KeywordGpu"

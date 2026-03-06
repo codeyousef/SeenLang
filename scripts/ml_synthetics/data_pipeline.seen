@@ -1,0 +1,190 @@
+// Synthetic: Data transformation pipeline
+// Represents: ETL tools, log processors, data science scripts
+
+fun generateData(n: Int) r: Array<Int> {
+    var data = Array<Int>()
+    var val = 17
+    var i = 0
+    while i < n {
+        // Linear congruential generator
+        val = val * 1103515245 + 12345
+        // Keep positive and bounded
+        let bounded = val - (val / 1000000) * 1000000
+        if bounded < 0 {
+            data.push(0 - bounded)
+        } else {
+            data.push(bounded)
+        }
+        i = i + 1
+    }
+    return data
+}
+
+fun filterGreaterThan(data: Array<Int>, threshold: Int) r: Array<Int> {
+    var result = Array<Int>()
+    var i = 0
+    while i < data.length() {
+        if data[i] > threshold {
+            result.push(data[i])
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fun mapMultiply(data: Array<Int>, factor: Int) r: Array<Int> {
+    var result = Array<Int>()
+    var i = 0
+    while i < data.length() {
+        result.push(data[i] * factor)
+        i = i + 1
+    }
+    return result
+}
+
+fun reduce(data: Array<Int>) r: Int {
+    var sum = 0
+    var i = 0
+    while i < data.length() {
+        sum = sum + data[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun findMax(data: Array<Int>) r: Int {
+    if data.length() == 0 { return 0 }
+    var max = data[0]
+    var i = 1
+    while i < data.length() {
+        if data[i] > max {
+            max = data[i]
+        }
+        i = i + 1
+    }
+    return max
+}
+
+fun findMin(data: Array<Int>) r: Int {
+    if data.length() == 0 { return 0 }
+    var min = data[0]
+    var i = 1
+    while i < data.length() {
+        if data[i] < min {
+            min = data[i]
+        }
+        i = i + 1
+    }
+    return min
+}
+
+fun histogram(data: Array<Int>, buckets: Int) r: Array<Int> {
+    var hist = Array<Int>()
+    var i = 0
+    while i < buckets {
+        hist.push(0)
+        i = i + 1
+    }
+    let maxVal = findMax(data)
+    if maxVal == 0 { return hist }
+    let bucketSize = maxVal / buckets + 1
+    i = 0
+    while i < data.length() {
+        let bucket = data[i] / bucketSize
+        if bucket >= buckets {
+            hist[buckets - 1] = hist[buckets - 1] + 1
+        } else {
+            hist[bucket] = hist[bucket] + 1
+        }
+        i = i + 1
+    }
+    return hist
+}
+
+fun deduplicate(data: Array<Int>) r: Array<Int> {
+    var seen = Array<Int>()
+    var result = Array<Int>()
+    var i = 0
+    while i < data.length() {
+        var found = false
+        var j = 0
+        while j < seen.length() {
+            if seen[j] == data[i] {
+                found = true
+                j = seen.length()
+            }
+            j = j + 1
+        }
+        if not found {
+            seen.push(data[i])
+            result.push(data[i])
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fun insertionSort(data: Array<Int>) r: Void {
+    var i = 1
+    while i < data.length() {
+        let key = data[i]
+        var j = i - 1
+        while j >= 0 and data[j] > key {
+            data[j + 1] = data[j]
+            j = j - 1
+        }
+        data[j + 1] = key
+        i = i + 1
+    }
+}
+
+fun main() r: Void {
+    // Generate 10000 random integers
+    let raw = generateData(10000)
+    println("Raw data size: " + raw.length().toString())
+
+    // Pipeline: filter -> map -> reduce
+    let filtered = filterGreaterThan(raw, 500000)
+    println("After filter (>500000): " + filtered.length().toString())
+
+    let mapped = mapMultiply(filtered, 3)
+    let total = reduce(mapped)
+    println("Sum after map(*3): " + total.toString())
+
+    // Statistics
+    let maxVal = findMax(raw)
+    let minVal = findMin(raw)
+    println("Max: " + maxVal.toString())
+    println("Min: " + minVal.toString())
+
+    // Histogram with 10 buckets
+    let hist = histogram(raw, 10)
+    var hi = 0
+    while hi < hist.length() {
+        println("Bucket " + hi.toString() + ": " + hist[hi].toString())
+        hi = hi + 1
+    }
+
+    // Small deduplication test (first 200 elements only — O(n^2))
+    var small = Array<Int>()
+    var si = 0
+    while si < 200 {
+        // Reduce to small range to create duplicates
+        let reduced = raw[si] - (raw[si] / 50) * 50
+        small.push(reduced)
+        si = si + 1
+    }
+    let unique = deduplicate(small)
+    println("Unique in first 200 (mod 50): " + unique.length().toString())
+
+    // Sort first 500 elements
+    var sortable = Array<Int>()
+    si = 0
+    while si < 500 {
+        sortable.push(raw[si])
+        si = si + 1
+    }
+    insertionSort(sortable)
+    println("Sorted[0]: " + sortable[0].toString())
+    println("Sorted[499]: " + sortable[499].toString())
+}

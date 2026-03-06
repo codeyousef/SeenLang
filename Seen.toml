@@ -1,0 +1,5 @@
+[project]
+name = "test_println"
+version = "0.1.0"
+language = "en"
+visibility = "caps"

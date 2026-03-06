@@ -1,0 +1,29 @@
+// Test @allow_allocator_optimizations decorator
+// This decorator allows nondeterministic Vec growth patterns in marked functions
+
+@nondeterministic
+@allow_allocator_optimizations
+fun processLargeData() r: Void {
+    // This function can use exponential Vec growth (nondeterministic)
+    // because it's marked with both @nondeterministic and @allow_allocator_optimizations
+    println("Processing with allocator optimizations enabled")
+}
+
+// This function should compile fine - it has @nondeterministic
+@nondeterministic
+fun normalNondeterministic() r: Void {
+    println("Normal nondeterministic function")
+}
+
+// This function should compile fine - it's deterministic by default
+fun normalDeterministic() r: Void {
+    println("Normal deterministic function")
+}
+
+fun main() r: Int {
+    processLargeData()
+    normalNondeterministic()
+    normalDeterministic()
+    println("All tests passed!")
+    return 0
+}

@@ -1,0 +1,86 @@
+// Test for @executor decorator
+// Tests single-threaded async task execution with FIFO ordering
+// NOTE: Uses simple types to work around parser bug with Array<CustomClass>
+
+@executor
+class TaskExecutor {
+    var taskQueue: Array<Int>
+    var nextId: Int
+
+    static fun new() r: TaskExecutor {
+        return TaskExecutor{
+            taskQueue: Array<Int>(),
+            nextId: 1
+        }
+    }
+
+    fun spawn(name: String) r: Int {
+        let id = nextId
+        nextId = nextId + 1
+        taskQueue.push(id)
+        println("  Spawned task " + id.toString() + ": " + name)
+        return id
+    }
+
+    fun poll() r: Bool {
+        if taskQueue.length() == 0 {
+            return false
+        }
+
+        let taskId = taskQueue[0]
+        var newQueue = Array<Int>()
+        var i = 1
+        while i < taskQueue.length() {
+            newQueue.push(taskQueue[i])
+            i = i + 1
+        }
+        taskQueue = newQueue
+
+        println("    Running task " + taskId.toString())
+        return true
+    }
+
+    fun runUntilComplete() r: Int {
+        var count = 0
+        println("  Running all pending tasks...")
+        while taskQueue.length() > 0 {
+            poll()
+            count = count + 1
+        }
+        println("  Completed " + count.toString() + " tasks")
+        return count
+    }
+
+    fun pendingCount() r: Int {
+        return taskQueue.length()
+    }
+}
+
+fun main() r: Int {
+    println("=== Executor Decorator Test ===")
+    println("")
+
+    println("--- Test 1: Basic Task Execution ---")
+    let exec = TaskExecutor.new()
+
+    exec.spawn("Initialize")
+    exec.spawn("Load Data")
+    exec.spawn("Process")
+
+    println("  Pending tasks: " + exec.pendingCount().toString())
+    exec.runUntilComplete()
+    println("  Pending after run: " + exec.pendingCount().toString())
+    println("")
+
+    println("--- Test 2: FIFO Order Verification ---")
+    let exec2 = TaskExecutor.new()
+    exec2.spawn("First")
+    exec2.spawn("Second")
+    exec2.spawn("Third")
+    println("  Tasks should run in order: First, Second, Third")
+    exec2.runUntilComplete()
+    println("")
+
+    println("=== All Executor Tests Passed ===")
+    return 0
+}

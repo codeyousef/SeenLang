@@ -1,0 +1,880 @@
+# Seen (س) — Complete LLM Reference
+
+## Overview
+
+Seen is a **100% self-hosted** compiled systems programming language. The compiler is written entirely in Seen itself (62,000+ lines, 50 modules) and targets LLVM. Its distinguishing feature is **multi-language keyword support**: developers can write code using keywords in English, Arabic, Spanish, Russian, Chinese, or Japanese.
+
+**Current status:** The compiler is fully self-hosted. Bootstrap verification confirms Stage 3 == Stage 4 (fixed-point achieved) with no external dependencies. The compiler compiles itself.
+
+### Key Features
+
+- **Multi-language keywords** — Write code in 6 human languages with identical semantics
+- **LLVM backend** — ThinLTO, auto-vectorization, PGO support, aggressive inlining
+- **Region-based memory management** — No garbage collector, Vale-style regions
+- **Fork-parallel compilation** — Content-addressed incremental IR caching
+- **GPU compute** — `@compute` shaders via GLSL codegen + Vulkan runtime
+- **SIMD intrinsics** — f32x4, f64x2, i32x4, i64x2 with arithmetic and reductions
+- **Async/await** — LLVM coroutine-based async with structured concurrency
+- **Compile-time evaluation** — `comptime` functions and blocks
+- **Self-hosting** — The compiler compiles itself to an identical binary
+
+---
+
+## Quick Start
+
+```bash
+# Compile and run
+seen build hello.seen -o hello
+./hello
+
+# Or compile and run in one step
+seen run hello.seen
+
+# Type check only
+seen check hello.seen
+
+# Format code
+seen fmt hello.seen
+
+# Specify source language
+seen build programa.seen -o programa --language es
+```
+
+---
+
+## Hello World in All 6 Languages
+
+### English (`--language en`, default)
+```seen
+fun main() {
+    println("Hello, World!")
+}
+```
+
+### Arabic (`--language ar`)
+```seen
+دالة رئيسية() {
+    اطبع("مرحبا بالعالم!")
+}
+```
+
+### Spanish (`--language es`)
+```seen
+función principal() {
+    imprimir("¡Hola, Mundo!")
+}
+```
+
+### Russian (`--language ru`)
+```seen
+функция главная() {
+    печать("Привет, мир!")
+}
+```
+
+### Chinese (`--language zh`)
+```seen
+函数 主函数() {
+    打印("你好，世界！")
+}
+```
+
+### Japanese (`--language ja`)
+```seen
+関数 メイン() {
+    表示("こんにちは、世界！")
+}
+```
+
+---
+
+## Complete Keyword Translation Table
+
+### Control Flow
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `fun` | `دالة` | `función` | `функция` | `函数` | `関数` |
+| `if` | `إذا` | `si` | `если` | `如果` | `もし` |
+| `else` | `وإلا` | `sino` | `иначе` | `否则` | `そうでなければ` |
+| `while` | `بينما` | `mientras` | `пока` | `当` | `間` |
+| `for` | `لكل` | `para` | `для` | `对于` | `のために` |
+| `in` | `في` | `en` | `в` | `在` | `で` |
+| `return` | `رجع` | `retornar` | `вернуть` | `返回` | `戻る` |
+| `match` | `طابق` | `coincidir` | `совпадение` | `匹配` | `一致` |
+| `when` | `عندما` | `cuando` | `когда` | `当时` | `場合` |
+| `break` | `اكسر` | `romper` | `прервать` | `中断` | `中止` |
+| `continue` | `استمر` | `continuar` | `продолжить` | `继续` | `継続` |
+| `loop` | `حلقة` | `bucle` | `цикл` | `循环` | `繰返` |
+| `defer` | `أجل` | `diferir` | `отложить` | `延迟` | `延期` |
+| `try` | `جرب` | `intentar` | `попробовать` | `尝试` | `試行` |
+| `catch` | `امسك` | `capturar` | `поймать` | `捕获` | `捕捉` |
+| `finally` | `أخيرا` | `finalmente` | `наконец` | `最终` | `最後に` |
+| `throw` | `ارم` | `lanzar_error` | `бросить` | `抛出` | `投げる` |
+| `assert` | `أكد` | `afirmar` | `утверждать` | `断言` | `表明` |
+| `unsafe` | `غير_آمن` | `inseguro` | `небезопасный` | `不安全` | `安全でない` |
+| `errdefer` | `أجل_خطأ` | `diferir_error` | `отложить_ошибку` | `错误延迟` | `エラー延期` |
+
+### Variable Declarations
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `let` | `اجعل` | `sea` | `пусть` | `让` | `定数` |
+| `var` | `متغير` | `variable` | `переменная` | `变量` | `変数` |
+| `val` | `ثابت` | `valor` | `значение` | `值` | `値` |
+| `const` | `ثابت_عام` | `constante` | `константа` | `常量` | `定義` |
+| `static` | `ساكن` | `estático` | `статический` | `静态` | `静的` |
+| `mut` | `قابل_للتغيير` | `mutable` | `изменяемый` | `可变` | `可変` |
+
+### Type Definitions
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `class` | `فئة` | `clase` | `класс` | `类` | `クラス` |
+| `struct` | `هيكل` | `estructura` | `структура` | `结构` | `構造体` |
+| `enum` | `تعداد` | `enumeración` | `перечисление` | `枚举` | `列挙` |
+| `trait` | `سمة` | `rasgo_tipo` | `трейт` | `特征` | `トレイト` |
+| `spec` | `صفة` | `rasgo` | `черта` | `规范` | `仕様` |
+| `impl` | `تطبيق` | `implementar` | `реализовать` | `实现` | `実装` |
+| `interface` | `واجهة` | `interfaz` | `интерфейс` | `接口` | `インターフェース` |
+| `type` | `نوع` | `tipo` | `тип` | `类型` | `型` |
+| `extends` | `يمتد` | `extiende` | `расширяет` | `继承` | `継承` |
+| `union` | `اتحاد` | `unión` | `объединение` | `联合` | `共用体` |
+| `distinct` | `مميز` | `distinto` | `различный` | `独特` | `独自` |
+| `sealed` | `مختوم` | `sellado` | `запечатанный` | `密封` | `封印` |
+| `abstract` | `مجرد` | `abstracto` | `абстрактный` | `抽象` | `抽象` |
+| `final` | `نهائي` | `final` | `финальный` | `最终的` | `最終` |
+| `override` | `تجاوز` | `anular` | `переопределить` | `重写` | `上書き` |
+| `open` | `مفتوح` | `abierto` | `открытый` | `开放` | `開放` |
+| `object` | `كائن` | `objeto` | `объект` | `对象` | `オブジェクト` |
+| `companion` | `رفيق` | `compañero` | `компаньон` | `伴生` | `同伴` |
+| `extension` | `امتداد` | `extensión` | `расширение` | `扩展` | `拡張` |
+| `data` | `بيانات` | `datos` | `данные` | `数据` | `データ` |
+
+### Literals
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `true` | `صحيح` | `verdadero` | `истина` | `真` | `真` |
+| `false` | `خطأ` | `falso` | `ложь` | `假` | `偽` |
+| `null` | `عدم` | `nulo` | `ноль` | `空` | `空` |
+
+### Built-in Type Names
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `Int` | `عدد` | `entero` | `целое` | `整数` | `整数` |
+| `Float` | `عشري` | `decimal` | `дробное` | `浮点` | `浮動小数` |
+| `String` | `نص` | `cadena` | `строка` | `字符串` | `文字列` |
+| `Bool` | `منطقي` | `logico` | `логическое` | `布尔` | `真偽` |
+| `Char` | `حرف` | `carácter` | `символ` | `字符` | `文字` |
+| `Void` | `فراغ` | `vacío` | `пусто` | `无` | `無` |
+
+### Built-in Functions
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `println` | `اطبع` | `imprimir` | `печать` | `打印` | `表示` |
+| `print` | `اطبع_نفس` | `escribir` | `вывод` | `输出` | `出力` |
+| `eprintln` | `اطبع_خطأ` | `error_imprimir` | `печать_ошибка` | `错误打印` | `エラー表示` |
+| `main` | `رئيسية` | `principal` | `главная` | `主函数` | `メイン` |
+| `this` | `هذا` | `esto` | `это` | `此` | `これ` |
+| `new` | `جديد` | `nuevo` | `новый` | `新建` | `新規` |
+| `toString` | `إلى_نص` | `aTexto` | `в_строку` | `转文本` | `文字列化` |
+| `toFloat` | `إلى_عشري` | `aDecimal` | `в_дробное` | `转浮点` | `浮動小数化` |
+| `toInt` | `إلى_عدد` | `aEntero` | `в_целое` | `转整数` | `整数化` |
+| `length` | `طول` | `longitud` | `длина` | `长度` | `長さ` |
+| `push` | `أضف` | `agregar` | `добавить` | `添加` | `追加` |
+| `get` | `احصل` | `obtener` | `получить_элемент` | `获取` | `取得` |
+| `put` | `ضع` | `poner` | `положить` | `放入` | `設定` |
+
+### Logical Operators
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `and` | `و` | `y` | `и` | `和` | `且つ` |
+| `or` | `أو` | `o` | `или` | `或` | `又は` |
+| `not` | `ليس` | `no` | `не` | `不` | `非` |
+| `is` | `هو` | `es` | `является` | `是` | `である` |
+| `as` | `ك` | `como` | `как` | `作为` | `として` |
+
+### Module Keywords
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `module` | `وحدة` | `módulo` | `модуль` | `模块` | `モジュール` |
+| `import` | `استورد` | `importar` | `импортировать` | `导入` | `インポート` |
+| `use` | `استخدم` | `usar` | `использовать` | `使用` | `使用` |
+| `external` | `خارجي` | `externo` | `внешний` | `外部` | `外部` |
+| `pub` | `عام` | `pub` | `публичный` | `公开` | `公開` |
+
+### Async / Concurrency
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `async` | `غير_متزامن` | `asíncrono` | `асинхронный` | `异步` | `非同期` |
+| `await` | `انتظر` | `esperar` | `ждать` | `等待` | `待機` |
+| `spawn` | `ولد` | `generar` | `породить` | `生成` | `生成` |
+| `launch` | `شغل` | `lanzar` | `запустить` | `启动` | `起動` |
+| `suspend` | `علق` | `suspender` | `приостановить` | `挂起` | `中断` |
+| `select` | `اختر` | `seleccionar` | `выбрать` | `选择` | `選択` |
+| `actor` | `ممثل` | `actor` | `актёр` | `角色` | `アクター` |
+| `send` | `أرسل` | `enviar` | `отправить` | `发送` | `送信` |
+| `receive` | `استقبل` | `recibir` | `получить` | `接收` | `受信` |
+| `parallel_for` | `parallel_for` | `parallel_for` | `parallel_for` | `并行遍历` | `並列反復` |
+| `flow` | `تدفق` | `flujo` | `поток` | `流` | `フロー` |
+| `delay` | `أخر` | `retrasar` | `задержать` | `延时` | `遅延` |
+
+### Memory Management
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `move` | `انقل` | `mover` | `переместить` | `移动` | `移動` |
+| `borrow` | `استعر` | `prestar` | `заимствовать` | `借用` | `借用` |
+| `ref` | `مرجع` | `referencia` | `ссылка` | `引用` | `参照` |
+| `own` | `ملك` | `propio` | `владение` | `拥有` | `所有` |
+| `region` | `منطقة` | `región` | `регион` | `区域` | `領域` |
+| `arena` | `حلبة` | `arena` | `арена` | `竞技场` | `アリーナ` |
+| `inout` | `في_المكان` | `en_lugar` | `на_месте` | `输入输出` | `入出力` |
+| `gpu` | `معالج_رسومات` | `gpu` | `гпу` | `图形处理` | `グラフィック` |
+
+### Meta / Compile-time
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `comptime` | `وقت_التجميع` | `tiempo_compilación` | `время_компиляции` | `编译时` | `コンパイル時` |
+| `macro` | `ماكرو` | `macro` | `макрос` | `宏` | `マクロ` |
+
+### Modifiers
+
+| English | Arabic | Spanish | Russian | Chinese | Japanese |
+|---------|--------|---------|---------|---------|----------|
+| `inline` | `مضمن` | `en_línea` | `встроенный` | `内联` | `インライン` |
+| `pure` | `نقي` | `puro` | `чистый` | `纯` | `純粋` |
+| `tailrec` | `عودة_ذيل` | `cola_recursiva` | `хвостовая_рекурсия` | `尾递归` | `末尾再帰` |
+| `operator` | `مشغل` | `operador` | `оператор` | `运算符` | `演算子` |
+
+### Symbolic Operators (same in all languages)
+
+```
++  -  *  /  %  =  ==  !=  <  <=  >  >=
+&  |  ^  ~  <<  >>  ->  =>  ?  .  ..  ...  ..<
+::  ?.  ?:  !!  _  @
+```
+
+Return type label: `r:` (Arabic also supports `ن:`)
+
+---
+
+## CLI Reference
+
+### Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `seen build <source> [options]` | Compile to native binary |
+| `seen run <source>` | Compile and execute |
+| `seen check <source>` | Type check without compiling |
+| `seen fmt <source>` | Format source code |
+| `seen init <name>` | Create new project |
+| `seen test` | Run test suite |
+| `seen clean` | Remove build artifacts |
+| `seen lsp` | Start language server |
+| `seen import-c <header.h>` | Generate extern bindings from C header |
+
+### Build Flags
+
+| Flag | Description |
+|------|-------------|
+| `-o <file>` | Output file path |
+| `-l <lang>`, `--language <lang>` | Source language: `en`, `ar`, `es`, `ru`, `zh`, `ja` |
+| `-O0`, `-O1`, `-O2`, `-O3` | Optimization level |
+| `--release` | Full optimization (O3 + LTO) |
+| `-g`, `--debug` | Include debug symbols |
+| `--backend <backend>` | `llvm` (default) or `c` (fallback) |
+| `-t <target>`, `--target <target>` | Compilation target |
+| `--fast` | Lightweight optimization (O1, skip Polly) |
+| `--no-cache` | Disable incremental compilation cache |
+| `--no-fork` | Disable fork-parallel IR generation |
+
+### Compilation Targets
+
+| Target | Description |
+|--------|-------------|
+| `native` | Host platform (default) |
+| `wasm` | WebAssembly module |
+| `c` | C source output |
+| `llvm-ir` | LLVM IR output |
+| `ios-arm64` | iOS ARM64 cross-compile |
+| `macos-x86_64` | macOS x86-64 cross-compile |
+| `macos-arm64` | macOS ARM64 cross-compile |
+
+### Advanced Flags
+
+| Flag | Description |
+|------|-------------|
+| `--emit-llvm` | Dump generated LLVM IR |
+| `--emit-glsl` | Emit generated GLSL shader code |
+| `--emit-compile-db` | Emit `compile_commands.json` |
+| `--pgo-generate` | Instrument binary for PGO profile collection |
+| `--pgo-use=<path>` | Use PGO profile for optimization |
+| `--ml-log=<path>` | Collect ML training data from LLVM remarks |
+| `--ml-decision-log=<path>` | Write optimization decision log (JSONL) |
+| `--target-cpu=<cpu>` | Target CPU: `native`, `x86-64-v3`, `x86-64-v4` |
+| `--simd=<policy>` | SIMD: `auto`, `none`, `sse4.2`, `avx2`, `avx512` |
+| `--simd-report` | Show vectorization report |
+| `--deterministic` | Scalar SIMD, no HashMap |
+| `--sanitize=<name>` | `address`, `undefined`, `thread`, or `memory` |
+| `--bounds-check` | Enable array bounds checking |
+| `--panic-on-overflow` | Panic on integer overflow |
+| `--null-safety` | Enable null safety checks |
+| `--warn-uninit` | Warn on uninitialized variable use |
+| `--stack-check` | Enable stack overflow checking |
+| `--feature=<name>` | Enable a named feature flag |
+
+### Debugging
+
+| Environment Variable | Values | Purpose |
+|---------------------|--------|---------|
+| `SEEN_DEBUG_TYPES` | `1` | Type checker debug output |
+| `SEEN_TRACE_LLVM` | `all`, `inst`, `values`, `types`, `ir`, `layouts`, `gep`, `boxing` | LLVM backend tracing |
+
+```bash
+# Debug type checking
+SEEN_DEBUG_TYPES=1 seen build program.seen
+
+# Trace LLVM IR generation
+SEEN_TRACE_LLVM=all seen build program.seen
+
+# Debug struct field access (GEP operations)
+SEEN_TRACE_LLVM=gep seen build program.seen
+
+# Debug boxing/unboxing for generics
+SEEN_TRACE_LLVM=boxing seen build program.seen
+```
+
+---
+
+## Language Syntax
+
+### Variables
+
+```seen
+let x = 42              // immutable binding
+var y = "hello"          // mutable binding
+val PI = 3.14159         // value binding
+const MAX = 1000         // compile-time constant
+```
+
+### Functions
+
+```seen
+fun add(a: Int, b: Int) r: Int {
+    return a + b
+}
+
+// Short form with fat arrow
+fun double(x: Int) r: Int => x * 2
+```
+
+The `r:` label declares the return type. This is a distinctive Seen syntax feature.
+
+### Classes
+
+```seen
+class Point {
+    var x: Float
+    var y: Float
+
+    static fun new(x: Float, y: Float) r: Point {
+        return Point { x: x, y: y }
+    }
+
+    fun distanceTo(other: Point) r: Float {
+        let dx = this.x - other.x
+        let dy = this.y - other.y
+        return sqrt(dx * dx + dy * dy)
+    }
+}
+```
+
+### Enums
+
+```seen
+// Simple enum
+enum Color {
+    Red
+    Green
+    Blue
+}
+
+// Data enum (algebraic data type)
+enum Shape {
+    Circle(radius: Float)
+    Rectangle(width: Float, height: Float)
+}
+```
+
+### Pattern Matching
+
+```seen
+fun describe(shape: Shape) r: String {
+    return when shape {
+        is Circle(r) => "Circle with radius {r}"
+        is Rectangle(w, h) => "Rectangle {w}x{h}"
+    }
+}
+```
+
+### Generics
+
+```seen
+fun swap<T>(a: T, b: T) r: Array<T> {
+    return [b, a]
+}
+
+class Stack<T> {
+    var items: Array<T>
+
+    fun push(item: T) {
+        this.items.push(item)
+    }
+
+    fun pop() r: T {
+        return this.items.pop()
+    }
+}
+```
+
+### Traits and Implementations
+
+```seen
+trait Printable {
+    fun display() r: String
+}
+
+impl Printable for Point {
+    fun display() r: String {
+        return "({this.x}, {this.y})"
+    }
+}
+```
+
+### Closures
+
+```seen
+let doubled = numbers.map(|x| x * 2)
+let filtered = items.filter(|item| item.isValid())
+```
+
+### String Interpolation
+
+```seen
+let name = "Seen"
+let version = 1
+println("Welcome to {name} v{version}!")
+```
+
+### Arrays and Collections
+
+```seen
+let nums = [1, 2, 3, 4, 5]
+var map = HashMap<String, Int>()
+map.put("key", 42)
+let value = map.get("key")
+```
+
+### Control Flow
+
+```seen
+// If/else
+if x > 0 {
+    println("positive")
+} else {
+    println("non-positive")
+}
+
+// While loop
+var i = 0
+while i < 10 {
+    i = i + 1
+}
+
+// For loop
+for item in items {
+    println(item)
+}
+
+// Range-based for
+for i in 0..10 {
+    println(i)
+}
+```
+
+### Async/Await
+
+```seen
+@async
+fun fetchData(url: String) r: String {
+    let response = await httpGet(url)
+    return response.body
+}
+
+fun main() {
+    let data = await fetchData("https://example.com")
+    println(data)
+}
+```
+
+### SIMD
+
+```seen
+fun dot_product(a: Array<Float>, b: Array<Float>, n: Int) r: Float {
+    var sum = f32x4(0.0, 0.0, 0.0, 0.0)
+    var i = 0
+    while i + 4 <= n {
+        let va = simd_load_f32x4(a, i)
+        let vb = simd_load_f32x4(b, i)
+        sum = sum + va * vb
+        i = i + 4
+    }
+    return reduce_add(sum)
+}
+```
+
+SIMD types: `f32x4`, `f64x2`, `i32x4`, `i64x2`, `i16x8`, `i8x16`
+
+### GPU Compute
+
+```seen
+@compute(workgroup_size = 64)
+fun vector_add(a: Buffer<Float>, b: Buffer<Float>, out: Buffer<Float>) {
+    let idx = global_invocation_id.x
+    out[idx] = a[idx] + b[idx]
+}
+```
+
+Pipeline: Seen AST → GLSL #version 450 → `glslc` → SPIR-V → Vulkan dispatch
+
+### Parallel For
+
+```seen
+parallel_for i in 0..1000 {
+    results[i] = compute(i)
+}
+```
+
+### Compile-time Evaluation
+
+```seen
+comptime fun factorial(n: Int) r: Int {
+    if n <= 1 { return 1 }
+    return n * factorial(n - 1)
+}
+
+let TABLE_SIZE = comptime { factorial(10) }
+```
+
+### Defer and Error Handling
+
+```seen
+fun readFile(path: String) r: String {
+    let file = File.open(path)
+    defer { file.close() }
+    try {
+        return file.readAll()
+    } catch e {
+        println("Error: {e}")
+        return ""
+    }
+}
+```
+
+### Module System
+
+```seen
+import std.collections.HashMap
+import std.io.File
+
+module mylib
+
+pub fun helper() r: Int {
+    return 42
+}
+```
+
+### Decorators / Attributes
+
+```seen
+@inline           // Always inline this function
+@async            // Async coroutine function
+@compute(...)     // GPU compute shader
+@derive(Clone)    // Auto-derive trait implementation
+@packed           // Packed struct layout
+@cache_line       // Cache-line aligned
+@trivially_copyable  // Opt out of move semantics
+@send             // Thread-safe sendable type
+@sync             // Thread-safe shareable type
+@intrinsic        // Compiler intrinsic
+@binary           // Binary serialization
+@reflect          // Runtime type information
+```
+
+### Operator Overloading
+
+```seen
+impl Add for Vec2 {
+    operator fun +(other: Vec2) r: Vec2 {
+        return Vec2.new(this.x + other.x, this.y + other.y)
+    }
+}
+```
+
+### Nullable Types
+
+```seen
+var name: String? = null
+if let n = name {
+    println("Name is {n}")
+}
+let fallback = name ?? "default"
+```
+
+---
+
+## Compiler Architecture
+
+### 5-Stage Pipeline
+
+```
+Source (.seen) → Lexer → Parser → Type Checker → IR Generator → LLVM Backend → Executable
+                                                                \→ C Backend → GCC → Executable
+```
+
+1. **Lexer** (`compiler_seen/src/lexer/`): Tokenizes source with multi-language keyword support via TOML files
+2. **Parser** (`compiler_seen/src/parser/`): Two-pass parsing to AST. Key types: `ProgramNode`, `FunctionNode`, `ClassNode`, `StatementNode`, `ParserExpressionNode`
+3. **Type Checker** (`compiler_seen/src/typechecker/`): Type inference, validation, smart casting after null checks
+4. **IR Generator** (`compiler_seen/src/ir/`): Three-pass LLVM IR generation (signatures, types, implementations)
+5. **Backend** (`compiler_seen/src/codegen/`): LLVM compilation with `opt -O3` → `opt --thinlto-bc` → `clang -flto=thin`
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `compiler_seen/src/main.seen` | Production compiler entry point |
+| `compiler_seen/src/main_compiler.seen` | Bootstrap compiler driver |
+| `compiler_seen/src/bootstrap/frontend.seen` | Frontend orchestration |
+| `compiler_seen/src/codegen/llvm_backend.seen` | LLVM backend (16KB) |
+| `compiler_seen/src/codegen/generator.seen` | Backend framework (41KB) |
+| `compiler_seen/src/ir/ir_generator.seen` | Core IR generation |
+| `compiler_seen/src/codegen/llvm_ir_gen.seen` | Primary LLVM IR codegen (14K+ lines) |
+
+### Compilation Pipeline Detail
+
+```
+.seen source
+  ↓ (lexer + parser + typechecker)
+LLVM IR (.ll files, one per module)
+  ↓ opt -O3 (vectorization, inlining, loop opts)
+Optimized IR (.opt.ll)
+  ↓ opt --thinlto-bc
+Object files (.o with ThinLTO bitcode)
+  ↓ clang -O3 -flto=thin -fuse-ld=lld
+Native executable
+```
+
+### Incremental Compilation
+
+IR is cached at `/tmp/seen_ir_cache` with content-addressed keys:
+```
+key = hash("v3:" + declarationsHash + ":" + modulePath + ":" + moduleSourceHash)
+```
+- `declarationsHash`: hash of all cross-module declarations (signatures, types, enums)
+- `moduleSourceHash`: hash of individual module source
+- Editing a function body only recompiles that module
+- Changing a function signature recompiles all modules
+
+---
+
+## Type System
+
+### Primitive Types
+
+| Type | Description |
+|------|-------------|
+| `Int` | 64-bit signed integer |
+| `Float` | 64-bit floating point (f64) |
+| `Bool` | Boolean (true/false) |
+| `Char` | Single character |
+| `String` | UTF-8 string (struct with `.len` and `.data` fields) |
+| `Void` | No value |
+
+### Collection Types
+
+| Type | Description |
+|------|-------------|
+| `Array<T>` | Dynamic array (struct with `.len`, `.cap`, `.element_size`, `.data`) |
+| `Vec<T>` | Alias for Array |
+| `HashMap<K, V>` | Hash map with SOA layout (separate keys/values/states arrays) |
+| `BTreeMap<K, V>` | Balanced tree map |
+| `LinkedList<T>` | Doubly-linked list |
+
+### Special Types
+
+| Type | Description |
+|------|-------------|
+| `T?` | Nullable type |
+| `Result<T, E>` | Result type (Ok/Err) |
+| `Buffer<T>` | GPU buffer |
+| `Uniform<T>` | GPU uniform |
+| `f32x4`, `f64x2`, `i32x4`, `i64x2` | SIMD vector types |
+| `AtomicInt` | Atomic integer |
+| `Mutex`, `RwLock` | Synchronization primitives |
+| `Channel` | Communication channel (Unix pipe-based) |
+
+---
+
+## Standard Library
+
+Located in `seen_std/src/`:
+
+| Module | Contents |
+|--------|----------|
+| `core/` | String, Int, Float, Bool, Char, Array, Vec, HashMap, Map |
+| `io/` | File, Path, stdin, stdout, readLine, readText, writeText |
+| `math/` | sqrt, sin, cos, tan, pow, abs, floor, ceil, log, log10 |
+| `process/` | Command, env, args, exit |
+| `sync/` | Mutex, RwLock, Barrier, ThreadLocal, AtomicInt, Channel, MPSCQueue |
+| `collections/` | BTreeMap, LinkedList, SmallVec |
+| `core/reflect.seen` | Runtime type information (@reflect) |
+| `core/binary.seen` | Binary serialization (@binary) |
+| `core/json_derive.seen` | JSON serialization (@derive(Json)) |
+| `gpu.seen`, `shader.seen` | GPU compute types and functions |
+
+---
+
+## Multi-Language Support
+
+### How It Works
+
+1. Each language has a directory under `languages/` (e.g., `languages/ar/`)
+2. Each directory contains 17 TOML files mapping English tokens to translated keywords
+3. The `--language` flag selects which TOML set to load at compile time
+4. The lexer uses `KeywordManager` to resolve tokens to their canonical (English) form
+5. All downstream compiler stages work with canonical English tokens
+6. Operators (`+`, `-`, `*`, etc.) are the same across all languages
+7. The return type label `r:` is universal (Arabic also supports `ن:`)
+
+### Adding a New Language
+
+1. Create `languages/<code>/` directory
+2. Copy all 17 TOML files from `languages/en/`
+3. Translate the keyword values (keys stay the same)
+4. Test: `seen build test.seen --language <code>`
+
+### TOML File Structure
+
+```toml
+# languages/ar/keywords-control.toml
+[keywords-control]
+function = "دالة"
+if = "إذا"
+else = "وإلا"
+while = "بينما"
+for = "لكل"
+```
+
+---
+
+## Project Structure
+
+```
+seenlang/
+├── compiler_seen/          # Self-hosted compiler
+│   ├── src/                # Compiler source (50 modules)
+│   │   ├── main.seen       # Production entry point
+│   │   ├── main_compiler.seen  # Bootstrap driver
+│   │   ├── lexer/          # Tokenizer
+│   │   ├── parser/         # Parser + AST
+│   │   ├── typechecker/    # Type system
+│   │   ├── ir/             # IR generation
+│   │   ├── codegen/        # LLVM/C backends
+│   │   └── bootstrap/      # Frontend orchestration
+│   ├── target/seen         # Production compiler binary
+│   └── Seen.toml           # Compiler project config
+├── seen_std/               # Standard library
+│   └── src/
+├── seen_runtime/           # C runtime library
+│   └── seen_runtime.c
+├── languages/              # Multi-language keyword definitions
+│   ├── en/                 # English (17 TOML files)
+│   ├── ar/                 # Arabic
+│   ├── es/                 # Spanish
+│   ├── ru/                 # Russian
+│   ├── zh/                 # Chinese
+│   └── ja/                 # Japanese
+├── bootstrap/              # Bootstrap compiler + integrity hashes
+│   ├── stage1_frozen       # Frozen verified bootstrap binary
+│   └── stage1_frozen.sha256
+├── benchmarks/             # Performance benchmarks
+├── tests/                  # Test suites
+├── vscode-seen/            # VS Code extension
+├── scripts/                # Build and release scripts
+├── docs/                   # Design documents
+├── Seen.toml               # Root project config
+├── CLAUDE.md               # Development guide
+└── README.md               # Project documentation
+```
+
+---
+
+## Build and Bootstrap System
+
+### Bootstrap Verification
+
+The compiler is self-hosting: it compiles itself. The bootstrap process verifies this:
+
+```bash
+# Stage 1: Frozen bootstrap compiler (committed to repo)
+# Stage 2: Compiled by stage 1
+# Stage 3: Compiled by stage 2
+# If stage 2 == stage 3, bootstrap is verified (fixed-point)
+```
+
+### Safe Rebuild
+
+```bash
+./scripts/safe_rebuild.sh
+```
+
+This script:
+1. Builds stage 2 from the frozen bootstrap compiler
+2. Builds stage 3 from stage 2
+3. Verifies bootstrap (stage 2 == stage 3)
+4. Only updates production compiler if verification passes
+
+### Seen.toml Project Configuration
+
+```toml
+[project]
+name = "my_project"
+version = "0.1.0"
+language = "en"          # Source language
+visibility = "caps"      # Visibility modifier style
+```
+
+### PGO Workflow
+
+```bash
+# 1. Compile with instrumentation
+seen build prog.seen -o prog --pgo-generate
+
+# 2. Run with representative input
+./prog
+
+# 3. Merge profiles
+llvm-profdata merge -o default.profdata default_*.profraw
+
+# 4. Compile with profile
+seen build prog.seen -o prog --pgo-use=default.profdata
+```

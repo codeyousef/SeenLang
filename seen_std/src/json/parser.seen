@@ -1,0 +1,580 @@
+// JSON Parser
+// Parses JSON strings into JsonValue objects
+
+import json.value.{JsonValue, JSON_NULL, JSON_BOOL, JSON_NUMBER, JSON_STRING, JSON_ARRAY, JSON_OBJECT, JsonValue_nullValue, JsonValue_bool, JsonValue_string, JsonValue_numberFloat, JsonValue_array, JsonValue_object}
+
+// JSON Parser result
+class JsonParseResult {
+    var success: Int
+    var value: JsonValue?
+    var error: String
+    var errorPosition: Int
+}
+
+// Free functions (formerly static methods on JsonParseResult)
+
+fun JsonParseResult_ok(value: JsonValue) r: JsonParseResult {
+    let result = JsonParseResult()
+    result.success = 1
+    result.value = value
+    result.error = ""
+    result.errorPosition = -1
+    return result
+}
+
+fun JsonParseResult_err(message: String, position: Int) r: JsonParseResult {
+    let result = JsonParseResult()
+    result.success = 0
+    result.value = null
+    result.error = message
+    result.errorPosition = position
+    return result
+}
+
+// JSON Parser
+class JsonParser {
+    var input: String
+    var pos: Int
+    var len: Int
+
+    // Main parse function
+    fun parse() r: JsonParseResult {
+        this.skipWhitespace()
+        if this.pos >= this.len {
+            return JsonParseResult_err("Unexpected end of input", this.pos)
+        }
+        let result = this.parseValue()
+        if result.success == 1 {
+            this.skipWhitespace()
+            if this.pos < this.len {
+                return JsonParseResult_err("Unexpected characters after JSON", this.pos)
+            }
+        }
+        return result
+    }
+
+    // Skip whitespace characters
+    fun skipWhitespace() r: Void {
+        while this.pos < this.len {
+            let ch = this.input.charAt(this.pos)
+            if ch == 32 or ch == 9 or ch == 10 or ch == 13 {
+                this.pos = this.pos + 1
+            } else {
+                break
+            }
+        }
+    }
+
+    // Parse any JSON value
+    fun parseValue() r: JsonParseResult {
+        this.skipWhitespace()
+        if this.pos >= this.len {
+            return JsonParseResult_err("Unexpected end of input", this.pos)
+        }
+
+        let ch = this.input.charAt(this.pos)
+
+        // null
+        if ch == 110 {  // 'n'
+            return this.parseNull()
+        }
+
+        // true
+        if ch == 116 {  // 't'
+            return this.parseTrue()
+        }
+
+        // false
+        if ch == 102 {  // 'f'
+            return this.parseFalse()
+        }
+
+        // string
+        if ch == 34 {  // '"'
+            return this.parseString()
+        }
+
+        // array
+        if ch == 91 {  // '['
+            return this.parseArray()
+        }
+
+        // object
+        if ch == 123 {  // '{'
+            return this.parseObject()
+        }
+
+        // number
+        if ch == 45 or (ch >= 48 and ch <= 57) {  // '-' or digit
+            return this.parseNumber()
+        }
+
+        return JsonParseResult_err("Unexpected character", this.pos)
+    }
+
+    // Parse null
+    fun parseNull() r: JsonParseResult {
+        if this.pos + 4 <= this.len {
+            let slice = this.input.substring(this.pos, this.pos + 4)
+            if slice == "null" {
+                this.pos = this.pos + 4
+                let nv = JsonValue_nullValue()
+                return JsonParseResult_ok(nv)
+            }
+        }
+        return JsonParseResult_err("Expected 'null'", this.pos)
+    }
+
+    // Parse true
+    fun parseTrue() r: JsonParseResult {
+        if this.pos + 4 <= this.len {
+            let slice = this.input.substring(this.pos, this.pos + 4)
+            if slice == "true" {
+                this.pos = this.pos + 4
+                let bv = JsonValue_bool(1)
+                return JsonParseResult_ok(bv)
+            }
+        }
+        return JsonParseResult_err("Expected 'true'", this.pos)
+    }
+
+    // Parse false
+    fun parseFalse() r: JsonParseResult {
+        if this.pos + 5 <= this.len {
+            let slice = this.input.substring(this.pos, this.pos + 5)
+            if slice == "false" {
+                this.pos = this.pos + 5
+                let bv = JsonValue_bool(0)
+                return JsonParseResult_ok(bv)
+            }
+        }
+        return JsonParseResult_err("Expected 'false'", this.pos)
+    }
+
+    // Parse string
+    fun parseString() r: JsonParseResult {
+        if this.pos >= this.len or this.input.charAt(this.pos) != 34 {
+            return JsonParseResult_err("Expected '\"'", this.pos)
+        }
+        this.pos = this.pos + 1  // Skip opening quote
+
+        var result = ""
+        while this.pos < this.len {
+            let ch = this.input.charAt(this.pos)
+
+            if ch == 34 {  // Closing quote
+                this.pos = this.pos + 1
+                let sv = JsonValue_string(result)
+                return JsonParseResult_ok(sv)
+            }
+
+            if ch == 92 {  // Backslash (escape)
+                this.pos = this.pos + 1
+                if this.pos >= this.len {
+                    return JsonParseResult_err("Unexpected end of string escape", this.pos)
+                }
+                let escaped = this.input.charAt(this.pos)
+                var escapedChar = ""
+                var escapeHandled = 0
+                if escaped == 34 { escapedChar = "\""; escapeHandled = 1 }
+                if escaped == 92 and escapeHandled == 0 { escapedChar = "\\"; escapeHandled = 1 }
+                if escaped == 47 and escapeHandled == 0 { escapedChar = "/"; escapeHandled = 1 }
+                if escaped == 98 and escapeHandled == 0 { escapedChar = String.fromCharCode(8); escapeHandled = 1 }
+                if escaped == 102 and escapeHandled == 0 { escapedChar = String.fromCharCode(12); escapeHandled = 1 }
+                if escaped == 110 and escapeHandled == 0 { escapedChar = "\n"; escapeHandled = 1 }
+                if escaped == 114 and escapeHandled == 0 { escapedChar = "\r"; escapeHandled = 1 }
+                if escaped == 116 and escapeHandled == 0 { escapedChar = "\t"; escapeHandled = 1 }
+                if escaped == 117 and escapeHandled == 0 {
+                    // Unicode escape - parse 4 hex digits
+                    if this.pos + 4 >= this.len {
+                        return JsonParseResult_err("Invalid unicode escape", this.pos)
+                    }
+                    this.pos = this.pos + 1
+                    let hex = this.input.substring(this.pos, this.pos + 4)
+                    let codepoint = this.parseHex(hex)
+                    if codepoint < 0 {
+                        return JsonParseResult_err("Invalid unicode escape", this.pos)
+                    }
+                    escapedChar = String.fromCharCode(codepoint)
+                    this.pos = this.pos + 3  // Will be incremented again below
+                    escapeHandled = 1
+                }
+                if escapeHandled == 0 {
+                    return JsonParseResult_err("Invalid escape sequence", this.pos)
+                }
+                result = result + escapedChar
+            } else {
+                if ch < 32 {
+                    return JsonParseResult_err("Invalid control character in string", this.pos)
+                } else {
+                    result = result + String.fromCharCode(ch)
+                }
+            }
+
+            this.pos = this.pos + 1
+        }
+
+        return JsonParseResult_err("Unterminated string", this.pos)
+    }
+
+    // Parse 4 hex digits to integer
+    fun parseHex(hex: String) r: Int {
+        if hex.length() != 4 {
+            return -1
+        }
+        var result = 0
+        var i = 0
+        while i < 4 {
+            let ch = hex.charAt(i)
+            var digit = 0
+            var hexHandled = 0
+            if ch >= 48 and ch <= 57 {  // 0-9
+                digit = ch - 48
+                hexHandled = 1
+            }
+            if hexHandled == 0 {
+                if ch >= 65 and ch <= 70 {  // A-F
+                    digit = ch - 55
+                    hexHandled = 1
+                }
+            }
+            if hexHandled == 0 {
+                if ch >= 97 and ch <= 102 {  // a-f
+                    digit = ch - 87
+                    hexHandled = 1
+                }
+            }
+            if hexHandled == 0 {
+                return -1
+            }
+            result = result * 16 + digit
+            i = i + 1
+        }
+        return result
+    }
+
+    // Parse number
+    fun parseNumber() r: JsonParseResult {
+        let startPos = this.pos
+        var hasDecimal = 0
+        var hasExponent = 0
+
+        // Optional negative sign
+        if this.pos < this.len and this.input.charAt(this.pos) == 45 {
+            this.pos = this.pos + 1
+        }
+
+        // Integer part
+        if this.pos >= this.len {
+            return JsonParseResult_err("Expected digit", this.pos)
+        }
+
+        let firstDigit = this.input.charAt(this.pos)
+        if firstDigit == 48 {  // 0
+            this.pos = this.pos + 1
+        } else {
+            if firstDigit >= 49 and firstDigit <= 57 {  // 1-9
+                this.pos = this.pos + 1
+                while this.pos < this.len {
+                    let ch = this.input.charAt(this.pos)
+                    if ch >= 48 and ch <= 57 {
+                        this.pos = this.pos + 1
+                    } else {
+                        break
+                    }
+                }
+            } else {
+                return JsonParseResult_err("Expected digit", this.pos)
+            }
+        }
+
+        // Decimal part
+        if this.pos < this.len and this.input.charAt(this.pos) == 46 {
+            hasDecimal = 1
+            this.pos = this.pos + 1
+            if this.pos >= this.len {
+                return JsonParseResult_err("Expected digit after decimal point", this.pos)
+            }
+            let firstFracDigit = this.input.charAt(this.pos)
+            if firstFracDigit < 48 or firstFracDigit > 57 {
+                return JsonParseResult_err("Expected digit after decimal point", this.pos)
+            }
+            while this.pos < this.len {
+                let ch = this.input.charAt(this.pos)
+                if ch >= 48 and ch <= 57 {
+                    this.pos = this.pos + 1
+                } else {
+                    break
+                }
+            }
+        }
+
+        // Exponent part
+        if this.pos < this.len {
+            let expChar = this.input.charAt(this.pos)
+            if expChar == 101 or expChar == 69 {  // e or E
+                hasExponent = 1
+                this.pos = this.pos + 1
+                if this.pos < this.len {
+                    let signChar = this.input.charAt(this.pos)
+                    if signChar == 43 or signChar == 45 {  // + or -
+                        this.pos = this.pos + 1
+                    }
+                }
+                if this.pos >= this.len {
+                    return JsonParseResult_err("Expected digit in exponent", this.pos)
+                }
+                let firstExpDigit = this.input.charAt(this.pos)
+                if firstExpDigit < 48 or firstExpDigit > 57 {
+                    return JsonParseResult_err("Expected digit in exponent", this.pos)
+                }
+                while this.pos < this.len {
+                    let ch = this.input.charAt(this.pos)
+                    if ch >= 48 and ch <= 57 {
+                        this.pos = this.pos + 1
+                    } else {
+                        break
+                    }
+                }
+            }
+        }
+
+        let numStr = this.input.substring(startPos, this.pos)
+        let numValue = this.parseFloat(numStr)
+        let fv = JsonValue_numberFloat(numValue)
+        return JsonParseResult_ok(fv)
+    }
+
+    // Parse float from string (simple implementation)
+    fun parseFloat(s: String) r: Float {
+        var result = 0.0
+        var i = 0
+        var negativeNum = 0
+        var afterDec = 0
+        var decimalMultiplier = 0.1
+        var hasExp = 0
+        var exponent = 0
+        var expNeg = 0
+
+        // Handle negative sign
+        if i < s.length() and s.charAt(i) == 45 {
+            negativeNum = 1
+            i = i + 1
+        }
+
+        while i < s.length() {
+            let ch = s.charAt(i)
+
+            if ch == 46 {  // Decimal point
+                afterDec = 1
+                i = i + 1
+                continue
+            }
+
+            if ch == 101 or ch == 69 {  // Exponent
+                hasExp = 1
+                i = i + 1
+                if i < s.length() {
+                    let signCh = s.charAt(i)
+                    if signCh == 45 {
+                        expNeg = 1
+                        i = i + 1
+                    } else {
+                        if signCh == 43 {
+                            i = i + 1
+                        }
+                    }
+                }
+                // Parse exponent digits
+                while i < s.length() {
+                    let expCh = s.charAt(i)
+                    if expCh >= 48 and expCh <= 57 {
+                        exponent = exponent * 10 + (expCh - 48)
+                    } else {
+                        break
+                    }
+                    i = i + 1
+                }
+                break
+            }
+
+            if ch >= 48 and ch <= 57 {
+                let digit = ch - 48
+                if afterDec == 1 {
+                    result = result + digit.toFloat() * decimalMultiplier
+                    decimalMultiplier = decimalMultiplier * 0.1
+                } else {
+                    result = result * 10.0 + digit.toFloat()
+                }
+            }
+
+            i = i + 1
+        }
+
+        // Apply exponent
+        if hasExp == 1 {
+            var expMultiplier = 1.0
+            var j = 0
+            while j < exponent {
+                expMultiplier = expMultiplier * 10.0
+                j = j + 1
+            }
+            if expNeg == 1 {
+                result = result / expMultiplier
+            } else {
+                result = result * expMultiplier
+            }
+        }
+
+        if negativeNum == 1 {
+            result = 0.0 - result
+        }
+
+        return result
+    }
+
+    // Parse array
+    fun parseArray() r: JsonParseResult {
+        if this.pos >= this.len or this.input.charAt(this.pos) != 91 {
+            return JsonParseResult_err("Expected '['", this.pos)
+        }
+        this.pos = this.pos + 1  // Skip opening bracket
+
+        let elements = Array<JsonValue>()
+
+        this.skipWhitespace()
+        if this.pos < this.len and this.input.charAt(this.pos) == 93 {
+            // Empty array
+            this.pos = this.pos + 1
+            let av = JsonValue_array(elements)
+            return JsonParseResult_ok(av)
+        }
+
+        while true {
+            this.skipWhitespace()
+            let elemResult = this.parseValue()
+            if elemResult.success == 1 {
+                // ok
+            } else {
+                return elemResult
+            }
+            let elemOptVal = elemResult.value
+            let elemVal = elemOptVal.unwrap()
+            elements.push(elemVal)
+
+            this.skipWhitespace()
+            if this.pos >= this.len {
+                return JsonParseResult_err("Unterminated array", this.pos)
+            }
+
+            let nextCh = this.input.charAt(this.pos)
+            if nextCh == 93 {  // ]
+                this.pos = this.pos + 1
+                let av = JsonValue_array(elements)
+                return JsonParseResult_ok(av)
+            }
+
+            if nextCh != 44 {  // ,
+                return JsonParseResult_err("Expected ',' or ']'", this.pos)
+            }
+            this.pos = this.pos + 1  // Skip comma
+        }
+
+        // Unreachable but needed for type checker
+        return JsonParseResult_err("Parse error", this.pos)
+    }
+
+    // Parse object
+    fun parseObject() r: JsonParseResult {
+        if this.pos >= this.len or this.input.charAt(this.pos) != 123 {
+            return JsonParseResult_err("Expected '{'", this.pos)
+        }
+        this.pos = this.pos + 1  // Skip opening brace
+
+        let keys = Array<String>()
+        let values = Array<JsonValue>()
+
+        this.skipWhitespace()
+        if this.pos < this.len and this.input.charAt(this.pos) == 125 {
+            // Empty object
+            this.pos = this.pos + 1
+            let ov = JsonValue_object(keys, values)
+            return JsonParseResult_ok(ov)
+        }
+
+        while true {
+            this.skipWhitespace()
+
+            // Parse key (must be string)
+            if this.pos >= this.len or this.input.charAt(this.pos) != 34 {
+                return JsonParseResult_err("Expected string key", this.pos)
+            }
+            let keyResult = this.parseString()
+            if keyResult.success == 1 {
+                // ok
+            } else {
+                return keyResult
+            }
+            let keyOptVal = keyResult.value
+            let keyJsonVal = keyOptVal.unwrap()
+            let key = keyJsonVal.getString()
+
+            // Expect colon
+            this.skipWhitespace()
+            if this.pos >= this.len or this.input.charAt(this.pos) != 58 {
+                return JsonParseResult_err("Expected ':'", this.pos)
+            }
+            this.pos = this.pos + 1  // Skip colon
+
+            // Parse value
+            this.skipWhitespace()
+            let valueResult = this.parseValue()
+            if valueResult.success == 1 {
+                // ok
+            } else {
+                return valueResult
+            }
+
+            keys.push(key)
+            let valOptVal = valueResult.value
+            let valObj = valOptVal.unwrap()
+            values.push(valObj)
+
+            this.skipWhitespace()
+            if this.pos >= this.len {
+                return JsonParseResult_err("Unterminated object", this.pos)
+            }
+
+            let nextCh = this.input.charAt(this.pos)
+            if nextCh == 125 {  // }
+                this.pos = this.pos + 1
+                let ov = JsonValue_object(keys, values)
+                return JsonParseResult_ok(ov)
+            }
+
+            if nextCh != 44 {  // ,
+                return JsonParseResult_err("Expected ',' or '}'", this.pos)
+            }
+            this.pos = this.pos + 1  // Skip comma
+        }
+
+        // Unreachable but needed for type checker
+        return JsonParseResult_err("Parse error", this.pos)
+    }
+}
+
+// Free function (formerly static method on JsonParser)
+
+fun JsonParser_new(input: String) r: JsonParser {
+    let parser = JsonParser()
+    parser.input = input
+    parser.pos = 0
+    parser.len = input.length()
+    return parser
+}
+
+// Convenience function to parse JSON
+fun parseJson(input: String) r: JsonParseResult {
+    let parser = JsonParser_new(input)
+    return parser.parse()
+}

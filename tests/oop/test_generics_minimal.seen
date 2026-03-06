@@ -1,0 +1,22 @@
+// Minimal Generic Test
+// Tests: Can we even declare a generic class?
+// Expected: At minimum, generic class syntax should parse
+
+class Box<T> {
+    var value: T
+
+    static fun new(value: T) r: Box<T> {
+        return Box<T> { value: value }
+    }
+}
+
+fun main() r: Int {
+    println("Testing minimal generic class syntax...")
+
+    // Just try to create an instance - don't use getValue yet
+    let intBox = Box<Int>.new(42)
+
+    println("Box<Int> instance created")
+    println("PASS: Generic class syntax accepted by parser")
+    return 0
+}

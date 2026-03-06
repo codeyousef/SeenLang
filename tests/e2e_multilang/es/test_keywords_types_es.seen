@@ -1,0 +1,67 @@
+// Prueba E2E: Palabras clave de tipos (Espanol)
+// Palabras probadas: clase, enumeracion
+// NOTA: rasgo+implementar tiene bug de codegen (falta parametro this) -- omitido
+// NOTA: herencia (extiende) tiene bug en asignacion de campos heredados -- omitido
+// NOTA: campos multiples con nombres no-ASCII tienen bug structIdx -- usar un solo campo Int
+
+enumeración Color {
+    Rojo,
+    Verde,
+    Azul
+}
+
+clase Contador {
+    variable cuenta: entero
+
+    función obtenerCuenta() r: entero {
+        retornar esto.cuenta
+    }
+}
+
+función crearContador(c: entero) r: Contador {
+    variable ct = Contador()
+    ct.cuenta = c
+    retornar ct
+}
+
+función principal() r: entero {
+    // Prueba 1: enum igualdad
+    sea c1 = Color.Rojo
+    sea c2 = Color.Rojo
+    si c1 == c2 {
+        imprimir("EXITO: igualdad de enumeracion")
+    } sino {
+        imprimir("FALLO: igualdad de enumeracion")
+        retornar 1
+    }
+
+    // Prueba 2: enum desigualdad
+    sea c3 = Color.Azul
+    si c1 != c3 {
+        imprimir("EXITO: desigualdad de enumeracion")
+    } sino {
+        imprimir("FALLO: desigualdad de enumeracion")
+        retornar 1
+    }
+
+    // Prueba 3: clase con un solo campo Int + metodo
+    sea ct = crearContador(42)
+    si ct.obtenerCuenta() == 42 {
+        imprimir("EXITO: metodo de clase")
+    } sino {
+        imprimir("FALLO: metodo de clase")
+        retornar 1
+    }
+
+    // Prueba 4: tipo basico
+    sea val = 100
+    si val == 100 {
+        imprimir("EXITO: tipo basico")
+    } sino {
+        imprimir("FALLO: tipo basico")
+        retornar 1
+    }
+
+    imprimir("EXITO: todas las pruebas de tipos pasaron")
+    retornar 0
+}

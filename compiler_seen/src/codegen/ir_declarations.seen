@@ -1,0 +1,392 @@
+// Runtime declarations for LLVM IR generation
+// Extracted from llvm_ir_gen.seen to reduce file size
+// Sub-functions split into ir_decl_runtime.seen, ir_decl_parser.seen, ir_decl_features.seen
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_type_info.{findStructIdx}
+
+// Check if a function name is defined in the current module
+fun isFuncDefinedInModule(name: String, definedFuncs: Array<String>) r: Bool {
+    var i = 0
+    while i < definedFuncs.length() {
+        if definedFuncs[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// --- Derive codegen helper functions ---
+
+fun addStringConstantImpl(stringConstants: Array<String>, str: String) r: Int {
+    var idx = 0
+    while idx < stringConstants.length() {
+        if stringConstants[idx] == str {
+            return idx
+        }
+        idx = idx + 1
+    }
+    stringConstants.push(str)
+    return stringConstants.length() - 1
+}
+
+fun registerStructMethodImpl(className: String, methodName: String, retType: String, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let idx = findStructIdx(structNames, className)
+    if idx >= 0 {
+        let existing = structMethodNames[idx]
+        let existingRet = structMethodRetTypes[idx]
+        if existing.length() > 0 {
+            structMethodNames[idx] = existing + "," + methodName
+            structMethodRetTypes[idx] = existingRet + "|" + retType
+        } else {
+            structMethodNames[idx] = methodName
+            structMethodRetTypes[idx] = retType
+        }
+    }
+    funcNames.push(className + "_" + methodName)
+    funcRetTypes.push(retType)
+}
+
+// ============================================================
+// Collection Constructor IR Emission (extracted from generateCall)
+// ============================================================
+
+fun emitCollectionConstructorImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, capArg: String, argCount: Int) r: String {
+
+    // Vec<T>() constructor
+    if funcName == "Vec" or funcName.startsWith("Vec<") {
+        let rawReg = getNextRegFn(regBox)
+        if funcName.contains("<String") {
+            output.append("  " + rawReg + " = call ptr @Vec_new_str()\n")
+        } else {
+            if funcName.contains("<Float") {
+                output.append("  " + rawReg + " = call ptr @Vec_new_float()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @Vec_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    // BTreeMap<K,V>() constructor
+    if funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") {
+        let hasStringKeyB = funcName.contains("<String")
+        let hasStringValueB = funcName.contains(", String>") or funcName.contains(",String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKeyB {
+            if hasStringValueB {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str()\n")
+            }
+        } else {
+            if hasStringValueB {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_int_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    // HashMap<K,V>() constructor (with optional capacity)
+    if funcName == "HashMap" or funcName.startsWith("HashMap<") {
+        let hasStringKeyC = funcName.contains("<String")
+        let hasStringValueC = funcName.contains(", String>") or funcName.contains(",String>")
+        let hasCapArg = argCount == 1
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKeyC {
+            if hasStringValueC {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
+                }
+            } else {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
+                }
+            }
+        } else {
+            if hasStringValueC {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_int_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_int_str()\n")
+                }
+            } else {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new()\n")
+                }
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    // LinkedList<T>() constructor
+    if funcName == "LinkedList" or funcName.startsWith("LinkedList<") {
+        let rawReg = getNextRegFn(regBox)
+        if funcName.contains("<String") {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new_str()\n")
+        } else {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new()\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    return ""
+}
+
+// ============================================================
+// Math Builtin IR Emission (extracted from generateCall)
+// ============================================================
+
+fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, arg0: String, arg1: String) r: String {
+
+    // __Sqrt → llvm.sqrt.f64
+    if funcName == "__Sqrt" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.sqrt.f64(double " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // 1-arg LLVM intrinsics: __Sin, __Cos, __Exp, __Log, __Log10, __Fabs
+    if funcName == "__Sin" or funcName == "__Cos" or funcName == "__Exp" or funcName == "__Log" or funcName == "__Log10" or funcName == "__Fabs" {
+        let resultReg = getNextRegFn(regBox)
+        var intrinsicName = ""
+        if funcName == "__Sin" { intrinsicName = "@llvm.sin.f64" }
+        if funcName == "__Cos" { intrinsicName = "@llvm.cos.f64" }
+        if funcName == "__Exp" { intrinsicName = "@llvm.exp.f64" }
+        if funcName == "__Log" { intrinsicName = "@llvm.log.f64" }
+        if funcName == "__Log10" { intrinsicName = "@llvm.log10.f64" }
+        if funcName == "__Fabs" { intrinsicName = "@llvm.fabs.f64" }
+        output.append("  " + resultReg + " = call fast double " + intrinsicName + "(double " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // __Pow → llvm.pow.f64 (2-arg)
+    if funcName == "__Pow" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.pow.f64(double " + arg0 + ", double " + arg1 + ")\n")
+        return resultReg
+    }
+
+    // 1-arg libc math: __Asin, __Acos, __Atan, __Sinh, __Cosh, __Tanh
+    if funcName == "__Asin" or funcName == "__Acos" or funcName == "__Atan" or funcName == "__Sinh" or funcName == "__Cosh" or funcName == "__Tanh" {
+        let resultReg = getNextRegFn(regBox)
+        var libcName = ""
+        if funcName == "__Asin" { libcName = "@asin" }
+        if funcName == "__Acos" { libcName = "@acos" }
+        if funcName == "__Atan" { libcName = "@atan" }
+        if funcName == "__Sinh" { libcName = "@sinh" }
+        if funcName == "__Cosh" { libcName = "@cosh" }
+        if funcName == "__Tanh" { libcName = "@tanh" }
+        output.append("  " + resultReg + " = call fast double " + libcName + "(double " + arg0 + ")\n")
+        return resultReg
+    }
+
+    // __Atan2 → atan2 (2-arg libc)
+    if funcName == "__Atan2" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @atan2(double " + arg0 + ", double " + arg1 + ")\n")
+        return resultReg
+    }
+
+    // __ExecuteCommand → returns CommandResult struct
+    if funcName == "__ExecuteCommand" {
+        let ptrReg = getNextRegFn(regBox)
+        output.append("  " + ptrReg + " = call ptr @__ExecuteCommand(%SeenString " + arg0 + ")\n")
+        let structReg = getNextRegFn(regBox)
+        output.append("  " + structReg + " = load %CommandResult, ptr " + ptrReg + "\n")
+        return structReg
+    }
+
+    // absFloat → llvm.fabs.f64
+    if funcName == "absFloat" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call fast double @llvm.fabs.f64(double " + arg0 + ") ; float abs intrinsic\n")
+        return resultReg
+    }
+
+    // absInt → branchless (x ^ (x >> 63)) - (x >> 63)
+    if funcName == "absInt" {
+        let shiftReg = getNextRegFn(regBox)
+        output.append("  " + shiftReg + " = ashr i64 " + arg0 + ", 63 ; branchless abs\n")
+        let xorReg = getNextRegFn(regBox)
+        output.append("  " + xorReg + " = xor i64 " + arg0 + ", " + shiftReg + "\n")
+        let absResultReg = getNextRegFn(regBox)
+        output.append("  " + absResultReg + " = sub i64 " + xorReg + ", " + shiftReg + " ; superopt: branchless abs\n")
+        return absResultReg
+    }
+
+    // minInt → branchless select(icmp slt a, b, a, b)
+    if funcName == "minInt" {
+        let cmpR = getNextRegFn(regBox)
+        output.append("  " + cmpR + " = icmp slt i64 " + arg0 + ", " + arg1 + "\n")
+        let selR = getNextRegFn(regBox)
+        output.append("  " + selR + " = select i1 " + cmpR + ", i64 " + arg0 + ", i64 " + arg1 + " ; branchless min\n")
+        return selR
+    }
+
+    // maxInt → branchless select(icmp sgt a, b, a, b)
+    if funcName == "maxInt" {
+        let cmpR = getNextRegFn(regBox)
+        output.append("  " + cmpR + " = icmp sgt i64 " + arg0 + ", " + arg1 + "\n")
+        let selR = getNextRegFn(regBox)
+        output.append("  " + selR + " = select i1 " + cmpR + ", i64 " + arg0 + ", i64 " + arg1 + " ; branchless max\n")
+        return selR
+    }
+
+    return ""
+}
+
+// ============================================================
+// Some/None Constructor IR Emission (extracted from generateCall)
+// ============================================================
+
+fun emitSomeConstructorImpl(output: StringBuilder, regBox: Array<Int>,
+    argReg: String, argType: String, isClassArg: Int) r: String {
+
+    // Allocate Option struct on heap (pool for 16 bytes) ; alloc-sinkable
+    let allocReg = getNextRegFn(regBox)
+    output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 16) ; alloc-sinkable\n")
+    // Set hasValue = true
+    let hasValuePtrReg = getNextRegFn(regBox)
+    output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 0\n")
+    output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
+    // Set value from argument - need to convert to i64 for storage
+    let valuePtrReg = getNextRegFn(regBox)
+    output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 1\n")
+    // Handle different argument types using flag pattern (stage1 has issues with else if chains)
+    var someArgHandled = false
+    if argType == "String" {
+        // String (SeenString struct) - store pointer to the string struct
+        let tmpAlloc = getNextRegFn(regBox)
+        output.append("  " + tmpAlloc + " = alloca %SeenString\n")
+        output.append("  store %SeenString " + argReg + ", ptr " + tmpAlloc + "\n")
+        let tmpAsInt = getNextRegFn(regBox)
+        output.append("  " + tmpAsInt + " = ptrtoint ptr " + tmpAlloc + " to i64\n")
+        output.append("  store i64 " + tmpAsInt + ", ptr " + valuePtrReg + "\n")
+        someArgHandled = true
+    }
+    if not someArgHandled and argType == "Bool" {
+        // Bool (i1) - zero extend to i64
+        let extReg = getNextRegFn(regBox)
+        output.append("  " + extReg + " = zext i1 " + argReg + " to i64\n")
+        output.append("  store i64 " + extReg + ", ptr " + valuePtrReg + "\n")
+        someArgHandled = true
+    }
+    if not someArgHandled and isClassArg == 1 {
+        // Class types are already stored as i64
+        output.append("  store i64 " + argReg + ", ptr " + valuePtrReg + "\n")
+        someArgHandled = true
+    }
+    if not someArgHandled {
+        // Int, Char, and other i64 types
+        output.append("  store i64 " + argReg + ", ptr " + valuePtrReg + "\n")
+    }
+    // Convert to i64 (class types stored as pointer-as-int)
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = ptrtoint ptr " + allocReg + " to i64\n")
+    return resultReg
+}
+
+fun emitNoneConstructorImpl(output: StringBuilder, regBox: Array<Int>) r: String {
+    // Allocate Option struct on heap (pool for 16 bytes) ; alloc-sinkable
+    let allocReg = getNextRegFn(regBox)
+    output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 16) ; alloc-sinkable\n")
+    // Set hasValue = false
+    let hasValuePtrReg = getNextRegFn(regBox)
+    output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 0\n")
+    output.append("  store i1 false, ptr " + hasValuePtrReg + "\n")
+    // Convert to i64 (class types stored as pointer-as-int)
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = ptrtoint ptr " + allocReg + " to i64\n")
+    return resultReg
+}
+
+// ============================================================
+// @extern Function Declaration (extracted from generateFunction)
+// ============================================================
+
+fun emitExternDeclImpl(output: StringBuilder,
+    funcName: String, externSymbol: String,
+    mappedParamTypes: Array<String>, paramCount: Int,
+    externRetType: String, isVariadic: Int) r: Void {
+
+    // Build the declaration
+    var externDecl = "declare " + externRetType + " @" + externSymbol + "("
+    var pIdx = 0
+    while pIdx < paramCount {
+        if pIdx > 0 {
+            externDecl = externDecl + ", "
+        }
+        externDecl = externDecl + mappedParamTypes[pIdx]
+        pIdx = pIdx + 1
+    }
+    if isVariadic == 1 {
+        if paramCount > 0 {
+            externDecl = externDecl + ", "
+        }
+        externDecl = externDecl + "..."
+    }
+    externDecl = externDecl + ")\n"
+
+    // Skip declaration for LLVM intrinsics (already in ir_declarations.seen)
+    if externSymbol.startsWith("llvm.") {
+        output.append("; llvm intrinsic " + externSymbol + " — declared in ir_declarations\n")
+    } else {
+        output.append(externDecl)
+    }
+
+    // If symbol differs from function name, emit a wrapper that calls the extern
+    if externSymbol != funcName {
+        output.append("define " + externRetType + " @" + funcName + "(")
+        pIdx = 0
+        while pIdx < paramCount {
+            if pIdx > 0 {
+                output.append(", ")
+            }
+            output.append(mappedParamTypes[pIdx] + " %p" + pIdx.toString())
+            pIdx = pIdx + 1
+        }
+        output.append(") #0 {\n")
+        output.append("entry:\n")
+
+        // Build call to extern function
+        var callArgs = ""
+        pIdx = 0
+        while pIdx < paramCount {
+            if pIdx > 0 {
+                callArgs = callArgs + ", "
+            }
+            callArgs = callArgs + mappedParamTypes[pIdx] + " %p" + pIdx.toString()
+            pIdx = pIdx + 1
+        }
+
+        if externRetType == "void" {
+            output.append("  call void @" + externSymbol + "(" + callArgs + ")\n")
+            output.append("  ret void\n")
+        } else {
+            output.append("  %result = call " + externRetType + " @" + externSymbol + "(" + callArgs + ")\n")
+            output.append("  ret " + externRetType + " %result\n")
+        }
+        output.append("}\n\n")
+    }
+}

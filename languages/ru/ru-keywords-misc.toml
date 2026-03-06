@@ -1,0 +1,13 @@
+name = "Russian"
+description = "Russian Miscellaneous Keywords"
+
+[keywords]
+"является" = "KeywordIs"
+"как" = "KeywordAs"
+"через" = "KeywordBy"
+"и" = "KeywordAnd"
+"или" = "KeywordOr"
+"не" = "KeywordNot"
+"к" = "KeywordTo"
+"от" = "KeywordFrom"
+"эффект" = "KeywordEffect"

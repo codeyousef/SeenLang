@@ -1,0 +1,49 @@
+// MPSC (Multi-Producer Single-Consumer) queue using a mutex-protected Array<Int>.
+// Uses raw __Mutex* externs (no Mutex class import needed).
+//
+// Usage:
+//   var q = new_mpsc_queue()
+//   mpsc_push(q, item)          // safe from multiple threads
+//   let items = mpsc_drain(q)   // consumer only
+
+extern fun __MutexCreate() -> Int
+extern fun __MutexLock(handle: Int) -> Void
+extern fun __MutexUnlock(handle: Int) -> Void
+extern fun __MutexDestroy(handle: Int) -> Void
+
+class MPSCQueue {
+    var items: Array<Int>
+    var mutex_handle: Int
+}
+
+fun new_mpsc_queue() -> MPSCQueue {
+    var q = MPSCQueue()
+    q.mutex_handle = __MutexCreate()
+    return q
+}
+
+fun mpsc_push(queue: MPSCQueue, item: Int) {
+    __MutexLock(queue.mutex_handle)
+    queue.items.push(item)
+    __MutexUnlock(queue.mutex_handle)
+}
+
+// Atomically drain all items; returns snapshot, resets queue to empty.
+fun mpsc_drain(queue: MPSCQueue) -> Array<Int> {
+    __MutexLock(queue.mutex_handle)
+    let snapshot = queue.items
+    queue.items = Array<Int>()
+    __MutexUnlock(queue.mutex_handle)
+    return snapshot
+}
+
+fun mpsc_len(queue: MPSCQueue) -> Int {
+    __MutexLock(queue.mutex_handle)
+    let n = queue.items.length()
+    __MutexUnlock(queue.mutex_handle)
+    return n
+}
+
+fun mpsc_destroy(queue: MPSCQueue) -> Void {
+    __MutexDestroy(queue.mutex_handle)
+}

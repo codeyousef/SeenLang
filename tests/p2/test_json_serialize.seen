@@ -1,0 +1,13 @@
+@derive(Json)
+class Settings {
+    volume: Int
+    brightness: Int
+}
+
+fun main() r: Int {
+    let s = Settings(80, 50)
+    let json = s.toJson()
+    println(json)
+    println("PASS: json_serialize")
+    return 0
+}

@@ -1,0 +1,7 @@
+// Russian language test
+// Compile with: --language ru
+
+функция main() -> целое {
+    печать("Привет из Seen!")
+    вернуть 0
+}

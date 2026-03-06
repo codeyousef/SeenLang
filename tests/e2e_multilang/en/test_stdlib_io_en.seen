@@ -1,0 +1,68 @@
+// E2E Test: IO Standard Library (English)
+// Functions tested: __OpenFile, __WriteFile, __ReadFile, __CloseFile, __FileSize,
+//                   __FileExists, __DeleteFile
+// NOTE: High-level wrappers (writeText, readText, exists, deleteFile) are in
+//       seen_std/src/io/file.seen but not available in single-file compilation.
+//       Using __ prefixed runtime functions directly.
+// NOTE: __FileExists/__DeleteFile return bool, use directly in if conditions
+// NOTE: __ReadFile returns SeenString but codegen treats as i64 - cannot use
+//       the returned string content. Verify via __FileSize instead.
+
+fun main() r: Int {
+    let path = "/tmp/seen_e2e_test_en.txt"
+    let content = "hello from seen e2e test"
+
+    // Test 1: open file for writing
+    let fd1 = __OpenFile(path, "w")
+    if fd1 < 0 {
+        println("FAIL: open file for write")
+        return 1
+    }
+    println("PASS: open file for write")
+
+    // Test 2: write content
+    let written = __WriteFile(fd1, content)
+    let c1 = __CloseFile(fd1)
+    if written >= 0 {
+        println("PASS: writeFile")
+    } else {
+        println("FAIL: writeFile")
+        return 1
+    }
+
+    // Test 3: file exists (bool return, use directly in if)
+    if __FileExists(path) {
+        println("PASS: fileExists")
+    } else {
+        println("FAIL: fileExists")
+        return 1
+    }
+
+    // Test 4: read back and verify size
+    // (Cannot compare string content due to __ReadFile return type bug)
+    let fd2 = __OpenFile(path, "r")
+    if fd2 < 0 {
+        println("FAIL: open file for read")
+        return 1
+    }
+    let sz = __FileSize(fd2)
+    let c2 = __CloseFile(fd2)
+    if sz == 24 {
+        println("PASS: file size matches content length")
+    } else {
+        println("FAIL: file size, got " + sz.toString())
+        return 1
+    }
+
+    // Test 5: delete file
+    __DeleteFile(path)
+    if __FileExists(path) {
+        println("FAIL: deleteFile (file still exists)")
+        return 1
+    } else {
+        println("PASS: deleteFile")
+    }
+
+    println("PASS: all IO stdlib tests passed")
+    return 0
+}

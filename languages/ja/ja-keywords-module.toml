@@ -1,0 +1,8 @@
+name = "Japanese"
+description = "Japanese Module System Keywords"
+
+[keywords]
+"モジュール" = "KeywordModule"
+"インポート" = "KeywordImport"
+"使用" = "KeywordUse"
+"外部" = "KeywordExternal"

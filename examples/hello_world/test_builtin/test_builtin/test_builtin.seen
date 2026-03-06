@@ -1,0 +1,18 @@
+// Test file to verify built-in functions work correctly
+fun main() {
+    // Test println
+    println("Testing built-in functions")
+    
+    // Test print without newline
+    print("Hello, ")
+    println("World!")
+    
+    // Test debug output
+    debug("Debug message")
+    
+    // Test assertion (should pass)
+    assert(true)
+    assert(1 + 1 == 2)
+    
+    println("All tests passed!")
+}

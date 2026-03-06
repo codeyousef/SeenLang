@@ -1,0 +1,22 @@
+class Point {
+    var x: Int
+    var y: Int
+
+    fun sum() r: Int {
+        return this.x + this.y
+    }
+}
+
+fun Point_new(x: Int, y: Int) r: Point {
+    var p = Point()
+    p.x = x
+    p.y = y
+    return p
+}
+
+fun main() r: Int {
+    let p = Point_new(10, 20)
+    __PrintInt(p.sum())
+    __Print("\n")
+    return 0
+}

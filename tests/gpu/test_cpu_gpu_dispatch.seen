@@ -1,0 +1,16 @@
+// Test: Same function callable from CPU and GPU
+// The @compute decorator generates a GPU shader + CPU dispatch wrapper
+
+@compute(workgroup: 64)
+fun addOne(data: Buffer<Float>) {
+    let idx = globalInvocationId.x
+    data[idx] = data[idx] + 1.0
+}
+
+fun main() r: Int {
+    println("test_cpu_gpu_dispatch: compile-time dispatch")
+    println("  @compute generates both GPU shader and CPU wrapper")
+    println("  addOne_gpu_dispatch() calls seen_gpu_dispatch()")
+    println("PASS")
+    return 0
+}

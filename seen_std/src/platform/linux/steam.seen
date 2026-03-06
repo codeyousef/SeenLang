@@ -1,0 +1,428 @@
+/**
+ * Steamworks SDK FFI bindings for Linux.
+ *
+ * Low-level bindings to the Steamworks API for achievements, stats,
+ * cloud saves, friends, and overlay integration. Prefer the higher-level
+ * Steam class from platform.linux.steam_wrapper for most use cases.
+ *
+ * Link with: -lsteam_api
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+
+// Steam callback types
+let k_iSteamUserCallbacks: Int = 100
+let k_iSteamGameServerCallbacks: Int = 200
+let k_iSteamFriendsCallbacks: Int = 300
+let k_iSteamBillingCallbacks: Int = 400
+let k_iSteamMatchmakingCallbacks: Int = 500
+let k_iSteamContentServerCallbacks: Int = 600
+let k_iSteamUtilsCallbacks: Int = 700
+let k_iSteamAppsCallbacks: Int = 1000
+let k_iSteamUserStatsCallbacks: Int = 1100
+let k_iSteamNetworkingCallbacks: Int = 1200
+let k_iSteamRemoteStorageCallbacks: Int = 1300
+
+// Friend flags
+let k_EFriendFlagNone: Int = 0x00
+let k_EFriendFlagBlocked: Int = 0x01
+let k_EFriendFlagFriendshipRequested: Int = 0x02
+let k_EFriendFlagImmediate: Int = 0x04
+let k_EFriendFlagClanMember: Int = 0x08
+let k_EFriendFlagOnGameServer: Int = 0x10
+let k_EFriendFlagRequestingFriendship: Int = 0x80
+let k_EFriendFlagRequestingInfo: Int = 0x100
+let k_EFriendFlagIgnored: Int = 0x200
+let k_EFriendFlagIgnoredFriend: Int = 0x400
+let k_EFriendFlagAll: Int = 0xFFFF
+
+// Persona states
+let k_EPersonaStateOffline: Int = 0
+let k_EPersonaStateOnline: Int = 1
+let k_EPersonaStateBusy: Int = 2
+let k_EPersonaStateAway: Int = 3
+let k_EPersonaStateSnooze: Int = 4
+let k_EPersonaStateLookingToTrade: Int = 5
+let k_EPersonaStateLookingToPlay: Int = 6
+let k_EPersonaStateInvisible: Int = 7
+let k_EPersonaStateMax: Int = 8
+
+// Account types
+let k_EAccountTypeInvalid: Int = 0
+let k_EAccountTypeIndividual: Int = 1
+let k_EAccountTypeMultiseat: Int = 2
+let k_EAccountTypeGameServer: Int = 3
+let k_EAccountTypeAnonGameServer: Int = 4
+let k_EAccountTypePending: Int = 5
+let k_EAccountTypeContentServer: Int = 6
+let k_EAccountTypeClan: Int = 7
+let k_EAccountTypeChat: Int = 8
+let k_EAccountTypeConsoleUser: Int = 9
+let k_EAccountTypeAnonUser: Int = 10
+let k_EAccountTypeMax: Int = 11
+
+// Universe types
+let k_EUniverseInvalid: Int = 0
+let k_EUniversePublic: Int = 1
+let k_EUniverseBeta: Int = 2
+let k_EUniverseInternal: Int = 3
+let k_EUniverseDev: Int = 4
+let k_EUniverseMax: Int = 5
+
+// Overlay positions
+let k_EPositionTopLeft: Int = 0
+let k_EPositionTopRight: Int = 1
+let k_EPositionBottomLeft: Int = 2
+let k_EPositionBottomRight: Int = 3
+
+// ============================================================================
+// Direct C FFI Declarations - Link to libsteam_api.so
+// ============================================================================
+
+// Core Steam API initialization
+extern "C" fun SteamAPI_Init() r: Int32
+extern "C" fun SteamAPI_Shutdown() r: Void
+extern "C" fun SteamAPI_RestartAppIfNecessary(unOwnAppID: UInt32) r: Int32
+extern "C" fun SteamAPI_RunCallbacks() r: Void
+extern "C" fun SteamAPI_IsSteamRunning() r: Int32
+
+// Client interface access (returns opaque pointers)
+extern "C" fun SteamClient() r: *Void
+extern "C" fun SteamUser() r: *Void
+extern "C" fun SteamFriends() r: *Void
+extern "C" fun SteamUtils() r: *Void
+extern "C" fun SteamUserStats() r: *Void
+extern "C" fun SteamApps() r: *Void
+extern "C" fun SteamInput() r: *Void
+extern "C" fun SteamRemoteStorage() r: *Void
+
+// ISteamUser functions
+extern "C" fun SteamAPI_ISteamUser_GetSteamID(steamUser: *Void) r: UInt64
+extern "C" fun SteamAPI_ISteamUser_BLoggedOn(steamUser: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamUser_GetPlayerSteamLevel(steamUser: *Void) r: Int32
+
+// ISteamFriends functions
+extern "C" fun SteamAPI_ISteamFriends_GetPersonaName(steamFriends: *Void) r: *Char
+extern "C" fun SteamAPI_ISteamFriends_GetPersonaState(steamFriends: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamFriends_GetFriendCount(steamFriends: *Void, friendFlags: Int32) r: Int32
+extern "C" fun SteamAPI_ISteamFriends_SetRichPresence(steamFriends: *Void, key: *Char, value: *Char) r: Int32
+extern "C" fun SteamAPI_ISteamFriends_ClearRichPresence(steamFriends: *Void) r: Void
+extern "C" fun SteamAPI_ISteamFriends_ActivateGameOverlay(steamFriends: *Void, dialog: *Char) r: Void
+extern "C" fun SteamAPI_ISteamFriends_ActivateGameOverlayToWebPage(steamFriends: *Void, url: *Char, mode: Int32) r: Void
+
+// ISteamUtils functions
+extern "C" fun SteamAPI_ISteamUtils_GetSecondsSinceAppActive(steamUtils: *Void) r: UInt32
+extern "C" fun SteamAPI_ISteamUtils_GetIPCountry(steamUtils: *Void) r: *Char
+extern "C" fun SteamAPI_ISteamUtils_GetCurrentBatteryPower(steamUtils: *Void) r: UInt8
+extern "C" fun SteamAPI_ISteamUtils_GetAppID(steamUtils: *Void) r: UInt32
+extern "C" fun SteamAPI_ISteamUtils_SetOverlayNotificationPosition(steamUtils: *Void, position: Int32) r: Void
+extern "C" fun SteamAPI_ISteamUtils_IsOverlayEnabled(steamUtils: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamUtils_IsSteamRunningInVR(steamUtils: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamUtils_IsSteamInBigPictureMode(steamUtils: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck(steamUtils: *Void) r: Int32
+
+// ISteamUserStats functions
+extern "C" fun SteamAPI_ISteamUserStats_RequestCurrentStats(steamUserStats: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_GetStatInt32(steamUserStats: *Void, name: *Char, data: *Int32) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_GetStatFloat(steamUserStats: *Void, name: *Char, data: *Float) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_SetStatInt32(steamUserStats: *Void, name: *Char, data: Int32) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_SetStatFloat(steamUserStats: *Void, name: *Char, data: Float) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_GetAchievement(steamUserStats: *Void, name: *Char, achieved: *Int32) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_SetAchievement(steamUserStats: *Void, name: *Char) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_ClearAchievement(steamUserStats: *Void, name: *Char) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_StoreStats(steamUserStats: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamUserStats_GetNumAchievements(steamUserStats: *Void) r: UInt32
+extern "C" fun SteamAPI_ISteamUserStats_GetAchievementName(steamUserStats: *Void, achievement: UInt32) r: *Char
+extern "C" fun SteamAPI_ISteamUserStats_ResetAllStats(steamUserStats: *Void, achievementsToo: Int32) r: Int32
+
+// ISteamApps functions
+extern "C" fun SteamAPI_ISteamApps_BIsSubscribed(steamApps: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamApps_BIsVACBanned(steamApps: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamApps_GetCurrentGameLanguage(steamApps: *Void) r: *Char
+extern "C" fun SteamAPI_ISteamApps_GetAvailableGameLanguages(steamApps: *Void) r: *Char
+extern "C" fun SteamAPI_ISteamApps_BIsSubscribedApp(steamApps: *Void, appID: UInt32) r: Int32
+extern "C" fun SteamAPI_ISteamApps_BIsDlcInstalled(steamApps: *Void, appID: UInt32) r: Int32
+extern "C" fun SteamAPI_ISteamApps_GetDLCCount(steamApps: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamApps_BIsAppInstalled(steamApps: *Void, appID: UInt32) r: Int32
+
+// ISteamRemoteStorage functions
+extern "C" fun SteamAPI_ISteamRemoteStorage_FileWrite(steamRemoteStorage: *Void, file: *Char, data: *Void, dataSize: Int32) r: Int32
+extern "C" fun SteamAPI_ISteamRemoteStorage_FileRead(steamRemoteStorage: *Void, file: *Char, data: *Void, dataToRead: Int32) r: Int32
+extern "C" fun SteamAPI_ISteamRemoteStorage_FileDelete(steamRemoteStorage: *Void, file: *Char) r: Int32
+extern "C" fun SteamAPI_ISteamRemoteStorage_FileExists(steamRemoteStorage: *Void, file: *Char) r: Int32
+extern "C" fun SteamAPI_ISteamRemoteStorage_GetFileSize(steamRemoteStorage: *Void, file: *Char) r: Int32
+extern "C" fun SteamAPI_ISteamRemoteStorage_GetFileCount(steamRemoteStorage: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamRemoteStorage_IsCloudEnabledForAccount(steamRemoteStorage: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamRemoteStorage_IsCloudEnabledForApp(steamRemoteStorage: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamRemoteStorage_SetCloudEnabledForApp(steamRemoteStorage: *Void, enabled: Int32) r: Void
+extern "C" fun SteamAPI_ISteamRemoteStorage_GetQuota(steamRemoteStorage: *Void, totalBytes: *UInt64, availableBytes: *UInt64) r: Int32
+
+// Versioned interface accessors (for ABI compatibility)
+extern "C" fun SteamAPI_SteamUser_v023() r: *Void
+extern "C" fun SteamAPI_SteamFriends_v017() r: *Void
+extern "C" fun SteamAPI_SteamUtils_v010() r: *Void
+extern "C" fun SteamAPI_SteamUserStats_v012() r: *Void
+extern "C" fun SteamAPI_SteamApps_v008() r: *Void
+extern "C" fun SteamAPI_SteamInput_v006() r: *Void
+extern "C" fun SteamAPI_SteamRemoteStorage_v016() r: *Void
+
+// Additional ISteamUtils functions
+extern "C" fun SteamAPI_ISteamUtils_GetServerRealTime(utils: *Void) r: UInt32
+
+// Additional ISteamUserStats functions
+extern "C" fun SteamAPI_ISteamUserStats_IndicateAchievementProgress(stats: *Void, name: *Char, current: UInt32, max: UInt32) r: Int32
+
+// ISteamInput functions
+extern "C" fun SteamAPI_ISteamInput_Init(input: *Void, explicitlyCallRunFrame: Int32) r: Int32
+extern "C" fun SteamAPI_ISteamInput_Shutdown(input: *Void) r: Int32
+extern "C" fun SteamAPI_ISteamInput_RunFrame(input: *Void, reserved: Int32) r: Void
+extern "C" fun SteamAPI_ISteamInput_GetConnectedControllers(input: *Void, handles: *UInt64) r: Int32
+extern "C" fun SteamAPI_ISteamInput_TriggerVibration(input: *Void, handle: UInt64, leftSpeed: UInt16, rightSpeed: UInt16) r: Void
+
+// ============================================================================
+// Safe Wrapper Functions
+// ============================================================================
+
+// Convert C string to Seen String
+fun cstr_to_string(cstr: *Char) r: String {
+    if cstr == null {
+        return ""
+    }
+    return String.fromCString(cstr)
+}
+
+// Safe wrapper for checking if Steam client is running
+fun steam_is_running() r: Bool {
+    return SteamAPI_IsSteamRunning() != 0
+}
+
+// Safe wrapper for checking if Steam needs to restart via Steam client
+fun steam_restart_app_if_necessary(appId: Int) r: Bool {
+    return SteamAPI_RestartAppIfNecessary(appId as UInt32) != 0
+}
+
+// Initialize Steam API
+fun steam_init() r: Result<Unit, String> {
+    let result = SteamAPI_Init()
+    if result == 0 {
+        return Err("Failed to initialize Steam API. Make sure Steam is running.")
+    }
+    return Ok(Unit{})
+}
+
+// Shutdown Steam API
+fun steam_shutdown() r: Void {
+    SteamAPI_Shutdown()
+}
+
+// Run Steam callbacks (should be called regularly in game loop)
+fun steam_run_callbacks() r: Void {
+    SteamAPI_RunCallbacks()
+}
+
+// Get current user's Steam ID
+fun steam_get_user_id() r: UInt64 {
+    let user = SteamUser()
+    if user == null {
+        return 0
+    }
+    return SteamAPI_ISteamUser_GetSteamID(user)
+}
+
+// Check if user is logged in
+fun steam_is_logged_in() r: Bool {
+    let user = SteamUser()
+    if user == null {
+        return false
+    }
+    return SteamAPI_ISteamUser_BLoggedOn(user) != 0
+}
+
+// Get user's persona name (display name)
+fun steam_get_persona_name() r: String {
+    let friends = SteamFriends()
+    if friends == null {
+        return ""
+    }
+    let name = SteamAPI_ISteamFriends_GetPersonaName(friends)
+    if name == null {
+        return ""
+    }
+    return String.fromCString(name)
+}
+
+// Get friend count
+fun steam_get_friend_count() r: Int {
+    let friends = SteamFriends()
+    if friends == null {
+        return 0
+    }
+    return SteamAPI_ISteamFriends_GetFriendCount(friends, k_EFriendFlagImmediate as Int32) as Int
+}
+
+// Set rich presence
+fun steam_set_rich_presence(key: String, value: String) r: Bool {
+    let friends = SteamFriends()
+    if friends == null {
+        return false
+    }
+    return SteamAPI_ISteamFriends_SetRichPresence(friends, key.toCString(), value.toCString()) != 0
+}
+
+// Clear rich presence
+fun steam_clear_rich_presence() r: Void {
+    let friends = SteamFriends()
+    if friends != null {
+        SteamAPI_ISteamFriends_ClearRichPresence(friends)
+    }
+}
+
+// Get app ID
+fun steam_get_app_id() r: UInt32 {
+    let utils = SteamUtils()
+    if utils == null {
+        return 0
+    }
+    return SteamAPI_ISteamUtils_GetAppID(utils)
+}
+
+// Check if overlay is enabled
+fun steam_is_overlay_enabled() r: Bool {
+    let utils = SteamUtils()
+    if utils == null {
+        return false
+    }
+    return SteamAPI_ISteamUtils_IsOverlayEnabled(utils) != 0
+}
+
+// Check if running on Steam Deck
+fun steam_is_steam_deck() r: Bool {
+    let utils = SteamUtils()
+    if utils == null {
+        return false
+    }
+    return SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck(utils) != 0
+}
+
+// Check if in Big Picture mode
+fun steam_is_big_picture_mode() r: Bool {
+    let utils = SteamUtils()
+    if utils == null {
+        return false
+    }
+    return SteamAPI_ISteamUtils_IsSteamInBigPictureMode(utils) != 0
+}
+
+// Request current stats from Steam
+fun steam_request_stats() r: Bool {
+    let stats = SteamUserStats()
+    if stats == null {
+        return false
+    }
+    return SteamAPI_ISteamUserStats_RequestCurrentStats(stats) != 0
+}
+
+// Store stats to Steam
+fun steam_store_stats() r: Bool {
+    let stats = SteamUserStats()
+    if stats == null {
+        return false
+    }
+    return SteamAPI_ISteamUserStats_StoreStats(stats) != 0
+}
+
+// Unlock achievement
+fun steam_unlock_achievement(name: String) r: Bool {
+    let stats = SteamUserStats()
+    if stats == null {
+        return false
+    }
+    let result = SteamAPI_ISteamUserStats_SetAchievement(stats, name.toCString())
+    if result != 0 {
+        // Store immediately
+        let _ = SteamAPI_ISteamUserStats_StoreStats(stats)
+        return true
+    }
+    return false
+}
+
+// Check if achievement is unlocked
+fun steam_has_achievement(name: String) r: Bool {
+    let stats = SteamUserStats()
+    if stats == null {
+        return false
+    }
+    var achieved: Int32 = 0
+    let result = SteamAPI_ISteamUserStats_GetAchievement(stats, name.toCString(), &achieved)
+    return result != 0 and achieved != 0
+}
+
+// Get integer stat
+fun steam_get_stat_int(name: String) r: Int {
+    let stats = SteamUserStats()
+    if stats == null {
+        return 0
+    }
+    var value: Int32 = 0
+    let _ = SteamAPI_ISteamUserStats_GetStatInt32(stats, name.toCString(), &value)
+    return value as Int
+}
+
+// Set integer stat
+fun steam_set_stat_int(name: String, value: Int) r: Bool {
+    let stats = SteamUserStats()
+    if stats == null {
+        return false
+    }
+    return SteamAPI_ISteamUserStats_SetStatInt32(stats, name.toCString(), value as Int32) != 0
+}
+
+// Get current game language
+fun steam_get_game_language() r: String {
+    let apps = SteamApps()
+    if apps == null {
+        return "english"
+    }
+    let lang = SteamAPI_ISteamApps_GetCurrentGameLanguage(apps)
+    if lang == null {
+        return "english"
+    }
+    return String.fromCString(lang)
+}
+
+// Check if DLC is installed
+fun steam_is_dlc_installed(appId: Int) r: Bool {
+    let apps = SteamApps()
+    if apps == null {
+        return false
+    }
+    return SteamAPI_ISteamApps_BIsDlcInstalled(apps, appId as UInt32) != 0
+}
+
+// Check if cloud save is enabled
+fun steam_is_cloud_enabled() r: Bool {
+    let storage = SteamRemoteStorage()
+    if storage == null {
+        return false
+    }
+    return SteamAPI_ISteamRemoteStorage_IsCloudEnabledForApp(storage) != 0
+}
+
+// Check if file exists in cloud
+fun steam_cloud_file_exists(file: String) r: Bool {
+    let storage = SteamRemoteStorage()
+    if storage == null {
+        return false
+    }
+    return SteamAPI_ISteamRemoteStorage_FileExists(storage, file.toCString()) != 0
+}
+
+// Delete cloud file
+fun steam_cloud_delete_file(file: String) r: Bool {
+    let storage = SteamRemoteStorage()
+    if storage == null {
+        return false
+    }
+    return SteamAPI_ISteamRemoteStorage_FileDelete(storage, file.toCString()) != 0
+}

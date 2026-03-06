@@ -1,0 +1,13 @@
+// testing.assert module — provides basic test assertion functions
+
+fun assertEquals(got: Int, expected: Int, msg: String) r: Void {
+    if got != expected {
+        println("ASSERTION FAILED: " + msg + " (got " + got.toString() + ", expected " + expected.toString() + ")")
+    }
+}
+
+fun assertTrue(cond: Bool, msg: String) r: Void {
+    if not cond {
+        println("ASSERTION FAILED: " + msg)
+    }
+}

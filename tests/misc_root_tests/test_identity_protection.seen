@@ -1,0 +1,252 @@
+// Test suite for Identity Protection (Task 5.2)
+// Tests generational handle masking with XOR secrets
+
+// Note: This test exercises the identity protection concepts at the Seen level.
+// The actual XOR masking happens in the C runtime (seen_identity.c).
+
+// Class definitions at top level
+class SecureData {
+    var secret: Int
+    var label: String
+
+    static fun new(s: Int, l: String) r: SecureData {
+        return SecureData{secret: s, label: l}
+    }
+
+    fun getSecret() r: Int {
+        return secret
+    }
+
+    fun verify(expected: Int) r: Bool {
+        return secret == expected
+    }
+}
+
+class Node {
+    var value: Int
+    var next: Int  // Simplified: use Int index instead of recursive type
+
+    static fun new(v: Int) r: Node {
+        return Node{value: v, next: -1}
+    }
+
+    fun getValue() r: Int {
+        return value
+    }
+
+    fun setNext(n: Int) r: Void {
+        next = n
+    }
+
+    fun getNext() r: Int {
+        return next
+    }
+}
+
+fun testBasicHandleOperations() r: Int {
+    println("Testing basic handle operations with identity protection...")
+
+    // The identity protection system works transparently at the runtime level.
+    // When handles are created and dereferenced, they are automatically
+    // masked/unmasked using region-specific secrets.
+
+    // This test verifies that normal operations work correctly with
+    // identity protection enabled.
+
+    // Create some data
+    var values = Array<Int>()
+    values.push(100)
+    values.push(200)
+    values.push(300)
+
+    // Access the data (handle operations happen internally)
+    let len = values.length()
+    if len != 3 {
+        println("FAIL: Array length mismatch, got " + len.toString())
+        return 1
+    }
+
+    let v0 = values[0]
+    let v1 = values[1]
+    let v2 = values[2]
+    if v0 != 100 or v1 != 200 or v2 != 300 {
+        println("FAIL: Array value mismatch")
+        return 1
+    }
+
+    println("  Basic handle operations: PASS")
+    return 0
+}
+
+fun testClassInstanceHandles() r: Int {
+    println("Testing class instance handle protection...")
+
+    // Create instances
+    let data1 = SecureData.new(42, "first")
+    let data2 = SecureData.new(123, "second")
+
+    // Verify handles work correctly
+    let s1 = data1.getSecret()
+    if s1 != 42 {
+        println("FAIL: data1 secret mismatch, got " + s1.toString())
+        return 1
+    }
+
+    let s2 = data2.getSecret()
+    if s2 != 123 {
+        println("FAIL: data2 secret mismatch, got " + s2.toString())
+        return 1
+    }
+
+    let v1 = data1.verify(42)
+    if not v1 {
+        println("FAIL: data1 verification failed")
+        return 1
+    }
+
+    println("  Class instance handles: PASS")
+    return 0
+}
+
+fun testNodeOperations() r: Int {
+    println("Testing node operations with handles...")
+
+    // Build a linked structure using array indices
+    var nodes = Array<Node>()
+    let root = Node.new(1)
+    let child1 = Node.new(2)
+    let child2 = Node.new(3)
+
+    nodes.push(root)    // index 0
+    nodes.push(child1)  // index 1
+    nodes.push(child2)  // index 2
+
+    // Link them
+    var node0 = nodes[0]
+    node0.setNext(1)
+
+    var node1 = nodes[1]
+    node1.setNext(2)
+
+    // Verify structure
+    let v0 = nodes[0].getValue()
+    if v0 != 1 {
+        println("FAIL: root value, got " + v0.toString())
+        return 1
+    }
+
+    let v1 = nodes[1].getValue()
+    if v1 != 2 {
+        println("FAIL: child1 value, got " + v1.toString())
+        return 1
+    }
+
+    let v2 = nodes[2].getValue()
+    if v2 != 3 {
+        println("FAIL: child2 value, got " + v2.toString())
+        return 1
+    }
+
+    println("  Node operations: PASS")
+    return 0
+}
+
+fun testHandleReuse() r: Int {
+    println("Testing handle reuse after operations...")
+
+    // Test that handles remain valid through multiple operations
+    var data = Array<Int>()
+
+    // Add elements
+    var i = 0
+    while i < 100 {
+        data.push(i * 2)
+        i = i + 1
+    }
+
+    // Verify all elements (many handle dereferences)
+    i = 0
+    while i < 100 {
+        let expected = i * 2
+        let actual = data[i]
+        if actual != expected {
+            println("FAIL: element mismatch at index " + i.toString())
+            return 1
+        }
+        i = i + 1
+    }
+
+    println("  Handle reuse: PASS")
+    return 0
+}
+
+fun testDeterministicMode() r: Int {
+    println("Testing deterministic mode concept...")
+
+    // In deterministic mode (used during bootstrap), the identity protection
+    // system uses a fixed seed to generate predictable secrets.
+    // This ensures reproducible builds.
+
+    // This test just verifies that operations work correctly, as the
+    // deterministic mode is configured at the runtime level.
+
+    var values = Array<String>()
+    values.push("alpha")
+    values.push("beta")
+    values.push("gamma")
+
+    // Multiple accesses should give consistent results
+    let first = values[0]
+    let second = values[1]
+    let third = values[2]
+
+    // Re-access to verify consistency
+    let first2 = values[0]
+    let second2 = values[1]
+    let third2 = values[2]
+
+    if first != first2 or second != second2 or third != third2 {
+        println("FAIL: inconsistent access results")
+        return 1
+    }
+
+    if first != "alpha" or second != "beta" or third != "gamma" {
+        println("FAIL: value mismatch")
+        return 1
+    }
+
+    println("  Deterministic mode: PASS")
+    return 0
+}
+
+fun main() r: Int {
+    println("=== Identity Protection Test Suite ===")
+    println("")
+    println("Testing generational handle masking with XOR secrets.")
+    println("Identity protection prevents memory probing attacks by")
+    println("masking handle generation counters with cryptographic secrets.")
+    println("")
+
+    var failures = 0
+
+    failures = failures + testBasicHandleOperations()
+    failures = failures + testClassInstanceHandles()
+    failures = failures + testNodeOperations()
+    failures = failures + testHandleReuse()
+    failures = failures + testDeterministicMode()
+
+    println("")
+    if failures == 0 {
+        println("=== ALL TESTS PASSED ===")
+        println("")
+        println("Identity protection modes available:")
+        println("  - DISABLED: No masking (fastest, for debugging)")
+        println("  - SIMPLE: XOR masking with region secrets")
+        println("  - ROTATING: XOR with periodic secret rotation")
+        println("  - DETERMINISTIC: Fixed seed for bootstrap builds")
+        return 0
+    } else {
+        println("=== " + failures.toString() + " TEST(S) FAILED ===")
+        return 1
+    }
+}

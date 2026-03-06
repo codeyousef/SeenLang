@@ -1,0 +1,50 @@
+// Shared CheckResult class for typechecker modules
+// Provides common result type for checker utilities
+
+import parser.real_parser.{ClassNode, FunctionNode, FieldNode, AnnotationNode}
+
+// Generic check result with success flag, errors and warnings
+class CheckResult {
+    var success: Bool
+    var errors: Array<String>
+    var warnings: Array<String>
+
+    static fun new() r: CheckResult {
+        return CheckResult{
+            success: true,
+            errors: Array<String>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(message: String) r: Void {
+        errors.push(message)
+        success = false
+    }
+
+    fun addWarning(message: String) r: Void {
+        warnings.push(message)
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+
+    fun hasWarnings() r: Bool {
+        return warnings.length() > 0
+    }
+
+    // Merge another result into this one
+    fun merge(other: CheckResult) r: Void {
+        var i = 0
+        while i < other.errors.length() {
+            addError(other.errors[i])
+            i = i + 1
+        }
+        i = 0
+        while i < other.warnings.length() {
+            addWarning(other.warnings[i])
+            i = i + 1
+        }
+    }
+}

@@ -1,0 +1,275 @@
+// Store Framework for Seen Language
+// Provides deterministic state management with mutation logging and time-travel
+// Used with the @store decorator
+
+import collections.btree_map.{BTreeMap}
+
+// Mutation entry for replay
+class MutationEntry {
+    var frameId: Int           // Game/app frame when mutation occurred
+    var timestamp: Int         // Logical timestamp (monotonic counter)
+    var methodName: String     // Name of the mutation method
+    var fieldName: String      // Field that was mutated (if applicable)
+    var oldValueHash: Int      // Hash of old value (for verification)
+    var newValueHash: Int      // Hash of new value (for verification)
+
+    static fun new(frameId: Int, timestamp: Int, methodName: String, fieldName: String) r: MutationEntry {
+        return MutationEntry{
+            frameId: frameId,
+            timestamp: timestamp,
+            methodName: methodName,
+            fieldName: fieldName,
+            oldValueHash: 0,
+            newValueHash: 0
+        }
+    }
+}
+
+// Snapshot of store state at a point in time
+class StoreSnapshot {
+    var frameId: Int           // Frame when snapshot was taken
+    var timestamp: Int         // Logical timestamp
+    var stateHash: Int         // Hash of entire store state
+    var mutationIndex: Int     // Index in mutation log at snapshot time
+
+    static fun new(frameId: Int, timestamp: Int, mutationIndex: Int) r: StoreSnapshot {
+        return StoreSnapshot{
+            frameId: frameId,
+            timestamp: timestamp,
+            stateHash: 0,
+            mutationIndex: mutationIndex
+        }
+    }
+}
+
+// Global store registry - tracks mutation logs and snapshots
+class StoreRegistry {
+    var mutations: Array<MutationEntry>
+    var snapshots: Array<StoreSnapshot>
+    var currentFrame: Int
+    var nextTimestamp: Int
+
+    static fun new() r: StoreRegistry {
+        return StoreRegistry{
+            mutations: Array<MutationEntry>(),
+            snapshots: Array<StoreSnapshot>(),
+            currentFrame: 0,
+            nextTimestamp: 0
+        }
+    }
+
+    // Set the current frame (called by game/app loop)
+    fun setFrame(frame: Int) r: Void {
+        currentFrame = frame
+    }
+
+    // Get current frame
+    fun getFrame() r: Int {
+        return currentFrame
+    }
+
+    // Log a mutation
+    fun logMutation(methodName: String, fieldName: String) r: Int {
+        let timestamp = nextTimestamp
+        nextTimestamp = nextTimestamp + 1
+
+        let entry = MutationEntry.new(currentFrame, timestamp, methodName, fieldName)
+        mutations.push(entry)
+
+        return timestamp
+    }
+
+    // Take a snapshot
+    fun takeSnapshot() r: StoreSnapshot {
+        let snapshot = StoreSnapshot.new(currentFrame, nextTimestamp, mutations.length())
+        snapshots.push(snapshot)
+        return snapshot
+    }
+
+    // Find snapshot for a given frame
+    fun findSnapshotForFrame(targetFrame: Int) r: Option<StoreSnapshot> {
+        // Find the latest snapshot at or before the target frame
+        var bestSnapshot: Option<StoreSnapshot> = None()
+        var i = 0
+        while i < snapshots.length() {
+            let snapshot = snapshots[i]
+            if snapshot.frameId <= targetFrame {
+                bestSnapshot = Some(snapshot)
+            }
+            i = i + 1
+        }
+        return bestSnapshot
+    }
+
+    // Get mutations since a timestamp
+    fun getMutationsSince(startTimestamp: Int) r: Array<MutationEntry> {
+        var result = Array<MutationEntry>()
+        var i = 0
+        while i < mutations.length() {
+            if mutations[i].timestamp >= startTimestamp {
+                result.push(mutations[i])
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    // Get mutations for a specific frame
+    fun getMutationsForFrame(frameId: Int) r: Array<MutationEntry> {
+        var result = Array<MutationEntry>()
+        var i = 0
+        while i < mutations.length() {
+            if mutations[i].frameId == frameId {
+                result.push(mutations[i])
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    // Clear mutations after a timestamp (for rollback)
+    fun clearMutationsAfter(timestamp: Int) r: Void {
+        var newMutations = Array<MutationEntry>()
+        var i = 0
+        while i < mutations.length() {
+            if mutations[i].timestamp < timestamp {
+                newMutations.push(mutations[i])
+            }
+            i = i + 1
+        }
+        mutations = newMutations
+        nextTimestamp = timestamp
+    }
+
+    // Clear snapshots after a frame (for rollback)
+    fun clearSnapshotsAfter(frameId: Int) r: Void {
+        var newSnapshots = Array<StoreSnapshot>()
+        var i = 0
+        while i < snapshots.length() {
+            if snapshots[i].frameId <= frameId {
+                newSnapshots.push(snapshots[i])
+            }
+            i = i + 1
+        }
+        snapshots = newSnapshots
+    }
+
+    // Get total mutation count
+    fun getMutationCount() r: Int {
+        return mutations.length()
+    }
+
+    // Get total snapshot count
+    fun getSnapshotCount() r: Int {
+        return snapshots.length()
+    }
+}
+
+// Global store registry instance
+var g_storeRegistry: StoreRegistry = StoreRegistry.new()
+
+// Public API functions for store management
+
+// Initialize the store system (call at app start)
+fun initStoreSystem() r: Void {
+    g_storeRegistry = StoreRegistry.new()
+}
+
+// Set the current frame (call each frame)
+fun setStoreFrame(frame: Int) r: Void {
+    g_storeRegistry.setFrame(frame)
+}
+
+// Get current frame
+fun getStoreFrame() r: Int {
+    return g_storeRegistry.getFrame()
+}
+
+// Log a mutation (called by generated wrapper code)
+fun logStoreMutation(methodName: String, fieldName: String) r: Int {
+    return g_storeRegistry.logMutation(methodName, fieldName)
+}
+
+// Take a snapshot of all stores
+fun takeStoreSnapshot() r: StoreSnapshot {
+    return g_storeRegistry.takeSnapshot()
+}
+
+// Find snapshot for rollback target
+fun findStoreSnapshotForFrame(targetFrame: Int) r: Option<StoreSnapshot> {
+    return g_storeRegistry.findSnapshotForFrame(targetFrame)
+}
+
+// Get mutations since a timestamp
+fun getStoreMutationsSince(startTimestamp: Int) r: Array<MutationEntry> {
+    return g_storeRegistry.getMutationsSince(startTimestamp)
+}
+
+// Clear mutations for rollback
+fun clearStoreMutationsAfter(timestamp: Int) r: Void {
+    g_storeRegistry.clearMutationsAfter(timestamp)
+}
+
+// Get mutation count
+fun getStoreMutationCount() r: Int {
+    return g_storeRegistry.getMutationCount()
+}
+
+// Get snapshot count
+fun getStoreSnapshotCount() r: Int {
+    return g_storeRegistry.getSnapshotCount()
+}
+
+// Time-travel helper class for working with stores
+class TimeTravel {
+    var registry: StoreRegistry
+
+    static fun new() r: TimeTravel {
+        return TimeTravel{
+            registry: g_storeRegistry
+        }
+    }
+
+    // Rollback to a specific frame
+    // Returns the mutations that need to be undone (in reverse order)
+    fun rollbackToFrame(targetFrame: Int) r: Array<MutationEntry> {
+        let snapshotOpt = registry.findSnapshotForFrame(targetFrame)
+        if snapshotOpt.isNone() {
+            // No snapshot found, return empty
+            return Array<MutationEntry>()
+        }
+
+        let snapshot = snapshotOpt.unwrap()
+
+        // Get all mutations after the snapshot
+        let mutationsToUndo = registry.getMutationsSince(snapshot.timestamp)
+
+        // Clear the mutations from the log
+        registry.clearMutationsAfter(snapshot.timestamp)
+        registry.clearSnapshotsAfter(targetFrame)
+
+        // Return mutations in reverse order for undoing
+        var reversed = Array<MutationEntry>()
+        var i = mutationsToUndo.length() - 1
+        while i >= 0 {
+            reversed.push(mutationsToUndo[i])
+            i = i - 1
+        }
+
+        return reversed
+    }
+
+    // Get replay mutations from one frame to another
+    fun getReplayMutations(fromFrame: Int, toFrame: Int) r: Array<MutationEntry> {
+        var result = Array<MutationEntry>()
+        var i = 0
+        while i < registry.mutations.length() {
+            let mutation = registry.mutations[i]
+            if mutation.frameId >= fromFrame and mutation.frameId <= toFrame {
+                result.push(mutation)
+            }
+            i = i + 1
+        }
+        return result
+    }
+}

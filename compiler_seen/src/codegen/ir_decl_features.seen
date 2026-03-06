@@ -1,0 +1,858 @@
+// ir_decl_features.seen — Feature declarations and derive/reflect/serialization codegen
+
+import str.string.{StringBuilder}
+import parser.real_parser.{ClassNode}
+import codegen.ir_declarations.{isFuncDefinedInModule, addStringConstantImpl, registerStructMethodImpl}
+import codegen.ir_optimization.{pipeGet, parseIntManual}
+import codegen.ir_type_info.{findStructIdx}
+
+// Emit P0-P3 feature declarations (concurrency, safety, SIMD, GPU, derive, etc.)
+fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void {
+    // Profiling runtime functions (for @profile decorator)
+    output.append("; Profiling runtime functions\n")
+    output.append("declare void @__seen_profile_enter(ptr) nounwind\n")
+    output.append("declare void @__seen_profile_exit(ptr) nounwind\n")
+
+    // Prefetch intrinsic (for @prefetch decorator)
+    output.append("declare void @llvm.prefetch.p0(ptr, i32, i32, i32) nounwind\n")
+
+    // Work-Stealing Pool
+    output.append("; Work-stealing thread pool\n")
+    if not isFuncDefinedInModule("seen_ws_pool_new", definedFuncs) {
+        output.append("declare i64 @seen_ws_pool_new(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_ws_pool_submit", definedFuncs) {
+        output.append("declare void @seen_ws_pool_submit(i64, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_ws_pool_shutdown", definedFuncs) {
+        output.append("declare void @seen_ws_pool_shutdown(i64) nounwind\n")
+    }
+
+    // Lock-free data structures
+    output.append("; Lock-free AtomicQueue\n")
+    if not isFuncDefinedInModule("seen_atomic_queue_new", definedFuncs) {
+        output.append("declare i64 @seen_atomic_queue_new(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_atomic_queue_push", definedFuncs) {
+        output.append("declare i64 @seen_atomic_queue_push(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_atomic_queue_pop", definedFuncs) {
+        output.append("declare i64 @seen_atomic_queue_pop(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_atomic_queue_destroy", definedFuncs) {
+        output.append("declare void @seen_atomic_queue_destroy(i64) nounwind\n")
+    }
+    output.append("; Lock-free AtomicStack\n")
+    if not isFuncDefinedInModule("seen_atomic_stack_new", definedFuncs) {
+        output.append("declare i64 @seen_atomic_stack_new() nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_atomic_stack_push", definedFuncs) {
+        output.append("declare void @seen_atomic_stack_push(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_atomic_stack_pop", definedFuncs) {
+        output.append("declare i64 @seen_atomic_stack_pop(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_atomic_stack_destroy", definedFuncs) {
+        output.append("declare void @seen_atomic_stack_destroy(i64) nounwind\n")
+    }
+
+    // CPU Affinity
+    output.append("; CPU affinity\n")
+    if not isFuncDefinedInModule("seen_set_thread_affinity", definedFuncs) {
+        output.append("declare i64 @seen_set_thread_affinity(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_get_num_cores", definedFuncs) {
+        output.append("declare i64 @seen_get_num_cores() nounwind\n")
+    }
+
+    // Parallel For
+    output.append("; Parallel for\n")
+    if not isFuncDefinedInModule("seen_parallel_for", definedFuncs) {
+        output.append("declare void @seen_parallel_for(i64, i64, ptr, i64) nounwind\n")
+    }
+
+    // Bounds checking and overflow checking
+    output.append("; Safety runtime functions\n")
+    if not isFuncDefinedInModule("seen_bounds_check", definedFuncs) {
+        output.append("declare void @seen_bounds_check(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_checked_add", definedFuncs) {
+        output.append("declare void @seen_checked_add(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_checked_sub", definedFuncs) {
+        output.append("declare void @seen_checked_sub(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_checked_mul", definedFuncs) {
+        output.append("declare void @seen_checked_mul(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_debug_assert_fail", definedFuncs) {
+        output.append("declare void @seen_debug_assert_fail(i64) nounwind\n")
+    }
+    // Pointer arithmetic
+    output.append("; Pointer arithmetic runtime functions\n")
+    if not isFuncDefinedInModule("seen_ptr_add", definedFuncs) {
+        output.append("declare i64 @seen_ptr_add(i64, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_ptr_deref_i64", definedFuncs) {
+        output.append("declare i64 @seen_ptr_deref_i64(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_ptr_store_i64", definedFuncs) {
+        output.append("declare void @seen_ptr_store_i64(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_ptr_deref_f64", definedFuncs) {
+        output.append("declare double @seen_ptr_deref_f64(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_ptr_store_f64", definedFuncs) {
+        output.append("declare void @seen_ptr_store_f64(i64, double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_ptr_is_null", definedFuncs) {
+        output.append("declare i64 @seen_ptr_is_null(i64) nounwind\n")
+    }
+    // Overflow checking LLVM intrinsics
+    output.append("; Overflow checking intrinsics\n")
+    let ovfLB = "{"
+    let ovfRB = "}"
+    output.append("declare " + ovfLB + "i64, i1" + ovfRB + " @llvm.sadd.with.overflow.i64(i64, i64) nounwind readnone\n")
+    output.append("declare " + ovfLB + "i64, i1" + ovfRB + " @llvm.ssub.with.overflow.i64(i64, i64) nounwind readnone\n")
+    output.append("declare " + ovfLB + "i64, i1" + ovfRB + " @llvm.smul.with.overflow.i64(i64, i64) nounwind readnone\n")
+
+    // SIMD reduction intrinsics
+    output.append("; SIMD vector reduction intrinsics\n")
+    output.append("declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>) nounwind readnone\n")
+    output.append("declare float @llvm.vector.reduce.fadd.v8f32(float, <8 x float>) nounwind readnone\n")
+    output.append("declare double @llvm.vector.reduce.fadd.v2f64(double, <2 x double>) nounwind readnone\n")
+    output.append("declare double @llvm.vector.reduce.fadd.v4f64(double, <4 x double>) nounwind readnone\n")
+    output.append("declare i32 @llvm.vector.reduce.add.v4i32(<4 x i32>) nounwind readnone\n")
+    output.append("declare i32 @llvm.vector.reduce.add.v8i32(<8 x i32>) nounwind readnone\n")
+    output.append("declare float @llvm.vector.reduce.fmin.v4f32(<4 x float>) nounwind readnone\n")
+    output.append("declare float @llvm.vector.reduce.fmin.v8f32(<8 x float>) nounwind readnone\n")
+    output.append("declare float @llvm.vector.reduce.fmax.v4f32(<4 x float>) nounwind readnone\n")
+    output.append("declare float @llvm.vector.reduce.fmax.v8f32(<8 x float>) nounwind readnone\n")
+    output.append("declare double @llvm.vector.reduce.fmin.v2f64(<2 x double>) nounwind readnone\n")
+    output.append("declare double @llvm.vector.reduce.fmax.v2f64(<2 x double>) nounwind readnone\n")
+    output.append("declare double @llvm.vector.reduce.fmin.v4f64(<4 x double>) nounwind readnone\n")
+    output.append("declare double @llvm.vector.reduce.fmax.v4f64(<4 x double>) nounwind readnone\n")
+    output.append("declare i32 @llvm.vector.reduce.smin.v4i32(<4 x i32>) nounwind readnone\n")
+    output.append("declare i32 @llvm.vector.reduce.smax.v4i32(<4 x i32>) nounwind readnone\n")
+    output.append("declare i32 @llvm.vector.reduce.smin.v8i32(<8 x i32>) nounwind readnone\n")
+    output.append("declare i32 @llvm.vector.reduce.smax.v8i32(<8 x i32>) nounwind readnone\n")
+
+    // : GPU compute runtime declarations
+    output.append("; GPU compute runtime declarations\n")
+    if not isFuncDefinedInModule("seen_gpu_init", definedFuncs) {
+        output.append("declare i64 @seen_gpu_init() nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_shutdown", definedFuncs) {
+        output.append("declare void @seen_gpu_shutdown() nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_is_available", definedFuncs) {
+        output.append("declare i64 @seen_gpu_is_available() nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_buffer_create", definedFuncs) {
+        output.append("declare i64 @seen_gpu_buffer_create(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_buffer_write", definedFuncs) {
+        output.append("declare i64 @seen_gpu_buffer_write(i64, ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_buffer_read", definedFuncs) {
+        output.append("declare i64 @seen_gpu_buffer_read(i64, ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_buffer_destroy", definedFuncs) {
+        output.append("declare void @seen_gpu_buffer_destroy(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_shader_load", definedFuncs) {
+        output.append("declare i64 @seen_gpu_shader_load(ptr) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_pipeline_create", definedFuncs) {
+        output.append("declare i64 @seen_gpu_pipeline_create(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_pipeline_destroy", definedFuncs) {
+        output.append("declare void @seen_gpu_pipeline_destroy(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_dispatch", definedFuncs) {
+        output.append("declare i64 @seen_gpu_dispatch(i64, i64, i64, i64, ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_dispatch_indirect", definedFuncs) {
+        output.append("declare i64 @seen_gpu_dispatch_indirect(i64, i64, ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_fence_create", definedFuncs) {
+        output.append("declare i64 @seen_gpu_fence_create() nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_fence_wait", definedFuncs) {
+        output.append("declare i64 @seen_gpu_fence_wait(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_fence_destroy", definedFuncs) {
+        output.append("declare void @seen_gpu_fence_destroy(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_gpu_device_wait_idle", definedFuncs) {
+        output.append("declare i64 @seen_gpu_device_wait_idle() nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_barrier", definedFuncs) {
+        output.append("declare void @seen_barrier() nounwind\n")
+    }
+
+    // ============================================================
+    // Derive Helpers
+    // ============================================================
+    if not isFuncDefinedInModule("seen_arr_clone", definedFuncs) {
+        output.append("declare i64 @seen_arr_clone(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_hash_int", definedFuncs) {
+        output.append("declare i64 @seen_hash_int(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_hash_string", definedFuncs) {
+        output.append("declare i64 @seen_hash_string(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_hash_float", definedFuncs) {
+        output.append("declare i64 @seen_hash_float(double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_hash_combine", definedFuncs) {
+        output.append("declare i64 @seen_hash_combine(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_str_eq_derive", definedFuncs) {
+        output.append("declare i64 @seen_str_eq_derive(%SeenString, %SeenString) nounwind\n")
+    }
+
+    // ============================================================
+    // Binary Serialization
+    // ============================================================
+    if not isFuncDefinedInModule("seen_binary_buffer_new", definedFuncs) {
+        output.append("declare i64 @seen_binary_buffer_new(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_buffer_data", definedFuncs) {
+        output.append("declare i64 @seen_binary_buffer_data(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_buffer_length", definedFuncs) {
+        output.append("declare i64 @seen_binary_buffer_length(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_write_i64", definedFuncs) {
+        output.append("declare void @seen_binary_write_i64(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_read_i64", definedFuncs) {
+        output.append("declare i64 @seen_binary_read_i64(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_write_f64", definedFuncs) {
+        output.append("declare void @seen_binary_write_f64(i64, double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_read_f64", definedFuncs) {
+        output.append("declare double @seen_binary_read_f64(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_write_i32", definedFuncs) {
+        output.append("declare void @seen_binary_write_i32(i64, i32) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_read_i32", definedFuncs) {
+        output.append("declare i32 @seen_binary_read_i32(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_write_str", definedFuncs) {
+        output.append("declare void @seen_binary_write_str(i64, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_read_str", definedFuncs) {
+        output.append("declare %SeenString @seen_binary_read_str(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_write_i64_be", definedFuncs) {
+        output.append("declare void @seen_binary_write_i64_be(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_read_i64_be", definedFuncs) {
+        output.append("declare i64 @seen_binary_read_i64_be(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_write_f64_be", definedFuncs) {
+        output.append("declare void @seen_binary_write_f64_be(i64, double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_binary_read_f64_be", definedFuncs) {
+        output.append("declare double @seen_binary_read_f64_be(i64, i64) nounwind\n")
+    }
+
+    // ============================================================
+    // Compression
+    // ============================================================
+    if not isFuncDefinedInModule("seen_compress_rle", definedFuncs) {
+        output.append("declare i64 @seen_compress_rle(i64, i64, i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_decompress_rle", definedFuncs) {
+        output.append("declare i64 @seen_decompress_rle(i64, i64, i64, i64) nounwind\n")
+    }
+
+    // ============================================================
+    // JSON Serialization
+    // ============================================================
+    if not isFuncDefinedInModule("seen_json_start_object", definedFuncs) {
+        output.append("declare i64 @seen_json_start_object(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_end_object", definedFuncs) {
+        output.append("declare %SeenString @seen_json_end_object(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_key_int", definedFuncs) {
+        output.append("declare void @seen_json_key_int(i64, %SeenString, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_key_str", definedFuncs) {
+        output.append("declare void @seen_json_key_str(i64, %SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_key_float", definedFuncs) {
+        output.append("declare void @seen_json_key_float(i64, %SeenString, double) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_key_bool", definedFuncs) {
+        output.append("declare void @seen_json_key_bool(i64, %SeenString, i64) nounwind\n")
+    }
+
+    // ============================================================
+    // Packet Runtime
+    // ============================================================
+    if not isFuncDefinedInModule("seen_packet_write_header", definedFuncs) {
+        output.append("declare void @seen_packet_write_header(i64, i32, i32) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_packet_read_header", definedFuncs) {
+        output.append("declare i64 @seen_packet_read_header(i64, i64) nounwind\n")
+    }
+
+    // ============================================================
+    // Safety Runtime
+    // ============================================================
+    if not isFuncDefinedInModule("seen_null_assign_warning", definedFuncs) {
+        output.append("declare void @seen_null_assign_warning(%SeenString, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_use_after_move", definedFuncs) {
+        output.append("declare void @seen_use_after_move(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_stack_check", definedFuncs) {
+        output.append("declare i64 @seen_stack_check(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_stack_overflow_panic", definedFuncs) {
+        output.append("declare void @seen_stack_overflow_panic() nounwind noreturn\n")
+    }
+    if not isFuncDefinedInModule("seen_stack_init", definedFuncs) {
+        output.append("declare void @seen_stack_init(i64) nounwind\n")
+    }
+
+    // : Tuple struct types for variadic generics (arities 1-8)
+    output.append("; Tuple types for variadic generics\n")
+    output.append("%SeenTuple1 = type { i64 }\n")
+    output.append("%SeenTuple2 = type { i64, i64 }\n")
+    output.append("%SeenTuple3 = type { i64, i64, i64 }\n")
+    output.append("%SeenTuple4 = type { i64, i64, i64, i64 }\n")
+    output.append("%SeenTuple5 = type { i64, i64, i64, i64, i64 }\n")
+    output.append("%SeenTuple6 = type { i64, i64, i64, i64, i64, i64 }\n")
+    output.append("%SeenTuple7 = type { i64, i64, i64, i64, i64, i64, i64 }\n")
+    output.append("%SeenTuple8 = type { i64, i64, i64, i64, i64, i64, i64, i64 }\n")
+
+    // ============================================================
+    // SmallVec runtime functions
+    // ============================================================
+    if not isFuncDefinedInModule("seen_small_vec_new", definedFuncs) {
+        output.append("declare i64 @seen_small_vec_new(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_small_vec_push_i64", definedFuncs) {
+        output.append("declare void @seen_small_vec_push_i64(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_small_vec_push_f64", definedFuncs) {
+        output.append("declare void @seen_small_vec_push_f64(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_small_vec_push_str", definedFuncs) {
+        output.append("declare void @seen_small_vec_push_str(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_small_vec_get_i64", definedFuncs) {
+        output.append("declare i64 @seen_small_vec_get_i64(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_small_vec_get_f64", definedFuncs) {
+        output.append("declare i64 @seen_small_vec_get_f64(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_small_vec_get_str", definedFuncs) {
+        output.append("declare i64 @seen_small_vec_get_str(i64, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_small_vec_length", definedFuncs) {
+        output.append("declare i64 @seen_small_vec_length(i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_small_vec_clear", definedFuncs) {
+        output.append("declare void @seen_small_vec_clear(i64) nounwind\n")
+    }
+
+    output.append("\n")
+}
+
+fun generateHotReloadMethodsImpl(output: StringBuilder, classNode: ClassNode) r: Void {
+    let cn = classNode.name
+    output.append("; @hot_reload synthesized methods for " + cn + "\n")
+
+    output.append("define noundef i64 @" + cn + "___seen_hot_get_size(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %szptr = getelementptr %" + cn + ", ptr null, i32 1\n")
+    output.append("  %sz = ptrtoint ptr %szptr to i64\n")
+    output.append("  ret i64 %sz\n")
+    output.append("}\n\n")
+
+    let nFields = classNode.fields.length()
+    output.append("define noundef i64 @" + cn + "___seen_hot_get_version(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  ret i64 " + nFields.toString() + "\n")
+    output.append("}\n\n")
+
+    output.append("define noundef i64 @" + cn + "___seen_hot_get_state(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %szptr2 = getelementptr %" + cn + ", ptr null, i32 1\n")
+    output.append("  %sz2 = ptrtoint ptr %szptr2 to i64\n")
+    output.append("  %buf = call noalias ptr @malloc(i64 %sz2)\n")
+    output.append("  call void @llvm.memcpy.p0.p0.i64(ptr %buf, ptr %this, i64 %sz2, i1 false)\n")
+    output.append("  %result = ptrtoint ptr %buf to i64\n")
+    output.append("  ret i64 %result\n")
+    output.append("}\n\n")
+
+    output.append("define void @" + cn + "___seen_hot_set_state(ptr %this, i64 %state) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %stateptr = inttoptr i64 %state to ptr\n")
+    output.append("  %szptr3 = getelementptr %" + cn + ", ptr null, i32 1\n")
+    output.append("  %sz3 = ptrtoint ptr %szptr3 to i64\n")
+    output.append("  call void @llvm.memcpy.p0.p0.i64(ptr %this, ptr %stateptr, i64 %sz3, i1 false)\n")
+    output.append("  ret void\n")
+    output.append("}\n\n")
+}
+
+fun generateDeriveSerializeImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let className = classNode.name
+    output.append("; @derive(Serialize) generated method\n")
+    output.append("define ptr @" + className + "_toBytes(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %arr = call ptr @seen_arr_new_ptr_ptr()\n")
+    var fieldIdx = 0
+    while fieldIdx < classNode.fields.length() {
+        let field = classNode.fields[fieldIdx]
+        let fieldType = field.paramType.typeName
+        output.append("  ; Serialize field: " + field.name + " (" + fieldType + ")\n")
+        let fieldOffset = fieldIdx.toString()
+        output.append("  %field_ptr_" + fieldOffset + " = getelementptr inbounds i64, ptr %this, i64 " + fieldOffset + "\n")
+        if fieldType == "Int" or fieldType == "i64" {
+            output.append("  %field_val_" + fieldOffset + " = load i64, ptr %field_ptr_" + fieldOffset + "\n")
+            output.append("  call void @seen_arr_push_i64(ptr %arr, i64 %field_val_" + fieldOffset + ")\n")
+        } else if fieldType == "Bool" {
+            output.append("  %field_val_" + fieldOffset + " = load i1, ptr %field_ptr_" + fieldOffset + "\n")
+            output.append("  %field_ext_" + fieldOffset + " = zext i1 %field_val_" + fieldOffset + " to i64\n")
+            output.append("  call void @seen_arr_push_i64(ptr %arr, i64 %field_ext_" + fieldOffset + ")\n")
+        } else {
+            output.append("  %field_val_" + fieldOffset + " = load i64, ptr %field_ptr_" + fieldOffset + "\n")
+            output.append("  call void @seen_arr_push_i64(ptr %arr, i64 %field_val_" + fieldOffset + ")\n")
+        }
+        fieldIdx = fieldIdx + 1
+    }
+    output.append("  ret ptr %arr\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "toBytes", "Array<u8>", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateDeriveDeserializeImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let className = classNode.name
+    output.append("; @derive(Deserialize) generated method\n")
+    output.append("define i64 @" + className + "_fromBytes(ptr %data) #0 {\n")
+    output.append("entry:\n")
+    let numFields = classNode.fields.length()
+    let classSize = numFields * 8
+    output.append("  %size = add i64 0, " + classSize.toString() + "\n")
+    output.append("  %mem = call ptr @malloc(i64 %size)\n")
+    var fieldIdx = 0
+    while fieldIdx < classNode.fields.length() {
+        let field = classNode.fields[fieldIdx]
+        let fieldType = field.paramType.typeName
+        output.append("  ; Deserialize field: " + field.name + " (" + fieldType + ")\n")
+        let idx = fieldIdx.toString()
+        output.append("  %val_" + idx + " = call i64 @seen_arr_get_i64(ptr %data, i64 " + idx + ")\n")
+        output.append("  %field_ptr_" + idx + " = getelementptr inbounds i64, ptr %mem, i64 " + idx + "\n")
+        if fieldType == "Bool" {
+            output.append("  %bool_val_" + idx + " = trunc i64 %val_" + idx + " to i1\n")
+            output.append("  store i1 %bool_val_" + idx + ", ptr %field_ptr_" + idx + "\n")
+        } else {
+            output.append("  store i64 %val_" + idx + ", ptr %field_ptr_" + idx + "\n")
+        }
+        fieldIdx = fieldIdx + 1
+    }
+    output.append("  %result = ptrtoint ptr %mem to i64\n")
+    output.append("  ret i64 %result\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "fromBytes", className, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateDeriveCloneImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let className = classNode.name
+    output.append("; @derive(Clone) generated method\n")
+    output.append("define i64 @" + className + "_clone(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    let numFields = classNode.fields.length()
+    let sz = numFields * 8
+    output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
+    var fi = 0
+    while fi < numFields {
+        let fis = fi.toString()
+        output.append("  %src_" + fis + " = getelementptr inbounds i64, ptr %this, i64 " + fis + "\n")
+        output.append("  %val_" + fis + " = load i64, ptr %src_" + fis + "\n")
+        output.append("  %dst_" + fis + " = getelementptr inbounds i64, ptr %mem, i64 " + fis + "\n")
+        output.append("  store i64 %val_" + fis + ", ptr %dst_" + fis + "\n")
+        fi = fi + 1
+    }
+    output.append("  %ret = ptrtoint ptr %mem to i64\n")
+    output.append("  ret i64 %ret\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "clone", className, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateDeriveHashImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let className = classNode.name
+    output.append("; @derive(Hash) generated method\n")
+    output.append("define i64 @" + className + "_hash(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %h0 = add i64 0, 14695981039346656037\n")
+    var fi = 0
+    while fi < classNode.fields.length() {
+        let fis = fi.toString()
+        let prev = "h" + fi.toString()
+        let next = "h" + (fi + 1).toString()
+        output.append("  %fp_" + fis + " = getelementptr inbounds i64, ptr %this, i64 " + fis + "\n")
+        output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
+        output.append("  %fh_" + fis + " = call i64 @seen_hash_int(i64 %fv_" + fis + ")\n")
+        output.append("  %" + next + " = call i64 @seen_hash_combine(i64 %" + prev + ", i64 %fh_" + fis + ")\n")
+        fi = fi + 1
+    }
+    let finalH = "h" + fi.toString()
+    output.append("  ret i64 %" + finalH + "\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "hash", "Int", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateDeriveEqImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let className = classNode.name
+    output.append("; @derive(Eq) generated method\n")
+    output.append("define i1 @" + className + "_eq(ptr %this, ptr %other) #0 {\n")
+    output.append("entry:\n")
+    var fi = 0
+    while fi < classNode.fields.length() {
+        let fis = fi.toString()
+        output.append("  %a_" + fis + " = getelementptr inbounds i64, ptr %this, i64 " + fis + "\n")
+        output.append("  %av_" + fis + " = load i64, ptr %a_" + fis + "\n")
+        output.append("  %b_" + fis + " = getelementptr inbounds i64, ptr %other, i64 " + fis + "\n")
+        output.append("  %bv_" + fis + " = load i64, ptr %b_" + fis + "\n")
+        output.append("  %cmp_" + fis + " = icmp eq i64 %av_" + fis + ", %bv_" + fis + "\n")
+        output.append("  br i1 %cmp_" + fis + ", label %eq_next_" + fis + ", label %eq_fail\n")
+        output.append("eq_next_" + fis + ":\n")
+        fi = fi + 1
+    }
+    output.append("  ret i1 true\n")
+    output.append("eq_fail:\n")
+    output.append("  ret i1 false\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "eq", "Bool", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateDeriveDebugImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>, stringConstants: Array<String>, stringConstantPrefix: String) r: Void {
+    let className = classNode.name
+    output.append("; @derive(Debug) generated method\n")
+    output.append("define %SeenString @" + className + "_debug(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %sb = call ptr @StringBuilder_new()\n")
+    var headerStr = className + " { "
+    let headerIdx = addStringConstantImpl(stringConstants, headerStr)
+    output.append("  %hdr = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + headerIdx.toString() + ")\n")
+    output.append("  call i64 @StringBuilder_append(ptr %sb, %SeenString %hdr)\n")
+    var fi = 0
+    while fi < classNode.fields.length() {
+        let fis = fi.toString()
+        let field = classNode.fields[fi]
+        if fi > 0 {
+            let sepIdx = addStringConstantImpl(stringConstants, ", ")
+            output.append("  %sep_" + fis + " = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + sepIdx.toString() + ")\n")
+            output.append("  call i64 @StringBuilder_append(ptr %sb, %SeenString %sep_" + fis + ")\n")
+        }
+        let fnStr = field.name + ": "
+        let fnIdx = addStringConstantImpl(stringConstants, fnStr)
+        output.append("  %fn_" + fis + " = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + fnIdx.toString() + ")\n")
+        output.append("  call i64 @StringBuilder_append(ptr %sb, %SeenString %fn_" + fis + ")\n")
+        output.append("  %fp_" + fis + " = getelementptr inbounds i64, ptr %this, i64 " + fis + "\n")
+        output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
+        output.append("  %fs_" + fis + " = call %SeenString @seen_int_to_string(i64 %fv_" + fis + ")\n")
+        output.append("  call i64 @StringBuilder_append(ptr %sb, %SeenString %fs_" + fis + ")\n")
+        fi = fi + 1
+    }
+    let endIdx = addStringConstantImpl(stringConstants, " }")
+    output.append("  %end = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + endIdx.toString() + ")\n")
+    output.append("  call i64 @StringBuilder_append(ptr %sb, %SeenString %end)\n")
+    output.append("  %result = call %SeenString @StringBuilder_toString(ptr %sb)\n")
+    output.append("  ret %SeenString %result\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "debug", "String", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateReflectImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>, stringConstants: Array<String>, stringConstantPrefix: String) r: Void {
+    let className = classNode.name
+    let numFields = classNode.fields.length()
+    output.append("; @reflect RTTI for " + className + "\n")
+    let tnIdx = addStringConstantImpl(stringConstants, className)
+    output.append("define %SeenString @" + className + "_getTypeName(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %name = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + tnIdx.toString() + ")\n")
+    output.append("  ret %SeenString %name\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "getTypeName", "String", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    output.append("define i64 @" + className + "_getFieldCount(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  ret i64 " + numFields.toString() + "\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "getFieldCount", "Int", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    output.append("define ptr @" + className + "_getFieldNames(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %arr = call ptr @seen_arr_new_ptr_ptr()\n")
+    var fi = 0
+    while fi < numFields {
+        let fis = fi.toString()
+        let field = classNode.fields[fi]
+        let fnIdx = addStringConstantImpl(stringConstants, field.name)
+        output.append("  %fn_" + fis + " = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + fnIdx.toString() + ")\n")
+        output.append("  call void @seen_arr_push_str(ptr %arr, %SeenString %fn_" + fis + ")\n")
+        fi = fi + 1
+    }
+    output.append("  ret ptr %arr\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "getFieldNames", "Array<String>", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    output.append("define i64 @" + className + "_getFieldValue(ptr %this, i64 %idx) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %ptr = getelementptr inbounds i64, ptr %this, i64 %idx\n")
+    output.append("  %val = load i64, ptr %ptr\n")
+    output.append("  ret i64 %val\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "getFieldValue", "Int", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+    output.append("define void @" + className + "_setFieldValue(ptr %this, i64 %idx, i64 %val) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %ptr = getelementptr inbounds i64, ptr %this, i64 %idx\n")
+    output.append("  store i64 %val, ptr %ptr\n")
+    output.append("  ret void\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "setFieldValue", "Void", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateBinarySerializerImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>, binaryClassNames: String, binaryVersions: String, binaryEndianness: String, binaryClassCount: Int) r: Void {
+    let className = classNode.name
+    output.append("; @binary serialize for " + className + "\n")
+    output.append("define i64 @" + className + "_serialize(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %buf = call i64 @seen_binary_buffer_new(i64 256)\n")
+    var hasVersion = 0
+    var versionStr = "1"
+    var bci = 0
+    while bci < binaryClassCount {
+        var bcName = pipeGet(binaryClassNames, bci)
+        if bcName == className {
+            versionStr = pipeGet(binaryVersions, bci)
+            hasVersion = 1
+        }
+        bci = bci + 1
+    }
+    if hasVersion == 1 {
+        let versionVal = parseIntManual(versionStr)
+        output.append("  call void @seen_binary_write_i32(i64 %buf, i32 " + versionVal.toString() + ")\n")
+    }
+    var useBE = 0
+    bci = 0
+    while bci < binaryClassCount {
+        var bcName2 = pipeGet(binaryClassNames, bci)
+        if bcName2 == className {
+            var endian = pipeGet(binaryEndianness, bci)
+            if endian == "big" or endian == "be" {
+                useBE = 1
+            }
+        }
+        bci = bci + 1
+    }
+    var fi = 0
+    while fi < classNode.fields.length() {
+        let fis = fi.toString()
+        let field = classNode.fields[fi]
+        let fType = field.paramType.typeName
+        output.append("  %fp_" + fis + " = getelementptr inbounds i64, ptr %this, i64 " + fis + "\n")
+        if fType == "String" {
+            output.append("  %fv_" + fis + " = load %SeenString, ptr %fp_" + fis + "\n")
+            output.append("  call void @seen_binary_write_str(i64 %buf, %SeenString %fv_" + fis + ")\n")
+        } else {
+            output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
+            if fType == "Float" {
+                output.append("  %ff_" + fis + " = bitcast i64 %fv_" + fis + " to double\n")
+                if useBE == 1 {
+                    output.append("  call void @seen_binary_write_f64_be(i64 %buf, double %ff_" + fis + ")\n")
+                } else {
+                    output.append("  call void @seen_binary_write_f64(i64 %buf, double %ff_" + fis + ")\n")
+                }
+            } else {
+                if useBE == 1 {
+                    output.append("  call void @seen_binary_write_i64_be(i64 %buf, i64 %fv_" + fis + ")\n")
+                } else {
+                    output.append("  call void @seen_binary_write_i64(i64 %buf, i64 %fv_" + fis + ")\n")
+                }
+            }
+        }
+        fi = fi + 1
+    }
+    output.append("  ret i64 %buf\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "serialize", "Int", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateBinaryDeserializerImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>, binaryClassNames: String, binaryVersions: String, binaryEndianness: String, binaryClassCount: Int) r: Void {
+    let className = classNode.name
+    let numFields = classNode.fields.length()
+    let sz = numFields * 8
+    output.append("; @binary deserialize for " + className + "\n")
+    output.append("define i64 @" + className + "_deserialize(i64 %buf) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
+    var dataOffset = 0
+    var bci = 0
+    while bci < binaryClassCount {
+        var bcName = pipeGet(binaryClassNames, bci)
+        if bcName == className {
+            dataOffset = 4
+        }
+        bci = bci + 1
+    }
+    var useBE = 0
+    bci = 0
+    while bci < binaryClassCount {
+        var bcName2 = pipeGet(binaryClassNames, bci)
+        if bcName2 == className {
+            var endian = pipeGet(binaryEndianness, bci)
+            if endian == "big" or endian == "be" {
+                useBE = 1
+            }
+        }
+        bci = bci + 1
+    }
+    var fi = 0
+    var byteOff = dataOffset
+    while fi < numFields {
+        let fis = fi.toString()
+        let field = classNode.fields[fi]
+        let fType = field.paramType.typeName
+        if fType == "String" {
+            output.append("  %rv_" + fis + " = call %SeenString @seen_binary_read_str(i64 %buf, i64 " + byteOff.toString() + ")\n")
+            output.append("  %dp_" + fis + " = getelementptr inbounds i64, ptr %mem, i64 " + fis + "\n")
+            output.append("  store %SeenString %rv_" + fis + ", ptr %dp_" + fis + "\n")
+            byteOff = byteOff + 12
+        } else {
+            if fType == "Float" {
+                if useBE == 1 {
+                    output.append("  %rv_" + fis + " = call double @seen_binary_read_f64_be(i64 %buf, i64 " + byteOff.toString() + ")\n")
+                } else {
+                    output.append("  %rv_" + fis + " = call double @seen_binary_read_f64(i64 %buf, i64 " + byteOff.toString() + ")\n")
+                }
+                output.append("  %ri_" + fis + " = bitcast double %rv_" + fis + " to i64\n")
+                output.append("  %dp_" + fis + " = getelementptr inbounds i64, ptr %mem, i64 " + fis + "\n")
+                output.append("  store i64 %ri_" + fis + ", ptr %dp_" + fis + "\n")
+            } else {
+                if useBE == 1 {
+                    output.append("  %rv_" + fis + " = call i64 @seen_binary_read_i64_be(i64 %buf, i64 " + byteOff.toString() + ")\n")
+                } else {
+                    output.append("  %rv_" + fis + " = call i64 @seen_binary_read_i64(i64 %buf, i64 " + byteOff.toString() + ")\n")
+                }
+                output.append("  %dp_" + fis + " = getelementptr inbounds i64, ptr %mem, i64 " + fis + "\n")
+                output.append("  store i64 %rv_" + fis + ", ptr %dp_" + fis + "\n")
+            }
+            byteOff = byteOff + 8
+        }
+        fi = fi + 1
+    }
+    output.append("  %deser_ret = ptrtoint ptr %mem to i64\n")
+    output.append("  ret i64 %deser_ret\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "deserialize", className, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateJsonSerializeImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>, stringConstants: Array<String>, stringConstantPrefix: String) r: Void {
+    let className = classNode.name
+    output.append("; @derive(Json) serialize for " + className + "\n")
+    output.append("define %SeenString @" + className + "_toJson(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %jb = call i64 @seen_json_start_object(i64 0)\n")
+    var fi = 0
+    while fi < classNode.fields.length() {
+        let fis = fi.toString()
+        let field = classNode.fields[fi]
+        let fType = field.paramType.typeName
+        let keyIdx = addStringConstantImpl(stringConstants, field.name)
+        output.append("  %key_" + fis + " = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + keyIdx.toString() + ")\n")
+        output.append("  %fp_" + fis + " = getelementptr inbounds i64, ptr %this, i64 " + fis + "\n")
+        if fType == "String" {
+            output.append("  %fv_" + fis + " = load %SeenString, ptr %fp_" + fis + "\n")
+            output.append("  call void @seen_json_key_str(i64 %jb, %SeenString %key_" + fis + ", %SeenString %fv_" + fis + ")\n")
+        } else {
+            if fType == "Float" {
+                output.append("  %fi_" + fis + " = load i64, ptr %fp_" + fis + "\n")
+                output.append("  %ff_" + fis + " = bitcast i64 %fi_" + fis + " to double\n")
+                output.append("  call void @seen_json_key_float(i64 %jb, %SeenString %key_" + fis + ", double %ff_" + fis + ")\n")
+            } else {
+                if fType == "Bool" {
+                    output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
+                    output.append("  call void @seen_json_key_bool(i64 %jb, %SeenString %key_" + fis + ", i64 %fv_" + fis + ")\n")
+                } else {
+                    output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
+                    output.append("  call void @seen_json_key_int(i64 %jb, %SeenString %key_" + fis + ", i64 %fv_" + fis + ")\n")
+                }
+            }
+        }
+        fi = fi + 1
+    }
+    output.append("  %result = call %SeenString @seen_json_end_object(i64 %jb)\n")
+    output.append("  ret %SeenString %result\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "toJson", "String", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generateJsonDeserializeImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let className = classNode.name
+    let numFields = classNode.fields.length()
+    let sz = numFields * 8
+    output.append("; @derive(Json) deserialize for " + className + "\n")
+    output.append("define i64 @" + className + "_fromJson(%SeenString %json) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
+    output.append("  call void @llvm.memset.p0.i64(ptr %mem, i8 0, i64 " + sz.toString() + ", i1 false)\n")
+    output.append("  %json_ret = ptrtoint ptr %mem to i64\n")
+    output.append("  ret i64 %json_ret\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "fromJson", className, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generatePacketWriterImpl(output: StringBuilder, classNode: ClassNode, packetIdStr: String, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let className = classNode.name
+    output.append("; @packet writer for " + className + "\n")
+    output.append("define i64 @" + className + "_writePacket(ptr %this) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %buf = call i64 @seen_binary_buffer_new(i64 256)\n")
+    output.append("  call void @seen_packet_write_header(i64 %buf, i32 " + packetIdStr + ", i32 0)\n")
+    var fi = 0
+    while fi < classNode.fields.length() {
+        let fis = fi.toString()
+        output.append("  %fp_" + fis + " = getelementptr inbounds i64, ptr %this, i64 " + fis + "\n")
+        output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
+        output.append("  call void @seen_binary_write_i64(i64 %buf, i64 %fv_" + fis + ")\n")
+        fi = fi + 1
+    }
+    output.append("  ret i64 %buf\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "writePacket", "Int", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}
+
+fun generatePacketReaderImpl(output: StringBuilder, classNode: ClassNode, packetIdStr: String, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    let className = classNode.name
+    let numFields = classNode.fields.length()
+    let sz = numFields * 8
+    output.append("; @packet reader for " + className + "\n")
+    output.append("define i64 @" + className + "_readPacket(i64 %buf) #0 {\n")
+    output.append("entry:\n")
+    output.append("  %hdr = call i64 @seen_packet_read_header(i64 %buf, i64 0)\n")
+    output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
+    var fi = 0
+    var byteOff = 8
+    while fi < numFields {
+        let fis = fi.toString()
+        output.append("  %rv_" + fis + " = call i64 @seen_binary_read_i64(i64 %buf, i64 " + byteOff.toString() + ")\n")
+        output.append("  %dp_" + fis + " = getelementptr inbounds i64, ptr %mem, i64 " + fis + "\n")
+        output.append("  store i64 %rv_" + fis + ", ptr %dp_" + fis + "\n")
+        fi = fi + 1
+        byteOff = byteOff + 8
+    }
+    output.append("  %pkt_ret = ptrtoint ptr %mem to i64\n")
+    output.append("  ret i64 %pkt_ret\n")
+    output.append("}\n\n")
+    registerStructMethodImpl(className, "readPacket", className, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+}

@@ -1,0 +1,461 @@
+// Virtual DOM Framework for Seen Language - Lite Version
+// Works with stage1 compiler using inline codegen for Vec/BTreeMap
+// No stdlib imports required - relies on C runtime for collections
+
+// ============================================================================
+// VNode Type Constants
+// ============================================================================
+// Using Int instead of data type for stage1 compatibility
+// 0 = Element, 1 = Text, 2 = Component, 3 = Fragment
+
+// ============================================================================
+// Core VNode Structure
+// ============================================================================
+
+class VNode {
+    var nodeType: Int       // 0=Element, 1=Text, 2=Component, 3=Fragment
+    var tag: String         // Element tag or component name
+    var text: String        // Text content (for Text nodes)
+    var key: String         // Optional key for diffing (empty = no key)
+    var attributes: Int     // BTreeMap<String, String> pointer as i64
+    var children: Int       // Vec<VNode> pointer as i64
+
+    // Check if this node has a key
+    fun hasKey() r: Bool {
+        return this.key.length() > 0
+    }
+
+    // Check if two nodes are same type for diffing
+    fun isSameType(other: VNode) r: Bool {
+        if this.nodeType != other.nodeType {
+            return false
+        }
+        // For elements and components, also check tag
+        if this.nodeType == 0 or this.nodeType == 2 {
+            return this.tag == other.tag
+        }
+        return true
+    }
+
+    // Clone this node (shallow)
+    fun clone() r: VNode {
+        return VNode{
+            nodeType: this.nodeType,
+            tag: this.tag,
+            text: this.text,
+            key: this.key,
+            attributes: this.attributes,
+            children: this.children
+        }
+    }
+}
+
+// ============================================================================
+// Factory Functions
+// ============================================================================
+
+// Create an element with empty attrs and children
+fun createEmptyElement(tag: String) r: VNode {
+    return VNode{
+        nodeType: 0,
+        tag: tag,
+        text: "",
+        key: "",
+        attributes: BTreeMap<String, String>.new(),
+        children: Vec<VNode>.new()
+    }
+}
+
+// Create a text node
+fun createText(content: String) r: VNode {
+    return VNode{
+        nodeType: 1,
+        tag: "",
+        text: content,
+        key: "",
+        attributes: 0,
+        children: 0
+    }
+}
+
+// Create an element with given attrs and children
+fun createElement(tag: String, attrs: Int, children: Int) r: VNode {
+    return VNode{
+        nodeType: 0,
+        tag: tag,
+        text: "",
+        key: "",
+        attributes: attrs,
+        children: children
+    }
+}
+
+// Create a keyed element (for efficient list diffing)
+fun createKeyedElement(tag: String, key: String, attrs: Int, children: Int) r: VNode {
+    return VNode{
+        nodeType: 0,
+        tag: tag,
+        text: "",
+        key: key,
+        attributes: attrs,
+        children: children
+    }
+}
+
+// Create a fragment (multiple children without wrapper)
+fun createFragment(children: Int) r: VNode {
+    return VNode{
+        nodeType: 3,
+        tag: "",
+        text: "",
+        key: "",
+        attributes: 0,
+        children: children
+    }
+}
+
+// Create a component reference
+fun createComponent(name: String, props: Int) r: VNode {
+    return VNode{
+        nodeType: 2,
+        tag: name,
+        text: "",
+        key: "",
+        attributes: props,
+        children: Vec<VNode>.new()
+    }
+}
+
+// ============================================================================
+// Helper Functions for Collections
+// ============================================================================
+
+// Create empty attributes map
+fun emptyAttrs() r: Int {
+    return BTreeMap<String, String>.new()
+}
+
+// Create empty children list
+fun emptyChildren() r: Int {
+    return Vec<VNode>.new()
+}
+
+// Create children list with 1 child
+fun makeChildren1(c1: VNode) r: Int {
+    var children = Vec<VNode>.new()
+    children.push(c1)
+    return children
+}
+
+// Create children list with 2 children
+fun makeChildren2(c1: VNode, c2: VNode) r: Int {
+    var children = Vec<VNode>.new()
+    children.push(c1)
+    children.push(c2)
+    return children
+}
+
+// Create children list with 3 children
+fun makeChildren3(c1: VNode, c2: VNode, c3: VNode) r: Int {
+    var children = Vec<VNode>.new()
+    children.push(c1)
+    children.push(c2)
+    children.push(c3)
+    return children
+}
+
+// ============================================================================
+// Patch Types
+// ============================================================================
+// Using Int constants for stage1 compatibility
+// 0 = None, 1 = Replace, 2 = UpdateAttrs, 3 = UpdateText
+// 4 = InsertChild, 5 = RemoveChild, 6 = MoveChild
+
+class Patch {
+    var patchType: Int      // Patch type constant
+    var pathLen: Int        // Path length
+    var path0: Int          // Path indices (up to 4 levels deep)
+    var path1: Int
+    var path2: Int
+    var path3: Int
+    var newNode: Int        // VNode pointer for Replace/Insert (0 if none)
+    var attributes: Int     // BTreeMap<String, String> pointer
+    var removedAttrs: Int   // Vec<String> pointer
+    var text: String        // Text update
+    var fromIndex: Int      // Source index (for Move/Remove)
+    var toIndex: Int        // Target index (for Insert/Move)
+
+    static fun new() r: Patch {
+        return Patch{
+            patchType: 0,
+            pathLen: 0,
+            path0: 0,
+            path1: 0,
+            path2: 0,
+            path3: 0,
+            newNode: 0,
+            attributes: BTreeMap<String, String>.new(),
+            removedAttrs: Vec<String>.new(),
+            text: "",
+            fromIndex: 0 - 1,
+            toIndex: 0 - 1
+        }
+    }
+
+    // Create replace patch
+    static fun replace(p0: Int, p1: Int, p2: Int, p3: Int, pLen: Int, node: Int) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = 1
+        patch.path0 = p0
+        patch.path1 = p1
+        patch.path2 = p2
+        patch.path3 = p3
+        patch.pathLen = pLen
+        patch.newNode = node
+        return patch
+    }
+
+    // Create text update patch
+    static fun updateText(p0: Int, p1: Int, p2: Int, p3: Int, pLen: Int, newText: String) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = 3
+        patch.path0 = p0
+        patch.path1 = p1
+        patch.path2 = p2
+        patch.path3 = p3
+        patch.pathLen = pLen
+        patch.text = newText
+        return patch
+    }
+
+    // Create insert child patch
+    static fun insertChild(p0: Int, p1: Int, p2: Int, p3: Int, pLen: Int, index: Int, node: Int) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = 4
+        patch.path0 = p0
+        patch.path1 = p1
+        patch.path2 = p2
+        patch.path3 = p3
+        patch.pathLen = pLen
+        patch.toIndex = index
+        patch.newNode = node
+        return patch
+    }
+
+    // Create remove child patch
+    static fun removeChild(p0: Int, p1: Int, p2: Int, p3: Int, pLen: Int, index: Int) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = 5
+        patch.path0 = p0
+        patch.path1 = p1
+        patch.path2 = p2
+        patch.path3 = p3
+        patch.pathLen = pLen
+        patch.fromIndex = index
+        return patch
+    }
+
+    // Create move child patch
+    static fun moveChild(p0: Int, p1: Int, p2: Int, p3: Int, pLen: Int, fromIdx: Int, toIdx: Int) r: Patch {
+        var patch = Patch.new()
+        patch.patchType = 6
+        patch.path0 = p0
+        patch.path1 = p1
+        patch.path2 = p2
+        patch.path3 = p3
+        patch.pathLen = pLen
+        patch.fromIndex = fromIdx
+        patch.toIndex = toIdx
+        return patch
+    }
+}
+
+// ============================================================================
+// VDOM Differ - Deterministic diffing algorithm
+// ============================================================================
+
+class VDOMDiffer {
+    var patchCount: Int
+
+    static fun new() r: VDOMDiffer {
+        return VDOMDiffer{ patchCount: 0 }
+    }
+
+    // Compare two VNode trees and produce patches
+    fun diff(oldNode: VNode, newNode: VNode) r: Int {
+        var patches = Vec<Patch>.new()
+        this.patchCount = 0
+        this.diffNodes(oldNode, newNode, 0, 0, 0, 0, 0, patches)
+        return patches
+    }
+
+    // Internal: diff two nodes at given path
+    fun diffNodes(oldNode: VNode, newNode: VNode, p0: Int, p1: Int, p2: Int, p3: Int, pLen: Int, patches: Int) r: Void {
+        // If nodes are not same type, replace entirely
+        if not oldNode.isSameType(newNode) {
+            var patchVec = Vec<Patch>.new()
+            // Note: can't easily cast patches Int to Vec<Patch>, so track count
+            this.patchCount = this.patchCount + 1
+            return
+        }
+
+        // Handle text nodes
+        if oldNode.nodeType == 1 {
+            if oldNode.text != newNode.text {
+                this.patchCount = this.patchCount + 1
+            }
+            return
+        }
+
+        // Handle element/component nodes - diff attributes then children
+        if oldNode.nodeType == 0 or oldNode.nodeType == 2 {
+            this.diffAttributes(oldNode.attributes, newNode.attributes)
+            this.diffChildren(oldNode.children, newNode.children, p0, p1, p2, p3, pLen)
+        }
+
+        // Handle fragment - just diff children
+        if oldNode.nodeType == 3 {
+            this.diffChildren(oldNode.children, newNode.children, p0, p1, p2, p3, pLen)
+        }
+    }
+
+    // Diff attributes
+    fun diffAttributes(oldAttrs: Int, newAttrs: Int) r: Void {
+        // For now, just check if they're different pointers
+        // A full implementation would compare keys/values
+        if oldAttrs != newAttrs {
+            this.patchCount = this.patchCount + 1
+        }
+    }
+
+    // Diff children (simple positional matching)
+    fun diffChildren(oldChildrenPtr: Int, newChildrenPtr: Int, p0: Int, p1: Int, p2: Int, p3: Int, pLen: Int) r: Void {
+        // Skip if either is null
+        if oldChildrenPtr == 0 or newChildrenPtr == 0 {
+            if oldChildrenPtr != newChildrenPtr {
+                this.patchCount = this.patchCount + 1
+            }
+            return
+        }
+
+        // Create new Vec<VNode> variables to access methods
+        var oldChildren = Vec<VNode>.new()
+        var newChildren = Vec<VNode>.new()
+
+        // Note: We can't actually access the children from the Int pointers
+        // in a type-safe way with stage1. This is a limitation.
+        // For now, just count as changed if pointers differ.
+        if oldChildrenPtr != newChildrenPtr {
+            this.patchCount = this.patchCount + 1
+        }
+    }
+
+    // Get patch count
+    fun getPatchCount() r: Int {
+        return this.patchCount
+    }
+}
+
+// ============================================================================
+// VDOM Engine - Simple state management
+// ============================================================================
+
+class VDOMEngine {
+    var hasTree: Bool
+    var currentTree: Int    // VNode pointer as i64
+    var differ: VDOMDiffer
+    var patchCount: Int
+
+    static fun new() r: VDOMEngine {
+        return VDOMEngine{
+            hasTree: false,
+            currentTree: 0,
+            differ: VDOMDiffer.new(),
+            patchCount: 0
+        }
+    }
+
+    // Mount initial tree
+    fun mount(node: VNode) r: Void {
+        // Store pointer - can't easily do this in stage1
+        // For now just mark as having tree
+        this.hasTree = true
+        this.patchCount = 0
+    }
+
+    // Update with new tree
+    fun update(newNode: VNode) r: Int {
+        if not this.hasTree {
+            this.mount(newNode)
+            return Vec<Patch>.new()
+        }
+
+        // Create patches (simplified - just return empty for now)
+        var patches = Vec<Patch>.new()
+        this.patchCount = this.patchCount + 1
+        return patches
+    }
+
+    // Get patch count
+    fun getPatchCount() r: Int {
+        return this.patchCount
+    }
+
+    // Unmount
+    fun unmount() r: Void {
+        this.hasTree = false
+        this.currentTree = 0
+    }
+}
+
+// ============================================================================
+// Public API Functions
+// ============================================================================
+
+// Create a new differ
+fun createDiffer() r: VDOMDiffer {
+    return VDOMDiffer.new()
+}
+
+// Create a new engine
+fun createEngine() r: VDOMEngine {
+    return VDOMEngine.new()
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+// Count total nodes in a tree
+fun vdomNodeCount(node: VNode) r: Int {
+    var count = 1
+
+    // If no children, just return 1
+    if node.children == 0 {
+        return count
+    }
+
+    // We can't easily iterate over children stored as Int in stage1
+    // This is a limitation - return 1 for now
+    return count
+}
+
+// Check if node is element
+fun isElement(node: VNode) r: Bool {
+    return node.nodeType == 0
+}
+
+// Check if node is text
+fun isText(node: VNode) r: Bool {
+    return node.nodeType == 1
+}
+
+// Check if node is component
+fun isComponent(node: VNode) r: Bool {
+    return node.nodeType == 2
+}
+
+// Check if node is fragment
+fun isFragment(node: VNode) r: Bool {
+    return node.nodeType == 3
+}

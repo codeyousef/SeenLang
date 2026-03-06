@@ -1,0 +1,118 @@
+// Buffered I/O - Production-quality buffered reader/writer
+// Reduces syscall overhead for high-throughput I/O
+
+class BufferedWriter {
+    buffer: Array<String>
+    bufferSize: Int
+    currentSize: Int
+    
+    fun new(size: Int): BufferedWriter {
+        let writer = BufferedWriter()
+        writer.buffer = Array<String>(size)
+        writer.bufferSize = size
+        writer.currentSize = 0
+        writer
+    }
+    
+    fun write(data: String) {
+        this.buffer.push(data)
+        this.currentSize = this.currentSize + data.length()
+        
+        if this.currentSize >= this.bufferSize {
+            this.flush()
+        }
+    }
+    
+    fun writeLine(line: String) {
+        this.write(line + "\n")
+    }
+    
+    fun flush(): String {
+        if this.currentSize == 0 {
+            ""
+        }
+        
+        let result = ""
+        var i = 0
+        while i < this.buffer.length() {
+            result = result + this.buffer[i]
+            i = i + 1
+        }
+        
+        this.buffer = Array<String>(this.bufferSize)
+        this.currentSize = 0
+        
+        result
+    }
+    
+    fun getContents(): String {
+        this.flush()
+    }
+}
+
+class BufferedReader {
+    data: String
+    position: Int
+    length: Int
+    
+    fun new(content: String): BufferedReader {
+        let reader = BufferedReader()
+        reader.data = content
+        reader.position = 0
+        reader.length = content.length()
+        reader
+    }
+    
+    fun readChar(): Int {
+        if this.position >= this.length {
+            -1
+        }
+        
+        let ch = this.data.charAt(this.position)
+        this.position = this.position + 1
+        ch
+    }
+    
+    fun readLine(): String {
+        if this.position >= this.length {
+            ""
+        }
+        
+        let result = ""
+        let ch = this.readChar()
+        
+        while ch != -1 and ch != 10 {
+            if ch != 13 {
+                result = result + String.fromCharCode(ch)
+            }
+            ch = this.readChar()
+        }
+        
+        result
+    }
+    
+    fun readAll(): String {
+        if this.position >= this.length {
+            ""
+        }
+        
+        let result = this.data.substring(this.position, this.length)
+        this.position = this.length
+        result
+    }
+    
+    fun skip(count: Int) {
+        this.position = this.position + count
+        if this.position > this.length {
+            this.position = this.length
+        }
+    }
+    
+    fun hasMore(): Bool {
+        this.position < this.length
+    }
+    
+    fun remaining(): Int {
+        this.length - this.position
+    }
+}

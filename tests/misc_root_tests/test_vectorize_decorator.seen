@@ -1,0 +1,59 @@
+// Test: @vectorize, @no_vectorize, and @lane_width decorators
+// Verify: compile with --simd-report to check vectorization behavior
+// Expected: @no_vectorize function should not vectorize loops
+
+@no_vectorize
+fun sumScalar(arr: Array<Int>, n: Int) r: Int {
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + arr[i]
+        i = i + 1
+    }
+    return sum
+}
+
+@lane_width(4)
+fun sumVec4(arr: Array<Int>, n: Int) r: Int {
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + arr[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun sumDefault(arr: Array<Int>, n: Int) r: Int {
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + arr[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun main() r: Int {
+    let n = 100
+    var arr = Array<Int>(n, 1)
+
+    let s1 = sumScalar(arr, n)
+    let s2 = sumVec4(arr, n)
+    let s3 = sumDefault(arr, n)
+
+    println("Scalar sum: " + s1.toString())
+    println("Vec4 sum:   " + s2.toString())
+    println("Default sum:" + s3.toString())
+
+    if s1 == 100 {
+        if s2 == 100 {
+            if s3 == 100 {
+                println("PASS: All vectorize decorator tests passed")
+                return 0
+            }
+        }
+    }
+    println("FAIL: Unexpected results")
+    return 1
+}

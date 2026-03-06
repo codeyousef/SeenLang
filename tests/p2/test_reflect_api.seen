@@ -1,0 +1,14 @@
+@reflect
+class Player {
+    x: Int
+    y: Int
+}
+
+fun main() r: Int {
+    let p = Player(10, 20)
+    let v = p.getFieldValue(0)
+    p.setFieldValue(1, 42)
+    let names = p.getFieldNames()
+    println("PASS: reflect_api")
+    return 0
+}

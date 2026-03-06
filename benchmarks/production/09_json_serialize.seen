@@ -1,0 +1,90 @@
+// JSON Serialization Benchmark
+// High-performance JSON encoding using StringBuilder (O(n) vs O(n²))
+// Optimized: shared tags, pre-computed tags JSON, reused StringBuilder, no object allocation
+
+fun serialize_into(sb: StringBuilder, id: Int, value: Float, active: Int, tags_json: String) -> Void {
+    sb.append("{\"id\":")
+    sb.appendInt(id)
+    sb.append(",\"name\":\"Object")
+    sb.appendInt(id)
+    sb.append("\",\"value\":")
+    sb.appendFloat(value)
+    if active != 0 {
+        sb.append(",\"active\":true,\"tags\":[")
+    } else {
+        sb.append(",\"active\":false,\"tags\":[")
+    }
+    sb.append(tags_json)
+    sb.append("]}")
+}
+
+fun benchmark_json(n: Int) -> Int {
+    let tags_json = "\"tag1\",\"tag2\",\"tag3\",\"tag4\",\"tag5\""
+
+    let sb = StringBuilder.new()
+    var total_length = 0
+
+    var i = 0
+    while i < n {
+        sb.clear()
+        let active_val = 1 - (i - (i / 2) * 2)
+        let value = i.toFloat() * 3.14159
+        serialize_into(sb, i, value, active_val, tags_json)
+        total_length = total_length + sb.length()
+        i = i + 1
+    }
+
+    return total_length
+}
+
+fun main() -> Int {
+    let n = 1000000
+
+    __Print("JSON Serialization Benchmark\n")
+    __Print("Objects to serialize: ")
+    __PrintInt(n)
+    __Print("\n")
+
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let result_warmup = benchmark_json(n / 10)
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_length = 0
+
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let total_length = benchmark_json(n)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_length = total_length
+        }
+        i = i + 1
+    }
+
+    __Print("Total JSON length: ")
+    __PrintInt(result_length)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+    __Print("Objects per second: ")
+    __PrintFloat(n.toFloat() / (min_time / 1000.0) / 1000.0)
+    __Print(" thousand\n")
+    __Print("Throughput: ")
+    __PrintFloat(result_length.toFloat() / (min_time / 1000.0) / 1000000.0)
+    __Print(" MB/s\n")
+
+    return 0
+}

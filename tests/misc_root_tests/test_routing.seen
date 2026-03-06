@@ -1,0 +1,450 @@
+// Test for deterministic routing framework
+// Tests route registration, resolution, parameterized routes, and pattern validation
+// Stage1-compatible: no imports, uses inline codegen for BTreeMap<String, Int>
+
+// A single route definition
+class Route {
+    var path: String
+    var method: String
+    var handlerName: String
+    var isStatic: Bool
+    var paramCount: Int
+    var middlewareCount: Int
+    var middlewareNames: Array<String>
+
+    static fun new(method: String, path: String, handler: String) r: Route {
+        var stat = true
+        var pc = 0
+        var i = 0
+        while i < path.length() {
+            if path.charAt(i) == ":" {
+                stat = false
+                pc = pc + 1
+            }
+            i = i + 1
+        }
+        return Route{
+            path: path,
+            method: method,
+            handlerName: handler,
+            isStatic: stat,
+            paramCount: pc,
+            middlewareCount: 0,
+            middlewareNames: Array<String>()
+        }
+    }
+
+    static fun withMiddleware(method: String, path: String, handler: String, mw: Array<String>) r: Route {
+        var stat = true
+        var pc = 0
+        var i = 0
+        while i < path.length() {
+            if path.charAt(i) == ":" {
+                stat = false
+                pc = pc + 1
+            }
+            i = i + 1
+        }
+        return Route{
+            path: path,
+            method: method,
+            handlerName: handler,
+            isStatic: stat,
+            paramCount: pc,
+            middlewareCount: mw.length(),
+            middlewareNames: mw
+        }
+    }
+}
+
+// Result of route resolution
+class RouteMatch {
+    var found: Bool
+    var handlerName: String
+    var params: Array<String>
+
+    static fun notFound() r: RouteMatch {
+        return RouteMatch{
+            found: false,
+            handlerName: "",
+            params: Array<String>()
+        }
+    }
+
+    static fun matched(handler: String, params: Array<String>) r: RouteMatch {
+        return RouteMatch{
+            found: true,
+            handlerName: handler,
+            params: params
+        }
+    }
+
+    fun getParam(name: String) r: String {
+        var i = 0
+        while i < params.length() {
+            if i % 2 == 0 and params[i] == name {
+                return params[i + 1]
+            }
+            i = i + 2
+        }
+        return ""
+    }
+}
+
+// Split a path into segments
+fun splitPath(path: String) r: Array<String> {
+    var segments = Array<String>()
+    var current = ""
+    var i = 0
+    while i < path.length() {
+        let ch = path.charAt(i)
+        if ch == "/" {
+            if current.length() > 0 {
+                segments.push(current)
+                current = ""
+            }
+        } else {
+            current = current + ch
+        }
+        i = i + 1
+    }
+    if current.length() > 0 {
+        segments.push(current)
+    }
+    return segments
+}
+
+// Match a pattern against an actual path
+fun matchPath(pattern: String, actual: String) r: Array<String> {
+    var params = Array<String>()
+    let patternSegs = splitPath(pattern)
+    let actualSegs = splitPath(actual)
+
+    if patternSegs.length() != actualSegs.length() {
+        return params
+    }
+
+    var i = 0
+    while i < patternSegs.length() {
+        let pSeg = patternSegs[i]
+        let aSeg = actualSegs[i]
+
+        if pSeg.length() > 0 and pSeg.charAt(0) == ":" {
+            let paramName = pSeg.substring(1, pSeg.length())
+            params.push(paramName)
+            params.push(aSeg)
+        } else if pSeg != aSeg {
+            return Array<String>()
+        }
+        i = i + 1
+    }
+
+    return params
+}
+
+// Check if a path pattern is valid
+fun isValidPattern(path: String) r: Bool {
+    if path.length() == 0 {
+        return false
+    }
+    if path.charAt(0) != "/" {
+        return false
+    }
+    if path.length() > 1 and path.charAt(path.length() - 1) == "/" {
+        return false
+    }
+    var i = 0
+    while i < path.length() - 1 {
+        if path.charAt(i) == "/" and path.charAt(i + 1) == "/" {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// Resolve a route: first try BTreeMap exact lookup, then scan for dynamic
+fun resolveRoute(routeIndex: BTreeMap<String, Int>, routes: Array<Route>, method: String, path: String) r: RouteMatch {
+    let key = method + ":" + path
+    if routeIndex.containsKey(key) {
+        let optIndex = routeIndex.get(key)
+        let index = optIndex.unwrap()
+        let route = routes[index]
+        return RouteMatch.matched(route.handlerName, Array<String>())
+    }
+
+    // Scan for dynamic routes
+    var i = 0
+    while i < routes.length() {
+        let route = routes[i]
+        if route.method == method and not route.isStatic {
+            let params = matchPath(route.path, path)
+            if params.length() > 0 {
+                return RouteMatch.matched(route.handlerName, params)
+            }
+        }
+        i = i + 1
+    }
+
+    return RouteMatch.notFound()
+}
+
+fun main() r: Int {
+    println("=== Routing Framework Test ===")
+    println("")
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Static route registration and resolution
+    println("--- Test 1: Static Route Registration and Resolution ---")
+    var routeIndex = BTreeMap<String, Int>.new()
+    var routes = Array<Route>()
+
+    routes.push(Route.new("GET", "/", "handleHome"))
+    routeIndex.insert("GET:/", 0)
+
+    routes.push(Route.new("GET", "/users", "handleUsers"))
+    routeIndex.insert("GET:/users", 1)
+
+    routes.push(Route.new("POST", "/users", "handleCreateUser"))
+    routeIndex.insert("POST:/users", 2)
+
+    routes.push(Route.new("GET", "/about", "handleAbout"))
+    routeIndex.insert("GET:/about", 3)
+
+    let m1 = resolveRoute(routeIndex, routes, "GET", "/")
+    if m1.found and m1.handlerName == "handleHome" {
+        println("  PASS: GET / -> handleHome")
+        passed = passed + 1
+    } else {
+        println("  FAIL: GET / did not resolve correctly")
+        failed = failed + 1
+    }
+
+    let m2 = resolveRoute(routeIndex, routes, "GET", "/users")
+    if m2.found and m2.handlerName == "handleUsers" {
+        println("  PASS: GET /users -> handleUsers")
+        passed = passed + 1
+    } else {
+        println("  FAIL: GET /users did not resolve correctly")
+        failed = failed + 1
+    }
+
+    let m3 = resolveRoute(routeIndex, routes, "POST", "/users")
+    if m3.found and m3.handlerName == "handleCreateUser" {
+        println("  PASS: POST /users -> handleCreateUser")
+        passed = passed + 1
+    } else {
+        println("  FAIL: POST /users did not resolve correctly")
+        failed = failed + 1
+    }
+
+    if routes.length() == 4 {
+        println("  PASS: Route count is 4")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Route count expected 4, got " + routes.length().toString())
+        failed = failed + 1
+    }
+    println("")
+
+    // Test 2: Parameterized routes
+    println("--- Test 2: Parameterized Routes ---")
+    var routeIndex2 = BTreeMap<String, Int>.new()
+    var routes2 = Array<Route>()
+
+    routes2.push(Route.new("GET", "/users/:id", "handleUser"))
+    routeIndex2.insert("GET:/users/:id", 0)
+
+    routes2.push(Route.new("GET", "/users/:id/posts/:postId", "handleUserPost"))
+    routeIndex2.insert("GET:/users/:id/posts/:postId", 1)
+
+    let m4 = resolveRoute(routeIndex2, routes2, "GET", "/users/42")
+    if m4.found and m4.handlerName == "handleUser" {
+        println("  PASS: GET /users/42 -> handleUser")
+        passed = passed + 1
+    } else {
+        println("  FAIL: GET /users/42 did not resolve")
+        failed = failed + 1
+    }
+
+    let userId = m4.getParam("id")
+    if userId == "42" {
+        println("  PASS: Param id = 42")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Param id expected '42', got '" + userId + "'")
+        failed = failed + 1
+    }
+
+    let m5 = resolveRoute(routeIndex2, routes2, "GET", "/users/7/posts/99")
+    if m5.found and m5.handlerName == "handleUserPost" {
+        println("  PASS: GET /users/7/posts/99 -> handleUserPost")
+        passed = passed + 1
+    } else {
+        println("  FAIL: GET /users/7/posts/99 did not resolve")
+        failed = failed + 1
+    }
+
+    let uid = m5.getParam("id")
+    let pid = m5.getParam("postId")
+    if uid == "7" and pid == "99" {
+        println("  PASS: Params id=7, postId=99")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Params expected id=7,postId=99, got id=" + uid + ",postId=" + pid)
+        failed = failed + 1
+    }
+    println("")
+
+    // Test 3: Route ordering (BTreeMap gives deterministic iteration)
+    println("--- Test 3: Route Ordering (Deterministic) ---")
+    var routeIndex3 = BTreeMap<String, Int>.new()
+    var routes3 = Array<Route>()
+
+    routes3.push(Route.new("GET", "/zebra", "handleZebra"))
+    routeIndex3.insert("GET:/zebra", 0)
+
+    routes3.push(Route.new("GET", "/alpha", "handleAlpha"))
+    routeIndex3.insert("GET:/alpha", 1)
+
+    routes3.push(Route.new("GET", "/middle", "handleMiddle"))
+    routeIndex3.insert("GET:/middle", 2)
+
+    let mz = resolveRoute(routeIndex3, routes3, "GET", "/zebra")
+    let ma = resolveRoute(routeIndex3, routes3, "GET", "/alpha")
+    let mm = resolveRoute(routeIndex3, routes3, "GET", "/middle")
+
+    if mz.found and ma.found and mm.found {
+        println("  PASS: All three routes resolve correctly")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Not all routes resolved")
+        failed = failed + 1
+    }
+
+    if mz.handlerName == "handleZebra" and ma.handlerName == "handleAlpha" and mm.handlerName == "handleMiddle" {
+        println("  PASS: Handlers match regardless of registration order")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Handler mismatch")
+        failed = failed + 1
+    }
+    println("")
+
+    // Test 4: Route not found
+    println("--- Test 4: Route Not Found ---")
+    let m6 = resolveRoute(routeIndex, routes, "GET", "/nonexistent")
+    if not m6.found {
+        println("  PASS: Non-existent route returns not found")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Non-existent route should not be found")
+        failed = failed + 1
+    }
+
+    let m7 = resolveRoute(routeIndex, routes, "DELETE", "/users")
+    if not m7.found {
+        println("  PASS: Wrong method returns not found")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Wrong method should not match")
+        failed = failed + 1
+    }
+    println("")
+
+    // Test 5: Middleware per route
+    println("--- Test 5: Middleware Per Route ---")
+    var mw = Array<String>()
+    mw.push("auth")
+    mw.push("logging")
+    let adminRoute = Route.withMiddleware("GET", "/admin", "handleAdmin", mw)
+    let publicRoute = Route.new("GET", "/public", "handlePublic")
+
+    if adminRoute.middlewareCount == 2 {
+        println("  PASS: Admin route has 2 middleware")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Admin route expected 2 middleware, got " + adminRoute.middlewareCount.toString())
+        failed = failed + 1
+    }
+
+    if adminRoute.middlewareNames[0] == "auth" and adminRoute.middlewareNames[1] == "logging" {
+        println("  PASS: Middleware names are auth, logging")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Middleware names mismatch")
+        failed = failed + 1
+    }
+
+    if publicRoute.middlewareCount == 0 {
+        println("  PASS: Public route has 0 middleware")
+        passed = passed + 1
+    } else {
+        println("  FAIL: Public route expected 0 middleware, got " + publicRoute.middlewareCount.toString())
+        failed = failed + 1
+    }
+    println("")
+
+    // Test 6: Pattern validation
+    println("--- Test 6: Pattern Validation ---")
+    if isValidPattern("/") {
+        println("  PASS: '/' is valid")
+        passed = passed + 1
+    } else {
+        println("  FAIL: '/' should be valid")
+        failed = failed + 1
+    }
+
+    if isValidPattern("/users/:id") {
+        println("  PASS: '/users/:id' is valid")
+        passed = passed + 1
+    } else {
+        println("  FAIL: '/users/:id' should be valid")
+        failed = failed + 1
+    }
+
+    if not isValidPattern("") {
+        println("  PASS: '' is invalid")
+        passed = passed + 1
+    } else {
+        println("  FAIL: '' should be invalid")
+        failed = failed + 1
+    }
+
+    if not isValidPattern("users") {
+        println("  PASS: 'users' (no leading /) is invalid")
+        passed = passed + 1
+    } else {
+        println("  FAIL: 'users' should be invalid")
+        failed = failed + 1
+    }
+
+    if not isValidPattern("/users/") {
+        println("  PASS: '/users/' (trailing /) is invalid")
+        passed = passed + 1
+    } else {
+        println("  FAIL: '/users/' should be invalid")
+        failed = failed + 1
+    }
+
+    if not isValidPattern("/users//posts") {
+        println("  PASS: '/users//posts' (double /) is invalid")
+        passed = passed + 1
+    } else {
+        println("  FAIL: '/users//posts' should be invalid")
+        failed = failed + 1
+    }
+    println("")
+
+    // Summary
+    println("=== Results: " + passed.toString() + " passed, " + failed.toString() + " failed ===")
+
+    if failed == 0 {
+        println("=== All Routing Tests Passed ===")
+    } else {
+        println("=== SOME TESTS FAILED ===")
+    }
+
+    return failed
+}

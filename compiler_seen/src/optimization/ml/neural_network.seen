@@ -1,0 +1,533 @@
+// Neural Network Implementation for ML-Guided Compiler Optimization
+// Feedforward network with backpropagation training
+
+import math.math.{exp, tanh, max, min, abs}
+import io.file.{readText, writeText}
+import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_emptyArray, JsonValue_number, JsonValue_numberFloat, JsonValue_bool}
+
+// Sigmoid activation function: 1 / (1 + e^(-x))
+fun sigmoid(x: Float) r: Float {
+    // Clamp x to avoid overflow in exp
+    let clamped = max(-50.0, min(50.0, x))
+    return 1.0 / (1.0 + exp(-clamped))
+}
+
+// ReLU activation function: max(0, x)
+fun relu(x: Float) r: Float {
+    return max(0.0, x)
+}
+
+// Derivative of ReLU: 1 if x > 0, else 0
+fun reluDerivative(x: Float) r: Float {
+    if x > 0.0 {
+        return 1.0
+    }
+    return 0.0
+}
+
+// Derivative of sigmoid: sigmoid(x) * (1 - sigmoid(x))
+fun sigmoidDerivative(x: Float) r: Float {
+    let s = sigmoid(x)
+    return s * (1.0 - s)
+}
+
+// Softmax activation for output layer (converts to probabilities)
+fun softmax(inputs: Array<Float>) r: Array<Float> {
+    let n = inputs.length()
+    let result = Array<Float>()
+    
+    // Find max for numerical stability
+    var maxVal = inputs[0]
+    var i = 1
+    while i < n {
+        if inputs[i] > maxVal {
+            maxVal = inputs[i]
+        }
+        i = i + 1
+    }
+    
+    // Compute exp(x - max) and sum
+    var sum = 0.0
+    i = 0
+    while i < n {
+        let e = exp(inputs[i] - maxVal)
+        result.push(e)
+        sum = sum + e
+        i = i + 1
+    }
+    
+    // Normalize
+    i = 0
+    while i < n {
+        result[i] = result[i] / sum
+        i = i + 1
+    }
+    
+    return result
+}
+
+// Neural Network Layer
+class NeuralLayer {
+    var inputSize: Int
+    var outputSize: Int
+    var weights: Array<Float>     // Flattened 2D array: weights[i * inputSize + j]
+    var biases: Array<Float>
+    var lastInput: Array<Float>   // For backprop
+    var lastPreActivation: Array<Float>  // z = Wx + b
+    var lastActivation: Array<Float>     // a = activation(z)
+    var useReLU: Bool             // true = ReLU, false = sigmoid
+
+    fun new(inputSize: Int, outputSize: Int, useReLU: Bool) r: NeuralLayer {
+        let layer = NeuralLayer{
+            inputSize: inputSize,
+            outputSize: outputSize,
+            weights: Array<Float>(),
+            biases: Array<Float>(),
+            lastInput: Array<Float>(),
+            lastPreActivation: Array<Float>(),
+            lastActivation: Array<Float>(),
+            useReLU: useReLU
+        }
+        layer.initializeWeights()
+        return layer
+    }
+
+    // Xavier/He weight initialization
+    fun initializeWeights() r: Void {
+        // Simple random initialization with Xavier scaling
+        let scale = 1.0 / float_sqrt(inputSize.toFloat())
+        
+        var i = 0
+        while i < outputSize {
+            var j = 0
+            while j < inputSize {
+                // Pseudo-random based on position (deterministic for reproducibility)
+                let seed = (i * 997 + j * 991).toFloat()
+                let randVal = ((seed * 0.5 + 0.5) % 2.0 - 1.0) * scale
+                weights.push(randVal)
+                j = j + 1
+            }
+            i = i + 1
+        }
+        
+        // Initialize biases to small positive values (helps with ReLU)
+        i = 0
+        while i < outputSize {
+            biases.push(0.01)
+            i = i + 1
+        }
+    }
+
+    // Forward pass through this layer
+    fun forward(inputs: Array<Float>) r: Array<Float> {
+        lastInput = inputs
+        lastPreActivation = Array<Float>()
+        lastActivation = Array<Float>()
+        
+        var i = 0
+        while i < outputSize {
+            // Compute z = sum(W[i,j] * x[j]) + b[i]
+            var z = biases[i]
+            var j = 0
+            while j < inputSize {
+                z = z + weights[i * inputSize + j] * inputs[j]
+                j = j + 1
+            }
+            lastPreActivation.push(z)
+            
+            // Apply activation
+            let a = if useReLU { relu(z) } else { sigmoid(z) }
+            lastActivation.push(a)
+            
+            i = i + 1
+        }
+        
+        return lastActivation
+    }
+
+    // Backward pass - compute gradients and update weights
+    // Returns gradient with respect to input (for previous layer)
+    fun backward(outputGradients: Array<Float>, learningRate: Float) r: Array<Float> {
+        let inputGradients = Array<Float>()
+        var j = 0
+        while j < inputSize {
+            inputGradients.push(0.0)
+            j = j + 1
+        }
+        
+        var i = 0
+        while i < outputSize {
+            // Compute derivative of activation
+            let preAct = lastPreActivation[i]
+            let actDeriv = if useReLU { reluDerivative(preAct) } else { sigmoidDerivative(preAct) }
+            
+            // Delta for this neuron
+            let delta = outputGradients[i] * actDeriv
+            
+            // Update weights and compute input gradients
+            var j = 0
+            while j < inputSize {
+                let inputVal = lastInput[j]
+                
+                // Accumulate gradient for input
+                inputGradients[j] = inputGradients[j] + delta * weights[i * inputSize + j]
+                
+                // Update weight
+                weights[i * inputSize + j] = weights[i * inputSize + j] - learningRate * delta * inputVal
+                
+                j = j + 1
+            }
+            
+            // Update bias
+            biases[i] = biases[i] - learningRate * delta
+            
+            i = i + 1
+        }
+        
+        return inputGradients
+    }
+}
+
+// Full Neural Network for optimization decisions
+class NeuralNetwork {
+    var layers: Array<NeuralLayer>
+    var inputSize: Int
+    var outputSize: Int
+    var learningRate: Float
+    var trainingSamples: Int
+
+    fun new(inputSize: Int, hiddenSizes: Array<Int>, outputSize: Int) r: NeuralNetwork {
+        let nn = NeuralNetwork{
+            layers: Array<NeuralLayer>(),
+            inputSize: inputSize,
+            outputSize: outputSize,
+            learningRate: 0.01,
+            trainingSamples: 0
+        }
+        
+        // Create hidden layers with ReLU
+        var prevSize = inputSize
+        var i = 0
+        while i < hiddenSizes.length() {
+            let layer = NeuralLayer.new(prevSize, hiddenSizes[i], true)
+            nn.layers.push(layer)
+            prevSize = hiddenSizes[i]
+            i = i + 1
+        }
+        
+        // Output layer with sigmoid for probability outputs
+        let outputLayer = NeuralLayer.new(prevSize, outputSize, false)
+        nn.layers.push(outputLayer)
+        
+        return nn
+    }
+
+    // Forward pass through entire network
+    fun predict(inputs: Array<Float>) r: Array<Float> {
+        if inputs.length() != inputSize {
+            // Return zeros if input size mismatch
+            let result = Array<Float>()
+            var i = 0
+            while i < outputSize {
+                result.push(0.0)
+                i = i + 1
+            }
+            return result
+        }
+        
+        var current = inputs
+        var i = 0
+        while i < layers.length() {
+            current = layers[i].forward(current)
+            i = i + 1
+        }
+        
+        return current
+    }
+
+    // Predict with softmax for multi-class classification
+    fun predictClass(inputs: Array<Float>) r: Int {
+        let outputs = predict(inputs)
+        
+        // Find index of maximum output
+        var maxIdx = 0
+        var maxVal = outputs[0]
+        var i = 1
+        while i < outputs.length() {
+            if outputs[i] > maxVal {
+                maxVal = outputs[i]
+                maxIdx = i
+            }
+            i = i + 1
+        }
+        
+        return maxIdx
+    }
+
+    // Training step with one sample
+    fun train(inputs: Array<Float>, targets: Array<Float>) r: Float {
+        // Forward pass
+        let outputs = predict(inputs)
+        
+        // Compute output gradients (MSE loss derivative)
+        let outputGradients = Array<Float>()
+        var i = 0
+        while i < outputSize {
+            let error = outputs[i] - targets[i]
+            outputGradients.push(error)
+            i = i + 1
+        }
+        
+        // Backward pass through all layers
+        var gradients = outputGradients
+        i = layers.length() - 1
+        while i >= 0 {
+            gradients = layers[i].backward(gradients, learningRate)
+            i = i - 1
+        }
+        
+        trainingSamples = trainingSamples + 1
+        
+        // Return loss (MSE)
+        var loss = 0.0
+        i = 0
+        while i < outputSize {
+            let diff = outputs[i] - targets[i]
+            loss = loss + diff * diff
+            i = i + 1
+        }
+        return loss / outputSize.toFloat()
+    }
+
+    // Batch training
+    fun trainBatch(samples: Array<TrainingSample>, epochs: Int) r: Float {
+        var totalLoss = 0.0
+        var epoch = 0
+        while epoch < epochs {
+            var sampleIdx = 0
+            while sampleIdx < samples.length() {
+                let loss = train(samples[sampleIdx].features, samples[sampleIdx].targets)
+                totalLoss = totalLoss + loss
+                sampleIdx = sampleIdx + 1
+            }
+            epoch = epoch + 1
+        }
+        return totalLoss / (samples.length() * epochs).toFloat()
+    }
+
+    // Set learning rate
+    fun setLearningRate(lr: Float) r: Void {
+        learningRate = lr
+    }
+
+    // Get model weights as JSON
+    fun toJson() r: JsonValue {
+        let modelObj = JsonValue_emptyObject()
+        modelObj.set("inputSize", JsonValue_number(inputSize))
+        modelObj.set("outputSize", JsonValue_number(outputSize))
+        modelObj.set("learningRate", JsonValue_numberFloat(learningRate))
+        modelObj.set("trainingSamples", JsonValue_number(trainingSamples))
+
+        let layersArray = JsonValue_emptyArray()
+        var i = 0
+        while i < layers.length() {
+            let layerObj = JsonValue_emptyObject()
+            layerObj.set("inputSize", JsonValue_number(layers[i].inputSize))
+            layerObj.set("outputSize", JsonValue_number(layers[i].outputSize))
+            layerObj.set("useReLU", JsonValue_bool(layers[i].useReLU))
+
+            // Store weights
+            let weightsArray = JsonValue_emptyArray()
+            var j = 0
+            while j < layers[i].weights.length() {
+                weightsArray.push(JsonValue_numberFloat(layers[i].weights[j]))
+                j = j + 1
+            }
+            layerObj.set("weights", weightsArray)
+
+            // Store biases
+            let biasesArray = JsonValue_emptyArray()
+            j = 0
+            while j < layers[i].biases.length() {
+                biasesArray.push(JsonValue_numberFloat(layers[i].biases[j]))
+                j = j + 1
+            }
+            layerObj.set("biases", biasesArray)
+
+            layersArray.push(layerObj)
+            i = i + 1
+        }
+        modelObj.set("layers", layersArray)
+
+        return modelObj
+    }
+
+    // Load model weights from JSON
+    fun fromJson(json: JsonValue) r: Bool {
+        if not json.isObject() {
+            return false
+        }
+        
+        let inputSizeVal = json.get("inputSize")
+        let outputSizeVal = json.get("outputSize")
+        let lrVal = json.get("learningRate")
+        let samplesVal = json.get("trainingSamples")
+        let layersVal = json.get("layers")
+        
+        if inputSizeVal == null or outputSizeVal == null or layersVal == null {
+            return false
+        }
+        
+        inputSize = inputSizeVal.getInt()
+        outputSize = outputSizeVal.getInt()
+        if lrVal != null {
+            learningRate = lrVal.getNumber()
+        }
+        if samplesVal != null {
+            trainingSamples = samplesVal.getInt()
+        }
+        
+        // Clear existing layers
+        layers = Array<NeuralLayer>()
+        
+        // Load layers
+        let layersArray = layersVal.getArray()
+        var i = 0
+        while i < layersArray.length() {
+            let layerJson = layersArray[i]
+            let layerInSize = layerJson.get("inputSize").getInt()
+            let layerOutSize = layerJson.get("outputSize").getInt()
+            let useReLU = layerJson.get("useReLU").getBool()
+            
+            let layer = NeuralLayer.new(layerInSize, layerOutSize, useReLU)
+            
+            // Load weights
+            let weightsJson = layerJson.get("weights").getArray()
+            layer.weights = Array<Float>()
+            var j = 0
+            while j < weightsJson.length() {
+                layer.weights.push(weightsJson[j].getNumber())
+                j = j + 1
+            }
+            
+            // Load biases
+            let biasesJson = layerJson.get("biases").getArray()
+            layer.biases = Array<Float>()
+            j = 0
+            while j < biasesJson.length() {
+                layer.biases.push(biasesJson[j].getNumber())
+                j = j + 1
+            }
+            
+            layers.push(layer)
+            i = i + 1
+        }
+        
+        return true
+    }
+
+    // Save model to file
+    fun save(path: String) r: Bool {
+        let json = toJson()
+        let jsonStr = jsonToString(json)
+        return writeText(path, jsonStr)
+    }
+
+    // Load model from file
+    fun load(path: String) r: Bool {
+        let content = readText(path)
+        if content == "" {
+            return false
+        }
+        // Note: Would need JSON parser here; for now, return false
+        // In real implementation, parse JSON string to JsonValue
+        return false
+    }
+
+    // Get number of parameters
+    fun parameterCount() r: Int {
+        var count = 0
+        var i = 0
+        while i < layers.length() {
+            count = count + layers[i].weights.length() + layers[i].biases.length()
+            i = i + 1
+        }
+        return count
+    }
+}
+
+// Training sample for supervised learning
+class TrainingSample {
+    var features: Array<Float>
+    var targets: Array<Float>
+    var sampleWeight: Float
+
+    fun new(features: Array<Float>, targets: Array<Float>, sampleWeight: Float = 1.0) r: TrainingSample {
+        return TrainingSample{
+            features: features,
+            targets: targets,
+            sampleWeight: sampleWeight
+        }
+    }
+}
+
+// Helper function to convert JsonValue to string
+fun jsonToString(json: JsonValue) r: String {
+    if json.isNull() {
+        return "null"
+    }
+    if json.isBool() {
+        if json.getBool() {
+            return "true"
+        }
+        return "false"
+    }
+    if json.isNumber() {
+        return json.getNumber().toString()
+    }
+    if json.isString() {
+        return "\"" + json.getString() + "\""
+    }
+    if json.isArray() {
+        var result = "["
+        let arr = json.getArray()
+        var i = 0
+        while i < arr.length() {
+            if i > 0 {
+                result = result + ","
+            }
+            result = result + jsonToString(arr[i])
+            i = i + 1
+        }
+        return result + "]"
+    }
+    if json.isObject() {
+        var result = "{"
+        let keys = json.objectKeys
+        let vals = json.objectValues
+        var i = 0
+        while i < keys.length() {
+            if i > 0 {
+                result = result + ","
+            }
+            result = result + "\"" + keys[i] + "\":" + jsonToString(vals[i])
+            i = i + 1
+        }
+        return result + "}"
+    }
+    return "{}"
+}
+
+// Float sqrt via Newton-Raphson (replaces unsupported extension Float { fun sqrt() })
+fun float_sqrt(x: Float) r: Float {
+    if x <= 0.0 {
+        return 0.0
+    }
+    var guess = x / 2.0
+    var i = 0
+    while i < 24 {
+        guess = (guess + x / guess) / 2.0
+        i = i + 1
+    }
+    return guess
+}

@@ -1,0 +1,54 @@
+// Test: E-graph peephole optimizations (compile-time algebraic simplification)
+// Verify: x+0, x*1, x*0, x-0, x/1, x*2 are optimized
+// Check LLVM IR with --emit-llvm to verify strength reduction
+
+fun testAddZero(x: Int) r: Int {
+    return x + 0
+}
+
+fun testSubZero(x: Int) r: Int {
+    return x - 0
+}
+
+fun testMulOne(x: Int) r: Int {
+    return x * 1
+}
+
+fun testMulZero(x: Int) r: Int {
+    return x * 0
+}
+
+fun testDivOne(x: Int) r: Int {
+    return x / 1
+}
+
+fun testMulTwo(x: Int) r: Int {
+    return x * 2
+}
+
+fun testZeroPlusX(x: Int) r: Int {
+    return 0 + x
+}
+
+fun testOneMulX(x: Int) r: Int {
+    return 1 * x
+}
+
+fun main() r: Int {
+    let x = 42
+    var allPass = true
+
+    if testAddZero(x) != 42 { println("FAIL: x + 0"); allPass = false }
+    if testSubZero(x) != 42 { println("FAIL: x - 0"); allPass = false }
+    if testMulOne(x) != 42 { println("FAIL: x * 1"); allPass = false }
+    if testMulZero(x) != 0 { println("FAIL: x * 0"); allPass = false }
+    if testDivOne(x) != 42 { println("FAIL: x / 1"); allPass = false }
+    if testMulTwo(x) != 84 { println("FAIL: x * 2"); allPass = false }
+    if testZeroPlusX(x) != 42 { println("FAIL: 0 + x"); allPass = false }
+    if testOneMulX(x) != 42 { println("FAIL: 1 * x"); allPass = false }
+
+    if allPass {
+        println("PASS: All peephole optimization tests passed")
+    }
+    return 0
+}

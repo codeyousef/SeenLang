@@ -1,0 +1,59 @@
+// seen_std.time.time
+// Deterministic timestamp + duration helpers atop __GetTimestamp.
+
+// External runtime intrinsics
+extern fun __GetTimestamp() r: String
+
+fun nowSeconds() r: Int {
+    return parseTimestamp(__GetTimestamp())
+}
+
+fun nowMillis() r: Int {
+    return nowSeconds() * 1000
+}
+
+fun nowNanos() r: Int {
+    return nowSeconds() * 1000000000
+}
+
+fun parseTimestamp(value: String) r: Int {
+    if value.length() == 0 {
+        return 0
+    }
+    var index = 0
+    var sign = 1
+    if value.charAt(0) == '-' {
+        sign = -1
+        index = 1
+    }
+    var result = 0
+    while index < value.length() {
+        let ch = value.charAt(index)
+        if ch < '0' or ch > '9' {
+            break
+        }
+        result = result * 10 + (ch - '0')
+        index = index + 1
+    }
+    return result * sign
+}
+
+class Duration {
+    var seconds: Int
+
+    fun fromSeconds(value: Int) r: Duration {
+        return Duration{ seconds: value }
+    }
+
+    fun totalSeconds() r: Int {
+        return seconds
+    }
+
+    fun totalMillis() r: Int {
+        return seconds * 1000
+    }
+}
+
+fun since(startSeconds: Int) r: Duration {
+    return Duration.fromSeconds(nowSeconds() - startSeconds)
+}

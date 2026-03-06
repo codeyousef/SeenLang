@@ -1,0 +1,54 @@
+name = "Arabic"
+description = "Arabic Math Standard Library"
+
+[std_lib]
+# مثلثات
+"جيب" = "seen_std.math.sin"
+"جيب_تمام" = "seen_std.math.cos"
+"ظل" = "seen_std.math.tan"
+"جيب_عكسي" = "seen_std.math.asin"
+"جيب_تمام_عكسي" = "seen_std.math.acos"
+"ظل_عكسي" = "seen_std.math.atan"
+"ظل_عكسي2" = "seen_std.math.atan2"
+
+# الجذور والقوى
+"جذر" = "seen_std.math.sqrt"
+"جذر_تكعيبي" = "seen_std.math.cbrt"
+"قوة" = "seen_std.math.pow"
+"وتر" = "seen_std.math.hypot"
+
+# الأسي واللوغاريتمي
+"أسي" = "seen_std.math.exp"
+"لوغاريتم_طبيعي" = "seen_std.math.ln"
+"لوغاريتم2" = "seen_std.math.log2"
+"لوغاريتم10" = "seen_std.math.log10"
+
+# التقريب
+"أرضية" = "seen_std.math.floor"
+"سقف" = "seen_std.math.ceil"
+"تقريب" = "seen_std.math.round"
+
+# أساسي
+"قيمة_مطلقة" = "seen_std.math.abs"
+"أدنى" = "seen_std.math.min"
+"أقصى" = "seen_std.math.max"
+"حصر" = "seen_std.math.clamp"
+"إشارة" = "seen_std.math.sign"
+
+# الاستيفاء
+"استيفاء_خطي" = "seen_std.math.lerp"
+"خطوة_ناعمة" = "seen_std.math.smoothstep"
+
+# فحوصات IEEE
+"هو_ليس_عدد" = "seen_std.math.isnan"
+"هو_لانهائي" = "seen_std.math.isinf"
+"هو_منتهي" = "seen_std.math.isfinite"
+
+# عدد صحيح
+"قاسم_مشترك_أكبر" = "seen_std.math.gcd"
+
+# ثوابت
+"ط" = "seen_std.math.PI"
+"تاو" = "seen_std.math.TAU"
+"هـ" = "seen_std.math.E"
+"إبسيلون" = "seen_std.math.EPSILON"

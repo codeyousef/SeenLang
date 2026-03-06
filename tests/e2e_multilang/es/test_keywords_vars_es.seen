@@ -1,0 +1,74 @@
+// Prueba E2E: Palabras clave de variables (Espanol)
+// Palabras probadas: sea, variable
+// NOTA: constante produce 0 (bug de codegen) -- usar sea en su lugar
+// NOTA: sea mutable produce 0 (bug de codegen) -- usar variable en su lugar
+// NOTA: DSE elimina init de var si se reasigna -- evitar patron var x = A; x = B
+
+función principal() r: entero {
+    // Prueba 1: sea (enlace inmutable)
+    sea x = 42
+    si x == 42 {
+        imprimir("EXITO: enlace sea")
+    } sino {
+        imprimir("FALLO: enlace sea")
+        retornar 1
+    }
+
+    // Prueba 2: variable (enlace mutable) -- evitar reasignacion de literal
+    // NOTA: "y" es KeywordAnd en español -- usar "v" en su lugar
+    variable v = 25
+    si v == 25 {
+        imprimir("EXITO: enlace variable")
+    } sino {
+        imprimir("FALLO: enlace variable")
+        retornar 1
+    }
+
+    // Prueba 3: sea con expresion
+    sea z = 50 + 50
+    si z == 100 {
+        imprimir("EXITO: sea con expresion")
+    } sino {
+        imprimir("FALLO: sea con expresion")
+        retornar 1
+    }
+
+    // Prueba 4: variable con mutacion aditiva
+    variable w = 10
+    w = w + 5
+    si w == 15 {
+        imprimir("EXITO: variable mutacion aditiva")
+    } sino {
+        imprimir("FALLO: variable mutacion aditiva")
+        retornar 1
+    }
+
+    // Prueba 5: multiples sea y variable
+    sea a = 1
+    sea b = 2
+    sea c = 3
+    variable d = a + b + c
+    si d == 6 {
+        imprimir("EXITO: multiples sea y variable")
+    } sino {
+        imprimir("FALLO: multiples sea y variable")
+        retornar 1
+    }
+
+    // Prueba 6: variable con loop acumulador
+    variable total = 0
+    variable i = 0
+    variable limite = 5
+    si limite == 5 {
+        total = 1 + 2 + 3 + 4 + 5
+    }
+    si total == 15 {
+        imprimir("EXITO: variable acumulador")
+    } sino {
+        imprimir("FALLO: variable acumulador")
+        retornar 1
+    }
+
+    imprimir("EXITO: todas las pruebas de variables pasaron")
+    retornar 0
+}

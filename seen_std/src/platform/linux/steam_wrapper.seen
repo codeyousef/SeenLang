@@ -1,0 +1,606 @@
+/**
+ * Safe Steam API wrapper for Linux.
+ *
+ * High-level interface to Steamworks SDK features including user info,
+ * achievements, stats, cloud storage, friends, and controller support.
+ * Automatically handles interface versioning and null checks.
+ *
+ * Example:
+ *   let steam = Steam.init(YOUR_APP_ID).unwrap()
+ *   println("Welcome, " + steam.getPersonaName())
+ *   steam.unlockAchievement("FIRST_WIN")
+ *   steam.shutdown()
+ */
+
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import platform.linux.steam.{
+    // Constants
+    k_EPersonaStateOffline, k_EPersonaStateOnline, k_EPersonaStateBusy,
+    k_EPersonaStateAway, k_EPersonaStateSnooze, k_EPersonaStateLookingToTrade,
+    k_EPersonaStateLookingToPlay, k_EPersonaStateInvisible,
+    k_EFriendFlagImmediate,
+    k_EPositionTopLeft, k_EPositionTopRight, k_EPositionBottomLeft, k_EPositionBottomRight,
+    // Direct C FFI functions
+    SteamAPI_Init, SteamAPI_Shutdown, SteamAPI_RunCallbacks, SteamAPI_RestartAppIfNecessary,
+    SteamAPI_SteamUser_v023, SteamAPI_SteamFriends_v017, SteamAPI_SteamUtils_v010,
+    SteamAPI_SteamUserStats_v012, SteamAPI_SteamApps_v008, SteamAPI_SteamInput_v006,
+    SteamAPI_SteamRemoteStorage_v016,
+    SteamAPI_ISteamUser_GetSteamID, SteamAPI_ISteamUser_BLoggedOn, SteamAPI_ISteamUser_GetPlayerSteamLevel,
+    SteamAPI_ISteamFriends_GetPersonaName, SteamAPI_ISteamFriends_GetPersonaState,
+    SteamAPI_ISteamFriends_GetFriendCount, SteamAPI_ISteamFriends_SetRichPresence,
+    SteamAPI_ISteamFriends_ClearRichPresence, SteamAPI_ISteamFriends_ActivateGameOverlay,
+    SteamAPI_ISteamFriends_ActivateGameOverlayToWebPage,
+    SteamAPI_ISteamUtils_GetAppID, SteamAPI_ISteamUtils_GetIPCountry,
+    SteamAPI_ISteamUtils_GetServerRealTime, SteamAPI_ISteamUtils_IsOverlayEnabled,
+    SteamAPI_ISteamUtils_SetOverlayNotificationPosition,
+    SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck, SteamAPI_ISteamUtils_IsSteamInBigPictureMode,
+    SteamAPI_ISteamUserStats_RequestCurrentStats, SteamAPI_ISteamUserStats_StoreStats,
+    SteamAPI_ISteamUserStats_GetStatInt32, SteamAPI_ISteamUserStats_GetStatFloat,
+    SteamAPI_ISteamUserStats_SetStatInt32, SteamAPI_ISteamUserStats_SetStatFloat,
+    SteamAPI_ISteamUserStats_GetAchievement, SteamAPI_ISteamUserStats_SetAchievement,
+    SteamAPI_ISteamUserStats_ClearAchievement, SteamAPI_ISteamUserStats_GetNumAchievements,
+    SteamAPI_ISteamUserStats_GetAchievementName, SteamAPI_ISteamUserStats_IndicateAchievementProgress,
+    SteamAPI_ISteamApps_BIsSubscribed, SteamAPI_ISteamApps_GetCurrentGameLanguage,
+    SteamAPI_ISteamApps_BIsDlcInstalled, SteamAPI_ISteamApps_GetDLCCount,
+    SteamAPI_ISteamInput_Init, SteamAPI_ISteamInput_Shutdown, SteamAPI_ISteamInput_RunFrame,
+    SteamAPI_ISteamInput_GetConnectedControllers, SteamAPI_ISteamInput_TriggerVibration,
+    SteamAPI_ISteamRemoteStorage_FileWrite, SteamAPI_ISteamRemoteStorage_FileRead,
+    SteamAPI_ISteamRemoteStorage_FileExists, SteamAPI_ISteamRemoteStorage_FileDelete,
+    SteamAPI_ISteamRemoteStorage_GetFileSize, SteamAPI_ISteamRemoteStorage_GetQuota,
+    SteamAPI_ISteamRemoteStorage_IsCloudEnabledForAccount, SteamAPI_ISteamRemoteStorage_IsCloudEnabledForApp,
+    // Safe wrapper functions
+    steam_is_running, steam_restart_app_if_necessary, cstr_to_string
+}
+
+/**
+ * User's online status in Steam.
+ */
+enum PersonaState {
+    Offline
+    Online
+    Busy
+    Away
+    Snooze
+    LookingToTrade
+    LookingToPlay
+    Invisible
+    Unknown
+}
+
+fun parsePersonaState(state: Int) r: PersonaState {
+    if state == k_EPersonaStateOffline { return PersonaState.Offline }
+    if state == k_EPersonaStateOnline { return PersonaState.Online }
+    if state == k_EPersonaStateBusy { return PersonaState.Busy }
+    if state == k_EPersonaStateAway { return PersonaState.Away }
+    if state == k_EPersonaStateSnooze { return PersonaState.Snooze }
+    if state == k_EPersonaStateLookingToTrade { return PersonaState.LookingToTrade }
+    if state == k_EPersonaStateLookingToPlay { return PersonaState.LookingToPlay }
+    if state == k_EPersonaStateInvisible { return PersonaState.Invisible }
+    return PersonaState.Unknown
+}
+
+fun personaStateToString(state: PersonaState) r: String {
+    if state == PersonaState.Offline { return "Offline" }
+    if state == PersonaState.Online { return "Online" }
+    if state == PersonaState.Busy { return "Busy" }
+    if state == PersonaState.Away { return "Away" }
+    if state == PersonaState.Snooze { return "Snooze" }
+    if state == PersonaState.LookingToTrade { return "Looking to Trade" }
+    if state == PersonaState.LookingToPlay { return "Looking to Play" }
+    if state == PersonaState.Invisible { return "Invisible" }
+    return "Unknown"
+}
+
+// Overlay notification position
+enum OverlayPosition {
+    TopLeft
+    TopRight
+    BottomLeft
+    BottomRight
+}
+
+fun overlayPositionToInt(pos: OverlayPosition) r: Int {
+    if pos == OverlayPosition.TopLeft { return k_EPositionTopLeft }
+    if pos == OverlayPosition.TopRight { return k_EPositionTopRight }
+    if pos == OverlayPosition.BottomLeft { return k_EPositionBottomLeft }
+    if pos == OverlayPosition.BottomRight { return k_EPositionBottomRight }
+    return k_EPositionBottomRight
+}
+
+/**
+ * Steam ID wrapper for 64-bit user identifiers.
+ */
+class SteamID {
+    var id: UInt64
+
+    static fun new(id: UInt64) r: SteamID {
+        return SteamID { id: id }
+    }
+
+    // Get account ID (lower 32 bits)
+    fun getAccountId() r: UInt32 {
+        return (this.id & 0xFFFFFFFF) as UInt32
+    }
+
+    // Get raw 64-bit Steam ID
+    fun getRaw() r: UInt64 {
+        return this.id
+    }
+
+    // Format as string
+    fun toString() r: String {
+        return this.id.toString()
+    }
+}
+
+// Achievement info
+class Achievement {
+    var name: String
+    var unlocked: Bool
+    var unlockTime: Int
+
+    static fun new(name: String, unlocked: Bool, unlockTime: Int) r: Achievement {
+        return Achievement {
+            name: name,
+            unlocked: unlocked,
+            unlockTime: unlockTime
+        }
+    }
+}
+
+/**
+ * Steam Cloud storage quota information.
+ */
+class CloudQuota {
+    var totalBytes: UInt64
+    var availableBytes: UInt64
+
+    static fun new(total: UInt64, available: UInt64) r: CloudQuota {
+        return CloudQuota {
+            totalBytes: total,
+            availableBytes: available
+        }
+    }
+
+    fun getUsedBytes() r: UInt64 {
+        return this.totalBytes - this.availableBytes
+    }
+
+    fun getUsedPercent() r: Float {
+        if this.totalBytes == 0 {
+            return 0.0
+        }
+        return (this.getUsedBytes() as Float / this.totalBytes as Float) * 100.0
+    }
+}
+
+/**
+ * Main Steam API wrapper managing all Steamworks functionality.
+ *
+ * Call init() once at startup and runCallbacks() regularly in your
+ * game loop. Call shutdown() before exiting.
+ */
+class Steam {
+    var initialized: Bool
+    var appId: UInt32
+    var steamUser: *Void
+    var steamFriends: *Void
+    var steamUtils: *Void
+    var steamUserStats: *Void
+    var steamApps: *Void
+    var steamInput: *Void
+    var steamRemoteStorage: *Void
+    var statsReceived: Bool
+
+    /**
+     * Initialize Steam API with your app ID.
+     *
+     * Steam must be running. Returns error if initialization fails
+     * or if the app needs to be restarted through Steam.
+     */
+    static fun init(appId: UInt32) r: Result<Steam, String> {
+        // Check if Steam is running
+        if not steam_is_running() {
+            return Err("Steam is not running")
+        }
+
+        // Check if we need to restart via Steam
+        if steam_restart_app_if_necessary(appId) {
+            return Err("Please launch through Steam")
+        }
+
+        // Initialize Steam API
+        let result = SteamAPI_Init()
+        if result == 0 {
+            return Err("Failed to initialize Steam API. Make sure Steam is running.")
+        }
+
+        // Get interface pointers
+        let userPtr = SteamAPI_SteamUser_v023()
+        let friendsPtr = SteamAPI_SteamFriends_v017()
+        let utilsPtr = SteamAPI_SteamUtils_v010()
+        let statsPtr = SteamAPI_SteamUserStats_v012()
+        let appsPtr = SteamAPI_SteamApps_v008()
+        let inputPtr = SteamAPI_SteamInput_v006()
+        let storagePtr = SteamAPI_SteamRemoteStorage_v016()
+
+        var steam = Steam {
+            initialized: true,
+            appId: appId,
+            steamUser: userPtr,
+            steamFriends: friendsPtr,
+            steamUtils: utilsPtr,
+            steamUserStats: statsPtr,
+            steamApps: appsPtr,
+            steamInput: inputPtr,
+            steamRemoteStorage: storagePtr,
+            statsReceived: false
+        }
+
+        // Request stats (async - need to run callbacks to receive)
+        if statsPtr != null {
+            let _ = SteamAPI_ISteamUserStats_RequestCurrentStats(statsPtr)
+        }
+
+        return Ok(steam)
+    }
+
+    // Run Steam callbacks - call this regularly
+    fun runCallbacks() r: Void {
+        if this.initialized {
+            SteamAPI_RunCallbacks()
+        }
+    }
+
+    // Shutdown Steam API
+    fun shutdown() r: Void {
+        if this.initialized {
+            SteamAPI_Shutdown()
+            this.initialized = false
+        }
+    }
+
+    // Check if logged in
+    fun isLoggedIn() r: Bool {
+        if not this.initialized or this.steamUser == null {
+            return false
+        }
+        return SteamAPI_ISteamUser_BLoggedOn(this.steamUser) != 0
+    }
+
+    // Get current user's Steam ID
+    fun getSteamId() r: SteamID {
+        if not this.initialized or this.steamUser == null {
+            return SteamID.new(0)
+        }
+        let id = SteamAPI_ISteamUser_GetSteamID(this.steamUser)
+        return SteamID.new(id)
+    }
+
+    // Get current user's display name
+    fun getPersonaName() r: String {
+        if not this.initialized or this.steamFriends == null {
+            return ""
+        }
+        let cstr = SteamAPI_ISteamFriends_GetPersonaName(this.steamFriends)
+        return cstr_to_string(cstr)
+    }
+
+    // Get current user's online state
+    fun getPersonaState() r: PersonaState {
+        if not this.initialized or this.steamFriends == null {
+            return PersonaState.Offline
+        }
+        let state = SteamAPI_ISteamFriends_GetPersonaState(this.steamFriends)
+        return parsePersonaState(state as Int)
+    }
+
+    // Get Steam level
+    fun getSteamLevel() r: Int {
+        if not this.initialized or this.steamUser == null {
+            return 0
+        }
+        return SteamAPI_ISteamUser_GetPlayerSteamLevel(this.steamUser) as Int
+    }
+
+    // Get number of friends
+    fun getFriendCount() r: Int {
+        if not this.initialized or this.steamFriends == null {
+            return 0
+        }
+        return SteamAPI_ISteamFriends_GetFriendCount(this.steamFriends, k_EFriendFlagImmediate as Int32) as Int
+    }
+
+    // Set rich presence (shows in friends list)
+    fun setRichPresence(key: String, value: String) r: Bool {
+        if not this.initialized or this.steamFriends == null {
+            return false
+        }
+        return SteamAPI_ISteamFriends_SetRichPresence(this.steamFriends, key.toCString(), value.toCString()) != 0
+    }
+
+    // Clear rich presence
+    fun clearRichPresence() r: Void {
+        if this.initialized and this.steamFriends != null {
+            SteamAPI_ISteamFriends_ClearRichPresence(this.steamFriends)
+        }
+    }
+
+    // Open Steam overlay
+    fun activateOverlay(dialog: String) r: Void {
+        if this.initialized and this.steamFriends != null {
+            SteamAPI_ISteamFriends_ActivateGameOverlay(this.steamFriends, dialog.toCString())
+        }
+    }
+
+    // Open Steam overlay to URL
+    fun activateOverlayToUrl(url: String) r: Void {
+        if this.initialized and this.steamFriends != null {
+            SteamAPI_ISteamFriends_ActivateGameOverlayToWebPage(this.steamFriends, url.toCString(), 0 as Int32)
+        }
+    }
+
+    // Check if overlay is enabled
+    fun isOverlayEnabled() r: Bool {
+        if not this.initialized or this.steamUtils == null {
+            return false
+        }
+        return SteamAPI_ISteamUtils_IsOverlayEnabled(this.steamUtils) != 0
+    }
+
+    // Set overlay notification position
+    fun setOverlayPosition(pos: OverlayPosition) r: Void {
+        if this.initialized and this.steamUtils != null {
+            SteamAPI_ISteamUtils_SetOverlayNotificationPosition(this.steamUtils, overlayPositionToInt(pos) as Int32)
+        }
+    }
+
+    // Get app ID
+    fun getAppId() r: UInt32 {
+        if not this.initialized or this.steamUtils == null {
+            return this.appId
+        }
+        return SteamAPI_ISteamUtils_GetAppID(this.steamUtils)
+    }
+
+    // Get user's country code
+    fun getCountry() r: String {
+        if not this.initialized or this.steamUtils == null {
+            return ""
+        }
+        let cstr = SteamAPI_ISteamUtils_GetIPCountry(this.steamUtils)
+        return cstr_to_string(cstr)
+    }
+
+    // Get server time
+    fun getServerTime() r: UInt32 {
+        if not this.initialized or this.steamUtils == null {
+            return 0
+        }
+        return SteamAPI_ISteamUtils_GetServerRealTime(this.steamUtils)
+    }
+
+    // Check if running on Steam Deck
+    fun isSteamDeck() r: Bool {
+        if not this.initialized or this.steamUtils == null {
+            return false
+        }
+        return SteamAPI_ISteamUtils_IsSteamRunningOnSteamDeck(this.steamUtils) != 0
+    }
+
+    // Check if in Big Picture mode
+    fun isBigPictureMode() r: Bool {
+        if not this.initialized or this.steamUtils == null {
+            return false
+        }
+        return SteamAPI_ISteamUtils_IsSteamInBigPictureMode(this.steamUtils) != 0
+    }
+
+    // Get game language
+    fun getGameLanguage() r: String {
+        if not this.initialized or this.steamApps == null {
+            return "english"
+        }
+        let cstr = SteamAPI_ISteamApps_GetCurrentGameLanguage(this.steamApps)
+        return cstr_to_string(cstr)
+    }
+
+    // Check if user owns the app
+    fun isSubscribed() r: Bool {
+        if not this.initialized or this.steamApps == null {
+            return false
+        }
+        return SteamAPI_ISteamApps_BIsSubscribed(this.steamApps) != 0
+    }
+
+    // Check if DLC is installed
+    fun isDlcInstalled(dlcAppId: UInt32) r: Bool {
+        if not this.initialized or this.steamApps == null {
+            return false
+        }
+        return SteamAPI_ISteamApps_BIsDlcInstalled(this.steamApps, dlcAppId) != 0
+    }
+
+    // Get DLC count
+    fun getDlcCount() r: Int {
+        if not this.initialized or this.steamApps == null {
+            return 0
+        }
+        return SteamAPI_ISteamApps_GetDLCCount(this.steamApps) as Int
+    }
+
+    // Achievement functions
+    fun unlockAchievement(name: String) r: Bool {
+        if not this.initialized or this.steamUserStats == null {
+            return false
+        }
+        let result = SteamAPI_ISteamUserStats_SetAchievement(this.steamUserStats, name.toCString())
+        if result != 0 {
+            // Store stats to sync
+            let _ = SteamAPI_ISteamUserStats_StoreStats(this.steamUserStats)
+            return true
+        }
+        return false
+    }
+
+    fun isAchievementUnlocked(name: String) r: Bool {
+        if not this.initialized or this.steamUserStats == null {
+            return false
+        }
+        var achieved: Int32 = 0
+        let result = SteamAPI_ISteamUserStats_GetAchievement(this.steamUserStats, name.toCString(), &achieved)
+        return result != 0 and achieved != 0
+    }
+
+    fun clearAchievement(name: String) r: Bool {
+        if not this.initialized or this.steamUserStats == null {
+            return false
+        }
+        let result = SteamAPI_ISteamUserStats_ClearAchievement(this.steamUserStats, name.toCString())
+        if result != 0 {
+            let _ = SteamAPI_ISteamUserStats_StoreStats(this.steamUserStats)
+            return true
+        }
+        return false
+    }
+
+    fun indicateAchievementProgress(name: String, current: UInt32, max: UInt32) r: Bool {
+        if not this.initialized or this.steamUserStats == null {
+            return false
+        }
+        return SteamAPI_ISteamUserStats_IndicateAchievementProgress(this.steamUserStats, name.toCString(), current, max) != 0
+    }
+
+    fun getAchievementCount() r: Int {
+        if not this.initialized or this.steamUserStats == null {
+            return 0
+        }
+        return SteamAPI_ISteamUserStats_GetNumAchievements(this.steamUserStats) as Int
+    }
+
+    // Stats functions
+    fun setStatInt(name: String, value: Int32) r: Bool {
+        if not this.initialized or this.steamUserStats == null {
+            return false
+        }
+        let result = SteamAPI_ISteamUserStats_SetStatInt32(this.steamUserStats, name.toCString(), value)
+        return result != 0
+    }
+
+    fun setStatFloat(name: String, value: Float) r: Bool {
+        if not this.initialized or this.steamUserStats == null {
+            return false
+        }
+        let result = SteamAPI_ISteamUserStats_SetStatFloat(this.steamUserStats, name.toCString(), value)
+        return result != 0
+    }
+
+    fun getStatInt(name: String) r: Int32 {
+        if not this.initialized or this.steamUserStats == null {
+            return 0
+        }
+        var value: Int32 = 0
+        let _ = SteamAPI_ISteamUserStats_GetStatInt32(this.steamUserStats, name.toCString(), &value)
+        return value
+    }
+
+    fun getStatFloat(name: String) r: Float {
+        if not this.initialized or this.steamUserStats == null {
+            return 0.0
+        }
+        var value: Float = 0.0
+        let _ = SteamAPI_ISteamUserStats_GetStatFloat(this.steamUserStats, name.toCString(), &value)
+        return value
+    }
+
+    fun storeStats() r: Bool {
+        if not this.initialized or this.steamUserStats == null {
+            return false
+        }
+        return SteamAPI_ISteamUserStats_StoreStats(this.steamUserStats) != 0
+    }
+
+    // Cloud storage functions
+    fun isCloudEnabled() r: Bool {
+        if not this.initialized or this.steamRemoteStorage == null {
+            return false
+        }
+        let accountEnabled = SteamAPI_ISteamRemoteStorage_IsCloudEnabledForAccount(this.steamRemoteStorage) != 0
+        let appEnabled = SteamAPI_ISteamRemoteStorage_IsCloudEnabledForApp(this.steamRemoteStorage) != 0
+        return accountEnabled and appEnabled
+    }
+
+    fun cloudFileExists(filename: String) r: Bool {
+        if not this.initialized or this.steamRemoteStorage == null {
+            return false
+        }
+        return SteamAPI_ISteamRemoteStorage_FileExists(this.steamRemoteStorage, filename.toCString()) != 0
+    }
+
+    fun cloudFileSize(filename: String) r: Int32 {
+        if not this.initialized or this.steamRemoteStorage == null {
+            return 0
+        }
+        return SteamAPI_ISteamRemoteStorage_GetFileSize(this.steamRemoteStorage, filename.toCString())
+    }
+
+    fun cloudDeleteFile(filename: String) r: Bool {
+        if not this.initialized or this.steamRemoteStorage == null {
+            return false
+        }
+        return SteamAPI_ISteamRemoteStorage_FileDelete(this.steamRemoteStorage, filename.toCString()) != 0
+    }
+
+    fun getCloudQuota() r: CloudQuota {
+        if not this.initialized or this.steamRemoteStorage == null {
+            return CloudQuota.new(0, 0)
+        }
+        var total: UInt64 = 0
+        var available: UInt64 = 0
+        let _ = SteamAPI_ISteamRemoteStorage_GetQuota(this.steamRemoteStorage, &total, &available)
+        return CloudQuota.new(total, available)
+    }
+
+    // Steam Input (controller) functions
+    fun initInput() r: Bool {
+        if not this.initialized or this.steamInput == null {
+            return false
+        }
+        return SteamAPI_ISteamInput_Init(this.steamInput, 0 as Int32) != 0
+    }
+
+    fun shutdownInput() r: Void {
+        if this.initialized and this.steamInput != null {
+            let _ = SteamAPI_ISteamInput_Shutdown(this.steamInput)
+        }
+    }
+
+    fun runInputFrame() r: Void {
+        if this.initialized and this.steamInput != null {
+            SteamAPI_ISteamInput_RunFrame(this.steamInput, 0 as Int32)
+        }
+    }
+
+    fun getConnectedControllerCount() r: Int {
+        if not this.initialized or this.steamInput == null {
+            return 0
+        }
+        // Allocate array for controller handles (max 16)
+        var handles: Array<UInt64> = Array<UInt64>.withCapacity(16)
+        return SteamAPI_ISteamInput_GetConnectedControllers(this.steamInput, handles.data() as *UInt64) as Int
+    }
+
+    fun vibrateController(nativeHandle: UInt64, leftMotor: UInt16, rightMotor: UInt16) r: Void {
+        if this.initialized and this.steamInput != null {
+            SteamAPI_ISteamInput_TriggerVibration(this.steamInput, nativeHandle, leftMotor, rightMotor)
+        }
+    }
+}
+
+/**
+ * Check if Steam client is running without initializing the API.
+ */
+fun isSteamAvailable() r: Bool {
+    return steam_is_running()
+}

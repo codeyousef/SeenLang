@@ -1,0 +1,37 @@
+// Test: HashMap in @nondeterministic class should be accepted
+// Expected: PASS with --profile deterministic
+
+import collections.hash_map.{HashMap}
+
+// This class is marked as nondeterministic, so it's allowed
+// to have HashMap fields even in deterministic profile
+@nondeterministic
+class CacheManager {
+    var cache: HashMap<String, String>
+
+    static fun new() r: CacheManager {
+        return CacheManager{
+            cache: HashMap<String, String>.new()
+        }
+    }
+
+    fun set(key: String, value: String) r: Void {
+        this.cache.insert(key, value)
+    }
+
+    fun get(key: String) r: String {
+        let opt = this.cache.get(key)
+        if opt.isSome() {
+            return opt.unwrap()
+        }
+        return ""
+    }
+}
+
+fun main() r: Int {
+    // Using a nondeterministic class is allowed
+    let mgr = CacheManager.new()
+    mgr.set("hello", "world")
+    println("Value: " + mgr.get("hello"))
+    return 0
+}

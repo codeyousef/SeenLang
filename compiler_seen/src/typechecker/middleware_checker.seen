@@ -1,0 +1,369 @@
+// Middleware Checker for Seen Language
+// Validates @middleware_stack decorator usage for composable middleware chains
+// Ensures deterministic FIFO execution order
+// Enforces sandbox isolation for nondeterministic user middleware
+
+import parser.real_parser.{ClassNode, FunctionNode, ProgramNode, FieldNode}
+
+// Result of middleware checking
+class MiddlewareCheckResult {
+    var success: Bool
+    var errors: Array<String>
+    var warnings: Array<String>
+
+    static fun new() r: MiddlewareCheckResult {
+        return MiddlewareCheckResult{
+            success: true,
+            errors: Array<String>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(message: String) r: Void {
+        errors.push(message)
+        success = false
+    }
+
+    fun addWarning(message: String) r: Void {
+        warnings.push(message)
+    }
+
+    fun hasErrors() r: Bool {
+        return errors.length() > 0
+    }
+}
+
+// Known nondeterministic operations that require sandboxing in middleware
+// File I/O
+var SANDBOX_RESTRICTED_FILE: Array<String> = Array<String>()
+// Network
+var SANDBOX_RESTRICTED_NET: Array<String> = Array<String>()
+// Process
+var SANDBOX_RESTRICTED_PROC: Array<String> = Array<String>()
+// Environment
+var SANDBOX_RESTRICTED_ENV: Array<String> = Array<String>()
+// Time/Random (nondeterministic by nature)
+var SANDBOX_RESTRICTED_NONDET: Array<String> = Array<String>()
+
+fun initSandboxRestrictedOps() r: Void {
+    // File I/O operations
+    SANDBOX_RESTRICTED_FILE.push("readText")
+    SANDBOX_RESTRICTED_FILE.push("writeText")
+    SANDBOX_RESTRICTED_FILE.push("readFile")
+    SANDBOX_RESTRICTED_FILE.push("writeFile")
+    SANDBOX_RESTRICTED_FILE.push("deleteFile")
+    SANDBOX_RESTRICTED_FILE.push("appendFile")
+
+    // Network operations
+    SANDBOX_RESTRICTED_NET.push("fetch")
+    SANDBOX_RESTRICTED_NET.push("httpGet")
+    SANDBOX_RESTRICTED_NET.push("httpPost")
+
+    // Process operations
+    SANDBOX_RESTRICTED_PROC.push("execCommand")
+    SANDBOX_RESTRICTED_PROC.push("spawn")
+
+    // Environment operations
+    SANDBOX_RESTRICTED_ENV.push("getEnv")
+    SANDBOX_RESTRICTED_ENV.push("setEnv")
+
+    // Nondeterministic operations
+    SANDBOX_RESTRICTED_NONDET.push("random")
+    SANDBOX_RESTRICTED_NONDET.push("randomInt")
+    SANDBOX_RESTRICTED_NONDET.push("getTime")
+    SANDBOX_RESTRICTED_NONDET.push("getTimestamp")
+    SANDBOX_RESTRICTED_NONDET.push("sleep")
+}
+
+// Check if a function name is a restricted operation
+fun isRestrictedOp(name: String) r: Bool {
+    var i = 0
+    while i < SANDBOX_RESTRICTED_FILE.length() {
+        if SANDBOX_RESTRICTED_FILE[i] == name { return true }
+        i = i + 1
+    }
+    i = 0
+    while i < SANDBOX_RESTRICTED_NET.length() {
+        if SANDBOX_RESTRICTED_NET[i] == name { return true }
+        i = i + 1
+    }
+    i = 0
+    while i < SANDBOX_RESTRICTED_PROC.length() {
+        if SANDBOX_RESTRICTED_PROC[i] == name { return true }
+        i = i + 1
+    }
+    i = 0
+    while i < SANDBOX_RESTRICTED_ENV.length() {
+        if SANDBOX_RESTRICTED_ENV[i] == name { return true }
+        i = i + 1
+    }
+    i = 0
+    while i < SANDBOX_RESTRICTED_NONDET.length() {
+        if SANDBOX_RESTRICTED_NONDET[i] == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// Get the category of a restricted operation
+fun getRestrictedCategory(name: String) r: String {
+    var i = 0
+    while i < SANDBOX_RESTRICTED_FILE.length() {
+        if SANDBOX_RESTRICTED_FILE[i] == name { return "FileToken" }
+        i = i + 1
+    }
+    i = 0
+    while i < SANDBOX_RESTRICTED_NET.length() {
+        if SANDBOX_RESTRICTED_NET[i] == name { return "NetToken" }
+        i = i + 1
+    }
+    i = 0
+    while i < SANDBOX_RESTRICTED_PROC.length() {
+        if SANDBOX_RESTRICTED_PROC[i] == name { return "ProcessToken" }
+        i = i + 1
+    }
+    i = 0
+    while i < SANDBOX_RESTRICTED_ENV.length() {
+        if SANDBOX_RESTRICTED_ENV[i] == name { return "EnvToken" }
+        i = i + 1
+    }
+    i = 0
+    while i < SANDBOX_RESTRICTED_NONDET.length() {
+        if SANDBOX_RESTRICTED_NONDET[i] == name { return "Nondeterministic" }
+        i = i + 1
+    }
+    return ""
+}
+
+// Middleware Checker class
+class MiddlewareChecker {
+    var result: MiddlewareCheckResult
+    var initialized: Bool
+
+    static fun new() r: MiddlewareChecker {
+        initSandboxRestrictedOps()
+        return MiddlewareChecker{
+            result: MiddlewareCheckResult.new(),
+            initialized: true
+        }
+    }
+
+    // Check a class marked with @middleware_stack
+    fun checkMiddlewareStack(cls: ClassNode) r: MiddlewareCheckResult {
+        result = MiddlewareCheckResult.new()
+
+        // Check for required 'middlewares' field with Vec or Array type
+        let hasMiddlewaresField = hasFieldNamed(cls, "middlewares")
+        if not hasMiddlewaresField {
+            result.addError("@middleware_stack class '" + cls.name + "' must have a 'middlewares' field")
+        } else {
+            // Verify it's a deterministic collection type
+            let fieldType = getFieldType(cls, "middlewares")
+            if not isDeterministicCollectionType(fieldType) {
+                result.addError("@middleware_stack class '" + cls.name + "' field 'middlewares' must be Vec or Array, got '" + fieldType + "'")
+            }
+        }
+
+        // Check for 'use' method (add middleware)
+        if not hasMethod(cls, "use") {
+            result.addWarning("@middleware_stack class '" + cls.name + "' has no use() method - consider adding one to register middleware")
+        }
+
+        // Check for 'execute' method (run the chain)
+        if not hasMethod(cls, "execute") {
+            result.addWarning("@middleware_stack class '" + cls.name + "' has no execute() method - consider adding one to run the middleware chain")
+        }
+
+        // Check sandbox isolation for nondeterministic methods
+        this.checkSandboxIsolation(cls)
+
+        return result
+    }
+
+    // Check that nondeterministic middleware methods are properly sandboxed
+    fun checkSandboxIsolation(cls: ClassNode) r: Void {
+        var mi = 0
+        while mi < cls.methods.length() {
+            let method = cls.methods[mi]
+
+            // Skip static methods and common infrastructure methods
+            if method.isStatic or method.name == "new" or method.name == "use" or method.name == "execute" {
+                mi = mi + 1
+                continue
+            }
+
+            // Check if method has @nondeterministic decorator
+            var isNondet = false
+            var di = 0
+            while di < method.decorators.length() {
+                if method.decorators[di].name == "nondeterministic" {
+                    isNondet = true
+                }
+                di = di + 1
+            }
+
+            // Check if method has @sandboxed decorator
+            var isSandboxed = false
+            di = 0
+            while di < method.decorators.length() {
+                if method.decorators[di].name == "sandboxed" {
+                    isSandboxed = true
+                }
+                di = di + 1
+            }
+
+            // Scan method body for restricted operations
+            let restrictedOps = this.findRestrictedOpsInMethod(method)
+
+            if restrictedOps.length() > 0 {
+                if not isNondet and not isSandboxed {
+                    // Method uses restricted ops but isn't marked - error
+                    var opsStr = ""
+                    var ri = 0
+                    while ri < restrictedOps.length() {
+                        if ri > 0 { opsStr = opsStr + ", " }
+                        opsStr = opsStr + restrictedOps[ri]
+                        ri = ri + 1
+                    }
+                    result.addError("@middleware_stack method '" + cls.name + "." + method.name + "' calls restricted operations (" + opsStr + ") but is not marked @nondeterministic or @sandboxed")
+                } else if isNondet and not isSandboxed {
+                    // Marked nondeterministic but not sandboxed - warning
+                    result.addWarning("@nondeterministic method '" + cls.name + "." + method.name + "' should also be @sandboxed to isolate side effects from the middleware chain")
+                }
+                // If @sandboxed, the runtime SandboxedMiddleware wrapper handles isolation
+            }
+
+            mi = mi + 1
+        }
+    }
+
+    // Scan a method's body for calls to restricted operations
+    fun findRestrictedOpsInMethod(method: FunctionNode) r: Array<String> {
+        var found = Array<String>()
+
+        // Walk the method body statements looking for function calls
+        var si = 0
+        while si < method.body.length() {
+            let stmt = method.body[si]
+            this.scanExprForRestrictedOps(stmt.expression, found)
+            si = si + 1
+        }
+
+        return found
+    }
+
+    // Recursively scan an expression for restricted function calls
+    fun scanExprForRestrictedOps(expr: ParserExpressionNode, found: Array<String>) r: Void {
+        if expr.nodeType == "FunctionCall" or expr.nodeType == "Call" {
+            if isRestrictedOp(expr.callee) {
+                // Check if already in found list
+                var alreadyFound = false
+                var fi = 0
+                while fi < found.length() {
+                    if found[fi] == expr.callee {
+                        alreadyFound = true
+                    }
+                    fi = fi + 1
+                }
+                if not alreadyFound {
+                    found.push(expr.callee)
+                }
+            }
+        }
+
+        // Scan operands recursively
+        var oi = 0
+        while oi < expr.operands.length() {
+            this.scanExprForRestrictedOps(expr.operands[oi], found)
+            oi = oi + 1
+        }
+    }
+
+    // Check if a type is a deterministic collection
+    fun isDeterministicCollectionType(typeName: String) r: Bool {
+        if typeName == "Vec" or typeName.startsWith("Vec<") {
+            return true
+        }
+        if typeName == "Array" or typeName.startsWith("Array<") {
+            return true
+        }
+        return false
+    }
+
+    // Check if a class has a field with the given name
+    fun hasFieldNamed(cls: ClassNode, fieldName: String) r: Bool {
+        var i = 0
+        while i < cls.fields.length() {
+            if cls.fields[i].name == fieldName {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Get field type by name
+    fun getFieldType(cls: ClassNode, fieldName: String) r: String {
+        var i = 0
+        while i < cls.fields.length() {
+            if cls.fields[i].name == fieldName {
+                return cls.fields[i].paramType.typeName
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    // Check if a class has a method with the given name
+    fun hasMethod(cls: ClassNode, methodName: String) r: Bool {
+        var i = 0
+        while i < cls.methods.length() {
+            if cls.methods[i].name == methodName {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+// Check all @middleware_stack classes in a program
+fun checkMiddlewareStacks(program: ProgramNode) r: MiddlewareCheckResult {
+    let checker = MiddlewareChecker.new()
+    var combinedResult = MiddlewareCheckResult.new()
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            // Check if class has @middleware_stack decorator
+            var hasMiddlewareDecorator = false
+            var di = 0
+            while di < cls.decorators.length() {
+                if cls.decorators[di].name == "middleware_stack" {
+                    hasMiddlewareDecorator = true
+                }
+                di = di + 1
+            }
+
+            if hasMiddlewareDecorator {
+                let result = checker.checkMiddlewareStack(cls)
+                // Merge results
+                var ei = 0
+                while ei < result.errors.length() {
+                    combinedResult.addError(result.errors[ei])
+                    ei = ei + 1
+                }
+                var wi = 0
+                while wi < result.warnings.length() {
+                    combinedResult.addWarning(result.warnings[wi])
+                    wi = wi + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return combinedResult
+}

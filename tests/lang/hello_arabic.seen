@@ -1,0 +1,7 @@
+// Arabic language test
+// Compile with: --language ar
+
+دالة main() -> عدد_صحيح {
+    اطبع("مرحبا من لغة سين!")
+    عودة 0
+}

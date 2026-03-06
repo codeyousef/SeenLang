@@ -1,0 +1,141 @@
+// Fannkuch-Redux Benchmark
+// Classic CLBG benchmark: generates all permutations and counts pancake flips
+// Tests integer arrays, permutations, branching
+
+fun run_fannkuch(n: Int, out_result: Array<Int>) -> Void {
+    let perm: Array<Int> = Array<Int>(n, 0)
+    let perm1: Array<Int> = Array<Int>(n, 0)
+    let count: Array<Int> = Array<Int>(n, 0)
+
+    var idx = 0
+    while idx < n {
+        perm1[idx] = idx
+        idx = idx + 1
+    }
+
+    var max_flips = 0
+    var checksum = 0
+    var perm_count = 0
+    var r = n
+
+    var done = 0
+    while done == 0 {
+        // Decrement r, setting count[r-1] = r
+        while r != 1 {
+            count[r - 1] = r
+            r = r - 1
+        }
+
+        // Copy perm1 to perm
+        var ci = 0
+        while ci < n {
+            perm[ci] = perm1[ci]
+            ci = ci + 1
+        }
+
+        // Count flips
+        var flips = 0
+        var k = perm[0]
+        while k != 0 {
+            // Reverse perm[0..k]
+            var lo = 0
+            var hi = k
+            while lo < hi {
+                perm.swap(lo, hi)
+                lo = lo + 1
+                hi = hi - 1
+            }
+            flips = flips + 1
+            k = perm[0]
+        }
+
+        if flips > max_flips {
+            max_flips = flips
+        }
+
+        if perm_count % 2 == 0 {
+            checksum = checksum + flips
+        } else {
+            checksum = checksum - flips
+        }
+
+        perm_count = perm_count + 1
+
+        // Generate next permutation (Heap's algorithm variant)
+        r = 1
+        var found_next = 0
+        while found_next == 0 {
+            if r >= n {
+                // All permutations done
+                out_result[0] = checksum
+                out_result[1] = max_flips
+                return
+            }
+
+            let perm0 = perm1[0]
+            var pi = 0
+            while pi < r {
+                perm1[pi] = perm1[pi + 1]
+                pi = pi + 1
+            }
+            perm1[r] = perm0
+
+            count[r] = count[r] - 1
+            if count[r] > 0 {
+                found_next = 1
+            } else {
+                r = r + 1
+            }
+        }
+    }
+
+    // Should never reach here
+    out_result[0] = checksum
+    out_result[1] = max_flips
+}
+
+fun main() -> Int {
+    let n = 12
+
+    __Print("Fannkuch-Redux Benchmark\n")
+    __Print("N: ")
+    __PrintInt(n)
+    __Print("\n")
+
+    // Warmup
+    __Print("Warming up (1 run at n=10)...\n")
+    let warmup_result: Array<Int> = Array<Int>(2, 0)
+    run_fannkuch(10, warmup_result)
+
+    __Print("Running measured iterations...\n")
+    let iterations = 3
+    var min_time = 1000000.0
+    var result_checksum = 0
+    var result_max_flips = 0
+
+    let result: Array<Int> = Array<Int>(2, 0)
+    var iter = 0
+    while iter < iterations {
+        let start = __GetTime()
+        run_fannkuch(n, result)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_checksum = result[0]
+            result_max_flips = result[1]
+        }
+        iter = iter + 1
+    }
+
+    __Print("Checksum: ")
+    __PrintInt(result_checksum)
+    __Print("\nMax flips: ")
+    __PrintInt(result_max_flips)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+
+    return 0
+}

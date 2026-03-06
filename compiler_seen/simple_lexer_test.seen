@@ -1,0 +1,58 @@
+// Simple Lexer Test - Manual Test for TDD Verification
+// Tests our real lexer implementation
+
+import lexer.lexer.{SeenLexer}
+import lexer.keyword_manager.{KeywordManager}
+import lexer.interfaces.{TokenType}
+
+fun main() -> Int {
+    println("Testing Seen Lexer Implementation...")
+    
+    // Test 1: Basic keyword manager
+    println("Test 1: Keyword Manager")
+    let keywordMgr = KeywordManager.new("en")
+    if keywordMgr.isKeyword("fun") {
+        println("✅ Keyword 'fun' recognized")
+    } else {
+        println("❌ Keyword 'fun' not recognized")
+        return 1
+    }
+    
+    if keywordMgr.isKeyword("and") {
+        println("✅ Word operator 'and' recognized")
+    } else {
+        println("❌ Word operator 'and' not recognized")
+        return 1
+    }
+    
+    println("Keyword count: {keywordMgr.getKeywordCount()}")
+    
+    // Test 2: Basic lexer
+    println("Test 2: Basic Lexer")
+    let source = "fun main() { let x = 42; }"
+    let lexer = SeenLexer.new(source, 1, "en")
+    
+    println("Lexer created successfully")
+    println("Source: {source}")
+    println("Language: {lexer.language}")
+    println("Memory usage estimate: {lexer.getMemoryUsage()} bytes")
+    
+    // Test 3: Tokenization
+    println("Test 3: Tokenization")
+    try {
+        let tokens = lexer.tokenize()
+        println("✅ Tokenization successful!")
+        println("Token count: {tokens.length()}")
+        
+        for i in 0..tokens.length() {
+            let token = tokens[i]
+            println("  Token {i}: {token.getType()} = '{token.getValue()}'")
+        }
+    } catch (error) {
+        println("❌ Tokenization failed: {error.message}")
+        return 1
+    }
+    
+    println("✅ All lexer tests passed!")
+    return 0
+}

@@ -1,0 +1,41 @@
+// P2 /: Reflection API
+// Wrapper module for @reflect generated RTTI methods
+// Classes decorated with @reflect get: getTypeName(), getFieldCount(),
+// getFieldNames(), getFieldValue(idx), setFieldValue(idx, val)
+
+// Usage:
+//   @reflect
+//   class MyClass {
+//       x: Int
+//       y: Int
+//   }
+//   let obj = MyClass(10, 20)
+//   let name = obj.getTypeName()    // "MyClass"
+//   let count = obj.getFieldCount() // 2
+//   let names = obj.getFieldNames() // ["x", "y"]
+//   let val = obj.getFieldValue(0)  // 10
+//   obj.setFieldValue(1, 42)        // sets y = 42
+
+// Reflection helper: check if a field name exists
+fun reflectHasField(fieldNames: Array<String>, name: String) r: Bool {
+    var i = 0
+    while i < fieldNames.length() {
+        if fieldNames[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Reflection helper: get field index by name
+fun reflectFieldIndex(fieldNames: Array<String>, name: String) r: Int {
+    var i = 0
+    while i < fieldNames.length() {
+        if fieldNames[i] == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}

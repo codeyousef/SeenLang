@@ -1,0 +1,98 @@
+// Sieve of Eratosthenes Benchmark
+// Simple boolean array implementation
+
+fun sieve_of_eratosthenes(limit: Int) -> Array<Int> {
+    let is_prime: Array<Int> = Array<Int>(limit + 1, 1)
+
+    is_prime[0] = 0
+    is_prime[1] = 0
+
+    var p = 2
+    while p * p <= limit {
+        if is_prime[p] != 0 {
+            var j = p * p
+            while j <= limit {
+                is_prime[j] = 0
+                j = j + p
+            }
+        }
+        p = p + 1
+    }
+
+    let primes: Array<Int> = Array<Int>()
+    var idx = 2
+    while idx <= limit {
+        if is_prime[idx] != 0 {
+            primes.push(idx)
+        }
+        idx = idx + 1
+    }
+
+    is_prime.free()
+    return primes
+}
+
+fun compute_checksum(primes: Array<Int>) -> Int {
+    var sum = 0
+    var i = 0
+    let len = primes.length()
+    while i < len {
+        sum = sum + primes[i]
+        i = i + 1
+    }
+    return sum
+}
+
+fun main() -> Int {
+    let limit = 10000000
+
+    __Print("Sieve of Eratosthenes Benchmark\n")
+    __Print("Finding primes up to: ")
+    __PrintInt(limit)
+    __Print("\n")
+
+    let warmup_runs = 3
+    __Print("Warming up (")
+    __PrintInt(warmup_runs)
+    __Print(" runs)...\n")
+    var w = 0
+    while w < warmup_runs {
+        let primes_warmup: Array<Int> = sieve_of_eratosthenes(limit)
+        primes_warmup.free()
+        w = w + 1
+    }
+
+    __Print("Running measured iterations...\n")
+    let iterations = 5
+    var min_time = 1000000.0
+    var result_primes: Array<Int> = Array<Int>()
+    var i = 0
+    while i < iterations {
+        let start = __GetTime()
+        let primes: Array<Int> = sieve_of_eratosthenes(limit)
+        let end = __GetTime()
+
+        let elapsed = (end - start) * 1000.0
+        if elapsed < min_time {
+            min_time = elapsed
+            result_primes.free()
+            result_primes = primes
+        } else {
+            primes.free()
+        }
+        i = i + 1
+    }
+
+    let prime_count = result_primes.length()
+    let checksum = compute_checksum(result_primes)
+
+    __Print("Prime count: ")
+    __PrintInt(prime_count)
+    __Print("\nChecksum: ")
+    __PrintInt(checksum)
+    __Print("\nMin time: ")
+    __PrintFloat(min_time)
+    __Print(" ms\n")
+
+    return 0
+}

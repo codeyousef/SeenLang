@@ -1,0 +1,14 @@
+name = "Russian"
+description = "Russian Collections Standard Library"
+
+[std_lib]
+"Вектор" = "seen_std.collections.vec.Vec"
+"Массив" = "Array"
+"ХешКарта" = "HashMap"
+"ХешКартаСтрок" = "seen_std.collections.string_hash_map.StringHashMap"
+"ХешМножество" = "HashSet"
+"ДеревоКарта" = "BTreeMap"
+"СвязныйСписок" = "LinkedList"
+"ДвусторонняяОчередь" = "VecDeque"
+"БитовоеМножество" = "BitSet"
+"Пул" = "Pool"

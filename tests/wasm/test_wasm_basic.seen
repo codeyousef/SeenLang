@@ -1,0 +1,28 @@
+// Test basic WASM code generation
+// This file tests the WASM backend capabilities
+
+fun add(a: Int, b: Int) r: Int {
+    return a + b
+}
+
+fun multiply(a: Int, b: Int) r: Int {
+    return a * b
+}
+
+fun factorial(n: Int) r: Int {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+fun main() r: Int {
+    let x = 5
+    let y = 3
+    let sum = add(x, y)
+    let product = multiply(x, y)
+    let fact = factorial(5)
+
+    // Return 0 for success
+    return 0
+}

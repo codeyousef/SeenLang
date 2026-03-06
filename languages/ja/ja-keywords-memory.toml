@@ -1,0 +1,13 @@
+name = "Japanese"
+description = "Japanese Memory Management Keywords"
+
+[keywords]
+"移動" = "KeywordMove"
+"借用" = "KeywordBorrow"
+"入出力" = "KeywordInout"
+"領域" = "KeywordRegion"
+"アリーナ" = "KeywordArena"
+"参照" = "KeywordRef"
+"所有" = "KeywordOwn"
+"変換" = "KeywordTransmute"
+"グラフィック" = "KeywordGpu"

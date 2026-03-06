@@ -1,0 +1,13 @@
+@derive(Debug)
+class Config {
+    width: Int
+    height: Int
+}
+
+fun main() r: Int {
+    let c = Config(800, 600)
+    let s = c.debug()
+    println(s)
+    println("PASS: derive_debug")
+    return 0
+}

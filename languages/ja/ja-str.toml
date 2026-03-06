@@ -1,0 +1,18 @@
+name = "Japanese"
+description = "Japanese String Standard Library"
+
+[std_lib]
+"分割" = "seen_std.str.string.split"
+"トリム" = "seen_std.str.string.trim"
+"含む" = "seen_std.str.string.contains"
+"で始まる" = "seen_std.str.string.startsWith"
+"で終わる" = "seen_std.str.string.endsWith"
+"位置検索" = "seen_std.str.string.indexOf"
+"置換" = "seen_std.str.string.replace"
+"大文字に" = "seen_std.str.string.String_toUpperCase"
+"小文字に" = "seen_std.str.string.String_toLowerCase"
+"行分割" = "seen_std.str.string.lines"
+"単語分割" = "seen_std.str.string.words"
+"繰り返し" = "seen_std.str.string.repeat"
+"結合" = "seen_std.str.string.join"
+"文字列ビルダ" = "StringBuilder"

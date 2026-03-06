@@ -1,0 +1,37 @@
+// Test VNode type resolution without importing complex stdlib
+// VNode struct is defined inline to avoid stdlib generic class issues
+
+// Define a minimal VNode-like class inline
+class InlineVNode {
+    var tag: String
+    var text: String
+    var key: String
+
+    static fun new(t: String, txt: String, k: String) r: InlineVNode {
+        return InlineVNode{
+            tag: t,
+            text: txt,
+            key: k
+        }
+    }
+}
+
+// Factory function using static method
+fun createInlineNode(t: String, txt: String) r: InlineVNode {
+    return InlineVNode.new(t, txt, "")
+}
+
+fun main() r: Void {
+    println("Testing inline VNode-like struct...")
+
+    // Create nodes using factory function
+    let div = createInlineNode("div", "")
+    let textNode = createInlineNode("span", "Hello World")
+
+    // Test field access - this should work with the VNode type fixes
+    println("div.tag = " + div.tag)
+    println("textNode.tag = " + textNode.tag)
+    println("textNode.text = " + textNode.text)
+
+    println("Done!")
+}

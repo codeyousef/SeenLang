@@ -1,0 +1,464 @@
+// LLVM IR String Utilities
+// Pure functions for string manipulation used by the LLVM IR generator
+
+// Convert a hex string value (like "0x00C0") to decimal string
+fun hexToDecimal(value: String) r: String {
+    let len = value.length()
+    if len < 3 {
+        return value  // Too short to be hex
+    }
+    // Check for 0x or 0X prefix
+    let firstChar = value.substring(0, 1)
+    let secondChar = value.substring(1, 2)
+    if firstChar != "0" {
+        return value  // Not hex
+    }
+    if secondChar != "x" and secondChar != "X" {
+        return value  // Not hex
+    }
+
+    // Parse hex digits
+    var result = 0
+    var i = 2
+    while i < len {
+        let c = value.substring(i, i + 1)
+        var digit = 0
+        if c == "0" { digit = 0 }
+        if c == "1" { digit = 1 }
+        if c == "2" { digit = 2 }
+        if c == "3" { digit = 3 }
+        if c == "4" { digit = 4 }
+        if c == "5" { digit = 5 }
+        if c == "6" { digit = 6 }
+        if c == "7" { digit = 7 }
+        if c == "8" { digit = 8 }
+        if c == "9" { digit = 9 }
+        if c == "a" or c == "A" { digit = 10 }
+        if c == "b" or c == "B" { digit = 11 }
+        if c == "c" or c == "C" { digit = 12 }
+        if c == "d" or c == "D" { digit = 13 }
+        if c == "e" or c == "E" { digit = 14 }
+        if c == "f" or c == "F" { digit = 15 }
+        result = result * 16 + digit
+        i = i + 1
+    }
+    return result.toString()
+}
+
+// Trim leading/trailing whitespace (space, tab, CR)
+fun trimSpaces(value: String) r: String {
+    var start = 0
+    var end = value.length()
+    while start < end {
+        let c = value.substring(start, start + 1)
+        if c == " " or c == "\t" or c == "\r" {
+            start = start + 1
+        }
+        if c != " " and c != "\t" and c != "\r" {
+            break
+        }
+    }
+    while end > start {
+        let c = value.substring(end - 1, end)
+        if c == " " or c == "\t" or c == "\r" {
+            end = end - 1
+        }
+        if c != " " and c != "\t" and c != "\r" {
+            break
+        }
+    }
+    return value.substring(start, end)
+}
+
+// Remove all spaces, tabs, and carriage returns from a string
+fun removeSpaces(value: String) r: String {
+    var result = ""
+    var i = 0
+    while i < value.length() {
+        let c = value.substring(i, i + 1)
+        if c != " " and c != "\t" and c != "\r" {
+            result = result + c
+        }
+        i = i + 1
+    }
+    return result
+}
+
+// Get the base type name from a qualified/generic type
+// e.g., "Array<String>" -> "Array", "module.Class" -> "Class", "Option?" -> "Option"
+fun getBaseTypeName(typeName: String) r: String {
+    var trimmed = trimSpaces(typeName)
+    if trimmed == "" {
+        return ""
+    }
+    // Strip nullable suffix '?' if present
+    if trimmed.length() > 0 and trimmed.substring(trimmed.length() - 1, trimmed.length()) == "?" {
+        trimmed = trimmed.substring(0, trimmed.length() - 1)
+    }
+    var end = trimmed.length()
+    var ltIdx = -1
+    var i = 0
+    while i < trimmed.length() {
+        if trimmed.substring(i, i + 1) == "<" {
+            ltIdx = i
+            i = trimmed.length()
+        }
+        i = i + 1
+    }
+    if ltIdx >= 0 {
+        end = ltIdx
+    }
+    var lastSep = -1
+    i = 0
+    while i < end {
+        let c = trimmed.substring(i, i + 1)
+        if c == "." or c == ":" {
+            lastSep = i
+        }
+        i = i + 1
+    }
+    if lastSep >= 0 and lastSep + 1 < end {
+        return trimmed.substring(lastSep + 1, end)
+    }
+    return trimmed.substring(0, end)
+}
+
+// Align a value up to the next multiple of alignment
+fun alignUp(value: Int, align: Int) r: Int {
+    if align <= 1 {
+        return value
+    }
+    let rem = value % align
+    if rem == 0 {
+        return value
+    }
+    return value + (align - rem)
+}
+
+// Find a substring in a string, return index or -1 if not found
+fun findSubstring(value: String, needle: String) r: Int {
+    let vLen = value.length()
+    let nLen = needle.length()
+    if nLen == 0 {
+        return 0
+    }
+    if nLen > vLen {
+        return -1
+    }
+    var i = 0
+    while i <= vLen - nLen {
+        let sub = value.substring(i, i + nLen)
+        if sub == needle {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// Parse a decimal integer string (with optional leading whitespace and minus sign)
+fun parseDecimalInt(value: String) r: Int {
+    let trimmed = trimSpaces(value)
+    var result = 0
+    var negative = false
+    var i = 0
+
+    if trimmed.length() > 0 and trimmed.substring(0, 1) == "-" {
+        negative = true
+        i = 1
+    }
+
+    while i < trimmed.length() {
+        let c = trimmed.substring(i, i + 1)
+        var digit = 0
+        if c == "0" { digit = 0 }
+        if c == "1" { digit = 1 }
+        if c == "2" { digit = 2 }
+        if c == "3" { digit = 3 }
+        if c == "4" { digit = 4 }
+        if c == "5" { digit = 5 }
+        if c == "6" { digit = 6 }
+        if c == "7" { digit = 7 }
+        if c == "8" { digit = 8 }
+        if c == "9" { digit = 9 }
+        result = result * 10 + digit
+        i = i + 1
+    }
+
+    if negative {
+        result = 0 - result
+    }
+    return result
+}
+
+// Escape a string for LLVM IR string constants
+fun escapeString(str: String) r: String {
+    var result = ""
+    var i = 0
+    while i < str.length() {
+        let c = str.substring(i, i + 1)
+        if c == "\\" {
+            result = result + "\\\\"
+        } else if c == "\"" {
+            result = result + "\\\""
+        } else if c == "\n" {
+            result = result + "\\0A"
+        } else if c == "\t" {
+            result = result + "\\09"
+        } else if c == "\r" {
+            result = result + "\\0D"
+        } else {
+            result = result + c
+        }
+        i = i + 1
+    }
+    return result
+}
+
+// Convert a single character to its ASCII code string representation
+fun charToCodeStr(val: String) r: String {
+    // Common printable ASCII and escape sequences
+    if val == " " { return "32" }
+    if val == "!" { return "33" }
+    if val == "\"" { return "34" }
+    if val == "#" { return "35" }
+    if val == "$" { return "36" }
+    if val == "%" { return "37" }
+    if val == "&" { return "38" }
+    if val == "'" { return "39" }
+    if val == "(" { return "40" }
+    if val == ")" { return "41" }
+    if val == "*" { return "42" }
+    if val == "+" { return "43" }
+    if val == "," { return "44" }
+    if val == "-" { return "45" }
+    if val == "." { return "46" }
+    if val == "/" { return "47" }
+    if val == "0" { return "48" }
+    if val == "1" { return "49" }
+    if val == "2" { return "50" }
+    if val == "3" { return "51" }
+    if val == "4" { return "52" }
+    if val == "5" { return "53" }
+    if val == "6" { return "54" }
+    if val == "7" { return "55" }
+    if val == "8" { return "56" }
+    if val == "9" { return "57" }
+    if val == ":" { return "58" }
+    if val == ";" { return "59" }
+    if val == "<" { return "60" }
+    if val == "=" { return "61" }
+    if val == ">" { return "62" }
+    if val == "?" { return "63" }
+    if val == "@" { return "64" }
+    if val == "A" { return "65" }
+    if val == "B" { return "66" }
+    if val == "C" { return "67" }
+    if val == "D" { return "68" }
+    if val == "E" { return "69" }
+    if val == "F" { return "70" }
+    if val == "G" { return "71" }
+    if val == "H" { return "72" }
+    if val == "I" { return "73" }
+    if val == "J" { return "74" }
+    if val == "K" { return "75" }
+    if val == "L" { return "76" }
+    if val == "M" { return "77" }
+    if val == "N" { return "78" }
+    if val == "O" { return "79" }
+    if val == "P" { return "80" }
+    if val == "Q" { return "81" }
+    if val == "R" { return "82" }
+    if val == "S" { return "83" }
+    if val == "T" { return "84" }
+    if val == "U" { return "85" }
+    if val == "V" { return "86" }
+    if val == "W" { return "87" }
+    if val == "X" { return "88" }
+    if val == "Y" { return "89" }
+    if val == "Z" { return "90" }
+    if val == "[" { return "91" }
+    if val == "\\" { return "92" }
+    if val == "]" { return "93" }
+    if val == "^" { return "94" }
+    if val == "_" { return "95" }
+    if val == "`" { return "96" }
+    if val == "a" { return "97" }
+    if val == "b" { return "98" }
+    if val == "c" { return "99" }
+    if val == "d" { return "100" }
+    if val == "e" { return "101" }
+    if val == "f" { return "102" }
+    if val == "g" { return "103" }
+    if val == "h" { return "104" }
+    if val == "i" { return "105" }
+    if val == "j" { return "106" }
+    if val == "k" { return "107" }
+    if val == "l" { return "108" }
+    if val == "m" { return "109" }
+    if val == "n" { return "110" }
+    if val == "o" { return "111" }
+    if val == "p" { return "112" }
+    if val == "q" { return "113" }
+    if val == "r" { return "114" }
+    if val == "s" { return "115" }
+    if val == "t" { return "116" }
+    if val == "u" { return "117" }
+    if val == "v" { return "118" }
+    if val == "w" { return "119" }
+    if val == "x" { return "120" }
+    if val == "y" { return "121" }
+    if val == "z" { return "122" }
+    if val == "{" { return "123" }
+    if val == "|" { return "124" }
+    if val == "}" { return "125" }
+    if val == "~" { return "126" }
+    if val == "\n" { return "10" }
+    if val == "\t" { return "9" }
+    if val == "\r" { return "13" }
+    return "0"  // Unknown character - return null
+}
+
+// Extract field type strings from a struct layout like "{ i64, ptr }"
+fun extractStructFieldTypes(layout: String) r: Array<String> {
+    let result = Array<String>()
+    let trimmed = trimSpaces(layout)
+    var startIdx = 0
+    var endIdx = trimmed.length()
+
+    // Find first '{'
+    var i = 0
+    while i < trimmed.length() {
+        if trimmed.substring(i, i + 1) == "{" {
+            startIdx = i + 1
+            i = trimmed.length()
+        }
+        i = i + 1
+    }
+
+    // Find last '}'
+    i = trimmed.length() - 1
+    var foundEnd = false
+    while i >= 0 and not foundEnd {
+        if trimmed.substring(i, i + 1) == "}" {
+            endIdx = i
+            foundEnd = true
+        }
+        i = i - 1
+    }
+
+    if endIdx <= startIdx {
+        return result
+    }
+
+    let inner = trimmed.substring(startIdx, endIdx)
+    var entryStart = 0
+    var pos = 0
+    var nesting = 0
+    while pos <= inner.length() {
+        var c = ""
+        if pos < inner.length() {
+            c = inner.substring(pos, pos + 1)
+        }
+        if c == "{" or c == "[" or c == "<" {
+            nesting = nesting + 1
+        }
+        if c == "}" or c == "]" or c == ">" {
+            if nesting > 0 {
+                nesting = nesting - 1
+            }
+        }
+        if pos == inner.length() or (c == "," and nesting == 0) {
+            let entry = trimSpaces(inner.substring(entryStart, pos))
+            if entry != "" {
+                result.push(entry)
+            }
+            entryStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return result
+}
+
+// Parse array length from LLVM type like "[10 x i64]"
+fun parseArrayLength(typeName: String) r: Int {
+    let trimmed = trimSpaces(typeName)
+    if not trimmed.startsWith("[") {
+        return -1
+    }
+    var xIdx = -1
+    var i = 0
+    while i < trimmed.length() {
+        if trimmed.substring(i, i + 1) == "x" {
+            xIdx = i
+            i = trimmed.length()
+        }
+        i = i + 1
+    }
+    if xIdx < 0 {
+        return -1
+    }
+    let lenStr = trimSpaces(trimmed.substring(1, xIdx))
+    return parseDecimalInt(lenStr)
+}
+
+// Parse array element type from LLVM type like "[10 x i64]"
+fun parseArrayElementType(typeName: String) r: String {
+    let trimmed = trimSpaces(typeName)
+    if not trimmed.startsWith("[") {
+        return ""
+    }
+    var xIdx = -1
+    var i = 0
+    while i < trimmed.length() {
+        if trimmed.substring(i, i + 1) == "x" {
+            xIdx = i
+            i = trimmed.length()
+        }
+        i = i + 1
+    }
+    if xIdx < 0 {
+        return ""
+    }
+    // Trim trailing ']'
+    let endIdx = trimmed.length() - 1
+    return trimSpaces(trimmed.substring(xIdx + 1, endIdx))
+}
+
+// Extract element type from Seen array literal type like "Array<String>"
+fun extractArrayLiteralElementType(arrayType: String) r: String {
+    let trimmed = trimSpaces(arrayType)
+    if trimmed.startsWith("Array<") and trimmed.endsWith(">") {
+        return trimSpaces(trimmed.substring(6, trimmed.length() - 1))
+    }
+    if trimmed.startsWith("List<") and trimmed.endsWith(">") {
+        return trimSpaces(trimmed.substring(5, trimmed.length() - 1))
+    }
+    return ""
+}
+
+// Normalize header type, converting inline struct types to named types where applicable
+fun normalizeHeaderType(typeName: String) r: String {
+    let trimmed = trimSpaces(typeName)
+    let compact = removeSpaces(trimmed)
+    if compact.startsWith("{") {
+        let fields = extractStructFieldTypes(trimmed)
+        if fields.length() == 2 {
+            let f0 = removeSpaces(fields[0])
+            let f1 = removeSpaces(fields[1])
+            if (f0 == "i64" and f1 == "ptr") or (f0 == "ptr" and f1 == "i64") {
+                return "%SeenString"
+            }
+        }
+        if fields.length() == 4 {
+            let f0 = removeSpaces(fields[0])
+            let f1 = removeSpaces(fields[1])
+            let f2 = removeSpaces(fields[2])
+            let f3 = removeSpaces(fields[3])
+            if f0 == "i64" and f1 == "i64" and f2 == "i64" and f3 == "ptr" {
+                return "%SeenArray"
+            }
+        }
+    }
+    return trimmed
+}

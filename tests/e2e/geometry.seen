@@ -1,0 +1,48 @@
+// Geometry Module for E2E Testing
+// Provides geometric classes and operations
+
+class Point {
+    var x: Int
+    var y: Int
+
+    static fun new(x: Int, y: Int) r: Point {
+        return Point { x: x, y: y }
+    }
+
+    fun distanceSquared() r: Int {
+        return x * x + y * y
+    }
+
+    fun add(other: Point) r: Point {
+        return Point.new(x + other.x, y + other.y)
+    }
+}
+
+class Rectangle {
+    var width: Int
+    var height: Int
+
+    static fun new(width: Int, height: Int) r: Rectangle {
+        return Rectangle { width: width, height: height }
+    }
+
+    fun area() r: Int {
+        let w = width
+        let h = height
+        let result = w * h
+        return result
+    }
+
+    fun perimeter() r: Int {
+        let w = width
+        let h = height
+        let sum = w + h
+        let result = 2 * sum
+        return result
+    }
+
+    // Commented out due to IR generation bug
+    // fun scale(factor: Int) r: Rectangle {
+    //     return Rectangle.new(width * factor, height * factor)
+    // }
+}

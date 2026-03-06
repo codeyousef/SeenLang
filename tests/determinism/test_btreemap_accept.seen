@@ -1,0 +1,19 @@
+// Test: BTreeMap should be accepted in deterministic profile
+// Expected: PASS with --profile deterministic
+
+import collections.btree_map.{BTreeMap}
+
+fun main() r: Int {
+    // This should be accepted in deterministic profile
+    // because BTreeMap has deterministic sorted iteration order
+    let map = BTreeMap<String, Int>.new()
+    map.insert("key1", 1)
+    map.insert("key2", 2)
+
+    // Iteration order is guaranteed to be sorted!
+    let keys = map.keys()
+    println("Keys: " + keys.size().toString())
+
+    // This is deterministic - same input always produces same output
+    return 0
+}

@@ -1,0 +1,10 @@
+name = "Russian"
+description = "Russian Environment Standard Library"
+
+[std_lib]
+"аргументы" = "seen_std.env.env.args"
+"получить" = "seen_std.env.env.get"
+"установить" = "seen_std.env.env.set"
+"имеет" = "seen_std.env.env.has"
+"выполнитьКоманду" = "seen_std.process.process.runCommand"
+"завершитьПроцесс" = "seen_std.process.process.processExit"

@@ -1,0 +1,82 @@
+// MacroRegistry - Stores user-defined macro definitions
+// Macros are functions decorated with @macro that transform AST at compile time
+
+import parser.real_parser.{FunctionNode}
+
+// A single macro definition
+class MacroDefinition {
+    var name: String
+    var function: FunctionNode
+
+    static fun new(name: String, fn: FunctionNode) r: MacroDefinition {
+        return MacroDefinition{ name: name, function: fn }
+    }
+}
+
+// Registry for storing and looking up macro definitions
+class MacroRegistry {
+    var macros: Array<MacroDefinition>
+
+    static fun new() r: MacroRegistry {
+        return MacroRegistry{ macros: Array<MacroDefinition>() }
+    }
+
+    // Register a new macro
+    fun register(name: String, fn: FunctionNode) r: Void {
+        let def = MacroDefinition.new(name, fn)
+        macros.push(def)
+    }
+
+    // Look up a macro by name
+    fun lookup(name: String) r: FunctionNode {
+        var i = 0
+        while i < macros.length() {
+            if macros[i].name == name {
+                return macros[i].function
+            }
+            i = i + 1
+        }
+        // Return empty function if not found
+        return FunctionNode.new()
+    }
+
+    // Check if a macro exists
+    fun isMacro(name: String) r: Bool {
+        var i = 0
+        while i < macros.length() {
+            if macros[i].name == name {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Check if the lookup found a valid macro (non-empty function)
+    fun lookupExists(name: String) r: Bool {
+        var i = 0
+        while i < macros.length() {
+            if macros[i].name == name {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    // Get all registered macro names
+    fun getNames() r: Array<String> {
+        var names = Array<String>()
+        var i = 0
+        while i < macros.length() {
+            names.push(macros[i].name)
+            i = i + 1
+        }
+        return names
+    }
+
+    // Get count of registered macros
+    fun count() r: Int {
+        return macros.length()
+    }
+}

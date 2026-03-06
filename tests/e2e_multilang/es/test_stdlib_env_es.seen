@@ -1,0 +1,52 @@
+// Prueba E2E: Biblioteca estandar de entorno (Espanol)
+// NOTA: argumentos() (args) no esta definida en el runtime -- causa error de enlace.
+// Probando funcionalidades de entorno que SI funcionan:
+//   - Conversion de cadenas (aTexto)
+//   - Analisis de enteros y configuracion basica del programa
+//   - Punto de entrada del programa y codigos de salida
+
+función principal() r: entero {
+    // Prueba 1: el programa ejecuta y puede retornar codigo de salida
+    sea codigoSalida = 0
+    si codigoSalida == 0 {
+        imprimir("EXITO: entrada y salida del programa")
+    } sino {
+        imprimir("FALLO: entrada y salida del programa")
+        retornar 1
+    }
+
+    // Prueba 2: conversion de entero a cadena
+    sea num = 12345
+    sea numCadena = num.aTexto()
+    si numCadena == "12345" {
+        imprimir("EXITO: entero aTexto")
+    } sino {
+        imprimir("FALLO: entero aTexto")
+        retornar 1
+    }
+
+    // Prueba 3: entero negativo a cadena
+    sea neg = -42
+    sea negCadena = neg.aTexto()
+    si negCadena == "-42" {
+        imprimir("EXITO: entero negativo aTexto")
+    } sino {
+        imprimir("FALLO: entero negativo aTexto")
+        retornar 1
+    }
+
+    // Prueba 4: concatenacion de cadena con conversion de entero
+    sea msg = "cantidad=" + num.aTexto()
+    si msg == "cantidad=12345" {
+        imprimir("EXITO: concatenacion con aTexto")
+    } sino {
+        imprimir("FALLO: concatenacion con aTexto")
+        retornar 1
+    }
+
+    // Prueba 5: multiples llamadas a imprimir (E/S basica)
+    imprimir("EXITO: multiples llamadas a imprimir")
+
+    imprimir("EXITO: todas las pruebas de entorno pasaron")
+    retornar 0
+}

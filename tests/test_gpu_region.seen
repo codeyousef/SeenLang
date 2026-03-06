@@ -1,0 +1,13 @@
+// : Test GPU region support
+// Create a GPU region, allocate, check stats, destroy
+
+fun main() {
+    println("GPU region test start")
+    region gpu {
+        // Allocations inside the GPU region use page-aligned mmap memory
+        let x = 42
+        let y = x + 8
+        println("Inside GPU region: " + y.toString())
+    }
+    println("GPU region test passed")
+}

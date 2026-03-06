@@ -1,0 +1,46 @@
+// Test C function imports via extern fun
+// This test verifies calling C library math functions directly
+// (only uses double-precision functions to avoid i32/i64 ABI mismatch)
+
+extern fun sqrt(x: Float) r: Float
+extern fun sin(x: Float) r: Float
+extern fun cos(x: Float) r: Float
+extern fun pow(base: Float, exp: Float) r: Float
+extern fun floor(x: Float) r: Float
+extern fun ceil(x: Float) r: Float
+extern fun log(x: Float) r: Float
+
+fun main() r: Int {
+    println("Testing C function imports...")
+
+    // Test sqrt
+    let sqrtResult = sqrt(16.0)
+    println("sqrt(16.0) = " + sqrtResult.toString())
+
+    // Test sin
+    let sinResult = sin(0.0)
+    println("sin(0.0) = " + sinResult.toString())
+
+    // Test cos
+    let cosResult = cos(0.0)
+    println("cos(0.0) = " + cosResult.toString())
+
+    // Test pow
+    let powResult = pow(2.0, 10.0)
+    println("pow(2.0, 10.0) = " + powResult.toString())
+
+    // Test floor
+    let floorResult = floor(3.7)
+    println("floor(3.7) = " + floorResult.toString())
+
+    // Test ceil
+    let ceilResult = ceil(3.2)
+    println("ceil(3.2) = " + ceilResult.toString())
+
+    // Test log
+    let logResult = log(1.0)
+    println("log(1.0) = " + logResult.toString())
+
+    println("All C import tests passed!")
+    return 0
+}

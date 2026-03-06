@@ -1,0 +1,171 @@
+// Test for @middleware_stack decorator
+// Tests composable middleware chains with FIFO execution
+
+// A simple middleware stack for request processing
+@middleware_stack
+class RequestPipeline {
+    var middlewares: Array<String>
+    var middlewareCount: Int
+
+    static fun new() r: RequestPipeline {
+        return RequestPipeline{
+            middlewares: Array<String>(),
+            middlewareCount: 0
+        }
+    }
+
+    // Register a middleware
+    fun use(name: String) r: Void {
+        middlewares.push(name)
+        middlewareCount = middlewareCount + 1
+        println("  Registered middleware: " + name)
+    }
+
+    // Execute the middleware chain
+    fun execute(request: String) r: String {
+        println("  Executing " + middlewareCount.toString() + " middlewares...")
+        var result = request
+        var i = 0
+        while i < middlewares.length() {
+            let mw = middlewares[i]
+            println("    [" + (i + 1).toString() + "] Running: " + mw)
+            result = result + " -> " + mw
+            i = i + 1
+        }
+        return result
+    }
+}
+
+// A middleware context class
+class Context {
+    var data: Array<String>
+    var values: Array<String>
+
+    static fun new() r: Context {
+        return Context{
+            data: Array<String>(),
+            values: Array<String>()
+        }
+    }
+
+    fun set(key: String, value: String) r: Void {
+        data.push(key)
+        values.push(value)
+    }
+
+    fun get(key: String) r: String {
+        var i = 0
+        while i < data.length() {
+            if data[i] == key {
+                return values[i]
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun has(key: String) r: Bool {
+        var i = 0
+        while i < data.length() {
+            if data[i] == key {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+}
+
+// Logging middleware
+class LoggingMiddleware {
+    var prefix: String
+
+    static fun new(prefix: String) r: LoggingMiddleware {
+        return LoggingMiddleware{
+            prefix: prefix
+        }
+    }
+
+    fun process(ctx: Context) r: Bool {
+        println(prefix + ": Processing request")
+        ctx.set("logged", "true")
+        return true
+    }
+}
+
+// Auth middleware
+class AuthMiddleware {
+    var requiredRole: String
+
+    static fun new(requiredRole: String) r: AuthMiddleware {
+        return AuthMiddleware{
+            requiredRole: requiredRole
+        }
+    }
+
+    fun process(ctx: Context) r: Bool {
+        let role = ctx.get("role")
+        if role == "" {
+            println("  Auth: No role found!")
+            return false
+        }
+        if role != requiredRole {
+            println("  Auth: Insufficient permissions (need " + requiredRole + ", got " + role + ")")
+            return false
+        }
+        println("  Auth: Role '" + role + "' verified")
+        ctx.set("authenticated", "true")
+        return true
+    }
+}
+
+fun main() r: Int {
+    println("=== Middleware Stack Test ===")
+    println("")
+
+    // Test 1: Simple pipeline
+    println("--- Test 1: Simple Request Pipeline ---")
+    let pipeline = RequestPipeline.new()
+    pipeline.use("Logger")
+    pipeline.use("Auth")
+    pipeline.use("RateLimit")
+    pipeline.use("Handler")
+
+    let result = pipeline.execute("Request")
+    println("  Result: " + result)
+    println("")
+
+    // Test 2: Manual middleware chain
+    println("--- Test 2: Manual Middleware Chain ---")
+    let ctx = Context.new()
+    ctx.set("role", "admin")
+    ctx.set("request_id", "12345")
+
+    let logger = LoggingMiddleware.new("[LOG]")
+    let auth = AuthMiddleware.new("admin")
+
+    println("  Running logging middleware...")
+    let logResult = logger.process(ctx)
+    println("  Logging result: " + logResult.toString())
+    println("  Context has 'logged': " + ctx.has("logged").toString())
+
+    println("")
+    println("  Running auth middleware...")
+    let authResult = auth.process(ctx)
+    println("  Auth result: " + authResult.toString())
+    println("  Context has 'authenticated': " + ctx.has("authenticated").toString())
+    println("")
+
+    // Test 3: Failed auth
+    println("--- Test 3: Failed Auth Middleware ---")
+    let ctx2 = Context.new()
+    ctx2.set("role", "user")  // Wrong role
+
+    let auth2 = AuthMiddleware.new("admin")
+    let authResult2 = auth2.process(ctx2)
+    println("  Auth result (expected false): " + authResult2.toString())
+    println("")
+
+    println("=== All Middleware Tests Passed ===")
+    return 0
+}

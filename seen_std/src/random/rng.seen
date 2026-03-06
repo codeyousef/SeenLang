@@ -1,0 +1,113 @@
+// seen_std.random.rng
+// Fast deterministic random number generators for benchmarks and simulations.
+
+// Linear Congruential Generator (LCG) - fast and simple
+// Used in FASTA benchmark with IM=139968, IA=3877
+class LCG {
+    var seed: Int
+    var modulus: Int
+    var multiplier: Int
+    var increment: Int
+
+    fun new(seed: Int) -> LCG {
+        return LCG {
+            seed: seed,
+            modulus: 139968,
+            multiplier: 3877,
+            increment: 29573
+        }
+    }
+
+    fun withParams(seed: Int, modulus: Int, multiplier: Int, increment: Int) -> LCG {
+        return LCG {
+            seed: seed,
+            modulus: modulus,
+            multiplier: multiplier,
+            increment: increment
+        }
+    }
+
+    fun next(this: LCG) -> Int {
+        this.seed = (this.seed * this.multiplier + this.increment) % this.modulus
+        return this.seed
+    }
+
+    fun nextFloat(this: LCG) -> Float {
+        let value = this.next()
+        return intToFloat(value) / intToFloat(this.modulus)
+    }
+
+    fun nextInRange(this: LCG, min: Int, max: Int) -> Int {
+        let range = max - min
+        return min + (this.next() % range)
+    }
+}
+
+// PCG (Permuted Congruential Generator) - high quality, fast
+class PCG {
+    var state: Int
+    var inc: Int
+
+    fun new(seed: Int) -> PCG {
+        return PCG {
+            state: seed,
+            inc: 1
+        }
+    }
+
+    fun withStreams(seed: Int, stream: Int) -> PCG {
+        return PCG {
+            state: seed,
+            inc: (stream << 1) | 1
+        }
+    }
+
+    fun next(this: PCG) -> Int {
+        let oldState = this.state
+        this.state = oldState * 6364136223846793005 + this.inc
+        let xorshifted = ((oldState >> 18) ^ oldState) >> 27
+        let rot = oldState >> 59
+        return (xorshifted >> rot) | (xorshifted << ((-rot) & 31))
+    }
+
+    fun nextFloat(this: PCG) -> Float {
+        let value = this.next() & 0x7FFFFFFF
+        return intToFloat(value) / intToFloat(2147483647)
+    }
+
+    fun nextInRange(this: PCG, min: Int, max: Int) -> Int {
+        let range = max - min
+        return min + (this.next() % range)
+    }
+}
+
+// Xorshift - very fast, good quality
+class Xorshift {
+    var state: Int
+
+    fun new(seed: Int) -> Xorshift {
+        let actualSeed = if seed == 0 { 1 } else { seed }
+        return Xorshift {
+            state: actualSeed
+        }
+    }
+
+    fun next(this: Xorshift) -> Int {
+        var x = this.state
+        x = x ^ (x << 13)
+        x = x ^ (x >> 17)
+        x = x ^ (x << 5)
+        this.state = x
+        return x
+    }
+
+    fun nextFloat(this: Xorshift) -> Float {
+        let value = this.next() & 0x7FFFFFFF
+        return intToFloat(value) / intToFloat(2147483647)
+    }
+
+    fun nextInRange(this: Xorshift, min: Int, max: Int) -> Int {
+        let range = max - min
+        return min + (this.next() % range)
+    }
+}

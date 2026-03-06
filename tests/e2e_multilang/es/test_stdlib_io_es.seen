@@ -1,0 +1,68 @@
+// Prueba E2E: Biblioteca estandar de entrada/salida (Espanol)
+// Funciones probadas: __OpenFile, __WriteFile, __CloseFile, __FileSize,
+//                     __FileExists, __DeleteFile
+// NOTA: Las funciones de alto nivel (escribirTexto, leerTexto, existe, eliminarArchivo)
+//       estan en seen_std/src/io/file.seen pero no disponibles en compilacion de archivo unico.
+//       Usando funciones de runtime con prefijo __ directamente.
+// NOTA: __FileExists/__DeleteFile retornan bool, usar directamente en condicion si
+// NOTA: __ReadFile retorna SeenString pero codegen lo trata como i64 -- no se puede usar
+//       el contenido de la cadena retornada. Verificar via __FileSize en su lugar.
+
+función principal() r: entero {
+    sea ruta = "/tmp/seen_e2e_test_es.txt"
+    sea contenido = "hola desde la prueba e2e de seen en espanol"
+
+    // Prueba 1: abrir archivo para escritura
+    sea fd1 = __OpenFile(ruta, "w")
+    si fd1 < 0 {
+        imprimir("FALLO: abrir archivo para escritura")
+        retornar 1
+    }
+    imprimir("EXITO: abrir archivo para escritura")
+
+    // Prueba 2: escribir contenido
+    sea escrito = __WriteFile(fd1, contenido)
+    sea c1 = __CloseFile(fd1)
+    si escrito >= 0 {
+        imprimir("EXITO: escribirArchivo")
+    } sino {
+        imprimir("FALLO: escribirArchivo")
+        retornar 1
+    }
+
+    // Prueba 3: archivo existe (retorna bool, usar directamente en si)
+    si __FileExists(ruta) {
+        imprimir("EXITO: archivoExiste")
+    } sino {
+        imprimir("FALLO: archivoExiste")
+        retornar 1
+    }
+
+    // Prueba 4: leer y verificar tamanio
+    // (No se puede comparar contenido de cadena por bug de tipo retorno de __ReadFile)
+    sea fd2 = __OpenFile(ruta, "r")
+    si fd2 < 0 {
+        imprimir("FALLO: abrir archivo para lectura")
+        retornar 1
+    }
+    sea tam = __FileSize(fd2)
+    sea c2 = __CloseFile(fd2)
+    si tam == 43 {
+        imprimir("EXITO: tamanio de archivo coincide con longitud de contenido")
+    } sino {
+        imprimir("FALLO: tamanio de archivo, obtuvo " + tam.aTexto())
+        retornar 1
+    }
+
+    // Prueba 5: eliminar archivo
+    __DeleteFile(ruta)
+    si __FileExists(ruta) {
+        imprimir("FALLO: eliminarArchivo (archivo todavia existe)")
+        retornar 1
+    } sino {
+        imprimir("EXITO: eliminarArchivo")
+    }
+
+    imprimir("EXITO: todas las pruebas de entrada/salida pasaron")
+    retornar 0
+}

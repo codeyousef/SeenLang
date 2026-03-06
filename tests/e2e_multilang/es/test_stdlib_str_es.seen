@@ -1,0 +1,80 @@
+// Prueba E2E: Biblioteca estandar de cadenas (Espanol)
+// Funciones probadas: contiene, empiezaCon, terminaCon, indiceDe, longitud, concatenacion
+// NOTA: contiene/empiezaCon/terminaCon retornan bool -- usar directamente en si,
+//       no asignar a variable y comparar con == 1 (incompatibilidad i1 vs i64)
+// NOTA: indiceDe toma 3 argumentos: (texto, aguja, indiceInicio)
+
+función principal() r: entero {
+    sea texto = "hello world"
+
+    // Prueba 1: longitud de cadena
+    sea lon = texto.longitud()
+    si lon == 11 {
+        imprimir("EXITO: longitud de cadena")
+    } sino {
+        imprimir("FALLO: longitud de cadena, obtuvo " + lon.aTexto())
+        retornar 1
+    }
+
+    // Prueba 2: contiene (retorna bool, usar en si directamente)
+    si contiene(texto, "world") {
+        imprimir("EXITO: contiene")
+    } sino {
+        imprimir("FALLO: contiene")
+        retornar 1
+    }
+
+    // Prueba 3: empiezaCon (retorna bool, usar en si directamente)
+    si empiezaCon(texto, "hello") {
+        imprimir("EXITO: empiezaCon")
+    } sino {
+        imprimir("FALLO: empiezaCon")
+        retornar 1
+    }
+
+    // Prueba 4: terminaCon (retorna bool, usar en si directamente)
+    si terminaCon(texto, "world") {
+        imprimir("EXITO: terminaCon")
+    } sino {
+        imprimir("FALLO: terminaCon")
+        retornar 1
+    }
+
+    // Prueba 5: indiceDe (toma 3 argumentos: texto, aguja, indiceInicio)
+    sea idx = indiceDe(texto, "world", 0)
+    si idx == 6 {
+        imprimir("EXITO: indiceDe")
+    } sino {
+        imprimir("FALLO: indiceDe, obtuvo " + idx.aTexto())
+        retornar 1
+    }
+
+    // Prueba 6: concatenacion de cadenas
+    sea saludo = "hola" + " " + "mundo"
+    si saludo == "hola mundo" {
+        imprimir("EXITO: concatenacion de cadenas")
+    } sino {
+        imprimir("FALLO: concatenacion de cadenas")
+        retornar 1
+    }
+
+    // Prueba 7: contiene caso negativo
+    si contiene(texto, "xyz") {
+        imprimir("FALLO: contiene negativo")
+        retornar 1
+    } sino {
+        imprimir("EXITO: contiene negativo")
+    }
+
+    // Prueba 8: indiceDe no encontrado retorna -1
+    sea noEncontrado = indiceDe(texto, "xyz", 0)
+    si noEncontrado == -1 {
+        imprimir("EXITO: indiceDe no encontrado")
+    } sino {
+        imprimir("FALLO: indiceDe no encontrado, obtuvo " + noEncontrado.aTexto())
+        retornar 1
+    }
+
+    imprimir("EXITO: todas las pruebas de cadenas pasaron")
+    retornar 0
+}

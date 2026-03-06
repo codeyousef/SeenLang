@@ -1,0 +1,35 @@
+class Matrix {
+    data: Array<Float>
+    rows: Int
+    cols: Int
+    
+    fun new(rows: Int, cols: Int) -> Matrix {
+        let size = rows * cols
+        let arr = Array<Float>.withCapacity(size)
+        var i = 0
+        while i < size {
+            arr.push(0.0)
+            i = i + 1
+        }
+        Matrix { data: arr, rows: rows, cols: cols }
+    }
+    
+    fun get(row: Int, col: Int) -> Float {
+        this.data[row * this.cols + col]
+    }
+}
+
+fun test_fn(m: Matrix) -> Float {
+    __Print("In test_fn\n")
+    return m.get(0, 0)
+}
+
+fun main() -> Int {
+    __Print("Creating matrix\n")
+    let a = Matrix.new(2, 2)
+    __Print("Matrix created\n")
+    let val = test_fn(a)
+    __Print("Done\n")
+    __PrintFloat(val)
+    return 0
+}

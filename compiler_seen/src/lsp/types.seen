@@ -1,0 +1,919 @@
+// LSP Protocol Types
+// Defines all the types needed for Language Server Protocol communication
+
+import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string, JsonValue_number, JsonValue_bool, JsonValue_emptyArray, JsonValue_array, JsonValue_nullValue}
+import json.parser.{parseJson}
+import json.builder.{jsonToString}
+
+// ============================================================================
+// Core LspPosition Types
+// ============================================================================
+
+// LspPosition in a text document (zero-based line and character)
+class LspPosition {
+    var line: Int
+    var character: Int
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("line", JsonValue_number(this.line))
+        obj.set("character", JsonValue_number(this.character))
+        return obj
+    }
+}
+
+// Free functions (formerly static methods on LspPosition)
+
+fun LspPosition_new(line: Int, character: Int) r: LspPosition {
+    let pos = LspPosition()
+    pos.line = line
+    pos.character = character
+    return pos
+}
+
+fun LspPosition_fromJson(json: JsonValue) r: LspPosition? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let lineVal = json.get("line")
+    let charVal = json.get("character")
+    if lineVal == null or charVal == null {
+        return null
+    }
+    let lineJsonVal = lineVal.unwrap()
+    let charJsonVal = charVal.unwrap()
+    return LspPosition_new(lineJsonVal.getInt(), charJsonVal.getInt())
+}
+
+// Range in a text document
+class Range {
+    var start: LspPosition
+    var end: LspPosition
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("start", this.start.toJson())
+        obj.set("end", this.end.toJson())
+        return obj
+    }
+}
+
+// Free functions (formerly static methods on Range)
+
+fun Range_new(start: LspPosition, end: LspPosition) r: Range {
+    let range = Range()
+    range.start = start
+    range.end = end
+    return range
+}
+
+fun Range_fromJson(json: JsonValue) r: Range? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let startVal = json.get("start")
+    let endVal = json.get("end")
+    if startVal == null or endVal == null {
+        return null
+    }
+    let start = LspPosition_fromJson(startVal.unwrap())
+    let end = LspPosition_fromJson(endVal.unwrap())
+    if start == null or end == null {
+        return null
+    }
+    return Range_new(start.unwrap(), end.unwrap())
+}
+
+// Location in a document
+class Location {
+    var uri: String
+    var range: Range
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("uri", JsonValue_string(this.uri))
+        obj.set("range", this.range.toJson())
+        return obj
+    }
+}
+
+// Free function (formerly static method on Location)
+
+fun Location_new(uri: String, range: Range) r: Location {
+    let loc = Location()
+    loc.uri = uri
+    loc.range = range
+    return loc
+}
+
+// ============================================================================
+// Text Document Types
+// ============================================================================
+
+class TextDocumentIdentifier {
+    var uri: String
+}
+
+// Free functions (formerly static methods on TextDocumentIdentifier)
+
+fun TextDocumentIdentifier_new(uri: String) r: TextDocumentIdentifier {
+    let id = TextDocumentIdentifier()
+    id.uri = uri
+    return id
+}
+
+fun TextDocumentIdentifier_fromJson(json: JsonValue) r: TextDocumentIdentifier? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let uriVal = json.get("uri")
+    if uriVal == null {
+        return null
+    }
+    let uriJsonVal = uriVal.unwrap()
+    return TextDocumentIdentifier_new(uriJsonVal.getString())
+}
+
+class VersionedTextDocumentIdentifier {
+    var uri: String
+    var version: Int
+}
+
+// Free function (formerly static method on VersionedTextDocumentIdentifier)
+
+fun VersionedTextDocumentIdentifier_fromJson(json: JsonValue) r: VersionedTextDocumentIdentifier? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let uriVal = json.get("uri")
+    let versionVal = json.get("version")
+    if uriVal == null or versionVal == null {
+        return null
+    }
+    let id = VersionedTextDocumentIdentifier()
+    let uriJsonVal = uriVal.unwrap()
+    let versionJsonVal = versionVal.unwrap()
+    id.uri = uriJsonVal.getString()
+    id.version = versionJsonVal.getInt()
+    return id
+}
+
+class TextDocumentItem {
+    var uri: String
+    var languageId: String
+    var version: Int
+    var text: String
+}
+
+// Free function (formerly static method on TextDocumentItem)
+
+fun TextDocumentItem_fromJson(json: JsonValue) r: TextDocumentItem? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let uriVal = json.get("uri")
+    let langVal = json.get("languageId")
+    let versionVal = json.get("version")
+    let textVal = json.get("text")
+    if uriVal == null or langVal == null or versionVal == null or textVal == null {
+        return null
+    }
+    let item = TextDocumentItem()
+    let uriJsonVal = uriVal.unwrap()
+    let langJsonVal = langVal.unwrap()
+    let versionJsonVal = versionVal.unwrap()
+    let textJsonVal = textVal.unwrap()
+    item.uri = uriJsonVal.getString()
+    item.languageId = langJsonVal.getString()
+    item.version = versionJsonVal.getInt()
+    item.text = textJsonVal.getString()
+    return item
+}
+
+class TextDocumentContentChangeEvent {
+    var text: String
+}
+
+// Free function (formerly static method on TextDocumentContentChangeEvent)
+
+fun TextDocumentContentChangeEvent_fromJson(json: JsonValue) r: TextDocumentContentChangeEvent? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let textVal = json.get("text")
+    if textVal == null {
+        return null
+    }
+    let event = TextDocumentContentChangeEvent()
+    let textJsonVal = textVal.unwrap()
+    event.text = textJsonVal.getString()
+    return event
+}
+
+// ============================================================================
+// Diagnostic Types
+// ============================================================================
+
+// Diagnostic severity constants
+let DIAGNOSTIC_ERROR = 1
+let DIAGNOSTIC_WARNING = 2
+let DIAGNOSTIC_INFORMATION = 3
+let DIAGNOSTIC_HINT = 4
+
+class Diagnostic {
+    var range: Range
+    var severity: Int
+    var code: String
+    var source: String
+    var message: String
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("range", this.range.toJson())
+        obj.set("severity", JsonValue_number(this.severity))
+        obj.set("source", JsonValue_string(this.source))
+        obj.set("message", JsonValue_string(this.message))
+        if this.code.length() > 0 {
+            obj.set("code", JsonValue_string(this.code))
+        }
+        return obj
+    }
+}
+
+// Free function (formerly static method on Diagnostic)
+
+fun Diagnostic_new(range: Range, severity: Int, message: String) r: Diagnostic {
+    let diag = Diagnostic()
+    diag.range = range
+    diag.severity = severity
+    diag.code = ""
+    diag.source = "seen"
+    diag.message = message
+    return diag
+}
+
+// ============================================================================
+// Completion Types
+// ============================================================================
+
+// Completion item kinds
+let COMPLETION_TEXT = 1
+let COMPLETION_METHOD = 2
+let COMPLETION_FUNCTION = 3
+let COMPLETION_CONSTRUCTOR = 4
+let COMPLETION_FIELD = 5
+let COMPLETION_VARIABLE = 6
+let COMPLETION_CLASS = 7
+let COMPLETION_INTERFACE = 8
+let COMPLETION_MODULE = 9
+let COMPLETION_PROPERTY = 10
+let COMPLETION_UNIT = 11
+let COMPLETION_VALUE = 12
+let COMPLETION_ENUM = 13
+let COMPLETION_KEYWORD = 14
+let COMPLETION_SNIPPET = 15
+let COMPLETION_COLOR = 16
+let COMPLETION_FILE = 17
+let COMPLETION_REFERENCE = 18
+let COMPLETION_FOLDER = 19
+let COMPLETION_ENUM_MEMBER = 20
+let COMPLETION_CONSTANT = 21
+let COMPLETION_STRUCT = 22
+let COMPLETION_EVENT = 23
+let COMPLETION_OPERATOR = 24
+let COMPLETION_TYPE_PARAMETER = 25
+
+class CompletionItem {
+    var label: String
+    var kind: Int
+    var detail: String
+    var documentation: String
+    var insertText: String
+    var insertTextFormat: Int  // 1 = PlainText, 2 = Snippet
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("label", JsonValue_string(this.label))
+        obj.set("kind", JsonValue_number(this.kind))
+        if this.detail.length() > 0 {
+            obj.set("detail", JsonValue_string(this.detail))
+        }
+        if this.documentation.length() > 0 {
+            let docContent = JsonValue_emptyObject()
+            docContent.set("kind", JsonValue_string("markdown"))
+            docContent.set("value", JsonValue_string(this.documentation))
+            obj.set("documentation", docContent)
+        }
+        if this.insertText.length() > 0 {
+            obj.set("insertText", JsonValue_string(this.insertText))
+            obj.set("insertTextFormat", JsonValue_number(this.insertTextFormat))
+        }
+        return obj
+    }
+}
+
+// Free function (formerly static method on CompletionItem)
+
+fun CompletionItem_new(label: String, kind: Int) r: CompletionItem {
+    let item = CompletionItem()
+    item.label = label
+    item.kind = kind
+    item.detail = ""
+    item.documentation = ""
+    item.insertText = ""
+    item.insertTextFormat = 1
+    return item
+}
+
+class CompletionList {
+    var isIncomplete: Bool
+    var items: Array<CompletionItem>
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("isIncomplete", JsonValue_bool(this.isIncomplete))
+        let itemsArrElems = Array<JsonValue>()
+        var i = 0
+        while i < this.items.length() {
+            itemsArrElems.push(this.items[i].toJson())
+            i = i + 1
+        }
+        let itemsArr = JsonValue_array(itemsArrElems)
+        obj.set("items", itemsArr)
+        return obj
+    }
+}
+
+// Free function (formerly static method on CompletionList)
+
+fun CompletionList_new(items: Array<CompletionItem>) r: CompletionList {
+    let list = CompletionList()
+    list.isIncomplete = false
+    list.items = items
+    return list
+}
+
+// ============================================================================
+// Hover Types
+// ============================================================================
+
+class MarkupContent {
+    var kind: String  // "plaintext" or "markdown"
+    var value: String
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("kind", JsonValue_string(this.kind))
+        obj.set("value", JsonValue_string(this.value))
+        return obj
+    }
+}
+
+// Free functions (formerly static methods on MarkupContent)
+
+fun MarkupContent_markdown(value: String) r: MarkupContent {
+    let content = MarkupContent()
+    content.kind = "markdown"
+    content.value = value
+    return content
+}
+
+fun MarkupContent_plaintext(value: String) r: MarkupContent {
+    let content = MarkupContent()
+    content.kind = "plaintext"
+    content.value = value
+    return content
+}
+
+class Hover {
+    var contents: MarkupContent
+    var range: Range?
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("contents", this.contents.toJson())
+        if this.range != null {
+            let rangeVal = this.range.unwrap()
+            obj.set("range", rangeVal.toJson())
+        }
+        return obj
+    }
+}
+
+// Free function (formerly static method on Hover)
+
+fun Hover_new(contents: MarkupContent) r: Hover {
+    let hover = Hover()
+    hover.contents = contents
+    hover.range = null
+    return hover
+}
+
+// ============================================================================
+// Code Action Types
+// ============================================================================
+
+class TextEdit {
+    var range: Range
+    var newText: String
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("range", this.range.toJson())
+        obj.set("newText", JsonValue_string(this.newText))
+        return obj
+    }
+}
+
+// Free function (formerly static method on TextEdit)
+
+fun TextEdit_new(range: Range, newText: String) r: TextEdit {
+    let edit = TextEdit()
+    edit.range = range
+    edit.newText = newText
+    return edit
+}
+
+class CodeAction {
+    var title: String
+    var kind: String
+    var isPreferred: Bool
+    var diagnostics: Array<Diagnostic>
+    var edit: TextEdit?
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("title", JsonValue_string(this.title))
+        if this.kind.length() > 0 {
+            obj.set("kind", JsonValue_string(this.kind))
+        }
+        if this.isPreferred {
+            obj.set("isPreferred", JsonValue_bool(true))
+        }
+        return obj
+    }
+}
+
+// Free function (formerly static method on CodeAction)
+
+fun CodeAction_new(title: String, kind: String) r: CodeAction {
+    let action = CodeAction()
+    action.title = title
+    action.kind = kind
+    action.isPreferred = false
+    action.diagnostics = Array<Diagnostic>()
+    action.edit = null
+    return action
+}
+
+// ============================================================================
+// Initialize Request/Response Types
+// ============================================================================
+
+class ClientCapabilities {
+    // Simplified - we'll expand as needed
+    var supportsWorkspaceFolders: Bool
+    var supportsDiagnosticRelatedInformation: Bool
+}
+
+// Free function (formerly static method on ClientCapabilities)
+
+fun ClientCapabilities_fromJson(json: JsonValue) r: ClientCapabilities {
+    let caps = ClientCapabilities()
+    caps.supportsWorkspaceFolders = false
+    caps.supportsDiagnosticRelatedInformation = false
+    // Parse capabilities as needed
+    return caps
+}
+
+class InitializeParams {
+    var processId: Int
+    var rootUri: String
+    var capabilities: ClientCapabilities
+}
+
+// Free function (formerly static method on InitializeParams)
+
+fun InitializeParams_fromJson(json: JsonValue) r: InitializeParams? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let params = InitializeParams()
+
+    let pidVal = json.get("processId")
+    if pidVal != null {
+        let pidJsonVal = pidVal.unwrap()
+        if pidJsonVal.isNull() {
+            params.processId = -1
+        } else {
+            params.processId = pidJsonVal.getInt()
+        }
+    } else {
+        params.processId = -1
+    }
+
+    let rootVal = json.get("rootUri")
+    if rootVal != null {
+        let rootJsonVal = rootVal.unwrap()
+        if rootJsonVal.isNull() {
+            params.rootUri = ""
+        } else {
+            params.rootUri = rootJsonVal.getString()
+        }
+    } else {
+        params.rootUri = ""
+    }
+
+    let capsVal = json.get("capabilities")
+    if capsVal != null {
+        let capsJsonVal = capsVal.unwrap()
+        params.capabilities = ClientCapabilities_fromJson(capsJsonVal)
+    } else {
+        params.capabilities = ClientCapabilities()
+        params.capabilities.supportsWorkspaceFolders = false
+        params.capabilities.supportsDiagnosticRelatedInformation = false
+    }
+
+    return params
+}
+
+class ServerCapabilities {
+    fun toJson() r: JsonValue {
+        let caps = JsonValue_emptyObject()
+
+        // Text document sync - full document sync
+        caps.set("textDocumentSync", JsonValue_number(1))
+
+        // Completion support
+        let completion = JsonValue_emptyObject()
+        completion.set("resolveProvider", JsonValue_bool(false))
+        let triggerItems = Array<JsonValue>()
+        triggerItems.push(JsonValue_string("."))
+        triggerItems.push(JsonValue_string(":"))
+        let triggers = JsonValue_array(triggerItems)
+        completion.set("triggerCharacters", triggers)
+        caps.set("completionProvider", completion)
+
+        // Hover support
+        caps.set("hoverProvider", JsonValue_bool(true))
+
+        // Go to definition
+        caps.set("definitionProvider", JsonValue_bool(true))
+
+        // Find references
+        caps.set("referencesProvider", JsonValue_bool(true))
+
+        // Document symbols
+        caps.set("documentSymbolProvider", JsonValue_bool(true))
+
+        // Code actions
+        let codeAction = JsonValue_emptyObject()
+        let kindItems = Array<JsonValue>()
+        kindItems.push(JsonValue_string("quickfix"))
+        kindItems.push(JsonValue_string("refactor"))
+        let kinds = JsonValue_array(kindItems)
+        codeAction.set("codeActionKinds", kinds)
+        caps.set("codeActionProvider", codeAction)
+
+        // Document formatting
+        caps.set("documentFormattingProvider", JsonValue_bool(true))
+
+        // Rename
+        caps.set("renameProvider", JsonValue_bool(true))
+
+        return caps
+    }
+}
+
+class ServerInfo {
+    var name: String
+    var version: String
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("name", JsonValue_string(this.name))
+        obj.set("version", JsonValue_string(this.version))
+        return obj
+    }
+}
+
+class InitializeResult {
+    var capabilities: ServerCapabilities
+    var serverInfo: ServerInfo
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("capabilities", this.capabilities.toJson())
+        obj.set("serverInfo", this.serverInfo.toJson())
+        return obj
+    }
+}
+
+// Free function (formerly static method on InitializeResult)
+
+fun InitializeResult_new() r: InitializeResult {
+    let result = InitializeResult()
+    result.capabilities = ServerCapabilities()
+    result.serverInfo = ServerInfo()
+    result.serverInfo.name = "Seen Language Server"
+    result.serverInfo.version = "1.0.0"
+    return result
+}
+
+// ============================================================================
+// Document Sync Params
+// ============================================================================
+
+class DidOpenTextDocumentParams {
+    var textDocument: TextDocumentItem
+}
+
+// Free function (formerly static method on DidOpenTextDocumentParams)
+
+fun DidOpenTextDocumentParams_fromJson(json: JsonValue) r: DidOpenTextDocumentParams? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let tdVal = json.get("textDocument")
+    if tdVal == null {
+        return null
+    }
+    let tdJsonVal = tdVal.unwrap()
+    let item = TextDocumentItem_fromJson(tdJsonVal)
+    if item == null {
+        return null
+    }
+    let params = DidOpenTextDocumentParams()
+    params.textDocument = item.unwrap()
+    return params
+}
+
+class DidChangeTextDocumentParams {
+    var textDocument: VersionedTextDocumentIdentifier
+    var contentChanges: Array<TextDocumentContentChangeEvent>
+}
+
+// Free function (formerly static method on DidChangeTextDocumentParams)
+
+fun DidChangeTextDocumentParams_fromJson(json: JsonValue) r: DidChangeTextDocumentParams? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let tdVal = json.get("textDocument")
+    let changesVal = json.get("contentChanges")
+    if tdVal == null or changesVal == null {
+        return null
+    }
+    let tdJsonVal = tdVal.unwrap()
+    let versioned = VersionedTextDocumentIdentifier_fromJson(tdJsonVal)
+    if versioned == null {
+        return null
+    }
+    let params = DidChangeTextDocumentParams()
+    params.textDocument = versioned.unwrap()
+    params.contentChanges = Array<TextDocumentContentChangeEvent>()
+
+    let changesJsonVal = changesVal.unwrap()
+    if changesJsonVal.isArray() {
+        let arr = changesJsonVal.getArray()
+        var i = 0
+        while i < arr.length() {
+            let change = TextDocumentContentChangeEvent_fromJson(arr[i])
+            if change != null {
+                params.contentChanges.push(change.unwrap())
+            }
+            i = i + 1
+        }
+    }
+    return params
+}
+
+class DidCloseTextDocumentParams {
+    var textDocument: TextDocumentIdentifier
+}
+
+// Free function (formerly static method on DidCloseTextDocumentParams)
+
+fun DidCloseTextDocumentParams_fromJson(json: JsonValue) r: DidCloseTextDocumentParams? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let tdVal = json.get("textDocument")
+    if tdVal == null {
+        return null
+    }
+    let id = TextDocumentIdentifier_fromJson(tdVal.unwrap())
+    if id == null {
+        return null
+    }
+    let params = DidCloseTextDocumentParams()
+    params.textDocument = id.unwrap()
+    return params
+}
+
+class DidSaveTextDocumentParams {
+    var textDocument: TextDocumentIdentifier
+    var text: String?
+}
+
+// Free function (formerly static method on DidSaveTextDocumentParams)
+
+fun DidSaveTextDocumentParams_fromJson(json: JsonValue) r: DidSaveTextDocumentParams? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let tdVal = json.get("textDocument")
+    if tdVal == null {
+        return null
+    }
+    let tdJsonVal2 = tdVal.unwrap()
+    let id = TextDocumentIdentifier_fromJson(tdJsonVal2)
+    if id == null {
+        return null
+    }
+    let params = DidSaveTextDocumentParams()
+    params.textDocument = id.unwrap()
+    let textVal = json.get("text")
+    if textVal != null {
+        let textJsonVal2 = textVal.unwrap()
+        params.text = textJsonVal2.getString()
+    } else {
+        params.text = null
+    }
+    return params
+}
+
+// ============================================================================
+// Request Params
+// ============================================================================
+
+class TextDocumentPositionParams {
+    var textDocument: TextDocumentIdentifier
+    var position: LspPosition
+}
+
+// Free function (formerly static method on TextDocumentPositionParams)
+
+fun TextDocumentPositionParams_fromJson(json: JsonValue) r: TextDocumentPositionParams? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let tdVal = json.get("textDocument")
+    let posVal = json.get("position")
+    if tdVal == null or posVal == null {
+        return null
+    }
+    let id = TextDocumentIdentifier_fromJson(tdVal.unwrap())
+    let pos = LspPosition_fromJson(posVal.unwrap())
+    if id == null or pos == null {
+        return null
+    }
+    let params = TextDocumentPositionParams()
+    params.textDocument = id.unwrap()
+    params.position = pos.unwrap()
+    return params
+}
+
+// Alias for completion, hover, definition params (they're the same structure)
+fun CompletionParams_fromJson(json: JsonValue) r: TextDocumentPositionParams? {
+    return TextDocumentPositionParams_fromJson(json)
+}
+
+fun HoverParams_fromJson(json: JsonValue) r: TextDocumentPositionParams? {
+    return TextDocumentPositionParams_fromJson(json)
+}
+
+fun DefinitionParams_fromJson(json: JsonValue) r: TextDocumentPositionParams? {
+    return TextDocumentPositionParams_fromJson(json)
+}
+
+class CodeActionContext {
+    var diagnostics: Array<Diagnostic>
+}
+
+// Free function (formerly static method on CodeActionContext)
+
+fun CodeActionContext_fromJson(json: JsonValue) r: CodeActionContext {
+    let ctx = CodeActionContext()
+    ctx.diagnostics = Array<Diagnostic>()
+    // Parse diagnostics if needed
+    return ctx
+}
+
+class CodeActionParams {
+    var textDocument: TextDocumentIdentifier
+    var range: Range
+    var context: CodeActionContext
+}
+
+// Free function (formerly static method on CodeActionParams)
+
+fun CodeActionParams_fromJson(json: JsonValue) r: CodeActionParams? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let tdVal = json.get("textDocument")
+    let rangeVal = json.get("range")
+    let ctxVal = json.get("context")
+    if tdVal == null or rangeVal == null {
+        return null
+    }
+    let id = TextDocumentIdentifier_fromJson(tdVal.unwrap())
+    let range = Range_fromJson(rangeVal.unwrap())
+    if id == null or range == null {
+        return null
+    }
+    let params = CodeActionParams()
+    params.textDocument = id.unwrap()
+    params.range = range.unwrap()
+    if ctxVal != null {
+        params.context = CodeActionContext_fromJson(ctxVal.unwrap())
+    } else {
+        params.context = CodeActionContext()
+        params.context.diagnostics = Array<Diagnostic>()
+    }
+    return params
+}
+
+class DocumentFormattingParams {
+    var textDocument: TextDocumentIdentifier
+}
+
+// Free function (formerly static method on DocumentFormattingParams)
+
+fun DocumentFormattingParams_fromJson(json: JsonValue) r: DocumentFormattingParams? {
+    if json.isObject() {
+        // fall through
+    } else {
+        return null
+    }
+    let tdVal = json.get("textDocument")
+    if tdVal == null {
+        return null
+    }
+    let id = TextDocumentIdentifier_fromJson(tdVal.unwrap())
+    if id == null {
+        return null
+    }
+    let params = DocumentFormattingParams()
+    params.textDocument = id.unwrap()
+    return params
+}
+
+// ============================================================================
+// Publish Diagnostics
+// ============================================================================
+
+class PublishDiagnosticsParams {
+    var uri: String
+    var diagnostics: Array<Diagnostic>
+
+    fun toJson() r: JsonValue {
+        let obj = JsonValue_emptyObject()
+        obj.set("uri", JsonValue_string(this.uri))
+        let diagsArrElems = Array<JsonValue>()
+        var i = 0
+        while i < this.diagnostics.length() {
+            diagsArrElems.push(this.diagnostics[i].toJson())
+            i = i + 1
+        }
+        let diagsArr = JsonValue_array(diagsArrElems)
+        obj.set("diagnostics", diagsArr)
+        return obj
+    }
+}
+
+// Free function (formerly static method on PublishDiagnosticsParams)
+
+fun PublishDiagnosticsParams_new(uri: String, diagnostics: Array<Diagnostic>) r: PublishDiagnosticsParams {
+    let params = PublishDiagnosticsParams()
+    params.uri = uri
+    params.diagnostics = diagnostics
+    return params
+}

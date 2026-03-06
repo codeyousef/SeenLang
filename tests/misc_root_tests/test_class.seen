@@ -1,0 +1,13 @@
+class Point {
+    x: Int
+    y: Int
+    
+    fun new(x: Int, y: Int) {
+        Point { x: x, y: y }
+    }
+}
+
+fun main() {
+    let p = Point.new(10, 20)
+    p
+}

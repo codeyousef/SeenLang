@@ -1,0 +1,22 @@
+// P2 : JSON Serialization Helpers
+// Bridge module for @derive(Json) generated methods
+
+// Usage:
+//   @derive(Json)
+//   class Config {
+//       name: String
+//       value: Int
+//       enabled: Bool
+//   }
+//   let cfg = Config("debug", 42, true)
+//   let json = cfg.toJson()           // {"name": "debug", "value": 42, "enabled": true}
+//   let cfg2 = Config.fromJson(json)  // reconstruct (limited: zero-init for now)
+
+// JSON type constants for runtime
+let JSON_NULL = 0
+let JSON_BOOL = 1
+let JSON_INT = 2
+let JSON_FLOAT = 3
+let JSON_STRING = 4
+let JSON_ARRAY = 5
+let JSON_OBJECT = 6

@@ -1,0 +1,54 @@
+name = "Japanese"
+description = "Japanese Math Standard Library"
+
+[std_lib]
+# 三角関数
+"正弦" = "seen_std.math.sin"
+"余弦" = "seen_std.math.cos"
+"正接" = "seen_std.math.tan"
+"逆正弦" = "seen_std.math.asin"
+"逆余弦" = "seen_std.math.acos"
+"逆正接" = "seen_std.math.atan"
+"逆正接2" = "seen_std.math.atan2"
+
+# 累乗根
+"平方根" = "seen_std.math.sqrt"
+"立方根" = "seen_std.math.cbrt"
+"累乗" = "seen_std.math.pow"
+"斜辺" = "seen_std.math.hypot"
+
+# 指数・対数
+"指数" = "seen_std.math.exp"
+"自然対数" = "seen_std.math.ln"
+"対数2" = "seen_std.math.log2"
+"対数10" = "seen_std.math.log10"
+
+# 丸め
+"切り捨て" = "seen_std.math.floor"
+"切り上げ" = "seen_std.math.ceil"
+"四捨五入" = "seen_std.math.round"
+
+# 基本
+"絶対値" = "seen_std.math.abs"
+"最小値" = "seen_std.math.min"
+"最大値" = "seen_std.math.max"
+"制限" = "seen_std.math.clamp"
+"符号" = "seen_std.math.sign"
+
+# 補間
+"線形補間" = "seen_std.math.lerp"
+"滑らかステップ" = "seen_std.math.smoothstep"
+
+# IEEE検査
+"非数判定" = "seen_std.math.isnan"
+"無限判定" = "seen_std.math.isinf"
+"有限判定" = "seen_std.math.isfinite"
+
+# 整数
+"最大公約数" = "seen_std.math.gcd"
+
+# 定数
+"円周率" = "seen_std.math.PI"
+"タウ" = "seen_std.math.TAU"
+"自然対数の底" = "seen_std.math.E"
+"イプシロン" = "seen_std.math.EPSILON"

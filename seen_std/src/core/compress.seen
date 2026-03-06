@@ -1,0 +1,17 @@
+// P2 : Compression Wrappers
+// RLE compression for @binary(compress="rle") support
+
+// Usage:
+//   let compressed = compressRLE(dataPtr, dataLen, outPtr, outCap)
+//   let decompressed = decompressRLE(compPtr, compLen, outPtr, outCap)
+
+extern fun __CompressRLE(src: Int, srcLen: Int, dst: Int, dstCap: Int) r: Int
+extern fun __DecompressRLE(src: Int, srcLen: Int, dst: Int, dstCap: Int) r: Int
+
+fun compressRLE(src: Int, srcLen: Int, dst: Int, dstCap: Int) r: Int {
+    return __CompressRLE(src, srcLen, dst, dstCap)
+}
+
+fun decompressRLE(src: Int, srcLen: Int, dst: Int, dstCap: Int) r: Int {
+    return __DecompressRLE(src, srcLen, dst, dstCap)
+}

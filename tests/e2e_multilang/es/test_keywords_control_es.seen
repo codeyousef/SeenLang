@@ -1,0 +1,108 @@
+// Prueba E2E: Palabras clave de flujo de control (Espanol)
+// Palabras probadas: función, si, sino, mientras, romper, continuar, retornar, bucle
+
+función ayudante_sumar(a: entero, b: entero) r: entero {
+    retornar a + b
+}
+
+función ayudante_negar(x: entero) r: entero {
+    retornar 0 - x
+}
+
+función principal() r: entero {
+    // Prueba 1: función + retornar
+    sea resultado = ayudante_sumar(3, 4)
+    si resultado == 7 {
+        imprimir("EXITO: función+retornar")
+    } sino {
+        imprimir("FALLO: función+retornar")
+        retornar 1
+    }
+
+    // Prueba 2: si + sino
+    sea neg = ayudante_negar(5)
+    si neg == -5 {
+        imprimir("EXITO: si+sino")
+    } sino {
+        imprimir("FALLO: si+sino")
+        retornar 1
+    }
+
+    // Prueba 3: mientras + romper
+    variable i = 0
+    mientras i < 100 {
+        si i == 5 {
+            romper
+        }
+        i = i + 1
+    }
+    si i == 5 {
+        imprimir("EXITO: mientras+romper")
+    } sino {
+        imprimir("FALLO: mientras+romper")
+        retornar 1
+    }
+
+    // Prueba 4: mientras + continuar (sumar impares 1..10)
+    variable suma = 0
+    variable j = 0
+    mientras j < 10 {
+        j = j + 1
+        sea resto = j - (j / 2) * 2
+        si resto == 0 {
+            continuar
+        }
+        suma = suma + j
+    }
+    si suma == 25 {
+        imprimir("EXITO: mientras+continuar")
+    } sino {
+        imprimir("FALLO: mientras+continuar, obtuvo " + suma.aTexto())
+        retornar 1
+    }
+
+    // Prueba 5: bucle + romper
+    variable k = 0
+    bucle {
+        k = k + 1
+        si k == 3 {
+            romper
+        }
+    }
+    si k == 3 {
+        imprimir("EXITO: bucle+romper")
+    } sino {
+        imprimir("FALLO: bucle+romper")
+        retornar 1
+    }
+
+    // Prueba 6: bucles mientras anidados
+    variable externo = 0
+    variable total = 0
+    mientras externo < 3 {
+        variable interno = 0
+        mientras interno < 4 {
+            total = total + 1
+            interno = interno + 1
+        }
+        externo = externo + 1
+    }
+    si total == 12 {
+        imprimir("EXITO: mientras anidado")
+    } sino {
+        imprimir("FALLO: mientras anidado")
+        retornar 1
+    }
+
+    // Prueba 7: retornar desde contexto anidado
+    sea r = ayudante_sumar(ayudante_sumar(1, 2), ayudante_sumar(3, 4))
+    si r == 10 {
+        imprimir("EXITO: retornar anidado")
+    } sino {
+        imprimir("FALLO: retornar anidado")
+        retornar 1
+    }
+
+    imprimir("EXITO: todas las pruebas de flujo de control pasaron")
+    retornar 0
+}

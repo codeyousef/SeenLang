@@ -1,0 +1,101 @@
+// Lexer excerpt — demonstrates classes, generics, enums, and pattern matching
+import lexer.interfaces.{Token, Position}
+
+enum TokenKind {
+    Identifier,
+    IntLiteral,
+    StringLiteral,
+    Keyword,
+    Operator,
+    Punctuation,
+    Eof
+}
+
+class SimpleLexer {
+    let source: String
+    var position: Int
+    var line: Int
+    var column: Int
+
+    static fun new(source: String) r: SimpleLexer {
+        return SimpleLexer {
+            source: source,
+            position: 0,
+            line: 1,
+            column: 1
+        }
+    }
+
+    fun isAtEnd() -> Bool {
+        return position >= source.length()
+    }
+
+    fun currentChar() -> Char {
+        return source.charAt(position)
+    }
+
+    fun advance() {
+        if currentChar() == '\n' {
+            line = line + 1
+            column = 1
+        } else {
+            column = column + 1
+        }
+        position = position + 1
+    }
+
+    fun skipWhitespace() {
+        while !isAtEnd() and isWhitespace(currentChar()) {
+            advance()
+        }
+    }
+
+    fun readIdentifier() -> String {
+        let start = position
+        while !isAtEnd() and isAlphanumeric(currentChar()) {
+            advance()
+        }
+        return source.substring(start, position)
+    }
+
+    fun readNumber() -> String {
+        let start = position
+        while !isAtEnd() and isDigit(currentChar()) {
+            advance()
+        }
+        return source.substring(start, position)
+    }
+
+    fun tokenize() -> Array<Token> {
+        var tokens = Array<Token>()
+        while !isAtEnd() {
+            skipWhitespace()
+            if isAtEnd() { break }
+
+            let ch = currentChar()
+            let pos = Position { line: line, column: column }
+
+            if isAlpha(ch) {
+                let text = readIdentifier()
+                tokens.push(Token { kind: TokenKind.Identifier, text: text, pos: pos })
+            } else if isDigit(ch) {
+                let text = readNumber()
+                tokens.push(Token { kind: TokenKind.IntLiteral, text: text, pos: pos })
+            } else {
+                advance()
+            }
+        }
+        tokens.push(Token { kind: TokenKind.Eof, text: "", pos: Position { line: line, column: column } })
+        return tokens
+    }
+}
+
+fun main() {
+    let lexer = SimpleLexer.new("val x = 42")
+    let tokens = lexer.tokenize()
+    var i = 0
+    while i < tokens.length() {
+        println(tokens[i].text)
+        i = i + 1
+    }
+}

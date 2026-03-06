@@ -1,0 +1,69 @@
+version = 1
+
+[[modules]]
+path = "src/core/option.seen"
+hash = "aa26556f44aed04b6842eace409a4e7333bd5ca6d4a35892df52c3a0ec052692"
+
+[[modules]]
+path = "src/core/result.seen"
+hash = "8cdc1fea2976614d2bb2d3c99ce0d1ae1c01370334f6894a9e05de5249f7db37"
+
+[[modules]]
+path = "src/core/prelude.seen"
+hash = "b74ef5b4cdc72c487f3d56f19cc9ea3c8c35985c358594c53dfff56b5bd9ee3f"
+
+[[modules]]
+path = "src/collections/list_utils.seen"
+hash = "ed804cb338e6d11867063c40c44f9fec99b738842986465eba129ce9c45366e7"
+
+[[modules]]
+path = "src/collections/vec.seen"
+hash = "f65d9e7e119193edbfa817fb1ccbdd113c65a060ac20b4d20f5a6991f7e8fe06"
+
+[[modules]]
+path = "src/collections/std_string.seen"
+hash = "d2cb02a3f0b77a4c7ae2e29ceeadb24a0a655dd3cee91cceed199bf8a91f6689"
+
+[[modules]]
+path = "src/collections/string_hash_map.seen"
+hash = "3d2bb584a3fa98d9eed8e53e87c94c63f59ff243423a706ad9362ce36b907ead"
+
+[[modules]]
+path = "src/collections/string_buffer.seen"
+hash = "9cd067fa0af4954bb7650035747bb0db5855a7e72a57e39461eb50771b32a38e"
+
+[[modules]]
+path = "src/io/file.seen"
+hash = "990f4acef73bf2c2fe657410912ca822e98082a24a7cd9dade6962a574fb5be9"
+
+[[modules]]
+path = "src/env/env.seen"
+hash = "d486098df35bf5d02e8a43e50fe6465a20b89ed92802c277d135ae307a02a13b"
+
+[[modules]]
+path = "src/fs/path.seen"
+hash = "1bbc1eeefe2843b858d8c3fba1bb5f9433a605d422060211fd8ca6492665dbc8"
+
+[[modules]]
+path = "src/process/process.seen"
+hash = "79e505e192f7c9968f7fa93747975418e5c8e39271a87ae102c20c7a87c0e6c1"
+
+[[modules]]
+path = "src/time/time.seen"
+hash = "305c472283a062c305b28e41fc72f20746e11f11505b672f79337367e4c4da0c"
+
+[[modules]]
+path = "src/async/task.seen"
+hash = "6c6815a62f880edf7f88ef01ef603505f9884f51aea357285a519f081733fb61"
+
+[[modules]]
+path = "src/ffi/cinterop.seen"
+hash = "30649d07117d08f2b7d4ebaa67a62b80454ff4d76fd25dafcf04e57efcd132a7"
+
+[[modules]]
+path = "src/str/string.seen"
+hash = "464e148fecf12e556982f58c40792788f8d1bcf370e36d63c6c5f79a6b07a965"
+
+[[modules]]
+path = "src/math/math.seen"
+hash = "52a038150aa4b5f1b25f1d5b01578767a2adfd826f261c43e36355c93c054352"
