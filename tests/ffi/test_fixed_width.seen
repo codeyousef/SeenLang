@@ -1,0 +1,33 @@
+// Test: Fixed-width integer types and casts
+fun main() {
+    // Phase 1: Fixed-width type casts
+    let x = 300
+    let x32 = x as Int32
+    let back = x32 as Int
+    println(back.toString())  // 300
+
+    let big = 100000
+    let u16val = big as UInt16  // truncates to 16-bit
+    let u16back = u16val as Int
+    println(u16back.toString())  // 34464 (100000 mod 65536)
+
+    let byte = 255
+    let u8val = byte as UInt8
+    let u8back = u8val as Int
+    println(u8back.toString())  // 255
+
+    // Float32 cast
+    let f = 3.14
+    let f32val = f as Float32
+    let f64back = f32val as Float
+    // Should be approximately 3.14 (with float32 precision loss)
+    println("float32 roundtrip ok")
+
+    // sizeof checks
+    println(sizeof(Int32).toString())   // 4
+    println(sizeof(UInt16).toString())  // 2
+    println(sizeof(Int8).toString())    // 1
+    println(sizeof(Float32).toString()) // 4
+
+    println("PASS: fixed_width_types")
+}

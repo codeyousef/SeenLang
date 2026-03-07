@@ -1,0 +1,19 @@
+// Test: Bit fields — read and write with masking
+
+class Flags {
+    var a: Int:bitfield(1)
+    var b: Int:bitfield(3)
+    var c: Int:bitfield(8)
+}
+
+fun main() {
+    let f = Flags()
+    f.a = 1
+    f.b = 5
+    f.c = 200
+
+    println("a=" + f.a.toString())
+    println("b=" + f.b.toString())
+    println("c=" + f.c.toString())
+    println("done")
+}

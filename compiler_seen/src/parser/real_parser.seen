@@ -705,54 +705,10 @@ class RealParser {
                         if matchTokenStr(SeenTokenType.KeywordStatic) { continue }
                         if matchTokenStr(SeenTokenType.KeywordOverride) { continue }
 
-                        // Parse function
+                        // Parse function via parseFunctionItemInto (auto-pushes with raw name)
+                        // The codegen detects 'this: ClassName' param and generates ClassName_method
                         if matchTokenStr(getKeywordFunType()) {
                             parseFunctionItemInto()
-                            let implFunc = lastFunction
-                            // Inject 'this: ClassName' as first parameter for instance methods
-                            // This ensures codegen generates proper receiver dispatch
-                            var implIsStatic = false
-                            // Check if any decorator was @static (decorators already consumed above)
-                            var implDecIdx = 0
-                            while implDecIdx < implFunc.decorators.length() {
-                                if implFunc.decorators[implDecIdx].name == "static" {
-                                    implIsStatic = true
-                                }
-                                implDecIdx = implDecIdx + 1
-                            }
-                            if not implIsStatic {
-                                // Check if first param is already 'this' (avoid double-inject)
-                                var alreadyHasThis = false
-                                if implFunc.params.length() > 0 {
-                                    if implFunc.params[0].name == "this" {
-                                        alreadyHasThis = true
-                                    }
-                                }
-                                if not alreadyHasThis {
-                                    let thisParam = ParamNode.new()
-                                    thisParam.name = "this"
-                                    let thisTypeNode = TypeNode.new()
-                                    thisTypeNode.typeName = implTargetName
-                                    thisParam.paramType = thisTypeNode
-                                    var newParams = Array<ParamNode>()
-                                    newParams.push(thisParam)
-                                    var pI = 0
-                                    while pI < implFunc.params.length() {
-                                        newParams.push(implFunc.params[pI])
-                                        pI = pI + 1
-                                    }
-                                    implFunc.params = newParams
-                                }
-                            }
-                            // Create an ItemNode that attaches this method to the target class
-                            let implItem = ItemNode.new()
-                            implItem.itemType = "Function"
-                            let implMethodName = implTargetName + "_" + implFunc.name
-                            implFunc.name = implMethodName
-                            implItem.name = implMethodName
-                            implItem.function = implFunc
-                            implItem.visibility = "public"
-                            currentProgram.items.push(implItem)
                             continue
                         }
                         // Skip unrecognized tokens to avoid infinite loop
@@ -865,6 +821,9 @@ class RealParser {
                     let gvValToken2 = advance()
                     gvInit2 = gvValToken2.getValue()
                     if gvIsNeg2 { gvInit2 = "-" + gvInit2 }
+                    if gvType2 == "Int" and gvInit2.contains(".") {
+                        gvType2 = "Float"
+                    }
                 }
                 if matchTokenStr(SeenTokenType.Semicolon) { }
                 let gvItem2 = ItemNode.new()
@@ -936,6 +895,9 @@ class RealParser {
             let gvValToken = advance()
             gvInit = gvValToken.getValue()
             if gvIsNeg { gvInit = "-" + gvInit }
+            if gvType == "Int" and gvInit.contains(".") {
+                gvType = "Float"
+            }
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
         let gvItem = ItemNode.new()
@@ -3539,6 +3501,26 @@ class RealParser {
             expr.operands.push(operand)
             return expr
         }
+        // Handle address-of (&x) — prefix & creates pointer to variable
+        if checkToken(SeenTokenType.BitwiseAnd) {
+            advance()
+            let operand = parseUnary()
+            let expr = ParserExpressionNode.new()
+            expr.kind = "Unary"
+            expr.operator = "&"
+            expr.operands.push(operand)
+            return expr
+        }
+        // Handle pointer dereference (*ptr) — prefix * dereferences pointer
+        if checkToken(SeenTokenType.Multiply) {
+            advance()
+            let operand = parseUnary()
+            let expr = ParserExpressionNode.new()
+            expr.kind = "Unary"
+            expr.operator = "*"
+            expr.operands.push(operand)
+            return expr
+        }
         // Check for 'not' keyword (would need to add this as a token type)
         return parseCall()
     }
@@ -4007,10 +3989,14 @@ class RealParser {
                         }
                     }
 
-                    // Handle multiple type parameters like Map<K, V>
+                    // Handle multiple type parameters like Map<K, V> or FixedArray<Int, 4>
                     while matchTokenStr(SeenTokenType.Comma) {
                         if checkToken(SeenTokenType.Identifier) {
                             fullTypeParam = fullTypeParam + ", " + advance().getValue()
+                        } else {
+                            if checkToken(SeenTokenType.IntegerLiteral) {
+                                fullTypeParam = fullTypeParam + ", " + advance().getValue()
+                            }
                         }
                     }
 
@@ -4065,7 +4051,30 @@ class RealParser {
             // This prevents `if myVar { ... }` from being parsed as struct literal
             let firstChar = name.charAt(0)
             let isUppercase = firstChar >= "A" and firstChar <= "Z"
+            var isStructLiteral = false
             if isUppercase and checkToken(SeenTokenType.LeftBrace) {
+                // Lookahead: struct literal requires { IDENTIFIER : pattern
+                // This prevents `if X >= MAX_ITEMS { ... }` from treating MAX_ITEMS as struct type
+                let savedCurrent = current
+                advance() // skip {
+                var looksLikeStruct = false
+                if checkToken(SeenTokenType.RightBrace) {
+                    looksLikeStruct = true
+                }
+                if checkToken(SeenTokenType.Identifier) {
+                    let savedCurrent2 = current
+                    advance()
+                    if checkToken(SeenTokenType.Colon) {
+                        looksLikeStruct = true
+                    }
+                    current = savedCurrent2
+                }
+                current = savedCurrent
+                if looksLikeStruct {
+                    isStructLiteral = true
+                }
+            }
+            if isStructLiteral {
                 advance() // consume {
                 let structExpr = ParserExpressionNode.new()
                 structExpr.kind = "StructLiteral"

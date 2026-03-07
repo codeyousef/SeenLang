@@ -98,6 +98,10 @@ fun comptimeSizeofImpl(typeName: String) r: Int {
     if typeName == "Int" or typeName == "Float" or typeName == "String" { return 8 }
     if typeName == "Bool" { return 1 }
     if typeName == "Char" { return 8 }
+    if typeName == "Int8" or typeName == "UInt8" { return 1 }
+    if typeName == "Int16" or typeName == "UInt16" { return 2 }
+    if typeName == "Int32" or typeName == "UInt32" or typeName == "Float32" { return 4 }
+    if typeName == "Int64" or typeName == "UInt64" { return 8 }
     if typeName == "f32x4" or typeName == "i32x4" { return 16 }
     if typeName == "f32x8" or typeName == "i32x8" { return 32 }
     if typeName == "f64x2" { return 16 }
@@ -545,6 +549,21 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
     if baseType == "f64x4" { return "<4 x double>" }
     if baseType == "Int" {
         return "i64"
+    }
+    if baseType == "Int8" or baseType == "UInt8" {
+        return "i8"
+    }
+    if baseType == "Int16" or baseType == "UInt16" {
+        return "i16"
+    }
+    if baseType == "Int32" or baseType == "UInt32" {
+        return "i32"
+    }
+    if baseType == "Int64" or baseType == "UInt64" {
+        return "i64"
+    }
+    if baseType == "Float32" {
+        return "float"
     }
     if baseType == "Char" {
         return "i64"

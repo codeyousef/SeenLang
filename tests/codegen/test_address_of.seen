@@ -1,0 +1,15 @@
+// Test: Address-of (&x) and pointer dereference (*ptr)
+
+fun main() {
+    var x = 42
+
+    unsafe {
+        let p = &x
+        println("address taken")
+
+        let val = *p
+        println("dereferenced value: " + val.toString())
+    }
+
+    println("done")
+}

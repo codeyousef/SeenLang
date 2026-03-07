@@ -1,0 +1,26 @@
+// Test: Where clauses on functions
+
+trait Printable {
+    fun show(this: Printable) r: String
+}
+
+class MyVal {
+    var x: Int
+}
+
+impl Printable for MyVal {
+    fun show(this: MyVal) r: String {
+        return this.x.toString()
+    }
+}
+
+fun display<T>(item: T) r: Void where T: Printable {
+    println("displayed item")
+}
+
+fun main() {
+    let v = MyVal()
+    v.x = 42
+    println("where clause test")
+    println("done")
+}

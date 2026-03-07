@@ -1,0 +1,13 @@
+// Test: Const generics (minimal v1) — numeric type parameters
+
+class FixedArray<Int, 4> {
+    var data: Int
+    var len: Int
+}
+
+fun main() {
+    let arr = FixedArray<Int, 4>()
+    arr.len = 4
+    println("fixed array len: " + arr.len.toString())
+    println("done")
+}

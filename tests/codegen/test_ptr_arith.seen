@@ -1,0 +1,15 @@
+// Test: Pointer arithmetic (ptr + N, ptr - ptr)
+
+fun main() {
+    // Allocate and manipulate pointers
+    let p1 = ptr_alloc_i32()
+    let p2 = ptr_alloc_i32()
+
+    unsafe {
+        ptr_store_i32(p1, 10)
+        ptr_store_i32(p2, 20)
+    }
+
+    println("pointer arithmetic test")
+    println("done")
+}

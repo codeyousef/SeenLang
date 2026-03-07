@@ -1,7 +1,15 @@
 extern fun __IntToFloat(i: Int) -> Float
+extern fun __FloatToInt(f: Float) -> Int
 extern fun __PrintFloat(f: Float) -> Void
+extern fun __PrintInt(i: Int) -> Void
 
 fun main() {
-    let x = __IntToFloat(1)
+    let x = __IntToFloat(42)
     __PrintFloat(x)
+    let y = __FloatToInt(3.14)
+    __PrintInt(y)
+    let z = 5 as Float
+    __PrintFloat(z)
+    let neg = -3.14
+    __PrintFloat(neg)
 }

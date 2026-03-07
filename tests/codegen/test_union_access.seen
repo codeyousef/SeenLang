@@ -1,0 +1,14 @@
+// Test: Union field access — all fields overlap at offset 0
+@union
+class IntOrFloat {
+    var i: Int
+    var f: Float
+}
+
+fun main() {
+    let u = IntOrFloat()
+    u.i = 42
+    println(u.i.toString())
+    u.f = 3.14
+    println(u.f.toString())
+}

@@ -1,0 +1,40 @@
+// Test: @repr(C) value-type structs
+@repr(C)
+class Point {
+    var x: Int
+    var y: Int
+}
+
+@repr(C)
+class Color {
+    var r: UInt8
+    var g: UInt8
+    var b: UInt8
+    var a: UInt8
+}
+
+fun addPoints(a: Point, b: Point) r: Point {
+    return Point(a.x + b.x, a.y + b.y)
+}
+
+fun main() {
+    // Basic @repr(C) struct construction
+    let p = Point(10, 20)
+    println(p.x.toString())  // 10
+    println(p.y.toString())  // 20
+
+    // Passing @repr(C) structs to functions
+    let p2 = Point(5, 15)
+    let p3 = addPoints(p, p2)
+    println(p3.x.toString())  // 15
+    println(p3.y.toString())  // 35
+
+    // @repr(C) with fixed-width fields
+    let c = Color(255 as UInt8, 128 as UInt8, 0 as UInt8, 255 as UInt8)
+    let rv = c.r as Int
+    let gv = c.g as Int
+    println(rv.toString())  // 255
+    println(gv.toString())  // 128
+
+    println("PASS: repr_c_structs")
+}

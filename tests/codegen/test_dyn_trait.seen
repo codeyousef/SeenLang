@@ -1,0 +1,36 @@
+// Test: dyn Trait vtable dispatch
+
+trait Drawable {
+    fun draw(this: Drawable) r: Int
+}
+
+class Circle {
+    var radius: Int
+}
+
+impl Drawable for Circle {
+    fun draw(this: Circle) r: Int {
+        return this.radius
+    }
+}
+
+class Square {
+    var side: Int
+}
+
+impl Drawable for Square {
+    fun draw(this: Square) r: Int {
+        return this.side
+    }
+}
+
+fun main() {
+    let c = Circle()
+    c.radius = 10
+    let s = Square()
+    s.side = 20
+
+    println("circle draw: " + c.draw().toString())
+    println("square draw: " + s.draw().toString())
+    println("done")
+}

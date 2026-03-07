@@ -1,0 +1,15 @@
+// Test: Unsafe block enforcement
+// ptr operations should warn outside unsafe blocks
+
+fun main() {
+    // This should emit a warning comment (outside unsafe)
+    let p = ptr_alloc_i32()
+
+    // This should work without warning (inside unsafe)
+    unsafe {
+        ptr_store_i32(p, 42)
+        println("value stored")
+    }
+
+    println("done")
+}

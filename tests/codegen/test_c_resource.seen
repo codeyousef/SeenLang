@@ -1,0 +1,15 @@
+// Test: @c_resource scope-exit destructor
+// The destructor should be called automatically when the variable goes out of scope
+
+@c_resource("free")
+class FileHandle {
+    var fd: Int
+}
+
+fun main() {
+    let handle = FileHandle()
+    handle.fd = 42
+    println("FileHandle created with fd=" + handle.fd.toString())
+    // handle's destructor (free) should be called at scope exit
+    println("done")
+}
