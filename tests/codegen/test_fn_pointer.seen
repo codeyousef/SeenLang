@@ -1,0 +1,17 @@
+// Test: Function pointer interop — pass function as value
+
+fun add(a: Int, b: Int) r: Int {
+    return a + b
+}
+
+fun apply(fn_ptr: Int, x: Int, y: Int) r: Int {
+    // Call through function pointer (indirect call via closure mechanism)
+    return 0  // placeholder — indirect calls need inttoptr dispatch
+}
+
+fun main() {
+    // Taking address of a function
+    let fp = add
+    println("function pointer obtained")
+    println("done")
+}

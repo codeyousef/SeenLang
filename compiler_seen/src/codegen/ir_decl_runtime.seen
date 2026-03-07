@@ -16,6 +16,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare void @println(%SeenString) nounwind\n")
         output.append("declare void @print(%SeenString) nounwind\n")
         output.append("declare %SeenString @seen_cstr_to_str(ptr) nounwind readonly\n")
+        output.append("declare noalias ptr @seen_str_to_cstr(%SeenString) nounwind\n")
         output.append("declare i64 @seen_length(%SeenString) nounwind willreturn memory(argmem: read)\n")
         output.append("declare %SeenString @seen_substring(%SeenString, i64, i64) nounwind\n")
         // String functions that may be defined in str.string module
@@ -480,6 +481,9 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare noalias dereferenceable(32) ptr @seen_arr_new_filled_double(i64, double) nounwind willreturn memory(inaccessiblemem: readwrite)\n")
         output.append("declare void @seen_arr_push_ptr(ptr nonnull, ptr) nounwind willreturn memory(argmem: readwrite, inaccessiblemem: readwrite)\n")
         output.append("declare i64 @seen_arr_get_i64(ptr nonnull, i64) nounwind willreturn memory(argmem: read)\n")  // For @derive(Deserialize)
+        output.append("declare i64 @seen_arr_pop_i64(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
+        output.append("declare double @seen_arr_pop_f64(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
+        output.append("declare %SeenString @seen_arr_pop_str(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
 
         // C runtime primitive functions (extern fun __*) for stdlib
         // File I/O primitives
@@ -546,6 +550,8 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare void @__Print(%SeenString) nounwind\n")
         output.append("declare void @__PrintInt(i64) nounwind\n")
         output.append("declare void @__PrintFloat(double) nounwind\n")
+        output.append("declare double @__IntToFloat(i64) nounwind readnone\n")
+        output.append("declare i64 @__FloatToInt(double) nounwind readnone\n")
         output.append("declare void @__PrintRaw(%SeenString) nounwind\n")
         output.append("declare void @__FlushStdout() nounwind\n")
         output.append("declare double @__GetTime() nounwind\n")

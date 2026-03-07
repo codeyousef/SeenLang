@@ -1,0 +1,22 @@
+// Test: errdefer — only runs on error path (return 0/null)
+
+fun mayFail(succeed: Int) r: Int {
+    errdefer println("cleanup on error")
+
+    if succeed == 1 {
+        return 42  // success — errdefer should NOT run
+    }
+    return 0  // error — errdefer SHOULD run
+}
+
+fun main() {
+    println("test success path:")
+    let r1 = mayFail(1)
+    println("result: " + r1.toString())
+
+    println("test error path:")
+    let r2 = mayFail(0)
+    println("result: " + r2.toString())
+
+    println("done")
+}

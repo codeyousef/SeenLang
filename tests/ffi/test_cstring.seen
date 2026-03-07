@@ -1,0 +1,19 @@
+// Test: C string conversion builtins
+fun main() {
+    // Phase 4: str_to_cstr / cstr_to_str
+    let seen_str = "Hello, FFI!"
+    let cstr = str_to_cstr(seen_str)
+    // cstr is now a ptr (Int) to null-terminated "Hello, FFI!\0"
+
+    // Convert back
+    let back = cstr_to_str(cstr)
+    println(back)  // Hello, FFI!
+
+    // Roundtrip check
+    let test2 = "Seen Language"
+    let cstr2 = str_to_cstr(test2)
+    let back2 = cstr_to_str(cstr2)
+    println(back2)  // Seen Language
+
+    println("PASS: cstring_conversion")
+}

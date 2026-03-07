@@ -1,0 +1,25 @@
+// Test: Typed pointer operations
+fun main() {
+    // Phase 2: Stack-allocate output params with typed pointers
+    let addr = ptr_alloc_i32()
+    ptr_store_i32(addr, 42 as Int32)
+    let val = ptr_deref_i32(addr)
+    let result = val as Int
+    println(result.toString())  // 42
+
+    // i16 pointer operations
+    let addr16 = ptr_alloc_i16()
+    ptr_store_i16(addr16, 1000 as Int16)
+    let val16 = ptr_deref_i16(addr16)
+    let result16 = val16 as Int
+    println(result16.toString())  // 1000
+
+    // i8 pointer operations
+    let addr8 = ptr_alloc_i8()
+    ptr_store_i8(addr8, 65 as Int8)
+    let val8 = ptr_deref_i8(addr8)
+    let result8 = val8 as Int
+    println(result8.toString())  // 65
+
+    println("PASS: typed_ptr_ops")
+}

@@ -733,6 +733,27 @@ void seen_arr_push_f64(SeenArray* arr, double val) {
     ((double*)arr->data)[arr->len++] = val;
 }
 
+int64_t seen_arr_pop_i64(SeenArray* arr) {
+    if (!arr || arr->len == 0) return 0;
+    arr->len--;
+    int64_t* data = (int64_t*)arr->data;
+    return data[arr->len];
+}
+
+double seen_arr_pop_f64(SeenArray* arr) {
+    if (!arr || arr->len == 0) return 0.0;
+    arr->len--;
+    double* data = (double*)arr->data;
+    return data[arr->len];
+}
+
+SeenString seen_arr_pop_str(SeenArray* arr) {
+    if (!arr || arr->len == 0) { SeenString empty = {0, NULL}; return empty; }
+    arr->len--;
+    SeenString* data = (SeenString*)arr->data;
+    return data[arr->len];
+}
+
 // Wrapper for malloc with tracking
 void* tracked_malloc(size_t size) {
     void* ptr = malloc(size);
@@ -1029,6 +1050,16 @@ void* seen_arr_get_element_ptr(SeenArray* a, int64_t idx) {
 SeenString seen_cstr_to_str(const char* s) {
     SeenString result = { strlen(s), (char*)s };
     return result;
+}
+
+// Convert SeenString to null-terminated C string (malloc'd copy)
+char* seen_str_to_cstr(SeenString s) {
+    char* buf = (char*)malloc(s.len + 1);
+    if (buf) {
+        memcpy(buf, s.data, s.len);
+        buf[s.len] = '\0';
+    }
+    return buf;
 }
 
 int64_t seen_str_length(SeenString s) {
@@ -2220,6 +2251,14 @@ void __PrintInt(int64_t n) {
 
 void __PrintFloat(double f) {
     printf("%.9f", f);
+}
+
+double __IntToFloat(int64_t i) {
+    return (double)i;
+}
+
+int64_t __FloatToInt(double f) {
+    return (int64_t)f;
 }
 
 double __GetTime(void) {
@@ -6606,6 +6645,39 @@ void seen_ptr_store_f64(int64_t ptr, double val) {
 
 int64_t seen_ptr_is_null(int64_t ptr) {
     return ptr == 0 ? 1 : 0;
+}
+
+// Typed pointer operations for C interop (fixed-width types)
+int32_t seen_ptr_deref_i32(int64_t ptr) {
+    return *(int32_t*)(uintptr_t)ptr;
+}
+
+void seen_ptr_store_i32(int64_t ptr, int32_t val) {
+    *(int32_t*)(uintptr_t)ptr = val;
+}
+
+int16_t seen_ptr_deref_i16(int64_t ptr) {
+    return *(int16_t*)(uintptr_t)ptr;
+}
+
+void seen_ptr_store_i16(int64_t ptr, int16_t val) {
+    *(int16_t*)(uintptr_t)ptr = val;
+}
+
+int8_t seen_ptr_deref_i8(int64_t ptr) {
+    return *(int8_t*)(uintptr_t)ptr;
+}
+
+void seen_ptr_store_i8(int64_t ptr, int8_t val) {
+    *(int8_t*)(uintptr_t)ptr = val;
+}
+
+float seen_ptr_deref_f32(int64_t ptr) {
+    return *(float*)(uintptr_t)ptr;
+}
+
+void seen_ptr_store_f32(int64_t ptr, float val) {
+    *(float*)(uintptr_t)ptr = val;
 }
 
 // ============================================================================

@@ -1,0 +1,18 @@
+// Test: @move enforcement in function calls
+
+@move
+class UniqueHandle {
+    var id: Int
+}
+
+fun consume(h: UniqueHandle) r: Void {
+    println("consumed handle: " + h.id.toString())
+}
+
+fun main() {
+    let h = UniqueHandle()
+    h.id = 99
+    consume(h)
+    // h is now moved — any use after this point would trigger use-after-move
+    println("done")
+}

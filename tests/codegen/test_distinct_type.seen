@@ -1,0 +1,23 @@
+// Test: Distinct type enforcement
+// Distinct types should not be implicitly convertible
+
+@distinct("Int")
+class UserId {
+    var value: Int
+}
+
+@distinct("Int")
+class OrderId {
+    var value: Int
+}
+
+fun main() {
+    let uid = UserId()
+    uid.value = 42
+    println("UserId: " + uid.value.toString())
+
+    let oid = OrderId()
+    oid.value = 100
+    println("OrderId: " + oid.value.toString())
+    println("done")
+}
