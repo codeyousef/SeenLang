@@ -1,0 +1,66 @@
+// Test: Trait vtable dispatch — polymorphic method calls via dyn Trait
+
+@trait
+class Drawable {
+    fun draw(this: Drawable) r: Int
+}
+
+class Circle {
+    var radius: Int
+
+    static fun new(rad: Int) r: Circle {
+        return Circle { radius: rad }
+    }
+}
+
+class Square {
+    var side: Int
+
+    static fun new(s: Int) r: Square {
+        return Square { side: s }
+    }
+}
+
+impl Drawable for Circle {
+    fun draw(this: Circle) r: Int {
+        return this.radius
+    }
+}
+
+impl Drawable for Square {
+    fun draw(this: Square) r: Int {
+        return this.side
+    }
+}
+
+fun render(shape: dyn Drawable) r: Int {
+    return shape.draw()
+}
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    let c = Circle.new(10)
+    let s = Square.new(20)
+
+    // Test 1: Circle dispatch through dyn Drawable
+    let r1 = render(c)
+    if r1 == 10 { passed = passed + 1; println("PASS: circle vtable dispatch") } else { failed = failed + 1; println("FAIL: circle vtable dispatch, got " + r1.toString()) }
+
+    // Test 2: Square dispatch through dyn Drawable
+    let r2 = render(s)
+    if r2 == 20 { passed = passed + 1; println("PASS: square vtable dispatch") } else { failed = failed + 1; println("FAIL: square vtable dispatch, got " + r2.toString()) }
+
+    // Test 3: Multiple calls to verify vtable stability
+    let r3 = render(Circle.new(42))
+    if r3 == 42 { passed = passed + 1; println("PASS: inline circle dispatch") } else { failed = failed + 1; println("FAIL: inline circle dispatch") }
+
+    // Test 4: Different square value
+    let r4 = render(Square.new(99))
+    if r4 == 99 { passed = passed + 1; println("PASS: inline square dispatch") } else { failed = failed + 1; println("FAIL: inline square dispatch") }
+
+    println("Trait vtable tests: " + passed.toString() + "/4")
+    if failed > 0 { return 1 }
+    return 0
+}

@@ -1,0 +1,43 @@
+// Test: Default parameter values
+
+fun greet(name: String = "World", times: Int = 1) r: Int {
+    var i = 0
+    while i < times {
+        println("Hello " + name)
+        i = i + 1
+    }
+    return times
+}
+
+fun add(a: Int, b: Int = 10) r: Int {
+    return a + b
+}
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    // Test 1: All defaults
+    let r1 = greet()
+    if r1 == 1 { passed = passed + 1; println("PASS: all defaults") } else { failed = failed + 1; println("FAIL: all defaults") }
+
+    // Test 2: Override first default
+    let r2 = greet("Seen")
+    if r2 == 1 { passed = passed + 1; println("PASS: partial default") } else { failed = failed + 1; println("FAIL: partial default") }
+
+    // Test 3: Override all
+    let r3 = greet("Seen", 3)
+    if r3 == 3 { passed = passed + 1; println("PASS: no defaults used") } else { failed = failed + 1; println("FAIL: no defaults used") }
+
+    // Test 4: Int default
+    let r4 = add(5)
+    if r4 == 15 { passed = passed + 1; println("PASS: int default") } else { failed = failed + 1; println("FAIL: int default") }
+
+    // Test 5: Override int default
+    let r5 = add(5, 20)
+    if r5 == 25 { passed = passed + 1; println("PASS: int default overridden") } else { failed = failed + 1; println("FAIL: int default overridden") }
+
+    println("Default param tests: " + passed.toString() + "/5")
+    if passed == 5 { return 0 }
+    return 1
+}

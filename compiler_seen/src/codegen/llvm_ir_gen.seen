@@ -13160,9 +13160,16 @@ class LLVMIRGenerator {
                     output.append("  " + resultReg + " = call ptr @" + quoteIdentIfNeeded(funcName) + "(")
                 }
 
+                // Non-new static methods have ptr %this in definition (stage1_frozen isStatic bug)
+                // Pass ptr null to match the definition's implicit 'this' parameter
+                var hasImplicitThis = 0
+                if methodName != "new" { hasImplicitThis = 1 }
+                if hasImplicitThis == 1 {
+                    output.append("ptr null")
+                }
                 staticArgIdx = 0
                 while staticArgIdx < staticArgRegs.length() {
-                    if staticArgIdx > 0 {
+                    if staticArgIdx > 0 or hasImplicitThis == 1 {
                         output.append(", ")
                     }
                     output.append(staticArgTypeStrs[staticArgIdx] + " " + staticArgRegs[staticArgIdx])
@@ -13819,9 +13826,15 @@ class LLVMIRGenerator {
                 output.append("  " + resultReg + " = call ptr @" + quoteIdentIfNeeded(funcName) + "(")
             }
 
+            // Non-new static methods have ptr %this in definition (stage1_frozen isStatic bug)
+            var hasImplicitThisFB = 0
+            if methodName != "new" { hasImplicitThisFB = 1 }
+            if hasImplicitThisFB == 1 {
+                output.append("ptr null")
+            }
             argIdx = 0
             while argIdx < argRegs.length() {
-                if argIdx > 0 {
+                if argIdx > 0 or hasImplicitThisFB == 1 {
                     output.append(", ")
                 }
                 output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])

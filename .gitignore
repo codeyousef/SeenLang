@@ -186,6 +186,9 @@ README_VERIFICATION.md
 
 # Internal tooling
 /.claude/
+CLAUDE.md
+llms.txt
+llms-full.txt
 .bmad/*
 .teddy
 

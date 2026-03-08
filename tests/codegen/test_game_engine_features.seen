@@ -1,0 +1,113 @@
+// Test: Game engine features — comprehensive integration test
+
+// Feature 1: Enums
+enum VoxelType { Air, Grass, Dirt, Stone }
+
+// Feature 2: Trait + impl
+@trait
+class Component {
+    fun tick(this: Component, dt: Int) r: Int
+}
+
+class Player {
+    var health: Int
+    var speed: Int
+
+    static fun new(h: Int, s: Int) r: Player {
+        return Player { health: h, speed: s }
+    }
+}
+
+impl Component for Player {
+    fun tick(this: Player, dt: Int) r: Int {
+        return this.speed * dt
+    }
+}
+
+// Feature 3: Generics beyond Array
+class Store<T> {
+    var items: Array<T>
+
+    static fun new() r: Store<Int> {
+        return Store<Int> { items: Array<Int>() }
+    }
+}
+
+// Feature 4: Function-as-value
+fun applyGravity(entity: Int, force: Int) r: Int {
+    return entity + force
+}
+
+fun registerSystem(callback: Int, priority: Int) r: Int {
+    return callback(priority, 10)
+}
+
+// Feature 5: Default parameters
+fun createWindow(width: Int = 1280, height: Int = 720) r: Int {
+    return width * height
+}
+
+fun main() r: Int {
+    var passed = 0
+    var failed = 0
+
+    // Test 1: Enum comparison
+    let voxel = VoxelType.Grass
+    if voxel == VoxelType.Grass { passed = passed + 1; println("PASS: enum comparison") } else { failed = failed + 1; println("FAIL: enum comparison") }
+
+    // Test 2: HashMap
+    var registry = HashMap<String, Int>()
+    registry.insert("player", 1)
+    registry.insert("enemy", 2)
+    let playerVal = registry.get("player")
+    if playerVal == 1 { passed = passed + 1; println("PASS: hashmap get") } else { failed = failed + 1; println("FAIL: hashmap get") }
+
+    // Test 3: Bool type
+    let running = true
+    if running { passed = passed + 1; println("PASS: bool type") } else { failed = failed + 1; println("FAIL: bool type") }
+
+    // Test 4: String interpolation
+    let name = "HeartOn"
+    let msg = "Engine: " + name
+    if msg == "Engine: HeartOn" { passed = passed + 1; println("PASS: string ops") } else { failed = failed + 1; println("FAIL: string ops") }
+
+    // Test 5: For-each over array
+    var items = Array<Int>()
+    items.push(10)
+    items.push(20)
+    items.push(30)
+    var sum = 0
+    for item in items {
+        sum = sum + item
+    }
+    if sum == 60 { passed = passed + 1; println("PASS: for-each array") } else { failed = failed + 1; println("FAIL: for-each array") }
+
+    // Test 6: For range
+    var count = 0
+    for i in 0..5 {
+        count = count + 1
+    }
+    if count == 5 { passed = passed + 1; println("PASS: for range") } else { failed = failed + 1; println("FAIL: for range") }
+
+    // Test 7: Function-as-value (higher-order)
+    let result = registerSystem(applyGravity, 5)
+    if result == 15 { passed = passed + 1; println("PASS: fn-as-value") } else { failed = failed + 1; println("FAIL: fn-as-value") }
+
+    // Test 8: Default parameters
+    let area1 = createWindow()
+    if area1 == 921600 { passed = passed + 1; println("PASS: default params") } else { failed = failed + 1; println("FAIL: default params") }
+
+    // Test 9: Default params partial override
+    let area2 = createWindow(1920)
+    if area2 == 1382400 { passed = passed + 1; println("PASS: partial default") } else { failed = failed + 1; println("FAIL: partial default") }
+
+    // Test 10: Generics class
+    let store = Store<Int>.new()
+    store.items.push(42)
+    let storeVal = store.items.get(0)
+    if storeVal == 42 { passed = passed + 1; println("PASS: generic class") } else { failed = failed + 1; println("FAIL: generic class") }
+
+    println("Game engine feature tests: " + passed.toString() + "/10")
+    if failed > 0 { return 1 }
+    return 0
+}

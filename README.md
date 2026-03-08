@@ -563,8 +563,6 @@ SEEN_TRACE_LLVM=gep seen build program.seen
 5. Verify bootstrap: `./scripts/safe_rebuild.sh`
 6. Submit a pull request
 
-See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation and development guidelines.
-
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
