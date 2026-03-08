@@ -391,7 +391,7 @@ class SeenTerminalLinkProvider implements vscode.TerminalLinkProvider {
 
         const pos = new vscode.Position(line - 1, column - 1);
         const doc = await vscode.workspace.openTextDocument(uri);
-        const editor = await vscode.window.showTextDocument(doc);
+        const editor = await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Active, preview: false });
         editor.selection = new vscode.Selection(pos, pos);
         editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
     }

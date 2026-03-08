@@ -8,23 +8,46 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
     // Build command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.build', async () => {
-            const terminal = vscode.window.createTerminal('Seen Build');
+            const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
             const target = vscode.workspace.getConfiguration('seen').get<string>('target.default', 'native');
-            if (target === 'native') {
-                terminal.sendText('seen build --release');
-            } else {
-                terminal.sendText(`seen build --release --target ${target}`);
+            const args = ['build', '--release'];
+            if (target !== 'native') {
+                args.push('--target', target);
             }
-            terminal.show();
+
+            const task = new vscode.Task(
+                { type: 'seen', task: 'build' },
+                vscode.TaskScope.Workspace,
+                'Seen Build',
+                'seen',
+                new vscode.ShellExecution(seenPath, args),
+                '$seen'
+            );
+            task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
+            await vscode.tasks.executeTask(task);
         })
     );
 
     // Run command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.run', async () => {
-            const terminal = vscode.window.createTerminal('Seen Run');
-            terminal.sendText('seen run');
-            terminal.show();
+            const editor = vscode.window.activeTextEditor;
+            const filePath = editor?.document.languageId === 'seen'
+                ? editor.document.fileName
+                : '';
+            const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
+            const args = filePath ? ['run', filePath] : ['run'];
+
+            const task = new vscode.Task(
+                { type: 'seen', task: 'run' },
+                vscode.TaskScope.Workspace,
+                'Seen Run',
+                'seen',
+                new vscode.ShellExecution(seenPath, args),
+                '$seen'
+            );
+            task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
+            await vscode.tasks.executeTask(task);
         })
     );
 
@@ -115,9 +138,23 @@ export function setupCommands(context: vscode.ExtensionContext, client: Language
     // Check command
     context.subscriptions.push(
         vscode.commands.registerCommand('seen.check', async () => {
-            const terminal = vscode.window.createTerminal('Seen Check');
-            terminal.sendText('seen check');
-            terminal.show();
+            const editor = vscode.window.activeTextEditor;
+            const filePath = editor?.document.languageId === 'seen'
+                ? editor.document.fileName
+                : '';
+            const seenPath = vscode.workspace.getConfiguration('seen').get<string>('compiler.path', 'seen');
+            const args = filePath ? ['check', filePath] : ['check'];
+
+            const task = new vscode.Task(
+                { type: 'seen', task: 'check' },
+                vscode.TaskScope.Workspace,
+                'Seen Check',
+                'seen',
+                new vscode.ShellExecution(seenPath, args),
+                '$seen'
+            );
+            task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, clear: true };
+            await vscode.tasks.executeTask(task);
         })
     );
 
