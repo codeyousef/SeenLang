@@ -2,7 +2,7 @@
   "name": "seen-vscode",
   "displayName": "Seen Language",
   "description": "Official Seen language support with syntax highlighting, LSP, debugging, and multi-language keywords",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "yousefcodes",
   "icon": "images/icon.png",
   "repository": {
