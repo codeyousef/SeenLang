@@ -3197,14 +3197,23 @@ class RealParser {
             }
         }
         // 'is' type test: expr is TypeName
+        // Skip if this looks like a when/match pattern arm (is Ident -> or is Ident . or is Ident =>)
         if checkToken(SeenTokenType.KeywordIs) {
-            advance() // consume 'is'
-            let typeName = consume(SeenTokenType.Identifier, "Expected type name after 'is'").getValue()
-            let isExpr = ParserExpressionNode.new()
-            isExpr.kind = "IsExpression"
-            isExpr.literalValue = typeName
-            isExpr.operands.push(expr) // [0] = subject
-            expr = isExpr
+            let isP2 = peekAt(2)
+            let isP2v = isP2.getValue()
+            var skipIsExpr = false
+            if isP2v == "->" { skipIsExpr = true }
+            if isP2v == "=" { skipIsExpr = true }
+            if isP2v == "." { skipIsExpr = true }
+            if not skipIsExpr {
+                advance() // consume 'is'
+                let typeName = consume(SeenTokenType.Identifier, "Expected type name after 'is'").getValue()
+                let isExpr = ParserExpressionNode.new()
+                isExpr.kind = "IsExpression"
+                isExpr.literalValue = typeName
+                isExpr.operands.push(expr) // [0] = subject
+                expr = isExpr
+            }
         }
         return expr
     }
@@ -4485,7 +4494,7 @@ class RealParser {
         // Consume 'when' keyword
         advance()
 
-        // Parse optional subject expression in parentheses
+        // Parse optional subject expression — parenthesized or bare
         var hasSubject = false
         var subjectExpr = ParserExpressionNode.new()
         if checkToken(SeenTokenType.LeftParen) {
@@ -4493,6 +4502,12 @@ class RealParser {
             hasSubject = true
             subjectExpr = parseExpression()
             consume(SeenTokenType.RightParen, "Expected ')' after when subject")
+        } else {
+            if not checkToken(SeenTokenType.LeftBrace) {
+                // Bare subject without parens: when expr { ... }
+                hasSubject = true
+                subjectExpr = parseExpression()
+            }
         }
 
         // Parse the brace-enclosed pattern arms
@@ -4569,8 +4584,16 @@ class RealParser {
             hasGuard = true
         }
 
-        // Expect arrow ->
-        consume(SeenTokenType.Arrow, "Expected '->' after pattern")
+        // Expect arrow -> or fat arrow =>
+        if not matchTokenStr(SeenTokenType.Arrow) {
+            if checkToken(SeenTokenType.Equal) {
+                let eqNext = peekAt(1)
+                if eqNext.getValue() == ">" {
+                    advance()
+                    advance()
+                }
+            }
+        }
 
         // Parse the result expression for this arm
         let resultExpr = parseExpression()
@@ -4626,7 +4649,15 @@ class RealParser {
             // Otherwise it's an enum variant type/constructor name
             expr.variableName = "Is"
             if checkToken(SeenTokenType.Identifier) {
-                expr.literalValue = advance().getValue()
+                var patIdent = advance().getValue()
+                // Support EnumType.Variant syntax: skip type name, use variant
+                if checkToken(SeenTokenType.Dot) {
+                    advance()
+                    if checkToken(SeenTokenType.Identifier) {
+                        patIdent = advance().getValue()
+                    }
+                }
+                expr.literalValue = patIdent
             }
 
             // Check for destructuring: TypeName(field1, field2, ...)
@@ -4650,6 +4681,31 @@ class RealParser {
             }
 
             return expr
+        }
+
+        // Check for 'else' keyword as wildcard pattern
+        if checkToken(SeenTokenType.KeywordElse) {
+            advance()
+            expr.variableName = "Wildcard"
+            return expr
+        }
+
+        // Check for bare EnumType.Variant pattern (without 'is' keyword)
+        if checkToken(SeenTokenType.Identifier) {
+            let patVal = peek().getValue()
+            let patFirstByte = patVal.byteAt(0)
+            if patFirstByte >= 65 and patFirstByte <= 90 {
+                let patNext = peekAt(1)
+                if patNext.getValue() == "." {
+                    advance()
+                    advance()
+                    expr.variableName = "Is"
+                    if checkToken(SeenTokenType.Identifier) {
+                        expr.literalValue = advance().getValue()
+                    }
+                    return expr
+                }
+            }
         }
 
         // Check for wildcard pattern: _
