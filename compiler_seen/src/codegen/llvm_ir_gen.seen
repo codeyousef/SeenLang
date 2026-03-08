@@ -215,6 +215,14 @@ var g_xmDeclareStrs: String = ""
 var g_xmDeclareCount: Int = 0
 // Visibility tracking: pipe-delimited "public" or "private" parallel to g_xmDeclareNames
 var g_xmDeclareVis: String = ""
+// Cross-module constant registry: pipe-delimited parallel arrays
+// Populated during registerDeclarations (Pass 1), used for external global stubs in generateSingle (Pass 2)
+// NOT reset per-module — must persist across all modules like g_xmDeclareNames
+var g_xmConstNames: String = ""
+var g_xmConstTypes: String = ""
+var g_xmConstMutable: String = ""
+var g_xmConstSeenTypes: String = ""
+var g_xmConstCount: Int = 0
 
 // Defer statement tracking: array of deferred statement expressions per block scope
 var g_deferCount: Int = 0
@@ -1213,6 +1221,39 @@ class LLVMIRGenerator {
 
             i = i + 1
         }
+
+        // Register module-level constants for cross-module access
+        var gri = 0
+        while gri < program.items.length() {
+            let grItem = program.items[gri]
+            if grItem.itemType == "GlobalVar" {
+                let grEncoded = grItem.visibility
+                let grSeenType = parseGlobalVarType(grEncoded)
+                var grLlvmType = "i64"
+                if grSeenType == "Float" { grLlvmType = "double" }
+                if grSeenType == "Bool" { grLlvmType = "i1" }
+                if grSeenType == "String" { grLlvmType = "%SeenString" }
+                if grSeenType.startsWith("Array<") { grLlvmType = "ptr" }
+                if grLlvmType == "i64" {
+                    if isClassType(grSeenType) { grLlvmType = "ptr" }
+                }
+                var grMut = "0"
+                if parseGlobalVarMutable(grEncoded) { grMut = "1" }
+                if g_xmConstNames == "" {
+                    g_xmConstNames = grItem.name
+                    g_xmConstTypes = grLlvmType
+                    g_xmConstMutable = grMut
+                    g_xmConstSeenTypes = grSeenType
+                } else {
+                    g_xmConstNames = g_xmConstNames + "|" + grItem.name
+                    g_xmConstTypes = g_xmConstTypes + "|" + grLlvmType
+                    g_xmConstMutable = g_xmConstMutable + "|" + grMut
+                    g_xmConstSeenTypes = g_xmConstSeenTypes + "|" + grSeenType
+                }
+                g_xmConstCount = g_xmConstCount + 1
+            }
+            gri = gri + 1
+        }
     }
 
     // Register a function's return type in the function registry.
@@ -1811,6 +1852,7 @@ class LLVMIRGenerator {
     }
 
     // Helper to find module constant by name. Searches backwards.
+    // Falls back to cross-module constant registry if not found in current module.
     fun findModuleConstant(name: String) r: Int {
         var i = moduleConstantNames.length() - 1
         while i >= 0 {
@@ -1818,6 +1860,35 @@ class LLVMIRGenerator {
                 return i
             }
             i = i - 1
+        }
+        // Check cross-module constant registry (pipe-delimited)
+        if g_xmConstCount > 0 {
+            var xi = 0
+            while xi < g_xmConstCount {
+                let xcName = pipeGet(g_xmConstNames, xi)
+                if xcName == name {
+                    // Promote into per-module arrays so subsequent lookups
+                    // and type/mutability access work at the returned index
+                    let xcType = pipeGet(g_xmConstTypes, xi)
+                    let xcMut = pipeGet(g_xmConstMutable, xi)
+                    let xcSeenType = pipeGet(g_xmConstSeenTypes, xi)
+                    moduleConstantNames.push(name)
+                    moduleConstantTypes.push(xcType)
+                    moduleConstantValues.push("0")
+                    if g_moduleConstMutable == "" {
+                        g_moduleConstMutable = xcMut
+                    } else {
+                        g_moduleConstMutable = g_moduleConstMutable + "|" + xcMut
+                    }
+                    if g_moduleConstSeenTypes == "" {
+                        g_moduleConstSeenTypes = xcSeenType
+                    } else {
+                        g_moduleConstSeenTypes = g_moduleConstSeenTypes + "|" + xcSeenType
+                    }
+                    return moduleConstantNames.length() - 1
+                }
+                xi = xi + 1
+            }
         }
         return -1
     }
@@ -3272,6 +3343,26 @@ class LLVMIRGenerator {
                 }
             }
             i = i + 1
+        }
+
+        // Emit external declarations for cross-module constants not defined in this module
+        var xci = 0
+        while xci < g_xmConstCount {
+            let xcName = pipeGet(g_xmConstNames, xci)
+            let xcType = pipeGet(g_xmConstTypes, xci)
+            // Skip if already defined in this module
+            var xcAlreadyDefined = 0
+            var xcj = 0
+            while xcj < moduleConstantNames.length() {
+                if moduleConstantNames[xcj] == xcName {
+                    xcAlreadyDefined = 1
+                }
+                xcj = xcj + 1
+            }
+            if xcAlreadyDefined == 0 {
+                output.append("@" + quoteIdentIfNeeded(xcName) + " = external global " + xcType + "\n")
+            }
+            xci = xci + 1
         }
 
         // Emit string constants with module prefix

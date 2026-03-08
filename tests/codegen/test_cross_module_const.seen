@@ -1,0 +1,51 @@
+// Test: cross-module let constants should not resolve as 0
+// This tests that module-level let/var constants from other modules
+// are accessible via external global declarations
+
+let MY_CONST = 42
+let MY_FLOAT_CONST: Float = 3.14
+var MY_VAR = 100
+
+fun getConst() r: Int {
+    return MY_CONST
+}
+
+fun getVar() r: Int {
+    return MY_VAR
+}
+
+fun main() r: Int {
+    // Test same-module constant access
+    if MY_CONST != 42 {
+        print("FAIL: MY_CONST should be 42, got ")
+        println(MY_CONST.toString())
+        return 1
+    }
+    println("PASS: MY_CONST = 42")
+
+    // Test same-module var access
+    if MY_VAR != 100 {
+        print("FAIL: MY_VAR should be 100, got ")
+        println(MY_VAR.toString())
+        return 1
+    }
+    println("PASS: MY_VAR = 100")
+
+    // Test through function indirection
+    if getConst() != 42 {
+        print("FAIL: getConst() should be 42, got ")
+        println(getConst().toString())
+        return 1
+    }
+    println("PASS: getConst() = 42")
+
+    if getVar() != 100 {
+        print("FAIL: getVar() should be 100, got ")
+        println(getVar().toString())
+        return 1
+    }
+    println("PASS: getVar() = 100")
+
+    println("All cross-module constant tests passed!")
+    return 0
+}
