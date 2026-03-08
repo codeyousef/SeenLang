@@ -1384,6 +1384,26 @@ class SeenLspServer {
     fun analyzeDocument(uri: String, content: String) r: Void {
         let diagnostics = Array<Diagnostic>()
         let result = run_frontend(content, uri, "en")
+
+        // Basic validation: missing main function
+        var program = result.program
+        var hasMain = 0
+        var vi = 0
+        while vi < program.items.length() {
+            var item = program.items[vi]
+            if item.itemType == "Function" {
+                if item.name == "main" {
+                    hasMain = 1
+                }
+            }
+            vi = vi + 1
+        }
+        if hasMain == 0 {
+            result.addDiagnostic(FrontendDiagnostic.new(
+                uri, 1, 1, "error", "missing `main` function"
+            ))
+        }
+
         let frontendDiags = result.diagnostics
         var i = 0
         while i < frontendDiags.length() {

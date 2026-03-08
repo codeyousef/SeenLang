@@ -88,51 +88,77 @@ export class SeenDiagnosticProvider {
         });
     }
     
+    private stripAnsi(text: string): string {
+        return text.replace(/\x1b\[[0-9;]*m/g, '');
+    }
+
     private parseTraditionalErrors(output: string): SeenError[] {
         const errors: SeenError[] = [];
-        const lines = output.split('\n');
-        
-        const errorRegex = /^(error|warning)\[([A-Z0-9]+)\]:\s*(.+)$/;
+        const lines = output.split('\n').map(l => this.stripAnsi(l));
+
+        // Rust-style format: "error: message" then "  --> file:line:col"
+        const rustErrorRegex = /^(error|warning):\s*(.+)$/;
+        // Legacy format: "error[CODE]: message"
+        const legacyErrorRegex = /^(error|warning)\[([A-Z0-9]+)\]:\s*(.+)$/;
         const locationRegex = /^\s*-->\s*(.+):(\d+):(\d+)$/;
-        
+
         let currentError: Partial<SeenError> | null = null;
-        
+
         for (const line of lines) {
-            const errorMatch = line.match(errorRegex);
-            if (errorMatch) {
+            // Skip the "aborting due to N error(s)" summary line
+            if (line.match(/^error:\s*aborting due to/)) {
+                continue;
+            }
+
+            const legacyMatch = line.match(legacyErrorRegex);
+            if (legacyMatch) {
                 if (currentError && currentError.file) {
                     errors.push(currentError as SeenError);
                 }
                 currentError = {
-                    severity: errorMatch[1] as 'error' | 'warning',
-                    code: errorMatch[2],
-                    message: errorMatch[3],
+                    severity: legacyMatch[1] as 'error' | 'warning',
+                    code: legacyMatch[2],
+                    message: legacyMatch[3],
                     suggestions: []
                 };
                 continue;
             }
-            
+
+            const rustMatch = line.match(rustErrorRegex);
+            if (rustMatch) {
+                if (currentError && currentError.file) {
+                    errors.push(currentError as SeenError);
+                }
+                currentError = {
+                    severity: rustMatch[1] as 'error' | 'warning',
+                    code: '',
+                    message: rustMatch[2],
+                    suggestions: []
+                };
+                continue;
+            }
+
             const locationMatch = line.match(locationRegex);
             if (locationMatch && currentError) {
                 currentError.file = locationMatch[1];
                 currentError.location = {
                     line: parseInt(locationMatch[2]),
                     column: parseInt(locationMatch[3]),
-                    length: 1  // Default length
+                    length: 1
                 };
             }
-            
+
             if (line.includes('help:') && currentError) {
                 const helpText = line.substring(line.indexOf('help:') + 5).trim();
                 currentError.suggestions = currentError.suggestions || [];
                 currentError.suggestions.push(helpText);
             }
         }
-        
+
         if (currentError && currentError.file) {
             errors.push(currentError as SeenError);
         }
-        
+
         return errors;
     }
     
