@@ -15914,15 +15914,21 @@ class LLVMIRGenerator {
                 armGenerated = true
             }
             if not armGenerated and patternKind == "Is" {
-                // Is pattern: check enum tag (subject is ptr to heap-allocated enum)
                 let variantName = patternExpr.literalValue
                 let tagIdx = lookupEnumVariantTag(variantName)
-                // Load tag from subject — enum values are always ptr
-                let tagLoadReg = getNextReg()
-                output.append("  " + tagLoadReg + " = load i64, ptr " + subjectReg + "\n")
-                let cmpReg = getNextReg()
-                output.append("  " + cmpReg + " = icmp eq i64 " + tagLoadReg + ", " + tagIdx.toString() + "\n")
-                output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
+                if subjectLlvm == "i64" {
+                    // Simple enum: subject IS the tag value (i64), compare directly
+                    let cmpReg = getNextReg()
+                    output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " + tagIdx.toString() + "\n")
+                    output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
+                } else {
+                    // Data enum: subject is ptr to heap object, load tag from offset 0
+                    let tagLoadReg = getNextReg()
+                    output.append("  " + tagLoadReg + " = load i64, ptr " + subjectReg + "\n")
+                    let cmpReg = getNextReg()
+                    output.append("  " + cmpReg + " = icmp eq i64 " + tagLoadReg + ", " + tagIdx.toString() + "\n")
+                    output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
+                }
                 armGenerated = true
             }
             if not armGenerated and (patternKind == "Wildcard" or patternKind == "Variable") {

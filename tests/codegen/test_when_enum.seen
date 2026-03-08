@@ -1,0 +1,62 @@
+// Test when/match expression with simple enums
+// Tests: bare subjects, is patterns, EnumType.Variant, else, fat arrow =>
+
+enum Voxel { Air, Grass, Dirt, Stone }
+
+fun voxelId(v: Voxel) r: Int {
+    let result = match v {
+        is Air -> 0
+        is Grass -> 1
+        is Dirt -> 2
+        is Stone -> 3
+    }
+    return result
+}
+
+fun voxelIdDotSyntax(v: Voxel) r: Int {
+    let result = match v {
+        is Voxel.Air -> 10
+        is Voxel.Grass -> 11
+        else -> 99
+    }
+    return result
+}
+
+fun voxelIdFatArrow(v: Voxel) r: Int {
+    let result = match v {
+        is Air => 20
+        is Grass => 21
+        is Dirt => 22
+        is Stone => 23
+    }
+    return result
+}
+
+fun voxelIdBare(v: Voxel) r: Int {
+    let result = match v {
+        Voxel.Air -> 30
+        Voxel.Grass -> 31
+        else -> 99
+    }
+    return result
+}
+
+fun main() r: Int {
+    var passed = 0
+
+    if voxelId(Voxel.Grass) == 1 { passed = passed + 1; println("PASS 1: match simple Is") } else { println("FAIL 1: match simple Is, got " + voxelId(Voxel.Grass).toString()) }
+
+    if voxelIdDotSyntax(Voxel.Air) == 10 { passed = passed + 1; println("PASS 2: is Type.Variant") } else { println("FAIL 2: is Type.Variant, got " + voxelIdDotSyntax(Voxel.Air).toString()) }
+
+    if voxelIdDotSyntax(Voxel.Stone) == 99 { passed = passed + 1; println("PASS 3: else pattern") } else { println("FAIL 3: else pattern, got " + voxelIdDotSyntax(Voxel.Stone).toString()) }
+
+    if voxelIdFatArrow(Voxel.Dirt) == 22 { passed = passed + 1; println("PASS 4: fat arrow =>") } else { println("FAIL 4: fat arrow =>, got " + voxelIdFatArrow(Voxel.Dirt).toString()) }
+
+    if voxelIdBare(Voxel.Air) == 30 { passed = passed + 1; println("PASS 5: bare Type.Variant") } else { println("FAIL 5: bare Type.Variant, got " + voxelIdBare(Voxel.Air).toString()) }
+
+    if voxelIdBare(Voxel.Stone) == 99 { passed = passed + 1; println("PASS 6: bare else") } else { println("FAIL 6: bare else, got " + voxelIdBare(Voxel.Stone).toString()) }
+
+    println("When/match enum tests: " + passed.toString() + "/6")
+    if passed == 6 { return 0 }
+    return 1
+}
