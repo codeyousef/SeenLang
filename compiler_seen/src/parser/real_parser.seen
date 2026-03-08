@@ -1256,6 +1256,8 @@ class RealParser {
                             param.paramType.typeName = "comptime:Int"
                         }
                         if matchTokenStr(SeenTokenType.Equal) {
+                            let defVal = peek().getValue()
+                            param.paramType.typeName = param.paramType.typeName + "~default~" + defVal
                             skipExpression()
                         }
                         lastFunction.params.push(param)
@@ -1276,8 +1278,10 @@ class RealParser {
                     if paramOwnership != "" and param.paramType.typeName != "" {
                         param.paramType.typeName = paramOwnership + ":" + param.paramType.typeName
                     }
-                    // Handle default parameter values (skip = expression)
+                    // Handle default parameter values: encode in type name suffix
                     if matchTokenStr(SeenTokenType.Equal) {
+                        let defVal = peek().getValue()
+                        param.paramType.typeName = param.paramType.typeName + "~default~" + defVal
                         skipExpression()
                     }
                     lastFunction.params.push(param)
@@ -1936,8 +1940,10 @@ class RealParser {
             param.paramType.typeName = ownership + ":" + param.paramType.typeName
         }
 
-        // Skip default values.
+        // Capture default values in type name suffix
         if matchTokenStr(SeenTokenType.Equal) {
+            let defVal = peek().getValue()
+            param.paramType.typeName = param.paramType.typeName + "~default~" + defVal
             skipExpression()
         }
 

@@ -293,9 +293,14 @@ var g_reprCClassNames: String = ""
 var g_cResourceClasses: String = ""
 var g_cResourceDestructors: String = ""
 
+// Default parameter registries
+var g_funcDefaultsArr: String = ""      // pipe-delimited "funcName:paramIdx:value:type|"
+var g_funcParamCountArr: String = ""    // pipe-delimited "funcName:count|"
+
 // dyn Trait vtable dispatch
 var g_dynTraitNames: String = ""
 var g_vtableClassImpls: String = ""
+var g_dynParamFuncs: String = ""  // pipe-delimited "funcName:paramIdx:TraitName|"
 
 // Const generics
 var g_constGenericNames: String = ""
@@ -3020,6 +3025,57 @@ class LLVMIRGenerator {
             pi = pi + 1
         }
 
+        // Emit vtable constants for trait implementations
+        if g_traitImplCount > 0 and g_dynTraitNames != "" {
+            var vtSearchPos = 0
+            var vtEmittedPairs = ""
+            while vtSearchPos < g_traitImplRegistry.length() {
+                var vtNextPipe = g_traitImplRegistry.indexOf("|", vtSearchPos)
+                if vtNextPipe < 0 { vtNextPipe = g_traitImplRegistry.length() }
+                let vtEntry = g_traitImplRegistry.substring(vtSearchPos, vtNextPipe)
+                let vtColon1 = vtEntry.indexOf(":", 0)
+                if vtColon1 > 0 {
+                    let vtColon2 = vtEntry.indexOf(":", vtColon1 + 1)
+                    if vtColon2 > vtColon1 {
+                        let vtTrait = vtEntry.substring(0, vtColon1)
+                        let vtClass = vtEntry.substring(vtColon1 + 1, vtColon2)
+                        let vtPair = vtClass + "_for_" + vtTrait
+                        if not vtEmittedPairs.contains(vtPair + "|") {
+                            vtEmittedPairs = vtEmittedPairs + vtPair + "|"
+                            var vtMethods = ""
+                            var vtMCount = 0
+                            var vtScan2 = 0
+                            while vtScan2 < g_traitImplRegistry.length() {
+                                var vtNP2 = g_traitImplRegistry.indexOf("|", vtScan2)
+                                if vtNP2 < 0 { vtNP2 = g_traitImplRegistry.length() }
+                                let vtE2 = g_traitImplRegistry.substring(vtScan2, vtNP2)
+                                if vtE2.startsWith(vtTrait + ":" + vtClass + ":") {
+                                    let vtC2 = vtE2.indexOf(":", vtColon1 + 1)
+                                    if vtC2 > 0 {
+                                        let vtC3 = vtE2.indexOf(":", vtC2 + 1)
+                                        if vtC3 < 0 { vtC3 = vtE2.length() }
+                                        let vtFn = vtE2.substring(vtC2 + 1, vtC3)
+                                        if vtMCount > 0 {
+                                            vtMethods = vtMethods + ", "
+                                        }
+                                        vtMethods = vtMethods + "ptr @" + quoteIdentIfNeeded(vtFn)
+                                        vtMCount = vtMCount + 1
+                                    }
+                                }
+                                vtScan2 = vtNP2 + 1
+                            }
+                            if vtMCount > 0 {
+                                let lb = "{"
+                                let rb = "}"
+                                output.append("@" + vtPair + "_vtable = constant %" + quoteIdentIfNeeded(vtTrait + "_vtable") + " " + lb + " " + vtMethods + " " + rb + "\n")
+                            }
+                        }
+                    }
+                }
+                vtSearchPos = vtNextPipe + 1
+            }
+        }
+
         // Emit closure definitions generated during compilation
         if g_closureDefs.length() > 0 {
             output.append(g_closureDefs)
@@ -3133,60 +3189,8 @@ class LLVMIRGenerator {
             i = i + 1
         }
 
-        // Emit vtable constants for trait implementations found in this module
-        if g_traitImplCount > 0 and g_dynTraitNames != "" {
-            // Parse g_traitImplRegistry: entries are "TraitName:ClassName:funcName|"
-            // Group by trait:class pairs and emit vtable constants
-            var vtSearchPos = 0
-            var vtEmittedPairs = ""
-            while vtSearchPos < g_traitImplRegistry.length() {
-                var vtNextPipe = g_traitImplRegistry.indexOf("|", vtSearchPos)
-                if vtNextPipe < 0 { vtNextPipe = g_traitImplRegistry.length() }
-                let vtEntry = g_traitImplRegistry.substring(vtSearchPos, vtNextPipe)
-                // vtEntry is "TraitName:ClassName:funcName"
-                let vtColon1 = vtEntry.indexOf(":", 0)
-                if vtColon1 > 0 {
-                    let vtColon2 = vtEntry.indexOf(":", vtColon1 + 1)
-                    if vtColon2 > vtColon1 {
-                        let vtTrait = vtEntry.substring(0, vtColon1)
-                        let vtClass = vtEntry.substring(vtColon1 + 1, vtColon2)
-                        let vtPair = vtClass + "_for_" + vtTrait
-                        if not vtEmittedPairs.contains(vtPair + "|") {
-                            vtEmittedPairs = vtEmittedPairs + vtPair + "|"
-                            // Collect all methods for this trait:class pair
-                            var vtMethods = ""
-                            var vtMCount = 0
-                            var vtScan2 = 0
-                            while vtScan2 < g_traitImplRegistry.length() {
-                                var vtNP2 = g_traitImplRegistry.indexOf("|", vtScan2)
-                                if vtNP2 < 0 { vtNP2 = g_traitImplRegistry.length() }
-                                let vtE2 = g_traitImplRegistry.substring(vtScan2, vtNP2)
-                                if vtE2.startsWith(vtTrait + ":" + vtClass + ":") {
-                                    let vtC2 = vtE2.indexOf(":", vtColon1 + 1)
-                                    if vtC2 > 0 {
-                                        let vtC3 = vtE2.indexOf(":", vtC2 + 1)
-                                        if vtC3 < 0 { vtC3 = vtE2.length() }
-                                        let vtFn = vtE2.substring(vtC2 + 1, vtC3)
-                                        if vtMCount > 0 {
-                                            vtMethods = vtMethods + ", "
-                                        }
-                                        vtMethods = vtMethods + "ptr @" + quoteIdentIfNeeded(vtFn)
-                                        vtMCount = vtMCount + 1
-                                    }
-                                }
-                                vtScan2 = vtNP2 + 1
-                            }
-                            if vtMCount > 0 {
-                                let lb = "{"
-                                let rb = "}"
-                                output.append("@" + vtPair + "_vtable = private constant %" + quoteIdentIfNeeded(vtTrait + "_vtable") + " " + lb + " " + vtMethods + " " + rb + "\n")
-                            }
-                        }
-                    }
-                }
-                vtSearchPos = vtNextPipe + 1
-            }
-        }
+        // NOTE: vtable constants are emitted AFTER function generation (see below)
+        // because g_traitImplRegistry is populated during generateFunction's impl detection.
 
         // Emit global variable declarations for THIS module
         i = 0
@@ -3343,6 +3347,62 @@ class LLVMIRGenerator {
                 generateFunction(item.function)
             }
             i = i + 1
+        }
+
+        // Emit vtable constants for trait implementations found in this module
+        // Must be AFTER generateFunction so g_traitImplRegistry is populated
+        if g_traitImplCount > 0 and g_dynTraitNames != "" {
+            // Parse g_traitImplRegistry: entries are "TraitName:ClassName:funcName|"
+            // Group by trait:class pairs and emit vtable constants
+            var vtSearchPos = 0
+            var vtEmittedPairs = ""
+            while vtSearchPos < g_traitImplRegistry.length() {
+                var vtNextPipe = g_traitImplRegistry.indexOf("|", vtSearchPos)
+                if vtNextPipe < 0 { vtNextPipe = g_traitImplRegistry.length() }
+                let vtEntry = g_traitImplRegistry.substring(vtSearchPos, vtNextPipe)
+                // vtEntry is "TraitName:ClassName:funcName"
+                let vtColon1 = vtEntry.indexOf(":", 0)
+                if vtColon1 > 0 {
+                    let vtColon2 = vtEntry.indexOf(":", vtColon1 + 1)
+                    if vtColon2 > vtColon1 {
+                        let vtTrait = vtEntry.substring(0, vtColon1)
+                        let vtClass = vtEntry.substring(vtColon1 + 1, vtColon2)
+                        let vtPair = vtClass + "_for_" + vtTrait
+                        if not vtEmittedPairs.contains(vtPair + "|") {
+                            vtEmittedPairs = vtEmittedPairs + vtPair + "|"
+                            // Collect all methods for this trait:class pair
+                            var vtMethods = ""
+                            var vtMCount = 0
+                            var vtScan2 = 0
+                            while vtScan2 < g_traitImplRegistry.length() {
+                                var vtNP2 = g_traitImplRegistry.indexOf("|", vtScan2)
+                                if vtNP2 < 0 { vtNP2 = g_traitImplRegistry.length() }
+                                let vtE2 = g_traitImplRegistry.substring(vtScan2, vtNP2)
+                                if vtE2.startsWith(vtTrait + ":" + vtClass + ":") {
+                                    let vtC2 = vtE2.indexOf(":", vtColon1 + 1)
+                                    if vtC2 > 0 {
+                                        let vtC3 = vtE2.indexOf(":", vtC2 + 1)
+                                        if vtC3 < 0 { vtC3 = vtE2.length() }
+                                        let vtFn = vtE2.substring(vtC2 + 1, vtC3)
+                                        if vtMCount > 0 {
+                                            vtMethods = vtMethods + ", "
+                                        }
+                                        vtMethods = vtMethods + "ptr @" + quoteIdentIfNeeded(vtFn)
+                                        vtMCount = vtMCount + 1
+                                    }
+                                }
+                                vtScan2 = vtNP2 + 1
+                            }
+                            if vtMCount > 0 {
+                                let lb = "{"
+                                let rb = "}"
+                                output.append("@" + vtPair + "_vtable = constant %" + quoteIdentIfNeeded(vtTrait + "_vtable") + " " + lb + " " + vtMethods + " " + rb + "\n")
+                            }
+                        }
+                    }
+                }
+                vtSearchPos = vtNextPipe + 1
+            }
         }
 
         // Emit any new string constants added during class/function generation
@@ -4243,6 +4303,7 @@ class LLVMIRGenerator {
                 let traitMethod = classNode.methods[traitMI]
                 let traitFuncName = className + "_" + traitMethod.name
                 registerFunction(traitFuncName, traitMethod.returnType.typeName)
+                registerStructMethod(className, traitMethod.name, traitMethod.returnType.typeName)
                 // Generate default implementation for methods with a body
                 if traitMethod.body.statements.length() > 0 {
                     let defaultFuncName = className + "_" + traitMethod.name + "_default"
@@ -5319,6 +5380,23 @@ class LLVMIRGenerator {
                     if not implFuncName.startsWith(implExpectedPrefix) {
                         implFuncName = implExpectedPrefix + implFuncName
                     }
+                    // Auto-detect trait impl: check if method name matches a trait method
+                    if g_dynTraitNames != "" {
+                        var traitScan = 0
+                        while traitScan < g_dynTraitNames.length() {
+                            var traitPipePos = g_dynTraitNames.indexOf("|", traitScan)
+                            if traitPipePos < 0 { traitPipePos = g_dynTraitNames.length() }
+                            let traitCandidate = g_dynTraitNames.substring(traitScan, traitPipePos)
+                            if traitCandidate != "" {
+                                let traitMethodCheck = getMethodReturnType(traitCandidate, fn.name)
+                                if traitMethodCheck != "" {
+                                    g_traitImplRegistry = g_traitImplRegistry + traitCandidate + ":" + implFirstPTN + ":" + implFuncName + "|"
+                                    g_traitImplCount = g_traitImplCount + 1
+                                }
+                            }
+                            traitScan = traitPipePos + 1
+                        }
+                    }
                 }
             }
         }
@@ -5387,8 +5465,25 @@ class LLVMIRGenerator {
                     g_comptimeParamCount = g_comptimeParamCount + 1
                 }
             }
+            // Extract and register default parameter values
+            if preTypeName.contains("~default~") {
+                let defSepPos = preTypeName.indexOf("~default~", 0)
+                let defValue = preTypeName.substring(defSepPos + 9, preTypeName.length())
+                preTypeName = preTypeName.substring(0, defSepPos)
+                g_funcDefaultsArr = g_funcDefaultsArr + implFuncName + ":" + preParamIdx.toString() + ":" + defValue + ":" + preTypeName + "|"
+            }
+            // Register dyn Trait parameters for fat pointer boxing at call sites
+            if preTypeName.startsWith("dyn ") {
+                let dynTraitParam = preTypeName.substring(4, preTypeName.length())
+                g_dynParamFuncs = g_dynParamFuncs + implFuncName + ":" + preParamIdx.toString() + ":" + dynTraitParam + "|"
+            }
             varTypes.push(preTypeName)
             preParamIdx = preParamIdx + 1
+        }
+
+        // Register expected param count for default param injection
+        if fn.params.length() > 0 {
+            g_funcParamCountArr = g_funcParamCountArr + implFuncName + ":" + fn.params.length().toString() + "|"
         }
 
         // Clear CSE cache at function boundaries
@@ -5622,6 +5717,11 @@ class LLVMIRGenerator {
             if sigTypeName.startsWith("borrow:") {
                 sigTypeName = sigTypeName.substring(7, sigTypeName.length())
             }
+            // Strip default value suffix for IR type
+            if sigTypeName.contains("~default~") {
+                let sigDefPos = sigTypeName.indexOf("~default~", 0)
+                sigTypeName = sigTypeName.substring(0, sigDefPos)
+            }
             let paramType = mapTypeForParameter(sigTypeName)
             // @no_alias decorator: add noalias on pointer params
             var paramAttr = ""
@@ -5679,6 +5779,11 @@ class LLVMIRGenerator {
             if seenTypeName.startsWith("borrow:") {
                 paramOwnership = "borrow"
                 seenTypeName = seenTypeName.substring(7, seenTypeName.length())
+            }
+            // Strip default value suffix
+            if seenTypeName.contains("~default~") {
+                let allocDefPos = seenTypeName.indexOf("~default~", 0)
+                seenTypeName = seenTypeName.substring(0, allocDefPos)
             }
             // Data type params come in as ptr (ABI compat with Rust backend)
             // Use the incoming ptr directly as the variable location
@@ -12339,8 +12444,51 @@ class LLVMIRGenerator {
                 argRegs.push(allocaReg)
                 argTypeStrs.push("ptr")
             } else {
-                argRegs.push(argReg)
-                argTypeStrs.push(mapType(argType))
+                // Check if this arg needs dyn Trait fat pointer boxing
+                var dynBoxed = false
+                if g_dynParamFuncs != "" {
+                    let dynLookup = funcName + ":" + argIdx.toString() + ":"
+                    let dynLookupPos = g_dynParamFuncs.indexOf(dynLookup, 0)
+                    if dynLookupPos >= 0 {
+                        // Extract trait name from "funcName:argIdx:TraitName|"
+                        let dynTraitStart = dynLookupPos + dynLookup.length()
+                        var dynTraitEnd = g_dynParamFuncs.indexOf("|", dynTraitStart)
+                        if dynTraitEnd < 0 { dynTraitEnd = g_dynParamFuncs.length() }
+                        let dynBoxTraitName = g_dynParamFuncs.substring(dynTraitStart, dynTraitEnd)
+                        if dynBoxTraitName != "" {
+                            // Box: concrete class value (i64) → fat pointer { ptr data, ptr vtable }
+                            // 1. Convert concrete i64 handle to ptr (data pointer)
+                            let dynBoxDataPtr = getNextReg()
+                            output.append("  " + dynBoxDataPtr + " = inttoptr i64 " + argReg + " to ptr ; dyn box data\n")
+                            // 2. Allocate 16 bytes for fat pointer struct (2 pointers)
+                            let dynBoxFatPtr = getNextReg()
+                            output.append("  " + dynBoxFatPtr + " = call ptr @seen_pool_alloc(i64 16) ; dyn fat ptr\n")
+                            // 3. Store data ptr at offset 0
+                            output.append("  store ptr " + dynBoxDataPtr + ", ptr " + dynBoxFatPtr + "\n")
+                            // 4. Store vtable ptr at offset 1
+                            let dynBoxLb = "{"
+                            let dynBoxRb = "}"
+                            // Determine concrete class name from argType for vtable lookup
+                            var dynBoxClassName = argType
+                            // Strip generic params if present
+                            let dynBoxLtPos = dynBoxClassName.indexOf("<", 0)
+                            if dynBoxLtPos > 0 { dynBoxClassName = dynBoxClassName.substring(0, dynBoxLtPos) }
+                            let dynBoxVtGep = getNextReg()
+                            output.append("  " + dynBoxVtGep + " = getelementptr " + dynBoxLb + " ptr, ptr " + dynBoxRb + ", ptr " + dynBoxFatPtr + ", i32 0, i32 1\n")
+                            output.append("  store ptr @" + dynBoxClassName + "_for_" + dynBoxTraitName + "_vtable, ptr " + dynBoxVtGep + "\n")
+                            // 5. Convert fat ptr to i64
+                            let dynBoxResult = getNextReg()
+                            output.append("  " + dynBoxResult + " = ptrtoint ptr " + dynBoxFatPtr + " to i64 ; dyn boxed\n")
+                            argRegs.push(dynBoxResult)
+                            argTypeStrs.push("i64")
+                            dynBoxed = true
+                        }
+                    }
+                }
+                if not dynBoxed {
+                    argRegs.push(argReg)
+                    argTypeStrs.push(mapType(argType))
+                }
             }
             // @move enforcement in function calls: nullify source after passing
             if g_moveOnlyClasses != "" and g_moveOnlyClasses.contains(argType + "|") {
@@ -12360,6 +12508,63 @@ class LLVMIRGenerator {
                 }
             }
             argIdx = argIdx + 1
+        }
+
+        // Default parameter injection: fill missing args from g_funcDefaultsArr
+        if g_funcDefaultsArr != "" {
+            var dfFuncLookup = funcName + ":"
+            var dfPcPos = g_funcParamCountArr.indexOf(dfFuncLookup, 0)
+            if dfPcPos >= 0 {
+                var dfPcStart = dfPcPos + dfFuncLookup.length()
+                var dfPcEnd = g_funcParamCountArr.indexOf("|", dfPcStart)
+                if dfPcEnd < 0 { dfPcEnd = g_funcParamCountArr.length() }
+                var dfExpectedStr = g_funcParamCountArr.substring(dfPcStart, dfPcEnd)
+                var dfExpectedCount = parseIntManual(dfExpectedStr)
+                var dfFillIdx = argRegs.length()
+                while dfFillIdx < dfExpectedCount {
+                    var dfLookup = funcName + ":" + dfFillIdx.toString() + ":"
+                    var dfPos = g_funcDefaultsArr.indexOf(dfLookup, 0)
+                    if dfPos >= 0 {
+                        var dfStart = dfPos + dfLookup.length()
+                        var dfEnd = g_funcDefaultsArr.indexOf("|", dfStart)
+                        if dfEnd < 0 { dfEnd = g_funcDefaultsArr.length() }
+                        var dfEntry = g_funcDefaultsArr.substring(dfStart, dfEnd)
+                        var dfColon = dfEntry.indexOf(":", 0)
+                        if dfColon > 0 {
+                            var dfValue = dfEntry.substring(0, dfColon)
+                            var dfType = dfEntry.substring(dfColon + 1, dfEntry.length())
+                            if dfType == "String" {
+                                var dfStrIdx = getStringConstantIndex(dfValue)
+                                var dfStrLen = dfValue.length()
+                                var dfGepReg = getNextReg()
+                                output.append("  " + dfGepReg + " = getelementptr [" + (dfStrLen + 1).toString() + " x i8], ptr @.str." + stringConstantPrefix + dfStrIdx.toString() + ", i64 0, i64 0\n")
+                                var dfInsert1 = getNextReg()
+                                output.append("  " + dfInsert1 + " = insertvalue %SeenString undef, i64 " + dfStrLen.toString() + ", 0\n")
+                                var dfStrReg = getNextReg()
+                                output.append("  " + dfStrReg + " = insertvalue %SeenString " + dfInsert1 + ", ptr " + dfGepReg + ", 1\n")
+                                argRegs.push(dfStrReg)
+                                argTypeStrs.push("%SeenString")
+                            } else {
+                                if dfType == "Bool" {
+                                    var dfBoolVal = "0"
+                                    if dfValue == "true" { dfBoolVal = "1" }
+                                    argRegs.push(dfBoolVal)
+                                    argTypeStrs.push("i64")
+                                } else {
+                                    if dfType == "Float" {
+                                        argRegs.push(dfValue)
+                                        argTypeStrs.push("double")
+                                    } else {
+                                        argRegs.push(dfValue)
+                                        argTypeStrs.push("i64")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    dfFillIdx = dfFillIdx + 1
+                }
+            }
         }
 
         // Infer return type from function name
@@ -12768,6 +12973,82 @@ class LLVMIRGenerator {
                 receiverReg = getNextReg()
                 receiverType = varType
                 output.append("  " + receiverReg + " = load " + llvmType + ", ptr " + varReg + "\n")
+                // dyn Trait vtable dispatch for simple variable receivers
+                if varType.startsWith("dyn ") {
+                    let svDynTraitName = varType.substring(4, varType.length())
+                    // receiverReg holds i64 (fat pointer handle) — convert to ptr
+                    let svDynFatPtrReg = getNextReg()
+                    output.append("  " + svDynFatPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+                    // Load data pointer (field 0)
+                    let svDynDataPtrReg = getNextReg()
+                    output.append("  " + svDynDataPtrReg + " = load ptr, ptr " + svDynFatPtrReg + "\n")
+                    // Load vtable pointer (field 1)
+                    let svLb = "{"
+                    let svRb = "}"
+                    let svDynVtPtrGep = getNextReg()
+                    output.append("  " + svDynVtPtrGep + " = getelementptr " + svLb + " ptr, ptr " + svRb + ", ptr " + svDynFatPtrReg + ", i32 0, i32 1\n")
+                    let svDynVtPtrReg = getNextReg()
+                    output.append("  " + svDynVtPtrReg + " = load ptr, ptr " + svDynVtPtrGep + "\n")
+                    // Find method index in trait's method list
+                    let svDynTraitIdx = findStruct(svDynTraitName)
+                    var svDynMethodIdx = 0
+                    if svDynTraitIdx >= 0 {
+                        let svDynMethodNames = structMethodNames[svDynTraitIdx]
+                        var svDynMSearchPos = 0
+                        var svDynMIdx = 0
+                        var svDynMFound = false
+                        while svDynMSearchPos <= svDynMethodNames.length() and not svDynMFound {
+                            var svDynMNextComma = svDynMethodNames.indexOf(",", svDynMSearchPos)
+                            if svDynMNextComma < 0 { svDynMNextComma = svDynMethodNames.length() }
+                            let svDynMEntry = svDynMethodNames.substring(svDynMSearchPos, svDynMNextComma)
+                            if svDynMEntry == methodName {
+                                svDynMethodIdx = svDynMIdx
+                                svDynMFound = true
+                            }
+                            svDynMIdx = svDynMIdx + 1
+                            svDynMSearchPos = svDynMNextComma + 1
+                        }
+                    }
+                    // GEP into vtable to get function pointer
+                    let svDynFnPtrGep = getNextReg()
+                    output.append("  " + svDynFnPtrGep + " = getelementptr %" + quoteIdentIfNeeded(svDynTraitName + "_vtable") + ", ptr " + svDynVtPtrReg + ", i32 0, i32 " + svDynMethodIdx.toString() + "\n")
+                    let svDynFnPtrReg = getNextReg()
+                    output.append("  " + svDynFnPtrReg + " = load ptr, ptr " + svDynFnPtrGep + "\n")
+                    // Convert data ptr to i64 to match impl method signatures (this: ClassName → i64)
+                    let svDynDataI64 = getNextReg()
+                    output.append("  " + svDynDataI64 + " = ptrtoint ptr " + svDynDataPtrReg + " to i64\n")
+                    // Generate arguments: first arg is data as i64
+                    var svDynArgStr = "i64 " + svDynDataI64
+                    var svDynAIdx = 0
+                    while svDynAIdx < expr.arguments.length() {
+                        let svDynArgReg = generateExpression(expr.arguments[svDynAIdx])
+                        let svDynArgType = inferExpressionType(expr.arguments[svDynAIdx])
+                        svDynArgStr = svDynArgStr + ", " + mapType(svDynArgType) + " " + svDynArgReg
+                        svDynAIdx = svDynAIdx + 1
+                    }
+                    // Infer return type from trait method registry
+                    var svDynRetType = "i64"
+                    if svDynTraitIdx >= 0 {
+                        let svDynRetTypes = structMethodRetTypes[svDynTraitIdx]
+                        var svDynRSearchPos = 0
+                        var svDynRIdx = 0
+                        while svDynRSearchPos <= svDynRetTypes.length() {
+                            var svDynRNextPipe = svDynRetTypes.indexOf("|", svDynRSearchPos)
+                            if svDynRNextPipe < 0 { svDynRNextPipe = svDynRetTypes.length() }
+                            if svDynRIdx == svDynMethodIdx {
+                                let svDynRetName = svDynRetTypes.substring(svDynRSearchPos, svDynRNextPipe)
+                                svDynRetType = mapType(svDynRetName)
+                                svDynRSearchPos = svDynRetTypes.length()
+                            }
+                            svDynRIdx = svDynRIdx + 1
+                            svDynRSearchPos = svDynRNextPipe + 1
+                        }
+                    }
+                    // Indirect call through vtable
+                    let svDynResultReg = getNextReg()
+                    output.append("  " + svDynResultReg + " = call " + svDynRetType + " " + svDynFnPtrReg + "(" + svDynArgStr + ") ; dyn " + svDynTraitName + "." + methodName + "\n")
+                    return svDynResultReg
+                }
                 // SIMD horizontal reduction ops for simple variable receivers (/)
                 if isSimdVectorType(varType) == 1 {
                     let svSimdLT = mapType(varType)
@@ -14448,6 +14729,11 @@ class LLVMIRGenerator {
         if cleanType.startsWith("comptime:") {
             cleanType = cleanType.substring(9, cleanType.length())
         }
+        // Strip default value suffix
+        if cleanType.contains("~default~") {
+            let mtpDefPos = cleanType.indexOf("~default~", 0)
+            cleanType = cleanType.substring(0, mtpDefPos)
+        }
         // Data types passed as pointers for ABI compatibility with Rust backend
         if isDataType(cleanType) {
             return "ptr noalias nonnull"
@@ -15708,10 +15994,21 @@ class LLVMIRGenerator {
             // Generate arm result expression
             if arm.operands.length() > 1 {
                 let armResultReg = generateExpression(arm.operands[1])
-                // Store result (side-effect arms like println produce "0" which is fine)
-                output.append("  store i64 " + armResultReg + ", ptr " + resultAlloca + "\n")
+                if not blockTerminated {
+                    // Check if arm result is Bool (i1) — zext to i64 before storing
+                    let armResultType = inferExpressionType(arm.operands[1])
+                    var armStoreReg = armResultReg
+                    if armResultType == "Bool" or armResultType == "Boolean" {
+                        armStoreReg = getNextReg()
+                        output.append("  " + armStoreReg + " = zext i1 " + armResultReg + " to i64\n")
+                    }
+                    output.append("  store i64 " + armStoreReg + ", ptr " + resultAlloca + "\n")
+                }
             }
-            output.append("  br label %" + endLabel + "\n")
+            if not blockTerminated {
+                output.append("  br label %" + endLabel + "\n")
+            }
+            blockTerminated = false
 
             // Next check
             output.append(nextCheckLabel + ":\n")

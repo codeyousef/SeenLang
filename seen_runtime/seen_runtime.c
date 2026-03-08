@@ -4738,10 +4738,10 @@ int64_t HashMap_get(void* mapPtr, int64_t key) {
     int64_t idx = (int64_t)(h & (uint64_t)mask);
     while (1) {
         if (map->states[idx] == 0) {
-            return BTreeMap_make_none();
+            return 0;
         }
         if (map->states[idx] == 1 && map->keys[idx] == key) {
-            return BTreeMap_make_some(map->values[idx]);
+            return map->values[idx];
         }
         idx = (idx + 1) & mask;
     }
@@ -4946,9 +4946,9 @@ int64_t HashMap_get_str(void* mapPtr, SeenString key) {
     int64_t mask = map->capacity - 1;
     int64_t idx = (int64_t)(h & (uint64_t)mask);
     while (1) {
-        if (map->states[idx] == 0) return BTreeMap_make_none();
+        if (map->states[idx] == 0) return 0;
         if (map->states[idx] == 1 && hashmap_str_eq(map->keys[idx], key)) {
-            return BTreeMap_make_some(map->values[idx]);
+            return map->values[idx];
         }
         idx = (idx + 1) & mask;
     }
