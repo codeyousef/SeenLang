@@ -3153,13 +3153,18 @@ class RealParser {
             elvisExpr.operands.push(right)  // [1] = right (default value)
             return elvisExpr
         }
-        if matchTokenStr(SeenTokenType.DoubleQuestion) {
-            let right = parseEquality()
-            let qqExpr = ParserExpressionNode.new()
-            qqExpr.kind = "NullCoalesce"
-            qqExpr.operands.push(expr)   // [0] = left (if not null)
-            qqExpr.operands.push(right)  // [1] = right (default value)
-            return qqExpr
+        // Bootstrap workaround: DoubleQuestion (value 107) is outside stage1_frozen's
+        // 0-99 range, so in stage2 it has type 0 (IntegerLiteral collision).
+        // Guard with string-value check to prevent integer literals being consumed as ??.
+        if peek().getValue() == "??" {
+            if matchTokenStr(SeenTokenType.DoubleQuestion) {
+                let right = parseEquality()
+                let qqExpr = ParserExpressionNode.new()
+                qqExpr.kind = "NullCoalesce"
+                qqExpr.operands.push(expr)   // [0] = left (if not null)
+                qqExpr.operands.push(right)  // [1] = right (default value)
+                return qqExpr
+            }
         }
         return expr
     }

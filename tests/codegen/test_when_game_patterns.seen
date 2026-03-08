@@ -1,0 +1,65 @@
+fun grad2D(hash: Int, x: Float, y: Float) r: Float {
+    let h = hash - (hash / 4) * 4
+    when h {
+        0 => return x + y
+        1 => return -x + y
+        2 => return x - y
+        else => return -x - y
+    }
+}
+
+fun toEnum(id: Int) r: Int {
+    when id {
+        0 => return 0
+        1 => return 1
+        2 => return 2
+        3 => return 3
+        4 => return 4
+        5 => return 5
+        6 => return 6
+        else => return 0
+    }
+}
+
+fun fromEnum(v: Int) r: Int {
+    when v {
+        is 0 => return 0
+        is 1 => return 1
+        is 2 => return 2
+        is 3 => return 3
+        is 4 => return 4
+        is 5 => return 5
+        is 6 => return 6
+        else => return 0
+    }
+}
+
+fun main() r: Int {
+    var passed = 0
+    
+    // Test grad2D (noise.seen pattern)
+    let g0 = grad2D(0, 1.0, 2.0)
+    if g0 == 3.0 { passed = passed + 1; println("PASS 1: grad2D h=0") } else { println("FAIL 1: got " + g0.toString()) }
+    
+    let g1 = grad2D(5, 1.0, 2.0)
+    if g1 == 1.0 { passed = passed + 1; println("PASS 2: grad2D h=1") } else { println("FAIL 2: got " + g1.toString()) }
+    
+    let g2 = grad2D(2, 1.0, 2.0)
+    if g2 == -1.0 { passed = passed + 1; println("PASS 3: grad2D h=2") } else { println("FAIL 3: got " + g2.toString()) }
+    
+    let g3 = grad2D(3, 1.0, 2.0)
+    if g3 == -3.0 { passed = passed + 1; println("PASS 4: grad2D h=3 else") } else { println("FAIL 4: got " + g3.toString()) }
+    
+    // Test toEnum (chunk.seen pattern - bare integer patterns)
+    if toEnum(0) == 0 { passed = passed + 1; println("PASS 5: toEnum 0") } else { println("FAIL 5") }
+    if toEnum(3) == 3 { passed = passed + 1; println("PASS 6: toEnum 3") } else { println("FAIL 6") }
+    if toEnum(6) == 6 { passed = passed + 1; println("PASS 7: toEnum 6") } else { println("FAIL 7") }
+    if toEnum(99) == 0 { passed = passed + 1; println("PASS 8: toEnum else") } else { println("FAIL 8") }
+    
+    // Test fromEnum (is keyword version)
+    if fromEnum(2) == 2 { passed = passed + 1; println("PASS 9: fromEnum 2") } else { println("FAIL 9") }
+    if fromEnum(5) == 5 { passed = passed + 1; println("PASS 10: fromEnum 5") } else { println("FAIL 10") }
+
+    println("When/match game pattern tests: " + passed.toString() + "/10")
+    return 0
+}
