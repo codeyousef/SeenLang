@@ -21,7 +21,7 @@
 // Module-level global flags use Int instead of Bool due to a Stage1 codegen
 // limitation where boolean variables generate invalid IR.
 
-import bootstrap.frontend.{FrontendResult, run_frontend}
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
 import io.file.{readText, writeText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit}
 import env.env.{args}
@@ -75,6 +75,38 @@ fun loadFileContent(path: String) r: String {
         return ""
     }
     return readText(path)
+}
+
+// ANSI escape code builder
+fun ansiCode(code: String) r: String {
+    var esc = String.fromCharCode(27)
+    return esc + "[" + code + "m"
+}
+fun colorRed(text: String) r: String { return ansiCode("1;31") + text + ansiCode("0") }
+fun colorYellow(text: String) r: String { return ansiCode("1;33") + text + ansiCode("0") }
+fun colorCyan(text: String) r: String { return ansiCode("0;36") + text + ansiCode("0") }
+fun colorBlue(text: String) r: String { return ansiCode("0;34") + text + ansiCode("0") }
+fun colorBoldWhite(text: String) r: String { return ansiCode("1;37") + text + ansiCode("0") }
+
+// Read a specific line from a file (1-indexed)
+fun getSourceLine(filePath: String, lineNumber: Int) r: String {
+    var source = readText(filePath)
+    if source == "" { return "" }
+    var lines = source.split("\n")
+    if lineNumber < 1 { return "" }
+    if lineNumber > lines.length() { return "" }
+    return lines[lineNumber - 1]
+}
+
+// Create a string of N spaces
+fun makeSpaces(count: Int) r: String {
+    var result = ""
+    var i = 0
+    while i < count {
+        result = result + " "
+        i = i + 1
+    }
+    return result
 }
 
 // Ensure .seen_cache/ directory exists
@@ -1621,8 +1653,8 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
     }
 
     let frontend = run_frontend(sourceCode, inputFile, language)
+    validateBasics(frontend, inputFile)
     if not frontend.success {
-        println("[ERROR] Frontend errors detected")
         printFrontendDiagnostics(frontend)
         return 1
     }
@@ -1641,12 +1673,77 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
 }
 
 fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
-    let diagnostics = frontend.getDiagnostics()
+    var diagnostics = frontend.getDiagnostics()
     var index = 0
     while index < diagnostics.length() {
-        let diag = diagnostics[index]
-        println("[" + diag.severity + "] " + diag.file + ":" + diag.line.toString() + ":" + diag.column.toString() + " " + diag.message)
+        var diag = diagnostics[index]
+
+        var label = ""
+        if diag.severity == "error" {
+            label = colorRed("error")
+        } else {
+            label = colorYellow("warning")
+        }
+        println(label + ": " + colorBoldWhite(diag.message))
+
+        var lineStr = diag.line.toString()
+        var colStr = diag.column.toString()
+        println("  " + colorCyan("-->") + " " + diag.file + ":" + lineStr + ":" + colStr)
+
+        if diag.line > 0 {
+            var sourceLine = getSourceLine(diag.file, diag.line)
+            if sourceLine != "" {
+                var gutterWidth = lineStr.length()
+
+                println(makeSpaces(gutterWidth + 1) + colorBlue("|"))
+
+                println(colorBlue(" " + lineStr + " ") + colorBlue("|") + " " + sourceLine)
+
+                var caretPad = diag.column - 1
+                if caretPad < 0 { caretPad = 0 }
+                var caret = makeSpaces(caretPad) + colorRed("^")
+                println(makeSpaces(gutterWidth + 1) + colorBlue("|") + " " + caret)
+            }
+        }
+
+        println("")
         index = index + 1
+    }
+
+    var errorCount = 0
+    index = 0
+    while index < diagnostics.length() {
+        var d = diagnostics[index]
+        if d.severity == "error" {
+            errorCount = errorCount + 1
+        }
+        index = index + 1
+    }
+    if errorCount > 0 {
+        println(colorRed("error") + ": aborting due to " + errorCount.toString() + " error(s)")
+    }
+    return
+}
+
+// Basic post-parse validation (missing main, etc.)
+fun validateBasics(frontend: FrontendResult, inputFile: String) r: Void {
+    var program = frontend.program
+    var hasMain = 0
+    var i = 0
+    while i < program.items.length() {
+        var item = program.items[i]
+        if item.itemType == "Function" {
+            if item.function.name == "main" {
+                hasMain = 1
+            }
+        }
+        i = i + 1
+    }
+    if hasMain == 0 {
+        frontend.addDiagnostic(FrontendDiagnostic.new(
+            inputFile, 1, 1, "error", "missing `main` function"
+        ))
+        frontend.setSuccess(false)
     }
     return
 }
