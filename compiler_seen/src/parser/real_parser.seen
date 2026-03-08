@@ -3752,6 +3752,13 @@ class RealParser {
         // older bootstrap compilers may assign value 0 to unknown token types
         // (e.g. KeywordWhen), causing them to collide with IntegerLiteral=0.
 
+        // Bootstrap workaround: KeywordWhen (value 119) is outside stage1_frozen's
+        // 0-99 range, so in stage2 it has type 0 (IntegerLiteral). Intercept by
+        // string value before the IntegerLiteral check steals it.
+        if peek().getValue() == "when" {
+            return parseWhenExpression()
+        }
+
         // Integer literal
         if checkToken(SeenTokenType.IntegerLiteral) {
             let token = advance()
@@ -4595,7 +4602,22 @@ class RealParser {
             }
         }
 
-        // Parse the result expression for this arm
+        // Parse the result expression or return statement for this arm
+        if checkToken(SeenTokenType.KeywordReturn) {
+            advance()
+            let retExpr = ParserExpressionNode.new()
+            retExpr.kind = "ReturnExpr"
+            if not checkToken(SeenTokenType.RightBrace) and not checkToken(SeenTokenType.Comma) {
+                let retVal = parseExpression()
+                retExpr.operands.push(retVal)
+            }
+            armExpr.operands.push(patternExpr)
+            armExpr.operands.push(retExpr)
+            if hasGuard {
+                armExpr.operands.push(guardExpr)
+            }
+            return armExpr
+        }
         let resultExpr = parseExpression()
 
         armExpr.operands.push(patternExpr)

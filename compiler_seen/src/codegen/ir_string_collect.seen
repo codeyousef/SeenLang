@@ -727,6 +727,14 @@ fun collectStringConstantsFromExprImpl(expr: ParserExpressionNode, stringConstan
             i = i + 1
         }
     }
+
+    if expr.kind == "ReturnExpr" {
+        var rei = 0
+        while rei < expr.operands.length() {
+            collectStringConstantsFromExprImpl(expr.operands[rei], stringConstants, callCountNamesBox, callCountEntriesBox)
+            rei = rei + 1
+        }
+    }
 }
 
 // Top-level string constant collection: iterates program items, collects self-calls and string constants

@@ -15999,16 +15999,33 @@ class LLVMIRGenerator {
 
             // Generate arm result expression
             if arm.operands.length() > 1 {
-                let armResultReg = generateExpression(arm.operands[1])
-                if not blockTerminated {
-                    // Check if arm result is Bool (i1) — zext to i64 before storing
-                    let armResultType = inferExpressionType(arm.operands[1])
-                    var armStoreReg = armResultReg
-                    if armResultType == "Bool" or armResultType == "Boolean" {
-                        armStoreReg = getNextReg()
-                        output.append("  " + armStoreReg + " = zext i1 " + armResultReg + " to i64\n")
+                let armResult = arm.operands[1]
+                if armResult.kind == "ReturnExpr" {
+                    // Return from enclosing function inside when/match arm
+                    if armResult.operands.length() > 0 {
+                        let retValReg = generateExpression(armResult.operands[0])
+                        let retType = mapType(currentFunctionReturnType)
+                        output.append("  ret " + retType + " " + retValReg + "\n")
+                    } else {
+                        let retType = mapType(currentFunctionReturnType)
+                        if retType == "void" {
+                            output.append("  ret void\n")
+                        } else {
+                            output.append("  ret " + retType + " 0\n")
+                        }
                     }
-                    output.append("  store i64 " + armStoreReg + ", ptr " + resultAlloca + "\n")
+                    blockTerminated = true
+                } else {
+                    let armResultReg = generateExpression(armResult)
+                    if not blockTerminated {
+                        let armResultType = inferExpressionType(armResult)
+                        var armStoreReg = armResultReg
+                        if armResultType == "Bool" or armResultType == "Boolean" {
+                            armStoreReg = getNextReg()
+                            output.append("  " + armStoreReg + " = zext i1 " + armResultReg + " to i64\n")
+                        }
+                        output.append("  store i64 " + armStoreReg + ", ptr " + resultAlloca + "\n")
+                    }
                 }
             }
             if not blockTerminated {
