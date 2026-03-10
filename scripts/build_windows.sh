@@ -146,8 +146,8 @@ cross_compile() {
 
         python3 "$ABI_SCRIPT" "$ll" "$win_ll"
         $LLC "$win_ll" -o "$win_asm" -mtriple=x86_64-w64-mingw32 -O2 --filetype=asm 2>&1
-        # Remove LLVM-specific directives that gas doesn't understand
-        sed -i '/.addrsig/d' "$win_asm"
+        # Remove LLVM directives that GNU assembler doesn't understand
+        sed -i '/.addrsig/d; /\.section\s.*,discard,/d' "$win_asm"
         WIN_ASM_FILES="$WIN_ASM_FILES $win_asm"
         echo "  $base -> OK"
     done

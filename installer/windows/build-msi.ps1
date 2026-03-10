@@ -1,53 +1,53 @@
 # Build script for Seen Language MSI Installer
-# Requires WiX Toolset v3.11+ to be installed
+# Requires WiX Toolset v3.11+ (or WiX v4 via dotnet tool)
+#
+# Usage:
+#   .\build-msi.ps1 -Version 1.0.0 -Platform x64
+#   .\build-msi.ps1 -Version 1.0.0 -Platform x64 -SourceDir C:\path\to\staged
 
 param(
     [Parameter(Mandatory=$true)]
     [string]$Version,
-    
-    [Parameter(Mandatory=$true)]
-    [string]$Platform, # x64 or arm64
-    
-    [string]$SourceDir = "..\..\target-wsl\release",
+
+    [Parameter(Mandatory=$false)]
+    [string]$Platform = "x64",
+
+    [string]$SourceDir = "",
     [string]$OutputDir = "output",
-    [string]$WixPath = "${env:WIX}bin",
     [switch]$Verbose = $false
 )
 
 $ErrorActionPreference = "Stop"
 
-# Configuration
-$ProductName = "Seen Language"
-$Manufacturer = "Seen Language Team"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..\..") 
+$ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..\..") -ErrorAction SilentlyContinue
 
-# Validate parameters
-if (-not $Version) {
-    Write-Error "Version parameter is required"
+# Default source directory: look for staged package
+if (-not $SourceDir) {
+    # Try target-windows staging directory
+    $SourceDir = Join-Path $ProjectRoot "target-windows\seen-${Version}-windows-x64"
+    if (-not (Test-Path $SourceDir)) {
+        # Fallback: try target-windows directly
+        $SourceDir = Join-Path $ProjectRoot "target-windows"
+    }
 }
 
 if ($Platform -notin @("x64", "arm64")) {
     Write-Error "Platform must be x64 or arm64"
 }
 
-# Validate WiX installation
-if (-not $env:WIX) {
-    Write-Error "WiX Toolset not found. Please install WiX Toolset and ensure WIX environment variable is set."
-}
-
-$candle = Join-Path $WixPath "candle.exe"
-$light = Join-Path $WixPath "light.exe"
-
-if (-not (Test-Path $candle)) {
-    Write-Error "candle.exe not found at: $candle"
-}
-
-if (-not (Test-Path $light)) {
-    Write-Error "light.exe not found at: $light"
-}
-
 Write-Host "Building Seen Language $Version MSI for $Platform..." -ForegroundColor Green
+Write-Host "  Source: $SourceDir" -ForegroundColor Gray
+
+# Validate source directory
+if (-not (Test-Path $SourceDir)) {
+    Write-Error "Source directory not found: $SourceDir`nRun scripts/package_windows.sh first."
+}
+
+$SeenExe = Join-Path $SourceDir "bin\seen.exe"
+if (-not (Test-Path $SeenExe)) {
+    Write-Error "seen.exe not found at: $SeenExe`nRun scripts/build_windows.sh and scripts/package_windows.sh first."
+}
 
 # Create output directory
 $OutputPath = Join-Path $ScriptDir $OutputDir
@@ -55,151 +55,192 @@ if (-not (Test-Path $OutputPath)) {
     New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
 }
 
-# Determine paths based on platform
-$ProgramFilesVar = if ($Platform -eq "x64") { "ProgramFiles64Folder" } else { "ProgramFilesFolder" }
-
-# Validate source files
-$SeenExePath = Join-Path $ProjectRoot "target-wsl\release\seen.exe"
-$SeenLspExePath = Join-Path $ProjectRoot "target-wsl\release\seen-lsp.exe"  
-$SeenRiscvExePath = Join-Path $ProjectRoot "target-wsl\release\seen-riscv.exe"
-$StdlibPath = Join-Path $ProjectRoot "seen_std"
-$LanguagesPath = Join-Path $ProjectRoot "languages"
-$DocsPath = Join-Path $ProjectRoot "docs"
-$IconPath = Join-Path $ScriptDir "assets\seen-icon.ico"
-
-$MissingFiles = @()
-@($SeenExePath, $StdlibPath, $LanguagesPath) | ForEach-Object {
-    if (-not (Test-Path $_)) {
-        $MissingFiles += $_
+# Locate WiX tools
+$WixBin = ""
+if ($env:WIX) {
+    $WixBin = Join-Path $env:WIX "bin"
+}
+if (-not $WixBin -or -not (Test-Path (Join-Path $WixBin "candle.exe"))) {
+    # Try common WiX install locations
+    $WixPaths = @(
+        "${env:ProgramFiles(x86)}\WiX Toolset v3.11\bin",
+        "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin",
+        "${env:ProgramFiles}\WiX Toolset v3.14\bin"
+    )
+    foreach ($p in $WixPaths) {
+        if (Test-Path (Join-Path $p "candle.exe")) {
+            $WixBin = $p
+            break
+        }
     }
 }
 
-if ($MissingFiles.Count -gt 0) {
-    Write-Error "Missing required files: $($MissingFiles -join ', ')"
+if (-not $WixBin -or -not (Test-Path (Join-Path $WixBin "candle.exe"))) {
+    Write-Error "WiX Toolset not found. Install from https://wixtoolset.org/releases/ and set WIX environment variable."
 }
 
-# Optional files (warn if missing)
-@($SeenLspExePath, $SeenRiscvExePath, $DocsPath, $IconPath) | ForEach-Object {
-    if (-not (Test-Path $_)) {
-        Write-Warning "Optional file missing: $_"
-    }
+$candle = Join-Path $WixBin "candle.exe"
+$light = Join-Path $WixBin "light.exe"
+$heat = Join-Path $WixBin "heat.exe"
+
+Write-Host "  WiX: $WixBin" -ForegroundColor Gray
+
+# Check for optional files
+$HasIcon = "no"
+$IconPath = Join-Path $ScriptDir "..\assets\icons\seen-icon.ico"
+if (Test-Path $IconPath) {
+    $HasIcon = "yes"
 }
 
-# Create temporary work directory
+$HasLicense = "no"
+$LicenseRtf = Join-Path $ScriptDir "license.rtf"
+if (Test-Path $LicenseRtf) {
+    $HasLicense = "yes"
+}
+
+# Create temp working directory
 $TempDir = Join-Path $env:TEMP "seen-msi-build-$(Get-Random)"
 New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 
 try {
-    # Copy WiX source files to temp directory
-    Copy-Item (Join-Path $ScriptDir "seen.wxs") $TempDir
-    
-    # Copy assets if they exist
-    $AssetsDir = Join-Path $ScriptDir "assets"
-    if (Test-Path $AssetsDir) {
-        Copy-Item $AssetsDir $TempDir -Recurse
-    } else {
-        Write-Warning "Assets directory not found. Creating placeholder files..."
-        $TempAssetsDir = Join-Path $TempDir "assets"
-        New-Item -ItemType Directory -Path $TempAssetsDir -Force | Out-Null
-        
-        # Create placeholder icon if missing
-        if (-not (Test-Path $IconPath)) {
-            $PlaceholderIcon = Join-Path $TempAssetsDir "seen-icon.ico"
-            # Create a minimal ICO file (this is just a placeholder)
-            [System.IO.File]::WriteAllBytes($PlaceholderIcon, @(0, 0, 1, 0, 1, 0, 16, 16, 16, 0, 1, 0, 4, 0, 40, 1, 0, 0, 22, 0, 0, 0))
-            $IconPath = $PlaceholderIcon
+    $FragmentFiles = @()
+
+    # Harvest stdlib directory with heat.exe if it exists
+    $StdlibSrcDir = Join-Path $SourceDir "lib\seen\std"
+    if ((Test-Path $heat) -and (Test-Path $StdlibSrcDir)) {
+        Write-Host "Harvesting stdlib files..." -ForegroundColor Blue
+        $StdlibFragment = Join-Path $TempDir "stdlib-fragment.wxs"
+        & $heat dir $StdlibSrcDir -cg StdlibFiles -dr StdlibDir -srd -ag -sfrag -var "var.StdlibSrcDir" -out $StdlibFragment
+        if ($LASTEXITCODE -eq 0) {
+            $FragmentFiles += $StdlibFragment
+        } else {
+            Write-Warning "heat.exe failed for stdlib, using empty component group"
         }
     }
-    
+
+    # Harvest languages directory
+    $LangSrcDir = Join-Path $SourceDir "share\seen\languages"
+    if ((Test-Path $heat) -and (Test-Path $LangSrcDir)) {
+        Write-Host "Harvesting language files..." -ForegroundColor Blue
+        $LangFragment = Join-Path $TempDir "languages-fragment.wxs"
+        & $heat dir $LangSrcDir -cg LanguageFiles -dr LanguagesDir -srd -ag -sfrag -var "var.LangSrcDir" -out $LangFragment
+        if ($LASTEXITCODE -eq 0) {
+            $FragmentFiles += $LangFragment
+        } else {
+            Write-Warning "heat.exe failed for languages, using empty component group"
+        }
+    }
+
+    # Harvest docs directory
+    $DocsSrcDir = Join-Path $SourceDir "share\seen\docs"
+    if ((Test-Path $heat) -and (Test-Path $DocsSrcDir)) {
+        Write-Host "Harvesting doc files..." -ForegroundColor Blue
+        $DocsFragment = Join-Path $TempDir "docs-fragment.wxs"
+        & $heat dir $DocsSrcDir -cg DocFiles -dr DocsDir -srd -ag -sfrag -var "var.DocsSrcDir" -out $DocsFragment
+        if ($LASTEXITCODE -eq 0) {
+            $FragmentFiles += $DocsFragment
+        } else {
+            Write-Warning "heat.exe failed for docs, using empty component group"
+        }
+    }
+
     # Build WiX variables
     $WixVars = @(
-        "-dVersion=$Version"
-        "-dPlatform=$Platform"  
-        "-dProgramFilesFolder=$ProgramFilesVar"
-        "-dSeenExePath=$SeenExePath"
-        "-dSeenLspExePath=$SeenLspExePath"
-        "-dSeenRiscvExePath=$SeenRiscvExePath"
-        "-dStdlibPath=$StdlibPath"
-        "-dLanguagesPath=$LanguagesPath"
-        "-dDocsPath=$DocsPath"
-        "-dIconPath=$IconPath"
-        "-dVSCodeExtensionPath=" # Placeholder for future VS Code extension
+        "-dVersion=$Version",
+        "-dPlatform=$Platform",
+        "-dSourceDir=$SourceDir",
+        "-dHasIcon=$HasIcon",
+        "-dHasLicense=$HasLicense"
     )
-    
-    # Compile with candle
-    Write-Host "Compiling WiX source..." -ForegroundColor Blue
-    $WxsFile = Join-Path $TempDir "seen.wxs"
-    $WixObjFile = Join-Path $TempDir "seen.wixobj"
-    
-    $CandleArgs = @(
-        "-nologo"
-        "-out", $WixObjFile
-        $WxsFile
-    ) + $WixVars
-    
-    if ($Verbose) {
-        $CandleArgs += "-v"
+
+    if ($HasIcon -eq "yes") {
+        $WixVars += "-dIconPath=$IconPath"
     }
-    
+    if ($HasLicense -eq "yes") {
+        $WixVars += "-dLicenseRtf=$LicenseRtf"
+    }
+    if (Test-Path $StdlibSrcDir) {
+        $WixVars += "-dStdlibSrcDir=$StdlibSrcDir"
+    }
+    if (Test-Path $LangSrcDir) {
+        $WixVars += "-dLangSrcDir=$LangSrcDir"
+    }
+    if (Test-Path $DocsSrcDir) {
+        $WixVars += "-dDocsSrcDir=$DocsSrcDir"
+    }
+
+    # If we generated heat fragments, define HeatGenerated
+    if ($FragmentFiles.Count -gt 0) {
+        $WixVars += "-dHeatGenerated=yes"
+    }
+
+    # Compile main .wxs
+    Write-Host "Compiling WiX source..." -ForegroundColor Blue
+    $WxsFile = Join-Path $ScriptDir "seen.wxs"
+    $MainObj = Join-Path $TempDir "seen.wixobj"
+
+    $CandleArgs = @("-nologo", "-out", $MainObj, $WxsFile) + $WixVars
+    if ($Verbose) { $CandleArgs += "-v" }
+
     & $candle @CandleArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Candle compilation failed with exit code $LASTEXITCODE"
+        throw "candle.exe failed for seen.wxs (exit code $LASTEXITCODE)"
     }
-    
-    # Link with light
+
+    # Compile fragment files
+    $AllObjs = @($MainObj)
+    foreach ($frag in $FragmentFiles) {
+        $fragBase = [System.IO.Path]::GetFileNameWithoutExtension($frag)
+        $fragObj = Join-Path $TempDir "$fragBase.wixobj"
+        $FragCandleArgs = @("-nologo", "-out", $fragObj, $frag) + $WixVars
+        if ($Verbose) { $FragCandleArgs += "-v" }
+
+        & $candle @FragCandleArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "candle.exe failed for $frag, skipping"
+            continue
+        }
+        $AllObjs += $fragObj
+    }
+
+    # Link
     Write-Host "Linking MSI package..." -ForegroundColor Blue
     $MsiFile = Join-Path $OutputPath "Seen-$Version-$Platform.msi"
-    
+
     $LightArgs = @(
-        "-nologo"
-        "-ext", "WixUIExtension"
-        "-ext", "WixUtilExtension" 
-        "-cultures:en-us"
+        "-nologo",
+        "-ext", "WixUIExtension",
+        "-ext", "WixUtilExtension",
+        "-cultures:en-us",
         "-out", $MsiFile
-        $WixObjFile
-    )
-    
-    if ($Verbose) {
-        $LightArgs += "-v"
-    }
-    
+    ) + $AllObjs
+
+    if ($Verbose) { $LightArgs += "-v" }
+
     & $light @LightArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Light linking failed with exit code $LASTEXITCODE"
+        throw "light.exe failed (exit code $LASTEXITCODE)"
     }
-    
-    # Validate the MSI
-    Write-Host "Validating MSI package..." -ForegroundColor Blue
+
+    # Success
     if (Test-Path $MsiFile) {
-        $MsiInfo = Get-ItemProperty $MsiFile
-        $MsiSize = [math]::Round($MsiInfo.Length / 1MB, 2)
-        
-        Write-Host "✓ MSI created successfully: $MsiFile" -ForegroundColor Green
-        Write-Host "  Size: $MsiSize MB" -ForegroundColor Gray
-        Write-Host "  Version: $Version" -ForegroundColor Gray
-        Write-Host "  Platform: $Platform" -ForegroundColor Gray
-        
-        # Generate hash for verification
+        $MsiSize = [math]::Round((Get-ItemProperty $MsiFile).Length / 1MB, 2)
         $Hash = Get-FileHash $MsiFile -Algorithm SHA256
-        $HashFile = "$MsiFile.sha256"
-        "$($Hash.Hash)  $(Split-Path $MsiFile -Leaf)" | Out-File $HashFile -Encoding ASCII
-        Write-Host "  SHA256: $HashFile" -ForegroundColor Gray
-        
-        return $MsiFile
+        "$($Hash.Hash)  $(Split-Path $MsiFile -Leaf)" | Out-File "$MsiFile.sha256" -Encoding ASCII
+
+        Write-Host "" -ForegroundColor Green
+        Write-Host "MSI created: $MsiFile" -ForegroundColor Green
+        Write-Host "  Size: $MsiSize MB" -ForegroundColor Gray
+        Write-Host "  SHA256: $($Hash.Hash)" -ForegroundColor Gray
     } else {
         throw "MSI file was not created"
     }
-    
+
 } catch {
     Write-Error "MSI build failed: $($_.Exception.Message)"
     throw
 } finally {
-    # Cleanup
     if (Test-Path $TempDir) {
-        Remove-Item $TempDir -Recurse -Force
+        Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
-
-Write-Host ""
-Write-Host "MSI build completed successfully!" -ForegroundColor Green
-Write-Host "Output: $MsiFile" -ForegroundColor Cyan

@@ -53,22 +53,40 @@ def transform_ll_for_win64(content):
         content
     )
 
-    # Fix main: void -> i32, ret void -> ret i32 0
-    content = re.sub(
-        r'define void @main\(i32 (%\w+), ptr (%\w+)\)',
-        r'define i32 @main(i32 \1, ptr \2)',
-        content
-    )
-    content = re.sub(r'(\s+)ret void', r'\1ret i32 0', content)
+    # Fix main: void -> i32, and only change "ret void" -> "ret i32 0" inside @main
+    # On Windows, main() must return i32 (int), not void.
+    lines = content.split('\n')
+    new_lines = []
+    in_main = False
+    for line in lines:
+        if re.match(r'define void @main\(i32 %\w+, ptr %\w+\)', line):
+            line = re.sub(
+                r'define void @main\(i32 (%\w+), ptr (%\w+)\)',
+                r'define i32 @main(i32 \1, ptr \2)',
+                line
+            )
+            in_main = True
+        elif in_main and line.startswith('}'):
+            in_main = False
+        elif in_main and line.strip() == 'ret void':
+            line = line.replace('ret void', 'ret i32 0')
+        new_lines.append(line)
+    content = '\n'.join(new_lines)
 
     # Pattern for struct types that need byval
     type_pattern = '|'.join(re.escape(t) for t in byval_types)
 
-    # Transform declare statements: change struct params to ptr byval(Type) and struct returns to void + sret
+    # Transform declare/define statements: change struct params to ptr byval(Type) and struct returns to void + sret
     lines = content.split('\n')
     new_lines = []
     # Track which functions return structs (need sret transform at call sites)
     sret_functions = set()
+    # Track sret info for defined functions (to fix ret instructions)
+    # Maps function name -> (ret_type, sret_param_name)
+    sret_defines = {}
+    # Current function being sret-transformed (for fixing ret instructions)
+    current_sret_type = None
+    current_sret_param = None
 
     for line in lines:
         # Handle declare/define lines
@@ -78,7 +96,7 @@ def transform_ll_for_win64(content):
             rest = decl_match.group(2)
 
             # Check if return type is a byval struct
-            ret_match = re.match(r'(%\w+)\s+(@\w+)\(([^)]*)\)(.*)', rest)
+            ret_match = re.match(r'(%\w+)\s+(@[\w.]+)\(([^)]*)\)(.*)', rest)  # @[\w.] matches dots in names
             if ret_match and ret_match.group(1) in byval_types:
                 ret_type = ret_match.group(1)
                 func_name = ret_match.group(2)
@@ -86,8 +104,14 @@ def transform_ll_for_win64(content):
                 attrs = ret_match.group(4)
                 sret_functions.add(func_name)
 
+                # For define: the sret param needs a name
+                sret_param_name = '%_sret_out'
+                if keyword == 'define':
+                    current_sret_type = ret_type
+                    current_sret_param = sret_param_name
+
                 # Transform params
-                new_params = f'ptr sret({ret_type})'
+                new_params = f'ptr sret({ret_type}) {sret_param_name}' if keyword == 'define' else f'ptr sret({ret_type})'
                 if params.strip():
                     for param in split_params(params):
                         new_params += ', ' + transform_param(param, byval_types)
@@ -95,8 +119,13 @@ def transform_ll_for_win64(content):
                 new_lines.append(new_line)
                 continue
 
+            else:
+                # Not an sret function define - clear tracking
+                current_sret_type = None
+                current_sret_param = None
+
             # Check params for struct types
-            param_match = re.match(r'(\S+)\s+(@\w+)\(([^)]*)\)(.*)', rest)
+            param_match = re.match(r'(\S+)\s+(@[\w.]+)\(([^)]*)\)(.*)', rest)  # @[\w.] matches dots in names
             if param_match:
                 ret_type = param_match.group(1)
                 func_name = param_match.group(2)
@@ -110,6 +139,25 @@ def transform_ll_for_win64(content):
                 new_line = f'{keyword} {ret_type} {func_name}({", ".join(new_params)}){attrs}'
                 new_lines.append(new_line)
                 continue
+
+        # Fix ret instructions inside sret-transformed define blocks
+        elif current_sret_type and current_sret_param:
+            # Only match closing brace at column 0 (function end), not nested braces
+            if re.match(r'^\}', line):
+                current_sret_type = None
+                current_sret_param = None
+            else:
+                # Check for "ret %StructType %val"
+                ret_match = re.match(
+                    rf'(\s+)ret {re.escape(current_sret_type)} (%\w+)',
+                    line
+                )
+                if ret_match:
+                    indent = ret_match.group(1)
+                    val = ret_match.group(2)
+                    new_lines.append(f'{indent}store {current_sret_type} {val}, ptr {current_sret_param}')
+                    new_lines.append(f'{indent}ret void')
+                    continue
 
         new_lines.append(line)
 
@@ -201,7 +249,7 @@ def transform_call_line(line, byval_types, sret_functions, counter):
     # or: call void @func(%Type1 %a)
 
     # Check for struct return
-    ret_match = re.match(r'\s*(%\w+)\s*=\s*call\s+(%\w+)\s+(@\w+)\(([^)]*)\)', line)
+    ret_match = re.match(r'\s*(%\w+)\s*=\s*call\s+(%\w+)\s+(@[\w.]+)\(([^)]*)\)', line)
     if ret_match and ret_match.group(2) in byval_types and ret_match.group(3) in sret_functions:
         result_var = ret_match.group(1)
         ret_type = ret_match.group(2)
@@ -222,7 +270,7 @@ def transform_call_line(line, byval_types, sret_functions, counter):
         return lines_out
 
     # Check for struct args (no struct return)
-    call_match = re.match(r'(\s*(?:%\w+\s*=\s*)?call\s+\S+\s+@\w+)\(([^)]*)\)', line)
+    call_match = re.match(r'(\s*(?:%\w+\s*=\s*)?call\s+\S+\s+@[\w.]+)\(([^)]*)\)', line)
     if call_match:
         prefix = call_match.group(1)
         args_str = call_match.group(2)

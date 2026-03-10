@@ -335,14 +335,17 @@ static inline int pthread_barrier_destroy(pthread_barrier_t *b) {
 // Sleep / Yield
 // ============================================================================
 
-// nanosleep
+// nanosleep — provided by mingw-w64 11+ via <pthread_time.h>.
+// Older versions (< 11) need a fallback.
+#if defined(__MINGW64_VERSION_MAJOR) && __MINGW64_VERSION_MAJOR < 11
 static inline int nanosleep(const struct timespec *req, struct timespec *rem) {
     (void)rem;
     DWORD ms = (DWORD)(req->tv_sec * 1000 + req->tv_nsec / 1000000);
-    if (ms == 0 && req->tv_nsec > 0) ms = 1; // at least 1ms for non-zero sleeps
+    if (ms == 0 && req->tv_nsec > 0) ms = 1;
     Sleep(ms);
     return 0;
 }
+#endif
 
 // sched_yield
 static inline int sched_yield(void) {
