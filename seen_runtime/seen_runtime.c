@@ -1,6 +1,25 @@
 // Seen Runtime Library Implementation
 // Provides C implementations of Seen standard library functions
 
+#ifdef _WIN32
+// ============================================================================
+// Windows (mingw-w64) build — pull in compatibility layer
+// ============================================================================
+#include "seen_runtime.h"
+#include "seen_compat_win32.h"
+#include <errno.h>
+#include <sys/stat.h>
+#include <math.h>
+#include <time.h>
+
+// On Windows, seen_aligned_realloc must use _aligned_realloc/_aligned_free
+// instead of allocating new + memcpy + free (which would crash with _aligned_malloc memory).
+#define SEEN_WIN32_ALIGNED 1
+
+#else // !_WIN32
+// ============================================================================
+// POSIX build (Linux, macOS, etc.)
+// ============================================================================
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
@@ -37,6 +56,11 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 }
 #define aligned_alloc(a, s) seen_aligned_alloc(a, s)
 #endif
+
+// On POSIX, aligned memory can be freed with regular free()
+#define seen_aligned_free(p) free(p)
+
+#endif // _WIN32
 
 // ============================================================================
 // Pool Allocator - size-class slab allocator with free-list recycling
@@ -284,7 +308,11 @@ bool __CreateDirectory(SeenString path) {
     memcpy(cpath, path.data, path.len);
     cpath[path.len] = 0;
 
+#ifdef _WIN32
+    int result = _mkdir(cpath);
+#else
     int result = mkdir(cpath, 0755);
+#endif
     free(cpath);
     return result == 0;
 }
@@ -300,6 +328,17 @@ typedef struct {
 } SeenCommandResult;
 
 // Execute program by path and return exit code.
+#ifdef _WIN32
+int64_t __ExecuteProgram(SeenString path) {
+    char* cpath = (char*)malloc(path.len + 1);
+    memcpy(cpath, path.data, path.len);
+    cpath[path.len] = 0;
+
+    int status = system(cpath);
+    free(cpath);
+    return (int64_t)status;
+}
+#else
 // Uses posix_spawn via /bin/sh -c (like system(3) but available on all Apple platforms).
 extern char **environ;
 int64_t __ExecuteProgram(SeenString path) {
@@ -323,6 +362,7 @@ int64_t __ExecuteProgram(SeenString path) {
     if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
     return -1;
 }
+#endif
 
 // Execute command and capture output
 // Returns a pointer to a malloc'd SeenCommandResult (to avoid ABI issues with large struct returns)
@@ -360,7 +400,12 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
     output[length] = 0;
 
     int status = pclose(pipe);
+#ifdef _WIN32
+    // On Windows, pclose/_pclose returns the exit code directly
+    result->success = (status == 0);
+#else
     result->success = (status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+#endif
     result->output.len = length;
     result->output.data = output;
 
@@ -376,20 +421,31 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
 // Uses __ prefix (like all other runtime functions) to avoid linker conflicts with
 // Seen-generated wrapper symbols.
 // On iOS, fork() returns -1 with errno=ENOSYS at runtime — callers handle this.
+// On Windows, fork() is not available — always returns -1.
 int64_t __seen_fork(void) {
+#ifdef _WIN32
+    return -1;
+#else
     fflush(NULL);
     return (int64_t)fork();
+#endif
 }
 
 // Wait for a child process to exit. Returns the child's exit code, or -1 on error.
 // flags=0 for blocking wait; flags=1 for WNOHANG (non-blocking).
 int64_t __seen_waitpid(int64_t pid, int64_t flags) {
+#ifdef _WIN32
+    // fork() always returns -1 on Windows, so waitpid is a no-op
+    (void)pid; (void)flags;
+    return -1;
+#else
     int status = 0;
     pid_t result = waitpid((pid_t)pid, &status, (int)flags);
     if (result < 0) return -1;
     if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
     if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
     return -1;
+#endif
 }
 
 // Terminate the current process immediately (bypasses C atexit handlers).
@@ -400,7 +456,11 @@ void __seen_exit(int64_t code) {
 
 // Return the PID of the current process.
 int64_t __seen_getpid(void) {
+#ifdef _WIN32
+    return (int64_t)GetCurrentProcessId();
+#else
     return (int64_t)getpid();
+#endif
 }
 
 // ============================================================================
@@ -454,7 +514,11 @@ bool __SetEnv(SeenString name, SeenString value) {
     memcpy(cvalue, value.data, value.len);
     cvalue[value.len] = 0;
 
+#ifdef _WIN32
+    int result = _putenv_s(cname, cvalue);
+#else
     int result = setenv(cname, cvalue, 1);
+#endif
     free(cname);
     free(cvalue);
     return result == 0;
@@ -466,7 +530,17 @@ bool __RemoveEnv(SeenString name) {
     memcpy(cname, name.data, name.len);
     cname[name.len] = 0;
 
+#ifdef _WIN32
+    // On Windows, _putenv with "NAME=" removes the variable
+    char* buf = (char*)malloc(name.len + 2);
+    memcpy(buf, cname, name.len);
+    buf[name.len] = '=';
+    buf[name.len + 1] = 0;
+    int result = _putenv(buf);
+    free(buf);
+#else
     int result = unsetenv(cname);
+#endif
     free(cname);
     return result == 0;
 }
@@ -586,10 +660,18 @@ static inline size_t seen_align_up(size_t n, size_t align) {
 static void* seen_aligned_realloc(void* old, size_t old_size, size_t new_size) {
     size_t aligned_size = seen_align_up(new_size, 32);
     if (aligned_size == 0) aligned_size = 32;
+#ifdef SEEN_WIN32_ALIGNED
+    // On Windows, _aligned_malloc memory must be reallocated with _aligned_realloc
+    (void)old_size; // _aligned_realloc doesn't need old_size
+    void* p = _aligned_realloc(old, aligned_size, 32);
+    if (!p) { fprintf(stderr, "seen_aligned_realloc: OOM\n"); abort(); }
+    return p;
+#else
     void* p = aligned_alloc(32, aligned_size);
     if (!p) { fprintf(stderr, "seen_aligned_realloc: OOM\n"); abort(); }
     if (old) { memcpy(p, old, old_size < new_size ? old_size : new_size); free(old); }
     return p;
+#endif
 }
 
 SeenArray seen_arr_new_str(void) {
@@ -1132,9 +1214,11 @@ SeenString seen_str_concat_ss(SeenString a, SeenString b) {
         fprintf(stderr, "  a.len=%" PRId64 ", a.data=%p\n", a.len, a.data);
         fprintf(stderr, "  b.len=%" PRId64 ", b.data=%p\n", b.len, b.data);
         fflush(stderr);
+#ifndef _WIN32
         void* bt[20];
         int nptrs = backtrace(bt, 20);
         backtrace_symbols_fd(bt, nptrs, 2);
+#endif
         abort();
     }
     char* newdata = (char*)seen_pool_alloc(a.len + b.len + 1);
@@ -2182,6 +2266,28 @@ int64_t StringBuilder_appendChar(void* sb, int64_t ch) {
 // Read a single line from stdin (blocking)
 // Returns the line including newline character if present
 SeenString __ReadStdinLine(void) {
+#ifdef _WIN32
+    // getline is not available on Windows/mingw; use fgets with dynamic buffer
+    size_t capacity = 256;
+    char* buffer = (char*)malloc(capacity);
+    if (!buffer) { SeenString empty = { 0, "" }; return empty; }
+    size_t len = 0;
+    while (1) {
+        if (!fgets(buffer + len, (int)(capacity - len), stdin)) {
+            if (len == 0) { free(buffer); SeenString empty = { 0, "" }; return empty; }
+            break;
+        }
+        len = strlen(buffer);
+        if (len > 0 && buffer[len - 1] == '\n') break;
+        if (len + 1 >= capacity) {
+            capacity *= 2;
+            buffer = (char*)realloc(buffer, capacity);
+            if (!buffer) { SeenString empty = { 0, "" }; return empty; }
+        }
+    }
+    SeenString result = { (int64_t)len, buffer };
+    return result;
+#else
     char* buffer = NULL;
     size_t capacity = 0;
     ssize_t len = getline(&buffer, &capacity, stdin);
@@ -2196,6 +2302,7 @@ SeenString __ReadStdinLine(void) {
     // getline includes the newline, keep it
     SeenString result = { len, buffer };
     return result;
+#endif
 }
 
 // Read exactly N bytes from stdin (blocking)
@@ -2262,9 +2369,16 @@ int64_t __FloatToInt(double f) {
 }
 
 double __GetTime(void) {
+#ifdef _WIN32
+    LARGE_INTEGER freq, count;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&count);
+    return (double)count.QuadPart / (double)freq.QuadPart;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
 }
 
 double __Sqrt(double x) {
@@ -2315,9 +2429,16 @@ static int g_profile_stack_depth = 0;
 
 // Get current time in nanoseconds
 static uint64_t __seen_profile_now_ns(void) {
+#ifdef _WIN32
+    LARGE_INTEGER freq, count;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&count);
+    return (uint64_t)((double)count.QuadPart / (double)freq.QuadPart * 1e9);
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+#endif
 }
 
 // Find or create profile entry for a function
@@ -5750,10 +5871,14 @@ int64_t __AtomicCompareExchangeBool(int64_t handle, int64_t expected, int64_t de
 
 // Sleep the current thread for `ms` milliseconds.
 void __ThreadSleep(int64_t ms) {
+#ifdef _WIN32
+    Sleep((DWORD)ms);
+#else
     struct timespec ts;
     ts.tv_sec  = ms / 1000;
     ts.tv_nsec = (ms % 1000) * 1000000L;
     nanosleep(&ts, NULL);
+#endif
 }
 
 // ============================================================================
@@ -5763,17 +5888,29 @@ void __ThreadSleep(int64_t ms) {
 // Yield the current thread to the OS scheduler.
 // Used by the async runtime to avoid busy-waiting when no tasks are ready.
 void __thread_yield(void) {
+#ifdef _WIN32
+    SwitchToThread();
+#else
     sched_yield();
+#endif
 }
 
 // __ThreadYield is the Seen-facing name; __thread_yield is the legacy internal name.
 void __ThreadYield(void) {
+#ifdef _WIN32
+    SwitchToThread();
+#else
     sched_yield();
+#endif
 }
 
-// Return an opaque thread ID for the current thread (pthread_self cast to int64_t).
+// Return an opaque thread ID for the current thread.
 int64_t __ThreadCurrent(void) {
+#ifdef _WIN32
+    return (int64_t)GetCurrentThreadId();
+#else
     return (int64_t)(uintptr_t)pthread_self();
+#endif
 }
 
 // ============================================================================
@@ -5822,27 +5959,46 @@ int64_t __RawThreadJoin(int64_t handle) {
 
 int64_t __ChannelCreate(void) {
     int fds[2];
+#ifdef _WIN32
+    if (_pipe(fds, 8192, _O_BINARY) != 0) return -1;
+#else
     if (pipe(fds) != 0) return -1;
+#endif
     return ((int64_t)fds[0] << 32) | (int64_t)(uint32_t)fds[1];
 }
 
 int64_t __ChannelSend(int64_t handle, int64_t val) {
     int write_fd = (int)(handle & 0xFFFFFFFF);
+#ifdef _WIN32
+    int n = _write(write_fd, &val, (unsigned int)sizeof(val));
+    return n == (int)sizeof(val) ? 1 : 0;
+#else
     ssize_t n = write(write_fd, &val, sizeof(val));
     return n == (ssize_t)sizeof(val) ? 1 : 0;
+#endif
 }
 
 int64_t __ChannelReceive(int64_t handle) {
     int read_fd = (int)((uint64_t)handle >> 32);
     int64_t val = 0;
+#ifdef _WIN32
+    int n = _read(read_fd, &val, (unsigned int)sizeof(val));
+    (void)n;
+#else
     ssize_t n = read(read_fd, &val, sizeof(val));
     (void)n;
+#endif
     return val;
 }
 
 void __ChannelClose(int64_t handle) {
+#ifdef _WIN32
+    _close((int)((uint64_t)handle >> 32));
+    _close((int)(handle & 0xFFFFFFFF));
+#else
     close((int)((uint64_t)handle >> 32));
     close((int)(handle & 0xFFFFFFFF));
+#endif
 }
 
 // Abort the program with an error message.
@@ -5850,13 +6006,15 @@ void __ChannelClose(int64_t handle) {
 // Takes a SeenString (len + data pointer) since Seen String = %SeenString struct.
 void __panic(int64_t len, char* data) {
     fprintf(stderr, "PANIC: %.*s\n", (int)len, data);
-    // Print stack trace
+#ifndef _WIN32
+    // Print stack trace (backtrace not available on Windows/mingw)
     void* bt_buf[64];
     int bt_size = backtrace(bt_buf, 64);
     if (bt_size > 0) {
         fprintf(stderr, "\nStack trace:\n");
         backtrace_symbols_fd(bt_buf, bt_size, 2);  // fd 2 = stderr
     }
+#endif
     abort();
 }
 
@@ -6031,8 +6189,10 @@ int64_t seen_pool_region_available(int64_t handle) {
 // Memory-Mapped Region
 // ============================================================================
 
+#ifndef _WIN32
 #include <sys/mman.h>
 #include <fcntl.h>
+#endif
 
 typedef struct {
     void  *addr;
@@ -6047,6 +6207,41 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
     mr->length = (size_t)size;
     mr->fd = -1;
 
+#ifdef _WIN32
+    if (flags == 2) {
+        // Anonymous mapping: use VirtualAlloc
+        mr->addr = VirtualAlloc(NULL, mr->length, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    } else {
+        // File-backed mapping
+        char pathbuf[4096];
+        size_t plen = (size_t)path_len < 4095 ? (size_t)path_len : 4095;
+        memcpy(pathbuf, path_data, plen);
+        pathbuf[plen] = '\0';
+
+        DWORD access = (flags == 1) ? GENERIC_READ | GENERIC_WRITE : GENERIC_READ;
+        DWORD share = FILE_SHARE_READ;
+        HANDLE hFile = CreateFileA(pathbuf, access, share, NULL, OPEN_EXISTING,
+                                   FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile == INVALID_HANDLE_VALUE) { free(mr); return 0; }
+
+        DWORD fProtect = (flags == 1) ? PAGE_READWRITE : PAGE_READONLY;
+        HANDLE hMap = CreateFileMappingA(hFile, NULL, fProtect,
+                                         (DWORD)(mr->length >> 32),
+                                         (DWORD)(mr->length & 0xFFFFFFFF), NULL);
+        if (!hMap) { CloseHandle(hFile); free(mr); return 0; }
+
+        DWORD mapAccess = (flags == 1) ? FILE_MAP_WRITE : FILE_MAP_READ;
+        mr->addr = MapViewOfFile(hMap, mapAccess, 0, 0, mr->length);
+        CloseHandle(hMap);
+        // Store the file handle as fd (cast for later cleanup)
+        mr->fd = (int)(intptr_t)hFile;
+    }
+    if (!mr->addr) {
+        if (mr->fd >= 0) CloseHandle((HANDLE)(intptr_t)mr->fd);
+        free(mr);
+        return 0;
+    }
+#else
     if (flags == 2) {
         // Anonymous mapping
         mr->addr = mmap(NULL, mr->length, PROT_READ | PROT_WRITE,
@@ -6072,6 +6267,7 @@ int64_t seen_mapped_new(int64_t path_len, char *path_data, int64_t size, int64_t
         free(mr);
         return 0;
     }
+#endif
     return (int64_t)(uintptr_t)mr;
 }
 
@@ -6082,14 +6278,23 @@ int64_t seen_mapped_data(int64_t handle) {
 
 void seen_mapped_sync(int64_t handle) {
     SeenMappedRegion *mr = (SeenMappedRegion *)(uintptr_t)handle;
+#ifdef _WIN32
+    FlushViewOfFile(mr->addr, mr->length);
+#else
     msync(mr->addr, mr->length, MS_SYNC);
+#endif
 }
 
 void seen_mapped_free(int64_t handle) {
     SeenMappedRegion *mr = (SeenMappedRegion *)(uintptr_t)handle;
     if (mr) {
+#ifdef _WIN32
+        if (mr->addr) UnmapViewOfFile(mr->addr);
+        if (mr->fd >= 0) CloseHandle((HANDLE)(intptr_t)mr->fd);
+#else
         munmap(mr->addr, mr->length);
         if (mr->fd >= 0) close(mr->fd);
+#endif
         free(mr);
     }
 }
@@ -6103,6 +6308,43 @@ int64_t seen_mapped_length(int64_t handle) {
 // RwLock (Reader-Writer Lock)
 // ============================================================================
 
+#ifdef _WIN32
+// On Windows, SRWLOCK requires separate shared/exclusive unlock calls
+typedef struct { SRWLOCK rw; } SeenRwLock;
+
+int64_t seen_rwlock_new(void) {
+    SeenRwLock *l = (SeenRwLock *)malloc(sizeof(SeenRwLock));
+    if (!l) return 0;
+    InitializeSRWLock(&l->rw);
+    return (int64_t)(uintptr_t)l;
+}
+
+void seen_rwlock_read_lock(int64_t handle) {
+    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
+    AcquireSRWLockShared(&l->rw);
+}
+
+void seen_rwlock_read_unlock(int64_t handle) {
+    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
+    ReleaseSRWLockShared(&l->rw);
+}
+
+void seen_rwlock_write_lock(int64_t handle) {
+    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
+    AcquireSRWLockExclusive(&l->rw);
+}
+
+void seen_rwlock_write_unlock(int64_t handle) {
+    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
+    ReleaseSRWLockExclusive(&l->rw);
+}
+
+void seen_rwlock_destroy(int64_t handle) {
+    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
+    // SRWLOCK has no destroy function
+    if (l) free(l);
+}
+#else
 typedef struct { pthread_rwlock_t rw; } SeenRwLock;
 
 int64_t seen_rwlock_new(void) {
@@ -6136,11 +6378,60 @@ void seen_rwlock_destroy(int64_t handle) {
     SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
     if (l) { pthread_rwlock_destroy(&l->rw); free(l); }
 }
+#endif
 
 // ============================================================================
 // Barrier
 // ============================================================================
 
+#ifdef _WIN32
+// Manual barrier using CRITICAL_SECTION + CONDITION_VARIABLE
+typedef struct {
+    CRITICAL_SECTION lock;
+    CONDITION_VARIABLE cond;
+    unsigned count;
+    unsigned waiting;
+    unsigned phase;
+} SeenBarrier;
+
+int64_t seen_barrier_new(int64_t count) {
+    SeenBarrier *b = (SeenBarrier *)malloc(sizeof(SeenBarrier));
+    if (!b) return 0;
+    InitializeCriticalSection(&b->lock);
+    InitializeConditionVariable(&b->cond);
+    b->count = (unsigned)count;
+    b->waiting = 0;
+    b->phase = 0;
+    return (int64_t)(uintptr_t)b;
+}
+
+int64_t seen_barrier_wait(int64_t handle) {
+    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
+    EnterCriticalSection(&b->lock);
+    unsigned phase = b->phase;
+    b->waiting++;
+    if (b->waiting == b->count) {
+        b->waiting = 0;
+        b->phase++;
+        LeaveCriticalSection(&b->lock);
+        WakeAllConditionVariable(&b->cond);
+        return 1; // serial thread
+    }
+    while (b->phase == phase) {
+        SleepConditionVariableCS(&b->cond, &b->lock, INFINITE);
+    }
+    LeaveCriticalSection(&b->lock);
+    return 0;
+}
+
+void seen_barrier_destroy(int64_t handle) {
+    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
+    if (b) {
+        DeleteCriticalSection(&b->lock);
+        free(b);
+    }
+}
+#else
 typedef struct { pthread_barrier_t b; } SeenBarrier;
 
 int64_t seen_barrier_new(int64_t count) {
@@ -6160,11 +6451,31 @@ void seen_barrier_destroy(int64_t handle) {
     SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
     if (b) { pthread_barrier_destroy(&b->b); free(b); }
 }
+#endif
 
 // ============================================================================
 // Thread-Local Storage
 // ============================================================================
 
+#ifdef _WIN32
+int64_t seen_tls_new(void) {
+    DWORD key = TlsAlloc();
+    if (key == TLS_OUT_OF_INDEXES) return -1;
+    return (int64_t)key;
+}
+
+void seen_tls_set(int64_t key, int64_t value) {
+    TlsSetValue((DWORD)key, (LPVOID)(uintptr_t)value);
+}
+
+int64_t seen_tls_get(int64_t key) {
+    return (int64_t)(uintptr_t)TlsGetValue((DWORD)key);
+}
+
+void seen_tls_destroy(int64_t key) {
+    TlsFree((DWORD)key);
+}
+#else
 int64_t seen_tls_new(void) {
     pthread_key_t key;
     if (pthread_key_create(&key, NULL) != 0) return -1;
@@ -6182,6 +6493,7 @@ int64_t seen_tls_get(int64_t key) {
 void seen_tls_destroy(int64_t key) {
     pthread_key_delete((pthread_key_t)key);
 }
+#endif
 
 // ============================================================================
 // Work-Stealing Thread Pool
@@ -6304,12 +6616,17 @@ static void *ws_worker(void *arg) {
             continue;
         }
         // Wait for work
+#ifdef _WIN32
+        SleepConditionVariableCS(&pool->submit_cond, &pool->submit_lock, 1);
+        LeaveCriticalSection(&pool->submit_lock);
+#else
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_nsec += 1000000; // 1ms timeout
         if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
         pthread_cond_timedwait(&pool->submit_cond, &pool->submit_lock, &ts);
         pthread_mutex_unlock(&pool->submit_lock);
+#endif
     }
     return NULL;
 }
@@ -6549,12 +6866,15 @@ void seen_atomic_stack_destroy(int64_t handle) {
 // CPU Affinity
 // ============================================================================
 
-#ifdef __linux__
+#if defined(__linux__) && !defined(_WIN32)
 #include <sched.h>
 #endif
 
 int64_t seen_set_thread_affinity(int64_t core_id) {
-#if defined(__linux__) && defined(_GNU_SOURCE)
+#if defined(_WIN32)
+    DWORD_PTR mask = (DWORD_PTR)1 << core_id;
+    return (SetThreadAffinityMask(GetCurrentThread(), mask) != 0) ? 1 : 0;
+#elif defined(__linux__) && defined(_GNU_SOURCE)
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET((int)core_id, &cpuset);
@@ -6566,7 +6886,11 @@ int64_t seen_set_thread_affinity(int64_t core_id) {
 }
 
 int64_t seen_get_num_cores(void) {
-#ifdef _SC_NPROCESSORS_ONLN
+#ifdef _WIN32
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return (int64_t)si.dwNumberOfProcessors;
+#elif defined(_SC_NPROCESSORS_ONLN)
     return (int64_t)sysconf(_SC_NPROCESSORS_ONLN);
 #else
     return 1;

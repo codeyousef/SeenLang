@@ -476,6 +476,45 @@ function Install-SeenLanguage {
         Add-ToPath -InstallDir $InstallDir -SystemWide $System
         New-StartMenuShortcuts -InstallDir $InstallDir
         
+        # Check for LLVM (required dependency for compilation)
+        Write-Info "Checking for LLVM toolchain..."
+        $llvmClang = Get-Command clang -ErrorAction SilentlyContinue
+        $llvmOpt = Get-Command opt -ErrorAction SilentlyContinue
+        if (-not $llvmClang -or -not $llvmOpt) {
+            Write-Host ""
+            Write-Warning-Custom "LLVM is not installed or not in PATH."
+            Write-Host "  The Seen compiler requires LLVM (clang, opt) to generate native binaries." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "  Install LLVM using one of these methods:" -ForegroundColor White
+            Write-Host "    winget install LLVM.LLVM" -ForegroundColor Gray
+            Write-Host "    Or download from: https://github.com/llvm/llvm-project/releases" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "  A helper script is available at:" -ForegroundColor White
+            Write-Host "    $InstallDir\share\seen\install-llvm.ps1" -ForegroundColor Gray
+            Write-Host ""
+
+            # Copy the LLVM installer helper if available
+            $llvmHelper = Join-Path $InstallDir "share\seen\install-llvm.ps1"
+            $shareSeenDir = Join-Path $InstallDir "share\seen"
+            if (-not (Test-Path $shareSeenDir)) {
+                New-Item -ItemType Directory -Path $shareSeenDir -Force | Out-Null
+            }
+            # Create inline LLVM helper
+            @'
+# Install LLVM for Seen Language - run: powershell -ExecutionPolicy Bypass -File install-llvm.ps1
+$winget = Get-Command winget -ErrorAction SilentlyContinue
+if ($winget) {
+    Write-Host "Installing LLVM via winget..." -ForegroundColor Blue
+    winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
+} else {
+    Write-Host "Please install LLVM from: https://github.com/llvm/llvm-project/releases" -ForegroundColor Yellow
+}
+'@ | Set-Content -Path $llvmHelper
+        } else {
+            $clangVer = & clang --version 2>&1 | Select-Object -First 1
+            Write-Success "LLVM found: $clangVer"
+        }
+
         # Verify and complete
         if (Test-Installation) {
             Show-GettingStarted -InstallDir $InstallDir

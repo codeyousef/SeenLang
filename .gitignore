@@ -17,6 +17,7 @@ Thumbs.db
 # Build output
 /dist/
 /build/
+target-windows/
 
 # LLVM build artifacts
 *.ll
