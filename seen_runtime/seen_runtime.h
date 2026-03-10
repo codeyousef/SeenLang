@@ -12,6 +12,16 @@
 #include <inttypes.h>
 
 // ============================================================================
+// Aligned memory free — must use _aligned_free on Windows (mingw-w64)
+// ============================================================================
+#ifdef _WIN32
+#include <malloc.h>
+#define seen_aligned_free(p) _aligned_free(p)
+#else
+#define seen_aligned_free(p) free(p)
+#endif
+
+// ============================================================================
 // Core Types
 // ============================================================================
 
