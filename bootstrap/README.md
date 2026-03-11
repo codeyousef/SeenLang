@@ -6,6 +6,9 @@ This directory contains the frozen bootstrap compiler for the Seen language.
 
 - `stage1_frozen` - Verified working self-hosted Seen compiler (Linux x86_64)
 - `stage1_frozen.sha256` - SHA256 hash for verification
+- `stage1_frozen_macos_arm64` - Verified working self-hosted Seen compiler (macOS ARM64/Apple Silicon)
+- `stage1_frozen_macos_arm64.sha256` - SHA256 hash for macOS ARM64 verification
+- `macos_opt_wrapper.py` - LLVM IR fixup wrapper for macOS bootstrap (fixes ABI mismatches)
 - `source_commit.txt` - Git commit from which this binary was built
 
 ## Usage
@@ -104,13 +107,25 @@ When adding new methods to core classes like `LLVMIRGenerator`:
 
 ## Architecture Notes
 
-The frozen compiler is built for Linux x86_64. For other platforms, use QEMU/Docker to run the Linux binary.
+The frozen compiler supports multiple platforms:
+- **Linux x86_64**: `stage1_frozen` (primary, also `stage1_frozen_v3` for x86-64-v3)
+- **macOS ARM64**: `stage1_frozen_macos_arm64` (Apple Silicon)
+
+On macOS, the bootstrap uses an LLVM IR fixup wrapper (`macos_opt_wrapper.py`) that transparently fixes codegen ABI mismatches before LLVM `opt` processes the `.ll` files. This includes:
+- Deduplicating declare statements
+- Fixing cross-module function parameter count/type mismatches
+- Promoting `internal global` to `global` for cross-module referenced symbols
+- Fixing `%SeenString` type mismatches in call sites
+- Resolving missing cross-module function declarations
 
 ## Emergency Recovery
 
 If bootstrap is broken:
 
 ```bash
-# Use the frozen compiler directly
+# Linux: Use the frozen compiler directly
 ./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen recovery_compiler
+
+# macOS ARM64: Use the macOS frozen compiler
+./bootstrap/stage1_frozen_macos_arm64 compile compiler_seen/src/main_compiler.seen recovery_compiler
 ```

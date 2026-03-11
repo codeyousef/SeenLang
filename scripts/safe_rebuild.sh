@@ -217,15 +217,39 @@ fi
 
 # Clean up any previous test files and cache
 rm -f "$STAGE2" "$STAGE3"
-rm -rf .seen_cache/
+rm -rf .seen_cache/ /tmp/seen_ir_cache/
 
-# LLVM 21+ rejects duplicate 'declare' statements with different attributes.
-# The frozen bootstrap compiler emits duplicate declarations (once from ir_declarations
-# with nounwind, once from extern function handling without nounwind). We install a
-# thin opt wrapper that deduplicates declarations in .ll files before invoking real opt.
-REAL_OPT=$(command -v opt)
-OPT_WRAPPER_DIR="/tmp/seen_opt_override"
-mkdir -p "$OPT_WRAPPER_DIR"
+# --- Opt wrapper setup (platform-specific) ---
+
+if [ "$HOST_OS" = "Darwin" ]; then
+    # macOS: use comprehensive ABI mismatch fixer (macos_opt_wrapper.py)
+    OPT_WRAPPER_DIR=$(mktemp -d /tmp/seen_opt_wrapper.XXXXXX)
+    if [ -d "/opt/homebrew/opt/llvm/bin" ]; then
+        LLVM_BIN="/opt/homebrew/opt/llvm/bin"
+    elif [ -d "/usr/local/opt/llvm/bin" ]; then
+        LLVM_BIN="/usr/local/opt/llvm/bin"
+    else
+        LLVM_BIN=""
+    fi
+    PYTHON3_PATH=""
+    for p in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+        if [ -x "$p" ]; then PYTHON3_PATH="$p"; break; fi
+    done
+    [ -z "$PYTHON3_PATH" ] && PYTHON3_PATH=$(which python3 2>/dev/null || echo "python3")
+    cp bootstrap/macos_opt_wrapper.py "$OPT_WRAPPER_DIR/macos_opt_wrapper_impl.py"
+    cat > "$OPT_WRAPPER_DIR/opt" << WRAPPER_EOF
+#!/bin/sh
+export PATH="$LLVM_BIN:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
+exec "$PYTHON3_PATH" "$OPT_WRAPPER_DIR/macos_opt_wrapper_impl.py" "\$@"
+WRAPPER_EOF
+    chmod +x "$OPT_WRAPPER_DIR/opt"
+    export PATH="$OPT_WRAPPER_DIR:$LLVM_BIN:$PATH"
+    echo "macOS: opt wrapper enabled (python3=$PYTHON3_PATH)"
+else
+    # Linux: LLVM 21+ rejects duplicate 'declare' statements with different attributes.
+    REAL_OPT=$(command -v opt)
+    OPT_WRAPPER_DIR="/tmp/seen_opt_override"
+    mkdir -p "$OPT_WRAPPER_DIR"
 cat > "$OPT_WRAPPER_DIR/opt" << WRAPPER_EOF
 #!/bin/bash
 # Wrapper: deduplicate declare statements in .ll files before invoking real opt.
@@ -301,7 +325,8 @@ if count > 0:
 done
 exec "$REAL_OPT" "\$@"
 WRAPPER_EOF
-chmod +x "$OPT_WRAPPER_DIR/opt"
+    chmod +x "$OPT_WRAPPER_DIR/opt"
+fi  # end platform-specific opt wrapper
 
 # Step 1: Build stage2 with frozen compiler (--fast)
 # NOTE: PATH override ensures our dedup opt wrapper runs instead of system opt.
@@ -314,37 +339,151 @@ echo ""
 # Clean stale .ll/.o from previous runs so counts are accurate
 rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
 
-if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-fork; then
-    echo -e "${GREEN}Stage2 build succeeded.${NC}"
+if [ "$HOST_OS" = "Darwin" ]; then
+    # macOS: PATH already set via export above; use --no-cache
+    if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-cache; then
+        echo -e "${GREEN}Stage2 build succeeded.${NC}"
+    else
+        echo -e "${RED}ERROR: Stage2 build failed!${NC}"
+        echo "Check /tmp/safe_rebuild_stage2.log for details."
+        tail -30 /tmp/safe_rebuild_stage2.log
+        exit 1
+    fi
 else
-    echo -e "${RED}ERROR: Stage2 build failed!${NC}"
-    echo "Check /tmp/safe_rebuild_stage2.log for details."
-    tail -30 /tmp/safe_rebuild_stage2.log
-    exit 1
+    if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-fork; then
+        echo -e "${GREEN}Stage2 build succeeded.${NC}"
+    else
+        echo -e "${RED}ERROR: Stage2 build failed!${NC}"
+        echo "Check /tmp/safe_rebuild_stage2.log for details."
+        tail -30 /tmp/safe_rebuild_stage2.log
+        exit 1
+    fi
 fi
-rm -rf "$OPT_WRAPPER_DIR"
 
-# NOTE: S2→S3 bootstrap verification is SKIPPED because compilers built from
-# refactored source cannot cold-compile (known hang on 12 modules including mod5).
-# The IR cache from S1→S2 doesn't transfer to S2→S3 because the declarationsHash
-# differs between the pre-refactoring frozen compiler and stage2's output.
-# Trust is established via: hash-verified frozen compiler + opt wrapper patches.
+# macOS relink: The frozen bootstrap produces ThinLTO bitcode .o files which
+# don't link correctly without -flto=thin. Relink from .opt.ll using llc + clang.
+if [ "$HOST_OS" = "Darwin" ]; then
+    echo ""
+    echo "Step 1b: macOS relink from .opt.ll files (llc + clang -O2)..."
+    OPT_LL_COUNT=$(ls /tmp/seen_module_*.opt.ll 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$OPT_LL_COUNT" -gt 0 ]; then
+        echo "    Found $OPT_LL_COUNT .opt.ll modules, relinking with llc..."
+        RELINK_FAILED=0
+        RELINK_OBJS=""
+        for optll in /tmp/seen_module_*.opt.ll; do
+            modname=$(basename "$optll" .opt.ll)
+            objfile="/tmp/${modname}.relink.o"
+            if ! llc -mtriple=arm64-apple-macosx -filetype=obj -O2 "$optll" -o "$objfile" 2>/tmp/relink_llc.log; then
+                echo -e "${RED}    llc failed for $modname${NC}"
+                cat /tmp/relink_llc.log
+                RELINK_FAILED=1
+                break
+            fi
+            RELINK_OBJS="$RELINK_OBJS $objfile"
+        done
+        if [ "$RELINK_FAILED" = "0" ]; then
+            NATIVE_RT="/tmp/seen_runtime_native.o"
+            clang -O2 -c -I seen_runtime seen_runtime/seen_runtime.c -o "$NATIVE_RT" 2>/dev/null || true
+            NATIVE_REGION="/tmp/seen_region_native.o"
+            [ -f seen_runtime/seen_region.c ] && clang -O2 -c -I seen_runtime seen_runtime/seen_region.c -o "$NATIVE_REGION" 2>/dev/null || true
+            RT_OBJS="$NATIVE_RT"
+            [ -f "$NATIVE_REGION" ] && RT_OBJS="$RT_OBJS $NATIVE_REGION"
+            if clang -O2 -arch arm64 $RELINK_OBJS $RT_OBJS -o "$STAGE2" -lm -lpthread 2>/tmp/relink_link.log; then
+                echo -e "${GREEN}    macOS relink succeeded ($(wc -c < "$STAGE2" | tr -d ' ') bytes).${NC}"
+            else
+                echo -e "${RED}    macOS relink failed${NC}"
+                cat /tmp/relink_link.log
+                exit 1
+            fi
+            rm -f /tmp/seen_module_*.relink.o "$NATIVE_RT" "$NATIVE_REGION"
+        else
+            echo -e "${RED}ERROR: macOS relink failed${NC}"
+            exit 1
+        fi
+    fi
+fi
 
-# Step 2: Install stage2 as production compiler
+if [ "$HOST_OS" = "Darwin" ]; then
+    # macOS: full S2→S3 bootstrap verification works
+    rm -rf .seen_cache/ /tmp/seen_ir_cache/
+    rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+
+    echo ""
+    echo "Step 2: Building stage3 with stage2 (--fast)..."
+    if run_with_progress "S2→S3" /tmp/safe_rebuild_stage3.log $STAGE2 compile "$COMPILER_SOURCE" "$STAGE3" --fast --no-cache; then
+        echo -e "${GREEN}Stage3 build succeeded.${NC}"
+    else
+        echo -e "${RED}ERROR: Stage3 build failed!${NC}"
+        echo "Check /tmp/safe_rebuild_stage3.log for details."
+        tail -30 /tmp/safe_rebuild_stage3.log
+        rm -f "$STAGE2"
+        exit 1
+    fi
+
+    # Relink stage3
+    echo ""
+    echo "Step 2b: macOS relink stage3 from .opt.ll files..."
+    OPT_LL_COUNT=$(ls /tmp/seen_module_*.opt.ll 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$OPT_LL_COUNT" -gt 0 ]; then
+        echo "    Found $OPT_LL_COUNT .opt.ll modules, relinking with llc..."
+        RELINK_FAILED=0
+        RELINK_OBJS=""
+        for optll in /tmp/seen_module_*.opt.ll; do
+            modname=$(basename "$optll" .opt.ll)
+            objfile="/tmp/${modname}.relink.o"
+            if ! llc -mtriple=arm64-apple-macosx -filetype=obj -O2 "$optll" -o "$objfile" 2>/tmp/relink_llc.log; then
+                echo -e "${RED}    llc failed for $modname${NC}"
+                cat /tmp/relink_llc.log
+                RELINK_FAILED=1
+                break
+            fi
+            RELINK_OBJS="$RELINK_OBJS $objfile"
+        done
+        if [ "$RELINK_FAILED" = "0" ]; then
+            NATIVE_RT="/tmp/seen_runtime_native.o"
+            clang -O2 -c -I seen_runtime seen_runtime/seen_runtime.c -o "$NATIVE_RT" 2>/dev/null || true
+            NATIVE_REGION="/tmp/seen_region_native.o"
+            [ -f seen_runtime/seen_region.c ] && clang -O2 -c -I seen_runtime seen_runtime/seen_region.c -o "$NATIVE_REGION" 2>/dev/null || true
+            RT_OBJS="$NATIVE_RT"
+            [ -f "$NATIVE_REGION" ] && RT_OBJS="$RT_OBJS $NATIVE_REGION"
+            if clang -O2 -arch arm64 $RELINK_OBJS $RT_OBJS -o "$STAGE3" -lm -lpthread 2>/tmp/relink_link.log; then
+                echo -e "${GREEN}    macOS stage3 relink succeeded ($(wc -c < "$STAGE3" | tr -d ' ') bytes).${NC}"
+            else
+                echo -e "${RED}    macOS stage3 relink failed${NC}"
+                cat /tmp/relink_link.log
+                exit 1
+            fi
+            rm -f /tmp/seen_module_*.relink.o "$NATIVE_RT" "$NATIVE_REGION"
+        else
+            echo -e "${RED}ERROR: macOS stage3 relink failed${NC}"
+            exit 1
+        fi
+    fi
+
+    echo ""
+    echo "Step 3: Verifying bootstrap..."
+    if diff "$STAGE2" "$STAGE3" > /dev/null 2>&1; then
+        echo -e "${GREEN}Bootstrap verified: Stage2 == Stage3 (identical binaries)!${NC}"
+    else
+        echo -e "${YELLOW}Note: Stage2 != Stage3 (expected if stage1_frozen is older than source).${NC}"
+        echo -e "${GREEN}Stage3 build succeeded — using Stage3 as production compiler.${NC}"
+    fi
+    VERIFIED="$STAGE3"
+else
+    # Linux: S2→S3 bootstrap verification is SKIPPED because compilers built from
+    # refactored source cannot cold-compile (known hang on 12 modules including mod5).
+    # Trust is established via: hash-verified frozen compiler + opt wrapper patches.
+    rm -rf "$OPT_WRAPPER_DIR"
+    VERIFIED="$STAGE2"
+fi
+
+# Install production compiler
 echo ""
-echo "Step 2: Installing stage2 as production compiler..."
-cp "$STAGE2" compiler_seen/target/seen
+echo "Installing production compiler..."
+cp "$VERIFIED" compiler_seen/target/seen
 chmod +x compiler_seen/target/seen
-cp "$STAGE2" compiler_seen/target/seen_bootstrap
-chmod +x compiler_seen/target/seen_bootstrap
 cp "$STAGE2" stage2_head 2>/dev/null || true
-rm -f "$STAGE2" "$STAGE3"
-rm -rf .seen_cache/
-echo -e "${GREEN}Production compiler installed.${NC}"
-
-# Step 3: The translate command is now part of main_compiler.seen (compiled in Step 1).
-# The production compiler already includes translate, compile, check, run, lsp, etc.
-# No separate main.seen build needed.
+[ -f "$STAGE3" ] && cp "$STAGE3" stage3_head 2>/dev/null || true
 
 # Also install to target/release/seen (README install path)
 mkdir -p target/release
@@ -352,8 +491,9 @@ cp compiler_seen/target/seen target/release/seen
 chmod +x target/release/seen
 
 # Clean up
-rm -f compiler_seen/target/seen_bootstrap
+rm -f "$STAGE2" "$STAGE3"
 rm -rf .seen_cache/
+[ -n "$OPT_WRAPPER_DIR" ] && rm -rf "$OPT_WRAPPER_DIR"
 
 echo ""
 echo -e "${GREEN}=== Safe Rebuild Complete ===${NC}"

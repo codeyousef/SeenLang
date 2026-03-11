@@ -89,10 +89,10 @@ fun detectHostPlatform() r: Void {
     }
     if os == "darwin" {
         if arch == "arm64" {
-            g_hostTargetTriple = "arm64-apple-darwin"
+            g_hostTargetTriple = "arm64-apple-macosx14.0"
             g_hostDataLayout = "e-m:o-i64:64-i128:128-n32:64-S128"
         } else {
-            g_hostTargetTriple = "x86_64-apple-macosx"
+            g_hostTargetTriple = "x86_64-apple-macosx14.0"
             g_hostDataLayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
         }
     } else {

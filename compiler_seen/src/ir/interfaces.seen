@@ -282,10 +282,10 @@ class IRModule {
         }
         if os == "darwin" {
             if arch == "arm64" {
-                result.push("arm64-apple-darwin")
+                result.push("arm64-apple-macosx14.0")
                 result.push("e-m:o-i64:64-i128:128-n32:64-S128")
             } else {
-                result.push("x86_64-apple-macosx")
+                result.push("x86_64-apple-macosx14.0")
                 result.push("e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128")
             }
         } else {
