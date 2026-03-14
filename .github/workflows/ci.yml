@@ -10,7 +10,7 @@ jobs:
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
             ${{ runner.os }}-seen-ir-
 
       - name: Build compiler from bootstrap
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: ./scripts/safe_rebuild.sh
 
       - name: Verify compiler works
