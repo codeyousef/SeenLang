@@ -63,6 +63,7 @@ import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inf
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitLengthSizeMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
+import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 
 // Host platform detection (cached, detected once)
@@ -2629,7 +2630,8 @@ class LLVMIRGenerator {
         // Hardcoded fallbacks for known structs (avoid string parsing bugs)
         // NOTE: Check these BEFORE returning default i64 for unknown fields
         if structName == "LLVMIRGenerator" {
-            return getLLVMIRGeneratorFieldType(fieldName)
+            let llvmGenType = getLLVMIRGeneratorFieldType(fieldName)
+            if llvmGenType != "" { return llvmGenType }
         }
         let knownType = getFieldTypeForKnownStruct(structName, fieldName)
         if knownType != "" { return knownType }
@@ -11182,15 +11184,31 @@ class LLVMIRGenerator {
             }
         }
         // FMA detection: a + (b * c) or (a * b) + c → llvm.fmuladd.f64
+        // NOTE: Int operands must be promoted to double via sitofp before use.
         if expr.operator == "+" and (leftType == "Float" or rightType == "Float") {
             // Check if right operand is a float multiply
             if rightExpr.kind == "Binary" and rightExpr.operator == "*" {
                 let rLeftType = inferExpressionType(rightExpr.operands[0])
                 let rRightType = inferExpressionType(rightExpr.operands[1])
                 if rLeftType == "Float" or rRightType == "Float" {
-                    let fmaAReg = generateExpression(rightExpr.operands[0])
-                    let fmaBReg = generateExpression(rightExpr.operands[1])
-                    let fmaCReg = generateExpression(leftExpr)
+                    var fmaAReg = generateExpression(rightExpr.operands[0])
+                    if rLeftType != "Float" {
+                        let cvtA = getNextReg()
+                        output.append("  " + cvtA + " = sitofp i64 " + fmaAReg + " to double\n")
+                        fmaAReg = cvtA
+                    }
+                    var fmaBReg = generateExpression(rightExpr.operands[1])
+                    if rRightType != "Float" {
+                        let cvtB = getNextReg()
+                        output.append("  " + cvtB + " = sitofp i64 " + fmaBReg + " to double\n")
+                        fmaBReg = cvtB
+                    }
+                    var fmaCReg = generateExpression(leftExpr)
+                    if leftType != "Float" {
+                        let cvtC = getNextReg()
+                        output.append("  " + cvtC + " = sitofp i64 " + fmaCReg + " to double\n")
+                        fmaCReg = cvtC
+                    }
                     let fmaResultReg = getNextReg()
                     output.append("  " + fmaResultReg + " = call double @llvm.fmuladd.f64(double " + fmaAReg + ", double " + fmaBReg + ", double " + fmaCReg + ") ; FMA: c + a*b\n")
                     return fmaResultReg
@@ -11201,9 +11219,24 @@ class LLVMIRGenerator {
                 let lLeftType = inferExpressionType(leftExpr.operands[0])
                 let lRightType = inferExpressionType(leftExpr.operands[1])
                 if lLeftType == "Float" or lRightType == "Float" {
-                    let fmaAReg = generateExpression(leftExpr.operands[0])
-                    let fmaBReg = generateExpression(leftExpr.operands[1])
-                    let fmaCReg = generateExpression(rightExpr)
+                    var fmaAReg = generateExpression(leftExpr.operands[0])
+                    if lLeftType != "Float" {
+                        let cvtA = getNextReg()
+                        output.append("  " + cvtA + " = sitofp i64 " + fmaAReg + " to double\n")
+                        fmaAReg = cvtA
+                    }
+                    var fmaBReg = generateExpression(leftExpr.operands[1])
+                    if lRightType != "Float" {
+                        let cvtB = getNextReg()
+                        output.append("  " + cvtB + " = sitofp i64 " + fmaBReg + " to double\n")
+                        fmaBReg = cvtB
+                    }
+                    var fmaCReg = generateExpression(rightExpr)
+                    if rightType != "Float" {
+                        let cvtC = getNextReg()
+                        output.append("  " + cvtC + " = sitofp i64 " + fmaCReg + " to double\n")
+                        fmaCReg = cvtC
+                    }
                     let fmaResultReg = getNextReg()
                     output.append("  " + fmaResultReg + " = call double @llvm.fmuladd.f64(double " + fmaAReg + ", double " + fmaBReg + ", double " + fmaCReg + ") ; FMA: a*b + c\n")
                     return fmaResultReg

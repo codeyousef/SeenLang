@@ -41,6 +41,7 @@ import codegen.ir_control_flow.{detectMemcpyPatternImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
 import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl}
+import codegen.type_registry.{findStructReg}
 import tools.translator.{translateSource}
 
 // DJB2 hash of a string, returned as 8-char hex
@@ -424,6 +425,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_gen")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_assignment_gen")
+        modules.push("codegen.type_registry")
         // JSON module (required by LSP)
         modules.push("json.value")
         modules.push("json.parser")

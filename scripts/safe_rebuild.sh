@@ -310,6 +310,50 @@ if count > 0:
         # This is a belt-and-suspenders fix in case fix_ir.py doesn't catch it
         sed -i 's/^\(declare.*(\)\(.*\), 0)/\1\2, i64)/g' "\$arg" 2>/dev/null || true
 
+        # Fix corrupt declares from string constants leaking into declare generator
+        # Stage1 parses @funcName(...) from string constants, producing broken declares
+        # with \00 or other garbage. Remove these — the correct declare is already present.
+        sed -i '/^declare.*\\\\00/d' "\$arg" 2>/dev/null || true
+
+        # Remove phantom declares: declares for functions never called in the module.
+        # Stage1's cross-module declare generator emits declares for every function name
+        # in the registry, even those only referenced inside string constants (IR text).
+        # ThinLTO cannot always DCE these, causing undefined symbol link errors.
+        python3 -c "
+import re, sys
+with open(sys.argv[1]) as f:
+    content = f.read()
+# Collect all declared function names
+declares = {}
+for m in re.finditer(r'^(declare\s+\S+\s+@(\S+)\(.*)', content, re.MULTILINE):
+    name = m.group(2)
+    declares[name] = m.group(1)
+# Check which are actually called (not just declared or in string constants)
+removed = 0
+for name, decl_line in list(declares.items()):
+    # Skip LLVM intrinsics — always needed
+    if name.startswith('llvm.'):
+        continue
+    # Count call sites: @name( in non-declare, non-string-constant context
+    # Simple heuristic: if @name appears ONLY in declare lines and string constants, remove
+    uses = [m for m in re.finditer(r'@' + re.escape(name) + r'[\(, ]', content) if not content[content.rfind('\n', 0, m.start())+1:m.start()].lstrip().startswith('declare')]
+    # Filter out uses inside string constants (c\"...\")
+    real_uses = []
+    for u in uses:
+        line_start = content.rfind('\n', 0, u.start()) + 1
+        line = content[line_start:content.find('\n', u.start())]
+        if '= private unnamed_addr constant' in line:
+            continue  # Inside string constant
+        real_uses.append(u)
+    if len(real_uses) == 0:
+        content = content.replace(decl_line + '\n', '')
+        removed += 1
+if removed > 0:
+    with open(sys.argv[1], 'w') as f:
+        f.write(content)
+    print(f'  phantom declare fix: removed {removed} unused declares from {sys.argv[1]}', file=sys.stderr)
+" "\$arg" 2>&1 || true
+
         # IR Validation: run llvm-as structural check on the fixed .ll file
         if ! llvm-as "\$arg" -o /dev/null 2>/tmp/seen_verify_err.txt; then
             echo "IR VERIFY WARNING: \$arg (continuing)" >&2

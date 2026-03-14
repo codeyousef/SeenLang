@@ -705,6 +705,21 @@ def _split_args(args_str):
     return args
 
 
+def fix_empty_type(content):
+    """Fix empty-type store/load instructions from frozen compiler.
+
+    The frozen compiler's getFieldType returns "" for unknown LLVMIRGenerator
+    fields (e.g. new fields added after the frozen binary was built). This
+    produces `store  %val, ptr %ptr` and `%r = load , ptr %ptr` with missing
+    types. All Seen class types are i64 handles, so defaulting to i64 is safe.
+    """
+    # Fix: store  %val, ptr → store i64 %val, ptr  (double space = empty type)
+    content = re.sub(r'store  (%\d+), ptr', r'store i64 \1, ptr', content)
+    # Fix: load , ptr → load i64, ptr  (empty type before comma)
+    content = re.sub(r'= load , ptr', '= load i64, ptr', content)
+    return content
+
+
 def fix_all(content, all_module_files=None):
     """Apply all fixes in order."""
     content = fix_declare_define_conflicts(content)
@@ -715,6 +730,7 @@ def fix_all(content, all_module_files=None):
     content = fix_undefined_symbols(content)
     content = fix_duplicate_globals(content)
     content = fix_type_mismatches(content)
+    content = fix_empty_type(content)
     content = fix_ssa_numbering(content)
     return content
 
