@@ -199,7 +199,11 @@ fun getCompilerRoot() r: String {
             if targetDir != "" {
                 let compilerDir = getSourceDir(targetDir)
                 if compilerDir != "" {
-                    return compilerDir
+                    // Validate: the computed root must contain seen_runtime/
+                    let validateResult: CommandResult = runCommand("test -d " + compilerDir + "/seen_runtime")
+                    if commandWasSuccessful(validateResult) {
+                        return compilerDir
+                    }
                 }
             }
         }
@@ -212,7 +216,13 @@ fun getCompilerRoot() r: String {
     if binDir2 == "" { return "" }
     let targetDir2 = getSourceDir(binDir2)
     if targetDir2 == "" { return "" }
-    return getSourceDir(targetDir2)
+    let root2 = getSourceDir(targetDir2)
+    // Validate the fallback root too
+    let validateResult2: CommandResult = runCommand("test -d " + root2 + "/seen_runtime")
+    if commandWasSuccessful(validateResult2) {
+        return root2
+    }
+    return ""
 }
 
 // Resolve an import path (e.g., ["codegen", "llvm_ir_gen"]) to a filesystem path.
