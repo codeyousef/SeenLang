@@ -5,6 +5,21 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-03-15
+
+### Improved
+- Rust-quality error reporting with span underlining (`^^^^`), `help:` suggestions, `note:` context, and error codes (`error[E001]`, `E003`, `E004`)
+- Type mismatch errors now show conversion hints (e.g., `help: use .toString() to convert Int to String`)
+- Missing `main` function error includes suggestion: `help: add 'fun main() r: Void { }' as entry point`
+- LSP diagnostics now carry error codes, span the full token range, and include help/note text in hover tooltips
+- LSP `textDocument/codeAction` handler returns QuickFix actions from diagnostic suggestions
+- VSCode extension parses caret span width (`^^^^`) for accurate error underlining
+- VSCode extension parses `note:` lines alongside `help:` lines from compiler output
+- VSCode QuickFix actions use correct Seen method names (`.toString()`, `parseInt()`, `.toFloat()`, `.toInt()`)
+
+### Changed
+- VSCode extension version bumped to 1.4.0
+
 ## [0.3.4] - 2026-03-15
 
 ### Fixed

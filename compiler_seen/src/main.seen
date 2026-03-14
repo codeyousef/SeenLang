@@ -20,7 +20,7 @@
 // Multi-language support: --language flag selects keyword set (en/ar/es/ru/zh/ja),
 // passed through to the lexer's KeywordManager.
 
-import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote}
 import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
@@ -995,10 +995,26 @@ fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
     var index = 0
     while index < diagnostics.length() {
         let diag = diagnostics[index]
+        var baseMsg = parseDiagBaseMessage(diag.message)
+        var code = parseDiagCode(diag.message)
+        var suggestion = parseDiagSuggestion(diag.message)
+        var note = parseDiagNote(diag.message)
+
         let lineInfo = diag.line.toString()
         let columnInfo = diag.column.toString()
         let location = diag.file + ":" + lineInfo + ":" + columnInfo
-        printLn("[" + diag.severity + "] " + location + " " + diag.message)
+
+        var header = diag.severity
+        if code != "" {
+            header = header + "[" + code + "]"
+        }
+        printLn(header + ": " + location + " " + baseMsg)
+        if suggestion != "" {
+            printLn("  = " + suggestion)
+        }
+        if note != "" {
+            printLn("  = " + note)
+        }
         index = index + 1
     }
     return

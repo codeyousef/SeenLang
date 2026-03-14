@@ -43,7 +43,7 @@ import lexer.lexer.{SeenLexer}
 import lexer.token.{Token, SeenTokenType, TOKEN_EOF}
 import parser.real_parser.{RealParser, ProgramNode}
 import typechecker.type_checker.{SeenTypeChecker}
-import bootstrap.frontend.{run_frontend, FrontendResult, FrontendDiagnostic}
+import bootstrap.frontend.{run_frontend, FrontendResult, FrontendDiagnostic, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 
 // ============================================================================
 // Document Storage
@@ -77,6 +77,8 @@ class SeenLspServer {
     var shutdown: Bool
     var documents: Array<Document>  // Simple array storage for documents
     var documentUris: Array<String> // URIs for lookup
+    var lastDiagUris: Array<String>       // URIs for last diagnostics
+    var lastDiagMessages: Array<String>   // Pipe-delimited encoded messages per URI
 
     // ========================================================================
     // Helper Methods (moved early to avoid parser limit)
@@ -974,8 +976,42 @@ class SeenLspServer {
             return
         }
 
-        // For now, return empty array
-        let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+        let caParams = CodeActionParams_fromJson(msg.params)
+        if caParams == null {
+            let response = LspResponse_success(msg.id, JsonValue_emptyArray())
+            this.rpc.sendResponse(response)
+            return
+        }
+
+        var actions = JsonValue_emptyArray()
+        var docUri = caParams.unwrap().textDocument.uri
+
+        // Find stored diagnostics for this URI
+        var diagIdx = -1
+        var si = 0
+        while si < this.lastDiagUris.length() {
+            if this.lastDiagUris[si] == docUri {
+                diagIdx = si
+            }
+            si = si + 1
+        }
+
+        if diagIdx >= 0 {
+            var stored = this.lastDiagMessages[diagIdx]
+            var parts = stored.split("|")
+            var pi = 0
+            while pi < parts.length() {
+                var encodedMsg = parts[pi]
+                var suggestion = parseDiagSuggestion(encodedMsg)
+                if suggestion != "" {
+                    var action = CodeAction_new(suggestion, "quickfix")
+                    actions.push(action.toJson())
+                }
+                pi = pi + 1
+            }
+        }
+
+        let response = LspResponse_success(msg.id, actions)
         this.rpc.sendResponse(response)
     }
 
@@ -1399,36 +1435,69 @@ class SeenLspServer {
             vi = vi + 1
         }
         if hasMain == 0 {
+            var mainMsg = encodeDiagMessage("missing `main` function", "E003", "help: add 'fun main() r: Void { }' as entry point", "", 0)
             result.addDiagnostic(FrontendDiagnostic.new(
-                uri, 1, 1, "error", "missing `main` function"
+                uri, 1, 1, "error", mainMsg
             ))
         }
 
+        // Store encoded messages for code actions
+        var storedMessages = ""
         let frontendDiags = result.diagnostics
         var i = 0
         while i < frontendDiags.length() {
             let fd = frontendDiags[i]
             let converted = this.convertDiagnostic(fd)
             diagnostics.push(converted)
+            if i > 0 { storedMessages = storedMessages + "|" }
+            storedMessages = storedMessages + fd.message
             i = i + 1
         }
+
+        // Update stored diagnostics for this URI
+        var foundIdx = -1
+        var si = 0
+        while si < this.lastDiagUris.length() {
+            if this.lastDiagUris[si] == uri {
+                foundIdx = si
+            }
+            si = si + 1
+        }
+        if foundIdx >= 0 {
+            this.lastDiagMessages[foundIdx] = storedMessages
+        } else {
+            this.lastDiagUris.push(uri)
+            this.lastDiagMessages.push(storedMessages)
+        }
+
         let params = PublishDiagnosticsParams_new(uri, diagnostics)
         this.rpc.sendNotification("textDocument/publishDiagnostics", params.toJson())
     }
 
     fun convertDiagnostic(diag: FrontendDiagnostic) r: Diagnostic {
         // Convert line/column to Position (LSP uses 0-based)
-        let startLine = diag.line - 1
+        var startLine = diag.line - 1
         if startLine < 0 {
             startLine = 0
         }
-        let startChar = diag.column - 1
+        var startChar = diag.column - 1
         if startChar < 0 {
             startChar = 0
         }
 
+        var baseMsg = parseDiagBaseMessage(diag.message)
+        var code = parseDiagCode(diag.message)
+        var suggestion = parseDiagSuggestion(diag.message)
+        var note = parseDiagNote(diag.message)
+        var endCol = parseDiagEndColumn(diag.message)
+
+        var endChar = startChar + 1
+        if endCol > diag.column {
+            endChar = endCol - 1
+        }
+
         let start = LspPosition_new(startLine, startChar)
-        let end = LspPosition_new(startLine, startChar + 1)
+        let end = LspPosition_new(startLine, endChar)
         let range = Range_new(start, end)
 
         // Determine severity
@@ -1445,7 +1514,19 @@ class SeenLspServer {
             }
         }
 
-        return Diagnostic_new(range, severity, diag.message)
+        var fullMessage = baseMsg
+        if suggestion != "" {
+            fullMessage = fullMessage + "\n" + suggestion
+        }
+        if note != "" {
+            fullMessage = fullMessage + "\n" + note
+        }
+
+        var result = Diagnostic_new(range, severity, fullMessage)
+        if code != "" {
+            result.code = code
+        }
+        return result
     }
 
     // ========================================================================
@@ -1913,6 +1994,8 @@ fun SeenLspServer_new() r: SeenLspServer {
     server.shutdown = false
     server.documents = Array<Document>()
     server.documentUris = Array<String>()
+    server.lastDiagUris = Array<String>()
+    server.lastDiagMessages = Array<String>()
     return server
 }
 

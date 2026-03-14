@@ -145,8 +145,9 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
         var mi = 0
         while mi < macroErrors.length() {
             let errMsg = macroErrors[mi]
+            var macroEncoded = encodeDiagMessage(errMsg, "E004", "", "", 0)
             result.addDiagnostic(FrontendDiagnostic.new(
-                fileLabel, 0, 0, "error", errMsg
+                fileLabel, 0, 0, "error", macroEncoded
             ))
             mi = mi + 1
         }
@@ -160,6 +161,75 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     return result
 }
 
+// --- Diagnostic extras encoding ---
+// Encodes extra metadata into the message field using \x01 separator.
+// Format: "base message\x01code\x01suggestion\x01note\x01endColumn"
+// This avoids changing the FrontendDiagnostic struct layout (no bootstrap risk).
+
+fun diagSeparator() r: String {
+    return String.fromCharCode(1)
+}
+
+fun encodeDiagMessage(message: String, code: String, suggestion: String, note: String, endColumn: Int) r: String {
+    var sep = diagSeparator()
+    return message + sep + code + sep + suggestion + sep + note + sep + endColumn.toString()
+}
+
+fun parseDiagBaseMessage(message: String) r: String {
+    var sep = diagSeparator()
+    var idx = message.indexOf(sep, 0)
+    if idx < 0 { return message }
+    return message.substring(0, idx)
+}
+
+fun parseDiagCode(message: String) r: String {
+    var sep = diagSeparator()
+    var first = message.indexOf(sep, 0)
+    if first < 0 { return "" }
+    var second = message.indexOf(sep, first + 1)
+    if second < 0 { return "" }
+    return message.substring(first + 1, second)
+}
+
+fun parseDiagSuggestion(message: String) r: String {
+    var sep = diagSeparator()
+    var first = message.indexOf(sep, 0)
+    if first < 0 { return "" }
+    var second = message.indexOf(sep, first + 1)
+    if second < 0 { return "" }
+    var third = message.indexOf(sep, second + 1)
+    if third < 0 { return "" }
+    return message.substring(second + 1, third)
+}
+
+fun parseDiagNote(message: String) r: String {
+    var sep = diagSeparator()
+    var first = message.indexOf(sep, 0)
+    if first < 0 { return "" }
+    var second = message.indexOf(sep, first + 1)
+    if second < 0 { return "" }
+    var third = message.indexOf(sep, second + 1)
+    if third < 0 { return "" }
+    var fourth = message.indexOf(sep, third + 1)
+    if fourth < 0 { return "" }
+    return message.substring(third + 1, fourth)
+}
+
+fun parseDiagEndColumn(message: String) r: Int {
+    var sep = diagSeparator()
+    var first = message.indexOf(sep, 0)
+    if first < 0 { return 0 }
+    var second = message.indexOf(sep, first + 1)
+    if second < 0 { return 0 }
+    var third = message.indexOf(sep, second + 1)
+    if third < 0 { return 0 }
+    var fourth = message.indexOf(sep, third + 1)
+    if fourth < 0 { return 0 }
+    var endStr = message.substring(fourth + 1, message.length())
+    if endStr == "" { return 0 }
+    return endStr.toInt()
+}
+
 fun diagnostic_from_type_error(error: TypeError, fileLabel: String) r: FrontendDiagnostic {
     let location = error.location
     let expected = error.expected
@@ -170,13 +240,70 @@ fun diagnostic_from_type_error(error: TypeError, fileLabel: String) r: FrontendD
         context = " [" + error.context + "]"
     }
 
-    let message = error.message + context + " (expected " + expected.name + ", got " + actual.name + ")"
+    var baseMessage = error.message + context + " (expected " + expected.name + ", got " + actual.name + ")"
+
+    var suggestion = ""
+    var note = ""
+    var expName = expected.name
+    var actName = actual.name
+
+    if expName == "String" {
+        if actName == "Int" {
+            suggestion = "help: use .toString() to convert Int to String"
+        } else {
+            if actName == "Float" {
+                suggestion = "help: use .toString() to convert Float to String"
+            } else {
+                if actName == "Bool" {
+                    suggestion = "help: use .toString() to convert Bool to String"
+                }
+            }
+        }
+    } else {
+        if expName == "Int" {
+            if actName == "String" {
+                suggestion = "help: use parseInt() to convert String to Int"
+            } else {
+                if actName == "Float" {
+                    suggestion = "help: use .toInt() to convert Float to Int"
+                } else {
+                    if actName == "Bool" {
+                        suggestion = "help: use != 0 for Bool conversion"
+                    }
+                }
+            }
+        } else {
+            if expName == "Float" {
+                if actName == "Int" {
+                    suggestion = "help: use .toFloat() to convert Int to Float"
+                } else {
+                    if actName == "String" {
+                        suggestion = "help: use parseFloat() to convert String to Float"
+                    }
+                }
+            } else {
+                if expName == "Bool" {
+                    if actName == "Int" {
+                        suggestion = "help: use != 0 for Bool conversion"
+                    }
+                }
+            }
+        }
+    }
+
+    if suggestion == "" {
+        note = "note: expected type '" + expName + "' but found '" + actName + "'"
+    }
+
+    var endColumn = location.column + 1
+    var encoded = encodeDiagMessage(baseMessage, "E001", suggestion, note, endColumn)
+
     return FrontendDiagnostic.new(
         fileLabel,
         location.line,
         location.column,
         "error",
-        message
+        encoded
     )
 }
 

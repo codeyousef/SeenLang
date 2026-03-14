@@ -98,9 +98,11 @@ export class SeenDiagnosticProvider {
 
         // Rust-style format: "error: message" then "  --> file:line:col"
         const rustErrorRegex = /^(error|warning):\s*(.+)$/;
-        // Legacy format: "error[CODE]: message"
+        // New format: "error[E001]: message"
         const legacyErrorRegex = /^(error|warning)\[([A-Z0-9]+)\]:\s*(.+)$/;
         const locationRegex = /^\s*-->\s*(.+):(\d+):(\d+)$/;
+        // Caret span: lines like "   |     ^^^^"
+        const caretRegex = /^\s*\|\s*(\s*\^+)\s*$/;
 
         let currentError: Partial<SeenError> | null = null;
 
@@ -148,10 +150,28 @@ export class SeenDiagnosticProvider {
                 };
             }
 
+            // Parse caret span to determine error length
+            const caretMatch = line.match(caretRegex);
+            if (caretMatch && currentError && currentError.location) {
+                const carets = caretMatch[1];
+                const caretCount = (carets.match(/\^/g) || []).length;
+                if (caretCount > 1) {
+                    currentError.location.length = caretCount;
+                }
+            }
+
+            // Parse help: lines
             if (line.includes('help:') && currentError) {
                 const helpText = line.substring(line.indexOf('help:') + 5).trim();
                 currentError.suggestions = currentError.suggestions || [];
                 currentError.suggestions.push(helpText);
+            }
+
+            // Parse note: lines
+            if (line.includes('note:') && currentError) {
+                const noteText = line.substring(line.indexOf('note:') + 5).trim();
+                currentError.suggestions = currentError.suggestions || [];
+                currentError.suggestions.push(noteText);
             }
         }
 
@@ -289,28 +309,46 @@ export class SeenQuickFixProvider implements vscode.CodeActionProvider {
             }
             
             // Type mismatch quick fixes
-            if (diagnostic.message.includes('Type mismatch')) {
-                const match = diagnostic.message.match(/expected\s+(\w+),\s+found\s+(\w+)/);
+            if (diagnostic.message.includes('Type mismatch') || diagnostic.message.includes('expected')) {
+                const match = diagnostic.message.match(/expected\s+(\w+),\s+(?:got|found)\s+(\w+)/);
                 if (match) {
                     const [, expected, found] = match;
-                    
+
                     if (expected === 'Int' && found === 'String') {
                         const fix = new vscode.CodeAction(
-                            'Parse string to Int',
+                            'Convert to Int with parseInt()',
                             vscode.CodeActionKind.QuickFix
                         );
                         fix.edit = new vscode.WorkspaceEdit();
                         const text = document.getText(diagnostic.range);
-                        fix.edit.replace(document.uri, diagnostic.range, `${text}.parse::<Int>()`);
+                        fix.edit.replace(document.uri, diagnostic.range, `parseInt(${text})`);
                         actions.push(fix);
                     } else if (expected === 'String' && found === 'Int') {
                         const fix = new vscode.CodeAction(
-                            'Convert to string',
+                            'Convert to String with .toString()',
                             vscode.CodeActionKind.QuickFix
                         );
                         fix.edit = new vscode.WorkspaceEdit();
                         const text = document.getText(diagnostic.range);
-                        fix.edit.replace(document.uri, diagnostic.range, `${text}.to_string()`);
+                        fix.edit.replace(document.uri, diagnostic.range, `${text}.toString()`);
+                        actions.push(fix);
+                    } else if (expected === 'Float' && found === 'Int') {
+                        const fix = new vscode.CodeAction(
+                            'Convert to Float with .toFloat()',
+                            vscode.CodeActionKind.QuickFix
+                        );
+                        fix.edit = new vscode.WorkspaceEdit();
+                        const text = document.getText(diagnostic.range);
+                        fix.edit.replace(document.uri, diagnostic.range, `${text}.toFloat()`);
+                        actions.push(fix);
+                    } else if (expected === 'Int' && found === 'Float') {
+                        const fix = new vscode.CodeAction(
+                            'Convert to Int with .toInt()',
+                            vscode.CodeActionKind.QuickFix
+                        );
+                        fix.edit = new vscode.WorkspaceEdit();
+                        const text = document.getText(diagnostic.range);
+                        fix.edit.replace(document.uri, diagnostic.range, `${text}.toInt()`);
                         actions.push(fix);
                     }
                 }

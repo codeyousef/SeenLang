@@ -21,7 +21,7 @@
 // Module-level global flags use Int instead of Bool due to a Stage1 codegen
 // limitation where boolean variables generate invalid IR.
 
-import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend}
+import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit}
 import env.env.{args}
@@ -105,6 +105,17 @@ fun makeSpaces(count: Int) r: String {
     var i = 0
     while i < count {
         result = result + " "
+        i = i + 1
+    }
+    return result
+}
+
+// Create a string of N carets (^)
+fun makeCarets(count: Int) r: String {
+    var result = ""
+    var i = 0
+    while i < count {
+        result = result + "^"
         i = i + 1
     }
     return result
@@ -1779,13 +1790,25 @@ fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
     while index < diagnostics.length() {
         var diag = diagnostics[index]
 
+        var baseMsg = parseDiagBaseMessage(diag.message)
+        var code = parseDiagCode(diag.message)
+        var suggestion = parseDiagSuggestion(diag.message)
+        var note = parseDiagNote(diag.message)
+        var endCol = parseDiagEndColumn(diag.message)
+
         var label = ""
         if diag.severity == "error" {
             label = colorRed("error")
         } else {
             label = colorYellow("warning")
         }
-        println(label + ": " + colorBoldWhite(diag.message))
+
+        var header = label
+        if code != "" {
+            header = header + "[" + colorBoldWhite(code) + "]"
+        }
+        header = header + ": " + colorBoldWhite(baseMsg)
+        println(header)
 
         var lineStr = diag.line.toString()
         var colStr = diag.column.toString()
@@ -1802,8 +1825,28 @@ fun printFrontendDiagnostics(frontend: FrontendResult) r: Void {
 
                 var caretPad = diag.column - 1
                 if caretPad < 0 { caretPad = 0 }
-                var caret = makeSpaces(caretPad) + colorRed("^")
+                var caretLen = 1
+                if endCol > diag.column {
+                    caretLen = endCol - diag.column
+                }
+                var caret = makeSpaces(caretPad) + colorRed(makeCarets(caretLen))
                 println(makeSpaces(gutterWidth + 1) + colorBlue("|") + " " + caret)
+
+                if suggestion != "" {
+                    println(makeSpaces(gutterWidth + 1) + colorBlue("|"))
+                    println(makeSpaces(gutterWidth + 1) + colorCyan("= " + suggestion))
+                }
+                if note != "" {
+                    println(makeSpaces(gutterWidth + 1) + colorBlue("|"))
+                    println(makeSpaces(gutterWidth + 1) + colorCyan("= " + note))
+                }
+            }
+        } else {
+            if suggestion != "" {
+                println("  " + colorCyan("= " + suggestion))
+            }
+            if note != "" {
+                println("  " + colorCyan("= " + note))
             }
         }
 
@@ -1841,8 +1884,9 @@ fun validateBasics(frontend: FrontendResult, inputFile: String) r: Void {
         i = i + 1
     }
     if hasMain == 0 {
+        var mainMsg = encodeDiagMessage("missing `main` function", "E003", "help: add 'fun main() r: Void { }' as entry point", "", 0)
         frontend.addDiagnostic(FrontendDiagnostic.new(
-            inputFile, 1, 1, "error", "missing `main` function"
+            inputFile, 1, 1, "error", mainMsg
         ))
         frontend.setSuccess(false)
     }
