@@ -5,6 +5,18 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-03-14
+
+### Fixed
+
+#### Build System / Path Resolution
+- Compiler no longer requires CWD to be the project root. All internal paths (`languages/`, `seen_runtime/`, `compiler_seen/src/`, `seen_std/src/`) now resolve relative to the binary's installation location using `/proc/$PPID/exe` on Linux, with `args()[0]` fallback for macOS
+- `resolveModulePath()` now prefixes stdlib and compiler module paths with the compiler root
+- Runtime linking paths (`seen_runtime/`, `seen_region.c`, `seen_gpu.c`) use absolute paths derived from the compiler root
+- `KeywordManager` TOML loading (`languages/`) resolves via `resolveLanguagesRoot()` — probes CWD first (fast path), falls back to binary-relative resolution
+- Relative input file paths are resolved to absolute at the entry point of `compileCommandWithAllOptions()` and `jitRunCommand()`
+- `ensureJitRuntime()` uses compiler-root-relative paths for the JIT runtime object
+
 ## [0.3.2] - 2026-03-14
 
 ### Fixed

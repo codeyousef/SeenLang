@@ -138,9 +138,13 @@ fun parseModule(path: String, lang: String) r: FrontendResult {
 // Resolve module path to actual file path
 fun resolveModulePath(modulePath: String) r: String {
     // Determine base path: stdlib modules go to seen_std/src/, compiler modules to compiler_seen/src/
+    let root = getCompilerRoot()
     var basePath = "compiler_seen/src/"
     if modulePath.startsWith("str.") or modulePath.startsWith("ffi.") or modulePath.startsWith("core.") or modulePath.startsWith("collections.") or modulePath.startsWith("io.") or modulePath.startsWith("process.") or modulePath.startsWith("env.") or modulePath.startsWith("json.") or modulePath.startsWith("framework.") or modulePath.startsWith("sync.") or modulePath.startsWith("thread.") {
         basePath = "seen_std/src/"
+    }
+    if root != "" {
+        basePath = root + "/" + basePath
     }
 
     var filePath = basePath
@@ -172,19 +176,43 @@ fun getLastSegment(path: String) r: String {
     return path.substring(lastSlash + 1, path.length())
 }
 
-// Compute compiler installation root from binary path (argv[0]).
+// Compute compiler installation root from the binary's absolute path.
+// Uses /proc/self/exe (Linux) to get the real path regardless of how the
+// binary was invoked (PATH lookup, symlink, relative path, etc.).
 // Binary is at <root>/compiler_seen/target/seen, so root = 3 levels up.
-// Returns "" if binary path has no directory separators (bare command name).
+// Falls back to args()[0] if /proc/self/exe is unavailable (e.g. macOS).
 fun getCompilerRoot() r: String {
+    // Try /proc/$PPID/exe — $PPID is the compiler process (parent of the shell spawned by runCommand)
+    let exeResult = runCommand("readlink -f /proc/$PPID/exe")
+    if commandWasSuccessful(exeResult) {
+        var exePath = exeResult.output
+        // Trim trailing newline
+        if exePath.length() > 0 {
+            if exePath.byteAt(exePath.length() - 1) == 10 {
+                exePath = exePath.substring(0, exePath.length() - 1)
+            }
+        }
+        // Binary is at <root>/compiler_seen/target/seen — strip 3 levels
+        let binDir = getSourceDir(exePath)
+        if binDir != "" {
+            let targetDir = getSourceDir(binDir)
+            if targetDir != "" {
+                let compilerDir = getSourceDir(targetDir)
+                if compilerDir != "" {
+                    return compilerDir
+                }
+            }
+        }
+    }
+    // Fallback: try args()[0] (macOS, or non-standard setups)
     let allArgs = args()
     if allArgs.length() == 0 { return "" }
     let binPath = allArgs[0]
-    let binDir = getSourceDir(binPath)
-    if binDir == "" { return "" }
-    let targetDir = getSourceDir(binDir)
-    if targetDir == "" { return "" }
-    let compilerDir = getSourceDir(targetDir)
-    return compilerDir
+    let binDir2 = getSourceDir(binPath)
+    if binDir2 == "" { return "" }
+    let targetDir2 = getSourceDir(binDir2)
+    if targetDir2 == "" { return "" }
+    return getSourceDir(targetDir2)
 }
 
 // Resolve an import path (e.g., ["codegen", "llvm_ir_gen"]) to a filesystem path.
@@ -636,6 +664,22 @@ var g_noFork = 0
 //
 // Returns 0 on success, 1 on any compilation or linking failure.
 fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile: String, panicOnOverflow: Bool, useCache: Bool, language: String, targetCpu: String, simdPolicy: String, simdReport: Bool, sanitizePolicy: String, pgoMode: String, pgoPath: String, mlLogPath: String, crossTarget: String) r: Int {
+    // Resolve relative input path to absolute so downstream path resolution works from any CWD
+    var resolvedInput = inputFile
+    if inputFile.length() > 0 {
+        if inputFile.byteAt(0) != 47 {
+            let pwdResult = runCommand("pwd")
+            if commandWasSuccessful(pwdResult) {
+                var cwd = pwdResult.output
+                if cwd.length() > 0 {
+                    if cwd.byteAt(cwd.length() - 1) == 10 {
+                        cwd = cwd.substring(0, cwd.length() - 1)
+                    }
+                }
+                resolvedInput = cwd + "/" + inputFile
+            }
+        }
+    }
     println("Stage1 compiling (Two-Pass Memory Optimized)")
     let isDeterministicProfile = profile == "deterministic"
     if isDeterministicProfile {
@@ -846,8 +890,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // compilation. Circular imports would cause the module collector to loop
     // and the IR generator to emit incomplete forward references. Catching
     // this early gives a clear diagnostic instead of a cryptic linker error.
-    let depPaths = collectModulePaths(inputFile, true)
-    let sourceDir = getSourceDir(inputFile)
+    let depPaths = collectModulePaths(resolvedInput, true)
+    let sourceDir = getSourceDir(resolvedInput)
     var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
     var depIdx = 0
     while depIdx < depPaths.length() {
@@ -950,7 +994,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // produce "undefined value" errors during IR generation.
     // Each AST is released after registration to bound memory usage.
     println("  [Pass 1] Scanning declarations...")
-    let modulePaths = collectModulePaths(inputFile, false)
+    let modulePaths = collectModulePaths(resolvedInput, false)
     println("    Found " + modulePaths.length().toString() + " modules")
 
     var passIdx = 0
@@ -1418,8 +1462,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // mode, enabling cross-module inlining of hot runtime functions (e.g., seen_str_concat,
     // seen_arr_push) into user code at link time.
     // When sanitizer is enabled, the runtime must be recompiled with sanitizer flags.
-    let runtimeObj = "seen_runtime/seen_runtime.o"
-    let runtimeSrc = "seen_runtime/seen_runtime.c"
+    let compRoot = getCompilerRoot()
+    var rtPrefix = "seen_runtime"
+    if compRoot != "" {
+        rtPrefix = compRoot + "/seen_runtime"
+    }
+    let runtimeObj = rtPrefix + "/seen_runtime.o"
+    let runtimeSrc = rtPrefix + "/seen_runtime.c"
     var sanitizerClangFlags = ""
     if sanitizePolicy != "" {
         sanitizerClangFlags = " -fsanitize=" + sanitizePolicy + " -fno-omit-frame-pointer -g"
@@ -1448,10 +1497,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  PGO: use profile from " + pgoPath)
     }
     if sanitizePolicy == "" {
-        let checkRtResult: CommandResult = runCommand("test seen_runtime/seen_runtime.o -nt seen_runtime/seen_runtime.c")
+        let checkRtResult: CommandResult = runCommand("test " + rtPrefix + "/seen_runtime.o -nt " + rtPrefix + "/seen_runtime.c")
         if not commandWasSuccessful(checkRtResult) {
             println("  [3a] Pre-compiling runtime...")
-            let rtCompile: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread -c -I seen_runtime seen_runtime/seen_runtime.c -o seen_runtime/seen_runtime.o")
+            let rtCompile: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtPrefix + "/seen_runtime.o")
             if not commandWasSuccessful(rtCompile) {
                 println("    Warning: Runtime pre-compilation failed, will compile inline")
             }
@@ -1459,7 +1508,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     } else {
         // With sanitizer, recompile runtime with sanitizer flags
         println("  [3a] Compiling runtime with sanitizer...")
-        let rtCompile: CommandResult = runCommand("clang -O3 -march=native -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I seen_runtime seen_runtime/seen_runtime.c -o /tmp/seen_runtime_sanitized.o")
+        let rtCompile: CommandResult = runCommand("clang -O3 -march=native -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o /tmp/seen_runtime_sanitized.o")
         if not commandWasSuccessful(rtCompile) {
             println("    Warning: Sanitized runtime compilation failed")
         }
@@ -1473,14 +1522,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if commandWasSuccessful(useSanitizedRt) {
             runtimeArg = "/tmp/seen_runtime_sanitized.o"
         } else {
-            runtimeArg = "-I seen_runtime seen_runtime/seen_runtime.c" + sanitizerClangFlags
+            runtimeArg = "-I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c" + sanitizerClangFlags
         }
     } else {
-        let usePrecompiledRt: CommandResult = runCommand("test -f seen_runtime/seen_runtime.o")
+        let usePrecompiledRt: CommandResult = runCommand("test -f " + rtPrefix + "/seen_runtime.o")
         if commandWasSuccessful(usePrecompiledRt) {
-            runtimeArg = "seen_runtime/seen_runtime.o"
+            runtimeArg = rtPrefix + "/seen_runtime.o"
         } else {
-            runtimeArg = "-I seen_runtime seen_runtime/seen_runtime.c"
+            runtimeArg = "-I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c"
         }
     }
 
@@ -1492,7 +1541,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if commandWasSuccessful(sdkResult) {
             iosSdkPath = sdkResult.output.trim()
         }
-        let rtIos: CommandResult = runCommand("clang -O3 -flto -target arm64-apple-ios17.0 -isysroot " + iosSdkPath + " -ffunction-sections -fdata-sections -c -I seen_runtime seen_runtime/seen_runtime.c -o /tmp/seen_runtime_ios.o")
+        let rtIos: CommandResult = runCommand("clang -O3 -flto -target arm64-apple-ios17.0 -isysroot " + iosSdkPath + " -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o /tmp/seen_runtime_ios.o")
         if commandWasSuccessful(rtIos) {
             runtimeArg = "/tmp/seen_runtime_ios.o"
         } else {
@@ -1603,39 +1652,39 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         oi = oi + 1
     }
     // Pre-compile region allocator if not already built
-    let regionObj = "seen_runtime/seen_region.o"
-    let checkRegionResult: CommandResult = runCommand("test seen_runtime/seen_region.o -nt seen_runtime/seen_region.c")
+    let regionObj = rtPrefix + "/seen_region.o"
+    let checkRegionResult: CommandResult = runCommand("test " + rtPrefix + "/seen_region.o -nt " + rtPrefix + "/seen_region.c")
     if not commandWasSuccessful(checkRegionResult) {
-        let regionSrcCheck: CommandResult = runCommand("test -f seen_runtime/seen_region.c")
+        let regionSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.c")
         if commandWasSuccessful(regionSrcCheck) {
-            let rtRegion: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I seen_runtime seen_runtime/seen_region.c -o seen_runtime/seen_region.o")
+            let rtRegion: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + rtPrefix + "/seen_region.o")
         }
     }
     // Add region allocator object if it exists
     var regionArg = ""
-    let useRegionObj: CommandResult = runCommand("test -f seen_runtime/seen_region.o")
+    let useRegionObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.o")
     if commandWasSuccessful(useRegionObj) {
-        regionArg = " seen_runtime/seen_region.o"
+        regionArg = " " + rtPrefix + "/seen_region.o"
     }
     // Pre-compile GPU runtime if not already built
     var gpuArg = ""
-    let checkGpuResult: CommandResult = runCommand("test seen_runtime/seen_gpu.o -nt seen_runtime/seen_gpu.c")
+    let checkGpuResult: CommandResult = runCommand("test " + rtPrefix + "/seen_gpu.o -nt " + rtPrefix + "/seen_gpu.c")
     if not commandWasSuccessful(checkGpuResult) {
-        let gpuSrcCheck: CommandResult = runCommand("test -f seen_runtime/seen_gpu.c")
+        let gpuSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.c")
         if commandWasSuccessful(gpuSrcCheck) {
             // Check if vulkan headers are available before trying to compile
             let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
             if commandWasSuccessful(vulkanCheck) {
-                let rtGpu: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I seen_runtime seen_runtime/seen_gpu.c -o seen_runtime/seen_gpu.o $(pkg-config --cflags vulkan) 2>&1")
+                let rtGpu: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o $(pkg-config --cflags vulkan) 2>&1")
             } else {
                 // Try without pkg-config (headers might be in standard paths)
-                let rtGpu2: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I seen_runtime seen_runtime/seen_gpu.c -o seen_runtime/seen_gpu.o 2>&1")
+                let rtGpu2: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o 2>&1")
             }
         }
     }
-    let useGpuObj: CommandResult = runCommand("test -f seen_runtime/seen_gpu.o")
+    let useGpuObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.o")
     if commandWasSuccessful(useGpuObj) {
-        gpuArg = " seen_runtime/seen_gpu.o"
+        gpuArg = " " + rtPrefix + "/seen_gpu.o"
     }
     // Link libraries: -lm -lpthread (omit -lrt on macOS where it doesn't exist)
     // Add -lvulkan when GPU runtime is linked
@@ -1797,13 +1846,18 @@ fun defaultOutput(sourceFile: String) r: String {
 
 // Ensure JIT runtime object (non-LTO ELF) exists for lli --extra-object
 fun ensureJitRuntime() r: String {
-    let jitObj = "seen_runtime/seen_runtime_jit.o"
-    let checkResult: CommandResult = runCommand("test " + jitObj + " -nt seen_runtime/seen_runtime.c")
+    let jitRoot = getCompilerRoot()
+    var jitRtDir = "seen_runtime"
+    if jitRoot != "" {
+        jitRtDir = jitRoot + "/seen_runtime"
+    }
+    let jitObj = jitRtDir + "/seen_runtime_jit.o"
+    let checkResult: CommandResult = runCommand("test " + jitObj + " -nt " + jitRtDir + "/seen_runtime.c")
     if commandWasSuccessful(checkResult) {
         return jitObj
     }
     println("  [jit] Pre-compiling runtime for JIT...")
-    let cmd: CommandResult = runCommand("clang -O2 -march=native -ffunction-sections -fdata-sections -pthread -c -I seen_runtime seen_runtime/seen_runtime.c -o " + jitObj)
+    let cmd: CommandResult = runCommand("clang -O2 -march=native -ffunction-sections -fdata-sections -pthread -c -I " + jitRtDir + " " + jitRtDir + "/seen_runtime.c -o " + jitObj)
     if not commandWasSuccessful(cmd) {
         return ""
     }
@@ -1816,6 +1870,22 @@ fun ensureJitRuntime() r: String {
 // consume ThinLTO bitcode. Falls back to AOT compilation if lli is not
 // available or if JIT runtime build fails.
 fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
+    // Resolve relative input path to absolute
+    var jitInput = inputFile
+    if inputFile.length() > 0 {
+        if inputFile.byteAt(0) != 47 {
+            let jitPwd = runCommand("pwd")
+            if commandWasSuccessful(jitPwd) {
+                var jitCwd = jitPwd.output
+                if jitCwd.length() > 0 {
+                    if jitCwd.byteAt(jitCwd.length() - 1) == 10 {
+                        jitCwd = jitCwd.substring(0, jitCwd.length() - 1)
+                    }
+                }
+                jitInput = jitCwd + "/" + inputFile
+            }
+        }
+    }
     if verbose {
         println("[jit] Compiling " + inputFile + "...")
     }
@@ -1841,7 +1911,7 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     if verbose {
         println("  [Pass 1] Scanning declarations...")
     }
-    let modulePaths = collectModulePaths(inputFile, not verbose)
+    let modulePaths = collectModulePaths(jitInput, not verbose)
     if verbose {
         println("    Found " + modulePaths.length().toString() + " modules")
     }

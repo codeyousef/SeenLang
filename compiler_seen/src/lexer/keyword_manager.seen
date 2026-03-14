@@ -4,6 +4,58 @@
 import lexer.token_type.{SeenTokenType}
 import collections.map.{Map}
 import io.file.{readText}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+
+// Resolve the languages/ directory. Tries CWD-relative first, then uses
+// /proc/self/exe to find the compiler root (works from any CWD on Linux).
+fun resolveLanguagesRoot(language: String) r: String {
+    // Fast path: check if languages/ exists relative to CWD
+    let testFile = "languages/" + language + "/" + language + "-keywords-control.toml"
+    let cwdTest = readText(testFile)
+    if cwdTest != "" {
+        return "languages/"
+    }
+    // Slow path: use /proc/$PPID/exe — $PPID is the compiler (parent of the shell)
+    let exeResult = runCommand("readlink -f /proc/$PPID/exe")
+    if commandWasSuccessful(exeResult) {
+        var exePath = exeResult.output
+        if exePath.length() > 0 {
+            if exePath.byteAt(exePath.length() - 1) == 10 {
+                exePath = exePath.substring(0, exePath.length() - 1)
+            }
+        }
+        // Strip 3 levels: <root>/compiler_seen/target/seen → <root>
+        var last1 = exePath.length() - 1
+        while last1 >= 0 {
+            if exePath.byteAt(last1) == 47 { break }
+            last1 = last1 - 1
+        }
+        if last1 > 0 {
+            var last2 = last1 - 1
+            while last2 >= 0 {
+                if exePath.byteAt(last2) == 47 { break }
+                last2 = last2 - 1
+            }
+            if last2 > 0 {
+                var last3 = last2 - 1
+                while last3 >= 0 {
+                    if exePath.byteAt(last3) == 47 { break }
+                    last3 = last3 - 1
+                }
+                if last3 >= 0 {
+                    let root = exePath.substring(0, last3)
+                    let absTest = root + "/languages/" + language + "/" + language + "-keywords-control.toml"
+                    let absCheck = readText(absTest)
+                    if absCheck != "" {
+                        return root + "/languages/"
+                    }
+                }
+            }
+        }
+    }
+    // Fallback: return relative path (original behavior)
+    return "languages/"
+}
 
 class KeywordManager {
     let language: String
@@ -23,7 +75,8 @@ class KeywordManager {
 
         km.initTokenNameMap()
 
-        let langDir = "languages/" + language + "/"
+        let langRoot = resolveLanguagesRoot(language)
+        let langDir = langRoot + language + "/"
         let prefix = language + "-keywords-"
 
         // Load keyword TOMLs
@@ -391,7 +444,8 @@ class KeywordManager {
         // Load English stdlib entries as parallel arrays
         var enNames = Array<String>()
         var enPaths = Array<String>()
-        let enDir = "languages/en/"
+        let langRoot2 = resolveLanguagesRoot("en")
+        let enDir = langRoot2 + "en/"
 
         loadStdlibToArrays(enDir + "en-math.toml", enNames, enPaths)
         loadStdlibToArrays(enDir + "en-collections.toml", enNames, enPaths)
@@ -403,7 +457,8 @@ class KeywordManager {
         // Load target language stdlib entries as parallel arrays
         var localNames = Array<String>()
         var localPaths = Array<String>()
-        let langDir = "languages/" + language + "/"
+        let langRoot3 = resolveLanguagesRoot(language)
+        let langDir = langRoot3 + language + "/"
         let prefix = language + "-"
 
         loadStdlibToArrays(langDir + prefix + "math.toml", localNames, localPaths)
