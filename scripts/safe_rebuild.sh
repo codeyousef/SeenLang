@@ -480,6 +480,7 @@ fi
 # Install production compiler
 echo ""
 echo "Installing production compiler..."
+mkdir -p compiler_seen/target
 cp "$VERIFIED" compiler_seen/target/seen
 chmod +x compiler_seen/target/seen
 cp "$STAGE2" stage2_head 2>/dev/null || true
