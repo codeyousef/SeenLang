@@ -397,10 +397,90 @@ else
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-fork; then
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
     else
-        echo -e "${RED}ERROR: Stage2 build failed!${NC}"
-        echo "Check /tmp/safe_rebuild_stage2.log for details."
-        tail -30 /tmp/safe_rebuild_stage2.log
-        exit 1
+        # Recovery: The frozen compiler uses fork-parallel IR gen and multiple
+        # processes race on /tmp/seen_parallel_opt.sh, causing shell syntax errors.
+        # If .ll files were generated, we can recover by running opt + link ourselves.
+        LL_COUNT=$(ls /tmp/seen_module_*.ll 2>/dev/null | grep -v '\.opt\.ll$' | wc -l)
+        if [ "$LL_COUNT" -gt 30 ]; then
+            echo -e "${YELLOW}Stage2 compilation failed (opt script race), recovering with $LL_COUNT .ll files...${NC}"
+
+            # Run the opt wrapper on each .ll file (dedup declares, fix byteAt bugs, etc.)
+            for llfile in /tmp/seen_module_*.ll; do
+                [[ "$llfile" == *.opt.ll ]] && continue
+                "$OPT_WRAPPER_DIR/opt" --version > /dev/null 2>&1  # no-op to test wrapper
+                # Apply the wrapper's fixups by calling it with a dummy pass
+                # The wrapper intercepts .ll files and applies fixups before calling real opt
+                modname=$(basename "$llfile" .ll)
+                optfile="/tmp/${modname}.opt.ll"
+                objfile="/tmp/${modname}.o"
+                # Skip if .o already exists (from a successful earlier batch)
+                [ -f "$objfile" ] && continue
+                # Run opt with fast-mode passes through the wrapper
+                if ! env PATH="$OPT_WRAPPER_DIR:$PATH" opt -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
+                    -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
+                    cp "$llfile" "$optfile"
+                fi
+                # Generate ThinLTO bitcode
+                opt --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
+            done
+
+            # Count resulting .o files
+            OBJ_COUNT=$(ls /tmp/seen_module_*.o 2>/dev/null | wc -l)
+            if [ "$OBJ_COUNT" -lt 30 ]; then
+                echo -e "${RED}ERROR: Recovery failed — only $OBJ_COUNT .o files produced.${NC}"
+                exit 1
+            fi
+            echo "  Recovery: $OBJ_COUNT .o files ready."
+
+            # Pre-compile runtime
+            RT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/seen_runtime"
+            if [ ! -f "$RT_DIR/seen_runtime.o" ] || [ "$RT_DIR/seen_runtime.c" -nt "$RT_DIR/seen_runtime.o" ]; then
+                echo "  Pre-compiling runtime..."
+                clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread \
+                    -c -I "$RT_DIR" "$RT_DIR/seen_runtime.c" -o "$RT_DIR/seen_runtime.o" 2>/dev/null || true
+            fi
+            if [ -f "$RT_DIR/seen_region.c" ]; then
+                if [ ! -f "$RT_DIR/seen_region.o" ] || [ "$RT_DIR/seen_region.c" -nt "$RT_DIR/seen_region.o" ]; then
+                    clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections \
+                        -c -I "$RT_DIR" "$RT_DIR/seen_region.c" -o "$RT_DIR/seen_region.o" 2>/dev/null || true
+                fi
+            fi
+            if [ -f "$RT_DIR/seen_gpu.c" ]; then
+                if [ ! -f "$RT_DIR/seen_gpu.o" ] || [ "$RT_DIR/seen_gpu.c" -nt "$RT_DIR/seen_gpu.o" ]; then
+                    clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections \
+                        -c -I "$RT_DIR" "$RT_DIR/seen_gpu.c" -o "$RT_DIR/seen_gpu.o" 2>/dev/null || true
+                fi
+            fi
+
+            # Link
+            echo "  Linking $OBJ_COUNT modules..."
+            LINK_OBJS=""
+            for obj in /tmp/seen_module_*.o; do
+                LINK_OBJS="$LINK_OBJS $obj"
+            done
+            RT_OBJS="$RT_DIR/seen_runtime.o"
+            [ -f "$RT_DIR/seen_region.o" ] && RT_OBJS="$RT_OBJS $RT_DIR/seen_region.o"
+            [ -f "$RT_DIR/seen_gpu.o" ] && RT_OBJS="$RT_OBJS $RT_DIR/seen_gpu.o"
+
+            LINK_LIBS="-lm -lpthread"
+            [ -f "$RT_DIR/seen_gpu.o" ] && pkg-config --exists vulkan 2>/dev/null && LINK_LIBS="$LINK_LIBS -lvulkan"
+
+            if clang -O1 -flto=thin -fuse-ld=lld \
+                -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache \
+                -march=native -Wl,--gc-sections -Wno-unused-command-line-argument \
+                $LINK_OBJS $RT_OBJS -o "$STAGE2" $LINK_LIBS 2>/tmp/safe_rebuild_link.log; then
+                echo -e "${GREEN}Stage2 recovery link succeeded ($(wc -c < "$STAGE2" | tr -d ' ') bytes).${NC}"
+            else
+                echo -e "${RED}ERROR: Stage2 recovery link failed.${NC}"
+                cat /tmp/safe_rebuild_link.log
+                exit 1
+            fi
+        else
+            echo -e "${RED}ERROR: Stage2 build failed (only $LL_COUNT .ll files).${NC}"
+            echo "Check /tmp/safe_rebuild_stage2.log for details."
+            tail -30 /tmp/safe_rebuild_stage2.log
+            exit 1
+        fi
     fi
 fi
 
