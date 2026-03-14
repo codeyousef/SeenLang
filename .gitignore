@@ -3,6 +3,10 @@ target/
 **/target/
 **/*.rs.bk
 Cargo.lock
+__pycache__/
+*.pyc
+installer/windows/output/
+.leann/
 
 # IDE specific files
 .idea/

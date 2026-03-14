@@ -1,0 +1,629 @@
+// ir_call_dispatch.seen — Call dispatch helpers for generateCall/generateMethodCall
+// Extracted from llvm_ir_gen.seen to follow SRP
+// Each impl function returns a result register string, or "" for fallthrough
+
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual}
+import codegen.ir_type_mapping.{isDataTypeImpl, simdScalarTypeImpl, simdLlvmSuffixImpl, isSimdVectorTypeImpl, simdLaneCountImpl}
+import str.string.{StringBuilder}
+
+// Simple LLVM type mapping for common Seen types (no struct registry needed)
+fun simpleMapType(seenType: String) r: String {
+    if seenType == "Int" or seenType == "Char" { return "i64" }
+    if seenType == "Float" { return "double" }
+    if seenType == "Bool" { return "i1" }
+    if seenType == "String" { return "%SeenString" }
+    if seenType == "Void" { return "void" }
+    return "i64"
+}
+
+// Quote LLVM IR identifiers containing non-ASCII bytes
+fun quoteIdentImpl(name: String) r: String {
+    var i = 0
+    while i < name.length() {
+        if name.byteAt(i) >= 128 {
+            return "\"" + name + "\""
+        }
+        i = i + 1
+    }
+    return name
+}
+
+// Widen narrow scalar types to Seen's i64/double
+fun widenResultImpl(output: StringBuilder, regBox: Array<Int>, reg: String, scalarType: String) r: String {
+    if scalarType == "float" {
+        let fpextReg = getNextRegFn(regBox)
+        output.append("  " + fpextReg + " = fpext float " + reg + " to double\n")
+        return fpextReg
+    }
+    if scalarType == "i32" {
+        let sextReg = getNextRegFn(regBox)
+        output.append("  " + sextReg + " = sext i32 " + reg + " to i64\n")
+        return sextReg
+    }
+    return reg
+}
+
+// emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/LinkedList .new() static calls
+// Returns result register (ptrtoint'd ptr), or "" if className not matched
+fun emitStaticCollectionNewImpl(output: StringBuilder, regBox: Array<Int>, className: String, fullClassName: String) r: String {
+    if className == "Vec" {
+        let hasStringElem = fullClassName.contains("<String>")
+        let hasFloatElem = fullClassName.contains("<Float>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringElem {
+            output.append("  " + rawReg + " = call ptr @Vec_new_str()\n")
+        } else {
+            if hasFloatElem {
+                output.append("  " + rawReg + " = call ptr @Vec_new_float()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @Vec_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    if className == "BTreeMap" {
+        let hasStringKey = fullClassName.contains("<String")
+        let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKey {
+            if hasStringValue {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str()\n")
+            }
+        } else {
+            if hasStringValue {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_int_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    if className == "HashMap" {
+        let hasStringKey = fullClassName.contains("<String")
+        let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKey {
+            if hasStringValue {
+                output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
+            }
+        } else {
+            if hasStringValue {
+                output.append("  " + rawReg + " = call ptr @HashMap_new_int_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @HashMap_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    if className == "LinkedList" {
+        let rawReg = getNextRegFn(regBox)
+        if fullClassName.contains("<String") {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new_str()\n")
+        } else {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new()\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    return ""
+}
+
+// emitArrayWithLengthImpl — Array<T>.withLength(n) zero-initialized
+fun emitArrayWithLengthImpl(output: StringBuilder, regBox: Array<Int>, fullClassName: String, countReg: String) r: String {
+    let arrReg = getNextRegFn(regBox)
+    if fullClassName.contains("<Float") {
+        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double 0.0)\n")
+    } else {
+        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_i64(i64 " + countReg + ", i64 0)\n")
+    }
+    return arrReg
+}
+
+// emitStringBuilderNewCallImpl — StringBuilder.new() returns ptr, convert to i64
+fun emitStringBuilderNewCallImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: String {
+    let rawReg = getNextRegFn(regBox)
+    output.append("  " + rawReg + " = call ptr @" + quoteIdentImpl(funcName) + "(")
+    var i = 0
+    while i < argRegs.length() {
+        if i > 0 { output.append(", ") }
+        output.append(argTypeStrs[i] + " " + argRegs[i])
+        i = i + 1
+    }
+    output.append(")\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+    return resultReg
+}
+
+// emitStringFromCharCodeCallImpl — String.fromCharCode() returns %SeenString
+fun emitStringFromCharCodeCallImpl(output: StringBuilder, regBox: Array<Int>, argRegs: Array<String>, argTypeStrs: Array<String>) r: String {
+    let strResultReg = getNextRegFn(regBox)
+    output.append("  " + strResultReg + " = call %SeenString @String_fromCharCode(")
+    var i = 0
+    while i < argRegs.length() {
+        if i > 0 { output.append(", ") }
+        output.append(argTypeStrs[i] + " " + argRegs[i])
+        i = i + 1
+    }
+    output.append(")\n")
+    return strResultReg
+}
+
+// emitGenericStaticCallImpl — general ClassName.method() static call
+// isClassRecv: 1 if className is a class type (returns i64)
+// isDataRecv: 1 if className is a data type (returns %ClassName)
+// hasImplicitThis: 1 if non-new method (pass ptr null as first arg)
+fun emitGenericStaticCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, className: String, argRegs: Array<String>, argTypeStrs: Array<String>, isClassRecv: Int, isDataRecv: Int, hasImplicitThis: Int) r: String {
+    let resultReg = getNextRegFn(regBox)
+    if isClassRecv == 1 {
+        output.append("  " + resultReg + " = call i64 @" + quotedFuncName + "(")
+    } else {
+        if isDataRecv == 1 {
+            output.append("  " + resultReg + " = call %" + quoteIdentImpl(className) + " @" + quotedFuncName + "(")
+        } else {
+            output.append("  " + resultReg + " = call ptr @" + quotedFuncName + "(")
+        }
+    }
+    if hasImplicitThis == 1 {
+        output.append("ptr null")
+    }
+    var i = 0
+    while i < argRegs.length() {
+        if i > 0 or hasImplicitThis == 1 {
+            output.append(", ")
+        }
+        output.append(argTypeStrs[i] + " " + argRegs[i])
+        i = i + 1
+    }
+    output.append(")\n")
+    return resultReg
+}
+
+// emitArrayBulkInitImpl — Array<T>(count, value) inline bulk initialization
+// isZeroFill: 1 if value is literal 0 (use memset optimization)
+// alignToVal: alignment from @align_to decorator (0 = default)
+fun emitArrayBulkInitImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, countReg: String, valueReg: String, elementType: String, isZeroFill: Int, alignToVal: Int) r: String {
+    // Float special case: use runtime function
+    if elementType == "Float" {
+        let arrReg = getNextRegFn(regBox)
+        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double " + valueReg + ")\n")
+        return arrReg
+    }
+    // Inline bulk init for Int/other types
+    let arrReg = getNextRegFn(regBox)
+    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
+    let byteSizeReg = getNextRegFn(regBox)
+    output.append("  " + byteSizeReg + " = shl i64 " + countReg + ", 3\n")
+    let dataReg = getNextRegFn(regBox)
+    if alignToVal > 0 {
+        output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 " + alignToVal.toString() + ", i64 " + byteSizeReg + ") ; @align_to\n")
+    } else {
+        if elementType == "Int" or elementType == "Float" {
+            output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 32, i64 " + byteSizeReg + ") ; aligned for SIMD\n")
+        } else {
+            output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + byteSizeReg + ")\n")
+        }
+    }
+    // Init struct fields
+    let lenPtr = getNextRegFn(regBox)
+    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+    output.append("  store i64 " + countReg + ", ptr " + lenPtr + ", align 8\n")
+    let capPtr = getNextRegFn(regBox)
+    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
+    output.append("  store i64 " + countReg + ", ptr " + capPtr + ", align 8\n")
+    let szPtr = getNextRegFn(regBox)
+    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
+    var bulkElemSz = 8
+    if elementType == "String" { bulkElemSz = 16 }
+    output.append("  store i64 " + bulkElemSz.toString() + ", ptr " + szPtr + ", align 8\n")
+    let dataPtrPtr = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
+    // Zero-fill optimization: use llvm.memset
+    if isZeroFill == 1 {
+        output.append("  call void @llvm.memset.p0.i64(ptr " + dataReg + ", i8 0, i64 " + byteSizeReg + ", i1 false) ; zero-fill\n")
+        return arrReg
+    }
+    // Fill loop using alloca for index (mem2reg will promote to phi)
+    let idxAlloca = getNextRegFn(regBox)
+    output.append("  " + idxAlloca + " = alloca i64\n")
+    output.append("  store i64 0, ptr " + idxAlloca + "\n")
+    let fillCond = getNextBlockFn(blockLabelBox)
+    let fillBody = getNextBlockFn(blockLabelBox)
+    let fillDone = getNextBlockFn(blockLabelBox)
+    output.append("  br label %" + fillCond + "\n")
+    output.append(fillCond + ":\n")
+    let idxLoad = getNextRegFn(regBox)
+    output.append("  " + idxLoad + " = load i64, ptr " + idxAlloca + "\n")
+    let fillCmpReg = getNextRegFn(regBox)
+    output.append("  " + fillCmpReg + " = icmp slt i64 " + idxLoad + ", " + countReg + "\n")
+    output.append("  br i1 " + fillCmpReg + ", label %" + fillBody + ", label %" + fillDone + "\n")
+    output.append(fillBody + ":\n")
+    let elemPtr = getNextRegFn(regBox)
+    output.append("  " + elemPtr + " = getelementptr inbounds i64, ptr " + dataReg + ", i64 " + idxLoad + "\n")
+    output.append("  store i64 " + valueReg + ", ptr " + elemPtr + "\n")
+    let nextIdx = getNextRegFn(regBox)
+    output.append("  " + nextIdx + " = add nsw i64 " + idxLoad + ", 1\n")
+    output.append("  store i64 " + nextIdx + ", ptr " + idxAlloca + "\n")
+    output.append("  br label %" + fillCond + "\n")
+    output.append(fillDone + ":\n")
+    return arrReg
+}
+
+// emitArrayPreallocImpl — Array<T>(capacity) pre-allocation with given capacity
+// elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
+fun emitArrayPreallocImpl(output: StringBuilder, regBox: Array<Int>, capReg: String, elemSize: Int) r: String {
+    let arrReg = getNextRegFn(regBox)
+    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
+    let byteSizeReg = getNextRegFn(regBox)
+    if elemSize == 8 {
+        output.append("  " + byteSizeReg + " = shl i64 " + capReg + ", 3\n")
+    } else {
+        output.append("  " + byteSizeReg + " = mul nsw i64 " + capReg + ", " + elemSize.toString() + "\n")
+    }
+    let dataReg = getNextRegFn(regBox)
+    output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + byteSizeReg + ")\n")
+    let lenPtr = getNextRegFn(regBox)
+    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+    output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
+    let capPtr = getNextRegFn(regBox)
+    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
+    output.append("  store i64 " + capReg + ", ptr " + capPtr + ", align 8\n")
+    let szPtr = getNextRegFn(regBox)
+    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
+    output.append("  store i64 " + elemSize.toString() + ", ptr " + szPtr + ", align 8\n")
+    let dataPtrPtr = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
+    return arrReg
+}
+
+// emitArrayInlineImpl — Array<T>() empty inline constructor
+// elemSize: pre-computed element size (8 for Int, 16 for String, etc.)
+// alignToVal: alignment from @align_to decorator (0 = default)
+fun emitArrayInlineImpl(output: StringBuilder, regBox: Array<Int>, elemSize: Int, alignToVal: Int) r: String {
+    let initCap = 8
+    let initBytes = initCap * elemSize
+    let arrReg = getNextRegFn(regBox)
+    output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
+    let dataReg = getNextRegFn(regBox)
+    if alignToVal > 0 {
+        output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 " + alignToVal.toString() + ", i64 " + initBytes.toString() + ") ; @align_to\n")
+    } else {
+        output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + initBytes.toString() + ")\n")
+    }
+    let lenPtr = getNextRegFn(regBox)
+    output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+    output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
+    let capPtr = getNextRegFn(regBox)
+    output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
+    output.append("  store i64 " + initCap.toString() + ", ptr " + capPtr + ", align 8\n")
+    let szPtr = getNextRegFn(regBox)
+    output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
+    output.append("  store i64 " + elemSize.toString() + ", ptr " + szPtr + ", align 8\n")
+    let dataPtrPtr = getNextRegFn(regBox)
+    output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+    output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
+    return arrReg
+}
+
+// emitSmallVecConstructorImpl — SmallVec<T, N>() constructor
+// capArgReg: pre-generated capacity arg ("" if no arg, parse from funcName)
+fun emitSmallVecConstructorImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, capArgReg: String) r: String {
+    if capArgReg != "" {
+        let svCallReg = getNextRegFn(regBox)
+        output.append("  " + svCallReg + " = call i64 @seen_small_vec_new(i64 " + capArgReg + ")\n")
+        return svCallReg
+    }
+    // Parse inline capacity N from type string (e.g., "SmallVec<Int, 8>")
+    var svCapacity = 8
+    var svCommaPos = funcName.indexOf(",")
+    if svCommaPos > 0 {
+        var svCapStr = funcName.substring(svCommaPos + 1, funcName.length())
+        if svCapStr.endsWith(">") or svCapStr.endsWith("]") {
+            svCapStr = svCapStr.substring(0, svCapStr.length() - 1)
+        }
+        // Parse digits manually (trimSpaces not needed, byteAt-based)
+        var svCapVal = 0
+        var svCapIdx = 0
+        while svCapIdx < svCapStr.length() {
+            let svDigit = svCapStr.byteAt(svCapIdx)
+            if svDigit >= 48 and svDigit <= 57 {
+                svCapVal = svCapVal * 10 + (svDigit - 48)
+            }
+            svCapIdx = svCapIdx + 1
+        }
+        if svCapVal > 0 {
+            svCapacity = svCapVal
+        }
+    }
+    let svCallReg = getNextRegFn(regBox)
+    output.append("  " + svCallReg + " = call i64 @seen_small_vec_new(i64 " + svCapacity.toString() + ")\n")
+    return svCallReg
+}
+
+// emitReprCConstructorImpl — @repr(C) class constructor via insertvalue chain
+// argRegs: pre-generated argument registers
+// fieldLlvmTypes: pre-mapped LLVM types for each field (from wrapper's mapType)
+fun emitReprCConstructorImpl(output: StringBuilder, regBox: Array<Int>, className: String, argRegs: Array<String>, fieldLlvmTypes: Array<String>) r: String {
+    if argRegs.length() == 0 {
+        return "zeroinitializer"
+    }
+    var curVal = "zeroinitializer"
+    var argIdx = 0
+    while argIdx < argRegs.length() {
+        let ivReg = getNextRegFn(regBox)
+        output.append("  " + ivReg + " = insertvalue %" + className + " " + curVal + ", " + fieldLlvmTypes[argIdx] + " " + argRegs[argIdx] + ", " + argIdx.toString() + "\n")
+        curVal = ivReg
+        argIdx = argIdx + 1
+    }
+    return curVal
+}
+
+// emitDynTraitVtableCallImpl — dyn Trait vtable dispatch (both complex/simple receivers)
+// receiverI64Reg: i64 value of the fat pointer handle
+// traitMethodNames: comma-separated method names (for index lookup)
+// traitMethodRetTypes: pipe-separated return type names (Seen types, for return type)
+// useI64DataArg: 1 = pass data as i64 (simple receivers), 0 = pass as ptr (complex receivers)
+fun emitDynTraitVtableCallImpl(output: StringBuilder, regBox: Array<Int>, receiverI64Reg: String, dynTraitName: String, methodName: String, traitMethodNames: String, traitMethodRetTypes: String, argRegs: Array<String>, argTypes: Array<String>, useI64DataArg: Int) r: String {
+    // Convert receiver i64 to fat pointer ptr
+    let fatPtrReg = getNextRegFn(regBox)
+    output.append("  " + fatPtrReg + " = inttoptr i64 " + receiverI64Reg + " to ptr\n")
+    // Load data pointer (field 0)
+    let dataPtrReg = getNextRegFn(regBox)
+    output.append("  " + dataPtrReg + " = load ptr, ptr " + fatPtrReg + "\n")
+    // Load vtable pointer (field 1)
+    let lb = "{"
+    let rb = "}"
+    let vtPtrGep = getNextRegFn(regBox)
+    output.append("  " + vtPtrGep + " = getelementptr " + lb + " ptr, ptr " + rb + ", ptr " + fatPtrReg + ", i32 0, i32 1\n")
+    let vtPtrReg = getNextRegFn(regBox)
+    output.append("  " + vtPtrReg + " = load ptr, ptr " + vtPtrGep + "\n")
+    // Find method index in comma-separated method names
+    var methodIdx = 0
+    var mSearchPos = 0
+    var mIdx = 0
+    var mFound = 0
+    while mSearchPos <= traitMethodNames.length() and mFound == 0 {
+        var mNextComma = traitMethodNames.indexOf(",", mSearchPos)
+        if mNextComma < 0 { mNextComma = traitMethodNames.length() }
+        let mEntry = traitMethodNames.substring(mSearchPos, mNextComma)
+        if mEntry == methodName {
+            methodIdx = mIdx
+            mFound = 1
+        }
+        mIdx = mIdx + 1
+        mSearchPos = mNextComma + 1
+    }
+    // GEP into vtable to get function pointer
+    let fnPtrGep = getNextRegFn(regBox)
+    output.append("  " + fnPtrGep + " = getelementptr %" + quoteIdentImpl(dynTraitName + "_vtable") + ", ptr " + vtPtrReg + ", i32 0, i32 " + methodIdx.toString() + "\n")
+    let fnPtrReg = getNextRegFn(regBox)
+    output.append("  " + fnPtrReg + " = load ptr, ptr " + fnPtrGep + "\n")
+    // Build argument string
+    var argStr = ""
+    if useI64DataArg == 1 {
+        let dataI64 = getNextRegFn(regBox)
+        output.append("  " + dataI64 + " = ptrtoint ptr " + dataPtrReg + " to i64\n")
+        argStr = "i64 " + dataI64
+    } else {
+        argStr = "ptr " + dataPtrReg
+    }
+    var aIdx = 0
+    while aIdx < argRegs.length() {
+        argStr = argStr + ", " + argTypes[aIdx] + " " + argRegs[aIdx]
+        aIdx = aIdx + 1
+    }
+    // Resolve return type from pipe-separated return types at methodIdx
+    var dynRetType = "i64"
+    var rSearchPos = 0
+    var rIdx = 0
+    while rSearchPos <= traitMethodRetTypes.length() {
+        var rNextPipe = traitMethodRetTypes.indexOf("|", rSearchPos)
+        if rNextPipe < 0 { rNextPipe = traitMethodRetTypes.length() }
+        if rIdx == methodIdx {
+            let retName = traitMethodRetTypes.substring(rSearchPos, rNextPipe)
+            dynRetType = simpleMapType(retName)
+            rSearchPos = traitMethodRetTypes.length()
+        }
+        rIdx = rIdx + 1
+        rSearchPos = rNextPipe + 1
+    }
+    // Indirect call through vtable
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call " + dynRetType + " " + fnPtrReg + "(" + argStr + ") ; dyn " + dynTraitName + "." + methodName + "\n")
+    return resultReg
+}
+
+// emitSimdReductionVarImpl — SIMD horizontal reduction for simple variable receivers
+// Returns "" if not a SIMD type or method not recognized
+fun emitSimdReductionVarImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, receiverReg: String, varType: String) r: String {
+    if isSimdVectorTypeImpl(varType) != 1 { return "" }
+    let scalarType = simdScalarTypeImpl(varType)
+    let isFloat = varType.startsWith("f32") or varType.startsWith("f64")
+    let llvmSuffix = simdLlvmSuffixImpl(varType)
+    // Build LLVM vector type from scalar + lane count
+    let laneCount = simdLaneCountImpl(varType)
+    let llvmType = "<" + laneCount.toString() + " x " + scalarType + ">"
+
+    if methodName == "reduce_add" {
+        let redReg = getNextRegFn(regBox)
+        if isFloat {
+            var initStr = "0.0"
+            if scalarType == "double" { initStr = "0.000000e+00" }
+            output.append("  " + redReg + " = call " + scalarType + " @llvm.vector.reduce.fadd." + llvmSuffix + "(" + scalarType + " " + initStr + ", " + llvmType + " " + receiverReg + ")\n")
+        } else {
+            output.append("  " + redReg + " = call " + scalarType + " @llvm.vector.reduce.add." + llvmSuffix + "(" + llvmType + " " + receiverReg + ")\n")
+        }
+        return widenResultImpl(output, regBox, redReg, scalarType)
+    }
+    if methodName == "reduce_min" {
+        let redReg = getNextRegFn(regBox)
+        if isFloat {
+            output.append("  " + redReg + " = call " + scalarType + " @llvm.vector.reduce.fmin." + llvmSuffix + "(" + llvmType + " " + receiverReg + ")\n")
+        } else {
+            output.append("  " + redReg + " = call " + scalarType + " @llvm.vector.reduce.smin." + llvmSuffix + "(" + llvmType + " " + receiverReg + ")\n")
+        }
+        return widenResultImpl(output, regBox, redReg, scalarType)
+    }
+    if methodName == "reduce_max" {
+        let redReg = getNextRegFn(regBox)
+        if isFloat {
+            output.append("  " + redReg + " = call " + scalarType + " @llvm.vector.reduce.fmax." + llvmSuffix + "(" + llvmType + " " + receiverReg + ")\n")
+        } else {
+            output.append("  " + redReg + " = call " + scalarType + " @llvm.vector.reduce.smax." + llvmSuffix + "(" + llvmType + " " + receiverReg + ")\n")
+        }
+        return widenResultImpl(output, regBox, redReg, scalarType)
+    }
+    return ""
+}
+
+// emitUserFunctionCallImpl — final function call emission (void and non-void)
+// isTailCall: 1 if this is a tail call position
+fun emitUserFunctionCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, argRegs: Array<String>, argTypeStrs: Array<String>, isTailCall: Int) r: String {
+    if llvmReturnType == "void" {
+        output.append("  call void @" + quotedFuncName + "(")
+        var i = 0
+        while i < argRegs.length() {
+            if i > 0 { output.append(", ") }
+            output.append(argTypeStrs[i] + " " + argRegs[i])
+            i = i + 1
+        }
+        output.append(")\n")
+        return "0"
+    }
+    let resultReg = getNextRegFn(regBox)
+    var callPrefix = "call"
+    if isTailCall == 1 { callPrefix = "tail call" }
+    output.append("  " + resultReg + " = " + callPrefix + " " + llvmReturnType + " @" + quotedFuncName + "(")
+    var i = 0
+    while i < argRegs.length() {
+        if i > 0 { output.append(", ") }
+        output.append(argTypeStrs[i] + " " + argRegs[i])
+        i = i + 1
+    }
+    output.append(")\n")
+    return resultReg
+}
+
+// emitUserMethodCallImpl — final instance method call emission (void and non-void)
+fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, receiverLlvmType: String, receiverReg: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: String {
+    if llvmReturnType == "void" {
+        output.append("  call void @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
+        var i = 0
+        while i < argRegs.length() {
+            output.append(", ")
+            output.append(argTypeStrs[i] + " " + argRegs[i])
+            i = i + 1
+        }
+        output.append(")\n")
+        return "0"
+    }
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = call " + llvmReturnType + " @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
+    var i = 0
+    while i < argRegs.length() {
+        output.append(", ")
+        output.append(argTypeStrs[i] + " " + argRegs[i])
+        i = i + 1
+    }
+    output.append(")\n")
+    return resultReg
+}
+
+// emitCStrConversionImpl — str_to_cstr and cstr_to_str builtins
+fun emitCStrConversionImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argReg: String) r: String {
+    if funcName == "str_to_cstr" {
+        let cstrReg = getNextRegFn(regBox)
+        output.append("  " + cstrReg + " = call ptr @seen_str_to_cstr(%SeenString " + argReg + ")\n")
+        let intReg = getNextRegFn(regBox)
+        output.append("  " + intReg + " = ptrtoint ptr " + cstrReg + " to i64\n")
+        return intReg
+    }
+    if funcName == "cstr_to_str" {
+        let ptrReg = getNextRegFn(regBox)
+        output.append("  " + ptrReg + " = inttoptr i64 " + argReg + " to ptr\n")
+        let strReg = getNextRegFn(regBox)
+        output.append("  " + strReg + " = call %SeenString @seen_cstr_to_str(ptr " + ptrReg + ")\n")
+        return strReg
+    }
+    return ""
+}
+
+// emitDebugAssertCallImpl — debug_assert(condition) with branching
+// boundsCountBox: [0] = current label count, incremented on use
+fun emitDebugAssertCallImpl(output: StringBuilder, regBox: Array<Int>, boundsCountBox: Array<Int>, condReg: String) r: String {
+    let count = boundsCountBox[0]
+    let failLabel = "assert_fail_" + count.toString()
+    let okLabel = "assert_ok_" + count.toString()
+    boundsCountBox.set(0, count + 1)
+    let condBool = getNextRegFn(regBox)
+    output.append("  " + condBool + " = icmp eq i64 " + condReg + ", 0\n")
+    output.append("  br i1 " + condBool + ", label %" + failLabel + ", label %" + okLabel + "\n")
+    output.append(failLabel + ":\n")
+    output.append("  call void @seen_debug_assert_fail(i64 0)\n")
+    output.append("  unreachable\n")
+    output.append(okLabel + ":\n")
+    return "0"
+}
+
+// emitAsyncYieldCallImpl — async_yield() cooperative suspend point
+// yieldCounterBox: [0] = current yield counter, incremented on use
+fun emitAsyncYieldCallImpl(output: StringBuilder, regBox: Array<Int>, yieldCounterBox: Array<Int>, asyncCleanupLabel: String) r: String {
+    let saveTok = getNextRegFn(regBox)
+    output.append("  " + saveTok + " = call token @llvm.coro.save(ptr null)\n")
+    let spVal = getNextRegFn(regBox)
+    output.append("  " + spVal + " = call i8 @llvm.coro.suspend(token " + saveTok + ", i1 false)\n")
+    let count = yieldCounterBox[0]
+    let unreachLabel = "yield_unreachable_" + count.toString()
+    let resumeLabel = "yield_resume_" + count.toString()
+    yieldCounterBox.set(0, count + 1)
+    output.append("  switch i8 " + spVal + ", label %" + unreachLabel + " [\n")
+    output.append("    i8 0, label %" + resumeLabel + "\n")
+    output.append("    i8 1, label %" + asyncCleanupLabel + "\n")
+    output.append("  ]\n")
+    output.append(unreachLabel + ":\n")
+    output.append("  unreachable\n")
+    output.append(resumeLabel + ":\n")
+    return "0"
+}
+
+// emitOptionUnwrapSpecializedImpl — Option<T>.unwrap() type-specialized calls
+// innerType: the T in Option<T> (Seen type name)
+// isClassInner: 1 if innerType is a class type
+// Returns "" for fallthrough to generic unwrap
+fun emitOptionUnwrapSpecializedImpl(output: StringBuilder, regBox: Array<Int>, innerType: String, receiverLlvmType: String, receiverReg: String, isClassInner: Int) r: String {
+    let resultReg = getNextRegFn(regBox)
+    if innerType == "Bool" {
+        output.append("  " + resultReg + " = call i1 @Option_unwrap_bool(" + receiverLlvmType + " " + receiverReg + ")\n")
+        return resultReg
+    }
+    if innerType == "Int" {
+        output.append("  " + resultReg + " = call i64 @Option_unwrap_int(" + receiverLlvmType + " " + receiverReg + ")\n")
+        return resultReg
+    }
+    if innerType == "String" {
+        output.append("  " + resultReg + " = call %SeenString @Option_unwrap_string(" + receiverLlvmType + " " + receiverReg + ")\n")
+        return resultReg
+    }
+    if innerType == "Float" {
+        output.append("  " + resultReg + " = call double @Option_unwrap_float(" + receiverLlvmType + " " + receiverReg + ")\n")
+        return resultReg
+    }
+    if isClassInner == 1 {
+        output.append("  " + resultReg + " = call i64 @Option_unwrap_boxed(" + receiverLlvmType + " " + receiverReg + ")\n")
+        return resultReg
+    }
+    return ""
+}

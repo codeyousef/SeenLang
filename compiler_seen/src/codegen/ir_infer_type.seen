@@ -1,0 +1,139 @@
+// ir_infer_type.seen — Type inference helpers for inferExpressionType
+// Extracted from llvm_ir_gen.seen to follow SRP
+// Each impl function returns a Seen type string, or "" for fallthrough
+
+import str.string.{StringBuilder}
+
+// inferBinaryTypeImpl — infer result type from binary operator and operand types
+// Returns "" if neither operand type constrains the result (fallthrough to "Int")
+fun inferBinaryTypeImpl(operator: String, leftType: String, rightType: String) r: String {
+    // Comparison and logical operators always return Bool
+    if operator == "==" or operator == "!=" or operator == "<" or operator == ">" or operator == "<=" or operator == ">=" or operator == "and" or operator == "or" {
+        return "Bool"
+    }
+    // String concatenation via +
+    if operator == "+" {
+        if leftType == "String" or rightType == "String" {
+            return "String"
+        }
+    }
+    // Float promotion: if either operand is Float, result is Float
+    if leftType == "Float" or rightType == "Float" {
+        return "Float"
+    }
+    return ""
+}
+
+// inferLiteralTypeImpl — infer type from a literal expression's type/value
+fun inferLiteralTypeImpl(literalType: String, literalValue: String) r: String {
+    if literalType == "Int" or literalType == "Integer" {
+        return "Int"
+    }
+    if literalType == "String" {
+        return "String"
+    }
+    if literalType == "Char" {
+        return "Char"
+    }
+    if literalType == "Bool" or literalType == "Boolean" {
+        return "Bool"
+    }
+    if literalType == "Float" {
+        return "Float"
+    }
+    if literalType != "" {
+        return literalType
+    }
+    // Fallback: infer from value
+    if literalValue.startsWith("\"") or literalValue.startsWith("'") {
+        return "String"
+    }
+    if literalValue.contains(".") {
+        return "Float"
+    }
+    return "Int"
+}
+
+// inferSimpleExprTypeImpl — infer type for non-recursive expression kinds
+// Returns "" for expression kinds that need recursive inference
+fun inferSimpleExprTypeImpl(exprKind: String, literalType: String, literalValue: String) r: String {
+    if exprKind == "StructLiteral" {
+        if literalType != "" {
+            return literalType
+        }
+        return "Int"
+    }
+    if exprKind == "Range" {
+        return "Range"
+    }
+    if exprKind == "IsExpression" {
+        return "Bool"
+    }
+    if exprKind == "Closure" {
+        return "Int"
+    }
+    if exprKind == "SafeNavigation" {
+        return "Int"
+    }
+    if exprKind == "Cast" {
+        if literalValue != "" {
+            return literalValue
+        }
+        return "Int"
+    }
+    return ""
+}
+
+// inferOperatorOverloadSuffix — map operator to function suffix for overload lookup
+fun inferOperatorOverloadSuffix(operator: String) r: String {
+    if operator == "+" { return "operator_add" }
+    if operator == "-" { return "operator_sub" }
+    if operator == "*" { return "operator_mul" }
+    if operator == "/" { return "operator_div" }
+    if operator == "%" { return "operator_mod" }
+    if operator == "==" { return "operator_eq" }
+    if operator == "!=" { return "operator_neq" }
+    if operator == "<" { return "operator_lt" }
+    if operator == ">" { return "operator_gt" }
+    if operator == "<=" { return "operator_lte" }
+    if operator == ">=" { return "operator_gte" }
+    return ""
+}
+
+// extractResultInnerType — extract T from "Result<T, E>" type string
+// Returns "" if the type doesn't match Result<T, E> pattern
+fun extractResultInnerType(resultType: String) r: String {
+    if not resultType.startsWith("Result<") {
+        return ""
+    }
+    // Find first < and matching >
+    var ltPos = -1
+    var depth = 0
+    var commaPos = -1
+    var i = 0
+    while i < resultType.length() {
+        let ch = resultType.byteAt(i)
+        if ch == 60 {
+            if ltPos < 0 { ltPos = i }
+            depth = depth + 1
+        }
+        if ch == 62 {
+            depth = depth - 1
+        }
+        if ch == 44 and depth == 1 and commaPos < 0 {
+            commaPos = i
+        }
+        i = i + 1
+    }
+    if ltPos >= 0 {
+        if commaPos > ltPos {
+            return resultType.substring(ltPos + 1, commaPos)
+        }
+        // Result<T> without error type
+        let gtPos = resultType.indexOf(">", ltPos)
+        if gtPos > ltPos {
+            return resultType.substring(ltPos + 1, gtPos)
+        }
+    }
+    return ""
+}

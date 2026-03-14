@@ -1,0 +1,117 @@
+// ir_stmt_gen.seen — Statement generation helpers
+// Extracted from llvm_ir_gen.seen statement generation functions
+// Each impl function emits IR scaffolding (labels, branches, phi nodes)
+
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import str.string.{StringBuilder}
+
+// emitConditionToI1Impl — convert a condition value to i1 based on its type
+// condType: "Bool"/"Int"/"Float"/"String"/""
+// Returns the i1 register name
+fun emitConditionToI1Impl(output: StringBuilder, regBox: Array<Int>, condReg: String, condType: String) r: String {
+    if condType == "Float" {
+        let cmpReg = getNextRegFn(regBox)
+        output.append("  " + cmpReg + " = fcmp one double " + condReg + ", 0.0\n")
+        return cmpReg
+    }
+    if condType == "String" {
+        let lenReg = getNextRegFn(regBox)
+        output.append("  " + lenReg + " = extractvalue %SeenString " + condReg + ", 0\n")
+        let cmpReg = getNextRegFn(regBox)
+        output.append("  " + cmpReg + " = icmp ne i64 " + lenReg + ", 0\n")
+        return cmpReg
+    }
+    if condType == "Bool" {
+        // Already i1
+        return condReg
+    }
+    // Default: Int or unknown — compare to 0
+    let cmpReg = getNextRegFn(regBox)
+    output.append("  " + cmpReg + " = icmp ne i64 " + condReg + ", 0\n")
+    return cmpReg
+}
+
+// emitIfBranchingImpl — emit the if/then/else/end label structure
+// Returns: endLabel name (for the caller to continue after)
+// thenTerminated/elseTerminated: 1 if the branch ended with return/break
+fun emitIfBranchingImpl(output: StringBuilder, blockLabelBox: Array<Int>, condBoolReg: String) r: String {
+    let thenLabel = getNextBlockFn(blockLabelBox)
+    let elseLabel = getNextBlockFn(blockLabelBox)
+    let endLabel = getNextBlockFn(blockLabelBox)
+    output.append("  br i1 " + condBoolReg + ", label %" + thenLabel + ", label %" + elseLabel + "\n")
+    output.append(thenLabel + ":\n")
+    // Caller fills in then-block body, then calls emitIfThenEndImpl
+    // Store labels in a known format for the caller
+    // Return endLabel:thenLabel:elseLabel concatenated
+    return endLabel + ":" + thenLabel + ":" + elseLabel
+}
+
+// emitRangeForLoopImpl — emit range-based for-in loop scaffolding
+// startReg/endReg: pre-generated range bound registers
+// loopVarAlloca: alloca register for the loop variable
+// indexAlloca: alloca register for the loop index
+// Returns: condLabel:bodyLabel:endLabel concatenated
+fun emitRangeForLoopImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, startReg: String, endReg: String, loopVarAlloca: String, indexAlloca: String) r: String {
+    // Initialize index to start value
+    output.append("  store i64 " + startReg + ", ptr " + indexAlloca + "\n")
+    let condLabel = getNextBlockFn(blockLabelBox)
+    let bodyLabel = getNextBlockFn(blockLabelBox)
+    let endLabel = getNextBlockFn(blockLabelBox)
+    output.append("  br label %" + condLabel + "\n")
+    output.append(condLabel + ":\n")
+    let idxReg = getNextRegFn(regBox)
+    output.append("  " + idxReg + " = load i64, ptr " + indexAlloca + "\n")
+    let cmpReg = getNextRegFn(regBox)
+    output.append("  " + cmpReg + " = icmp slt i64 " + idxReg + ", " + endReg + "\n")
+    output.append("  br i1 " + cmpReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
+    output.append(bodyLabel + ":\n")
+    // Store current index as loop variable value
+    output.append("  store i64 " + idxReg + ", ptr " + loopVarAlloca + "\n")
+    return condLabel + ":" + bodyLabel + ":" + endLabel
+}
+
+// emitLoopIncrementImpl — emit index increment and branch back to condition
+fun emitLoopIncrementImpl(output: StringBuilder, regBox: Array<Int>, indexAlloca: String, condLabel: String, stepVal: Int) r: Void {
+    let curIdx = getNextRegFn(regBox)
+    output.append("  " + curIdx + " = load i64, ptr " + indexAlloca + "\n")
+    let nextIdx = getNextRegFn(regBox)
+    output.append("  " + nextIdx + " = add nsw i64 " + curIdx + ", " + stepVal.toString() + "\n")
+    output.append("  store i64 " + nextIdx + ", ptr " + indexAlloca + "\n")
+    output.append("  br label %" + condLabel + "\n")
+}
+
+// emitArrayForLoopHeaderImpl — emit array-based for-in loop header
+// arrPtrReg: pointer to the SeenArray struct
+// Returns: condLabel:bodyLabel:endLabel:idxAlloca:lenReg concatenated
+fun emitArrayForLoopHeaderImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>, arrPtrReg: String) r: String {
+    // Get array length
+    let lenPtrReg = getNextRegFn(regBox)
+    output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrPtrReg + ", i32 0, i32 0\n")
+    let lenReg = getNextRegFn(regBox)
+    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
+    // Allocate index
+    let idxAlloca = getNextRegFn(regBox)
+    output.append("  " + idxAlloca + " = alloca i64\n")
+    output.append("  store i64 0, ptr " + idxAlloca + "\n")
+    let condLabel = getNextBlockFn(blockLabelBox)
+    let bodyLabel = getNextBlockFn(blockLabelBox)
+    let endLabel = getNextBlockFn(blockLabelBox)
+    output.append("  br label %" + condLabel + "\n")
+    output.append(condLabel + ":\n")
+    let idxReg = getNextRegFn(regBox)
+    output.append("  " + idxReg + " = load i64, ptr " + idxAlloca + "\n")
+    let cmpReg = getNextRegFn(regBox)
+    output.append("  " + cmpReg + " = icmp slt i64 " + idxReg + ", " + lenReg + "\n")
+    output.append("  br i1 " + cmpReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
+    output.append(bodyLabel + ":\n")
+    return condLabel + ":" + bodyLabel + ":" + endLabel + ":" + idxAlloca + ":" + lenReg
+}
+
+// emitPrefetchImpl — emit software prefetch for sequential array traversal
+fun emitPrefetchImpl(output: StringBuilder, regBox: Array<Int>, dataPtrReg: String, idxReg: String, prefetchDist: Int) r: Void {
+    let nextIdx = getNextRegFn(regBox)
+    output.append("  " + nextIdx + " = add nsw i64 " + idxReg + ", " + prefetchDist.toString() + "\n")
+    let nextElemPtr = getNextRegFn(regBox)
+    output.append("  " + nextElemPtr + " = getelementptr inbounds i64, ptr " + dataPtrReg + ", i64 " + nextIdx + "\n")
+    output.append("  call void @llvm.prefetch.p0(ptr " + nextElemPtr + ", i32 0, i32 3, i32 1)\n")
+}
