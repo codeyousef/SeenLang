@@ -93,7 +93,7 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 }
             }
             if isInductionIncr {
-                output.append("  " + resultReg + " = add nuw nsw i64 " + leftReg + ", " + rightReg + " ; induction var\n")
+                output.append("  " + resultReg + " = add nsw i64 " + leftReg + ", " + rightReg + " ; induction var\n")
             } else {
                 if panicOnOverflow == 1 {
                     let lb = "{"
@@ -115,7 +115,7 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                     cseClearSignal[0] = 1
                     output.append("  " + resultReg + " = add i64 " + ovfVal + ", 0 ; checked add\n")
                 } else {
-                    output.append("  " + resultReg + " = add nsw i64 " + leftReg + ", " + rightReg + "\n")
+                    output.append("  " + resultReg + " = add i64 " + leftReg + ", " + rightReg + "\n")
                 }
             }
         return resultReg
@@ -176,7 +176,7 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                     cseClearSignal[0] = 1
                     output.append("  " + resultReg + " = add i64 " + ovfSubVal + ", 0 ; checked sub\n")
                 } else {
-                    output.append("  " + resultReg + " = sub nsw i64 " + leftReg + ", " + rightReg + "\n")
+                    output.append("  " + resultReg + " = sub i64 " + leftReg + ", " + rightReg + "\n")
                 }
             }
         }
@@ -222,7 +222,7 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 cseClearSignal[0] = 1
                 output.append("  " + resultReg + " = add i64 " + ovfMulVal + ", 0 ; checked mul\n")
             } else {
-                output.append("  " + resultReg + " = mul nsw i64 " + leftReg + ", " + rightReg + "\n")
+                output.append("  " + resultReg + " = mul i64 " + leftReg + ", " + rightReg + "\n")
             }
         }
         opHandled = true
@@ -322,12 +322,14 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                     var fcmpEqLeft = leftReg
                     var fcmpEqRight = rightReg
                     if leftType != "Float" {
-                        output.append("  " + resultReg + " = sitofp i64 " + leftReg + " to double\n")
-                        fcmpEqLeft = resultReg
+                        let cvtL = getNextRegFn(regBox)
+                        output.append("  " + cvtL + " = sitofp i64 " + leftReg + " to double\n")
+                        fcmpEqLeft = cvtL
                     }
                     if rightType != "Float" {
-                        output.append("  " + resultReg + " = sitofp i64 " + rightReg + " to double\n")
-                        fcmpEqRight = resultReg
+                        let cvtR = getNextRegFn(regBox)
+                        output.append("  " + cvtR + " = sitofp i64 " + rightReg + " to double\n")
+                        fcmpEqRight = cvtR
                     }
                     let fcmpEqRes = getNextRegFn(regBox)
                     output.append("  " + fcmpEqRes + " = fcmp oeq double " + fcmpEqLeft + ", " + fcmpEqRight + "\n")
@@ -396,12 +398,14 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                     var fcmpNeLeft = leftReg
                     var fcmpNeRight = rightReg
                     if leftType != "Float" {
-                        output.append("  " + resultReg + " = sitofp i64 " + leftReg + " to double\n")
-                        fcmpNeLeft = resultReg
+                        let cvtL = getNextRegFn(regBox)
+                        output.append("  " + cvtL + " = sitofp i64 " + leftReg + " to double\n")
+                        fcmpNeLeft = cvtL
                     }
                     if rightType != "Float" {
-                        output.append("  " + resultReg + " = sitofp i64 " + rightReg + " to double\n")
-                        fcmpNeRight = resultReg
+                        let cvtR = getNextRegFn(regBox)
+                        output.append("  " + cvtR + " = sitofp i64 " + rightReg + " to double\n")
+                        fcmpNeRight = cvtR
                     }
                     let fcmpNeRes = getNextRegFn(regBox)
                     output.append("  " + fcmpNeRes + " = fcmp une double " + fcmpNeLeft + ", " + fcmpNeRight + "\n")
@@ -471,12 +475,14 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 var fcmpLtLeft = leftVal
                 var fcmpLtRight = rightVal
                 if leftType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + leftVal + " to double\n")
-                    fcmpLtLeft = resultReg
+                    let cvtL = getNextRegFn(regBox)
+                    output.append("  " + cvtL + " = sitofp i64 " + leftVal + " to double\n")
+                    fcmpLtLeft = cvtL
                 }
                 if rightType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + rightVal + " to double\n")
-                    fcmpLtRight = resultReg
+                    let cvtR = getNextRegFn(regBox)
+                    output.append("  " + cvtR + " = sitofp i64 " + rightVal + " to double\n")
+                    fcmpLtRight = cvtR
                 }
                 let fcmpLtRes = getNextRegFn(regBox)
                 output.append("  " + fcmpLtRes + " = fcmp olt double " + fcmpLtLeft + ", " + fcmpLtRight + "\n")
@@ -516,12 +522,14 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 var fcmpLeLeft = leftVal
                 var fcmpLeRight = rightVal
                 if leftType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + leftVal + " to double\n")
-                    fcmpLeLeft = resultReg
+                    let cvtL = getNextRegFn(regBox)
+                    output.append("  " + cvtL + " = sitofp i64 " + leftVal + " to double\n")
+                    fcmpLeLeft = cvtL
                 }
                 if rightType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + rightVal + " to double\n")
-                    fcmpLeRight = resultReg
+                    let cvtR = getNextRegFn(regBox)
+                    output.append("  " + cvtR + " = sitofp i64 " + rightVal + " to double\n")
+                    fcmpLeRight = cvtR
                 }
                 let fcmpLeRes = getNextRegFn(regBox)
                 output.append("  " + fcmpLeRes + " = fcmp ole double " + fcmpLeLeft + ", " + fcmpLeRight + "\n")
@@ -561,12 +569,14 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 var fcmpGtLeft = leftVal
                 var fcmpGtRight = rightVal
                 if leftType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + leftVal + " to double\n")
-                    fcmpGtLeft = resultReg
+                    let cvtL = getNextRegFn(regBox)
+                    output.append("  " + cvtL + " = sitofp i64 " + leftVal + " to double\n")
+                    fcmpGtLeft = cvtL
                 }
                 if rightType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + rightVal + " to double\n")
-                    fcmpGtRight = resultReg
+                    let cvtR = getNextRegFn(regBox)
+                    output.append("  " + cvtR + " = sitofp i64 " + rightVal + " to double\n")
+                    fcmpGtRight = cvtR
                 }
                 let fcmpGtRes = getNextRegFn(regBox)
                 output.append("  " + fcmpGtRes + " = fcmp ogt double " + fcmpGtLeft + ", " + fcmpGtRight + "\n")
@@ -606,12 +616,14 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 var fcmpGeLeft = leftVal
                 var fcmpGeRight = rightVal
                 if leftType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + leftVal + " to double\n")
-                    fcmpGeLeft = resultReg
+                    let cvtL = getNextRegFn(regBox)
+                    output.append("  " + cvtL + " = sitofp i64 " + leftVal + " to double\n")
+                    fcmpGeLeft = cvtL
                 }
                 if rightType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + rightVal + " to double\n")
-                    fcmpGeRight = resultReg
+                    let cvtR = getNextRegFn(regBox)
+                    output.append("  " + cvtR + " = sitofp i64 " + rightVal + " to double\n")
+                    fcmpGeRight = cvtR
                 }
                 let fcmpGeRes = getNextRegFn(regBox)
                 output.append("  " + fcmpGeRes + " = fcmp oge double " + fcmpGeLeft + ", " + fcmpGeRight + "\n")

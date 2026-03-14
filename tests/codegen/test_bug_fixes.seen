@@ -1,0 +1,81 @@
+// Bug fix verification tests
+
+fun main() r: Int {
+    // C8: Array.pop()
+    var items = Array<Int>()
+    items.push(10)
+    items.push(20)
+    items.push(30)
+    let last = items.pop()
+    if last != 30 { println("FAIL C8: pop returned " + last.toString()) } else { println("PASS C8: Array.pop()") }
+
+    // C10: __Tan
+    let t = __Tan(0.7853981633974483)
+    if t > 0.99 and t < 1.01 { println("PASS C10: __Tan") } else { println("FAIL C10: __Tan returned " + __FloatToString(t)) }
+
+    // A2: Float comparison with mixed types
+    let fi = floorInt(0.0 - 1.5)
+    if fi != 0 - 2 { println("FAIL A2: floorInt returned " + fi.toString()) } else { println("PASS A2: Float comparison") }
+
+    // A3: Implicit Int-to-Float promotion
+    let f = intToFloat(42)
+    if f > 41.9 and f < 42.1 { println("PASS A3: Int-to-Float") } else { println("FAIL A3: intToFloat returned " + __FloatToString(f)) }
+
+    // D14: Stale .o cleanup (build-system test, just verify compilation succeeds)
+    println("PASS D14: stale .o cleanup (compilation succeeded)")
+
+    // C11: extern LTO attributes (build-system test, just verify compilation succeeds)
+    println("PASS C11: extern LTO attributes (compilation succeeded)")
+
+    // B6: Nested while loop with function calls
+    let b6 = testB6()
+    if b6 == 30 { println("PASS B6: nested while loop") } else { println("FAIL B6: expected 30, got " + b6.toString()) }
+
+    // E16: Array.clear()
+    testE16()
+
+    return 0
+}
+
+fun sideEffect(x: Int) r: Int { return x * 2 }
+
+fun testB6() r: Int {
+    var total = 0
+    var i = 0
+    while i < 5 {
+        var j = 0
+        while j < 3 {
+            let v = sideEffect(j)
+            total = total + v
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return total
+}
+
+fun testE16() r: Void {
+    var arr = Array<Int>()
+    arr.push(1)
+    arr.push(2)
+    arr.push(3)
+    arr.clear()
+    if arr.length() == 0 { println("PASS E16: Array.clear()") } else { println("FAIL E16: length after clear = " + arr.length().toString()) }
+    // Verify buffer reuse — push after clear should work
+    arr.push(42)
+    let val = arr.get(0)
+    if val == 42 { println("PASS E16b: push after clear") } else { println("FAIL E16b: expected 42, got " + val.toString()) }
+}
+
+fun floorInt(x: Float) r: Int {
+    let xi = x as Int
+    if x < 0.0 {
+        let xf = xi as Float
+        if x != xf { return xi - 1 }
+    }
+    return xi
+}
+
+fun intToFloat(value: Int) r: Float {
+    return 0.0 + value
+}

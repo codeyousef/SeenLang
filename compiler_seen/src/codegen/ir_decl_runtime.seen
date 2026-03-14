@@ -484,6 +484,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare i64 @seen_arr_pop_i64(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
         output.append("declare double @seen_arr_pop_f64(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
         output.append("declare %SeenString @seen_arr_pop_str(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
+        output.append("declare void @seen_arr_clear(ptr nonnull) nounwind willreturn memory(argmem: readwrite)\n")
 
         // C runtime primitive functions (extern fun __*) for stdlib
         // File I/O primitives
@@ -591,6 +592,8 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare double @cosh(double) nounwind readonly\n")
         output.append("declare double @__Tanh(double) nounwind readonly\n")
         output.append("declare double @tanh(double) nounwind readonly\n")
+        output.append("declare double @__Tan(double) nounwind readonly\n")
+        output.append("declare double @tan(double) nounwind readonly\n")
         output.append("declare %SeenString @__FloatToString(double) nounwind\n")
         // Stdin primitives
         output.append("declare %SeenString @__ReadStdinLine() nounwind\n")

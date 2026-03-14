@@ -101,7 +101,7 @@ fun inferMethodCallTypeTable(callee: String) r: String {
 // Function/constructor name -> return type for Call expressions
 fun inferCallTypeTable(callee: String) r: String {
     // Benchmark/runtime intrinsics
-    if callee == "__GetTime" or callee == "__Sqrt" or callee == "__Sin" or callee == "__Cos" or callee == "__Exp" or callee == "__Log" or callee == "__Log10" or callee == "__Fabs" or callee == "__Pow" or callee == "__Asin" or callee == "__Acos" or callee == "__Atan" or callee == "__Atan2" or callee == "__Sinh" or callee == "__Cosh" or callee == "__Tanh" or callee == "__IntToFloat" or callee == "absFloat" {
+    if callee == "__GetTime" or callee == "__Sqrt" or callee == "__Sin" or callee == "__Cos" or callee == "__Exp" or callee == "__Log" or callee == "__Log10" or callee == "__Fabs" or callee == "__Pow" or callee == "__Asin" or callee == "__Acos" or callee == "__Atan" or callee == "__Atan2" or callee == "__Sinh" or callee == "__Cosh" or callee == "__Tanh" or callee == "__Tan" or callee == "__IntToFloat" or callee == "absFloat" {
         return "Float"
     }
     if callee == "absInt" or callee == "minInt" or callee == "maxInt" or callee == "__FloatToInt" {

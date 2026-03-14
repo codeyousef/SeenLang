@@ -232,6 +232,9 @@ void seen_arr_push_i64(SeenArray* arr, int64_t val);
 // Generic push for pointer types
 void seen_arr_push_ptr(SeenArray* arr, void* p);
 
+// Clear array (reset length to 0 without freeing buffer)
+void seen_arr_clear(SeenArray* arr);
+
 // Generic Array_push (for generated code)
 int64_t Array_push(SeenArray* arr, void* element);
 // Generic Array_set (for generated code)

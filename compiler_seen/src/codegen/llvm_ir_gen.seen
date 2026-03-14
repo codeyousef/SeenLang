@@ -1174,12 +1174,21 @@ class LLVMIRGenerator {
                 if funcObj.isAsync {
                     registerAsyncFunction(funcObj.name, funcObj.returnType.typeName)
                 }
-                // Build cross-module declare for free function (skip main and extern)
-                // Use body statement count > 0 instead of isExtern (more reliable across stages)
+                // Build cross-module declare for free function (skip main)
+                // Include extern functions for cross-module visibility
                 let funcBody = funcObj.body
                 let bodyStmts = funcBody.statements
                 let bodyStmtCount = bodyStmts.length()
-                if funcObj.name != "main" and bodyStmtCount > 0 {
+                // Determine if this function should be registered cross-module
+                var doRegXM = 0
+                if bodyStmtCount > 0 { doRegXM = 1 }
+                // Register non-__ extern functions for cross-module visibility
+                if funcObj.isExtern and bodyStmtCount == 0 {
+                    doRegXM = 1
+                    // Skip __-prefixed extern fns — already declared by ir_declarations.seen
+                    if funcObj.name.startsWith("__") { doRegXM = 0 }
+                }
+                if funcObj.name != "main" and doRegXM == 1 {
                     let fRetType = funcObj.returnType
                     let fRetTypeName = fRetType.typeName
                     var fRetLlvm = mapType(fRetTypeName)
@@ -1203,7 +1212,11 @@ class LLVMIRGenerator {
                         }
                         fdpi = fdpi + 1
                     }
-                    fDeclStr = fDeclStr + ") nounwind\n"
+                    if funcObj.isExtern and bodyStmtCount == 0 {
+                        fDeclStr = fDeclStr + ") nounwind memory(inaccessiblemem: readwrite)\n"
+                    } else {
+                        fDeclStr = fDeclStr + ") nounwind\n"
+                    }
                     // Track visibility for cross-module access enforcement
                     let fVis = item.visibility
                     if g_xmDeclareNames == "" {
@@ -2060,6 +2073,10 @@ class LLVMIRGenerator {
                     }
                 }
                 preAllocatedTypes.push(forInElemType)
+                // Pre-allocate index counter in entry block (allows LLVM mem2reg promotion)
+                let forInIdxName = "__forin_idx_" + stmt.variableName
+                preAllocatedVars.push(forInIdxName)
+                preAllocatedTypes.push("Int")
             }
             collectVariableDeclarations(stmt.loopBody)
         }
@@ -3715,7 +3732,7 @@ class LLVMIRGenerator {
 
     fun emitTBAAMetadata() r: Void {
         output.append("\n; Function attributes\n")
-        var attrStr = "mustprogress nounwind nosync"
+        var attrStr = "mustprogress nounwind"
         if g_sanitizerMode == "address" {
             attrStr = attrStr + " sanitize_address"
         }
@@ -7404,7 +7421,7 @@ class LLVMIRGenerator {
         varRegs.push(bindReg)
         varTypes.push("Int")
         generateBlock(stmt.thenBranch)
-        // Note: binding remains in scope arrays (no Array.pop() in runtime)
+        // Note: binding remains in scope arrays (pop not used here for scope management)
         // This is harmless since the then-block code has already been generated
         let thenTerminated = blockTerminated
         if not thenTerminated {
@@ -7848,6 +7865,9 @@ class LLVMIRGenerator {
             mlLogDecision("reduction", reductionType, reductionVar)
         }
 
+        // Save outer loop's induction var for nested loop support
+        let savedInductionVarName = g_inductionVarName
+
         // Detect induction variable pattern: i = i + 1 or i = i - 1 (9.8)
         var hasInductionVar = false
         var inductionVarName = ""
@@ -7979,8 +7999,8 @@ class LLVMIRGenerator {
         // While loop end is always reachable (condition can be false)
         blockTerminated = false
 
-        // Clear induction variable (scoped to this loop)
-        g_inductionVarName = ""
+        // Restore outer loop's induction variable
+        g_inductionVarName = savedInductionVarName
         // Restore outer loop context
         currentLoopCondLabel = savedCondLabel
         currentLoopEndLabel = savedEndLabel
@@ -8020,9 +8040,16 @@ class LLVMIRGenerator {
             let startReg = generateExpression(forInIterable.operands[0])
             let endReg = generateExpression(forInIterable.operands[1])
 
-            // Alloca for index counter (separate from loop var if needed)
-            let idxReg = getNextReg()
-            output.append("  " + idxReg + " = alloca i64, align 8\n")
+            // Use pre-allocated entry-block alloca for index counter (enables mem2reg)
+            let idxName = "__forin_idx_" + loopVarName
+            let idxVarIdx = findVar(idxName)
+            var idxReg = ""
+            if idxVarIdx >= 0 {
+                idxReg = varRegs[idxVarIdx]
+            } else {
+                idxReg = getNextReg()
+                output.append("  " + idxReg + " = alloca i64, align 8\n")
+            }
             output.append("  store i64 " + startReg + ", ptr " + idxReg + "\n")
 
             // Jump to condition
@@ -8120,9 +8147,16 @@ class LLVMIRGenerator {
             let lenReg = getNextReg()
             output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
 
-            // Alloca for index counter
-            let idxReg = getNextReg()
-            output.append("  " + idxReg + " = alloca i64, align 8\n")
+            // Use pre-allocated entry-block alloca for index counter (enables mem2reg)
+            let arrIdxName = "__forin_idx_" + loopVarName
+            let arrIdxVarIdx = findVar(arrIdxName)
+            var idxReg = ""
+            if arrIdxVarIdx >= 0 {
+                idxReg = varRegs[arrIdxVarIdx]
+            } else {
+                idxReg = getNextReg()
+                output.append("  " + idxReg + " = alloca i64, align 8\n")
+            }
             output.append("  store i64 0, ptr " + idxReg + "\n")
 
             // Jump to condition
@@ -12510,7 +12544,7 @@ class LLVMIRGenerator {
         }
 
         // Math builtins + __ExecuteCommand — delegated to ir_declarations.seen
-        if funcName == "__Sqrt" or funcName == "__Sin" or funcName == "__Cos" or funcName == "__Exp" or funcName == "__Log" or funcName == "__Log10" or funcName == "__Fabs" or funcName == "__Pow" or funcName == "__Asin" or funcName == "__Acos" or funcName == "__Atan" or funcName == "__Sinh" or funcName == "__Cosh" or funcName == "__Tanh" or funcName == "__Atan2" or funcName == "__ExecuteCommand" or funcName == "absFloat" or funcName == "absInt" or funcName == "minInt" or funcName == "maxInt" {
+        if funcName == "__Sqrt" or funcName == "__Sin" or funcName == "__Cos" or funcName == "__Exp" or funcName == "__Log" or funcName == "__Log10" or funcName == "__Fabs" or funcName == "__Pow" or funcName == "__Asin" or funcName == "__Acos" or funcName == "__Atan" or funcName == "__Sinh" or funcName == "__Cosh" or funcName == "__Tanh" or funcName == "__Tan" or funcName == "__Atan2" or funcName == "__ExecuteCommand" or funcName == "absFloat" or funcName == "absInt" or funcName == "minInt" or funcName == "maxInt" {
             var mArg0 = ""
             var mArg1 = ""
             if expr.arguments.length() > 0 { mArg0 = generateExpression(expr.arguments[0]) }
@@ -14118,6 +14152,38 @@ class LLVMIRGenerator {
             }
         }
 
+        // Array.pop() — remove and return the last element
+        if methodName == "pop" {
+            var arrayPtrReg = ""
+            let popVarName = expr.literalValue
+            if popVarName != "" {
+                let popVarIdx = findVar(popVarName)
+                if popVarIdx >= 0 {
+                    let loadReg = getNextReg()
+                    output.append("  " + loadReg + " = load ptr, ptr " + varRegs[popVarIdx] + "\n")
+                    arrayPtrReg = loadReg
+                }
+            }
+            if arrayPtrReg == "" { arrayPtrReg = receiverReg }
+            if arrayPtrReg != "" {
+                var elemType = ""
+                if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
+                    elemType = receiverType.substring(6, receiverType.length() - 1)
+                }
+                let popResultReg = getNextReg()
+                if elemType == "Float" {
+                    output.append("  " + popResultReg + " = call double @seen_arr_pop_f64(ptr " + arrayPtrReg + ")\n")
+                    return popResultReg
+                }
+                if elemType == "String" {
+                    output.append("  " + popResultReg + " = call %SeenString @seen_arr_pop_str(ptr " + arrayPtrReg + ")\n")
+                    return popResultReg
+                }
+                output.append("  " + popResultReg + " = call i64 @seen_arr_pop_i64(ptr " + arrayPtrReg + ")\n")
+                return popResultReg
+            }
+        }
+
         // Inline Array.swap(i, j): swap two elements in an Array<Int> or Array<Float>
         if methodName == "swap" {
             let isArraySwap = receiverType.startsWith("Array<") or receiverType == "Array"
@@ -15131,88 +15197,108 @@ class LLVMIRGenerator {
                 }
                 // Debug: Trace get() method type inference
                 traceGen("inferExpressionType: get() recType=" + recType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
-                // Vec<T>.get() returns T directly (not Option)
-                if recType.startsWith("Vec<") and recType.endsWith(">") {
-                    let elementType = recType.substring(4, recType.length() - 1)
-                    return elementType
+                // Only use hardcoded collection dispatch for known collection types
+                let isCollectionGet = recType.startsWith("Array<") or recType.startsWith("Vec<") or recType.startsWith("HashMap<") or recType.startsWith("BTreeMap<") or recType.startsWith("Map<") or recType == ""
+                if isCollectionGet {
+                    // Vec<T>.get() returns T directly (not Option)
+                    if recType.startsWith("Vec<") and recType.endsWith(">") {
+                        let elementType = recType.substring(4, recType.length() - 1)
+                        return elementType
+                    }
+                    // Array<T>.get() returns T directly
+                    if recType.startsWith("Array<") and recType.endsWith(">") {
+                        let elementType = recType.substring(6, recType.length() - 1)
+                        return elementType
+                    }
+                    // BTreeMap<K, V>.get() returns Option<V>
+                    if recType.startsWith("BTreeMap<") and recType.endsWith(">") {
+                        // Find the comma that separates K and V (60='<', 62='>', 44=',')
+                        var depth = 0
+                        var commaIdx = 0 - 1
+                        var i = 9
+                        while i < recType.length() - 1 {
+                            let cb = recType.byteAt(i)
+                            if cb == 60 { depth = depth + 1 }
+                            if cb == 62 { depth = depth - 1 }
+                            if cb == 44 and depth == 0 {
+                                commaIdx = i
+                                i = recType.length()
+                            }
+                            i = i + 1
+                        }
+                        if commaIdx > 0 {
+                            var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
+                            if valueType.startsWith(" ") {
+                                valueType = valueType.substring(1, valueType.length())
+                            }
+                            return "Option<" + valueType + ">"
+                        }
+                    }
+                    // Map<K, V>.get() returns Option<V>
+                    if recType.startsWith("Map<") and recType.endsWith(">") {
+                        // Find the comma that separates K and V (60='<', 62='>', 44=',')
+                        var depth = 0
+                        var commaIdx = 0 - 1
+                        var i = 4
+                        while i < recType.length() - 1 {
+                            let cb = recType.byteAt(i)
+                            if cb == 60 { depth = depth + 1 }
+                            if cb == 62 { depth = depth - 1 }
+                            if cb == 44 and depth == 0 {
+                                commaIdx = i
+                                i = recType.length()
+                            }
+                            i = i + 1
+                        }
+                        if commaIdx > 0 {
+                            var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
+                            if valueType.startsWith(" ") {
+                                valueType = valueType.substring(1, valueType.length())
+                            }
+                            return "Option<" + valueType + ">"
+                        }
+                    }
+                    // HashMap<K, V>.get() returns Option<V>
+                    if recType.startsWith("HashMap<") and recType.endsWith(">") {
+                        var depth = 0
+                        var commaIdx = 0 - 1
+                        var i = 8
+                        while i < recType.length() - 1 {
+                            let cb = recType.byteAt(i)
+                            if cb == 60 { depth = depth + 1 }
+                            if cb == 62 { depth = depth - 1 }
+                            if cb == 44 and depth == 0 {
+                                commaIdx = i
+                                i = recType.length()
+                            }
+                            i = i + 1
+                        }
+                        if commaIdx > 0 {
+                            var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
+                            if valueType.startsWith(" ") {
+                                valueType = valueType.substring(1, valueType.length())
+                            }
+                            return "Option<" + valueType + ">"
+                        }
+                    }
+                    return "Option<Int>"  // Fallback for unrecognized collection type
                 }
-                // Array<T>.get() returns T directly
-                if recType.startsWith("Array<") and recType.endsWith(">") {
-                    let elementType = recType.substring(6, recType.length() - 1)
-                    return elementType
+                // Non-collection .get() — fall through to general method dispatch
+            }
+            // Array<T>.pop() returns T
+            if expr.callee == "pop" {
+                var popRecType = ""
+                if expr.operands.length() > 0 {
+                    popRecType = inferExpressionType(expr.operands[0])
                 }
-                // BTreeMap<K, V>.get() returns Option<V>
-                if recType.startsWith("BTreeMap<") and recType.endsWith(">") {
-                    // Find the comma that separates K and V (60='<', 62='>', 44=',')
-                    var depth = 0
-                    var commaIdx = 0 - 1
-                    var i = 9
-                    while i < recType.length() - 1 {
-                        let cb = recType.byteAt(i)
-                        if cb == 60 { depth = depth + 1 }
-                        if cb == 62 { depth = depth - 1 }
-                        if cb == 44 and depth == 0 {
-                            commaIdx = i
-                            i = recType.length()
-                        }
-                        i = i + 1
-                    }
-                    if commaIdx > 0 {
-                        var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
-                        if valueType.startsWith(" ") {
-                            valueType = valueType.substring(1, valueType.length())
-                        }
-                        return "Option<" + valueType + ">"
-                    }
+                if popRecType == "" and expr.literalValue != "" {
+                    popRecType = findVarType(expr.literalValue)
                 }
-                // Map<K, V>.get() returns Option<V>
-                if recType.startsWith("Map<") and recType.endsWith(">") {
-                    // Find the comma that separates K and V (60='<', 62='>', 44=',')
-                    var depth = 0
-                    var commaIdx = 0 - 1
-                    var i = 4
-                    while i < recType.length() - 1 {
-                        let cb = recType.byteAt(i)
-                        if cb == 60 { depth = depth + 1 }
-                        if cb == 62 { depth = depth - 1 }
-                        if cb == 44 and depth == 0 {
-                            commaIdx = i
-                            i = recType.length()
-                        }
-                        i = i + 1
-                    }
-                    if commaIdx > 0 {
-                        var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
-                        if valueType.startsWith(" ") {
-                            valueType = valueType.substring(1, valueType.length())
-                        }
-                        return "Option<" + valueType + ">"
-                    }
+                if popRecType.startsWith("Array<") and popRecType.endsWith(">") {
+                    let popElemType = popRecType.substring(6, popRecType.length() - 1)
+                    return popElemType
                 }
-                // HashMap<K, V>.get() returns Option<V>
-                if recType.startsWith("HashMap<") and recType.endsWith(">") {
-                    var depth = 0
-                    var commaIdx = 0 - 1
-                    var i = 8
-                    while i < recType.length() - 1 {
-                        let cb = recType.byteAt(i)
-                        if cb == 60 { depth = depth + 1 }
-                        if cb == 62 { depth = depth - 1 }
-                        if cb == 44 and depth == 0 {
-                            commaIdx = i
-                            i = recType.length()
-                        }
-                        i = i + 1
-                    }
-                    if commaIdx > 0 {
-                        var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
-                        if valueType.startsWith(" ") {
-                            valueType = valueType.substring(1, valueType.length())
-                        }
-                        return "Option<" + valueType + ">"
-                    }
-                }
-                return "Option<Int>"  // Fallback for unrecognized receiver type
+                return "Int"
             }
             if expr.callee == "unwrap" {
                 // Check receiver type to determine return type
@@ -15328,6 +15414,18 @@ class LLVMIRGenerator {
                 if methodRetType != "" {
                     return methodRetType
                 }
+            }
+            // Last-resort Bool detection: scan funcRetTypes for any method with this name returning Bool
+            let boolSuffix = "_" + expr.callee
+            var boolScanIdx = funcNames.length() - 1
+            while boolScanIdx >= 0 {
+                if funcNames[boolScanIdx].endsWith(boolSuffix) {
+                    if funcRetTypes[boolScanIdx] == "Bool" {
+                        return "Bool"
+                    }
+                    boolScanIdx = 0 - 1
+                }
+                boolScanIdx = boolScanIdx - 1
             }
         }
         if expr.kind == "Call" {

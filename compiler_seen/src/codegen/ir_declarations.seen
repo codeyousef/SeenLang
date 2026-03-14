@@ -188,7 +188,7 @@ fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     }
 
     // 1-arg libc math: __Asin, __Acos, __Atan, __Sinh, __Cosh, __Tanh
-    if funcName == "__Asin" or funcName == "__Acos" or funcName == "__Atan" or funcName == "__Sinh" or funcName == "__Cosh" or funcName == "__Tanh" {
+    if funcName == "__Asin" or funcName == "__Acos" or funcName == "__Atan" or funcName == "__Sinh" or funcName == "__Cosh" or funcName == "__Tanh" or funcName == "__Tan" {
         let resultReg = getNextRegFn(regBox)
         var libcName = ""
         if funcName == "__Asin" { libcName = "@asin" }
@@ -197,6 +197,7 @@ fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
         if funcName == "__Sinh" { libcName = "@sinh" }
         if funcName == "__Cosh" { libcName = "@cosh" }
         if funcName == "__Tanh" { libcName = "@tanh" }
+        if funcName == "__Tan" { libcName = "@tan" }
         output.append("  " + resultReg + " = call fast double " + libcName + "(double " + arg0 + ")\n")
         return resultReg
     }
@@ -346,7 +347,7 @@ fun emitExternDeclImpl(output: StringBuilder,
         }
         externDecl = externDecl + "..."
     }
-    externDecl = externDecl + ")\n"
+    externDecl = externDecl + ") nounwind memory(inaccessiblemem: readwrite)\n"
 
     // Skip declaration for LLVM intrinsics (already in ir_declarations.seen)
     if externSymbol.startsWith("llvm.") {

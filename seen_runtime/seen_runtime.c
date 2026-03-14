@@ -836,6 +836,11 @@ SeenString seen_arr_pop_str(SeenArray* arr) {
     return data[arr->len];
 }
 
+// Clear array (reset length to 0 without freeing buffer — reuse allocation)
+void seen_arr_clear(SeenArray* arr) {
+    if (arr) arr->len = 0;
+}
+
 // Wrapper for malloc with tracking
 void* tracked_malloc(size_t size) {
     void* ptr = malloc(size);

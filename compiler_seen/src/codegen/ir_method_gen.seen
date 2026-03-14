@@ -285,6 +285,11 @@ fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>, methodNa
             }
         }
     }
+
+    if methodName == "clear" {
+        output.append("  call void @seen_arr_clear(ptr " + receiverReg + ")\n")
+        return "0"
+    }
     return ""
 }
 

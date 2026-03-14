@@ -31,83 +31,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-seen-ir-
 
-      - name: Install opt wrapper
-        run: |
-          # The bootstrap compiler has two known codegen issues that require
-          # patching .ll files before running opt:
-          # 1. Duplicate declare statements (LLVM 20+ rejects these)
-          # 2. byteAt bug: integer addition emitted as string concatenation
-          REAL_OPT=$(command -v opt)
-          mkdir -p /tmp/seen_opt_override
-          cat > /tmp/seen_opt_override/opt << 'WRAPPER_EOF'
-          #!/bin/bash
-          ARGS=("$@")
-          for arg in "${ARGS[@]}"; do
-              if [[ "$arg" == *.ll && -f "$arg" ]]; then
-                  # Deduplicate declare statements
-                  awk '
-                  NR == FNR {
-                      if (/^declare /) {
-                          if (match($0, /@([A-Za-z0-9_.]+)/, m)) {
-                              count[m[1]]++
-                              seen_count[m[1]] = 0
-                          }
-                      }
-                      next
-                  }
-                  /^declare / {
-                      if (match($0, /@([A-Za-z0-9_.]+)/, m)) {
-                          fname = m[1]
-                          seen_count[fname]++
-                          if (count[fname] > 1 && seen_count[fname] < count[fname]) next
-                      }
-                  }
-                  { print }
-                  ' "$arg" "$arg" > "${arg}.dedup" && mv "${arg}.dedup" "$arg"
-
-                  # Fix byteAt codegen bug
-                  python3 -c "
-          import re, sys
-          with open(sys.argv[1]) as f:
-              content = f.read()
-          pattern = re.compile(
-              r'  (%\d+) = call %SeenString @seen_int_to_string\(i64 (%\d+)\)\n'
-              r'  (%\d+) = call %SeenString @seen_char_to_str\(i64 (%\d+)\)\n'
-              r'  (%\d+) = call %SeenString @seen_str_concat_ss\(%SeenString \1, %SeenString \3\)'
-          )
-          def fix(m):
-              return f'  {m.group(1)} = add i64 0, 0\n  {m.group(3)} = add i64 0, 0\n  {m.group(5)} = add i64 {m.group(2)}, {m.group(4)}'
-          new_content, count = pattern.subn(fix, content)
-          if count > 0:
-              with open(sys.argv[1], 'w') as f:
-                  f.write(new_content)
-              print(f'  byteAt fix: patched {count} site(s) in {sys.argv[1]}', file=sys.stderr)
-          " "$arg" 2>&1 || true
-              fi
-          done
-          WRAPPER_EOF
-          # Inject the real opt path
-          sed -i "1a REAL_OPT=\"$REAL_OPT\"" /tmp/seen_opt_override/opt
-          echo "exec \"\$REAL_OPT\" \"\$@\"" >> /tmp/seen_opt_override/opt
-          chmod +x /tmp/seen_opt_override/opt
-
       - name: Build compiler from bootstrap
-        timeout-minutes: 10
-        run: |
-          # Use stage1_frozen_v3 (no AVX-512) — CI runners lack AVX-512
-          chmod +x bootstrap/stage1_frozen_v3
-          timeout 540 env PATH="/tmp/seen_opt_override:$PATH" ./bootstrap/stage1_frozen_v3 compile compiler_seen/src/main_compiler.seen /tmp/stage2 --fast
+        timeout-minutes: 15
+        run: ./scripts/safe_rebuild.sh
 
       - name: Verify compiler works
         run: |
           echo 'fun main() { println("CI test passed") }' > /tmp/ci_test.seen
-          /tmp/stage2 compile /tmp/ci_test.seen /tmp/ci_test
+          compiler_seen/target/seen compile /tmp/ci_test.seen /tmp/ci_test --fast
           /tmp/ci_test
 
       - name: Run E2E tests
-        run: |
-          export PATH="/tmp:$PATH"
-          mkdir -p compiler_seen/target
-          cp /tmp/stage2 compiler_seen/target/seen
-          chmod +x compiler_seen/target/seen
-          bash tests/e2e_multilang/run_all_e2e.sh
+        run: bash tests/e2e_multilang/run_all_e2e.sh

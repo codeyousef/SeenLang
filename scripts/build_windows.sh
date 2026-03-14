@@ -67,6 +67,11 @@ if count > 0:
     with open(sys.argv[1], 'w') as f: f.write(new_content)
     print(f'  byteAt fix: patched {count} site(s)', file=sys.stderr)
 " "$arg" 2>&1 || true
+
+        # Comprehensive IR fixups (struct-zero, ptr-null, declare conflicts, allocsize, etc.)
+        FIX_IR="$(dirname "$(readlink -f "$0")")/../scripts/fix_ir.py"
+        [ ! -f "$FIX_IR" ] && FIX_IR="$(cd "$(dirname "$0")/.." && pwd)/scripts/fix_ir.py"
+        [ -f "$FIX_IR" ] && python3 "$FIX_IR" "$arg" 2>&1 || true
     fi
 done
 WRAPPER_EOF

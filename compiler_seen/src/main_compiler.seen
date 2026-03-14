@@ -172,6 +172,21 @@ fun getLastSegment(path: String) r: String {
     return path.substring(lastSlash + 1, path.length())
 }
 
+// Compute compiler installation root from binary path (argv[0]).
+// Binary is at <root>/compiler_seen/target/seen, so root = 3 levels up.
+// Returns "" if binary path has no directory separators (bare command name).
+fun getCompilerRoot() r: String {
+    let allArgs = args()
+    if allArgs.length() == 0 { return "" }
+    let binPath = allArgs[0]
+    let binDir = getSourceDir(binPath)
+    if binDir == "" { return "" }
+    let targetDir = getSourceDir(binDir)
+    if targetDir == "" { return "" }
+    let compilerDir = getSourceDir(targetDir)
+    return compilerDir
+}
+
 // Resolve an import path (e.g., ["codegen", "llvm_ir_gen"]) to a filesystem path.
 // Stdlib imports (str, io, env, process, etc.) resolve under seen_std/src/.
 // Compiler imports resolve relative to sourceDir, with deduplication: if the first
@@ -185,8 +200,12 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     if importPath.length() > 0 {
         let firstSegment = importPath[0]
         if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "framework" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
-            // This is a stdlib import - resolve from seen_std/src/
+            // This is a stdlib import — resolve from compiler root
             var filePath = "seen_std/src/"
+            let compRoot = getCompilerRoot()
+            if compRoot != "" {
+                filePath = compRoot + "/seen_std/src/"
+            }
             var i = 0
             while i < importPath.length() {
                 if i > 0 {
@@ -207,12 +226,29 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     }
 
     // Check if first import segment matches last segment of sourceDir
+    // Only skip if the resulting file actually exists
     var startIdx = 0
     if importPath.length() > 0 {
         let lastDirSegment = getLastSegment(sourceDir)
         if lastDirSegment == importPath[0] {
-            // Skip the first segment - it's the current module
-            startIdx = 1
+            // Build path with first segment skipped to check existence
+            var testSkip = filePath
+            var ti = 1
+            while ti < importPath.length() {
+                if ti > 1 { testSkip = testSkip + "/" }
+                testSkip = testSkip + importPath[ti]
+                ti = ti + 1
+            }
+            // Only skip if skipped path exists (.seen or mod.seen)
+            let skipDirect = readText(testSkip + ".seen")
+            if skipDirect != "" {
+                startIdx = 1
+            } else {
+                let skipMod = readText(testSkip + "/mod.seen")
+                if skipMod != "" {
+                    startIdx = 1
+                }
+            }
         }
     }
 
@@ -987,6 +1023,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // ============================================================
     // PASS 2: Stream compile each module (one AST at a time)
     // ============================================================
+    // Clean stale object files from previous builds to prevent linking wrong .o files
+    let cleanCmd = "rm -f /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll"
+    __ExecuteProgram(cleanCmd)
+
     println("  [Pass 2] Compiling modules...")
     var objectFiles = Array<String>()
     var llFiles = Array<String>()

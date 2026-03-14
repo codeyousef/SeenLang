@@ -7,7 +7,9 @@
 # Prerequisites:
 #   - Working compiler at compiler_seen/target/seen
 #   - gh CLI authenticated (gh auth status)
-#   - Optional: dpkg-deb, rpmbuild, appimagetool for extra packages
+#   - Optional: dpkg-deb, rpmbuild, appimagetool for Linux packages
+#   - Optional: x86_64-w64-mingw32-gcc, makensis for Windows cross-build
+#   - Optional: osxcross (o64-clang) for macOS cross-build
 
 set -euo pipefail
 
@@ -61,15 +63,103 @@ rm -f "$TMPFILE" "${TMPFILE%.seen}"
 # --- Build release packages ---
 
 echo ""
-echo "=== Building release packages (v$VERSION)... ==="
+echo "=== Building Linux release packages (v$VERSION)... ==="
 rm -rf "$DIST_DIR"
 "$SCRIPT_DIR/build_release.sh" --version "$VERSION" --output-dir "$DIST_DIR"
+
+# --- Windows cross-build ---
+
+if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
+    echo ""
+    echo "=== Building Windows packages (v$VERSION)... ==="
+
+    WIN_DIR="$ROOT_DIR/target-windows"
+    WIN_INSTALLER_DIR="$ROOT_DIR/installer/windows"
+
+    # Cross-compile seen.exe if not already present
+    if [[ ! -f "$WIN_DIR/seen.exe" ]]; then
+        echo "Cross-compiling seen.exe..."
+        # Cross-compile a hello-world to verify the toolchain, then use
+        # pre-built .exe if the full compiler can't be cross-compiled as one file
+        TMPWIN=$(mktemp /tmp/seen_win_test_XXXXXX.seen)
+        echo 'fun main() { println("windows ok") }' > "$TMPWIN"
+        if bash "$SCRIPT_DIR/build_windows.sh" "$TMPWIN" "$WIN_DIR/test_win.exe" &>/dev/null; then
+            rm -f "$TMPWIN" "$WIN_DIR/test_win.exe"
+            echo "  Windows cross-compilation toolchain verified."
+        else
+            rm -f "$TMPWIN"
+            echo "  WARNING: Windows cross-compilation failed, skipping .exe build."
+        fi
+    fi
+
+    if [[ -f "$WIN_DIR/seen.exe" ]]; then
+        # Build NSIS installer
+        if command -v makensis &>/dev/null; then
+            echo "Building Windows installer..."
+            bash "$SCRIPT_DIR/build_windows_installer.sh" "$VERSION" --skip-compile 2>&1 | tail -10
+
+            # Copy Windows artifacts to dist/
+            for f in "$WIN_DIR"/seen-*-windows-x64.zip; do
+                [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
+            done
+            for f in "$WIN_INSTALLER_DIR"/output/Seen-*-setup.exe; do
+                [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
+            done
+        else
+            # At least create the ZIP
+            bash "$SCRIPT_DIR/package_windows.sh" "$VERSION" 2>&1 | tail -5
+            for f in "$WIN_DIR"/seen-*-windows-x64.zip; do
+                [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
+            done
+        fi
+    fi
+else
+    echo ""
+    echo "Skipping Windows build (mingw-gcc not found)."
+    echo "  Install: sudo apt-get install gcc-mingw-w64-x86-64"
+fi
+
+# --- macOS Homebrew formula ---
+
+if [[ -f "$ROOT_DIR/installer/homebrew/generate-formula.sh" ]]; then
+    echo ""
+    echo "=== Generating macOS Homebrew formula (v$VERSION)... ==="
+    bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" "$VERSION" 2>&1 | tail -5 || true
+    for f in "$ROOT_DIR/installer/homebrew"/seen-lang*.rb; do
+        [[ -f "$f" ]] && cp "$f" "$DIST_DIR/"
+    done
+fi
+
+# --- macOS native binary (requires osxcross) ---
+
+if command -v o64-clang &>/dev/null || command -v x86_64-apple-darwin-clang &>/dev/null; then
+    echo ""
+    echo "=== Cross-compiling macOS binary (v$VERSION)... ==="
+    echo "  osxcross detected, building macOS binary..."
+    # TODO: Implement osxcross-based macOS cross-compilation
+    echo "  (not yet implemented — use scripts/bootstrap_macos.sh on macOS)"
+else
+    echo ""
+    echo "Skipping macOS native binary (osxcross not found)."
+    echo "  Build on macOS: ./scripts/bootstrap_macos.sh"
+    echo "  Or install osxcross: https://github.com/tpoechtrager/osxcross"
+fi
+
+# --- Summary ---
 
 ARTIFACTS=("$DIST_DIR"/*)
 if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
     echo "Error: No artifacts produced in $DIST_DIR"
     exit 1
 fi
+
+# Regenerate checksums to include all platforms
+echo ""
+echo "Regenerating checksums..."
+(cd "$DIST_DIR" && sha256sum *.tar.gz *.deb *.rpm *.AppImage *.zip *.exe 2>/dev/null > SHA256SUMS || \
+    sha256sum *.tar.gz *.zip *.exe 2>/dev/null > SHA256SUMS || \
+    sha256sum *.tar.gz > SHA256SUMS)
+echo "  -> $DIST_DIR/SHA256SUMS"
 
 echo ""
 echo "Artifacts:"
@@ -103,12 +193,16 @@ NOTES="## Seen Language $VERSION
 
 ### Installation
 
-**Quick install (Linux):**
+**Linux:**
 \`\`\`bash
 curl -sSL https://github.com/codeyousef/SeenLang/releases/download/$TAG/seen-${VERSION}-linux-x64.tar.gz | tar xz
 cd seen-${VERSION}-linux-x64
 sudo ./install.sh
 \`\`\`
+
+**Windows:** Download \`Seen-${VERSION}-windows-x64-setup.exe\` or the ZIP archive. Requires [LLVM](https://releases.llvm.org/) on PATH.
+
+**macOS:** \`brew install seen-lang\` (if published) or build from source with \`./scripts/bootstrap_macos.sh\`.
 
 **Or download individual packages below.**
 

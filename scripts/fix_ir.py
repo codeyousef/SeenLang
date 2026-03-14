@@ -80,10 +80,12 @@ def fix_struct_zero(content):
 
     # Fix bare `0` used as a type in declare/define parameter lists
     # e.g., declare void @func(i64, 0) → declare void @func(i64, i64)
+    # Must NOT replace 0 in LLVM attributes like allocsize(0), allocsize(1) etc.
     def fix_param_zero(m):
         line = m.group(0)
         # Replace bare 0 as type (preceded by comma or open-paren, followed by comma or close-paren)
-        line = re.sub(r'([\(,]\s*)0(\s*[,\)])', r'\1i64\2', line)
+        # Negative lookbehind prevents matching allocsize(0) → allocsize(i64)
+        line = re.sub(r'(?<!allocsize)([\(,]\s*)0(\s*[,\)])', r'\1i64\2', line)
         return line
 
     content = re.sub(r'^(declare|define)\s+.*$', fix_param_zero, content, flags=re.MULTILINE)
