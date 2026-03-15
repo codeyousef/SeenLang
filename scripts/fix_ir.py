@@ -598,6 +598,38 @@ def _fix_function_types(func_lines):
                             fixed = fixed.replace(f'[ {pv},', f'[ {ext_reg},')
                             reg_types[ext_reg] = 'i64'
 
+        # Fix select type mismatches: select i1 %c, TYPE1 %v1, TYPE2 %v2
+        # When chained field access (e.g., registry.structSizes[idx]) produces
+        # a ptr value used where i64 is expected, insert ptrtoint cast.
+        sel_m = re.match(r'(\s*)(%\d+)\s*=\s*select\s+i1\s+(\S+),\s*(\S+)\s+(\S+),\s*(\S+)\s+(\S+)', fixed)
+        if sel_m:
+            indent = sel_m.group(1)
+            sel_reg = sel_m.group(2)
+            sel_cond = sel_m.group(3)
+            sel_type1 = sel_m.group(4)
+            sel_val1 = sel_m.group(5).rstrip(',')
+            sel_type2 = sel_m.group(6)
+            sel_val2 = sel_m.group(7)
+            modified_select = False
+            # Check each operand for ptr-as-i64 mismatch
+            for stated, val in [(sel_type1, sel_val1), (sel_type2, sel_val2)]:
+                if val.startswith('%'):
+                    actual = reg_types.get(val)
+                    if actual and actual == 'ptr' and stated == 'i64':
+                        next_num = _next_reg_num(reg_types)
+                        cast_reg = f'%{next_num}'
+                        result.append(f'{indent}{cast_reg} = ptrtoint ptr {val} to i64')
+                        fixed = fixed.replace(f'i64 {val}', f'i64 {cast_reg}', 1)
+                        reg_types[cast_reg] = 'i64'
+                        modified_select = True
+                    elif actual and actual == 'i64' and stated == 'ptr':
+                        next_num = _next_reg_num(reg_types)
+                        cast_reg = f'%{next_num}'
+                        result.append(f'{indent}{cast_reg} = inttoptr i64 {val} to ptr')
+                        fixed = fixed.replace(f'ptr {val}', f'ptr {cast_reg}', 1)
+                        reg_types[cast_reg] = 'ptr'
+                        modified_select = True
+
         # Fix br i1 %N where %N is not i1 — insert icmp ne TYPE %N, 0
         br_m = re.match(r'(\s*)(br\s+i1\s+)(%\d+)(,.*)', fixed)
         if br_m:
@@ -720,6 +752,58 @@ def fix_empty_type(content):
     return content
 
 
+def fix_llvmir_generator_layout(content):
+    """Fix LLVMIRGenerator struct layout GEPs after field extraction to TypeRegistry.
+
+    The frozen compiler (S1) has a hardcoded 36-field layout for LLVMIRGenerator.
+    After extracting 12 fields into TypeRegistry, the layout is 25 fields.
+    This pass replaces the old layout with the new one and remaps field indices.
+    """
+    old_layout = '{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, %SeenString, ptr, ptr, ptr, ptr }'
+    new_layout = '{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr }'
+
+    # Old→New index mapping (12 fields removed, 1 registry field added at index 8)
+    index_map = {
+        0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7,
+        8: 8,   # registry (new field, dynamic registry provides correct index)
+        # 9-17: DELETED (struct/func registry fields moved to TypeRegistry)
+        18: 9, 19: 10, 20: 11, 21: 12, 22: 13, 23: 14, 24: 15,
+        25: 16, 26: 17, 27: 18, 28: 19, 29: 20,
+        # 30: DELETED (typeHeaderPath → TypeRegistry)
+        31: 21,
+        # 32: DELETED (classMethodBaseNames → TypeRegistry)
+        33: 22, 34: 23, 35: 24,
+    }
+
+    if old_layout not in content:
+        return content
+
+    lines = content.split('\n')
+    result = []
+    for line in lines:
+        # Skip string constants — layout strings inside c"..." must not be replaced
+        # (they have a [N x i8] size that would become mismatched)
+        if 'unnamed_addr constant' in line or 'private constant' in line:
+            result.append(line)
+            continue
+        if old_layout in line and 'getelementptr' in line:
+            # Replace layout string
+            line = line.replace(old_layout, new_layout)
+            # Remap field index: find trailing "i32 N"
+            m = re.search(r'i32\s+(\d+)\s*$', line)
+            if m:
+                old_idx = int(m.group(1))
+                new_idx = index_map.get(old_idx, old_idx)
+                if old_idx != new_idx:
+                    line = line[:m.start()] + f'i32 {new_idx}'
+        elif old_layout in line:
+            # Non-GEP usage (e.g., sizeof) — just replace layout
+            line = line.replace(old_layout, new_layout)
+        result.append(line)
+
+    return '\n'.join(result)
+
+
 def fix_all(content, all_module_files=None):
     """Apply all fixes in order."""
     content = fix_declare_define_conflicts(content)
@@ -729,6 +813,7 @@ def fix_all(content, all_module_files=None):
     content = fix_bare_string_refs(content, all_module_files)
     content = fix_undefined_symbols(content)
     content = fix_duplicate_globals(content)
+    content = fix_llvmir_generator_layout(content)
     content = fix_type_mismatches(content)
     content = fix_empty_type(content)
     content = fix_ssa_numbering(content)

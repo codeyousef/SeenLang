@@ -5,6 +5,16 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-03-15
+
+### Fixed
+
+#### Codegen
+- Int-to-Float implicit promotion now works at function/method call sites. Passing an `Int` argument to a `Float` parameter no longer produces garbage values from raw bit reinterpretation — `sitofp i64 → double` is emitted automatically. Covers free functions, implicit `this.method()`, static methods, and receiver method calls.
+
+#### Build System
+- `safe_rebuild.sh` opt script race condition fixed with recovery mechanism — parallel opt processes no longer clobber each other's output
+
 ## [0.3.5] - 2026-03-15
 
 ### Improved

@@ -764,6 +764,21 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String
         if fieldName == "arguments" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 2 }
         return lb + " %SeenString, ptr, %SeenString, %SeenString, %SeenString, %SeenString, %SeenString, ptr " + rb
     }
+    if structType == "TypeRegistry" {
+        if fieldName == "structNames" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "structLayouts" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "structFieldNames" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "structFieldTypes" { g_resolvedFieldIndex = 3; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "structLlvmFieldTypes" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "structSizes" { g_resolvedFieldIndex = 5; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "structMethodNames" { g_resolvedFieldIndex = 6; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "structMethodRetTypes" { g_resolvedFieldIndex = 7; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "funcNames" { g_resolvedFieldIndex = 8; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "funcRetTypes" { g_resolvedFieldIndex = 9; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "classMethodBaseNames" { g_resolvedFieldIndex = 10; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "typeHeaderPath" { g_resolvedFieldIndex = 11; g_resolvedFieldTypeCode = 3 }
+        return lb + " ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString " + rb
+    }
     if structType == "Type" {
         if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
         if fieldName == "isNullable" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 1 }

@@ -1,0 +1,54 @@
+extern fun seen_print_float(value: Float)
+
+fun double_it(x: Float) r: Float {
+    return x * 2.0
+}
+
+fun add_floats(a: Float, b: Float) r: Float {
+    return a + b
+}
+
+fun mixed_params(name: String, value: Float, count: Int) r: Float {
+    return value * 2.0
+}
+
+fun main() r: Int {
+    let n = 42
+    // Test 1: single Int arg to Float param
+    let result = double_it(n)
+    if result > 83.0 and result < 85.0 {
+        println("PASS: int-to-float promotion in function call")
+    } else {
+        println("FAIL: got garbage float value")
+        return 1
+    }
+
+    // Test 2: multiple Int args to Float params
+    let sum = add_floats(10, 20)
+    if sum > 29.0 and sum < 31.0 {
+        println("PASS: multiple int-to-float promotions")
+    } else {
+        println("FAIL: multiple promotions failed")
+        return 1
+    }
+
+    // Test 3: mixed param types (only Float param promoted)
+    let m = mixed_params("test", 5, 3)
+    if m > 9.0 and m < 11.0 {
+        println("PASS: mixed param types with promotion")
+    } else {
+        println("FAIL: mixed param promotion failed")
+        return 1
+    }
+
+    // Test 4: literal int arg
+    let lit = double_it(100)
+    if lit > 199.0 and lit < 201.0 {
+        println("PASS: literal int promotion")
+    } else {
+        println("FAIL: literal int promotion failed")
+        return 1
+    }
+
+    return 0
+}

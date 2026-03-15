@@ -635,6 +635,20 @@ fun getFieldTypeForKnownStruct(structName: String, fieldName: String) r: String 
         if fieldName == "offset" { return "i64" }
         if fieldName == "fileId" { return "i64" }
     }
+    if structName == "TypeRegistry" {
+        if fieldName == "structNames" { return "ptr" }
+        if fieldName == "structLayouts" { return "ptr" }
+        if fieldName == "structFieldNames" { return "ptr" }
+        if fieldName == "structFieldTypes" { return "ptr" }
+        if fieldName == "structLlvmFieldTypes" { return "ptr" }
+        if fieldName == "structSizes" { return "ptr" }
+        if fieldName == "structMethodNames" { return "ptr" }
+        if fieldName == "structMethodRetTypes" { return "ptr" }
+        if fieldName == "funcNames" { return "ptr" }
+        if fieldName == "funcRetTypes" { return "ptr" }
+        if fieldName == "classMethodBaseNames" { return "ptr" }
+        if fieldName == "typeHeaderPath" { return "%SeenString" }
+    }
     if structName == "StatementNode" {
         if fieldName == "kind" { return "%SeenString" }
         if fieldName == "expression" { return "i64" }
@@ -967,11 +981,20 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodRetTypes.push("")
     // LLVMIRGenerator state (needed for accurate field typing during self-hosted codegen)
     structNames.push("LLVMIRGenerator")
-    structLayouts.push("{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, %SeenString, ptr, ptr, ptr, ptr }")
-    structFieldNames.push("output,stringConstants,nextReg,nextBlock,varNames,varRegs,varTypes,indent,structNames,structLayouts,structFieldNames,structFieldTypes,structLlvmFieldTypes,structSizes,structMethodNames,structMethodRetTypes,funcNames,funcRetTypes,currentFunctionReturnType,currentClassName,blockTerminated,currentLoopCondLabel,currentLoopEndLabel,preAllocatedVars,preAllocatedTypes,stringConstantPrefix,generatedFunctions,generatedClasses,typesLoadedFromHeader,runtimeDeclsLoaded,typeHeaderPath,pendingArrayLiteralType,classMethodBaseNames,moduleConstantNames,moduleConstantValues,moduleConstantTypes")
-    structFieldTypes.push("StringBuilder|Array<String>|Int|Int|Array<String>|Array<String>|Array<String>|Int|Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|Array<Int>|Array<String>|Array<String>|Array<String>|Array<String>|String|String|Bool|String|String|Array<String>|Array<String>|String|Array<String>|Array<String>|Bool|Bool|String|String|Array<String>|Array<String>|Array<String>|Array<String>")
+    structLayouts.push("{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr }")
+    structFieldNames.push("output,stringConstants,nextReg,nextBlock,varNames,varRegs,varTypes,indent,registry,currentFunctionReturnType,currentClassName,blockTerminated,currentLoopCondLabel,currentLoopEndLabel,preAllocatedVars,preAllocatedTypes,stringConstantPrefix,generatedFunctions,generatedClasses,typesLoadedFromHeader,runtimeDeclsLoaded,pendingArrayLiteralType,moduleConstantNames,moduleConstantValues,moduleConstantTypes")
+    structFieldTypes.push("StringBuilder|Array<String>|Int|Int|Array<String>|Array<String>|Array<String>|Int|TypeRegistry|String|String|Bool|String|String|Array<String>|Array<String>|String|Array<String>|Array<String>|Bool|Bool|String|Array<String>|Array<String>|Array<String>")
     structLlvmFieldTypes.push("")
-    structSizes.push(336)
+    structSizes.push(248)
+    structMethodNames.push("")
+    structMethodRetTypes.push("")
+    // TypeRegistry — struct/function type metadata (owned by LLVMIRGenerator.registry)
+    structNames.push("TypeRegistry")
+    structLayouts.push("{ ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString }")
+    structFieldNames.push("structNames,structLayouts,structFieldNames,structFieldTypes,structLlvmFieldTypes,structSizes,structMethodNames,structMethodRetTypes,funcNames,funcRetTypes,classMethodBaseNames,typeHeaderPath")
+    structFieldTypes.push("Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|Array<Int>|Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|String")
+    structLlvmFieldTypes.push("")
+    structSizes.push(104)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // Token { tokenType: SeenTokenType (i64), value: String, line: Int, column: Int, length: Int, fileId: Int }
