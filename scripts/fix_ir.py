@@ -932,9 +932,13 @@ def _fix_arr_get_in_function(func_lines, func_sigs=None):
     # Categorize each call:
     # - "direct": result used as %SeenString directly → change to seen_arr_get_str_ptr
     # - "indirect": result stored to alloca, later loaded as %SeenString → insert load
-    # - "int": result used as i64/ptr only → leave unchanged
+    # - "int_indirect": result stored as i64 to alloca → insert load i64 from ptr
+    # seen_arr_get_element_ptr returns a POINTER to the element. For Array<String>,
+    # the element is 16 bytes (%SeenString). For Array<Int>, the element is 8 bytes
+    # (i64). In BOTH cases, the returned ptr must be dereferenced.
     direct_regs = set()
-    indirect_regs = {}  # reg -> alloca_reg
+    indirect_regs = {}  # reg -> alloca_reg (for %SeenString widening)
+    int_indirect_regs = {}  # reg -> alloca_reg (for i64 load insertion)
 
     for reg, _ in element_ptr_calls:
         reg_esc = re.escape(reg)
@@ -949,16 +953,18 @@ def _fix_arr_get_in_function(func_lines, func_sigs=None):
         # to %SeenString allows arr_get stores to write 16 bytes correctly,
         # while small-type stores (i1/i64) just write fewer bytes to the wider
         # alloca. Different control flow paths prevent stale data reads.
-        store_m = re.search(r'store\s+(?:ptr|)\s*' + reg_esc + r',\s*ptr\s+(%\d+)', body)
+        store_m = re.search(r'store\s+(?:ptr|i64)\s+' + reg_esc + r',\s*ptr\s+(%\d+)', body)
         if store_m:
             alloca_reg = store_m.group(1)
             alloca_esc = re.escape(alloca_reg)
+            found_seenstring = False
             # Check if any load from this alloca is used as %SeenString
             for load_m in re.finditer(r'(%\d+)\s*=\s*load\s+\S+,\s*ptr\s+' + alloca_esc, body):
                 loaded_reg = load_m.group(1)
                 loaded_esc = re.escape(loaded_reg)
                 if re.search(r'%SeenString\s+' + loaded_esc + r'\b', body):
                     indirect_regs[reg] = alloca_reg
+                    found_seenstring = True
                     break
                 # Signature-based detection: check if loaded_reg is passed
                 # to a function whose definition takes %SeenString at that position.
@@ -979,11 +985,20 @@ def _fix_arr_get_in_function(func_lines, func_sigs=None):
                             if loaded_reg in arg and pos < len(sig_types):
                                 if sig_types[pos] == '%SeenString':
                                     indirect_regs[reg] = alloca_reg
+                                    found_seenstring = True
                                     break
                         if reg in indirect_regs:
                             break
+            # If not %SeenString, check for i64 store pattern:
+            # `store i64 %ptr_reg, ptr %alloca` where ptr_reg is the arr_get result
+            # This means the pointer VALUE is being stored as an integer — wrong!
+            # Must insert `load i64, ptr %ptr_reg` first.
+            if not found_seenstring and reg not in indirect_regs:
+                i64_store = re.search(r'store\s+i64\s+' + reg_esc + r',\s*ptr\s+' + alloca_esc, body)
+                if i64_store:
+                    int_indirect_regs[reg] = alloca_reg
 
-    if not direct_regs and not indirect_regs:
+    if not direct_regs and not indirect_regs and not int_indirect_regs:
         return func_lines
 
     # Find max register number for generating new register names
@@ -995,9 +1010,16 @@ def _fix_arr_get_in_function(func_lines, func_sigs=None):
     # Apply fixes
     fixed_lines = []
     # Track which allocas need to be widened to %SeenString
+    # Only widen if the alloca is NOT also used for non-SeenString stores
+    # (e.g., `store i64 16, ptr %alloca` for constant values)
     allocas_to_widen = set()
     for reg in indirect_regs.values():
-        allocas_to_widen.add(reg)
+        alloca_esc = re.escape(reg)
+        # Check if any non-arr_get store writes i64/i1/ptr CONSTANTS to this alloca
+        has_non_str_store = bool(re.search(
+            r'store\s+(?:i64|i1|ptr)\s+(?:\d+|null|true|false)\s*,\s*ptr\s+' + alloca_esc + r'\b', body))
+        if not has_non_str_store:
+            allocas_to_widen.add(reg)
 
     for i, line in enumerate(func_lines):
         fixed = line
@@ -1007,33 +1029,71 @@ def _fix_arr_get_in_function(func_lines, func_sigs=None):
         if m and m.group(2) in direct_regs:
             fixed = f'{m.group(1)}%SeenString{m.group(3)}seen_arr_get_str_ptr{m.group(4)}'
 
-        # Fix indirect usage: keep seen_arr_get_element_ptr, but add load after
-        elif m and m.group(2) in indirect_regs:
+        # Fix int indirect usage: insert load i64 after seen_arr_get_element_ptr
+        # For Array<Int> access where ptr is stored as i64 → must dereference first
+        elif m and m.group(2) in int_indirect_regs:
             elem_reg = m.group(2)
-            # Keep the call as-is (returns ptr to element)
-            # After the store to alloca, insert a load %SeenString
-            # Actually: change the STORE to store the loaded SeenString
-            # Strategy: rename the ptr result, add load, store loaded value
             new_ptr_reg = f'%{next_reg}'
             next_reg += 1
-            new_str_reg = f'%{next_reg}'
+            new_val_reg = f'%{next_reg}'
             next_reg += 1
-            alloca_reg = indirect_regs[elem_reg]
+            alloca_reg = int_indirect_regs[elem_reg]
 
             # Rename: %elem_reg = call ptr → %new_ptr_reg = call ptr
             fixed = fixed.replace(f'{elem_reg} =', f'{new_ptr_reg} =', 1)
             fixed_lines.append(fixed)
-            # Add: %new_str_reg = load %SeenString, ptr %new_ptr_reg
-            fixed_lines.append(f'  {new_str_reg} = load %SeenString, ptr {new_ptr_reg}')
+            # Add: %new_val_reg = load i64, ptr %new_ptr_reg
+            fixed_lines.append(f'  {new_val_reg} = load i64, ptr {new_ptr_reg}')
 
-            # Find and fix the subsequent store: store ptr %elem_reg → store %SeenString %new_str_reg
-            # Look ahead for the store line
+            # Find and fix the subsequent store: store i64 %elem_reg → store i64 %new_val_reg
             for j in range(i + 1, min(i + 5, len(func_lines))):
-                if f'store ptr {elem_reg},' in func_lines[j]:
+                if f'store i64 {elem_reg},' in func_lines[j]:
                     func_lines[j] = func_lines[j].replace(
-                        f'store ptr {elem_reg},',
-                        f'store %SeenString {new_str_reg},', 1)
+                        f'store i64 {elem_reg},',
+                        f'store i64 {new_val_reg},', 1)
                     break
+            continue  # already appended
+
+        # Fix indirect usage: keep seen_arr_get_element_ptr, but add load after
+        elif m and m.group(2) in indirect_regs:
+            elem_reg = m.group(2)
+            # Keep the call as-is with ORIGINAL register name (returns ptr to element)
+            # Add loads for both %SeenString and i64 types
+            new_str_reg = f'%{next_reg}'
+            next_reg += 1
+            new_i64_reg = f'%{next_reg}'
+            next_reg += 1
+            alloca_reg = indirect_regs[elem_reg]
+
+            # Keep the call line as-is (don't rename)
+            fixed_lines.append(fixed)
+            # Add: %new_str_reg = load %SeenString, ptr %elem_reg
+            fixed_lines.append(f'  {new_str_reg} = load %SeenString, ptr {elem_reg}')
+            # Add: %new_i64_reg = load i64, ptr %elem_reg (for any i64 uses)
+            fixed_lines.append(f'  {new_i64_reg} = load i64, ptr {elem_reg}')
+
+            # Fix ALL subsequent stores of the old register
+            elem_esc = re.escape(elem_reg)
+            for j in range(i + 1, len(func_lines)):
+                line_j = func_lines[j]
+                if elem_reg not in line_j:
+                    continue
+                # store ptr %elem → store %SeenString %new_str
+                if re.search(r'store\s+ptr\s+' + elem_esc + r',', line_j):
+                    func_lines[j] = re.sub(
+                        r'store\s+ptr\s+' + elem_esc + r',',
+                        f'store %SeenString {new_str_reg},', line_j)
+                # store i64 %elem → store i64 %new_i64
+                elif re.search(r'store\s+i64\s+' + elem_esc + r',', line_j):
+                    func_lines[j] = re.sub(
+                        r'store\s+i64\s+' + elem_esc + r',',
+                        f'store i64 {new_i64_reg},', line_j)
+                # store %SeenString %elem → store %SeenString %new_str
+                elif re.search(r'store\s+%SeenString\s+' + elem_esc + r',', line_j):
+                    func_lines[j] = re.sub(
+                        r'store\s+%SeenString\s+' + elem_esc + r',',
+                        f'store %SeenString {new_str_reg},', line_j)
+                # load %SeenString from %elem → already has the ptr, fine
             continue  # already appended
 
         # Widen allocas used by indirect fixes

@@ -5,18 +5,19 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.7] - 2026-03-15
+## [0.3.7] - 2026-03-16
 
 ### Fixed
 
 #### Codegen
-- SeenString ABI mismatch in Array<String> access: `seen_arr_get_element_ptr` returns `ptr` (8 bytes) but callers expected `%SeenString` (16 bytes). The pointer value was interpreted as string length, causing SIGSEGV in `registerStructLayout`, `generateCall`, and `generateClass` when compiling programs with class fields. Fix inserts proper `load %SeenString` after element pointer access and widens allocas to hold the full struct
+- `seen_arr_get_element_ptr` ABI mismatch for both Array<String> and Array<Int>: the function returns a pointer to the element, but the frozen compiler stored/used that pointer directly as the value. For strings, pointer was interpreted as SeenString (causing SIGSEGV). For integers, pointer was used as the size value (causing malloc with ~94TB). Fix inserts proper `load` from the element pointer for both `%SeenString` (16-byte) and `i64` (8-byte) element types
 - `extractvalue %SeenString ..., 1` for emptiness checks corrected to field index `0` (length), not `1` (data pointer)
 - `this` pre-registration in `generateClassMethod` no longer incorrectly adds `this` for `new` constructors (which are static)
 
 #### Build System
 - `fix_ir.py` signature-based detection now scans both `define` and `declare` lines, catching cross-module functions like `pipeGet(%SeenString, i64)` that were previously invisible
-- `fix_ir.py` multi-store alloca guard relaxed — shared allocas (used for both Array<String> access and boolean/integer values on different control flow paths) are now correctly widened
+- `fix_ir.py` multi-store alloca guard relaxed — shared allocas (used for both array access and boolean/integer values on different control flow paths) are now correctly handled
+- `fix_ir.py` alloca widening guard prevents %SeenString widening when the alloca also stores integer constants (avoids type conflicts in mixed-use allocas)
 - `safe_rebuild.sh` Linux path now attempts S2→S3 bootstrap verification with 30-minute timeout instead of skipping entirely
 
 ## [0.3.6] - 2026-03-15
