@@ -385,13 +385,20 @@ rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
 
 if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: PATH already set via export above; use --no-cache
+    # The frozen compiler may fail at its internal link step (e.g., internal globals
+    # eliminated by opt) but still produce .opt.ll files we can relink in step 1b.
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-cache; then
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
     else
-        echo -e "${RED}ERROR: Stage2 build failed!${NC}"
-        echo "Check /tmp/safe_rebuild_stage2.log for details."
-        tail -30 /tmp/safe_rebuild_stage2.log
-        exit 1
+        OPT_LL_COUNT=$(ls /tmp/seen_module_*.opt.ll 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$OPT_LL_COUNT" -gt 30 ]; then
+            echo -e "${YELLOW}Stage2 internal link failed, but $OPT_LL_COUNT .opt.ll files available for relink.${NC}"
+        else
+            echo -e "${RED}ERROR: Stage2 build failed!${NC}"
+            echo "Check /tmp/safe_rebuild_stage2.log for details."
+            tail -30 /tmp/safe_rebuild_stage2.log
+            exit 1
+        fi
     fi
 else
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-fork; then
@@ -489,6 +496,74 @@ fi
 if [ "$HOST_OS" = "Darwin" ]; then
     echo ""
     echo "Step 1b: macOS relink from .opt.ll files (llc + clang -O2)..."
+
+    # Post-opt fixup: LLVM opt may eliminate internal globals that are cross-module referenced.
+    # Scan all .opt.ll files: for each 'external global @X' reference, ensure @X is defined
+    # (non-external) in at least one module. If eliminated, re-inject from the original .ll.
+    echo "    Fixing cross-module globals post-opt..."
+    "$PYTHON3_PATH" - <<'POSTOPT_FIX'
+import re, glob, os
+
+opt_files = sorted(glob.glob('/tmp/seen_module_*.opt.ll'))
+ll_files = sorted(glob.glob('/tmp/seen_module_*.ll'))
+ll_files = [f for f in ll_files if not f.endswith('.opt.ll')]
+
+# Collect: which opt files define globals, which declare them external
+defined = {}   # gname -> (file, line)
+external = {}  # gname -> set of files needing it
+
+for f in opt_files:
+    with open(f) as fh:
+        for line in fh:
+            gm = re.match(r'(@\w+)\s*=\s*(external\s+)?(?:local_unnamed_addr\s+)?(?:unnamed_addr\s+)?(?:internal\s+)?global\s+(\S+)', line)
+            if gm:
+                gname = gm.group(1)
+                is_ext = gm.group(2) is not None
+                if is_ext:
+                    external.setdefault(gname, set()).add(f)
+                else:
+                    defined[gname] = (f, gm.group(3))
+
+# Find globals referenced but not defined in any opt file
+missing = set()
+for gname in external:
+    if gname not in defined:
+        missing.add(gname)
+
+if missing:
+    # Try to find definitions in original .ll files
+    orig_defs = {}
+    for f in ll_files:
+        with open(f) as fh:
+            for line in fh:
+                gm = re.match(r'(@\w+)\s*=\s*(?:internal\s+)?global\s+(\S+)\s+(.*)', line)
+                if gm and gm.group(1) in missing:
+                    orig_defs[gm.group(1)] = (gm.group(2), gm.group(3).strip(), f)
+
+    # Inject missing globals into the first module that references them externally
+    for gname in missing:
+        if gname in orig_defs:
+            gtype, gval, src = orig_defs[gname]
+            # Add to first referencing opt file
+            target = sorted(external[gname])[0]
+            with open(target) as fh:
+                content = fh.read()
+            # Replace external declaration with actual definition
+            content = re.sub(
+                rf'^{re.escape(gname)}\s*=\s*external\s+(?:local_unnamed_addr\s+)?(?:unnamed_addr\s+)?global\s+\S+\s*$',
+                f'{gname} = global {gtype} {gval}',
+                content, count=1, flags=re.MULTILINE
+            )
+            with open(target, 'w') as fh:
+                fh.write(content)
+            print(f'    Injected {gname} into {os.path.basename(target)}')
+
+if not missing:
+    print('    Post-opt fixup: 0 missing globals')
+else:
+    print(f'    Post-opt fixup: {len(missing)} missing globals, {len(missing & set(orig_defs.keys()))} fixed')
+POSTOPT_FIX
+
     OPT_LL_COUNT=$(ls /tmp/seen_module_*.opt.ll 2>/dev/null | wc -l | tr -d ' ')
     if [ "$OPT_LL_COUNT" -gt 0 ]; then
         echo "    Found $OPT_LL_COUNT .opt.ll modules, relinking with llc..."

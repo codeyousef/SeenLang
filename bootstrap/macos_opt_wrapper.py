@@ -12,6 +12,78 @@ This wrapper transparently fixes these before opt processes the files.
 """
 import re, sys, os, subprocess, glob
 
+
+def _parse_struct_field_type(struct_def, field_index):
+    """Given a struct type string like '{ i64, ptr, %SeenString, ... }', return the type at field_index."""
+    # Extract the fields between { }
+    m = re.search(r'\{(.+)\}', struct_def)
+    if not m:
+        return 'i64'  # fallback
+    fields_str = m.group(1)
+    # Split by comma, respecting nested braces
+    fields = []
+    depth = 0
+    current = ''
+    for ch in fields_str:
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+        elif ch == ',' and depth == 0:
+            fields.append(current.strip())
+            current = ''
+            continue
+        current += ch
+    if current.strip():
+        fields.append(current.strip())
+    if field_index < len(fields):
+        return fields[field_index]
+    return 'i64'  # fallback
+
+
+def _infer_type_from_gep(lines, load_line_idx, ptr_reg):
+    """Infer the type of a load from the GEP that defines ptr_reg."""
+    # Search backwards for the GEP that defines ptr_reg
+    for j in range(load_line_idx - 1, max(load_line_idx - 10, -1), -1):
+        prev = lines[j]
+        if f'{ptr_reg} = getelementptr' in prev:
+            # Extract struct type and field index
+            gep_m = re.match(r'\s*%\w+\s*=\s*getelementptr\s+inbounds\s+(\{[^}]+\}),.*i32\s+(\d+)\s*$', prev)
+            if gep_m:
+                struct_type = gep_m.group(1)
+                field_idx = int(gep_m.group(2))
+                return _parse_struct_field_type(struct_type, field_idx)
+            # Simpler GEP patterns
+            gep_m2 = re.match(r'\s*%\w+\s*=\s*getelementptr\s+inbounds\s+(\S+),', prev)
+            if gep_m2:
+                return gep_m2.group(1)
+            break
+    return 'i64'  # safe fallback
+
+
+def _infer_reg_type(lines, store_line_idx, val_reg):
+    """Infer the type of a register from its definition."""
+    for j in range(store_line_idx - 1, max(store_line_idx - 50, -1), -1):
+        prev = lines[j]
+        # %reg = call TYPE @func(...)
+        cm = re.match(rf'\s*{re.escape(val_reg)}\s*=\s*call\s+(?:noundef\s+)?(\S+)\s+@', prev)
+        if cm:
+            return cm.group(1)
+        # %reg = load TYPE, ptr ...
+        lm = re.match(rf'\s*{re.escape(val_reg)}\s*=\s*load\s+(\S+),', prev)
+        if lm:
+            return lm.group(1)
+        # %reg = insertvalue TYPE ...
+        im = re.match(rf'\s*{re.escape(val_reg)}\s*=\s*insertvalue\s+(\S+)\s', prev)
+        if im:
+            return im.group(1)
+        # %reg = add/sub/mul i64 ...
+        am = re.match(rf'\s*{re.escape(val_reg)}\s*=\s*(?:add|sub|mul|and|or|xor|shl|lshr|ashr)\s+(\S+)\s', prev)
+        if am:
+            return am.group(1)
+    return 'i64'  # safe fallback
+
+
 def fix_codegen_bugs(ll_file, duplicate_globals=None, extern_refs=None):
     """Fix codegen bugs: malformed types, void in structs, undefined functions,
     malformed globals, duplicate globals, type mismatches in calls.
@@ -66,7 +138,7 @@ def fix_codegen_bugs(ll_file, duplicate_globals=None, extern_refs=None):
                     changed = True
 
         # 5. Deduplicate globals and make cross-module duplicates internal
-        if line.startswith('@') and '= global ' in line:
+        if line.startswith('@') and ('= global ' in line or '= internal global ' in line):
             gname = line.split('=')[0].strip()
             if gname in seen_globals:
                 changed = True
@@ -94,6 +166,203 @@ def fix_codegen_bugs(ll_file, duplicate_globals=None, extern_refs=None):
     if changed:
         with open(ll_file, 'w') as f:
             f.writelines(new_lines)
+
+    # Fix missing types in load/store instructions (codegen bug: empty fieldType).
+    # Infer the type from the preceding GEP instruction's struct field index.
+    with open(ll_file) as f:
+        lines_mt = f.readlines()
+
+    changed_mt = False
+    for i, line in enumerate(lines_mt):
+        # Fix "load , ptr %X" → infer type from GEP on the line defining %X
+        lm_empty = re.match(r'(\s*)(%\w+)\s*=\s*load\s*,\s*ptr\s+(%\w+)(.*)', line)
+        if lm_empty:
+            indent = lm_empty.group(1)
+            dst_reg = lm_empty.group(2)
+            src_ptr = lm_empty.group(3)
+            rest = lm_empty.group(4)
+            inferred = _infer_type_from_gep(lines_mt, i, src_ptr)
+            lines_mt[i] = f'{indent}{dst_reg} = load {inferred}, ptr {src_ptr}{rest}\n'
+            changed_mt = True
+            continue
+
+        # Fix "store  %X, ptr %Y" (double space = missing type)
+        sm_empty = re.match(r'(\s*)store\s\s+(%\w+),\s*ptr\s+(.+)', line)
+        if sm_empty:
+            indent = sm_empty.group(1)
+            val_reg = sm_empty.group(2)
+            dest = sm_empty.group(3)
+            # Try to find the type of val_reg from its definition
+            inferred = _infer_reg_type(lines_mt, i, val_reg)
+            lines_mt[i] = f'{indent}store {inferred} {val_reg}, ptr {dest}\n'
+            changed_mt = True
+
+    if changed_mt:
+        with open(ll_file, 'w') as f:
+            f.writelines(lines_mt)
+
+    # Fix ptr-to-i64 type mismatch for seen_arr_get_element_ptr results.
+    # Pattern: %X = call ptr @seen_arr_get_element_ptr(...) used as i64 somewhere.
+    # Fix: rename to %X_raw, insert %X = ptrtoint ptr %X_raw to i64,
+    #       replace ptr uses of %X with %X_raw.
+    with open(ll_file) as f:
+        lines_pi = f.readlines()
+
+    # Find function boundaries
+    func_bounds_pi = []
+    fstart_pi = None
+    for i, line in enumerate(lines_pi):
+        if line.startswith('define '):
+            fstart_pi = i
+        elif line.strip() == '}' and fstart_pi is not None:
+            func_bounds_pi.append((fstart_pi, i))
+            fstart_pi = None
+
+    changed_pi = False
+    for fstart, fend in func_bounds_pi:
+        # Find all ptr calls that are used as i64
+        for i in range(fstart, fend + 1):
+            line = lines_pi[i]
+            cm = re.match(r'(\s*)(%\w+)\s*=\s*call\s+ptr\s+@seen_arr_get_element_ptr\((.+)\)', line)
+            if not cm:
+                continue
+            indent = cm.group(1)
+            reg = cm.group(2)
+            args = cm.group(3)
+
+            # Check if this register is used as i64 or %SeenString within THIS function
+            used_as_i64 = False
+            used_as_str = False
+            reg_pattern = reg + ')' if reg.startswith('%') else reg  # word boundary
+            for j in range(i + 1, fend + 1):
+                uline = lines_pi[j]
+                # Use word boundary to avoid matching %651 when looking for %65
+                if re.search(rf'i64\s+{re.escape(reg)}(?!\d)', uline):
+                    used_as_i64 = True
+                if re.search(rf'%SeenString\s+{re.escape(reg)}(?!\d)', uline):
+                    used_as_str = True
+
+            if used_as_str and not used_as_i64:
+                # Result used as %SeenString: rename call result, insert load %SeenString
+                ptr_reg = f'%arr_ptr_{i}'
+                # Rename the call result to ptr_reg
+                lines_pi[i] = lines_pi[i].replace(f'{reg} = call ptr', f'{ptr_reg} = call ptr', 1)
+                # Insert load %SeenString from the ptr
+                lines_pi.insert(i + 1, f'{indent}{reg} = load %SeenString, ptr {ptr_reg}\n')
+                fend += 1
+                changed_pi = True
+            elif used_as_i64 and not used_as_str:
+                # Use a named register (not numbered) to avoid sequential numbering issues
+                new_reg = f'%arr_i64_{i}'
+                # Insert ptrtoint after the call using a named register
+                lines_pi.insert(i + 1, f'{indent}{new_reg} = ptrtoint ptr {reg} to i64\n')
+                fend += 1
+                # Replace all i64 %reg with i64 %new_reg in subsequent lines
+                for j in range(i + 2, fend + 1):
+                    lines_pi[j] = lines_pi[j].replace(f'i64 {reg}', f'i64 {new_reg}')
+                changed_pi = True
+            elif used_as_i64 and used_as_str:
+                # Used as both: rename call, insert load for %SeenString and ptrtoint for i64
+                ptr_reg = f'%arr_ptr_{i}'
+                str_reg = reg  # keep original for %SeenString uses
+                i64_reg = f'%arr_i64_{i}'
+                # Rename call result
+                lines_pi[i] = lines_pi[i].replace(f'{reg} = call ptr', f'{ptr_reg} = call ptr', 1)
+                # Insert load %SeenString (original reg name) and ptrtoint for i64
+                lines_pi.insert(i + 1, f'{indent}{str_reg} = load %SeenString, ptr {ptr_reg}\n')
+                lines_pi.insert(i + 2, f'{indent}{i64_reg} = ptrtoint ptr {ptr_reg} to i64\n')
+                fend += 2
+                # Replace i64 %reg with i64 %i64_reg in subsequent lines
+                for j in range(i + 3, fend + 1):
+                    lines_pi[j] = lines_pi[j].replace(f'i64 {reg}', f'i64 {i64_reg}')
+                changed_pi = True
+
+    if changed_pi:
+        with open(ll_file, 'w') as f:
+            f.writelines(lines_pi)
+
+    # General type mismatch fix: fix loads where the loaded type doesn't match usage.
+    # Patterns: icmp TYPE %reg where %reg was loaded as a different type,
+    #           ret TYPE %reg where %reg was loaded as a different type.
+    with open(ll_file) as f:
+        lines_gen = f.readlines()
+
+    func_lines_gen = []
+    fs = None
+    for i, line in enumerate(lines_gen):
+        if line.startswith('define '):
+            fs = i
+        elif line.strip() == '}' and fs is not None:
+            func_lines_gen.append((fs, i))
+            fs = None
+
+    changed_gen = False
+    for fstart, fend in func_lines_gen:
+        # Build map: register -> (type, line_index, kind)
+        reg_defs = {}
+        for i in range(fstart, fend + 1):
+            line = lines_gen[i]
+            lm = re.match(r'\s*(%\w+)\s*=\s*load\s+(\S+),', line)
+            if lm:
+                reg_defs[lm.group(1)] = (lm.group(2), i, 'load')
+                continue
+            cm = re.match(r'\s*(%\w+)\s*=\s*call\s+(?:noundef\s+)?(\S+)\s+@', line)
+            if cm:
+                reg_defs[cm.group(1)] = (cm.group(2), i, 'call')
+
+        # Scan for ALL type mismatches: find any instruction that uses TYPE %reg
+        # where %reg was defined with a different type, and fix the definition or usage.
+        def _fix_reg_mismatch(reg, used_type, line_idx, line_str):
+            """Fix a type mismatch for reg: either fix the load or fix the usage."""
+            nonlocal changed_gen
+            if reg not in reg_defs:
+                return
+            def_type, def_idx, def_kind = reg_defs[reg]
+            if def_type == used_type:
+                return
+            if def_kind == 'load':
+                # Fix the load to match the usage type
+                lines_gen[def_idx] = re.sub(
+                    rf'({re.escape(reg)}\s*=\s*load\s+){re.escape(def_type)}',
+                    rf'\g<1>{used_type}',
+                    lines_gen[def_idx]
+                )
+                reg_defs[reg] = (used_type, def_idx, 'load')
+                changed_gen = True
+            elif def_kind == 'call':
+                # For call results, only fix store and ret (where the fix is self-contained)
+                # Don't fix select/icmp/etc. where we'd need to fix multiple operands
+                sline = lines_gen[line_idx]
+                if re.match(r'\s*store\s+', sline):
+                    lines_gen[line_idx] = sline.replace(
+                        f'{used_type} {reg}', f'{def_type} {reg}', 1
+                    )
+                    changed_gen = True
+                elif re.match(r'\s*ret\s+', sline):
+                    lines_gen[line_idx] = sline.replace(
+                        f'{used_type} {reg}', f'{def_type} {reg}', 1
+                    )
+                    changed_gen = True
+
+        for i in range(fstart, fend + 1):
+            line = lines_gen[i]
+
+            # Scan for all "TYPE %reg" patterns in instructions and fix mismatches
+            # Pattern: find all TYPE %REG occurrences (excluding definitions)
+            for m in re.finditer(r'(?<!\=\s)(?:i64|i32|i1|ptr|float|double|%SeenString|%\w+)\s+(%\d+)', line):
+                reg = m.group(1)
+                if f'{reg} =' in line or f'{reg}=' in line:
+                    continue  # skip the definition itself
+                # Extract the type before this reg
+                start = m.start()
+                type_match = re.match(r'(i64|i32|i1|ptr|float|double|%SeenString|%\w+)\s+' + re.escape(reg), line[start:])
+                if type_match:
+                    used_type = type_match.group(1)
+                    _fix_reg_mismatch(reg, used_type, i, line)
+
+    if changed_gen:
+        with open(ll_file, 'w') as f:
+            f.writelines(lines_gen)
 
     # Per-function type mismatch fix: if a register loaded as i64 is used
     # exclusively as %SeenString within the same function, change the load
@@ -133,11 +402,12 @@ def fix_codegen_bugs(ll_file, duplicate_globals=None, extern_refs=None):
                     i64_call_regs.add(m.group(1))
 
         for reg in str_call_regs:
-            if reg in load_types and load_types[reg][0] == 'i64' and reg not in i64_call_regs:
+            if reg in load_types and load_types[reg][0] in ('i64', 'ptr') and reg not in i64_call_regs:
                 load_line_idx = load_types[reg][1]
                 ptr_var = load_ptrs.get(reg)
+                old_type = load_types[reg][0]
                 lines[load_line_idx] = re.sub(
-                    rf'({re.escape(reg)}\s*=\s*load\s+)i64',
+                    rf'({re.escape(reg)}\s*=\s*load\s+){re.escape(old_type)}',
                     rf'\g<1>%SeenString',
                     lines[load_line_idx]
                 )
@@ -151,6 +421,96 @@ def fix_codegen_bugs(ll_file, duplicate_globals=None, extern_refs=None):
                             )
 
     if changed2:
+        with open(ll_file, 'w') as f:
+            f.writelines(lines)
+
+    # Fix store type mismatches: where the stored value's type doesn't match the store type.
+    # e.g., %17 = call %SeenString @foo(...) then store i64 %17 → should be store %SeenString %17
+    # e.g., %73 = load i64, ptr %7 then store %SeenString %73 → load should be %SeenString
+    with open(ll_file) as f:
+        lines = f.readlines()
+
+    changed3 = False
+    for fstart, fend in func_lines:
+        # Collect register types from definitions within this function
+        reg_types = {}
+        for i in range(fstart, fend + 1):
+            line = lines[i]
+            # Match: %reg = load TYPE, ptr ...
+            lm = re.match(r'\s*(%\w+)\s*=\s*load\s+(\S+),', line)
+            if lm:
+                reg_types[lm.group(1)] = (lm.group(2), i, 'load')
+                continue
+            # Match: %reg = call TYPE @func(...)
+            cm2 = re.match(r'\s*(%\w+)\s*=\s*call\s+(?:noundef\s+)?(\S+)\s+@', line)
+            if cm2:
+                reg_types[cm2.group(1)] = (cm2.group(2), i, 'call')
+                continue
+            # Match: %reg = insertvalue TYPE ...
+            im = re.match(r'\s*(%\w+)\s*=\s*insertvalue\s+(\S+)\s', line)
+            if im:
+                reg_types[im.group(1)] = (im.group(2), i, 'insertvalue')
+
+        # Now scan for store and ret type mismatches
+        for i in range(fstart, fend + 1):
+            line = lines[i]
+
+            # Fix store type mismatches
+            sm = re.match(r'(\s*)store\s+(\S+)\s+(%\w+),\s*ptr\s+(.+)', line)
+            if sm:
+                indent_s = sm.group(1)
+                store_type = sm.group(2)
+                reg = sm.group(3)
+                dest = sm.group(4)
+                if reg in reg_types:
+                    actual_type, def_idx, def_kind = reg_types[reg]
+                    if store_type != actual_type:
+                        if store_type == 'i64' and actual_type == '%SeenString':
+                            lines[i] = f'{indent_s}store %SeenString {reg}, ptr {dest}\n'
+                            changed3 = True
+                        elif store_type == '%SeenString' and actual_type == 'i64':
+                            if def_kind == 'load':
+                                lines[def_idx] = re.sub(
+                                    r'(=\s*load\s+)i64',
+                                    r'\g<1>%SeenString',
+                                    lines[def_idx]
+                                )
+                                reg_types[reg] = ('%SeenString', def_idx, 'load')
+                                changed3 = True
+
+            # Fix ret type mismatches: ret %SeenString %X where %X is i64
+            rm = re.match(r'(\s*)ret\s+(\S+)\s+(%\w+)\s*$', line)
+            if rm:
+                indent_r = rm.group(1)
+                ret_type = rm.group(2)
+                reg = rm.group(3)
+                if reg in reg_types:
+                    actual_type, def_idx, def_kind = reg_types[reg]
+                    if ret_type != actual_type:
+                        if ret_type == '%SeenString' and actual_type == 'i64':
+                            if def_kind == 'load':
+                                lines[def_idx] = re.sub(
+                                    r'(=\s*load\s+)i64',
+                                    r'\g<1>%SeenString',
+                                    lines[def_idx]
+                                )
+                                reg_types[reg] = ('%SeenString', def_idx, 'load')
+                                changed3 = True
+                                # Also fix corresponding store i64 0 to the same ptr
+                                lm2 = re.match(r'\s*%\w+\s*=\s*load\s+\S+,\s*ptr\s+(%\w+)', lines[def_idx])
+                                if lm2:
+                                    ptr_var = lm2.group(1)
+                                    for j in range(fstart, fend + 1):
+                                        if f'store i64 0, ptr {ptr_var}' in lines[j]:
+                                            lines[j] = lines[j].replace(
+                                                f'store i64 0, ptr {ptr_var}',
+                                                f'store %SeenString zeroinitializer, ptr {ptr_var}'
+                                            )
+                        elif ret_type == 'i64' and actual_type == '%SeenString':
+                            lines[i] = f'{indent_r}ret %SeenString {reg}\n'
+                            changed3 = True
+
+    if changed3:
         with open(ll_file, 'w') as f:
             f.writelines(lines)
 
@@ -220,7 +580,7 @@ def collect_all_globals(ll_dir):
             module_globals = set()
             with open(f) as fh:
                 for line in fh:
-                    gm = re.match(r'(@\w+)\s*=\s*(external\s+)?(?:local_unnamed_addr\s+)?(?:unnamed_addr\s+)?global\s+(\S+)', line)
+                    gm = re.match(r'(@\w+)\s*=\s*(external\s+)?(?:internal\s+)?(?:local_unnamed_addr\s+)?(?:unnamed_addr\s+)?global\s+(\S+)', line)
                     if gm:
                         gname = gm.group(1)
                         is_external = gm.group(2) is not None
@@ -235,6 +595,17 @@ def collect_all_globals(ll_dir):
             pass
     duplicate_globals = {g for g, c in global_counts.items() if c > 1}
     return all_globals, duplicate_globals, extern_refs
+
+
+# Known runtime functions (defined in seen_runtime.c, not in any .ll module)
+RUNTIME_FUNCS = {
+    'print': ('void', 1, ['%SeenString']),
+    'println': ('void', 1, ['%SeenString']),
+    'seen_print': ('void', 1, ['%SeenString']),
+    'seen_println': ('void', 1, ['%SeenString']),
+    'seen_exit': ('void', 1, ['i64']),
+    'seen_panic': ('void', 1, ['%SeenString']),
+}
 
 def fix_missing_symbols(ll_file, all_defs, all_globals):
     """Add missing function declarations and external global declarations for cross-module references."""
@@ -252,18 +623,21 @@ def fix_missing_symbols(ll_file, all_defs, all_globals):
     for m in re.finditer(r'^(@\w+)\s*=\s*(?:external\s+)?(?:local_unnamed_addr\s+)?(?:unnamed_addr\s+)?global\s', content, re.MULTILINE):
         local_globals.add(m.group(1))
 
-    # Find missing function declarations
+    # Find missing function declarations (check both all_defs and runtime builtins)
     missing_funcs = set()
     for m in re.finditer(r'call\s+\S+\s+@(\w+)\(', content):
         fname = m.group(1)
-        if fname not in local_funcs and fname in all_defs:
-            missing_funcs.add(fname)
+        if fname not in local_funcs:
+            if fname in all_defs:
+                missing_funcs.add(fname)
+            elif fname in RUNTIME_FUNCS:
+                missing_funcs.add(fname)
 
     # Find missing global declarations (only for store/load patterns, not function calls)
     missing_globals = set()
     for m in re.finditer(r'(?:store|load)\s+\S+[^@]*(?:ptr\s+)?(@\w+)', content):
         gname = m.group(1)
-        if gname not in local_globals and not gname.startswith('@.str') and gname in all_globals:
+        if len(gname) > 1 and gname not in local_globals and not gname.startswith('@.str') and gname in all_globals:
             missing_globals.add(gname)
 
     if not missing_funcs and not missing_globals:
@@ -271,7 +645,12 @@ def fix_missing_symbols(ll_file, all_defs, all_globals):
 
     decls = ''
     for fname in sorted(missing_funcs):
-        ret, pcount, ptypes = all_defs[fname]
+        if fname in all_defs:
+            ret, pcount, ptypes = all_defs[fname]
+        elif fname in RUNTIME_FUNCS:
+            ret, pcount, ptypes = RUNTIME_FUNCS[fname]
+        else:
+            continue
         params = ', '.join(ptypes)
         decls += f'declare {ret} @{fname}({params})\n'
     for gname in sorted(missing_globals):

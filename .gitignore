@@ -6,6 +6,8 @@ Cargo.lock
 __pycache__/
 *.pyc
 installer/windows/output/
+installer/macos/*.pkg
+installer/macos/*.pkg.sha256
 .leann/
 
 # IDE specific files
@@ -110,6 +112,9 @@ trace_output.txt
 
 # Incremental compilation cache
 .seen_cache/
+
+# Core dumps
+core
 
 # Debug/temp directories
 /bootstrap_test/

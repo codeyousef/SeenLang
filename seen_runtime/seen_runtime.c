@@ -6197,6 +6197,14 @@ int64_t seen_pool_region_available(int64_t handle) {
 #ifndef _WIN32
 #include <sys/mman.h>
 #include <fcntl.h>
+// MAP_ANONYMOUS may not be defined on macOS with strict C standards
+#ifndef MAP_ANONYMOUS
+#ifdef MAP_ANON
+#define MAP_ANONYMOUS MAP_ANON
+#else
+#define MAP_ANONYMOUS 0x1000  // macOS value
+#endif
+#endif
 #endif
 
 typedef struct {
@@ -6437,6 +6445,68 @@ void seen_barrier_destroy(int64_t handle) {
     }
 }
 #else
+// macOS doesn't have pthread_barrier_t, so we provide a polyfill using mutex+cond
+#ifdef __APPLE__
+typedef struct {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    unsigned count;
+    unsigned waiting;
+    unsigned phase;
+} seen_pthread_barrier_t;
+
+static int seen_pthread_barrier_init(seen_pthread_barrier_t *b, unsigned count) {
+    pthread_mutex_init(&b->mutex, NULL);
+    pthread_cond_init(&b->cond, NULL);
+    b->count = count;
+    b->waiting = 0;
+    b->phase = 0;
+    return 0;
+}
+
+static int seen_pthread_barrier_wait(seen_pthread_barrier_t *b) {
+    pthread_mutex_lock(&b->mutex);
+    unsigned phase = b->phase;
+    b->waiting++;
+    if (b->waiting == b->count) {
+        b->waiting = 0;
+        b->phase++;
+        pthread_cond_broadcast(&b->cond);
+        pthread_mutex_unlock(&b->mutex);
+        return 1; // serial thread
+    }
+    while (phase == b->phase) {
+        pthread_cond_wait(&b->cond, &b->mutex);
+    }
+    pthread_mutex_unlock(&b->mutex);
+    return 0;
+}
+
+static void seen_pthread_barrier_destroy(seen_pthread_barrier_t *b) {
+    pthread_mutex_destroy(&b->mutex);
+    pthread_cond_destroy(&b->cond);
+}
+
+typedef struct { seen_pthread_barrier_t b; } SeenBarrier;
+
+int64_t seen_barrier_new(int64_t count) {
+    SeenBarrier *b = (SeenBarrier *)malloc(sizeof(SeenBarrier));
+    if (!b) return 0;
+    seen_pthread_barrier_init(&b->b, (unsigned)count);
+    return (int64_t)(uintptr_t)b;
+}
+
+int64_t seen_barrier_wait(int64_t handle) {
+    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
+    int rc = seen_pthread_barrier_wait(&b->b);
+    return rc ? 1 : 0;
+}
+
+void seen_barrier_destroy(int64_t handle) {
+    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
+    if (b) { seen_pthread_barrier_destroy(&b->b); free(b); }
+}
+#else
 typedef struct { pthread_barrier_t b; } SeenBarrier;
 
 int64_t seen_barrier_new(int64_t count) {
@@ -6456,6 +6526,7 @@ void seen_barrier_destroy(int64_t handle) {
     SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
     if (b) { pthread_barrier_destroy(&b->b); free(b); }
 }
+#endif
 #endif
 
 // ============================================================================
