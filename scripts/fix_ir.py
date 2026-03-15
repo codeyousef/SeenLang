@@ -435,6 +435,25 @@ def _get_reg_type(s, reg_types):
     return None, None
 
 
+def _is_used_as_ptr(reg, func_lines):
+    """Check if register is used as ptr (e.g., in getelementptr, inttoptr, or as ptr arg)."""
+    reg_esc = re.escape(reg)
+    for line in func_lines:
+        s = line.strip()
+        if re.match(rf'{reg_esc}\s*=', s):
+            continue
+        # Used in getelementptr as the base pointer: getelementptr ... ptr %reg
+        if re.search(rf'getelementptr\s+.*ptr\s+{reg_esc}\b', line):
+            return True
+        # Used in ptrtoint: ptrtoint ptr %reg
+        if re.search(rf'ptrtoint\s+ptr\s+{reg_esc}\b', line):
+            return True
+        # Used as ptr in store: store ..., ptr %reg
+        if re.search(rf'store\s+.*,\s*ptr\s+{reg_esc}\b', line):
+            return True
+    return False
+
+
 def _is_used_as_type(reg, expected_type, func_lines):
     """Check if register is used with a specific type in function (non-definition)."""
     reg_esc = re.escape(reg)
@@ -477,10 +496,12 @@ def _fix_function_types(func_lines):
         fixed = line
 
         # load ptr → load %SeenString when used as %SeenString
+        # BUT NOT if the register is also used as ptr (e.g., in getelementptr)
         lm = re.match(r'(\s*%\d+\s*=\s*load\s+)(ptr)(,\s*ptr\s+\S+.*)', fixed)
         if lm:
             reg = re.match(r'\s*(%\d+)', fixed).group(1)
-            if _is_used_as_type(reg, '%SeenString', func_lines):
+            if _is_used_as_type(reg, '%SeenString', func_lines) and \
+               not _is_used_as_ptr(reg, func_lines):
                 fixed = f'{lm.group(1)}%SeenString{lm.group(3)}'
                 reg_types[reg] = '%SeenString'
 
@@ -796,12 +817,246 @@ def fix_llvmir_generator_layout(content):
                 new_idx = index_map.get(old_idx, old_idx)
                 if old_idx != new_idx:
                     line = line[:m.start()] + f'i32 {new_idx}'
+        elif old_layout in line and ('insertvalue' in line or 'extractvalue' in line):
+            line = line.replace(old_layout, new_layout)
+            # Remap trailing bare index: ", N" at end of line
+            m = re.search(r',\s*(\d+)\s*$', line)
+            if m:
+                old_idx = int(m.group(1))
+                new_idx = index_map.get(old_idx, old_idx)
+                if old_idx != new_idx:
+                    line = re.sub(r',\s*\d+\s*$', f', {new_idx}', line)
         elif old_layout in line:
-            # Non-GEP usage (e.g., sizeof) — just replace layout
+            # Other usage (e.g., sizeof, alloca) — just replace layout
             line = line.replace(old_layout, new_layout)
         result.append(line)
 
     return '\n'.join(result)
+
+
+def fix_arr_get_element_ptr(content):
+    """Fix seen_arr_get_element_ptr calls for Array<String> accesses.
+
+    The frozen compiler generates `call ptr @seen_arr_get_element_ptr(ptr, i64)`
+    for Array<String> indexing (returns a pointer to the element). When this ptr
+    is later used as %SeenString (16 bytes), only 8 bytes are available — the
+    pointer value gets interpreted as the string length, causing crashes like:
+      seen_substring: invalid string len=<heap_pointer_value>
+
+    Fix: replace with `call %SeenString @seen_arr_get_str_ptr(ptr, i64)` which
+    returns the SeenString by value. Only applied when the result register is
+    used in a %SeenString context within the same function.
+    """
+    # Quick check: if no seen_arr_get_element_ptr calls, nothing to do
+    if 'seen_arr_get_element_ptr' not in content:
+        return content
+
+    has_str_ptr_decl = 'seen_arr_get_str_ptr' in content
+    any_changes = False
+
+    # Extract function signatures for indirect %SeenString detection
+    # Include both define and declare lines to catch cross-module functions
+    func_sigs = {}  # fname -> [param_types]
+    for m in re.finditer(r'(?:define|declare)\s+\S+\s+@(\w+)\s*\(([^)]*)\)', content):
+        fname = m.group(1)
+        params = [p.strip() for p in m.group(2).split(',') if p.strip()]
+        param_types = []
+        for p in params:
+            tm = re.match(r'(%\w+|ptr|i64|i32|i1|float|double)', p)
+            if tm:
+                param_types.append(tm.group(1))
+        func_sigs[fname] = param_types
+
+    lines = content.split('\n')
+    result = []
+    in_function = False
+    func_buf = []
+
+    for line in lines:
+        if re.match(r'^define\s+', line):
+            in_function = True
+            func_buf = [line]
+            continue
+        if in_function:
+            func_buf.append(line)
+            if line.strip() == '}':
+                fixed = _fix_arr_get_in_function(func_buf, func_sigs)
+                if fixed != func_buf:
+                    any_changes = True
+                result.extend(fixed)
+                in_function = False
+                func_buf = []
+            continue
+        result.append(line)
+
+    if func_buf:
+        result.extend(func_buf)
+
+    content = '\n'.join(result)
+
+    # Add seen_arr_get_str_ptr declaration if we made changes and it's not declared
+    if any_changes and not has_str_ptr_decl:
+        # Insert after the seen_arr_get_element_ptr declaration
+        content = content.replace(
+            'declare ptr @seen_arr_get_element_ptr(ptr nonnull, i64) nounwind willreturn memory(argmem: read)',
+            'declare ptr @seen_arr_get_element_ptr(ptr nonnull, i64) nounwind willreturn memory(argmem: read)\n'
+            'declare %SeenString @seen_arr_get_str_ptr(ptr nonnull, i64) nounwind willreturn memory(argmem: read)',
+            1
+        )
+
+    return content
+
+
+def _fix_arr_get_in_function(func_lines, func_sigs=None):
+    """Fix seen_arr_get_element_ptr calls within a single function.
+
+    Two strategies:
+    1. Direct usage: if the result is used directly as %SeenString, change the
+       call to seen_arr_get_str_ptr (returns %SeenString by value).
+    2. Indirect usage (via alloca): insert a `load %SeenString, ptr %result`
+       after the call, storing the LOADED SeenString to the alloca instead of
+       the raw pointer. This makes the alloca hold the correct 16-byte value.
+    """
+    body = '\n'.join(func_lines)
+
+    # Find all seen_arr_get_element_ptr call results
+    element_ptr_calls = []  # list of (reg, line_index)
+    for i, line in enumerate(func_lines):
+        m = re.match(r'\s*(%\d+)\s*=\s*call\s+ptr\s+@seen_arr_get_element_ptr\(', line)
+        if m:
+            element_ptr_calls.append((m.group(1), i))
+
+    if not element_ptr_calls:
+        return func_lines
+
+    # Categorize each call:
+    # - "direct": result used as %SeenString directly → change to seen_arr_get_str_ptr
+    # - "indirect": result stored to alloca, later loaded as %SeenString → insert load
+    # - "int": result used as i64/ptr only → leave unchanged
+    direct_regs = set()
+    indirect_regs = {}  # reg -> alloca_reg
+
+    for reg, _ in element_ptr_calls:
+        reg_esc = re.escape(reg)
+        # Check direct usage: %SeenString %reg
+        if re.search(r'%SeenString\s+' + reg_esc + r'\b', body):
+            direct_regs.add(reg)
+            continue
+
+        # Check indirect: stored to alloca, and the alloca is later loaded
+        # and used as %SeenString (via fix_type_mismatches or direct usage)
+        # NOTE: shared allocas (multiple stores) are OK — widening the alloca
+        # to %SeenString allows arr_get stores to write 16 bytes correctly,
+        # while small-type stores (i1/i64) just write fewer bytes to the wider
+        # alloca. Different control flow paths prevent stale data reads.
+        store_m = re.search(r'store\s+(?:ptr|)\s*' + reg_esc + r',\s*ptr\s+(%\d+)', body)
+        if store_m:
+            alloca_reg = store_m.group(1)
+            alloca_esc = re.escape(alloca_reg)
+            # Check if any load from this alloca is used as %SeenString
+            for load_m in re.finditer(r'(%\d+)\s*=\s*load\s+\S+,\s*ptr\s+' + alloca_esc, body):
+                loaded_reg = load_m.group(1)
+                loaded_esc = re.escape(loaded_reg)
+                if re.search(r'%SeenString\s+' + loaded_esc + r'\b', body):
+                    indirect_regs[reg] = alloca_reg
+                    break
+                # Signature-based detection: check if loaded_reg is passed
+                # to a function whose definition takes %SeenString at that position.
+                # This catches cases where the call site uses `ptr %reg` but the
+                # function definition expects `%SeenString` (type mismatch).
+                if func_sigs and reg not in indirect_regs:
+                    for call_m in re.finditer(r'call\s+\S+\s+@(\w+)\(([^)]*)\)', body):
+                        call_func = call_m.group(1)
+                        call_args = call_m.group(2)
+                        if loaded_reg not in call_args:
+                            continue
+                        if call_func not in func_sigs:
+                            continue
+                        sig_types = func_sigs[call_func]
+                        # Find which arg position loaded_reg occupies
+                        args = call_args.split(',')
+                        for pos, arg in enumerate(args):
+                            if loaded_reg in arg and pos < len(sig_types):
+                                if sig_types[pos] == '%SeenString':
+                                    indirect_regs[reg] = alloca_reg
+                                    break
+                        if reg in indirect_regs:
+                            break
+
+    if not direct_regs and not indirect_regs:
+        return func_lines
+
+    # Find max register number for generating new register names
+    max_reg = 0
+    for m in re.finditer(r'%(\d+)', body):
+        max_reg = max(max_reg, int(m.group(1)))
+    next_reg = max_reg + 1
+
+    # Apply fixes
+    fixed_lines = []
+    # Track which allocas need to be widened to %SeenString
+    allocas_to_widen = set()
+    for reg in indirect_regs.values():
+        allocas_to_widen.add(reg)
+
+    for i, line in enumerate(func_lines):
+        fixed = line
+
+        # Fix direct usage: change call to seen_arr_get_str_ptr
+        m = re.match(r'(\s*(%\d+)\s*=\s*call\s+)ptr(\s+@)seen_arr_get_element_ptr(\(.*)', fixed)
+        if m and m.group(2) in direct_regs:
+            fixed = f'{m.group(1)}%SeenString{m.group(3)}seen_arr_get_str_ptr{m.group(4)}'
+
+        # Fix indirect usage: keep seen_arr_get_element_ptr, but add load after
+        elif m and m.group(2) in indirect_regs:
+            elem_reg = m.group(2)
+            # Keep the call as-is (returns ptr to element)
+            # After the store to alloca, insert a load %SeenString
+            # Actually: change the STORE to store the loaded SeenString
+            # Strategy: rename the ptr result, add load, store loaded value
+            new_ptr_reg = f'%{next_reg}'
+            next_reg += 1
+            new_str_reg = f'%{next_reg}'
+            next_reg += 1
+            alloca_reg = indirect_regs[elem_reg]
+
+            # Rename: %elem_reg = call ptr → %new_ptr_reg = call ptr
+            fixed = fixed.replace(f'{elem_reg} =', f'{new_ptr_reg} =', 1)
+            fixed_lines.append(fixed)
+            # Add: %new_str_reg = load %SeenString, ptr %new_ptr_reg
+            fixed_lines.append(f'  {new_str_reg} = load %SeenString, ptr {new_ptr_reg}')
+
+            # Find and fix the subsequent store: store ptr %elem_reg → store %SeenString %new_str_reg
+            # Look ahead for the store line
+            for j in range(i + 1, min(i + 5, len(func_lines))):
+                if f'store ptr {elem_reg},' in func_lines[j]:
+                    func_lines[j] = func_lines[j].replace(
+                        f'store ptr {elem_reg},',
+                        f'store %SeenString {new_str_reg},', 1)
+                    break
+            continue  # already appended
+
+        # Widen allocas used by indirect fixes
+        if allocas_to_widen:
+            am = re.match(r'(\s*(%\d+)\s*=\s*alloca\s+)(ptr|i64)(,\s*align\s+\d+)?', fixed)
+            if am and am.group(2) in allocas_to_widen:
+                align = am.group(4) if am.group(4) else ''
+                fixed = f'{am.group(1)}%SeenString{align}'
+
+        # Fix loads from widened allocas: load ptr/i64 → load %SeenString
+        # Only if the loaded register is NOT used as ptr (GEP, ptrtoint, etc.)
+        if allocas_to_widen:
+            for alloca_reg in allocas_to_widen:
+                alloca_esc = re.escape(alloca_reg)
+                lm = re.match(r'(\s*(%\d+)\s*=\s*load\s+)(ptr|i64)(,\s*ptr\s+' + alloca_esc + r'\b.*)', fixed)
+                if lm:
+                    loaded_reg = lm.group(2)
+                    if not _is_used_as_ptr(loaded_reg, func_lines):
+                        fixed = f'{lm.group(1)}%SeenString{lm.group(4)}'
+
+        fixed_lines.append(fixed)
+
+    return fixed_lines
 
 
 def fix_all(content, all_module_files=None):
@@ -814,6 +1069,7 @@ def fix_all(content, all_module_files=None):
     content = fix_undefined_symbols(content)
     content = fix_duplicate_globals(content)
     content = fix_llvmir_generator_layout(content)
+    content = fix_arr_get_element_ptr(content)
     content = fix_type_mismatches(content)
     content = fix_empty_type(content)
     content = fix_ssa_numbering(content)

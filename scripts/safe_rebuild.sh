@@ -669,11 +669,42 @@ if [ "$HOST_OS" = "Darwin" ]; then
     fi
     VERIFIED="$STAGE3"
 else
-    # Linux: S2→S3 bootstrap verification is SKIPPED because compilers built from
-    # refactored source cannot cold-compile (known hang on 12 modules including mod5).
-    # Trust is established via: hash-verified frozen compiler + opt wrapper patches.
+    # Linux: Attempt S2→S3 bootstrap verification with a timeout.
+    # If Bug A (SeenString field corruption) is fixed, S2 should be able to
+    # cold-compile. Fall back to S2 if S2→S3 times out or fails.
+    rm -rf .seen_cache/ /tmp/seen_ir_cache/
+    rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+
+    echo ""
+    echo "Step 2: Attempting S2→S3 bootstrap verification (Linux)..."
+    echo -e "${DIM}Timeout: 30 minutes. Falls back to S2 if this fails.${NC}"
+
+    if timeout 1800 bash -c "$(printf '%q' "$STAGE2") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3.log 2>&1; then
+        echo -e "${GREEN}Stage3 build succeeded.${NC}"
+
+        echo ""
+        echo "Step 3: Verifying bootstrap..."
+        if diff "$STAGE2" "$STAGE3" > /dev/null 2>&1; then
+            echo -e "${GREEN}Bootstrap verified: Stage2 == Stage3 (identical binaries)!${NC}"
+        else
+            echo -e "${YELLOW}Note: Stage2 != Stage3 (expected if stage1_frozen is older than source).${NC}"
+            echo -e "${GREEN}Stage3 build succeeded — using Stage3 as production compiler.${NC}"
+        fi
+        VERIFIED="$STAGE3"
+    else
+        S3_EXIT=$?
+        echo -e "${YELLOW}S2→S3 build failed or timed out (exit=$S3_EXIT).${NC}"
+        if [ "$S3_EXIT" = "124" ]; then
+            echo -e "${YELLOW}Timeout reached — cold-compile hang likely still present.${NC}"
+        else
+            echo "Check /tmp/safe_rebuild_stage3.log for details."
+            tail -10 /tmp/safe_rebuild_stage3.log 2>/dev/null
+        fi
+        echo -e "${GREEN}Using Stage2 as production compiler (verified via frozen bootstrap).${NC}"
+        VERIFIED="$STAGE2"
+    fi
+
     rm -rf "$OPT_WRAPPER_DIR"
-    VERIFIED="$STAGE2"
 fi
 
 # Install production compiler

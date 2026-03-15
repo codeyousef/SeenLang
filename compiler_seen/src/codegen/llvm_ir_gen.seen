@@ -4717,7 +4717,7 @@ class LLVMIRGenerator {
         // (needed so inferExpressionType can find parameter types)
         // Also pre-register 'this' for instance methods (non-static)
         let isStaticMethod = method.isStatic
-        if not isStaticMethod or method.name == "new" {
+        if not isStaticMethod {
             varNames.push("this")
             varRegs.push("")  // Placeholder - will be cleared
             varTypes.push(classNode.name)
@@ -15883,7 +15883,7 @@ class LLVMIRGenerator {
         if llvmType == "%SeenString" {
             // For strings, check if length is 0
             let lenReg = getNextReg()
-            output.append("  " + lenReg + " = extractvalue %SeenString " + leftReg + ", 1\n")
+            output.append("  " + lenReg + " = extractvalue %SeenString " + leftReg + ", 0\n")
             output.append("  " + cmpReg + " = icmp eq i64 " + lenReg + ", 0\n")
         } else if llvmType == "i1" {
             output.append("  " + cmpReg + " = icmp eq i1 " + leftReg + ", 0\n")
@@ -15929,7 +15929,7 @@ class LLVMIRGenerator {
         let cmpReg = getNextReg()
         if mapType(recvType) == "%SeenString" {
             let lenReg = getNextReg()
-            output.append("  " + lenReg + " = extractvalue %SeenString " + recvReg + ", 1\n")
+            output.append("  " + lenReg + " = extractvalue %SeenString " + recvReg + ", 0\n")
             output.append("  " + cmpReg + " = icmp eq i64 " + lenReg + ", 0\n")
         } else {
             output.append("  " + cmpReg + " = icmp eq i64 " + recvReg + ", 0\n")
