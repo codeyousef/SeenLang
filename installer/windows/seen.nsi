@@ -35,7 +35,8 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 BrandingText "${PRODUCT_NAME} ${VERSION}"
 
-VIProductVersion "${VERSION}.0"
+!searchparse "${VERSION}" "" VI_MAJOR "." VI_MINOR "." VI_PATCH "-" VI_EXTRA
+VIProductVersion "${VI_MAJOR}.${VI_MINOR}.${VI_PATCH}.0"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
