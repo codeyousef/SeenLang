@@ -5,6 +5,13 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4-alpha] - 2026-03-16
+
+### Fixed
+
+#### Codegen
+- `extern fun` declarations with Float parameters now register in `g_floatParamFuncs`, enabling Int-to-Float implicit promotion (`sitofp i64 → double`) at call sites. Previously, extern functions early-returned before the Float parameter registration code, causing Int arguments to be passed as raw `i64` bits reinterpreted as `double` (e.g., `1280` → `≈0.0`). Fixes zero-size viewports and corrupted UBO data in programs using FFI functions like `seen_vk_cmd_set_viewport` and `seen_mem_store_f32`.
+
 ## [0.3.7] - 2026-03-16
 
 ### Fixed

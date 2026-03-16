@@ -5361,6 +5361,9 @@ class LLVMIRGenerator {
                 let ptn = param.paramType
                 let ptName = ptn.typeName
                 mappedPTypes.push(mapTypeForParameter(ptName))
+                if ptName == "Float" {
+                    g_floatParamFuncs = g_floatParamFuncs + fn.name + ":" + mpIdx.toString() + "|"
+                }
                 mpIdx = mpIdx + 1
             }
             let externRetType = mapType(fn.returnType.typeName)
