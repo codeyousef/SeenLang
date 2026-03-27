@@ -73,6 +73,39 @@ fun hashString(data: String) r: String {
     return result
 }
 
+fun buildCacheSignature(profile: String, language: String, targetCpu: String, simdPolicy: String,
+    sanitizePolicy: String, pgoMode: String, effectiveTarget: String, panicOnOverflow: Bool) r: String {
+    var signature = "cache-v3"
+    signature = signature + "|profile=" + profile
+    signature = signature + "|language=" + language
+    signature = signature + "|targetCpu=" + targetCpu
+    signature = signature + "|simd=" + simdPolicy
+    signature = signature + "|sanitize=" + sanitizePolicy
+    signature = signature + "|pgo=" + pgoMode
+    signature = signature + "|target=" + effectiveTarget
+    if panicOnOverflow {
+        signature = signature + "|panic=1"
+    } else {
+        signature = signature + "|panic=0"
+    }
+    if g_releaseMode {
+        signature = signature + "|release=1"
+    } else {
+        signature = signature + "|release=0"
+    }
+    if g_fastMode == 1 {
+        signature = signature + "|fast=1"
+    } else {
+        signature = signature + "|fast=0"
+    }
+    if g_boundsCheckCli == 1 {
+        signature = signature + "|bounds=1"
+    } else {
+        signature = signature + "|bounds=0"
+    }
+    return signature
+}
+
 // Read file contents, returning "" if file doesn't exist
 fun loadFileContent(path: String) r: String {
     if not exists(path) {
@@ -1053,6 +1086,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if effectiveTarget == "" {
         effectiveTarget = detectHostTargetName()
     }
+    let cacheSignature = buildCacheSignature(profile, language, targetCpu, simdPolicy, sanitizePolicy, pgoMode, effectiveTarget, panicOnOverflow)
     let targetClangArgs = buildTargetClangArgs(effectiveTarget)
     let targetRuntimeFlags = buildTargetRuntimeCompileFlags(effectiveTarget)
 
@@ -1382,7 +1416,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // The source-level cache (.seen_cache/) uses a global registryHash to detect
     // when ANY module's declarations change. When the hash changes, all cached .o
     // files are invalidated because cross-module type resolution may have changed.
-    // The IR cache (/tmp/seen_ir_cache/) uses per-module keys (registryHash + path)
+    // Cache entries are namespaced by the effective compilation signature so cross-
+    // target and cross-profile builds never reuse incompatible object files.
+    // The IR cache (/tmp/seen_ir_cache/) uses per-module keys (signature + registryHash + path)
     // for finer granularity -- a body-only change in module A does not invalidate
     // module B's IR cache since declarations are unchanged.
     var registryHash = ""
@@ -1397,7 +1433,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             globalData = globalData + gpath + ":" + gsrcHash + "\n"
             gi = gi + 1
         }
-        registryHash = hashString(globalData)
+        registryHash = hashString(cacheSignature + "\n" + globalData)
         ensureCacheDir()
         let cachedRegHash = loadFileContent(".seen_cache/registry.hash")
         if cachedRegHash == registryHash {
@@ -1444,7 +1480,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
         // Check source-level cache first (fastest: just file comparison)
         if useCache and cacheValid {
-            let pathHash = hashString(path)
+            let pathHash = hashString(cacheSignature + ":" + path)
             let sourceContent = readText(path)
             let sourceHash = hashString(sourceContent)
             let cachedHashFile = ".seen_cache/" + pathHash + ".hash"
@@ -1463,12 +1499,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         // identical declarations always produce identical optimized .o files. This cache
         // persists across bootstrap stages (stage2 can reuse stage1's cached objects),
         // which is critical for keeping bootstrap verification fast.
-        // Key = hash("v2:" + registryHash + ":" + path). The "v2" prefix forces a
+        // Key = hash("v3:" + cacheSignature + ":" + registryHash + ":" + path).
+        // The "v3" prefix forces a one-time cache miss after broadening the cache key.
         // one-time cache miss when the pipeline changes (e.g., llvm-as -> opt --thinlto-bc).
         var irCacheKey = ""
         var irCacheHit = 0
         if useCache and registryHash != "" {
-            irCacheKey = hashString("v2:" + registryHash + ":" + path)
+            irCacheKey = hashString("v3:" + cacheSignature + ":" + registryHash + ":" + path)
             ensureIrCacheDir()
             let irCacheFile = "/tmp/seen_ir_cache/" + irCacheKey + ".o"
             let checkIrCache: CommandResult = runCommand("test -f " + irCacheFile)
@@ -1485,7 +1522,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             // Promote to source-level cache to speed up next build within same stage
             if useCache {
                 ensureCacheDir()
-                let srcPathHash = hashString(path)
+                let srcPathHash = hashString(cacheSignature + ":" + path)
                 let srcContent = readText(path)
                 let cpSrcObj: CommandResult = runCommand("cp " + irCacheObj + " .seen_cache/" + srcPathHash + ".o")
                 writeText(".seen_cache/" + srcPathHash + ".hash", hashString(srcContent))
@@ -1729,7 +1766,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if useCache {
                 ensureCacheDir()
                 let sourcePath = uncachedSrcPaths[ci]
-                let pathHash = hashString(sourcePath)
+                let pathHash = hashString(cacheSignature + ":" + sourcePath)
                 let cpCacheResult: CommandResult = runCommand("cp " + objFile + " .seen_cache/" + pathHash + ".o")
                 writeText(".seen_cache/" + pathHash + ".hash", hashString(readText(sourcePath)))
             }
