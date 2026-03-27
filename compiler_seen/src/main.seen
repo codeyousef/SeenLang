@@ -21,7 +21,7 @@
 // passed through to the lexer's KeywordManager.
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote}
-import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang}
+import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang, compileCommandWithFullTargeting as StageCompileWithFullTargeting}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import io.file.{readText, writeText}
@@ -74,6 +74,7 @@ class CompilerOptions {
     var sourceFile: String
     var outputFile: String
     var target: Target
+    var targetSpecified: Bool
     var debugMode: Bool
     var optimizationLevel: Int
     var profile: String  // "default" or "deterministic"
@@ -84,6 +85,7 @@ class CompilerOptions {
         sourceFile = ""
         outputFile = ""
         target = Target.Linux_x86_64  // Default native target
+        targetSpecified = false
         debugMode = false
         optimizationLevel = 2
         profile = "default"
@@ -204,6 +206,8 @@ fun parseCompilerOptions(args: List<String>, startIndex: Int) r: CompilerOptions
                 if options.target == Target.Unsupported {
                     printLn("Warning: Unknown target '" + targetStr + "', using default")
                     options.target = Target.Linux_x86_64
+                } else {
+                    options.targetSpecified = true
                 }
                 i = i + 2
             } else {
@@ -305,6 +309,8 @@ fun getDefaultOutput(sourceFile: String, target: Target) r: String {
         Target.UWW -> baseName + ".wasm"
         Target.C -> baseName + ".c"
         Target.LLVM_IR -> baseName + ".ll"
+        Target.Windows_x86_64 -> baseName + ".exe"
+        Target.Android_ARM64 -> "lib" + baseName + ".so"
         _ -> baseName  // Native executable
     }
 }
@@ -336,6 +342,13 @@ fun printUsage() r: Void {
     printLn("      uww                       UWW deterministic WASM")
     printLn("      c                         C source code")
     printLn("      llvm-ir                   LLVM IR")
+    printLn("      windows-x86_64            Windows executable")
+    printLn("      macos-x86_64              macOS x86_64 executable")
+    printLn("      macos-arm64               macOS ARM64 executable")
+    printLn("      linux-x86_64              Linux x86_64 executable")
+    printLn("      linux-arm64               Linux ARM64 executable")
+    printLn("      ios-arm64                 iOS ARM64 artifact")
+    printLn("      android-arm64             Android ARM64 shared library")
     printLn("  -O0, -O1, -O2, -O3            Optimization level")
     printLn("  --release                      Optimized build (alias for -O3)")
     printLn("  --backend <backend>           Code generation backend:")
@@ -578,7 +591,11 @@ fun buildCommandWithOptions(options: CompilerOptions) r: Int {
     }
 
     // LLVM backend (default): route through stage1 compiler pipeline
-    let result = StageCompileWithLang(sourceFile, outputFile, options.language)
+    var crossTarget = ""
+    if options.targetSpecified {
+        crossTarget = targetToString(options.target)
+    }
+    let result = StageCompileWithFullTargeting(sourceFile, outputFile, options.profile, true, options.language, "", "auto", false, "", "", "", "", crossTarget)
     if result == 0 {
         printLn("Build successful: " + outputFile)
     }
@@ -727,6 +744,8 @@ fun targetToString(target: Target) r: String {
         Target.macOS_x86_64 -> "macos-x86_64"
         Target.macOS_ARM64 -> "macos-arm64"
         Target.Linux_ARM64 -> "linux-arm64"
+        Target.iOS_ARM64 -> "ios-arm64"
+        Target.Android_ARM64 -> "android-arm64"
         Target.RISC_V -> "riscv"
         _ -> "native"
     }

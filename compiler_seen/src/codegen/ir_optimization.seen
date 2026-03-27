@@ -2,6 +2,7 @@
 // These functions have no module-level state dependencies.
 
 import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
 
 // Helper to check mutability prefix from "[L|V]Type:Value" encoding (86 = 'V')
 fun parseGlobalVarMutable(encoded: String) r: Bool {
@@ -468,6 +469,140 @@ fun parseFixedPoint100(s: String) r: Int {
     return result
 }
 
+// ============================================================
+// emitEgraphPeepholeImpl — emit optimized IR for integer e-graph actions
+// action: string from egraphLookup (e.g. "shl:3", "neg", "const:0", "and:7")
+// leftReg/rightReg: pre-generated registers for the operands
+// operator: the original binary operator (for comments)
+// Returns result register, or "" if action is "identity_left"/"identity_right"
+// (caller must handle identity by returning the appropriate sub-expression)
+// ============================================================
+fun emitEgraphPeepholeImpl(output: StringBuilder, regBox: Array<Int>, action: String, leftReg: String, rightReg: String, operator: String) r: String {
+    if action.startsWith("const:") {
+        let constVal = action.substring(6, action.length())
+        let constReg = getNextRegFn(regBox)
+        output.append("  " + constReg + " = add i64 " + constVal + ", 0 ; e-graph: " + operator + " -> " + constVal + "\n")
+        return constReg
+    }
+    if action == "neg" {
+        let negReg = getNextRegFn(regBox)
+        output.append("  " + negReg + " = sub i64 0, " + leftReg + " ; e-graph: x * -1 -> -x\n")
+        return negReg
+    }
+    if action.startsWith("shl:") {
+        let shiftAmt = action.substring(4, action.length())
+        let shlReg = getNextRegFn(regBox)
+        output.append("  " + shlReg + " = shl i64 " + leftReg + ", " + shiftAmt + " ; e-graph: strength reduction\n")
+        return shlReg
+    }
+    if action.startsWith("shl_add:") {
+        let shiftAmt = action.substring(8, action.length())
+        let shlReg = getNextRegFn(regBox)
+        output.append("  " + shlReg + " = shl i64 " + leftReg + ", " + shiftAmt + "\n")
+        let addReg = getNextRegFn(regBox)
+        output.append("  " + addReg + " = add i64 " + shlReg + ", " + leftReg + " ; superopt: (x<<" + shiftAmt + ")+x\n")
+        return addReg
+    }
+    if action.startsWith("shl_sub:") {
+        let shiftAmt = action.substring(8, action.length())
+        let shlReg = getNextRegFn(regBox)
+        output.append("  " + shlReg + " = shl i64 " + leftReg + ", " + shiftAmt + "\n")
+        let subReg = getNextRegFn(regBox)
+        output.append("  " + subReg + " = sub i64 " + shlReg + ", " + leftReg + " ; superopt: (x<<" + shiftAmt + ")-x\n")
+        return subReg
+    }
+    if action.startsWith("shl_add2:") {
+        // Two-shift add: (x<<a) + (x<<b), action format "shl_add2:a,b"
+        let params = action.substring(9, action.length())
+        // Parse "a,b" — find comma position
+        var commaPos = 0
+        var ci = 0
+        while ci < params.length() {
+            if params.byteAt(ci) == 44 { commaPos = ci }
+            ci = ci + 1
+        }
+        let shiftA = params.substring(0, commaPos)
+        let shiftB = params.substring(commaPos + 1, params.length())
+        let shlAReg = getNextRegFn(regBox)
+        output.append("  " + shlAReg + " = shl i64 " + leftReg + ", " + shiftA + "\n")
+        let shlBReg = getNextRegFn(regBox)
+        output.append("  " + shlBReg + " = shl i64 " + leftReg + ", " + shiftB + "\n")
+        let addReg = getNextRegFn(regBox)
+        output.append("  " + addReg + " = add i64 " + shlAReg + ", " + shlBReg + " ; superopt: (x<<" + shiftA + ")+(x<<" + shiftB + ")\n")
+        return addReg
+    }
+    if action.startsWith("and:") {
+        let mask = action.substring(4, action.length())
+        let andReg = getNextRegFn(regBox)
+        output.append("  " + andReg + " = and i64 " + leftReg + ", " + mask + " ; e-graph: mod -> and\n")
+        return andReg
+    }
+    if action.startsWith("ashr:") {
+        let shiftAmt = action.substring(5, action.length())
+        let ashrReg = getNextRegFn(regBox)
+        output.append("  " + ashrReg + " = ashr i64 " + leftReg + ", " + shiftAmt + " ; e-graph: div -> ashr\n")
+        return ashrReg
+    }
+    return ""
+}
+
+// ============================================================
+// emitEgraphFloatPeepholeImpl — emit optimized IR for float e-graph actions
+// action: string from egraphLookupFloat (e.g. "fconst:0.0", "fadd_self", "fmul_half")
+// leftReg/rightReg: pre-generated registers for the operands
+// operator: the original binary operator (for comments)
+// Returns result register, or "" if action is "identity_left"/"identity_right"
+// (caller must handle identity by returning the appropriate sub-expression)
+// ============================================================
+fun emitEgraphFloatPeepholeImpl(output: StringBuilder, regBox: Array<Int>, action: String, leftReg: String, rightReg: String, operator: String) r: String {
+    if action.startsWith("fconst:") {
+        let fConstReg = getNextRegFn(regBox)
+        output.append("  " + fConstReg + " = fadd fast double 0.0, 0.0 ; e-graph: float " + operator + " -> 0.0\n")
+        return fConstReg
+    }
+    if action == "fadd_self" {
+        let faddReg = getNextRegFn(regBox)
+        output.append("  " + faddReg + " = fadd fast double " + leftReg + ", " + leftReg + " ; e-graph: x * 2.0 -> x + x\n")
+        return faddReg
+    }
+    if action == "fmul_half" {
+        let fmulHalfReg = getNextRegFn(regBox)
+        output.append("  " + fmulHalfReg + " = fmul fast double " + leftReg + ", 5.000000e-01 ; e-graph: x / 2.0 -> x * 0.5\n")
+        return fmulHalfReg
+    }
+    if action == "fmul_quarter" {
+        let fmqReg = getNextRegFn(regBox)
+        output.append("  " + fmqReg + " = fmul fast double " + leftReg + ", 2.500000e-01 ; e-graph: x / 4.0 -> x * 0.25\n")
+        return fmqReg
+    }
+    if action == "fmul_eighth" {
+        let fmeReg = getNextRegFn(regBox)
+        output.append("  " + fmeReg + " = fmul fast double " + leftReg + ", 1.250000e-01 ; e-graph: x / 8.0 -> x * 0.125\n")
+        return fmeReg
+    }
+    if action == "fmul_sixteenth" {
+        let fmsReg = getNextRegFn(regBox)
+        output.append("  " + fmsReg + " = fmul fast double " + leftReg + ", 6.250000e-02 ; e-graph: x / 16.0 -> x * 0.0625\n")
+        return fmsReg
+    }
+    if action == "fneg" {
+        let fnegReg = getNextRegFn(regBox)
+        output.append("  " + fnegReg + " = fneg fast double " + rightReg + " ; e-graph: 0.0 - x -> fneg\n")
+        return fnegReg
+    }
+    if action == "fneg_left" {
+        let fnegReg = getNextRegFn(regBox)
+        output.append("  " + fnegReg + " = fneg fast double " + leftReg + " ; e-graph: x * -1.0 -> fneg\n")
+        return fnegReg
+    }
+    if action == "fneg_right" {
+        let fnegReg = getNextRegFn(regBox)
+        output.append("  " + fnegReg + " = fneg fast double " + rightReg + " ; e-graph: -1.0 * x -> fneg\n")
+        return fnegReg
+    }
+    return ""
+}
+
 // Parse a single digit character to int
 fun parseDigitChar(c: String) r: Int {
     if c == "0" { return 0 }
@@ -643,4 +778,242 @@ fun getNextBlockFn(box: Array<Int>) r: String {
     let label = "bb" + box[0].toString()
     box[0] = box[0] + 1
     return label
+}
+
+// emitLoopMetadataImpl — Emit loop vectorization/unroll/distribute metadata nodes
+// Extracted from llvm_ir_gen.seen emitLoopMetadata() to follow SRP
+// indent: encoded decorator state (unroll + noVec*1000 + alignTo*10000 + regionKB*10000000 + tail*10000000000)
+// laneWidth: override SIMD lane width from @vectorize(N) (0 = use default)
+// highPressure: 1 if function has high register pressure (@high_pressure)
+// blockBox: [0] = next block label counter (determines how many metadata nodes to emit)
+fun emitLoopMetadataImpl(output: StringBuilder, indent: Int, laneWidth: Int, highPressure: Int, blockBox: Array<Int>, reductionLoopIds: String, nestedLoopIds: String, loopTileHints: String) r: Void {
+    output.append("\n; Loop vectorization metadata\n")
+    let indentClean = indent - (indent / 10000000000) * 10000000000
+    let noVecFlag = (indentClean / 1000) - (indentClean / 10000) * 10
+    var unrollCnt = indentClean - (indentClean / 1000) * 1000
+    var vecWidth = selectSimdWidth(false, false)
+    if laneWidth > 0 {
+        vecWidth = laneWidth
+    }
+    if highPressure == 1 {
+        if unrollCnt > 2 { unrollCnt = 2 }
+        vecWidth = vecWidth / 2
+        if vecWidth < 2 { vecWidth = 2 }
+    }
+    output.append("!200 = !{!\"llvm.loop.vectorize.enable\", i1 true}\n")
+    output.append("!201 = !{!\"llvm.loop.vectorize.width\", i32 " + vecWidth.toString() + "}\n")
+    output.append("!199 = !{!\"llvm.loop.vectorize.enable\", i1 false}\n")
+    if unrollCnt > 0 {
+        output.append("!198 = !{!\"llvm.loop.unroll.count\", i32 " + unrollCnt.toString() + "}\n")
+    }
+    output.append("!195 = !{!\"llvm.loop.licm_versioning.disable\"}\n")
+    output.append("!194 = !{!\"llvm.loop.mustprogress\"}\n")
+    output.append("!192 = !{!\"llvm.loop.distribute.enable\", i1 true}\n")
+    output.append("!193 = !{!\"llvm.loop.interleave.count\", i32 4}\n")
+    output.append("!197 = !{!\"branch_weights\", i32 1, i32 2000}\n")
+    output.append("!196 = !{!\"branch_weights\", i32 2000, i32 1}\n")
+    output.append("!190 = !{}\n")
+    output.append("!189 = !{!\"llvm.loop.unroll.full\"}\n")
+    let lbrace = "{"
+    output.append("!188 = !" + lbrace + "i64 0, i64 2147483648}\n")
+    let wideVecWidth = vecWidth * 2
+    output.append("!191 = !{!\"llvm.loop.vectorize.width\", i32 " + wideVecWidth.toString() + "}\n")
+    var nextTileNodeId = blockBox[0] + 302
+    let maxMeta = blockBox[0]
+    var reductionFlags = ""
+    var tileFlags = ""
+    var nestedFlags = ""
+    var tileSizeEntries = ""
+    var bfi = 0
+    while bfi < maxMeta {
+        reductionFlags = reductionFlags + "0"
+        tileFlags = tileFlags + "0"
+        nestedFlags = nestedFlags + "0"
+        bfi = bfi + 1
+    }
+    if reductionLoopIds != "" {
+        var rStart = 0
+        var rPos = 0
+        while rPos <= reductionLoopIds.length() {
+            var rDelim = 0
+            if rPos == reductionLoopIds.length() { rDelim = 1 }
+            if rDelim == 0 {
+                if reductionLoopIds.byteAt(rPos) == 124 { rDelim = 1 }
+            }
+            if rDelim == 1 {
+                let rEntry = reductionLoopIds.substring(rStart, rPos)
+                let rIdx = parseIntManual(rEntry)
+                if rIdx >= 0 {
+                    if rIdx < maxMeta {
+                        reductionFlags = reductionFlags.substring(0, rIdx) + "R" + reductionFlags.substring(rIdx + 1, maxMeta)
+                    }
+                }
+                rStart = rPos + 1
+            }
+            rPos = rPos + 1
+        }
+    }
+    if nestedLoopIds != "" {
+        var nStart = 0
+        var nPos = 0
+        while nPos <= nestedLoopIds.length() {
+            var nDelim = 0
+            if nPos == nestedLoopIds.length() { nDelim = 1 }
+            if nDelim == 0 {
+                if nestedLoopIds.byteAt(nPos) == 124 { nDelim = 1 }
+            }
+            if nDelim == 1 {
+                let nEntry = nestedLoopIds.substring(nStart, nPos)
+                let nIdx = parseIntManual(nEntry)
+                if nIdx >= 0 {
+                    if nIdx < maxMeta {
+                        nestedFlags = nestedFlags.substring(0, nIdx) + "N" + nestedFlags.substring(nIdx + 1, maxMeta)
+                    }
+                }
+                nStart = nPos + 1
+            }
+            nPos = nPos + 1
+        }
+    }
+    if loopTileHints != "" {
+        var tStart = 0
+        var tPos = 0
+        while tPos <= loopTileHints.length() {
+            var tDelim = 0
+            if tPos == loopTileHints.length() { tDelim = 1 }
+            if tDelim == 0 {
+                if loopTileHints.byteAt(tPos) == 124 { tDelim = 1 }
+            }
+            if tDelim == 1 {
+                let tEntry = loopTileHints.substring(tStart, tPos)
+                var colonPos = 0
+                var cpScan = 0
+                while cpScan < tEntry.length() {
+                    if tEntry.byteAt(cpScan) == 58 {
+                        colonPos = cpScan
+                    }
+                    cpScan = cpScan + 1
+                }
+                if colonPos > 0 {
+                    let tMetaStr = tEntry.substring(0, colonPos)
+                    let tTileStr = tEntry.substring(colonPos + 1, tEntry.length())
+                    let tIdx = parseIntManual(tMetaStr)
+                    let tSize = parseIntManual(tTileStr)
+                    if tIdx >= 0 {
+                        if tIdx < maxMeta {
+                            if tSize == -2 {
+                                tileFlags = tileFlags.substring(0, tIdx) + "F" + tileFlags.substring(tIdx + 1, maxMeta)
+                            }
+                            if tSize == -1 {
+                                tileFlags = tileFlags.substring(0, tIdx) + "V" + tileFlags.substring(tIdx + 1, maxMeta)
+                            }
+                            if tSize == 8 {
+                                tileFlags = tileFlags.substring(0, tIdx) + "G" + tileFlags.substring(tIdx + 1, maxMeta)
+                            }
+                            if tSize > 0 {
+                                if tSize != 8 {
+                                    tileFlags = tileFlags.substring(0, tIdx) + "T" + tileFlags.substring(tIdx + 1, maxMeta)
+                                    let tsEntry = tMetaStr + ":" + tTileStr
+                                    if tileSizeEntries == "" {
+                                        tileSizeEntries = tsEntry
+                                    } else {
+                                        tileSizeEntries = tileSizeEntries + "|" + tsEntry
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                tStart = tPos + 1
+            }
+            tPos = tPos + 1
+        }
+    }
+    var metaIdx = 0
+    while metaIdx < maxMeta {
+        let metaId = metaIdx + 202
+        let metaIdStr = metaId.toString()
+        if noVecFlag == 1 {
+            output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !199, !194}\n")
+        } else {
+            let rFlag = reductionFlags.substring(metaIdx, metaIdx + 1)
+            let nFlag = nestedFlags.substring(metaIdx, metaIdx + 1)
+            var loopTileSize = 0
+            let tFlag = tileFlags.substring(metaIdx, metaIdx + 1)
+            if tFlag == "F" { loopTileSize = -2 }
+            if tFlag == "V" { loopTileSize = -1 }
+            if tFlag == "G" { loopTileSize = 8 }
+            if tFlag == "T" {
+                let metaIdxStr = metaIdx.toString()
+                var tsStart = 0
+                var tsPos = 0
+                while tsPos <= tileSizeEntries.length() {
+                    var tsDelim = 0
+                    if tsPos == tileSizeEntries.length() { tsDelim = 1 }
+                    if tsDelim == 0 {
+                        if tileSizeEntries.byteAt(tsPos) == 124 { tsDelim = 1 }
+                    }
+                    if tsDelim == 1 {
+                        let tsEntry = tileSizeEntries.substring(tsStart, tsPos)
+                        var tsColon = 0
+                        var tscScan = 0
+                        while tscScan < tsEntry.length() {
+                            if tsEntry.byteAt(tscScan) == 58 { tsColon = tscScan }
+                            tscScan = tscScan + 1
+                        }
+                        if tsColon > 0 {
+                            let tsMetaStr = tsEntry.substring(0, tsColon)
+                            if tsMetaStr == metaIdxStr {
+                                let tsTileStr = tsEntry.substring(tsColon + 1, tsEntry.length())
+                                loopTileSize = parseIntManual(tsTileStr)
+                            }
+                        }
+                        tsStart = tsPos + 1
+                    }
+                    tsPos = tsPos + 1
+                }
+            }
+            var vecRef = "!201"
+            if rFlag == "R" { vecRef = "!191" }
+            var distRef = ""
+            if nFlag == "N" { distRef = ", !192" }
+            var loopMetaEmitted = 0
+            if loopTileSize == -2 {
+                output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !189, !194" + distRef + "}\n")
+                loopMetaEmitted = 1
+            }
+            if loopMetaEmitted == 0 {
+                if loopTileSize < 0 {
+                    output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !199, !194" + distRef + "}\n")
+                    loopMetaEmitted = 1
+                }
+            }
+            if loopMetaEmitted == 0 {
+                if unrollCnt > 0 {
+                    output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !198, !194, !193" + distRef + "}\n")
+                } else {
+                    if loopTileSize > 0 {
+                        let tileNodeId = nextTileNodeId
+                        nextTileNodeId = nextTileNodeId + 1
+                        output.append("!" + tileNodeId.toString() + " = !{!\"llvm.loop.unroll.count\", i32 " + loopTileSize.toString() + "}\n")
+                        output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !" + tileNodeId.toString() + ", !194, !193" + distRef + "}\n")
+                    } else {
+                        output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !194, !193" + distRef + "}\n")
+                    }
+                }
+            }
+        }
+        metaIdx = metaIdx + 1
+    }
+    if maxMeta == 0 {
+        if noVecFlag == 1 {
+            output.append("!202 = distinct !{!202, !199, !194}\n")
+        } else {
+            if unrollCnt > 0 {
+                output.append("!202 = distinct !{!202, !200, !201, !195, !198, !194, !193}\n")
+            } else {
+                output.append("!202 = distinct !{!202, !200, !201, !195, !194, !193}\n")
+            }
+        }
+    }
 }

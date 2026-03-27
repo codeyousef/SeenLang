@@ -11,10 +11,50 @@
 // =============================================================================
 
 import trace.{traceGen}
+import str.string.{StringBuilder}
 import codegen.ir_type_info.{getSeenFieldTypeImpl, getMethodReturnTypeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl}
 import codegen.ir_type_tables.{registerKnownDataTypesImpl}
 import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parseDecimalIntImpl, getBaseTypeNameImpl}
+
+var g_findStructCacheNames: Array<String> = Array<String>()
+var g_findStructCacheIdxs: Array<Int> = Array<Int>()
+var g_fieldInfoCacheKeys: Array<String> = Array<String>()
+var g_fieldInfoCacheIdxs: Array<Int> = Array<Int>()
+
+fun findCachedStructIndex(name: String) r: Int {
+    var i = g_findStructCacheNames.length() - 1
+    while i >= 0 {
+        if g_findStructCacheNames[i] == name {
+            return g_findStructCacheIdxs[i]
+        }
+        i = i - 1
+    }
+    return -1
+}
+
+fun cacheStructIndex(name: String, idx: Int) r: Void {
+    if idx < 0 { return }
+    g_findStructCacheNames.push(name)
+    g_findStructCacheIdxs.push(idx)
+}
+
+fun findCachedFieldIndex(key: String) r: Int {
+    var i = g_fieldInfoCacheKeys.length() - 1
+    while i >= 0 {
+        if g_fieldInfoCacheKeys[i] == key {
+            return g_fieldInfoCacheIdxs[i]
+        }
+        i = i - 1
+    }
+    return -1
+}
+
+fun cacheFieldIndex(key: String, idx: Int) r: Void {
+    if idx < 0 { return }
+    g_fieldInfoCacheKeys.push(key)
+    g_fieldInfoCacheIdxs.push(idx)
+}
 
 class TypeRegistry {
     var structNames: Array<String>
@@ -52,9 +92,14 @@ class TypeRegistry {
     // =========================================================================
 
     fun findStruct(name: String) r: Int {
+        let cached = findCachedStructIndex(name)
+        if cached >= 0 {
+            return cached
+        }
         var i = structNames.length() - 1
         while i >= 0 {
             if structNames[i] == name {
+                cacheStructIndex(name, i)
                 return i
             }
             i = i - 1
@@ -66,6 +111,7 @@ class TypeRegistry {
                 var j = structNames.length() - 1
                 while j >= 0 {
                     if structNames[j] == baseName {
+                        cacheStructIndex(name, j)
                         return j
                     }
                     j = j - 1
@@ -197,22 +243,27 @@ class TypeRegistry {
 
     fun getFieldInfo(structName: String, fieldName: String) r: Int {
         traceGen("getFieldInfo: " + structName + "." + fieldName)
+        let cacheKey = structName + "." + fieldName
+        let cached = findCachedFieldIndex(cacheKey)
+        if cached >= 0 {
+            return cached
+        }
 
         if structName == "FunctionNode" {
-            if fieldName == "name" { return 0 }
-            if fieldName == "params" { return 1 }
-            if fieldName == "returnType" { return 2 }
-            if fieldName == "body" { return 3 }
-            if fieldName == "isAsync" { return 4 }
-            if fieldName == "isInline" { return 5 }
-            if fieldName == "isStatic" { return 6 }
-            if fieldName == "isExtern" { return 7 }
-            if fieldName == "isDeterministic" { return 8 }
-            if fieldName == "isNondeterministic" { return 9 }
-            if fieldName == "decorators" { return 10 }
-            if fieldName == "line" { return 11 }
-            if fieldName == "column" { return 12 }
-            if fieldName == "isOverride" { return 13 }
+            if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "params" { cacheFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "returnType" { cacheFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "body" { cacheFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "isAsync" { cacheFieldIndex(cacheKey, 4); return 4 }
+            if fieldName == "isInline" { cacheFieldIndex(cacheKey, 5); return 5 }
+            if fieldName == "isStatic" { cacheFieldIndex(cacheKey, 6); return 6 }
+            if fieldName == "isExtern" { cacheFieldIndex(cacheKey, 7); return 7 }
+            if fieldName == "isDeterministic" { cacheFieldIndex(cacheKey, 8); return 8 }
+            if fieldName == "isNondeterministic" { cacheFieldIndex(cacheKey, 9); return 9 }
+            if fieldName == "decorators" { cacheFieldIndex(cacheKey, 10); return 10 }
+            if fieldName == "line" { cacheFieldIndex(cacheKey, 11); return 11 }
+            if fieldName == "column" { cacheFieldIndex(cacheKey, 12); return 12 }
+            if fieldName == "isOverride" { cacheFieldIndex(cacheKey, 13); return 13 }
         }
         if structName == "ClassNode" {
             if fieldName == "name" { return 0 }
@@ -290,7 +341,10 @@ class TypeRegistry {
             }
             if byteVal == 44 or pos == fieldNamesStr.length() {
                 let name = fieldNamesStr.substring(start, pos)
-                if name == fieldName { return fieldIdx }
+                if name == fieldName {
+                    cacheFieldIndex(cacheKey, fieldIdx)
+                    return fieldIdx
+                }
                 fieldIdx = fieldIdx + 1
                 start = pos + 1
             }
@@ -298,24 +352,24 @@ class TypeRegistry {
         }
 
         if structName == "FrontendDiagnostic" {
-            if fieldName == "file" { return 0 }
-            if fieldName == "line" { return 1 }
-            if fieldName == "column" { return 2 }
-            if fieldName == "severity" { return 3 }
-            if fieldName == "message" { return 4 }
+            if fieldName == "file" { cacheFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "line" { cacheFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "column" { cacheFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "severity" { cacheFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "message" { cacheFieldIndex(cacheKey, 4); return 4 }
         }
         if structName == "Token" {
-            if fieldName == "tokenType" { return 0 }
-            if fieldName == "value" { return 1 }
-            if fieldName == "line" { return 2 }
-            if fieldName == "column" { return 3 }
+            if fieldName == "tokenType" { cacheFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "value" { cacheFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "line" { cacheFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "column" { cacheFieldIndex(cacheKey, 3); return 3 }
         }
         if structName == "FieldNode" {
-            if fieldName == "name" { return 0 }
-            if fieldName == "fieldType" { return 1 }
-            if fieldName == "isMutable" { return 2 }
-            if fieldName == "defaultValue" { return 3 }
-            if fieldName == "visibility" { return 4 }
+            if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "fieldType" { cacheFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "isMutable" { cacheFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "defaultValue" { cacheFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "visibility" { cacheFieldIndex(cacheKey, 4); return 4 }
         }
         return -1
     }
@@ -472,6 +526,107 @@ class TypeRegistry {
     fun getSeenFieldType(structName: String, fieldName: String) r: String {
         return getSeenFieldTypeImpl(structName, fieldName, structNames, structFieldNames, structFieldTypes)
     }
+}
+
+// ==========================================================================
+// CodegenState — Bundled mutable state for extracted codegen free functions
+// ==========================================================================
+//
+// Mirrors the key fields of LLVMIRGenerator that codegen free functions need.
+// LLVMIRGenerator.syncState() copies class field references to the state
+// object so free functions in satellite modules can read/write the same
+// shared data. Reference types (StringBuilder, Array, TypeRegistry) are
+// shared automatically; value types (String, Int) need explicit sync at
+// the call site.
+//
+// This is the architectural foundation that enables moving generateExpression
+// and its sub-generators out of the 14K-line llvm_ir_gen.seen monolith into
+// satellite modules as free functions.
+// ==========================================================================
+
+class CodegenState {
+    var output: StringBuilder
+    var stringConstants: Array<String>
+    var regBox: Array<Int>
+    var blockBox: Array<Int>
+    var varNames: Array<String>
+    var varRegs: Array<String>
+    var varTypes: Array<String>
+    var indent: Int
+    var registry: TypeRegistry
+    var currentFunctionReturnType: String
+    var currentClassName: String
+    var blockTerminated: Int
+    var currentLoopCondLabel: String
+    var currentLoopEndLabel: String
+    var preAllocatedVars: Array<String>
+    var preAllocatedTypes: Array<String>
+    var stringConstantPrefix: String
+    var generatedFunctions: Array<String>
+    var generatedClasses: Array<String>
+    var pendingArrayLiteralType: String
+    var moduleConstantNames: Array<String>
+    var moduleConstantValues: Array<String>
+    var moduleConstantTypes: Array<String>
+
+    static fun new() r: CodegenState {
+        return CodegenState{
+            output: StringBuilder.new(),
+            stringConstants: Array<String>(),
+            regBox: Array<Int>(),
+            blockBox: Array<Int>(),
+            varNames: Array<String>(),
+            varRegs: Array<String>(),
+            varTypes: Array<String>(),
+            indent: 0,
+            registry: TypeRegistry.new(),
+            currentFunctionReturnType: "",
+            currentClassName: "",
+            blockTerminated: 0,
+            currentLoopCondLabel: "",
+            currentLoopEndLabel: "",
+            preAllocatedVars: Array<String>(),
+            preAllocatedTypes: Array<String>(),
+            stringConstantPrefix: "",
+            generatedFunctions: Array<String>(),
+            generatedClasses: Array<String>(),
+            pendingArrayLiteralType: "",
+            moduleConstantNames: Array<String>(),
+            moduleConstantValues: Array<String>(),
+            moduleConstantTypes: Array<String>()
+        }
+    }
+}
+
+// =========================================================================
+// CodegenState utility free functions — usable from any satellite module
+// =========================================================================
+
+fun csGetNextReg(s: CodegenState) r: String {
+    let reg = "%" + s.regBox[0].toString()
+    s.regBox[0] = s.regBox[0] + 1
+    return reg
+}
+
+fun csGetNextBlock(s: CodegenState) r: String {
+    let label = "bb" + s.blockBox[0].toString()
+    s.blockBox[0] = s.blockBox[0] + 1
+    return label
+}
+
+fun csFindVar(s: CodegenState, name: String) r: Int {
+    var i = s.varNames.length() - 1
+    while i >= 0 {
+        if s.varNames[i] == name { return i }
+        i = i - 1
+    }
+    return -1
+}
+
+fun csStoreVar(s: CodegenState, name: String, reg: String, varType: String) r: Void {
+    s.varNames.push(name)
+    s.varRegs.push(reg)
+    s.varTypes.push(varType)
 }
 
 // =========================================================================

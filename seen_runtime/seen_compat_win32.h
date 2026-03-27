@@ -26,6 +26,7 @@
 #include <windows.h>
 #include <io.h>        // _open, _read, _write, _close, _pipe
 #include <fcntl.h>     // _O_BINARY, O_RDONLY, O_RDWR
+#include <errno.h>
 #include <direct.h>    // _mkdir
 #include <process.h>   // _getpid, _popen, _pclose
 #include <malloc.h>    // _aligned_malloc, _aligned_free, _aligned_realloc

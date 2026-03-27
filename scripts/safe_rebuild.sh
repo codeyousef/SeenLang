@@ -145,6 +145,43 @@ run_with_progress() {
     return $exit_code
 }
 
+# Snapshot watcher: periodically copies .ll files to a safe directory so they
+# survive the frozen compiler's exit cleanup (which deletes ALL /tmp/seen_module_*).
+# Usage: start_ll_snapshot_watcher <compiler_pid> <snapshot_dir>
+start_ll_snapshot_watcher() {
+    local watch_pid=$1
+    local snapshot_dir=$2
+    mkdir -p "$snapshot_dir"
+    while kill -0 "$watch_pid" 2>/dev/null; do
+        for f in /tmp/seen_module_*.ll; do
+            [ -f "$f" ] || continue
+            [[ "$f" == *.opt.ll ]] && continue
+            local bn=$(basename "$f")
+            if [ ! -f "$snapshot_dir/$bn" ] || [ "$f" -nt "$snapshot_dir/$bn" ]; then
+                cp "$f" "$snapshot_dir/$bn" 2>/dev/null || true
+            fi
+        done
+        sleep 3
+    done
+    # Final sweep after compiler exits
+    for f in /tmp/seen_module_*.ll; do
+        [ -f "$f" ] || continue
+        [[ "$f" == *.opt.ll ]] && continue
+        cp "$f" "$snapshot_dir/$(basename "$f")" 2>/dev/null || true
+    done
+}
+
+# Kill orphaned fork children from the frozen compiler.
+# Uses SIGKILL (not SIGTERM) because SIGTERM triggers cleanup handlers that delete files.
+kill_frozen_orphans() {
+    pkill -9 -f "$(basename "$FROZEN")" 2>/dev/null || true
+    pkill -9 -f "seen_parallel_opt" 2>/dev/null || true
+    pkill -9 -f "opt.*seen_module" 2>/dev/null || true
+    pkill -9 -f "clang.*seen_module" 2>/dev/null || true
+    pkill -9 -f "ld.lld.*seen_module" 2>/dev/null || true
+    sleep 2
+}
+
 echo "=== Safe Rebuild Script ==="
 echo ""
 
@@ -214,6 +251,12 @@ else
     echo "The bootstrap compiler may be corrupted."
     exit 1
 fi
+
+# Kill any leftover compilation processes that might write to /tmp/seen_module_*
+# and interfere with this build (race condition causes duplicate symbols)
+pkill -9 -f "seen compile" 2>/dev/null || true
+pkill -9 -f "seen build" 2>/dev/null || true
+sleep 1
 
 # Clean up any previous test files and cache
 rm -f "$STAGE2" "$STAGE3"
@@ -315,44 +358,9 @@ if count > 0:
         # with \00 or other garbage. Remove these — the correct declare is already present.
         sed -i '/^declare.*\\\\00/d' "\$arg" 2>/dev/null || true
 
-        # Remove phantom declares: declares for functions never called in the module.
-        # Stage1's cross-module declare generator emits declares for every function name
-        # in the registry, even those only referenced inside string constants (IR text).
-        # ThinLTO cannot always DCE these, causing undefined symbol link errors.
-        python3 -c "
-import re, sys
-with open(sys.argv[1]) as f:
-    content = f.read()
-# Collect all declared function names
-declares = {}
-for m in re.finditer(r'^(declare\s+\S+\s+@(\S+)\(.*)', content, re.MULTILINE):
-    name = m.group(2)
-    declares[name] = m.group(1)
-# Check which are actually called (not just declared or in string constants)
-removed = 0
-for name, decl_line in list(declares.items()):
-    # Skip LLVM intrinsics — always needed
-    if name.startswith('llvm.'):
-        continue
-    # Count call sites: @name( in non-declare, non-string-constant context
-    # Simple heuristic: if @name appears ONLY in declare lines and string constants, remove
-    uses = [m for m in re.finditer(r'@' + re.escape(name) + r'[\(, ]', content) if not content[content.rfind('\n', 0, m.start())+1:m.start()].lstrip().startswith('declare')]
-    # Filter out uses inside string constants (c\"...\")
-    real_uses = []
-    for u in uses:
-        line_start = content.rfind('\n', 0, u.start()) + 1
-        line = content[line_start:content.find('\n', u.start())]
-        if '= private unnamed_addr constant' in line:
-            continue  # Inside string constant
-        real_uses.append(u)
-    if len(real_uses) == 0:
-        content = content.replace(decl_line + '\n', '')
-        removed += 1
-if removed > 0:
-    with open(sys.argv[1], 'w') as f:
-        f.write(content)
-    print(f'  phantom declare fix: removed {removed} unused declares from {sys.argv[1]}', file=sys.stderr)
-" "\$arg" 2>&1 || true
+        # NOTE: Phantom declare removal disabled — it was too aggressive and removed
+        # declares for cross-module functions (emitIncludeStrImpl, etc.) that ARE called
+        # from the module via ThinLTO. The awk dedup + fix_ir.py handle the critical cases.
 
         # IR Validation: run llvm-as structural check on the fixed .ll file
         if ! llvm-as "\$arg" -o /dev/null 2>/tmp/seen_verify_err.txt; then
@@ -401,43 +409,330 @@ if [ "$HOST_OS" = "Darwin" ]; then
         fi
     fi
 else
-    if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-fork; then
+    # Linux S1→S2: Inline process management so we can run a snapshot watcher.
+    # The frozen compiler deletes ALL /tmp/seen_module_* on exit (even on failure),
+    # so we snapshot .ll files while it's running.
+    SNAPSHOT_DIR="/tmp/seen_ll_snapshot_$$"
+    rm -rf "$SNAPSHOT_DIR"
+
+    # Start compiler in background
+    env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-cache > /tmp/safe_rebuild_stage2.log 2>&1 &
+    COMPILE_PID=$!
+
+    # Start progress monitor and snapshot watcher
+    monitor_compilation "$COMPILE_PID" "S1→S2" &
+    MONITOR_PID=$!
+    start_ll_snapshot_watcher "$COMPILE_PID" "$SNAPSHOT_DIR" &
+    WATCHER_PID=$!
+
+    # Wait for compiler
+    COMPILE_EXIT=0
+    wait "$COMPILE_PID" || COMPILE_EXIT=$?
+
+    # Stop monitor and watcher
+    kill "$MONITOR_PID" 2>/dev/null || true
+    wait "$MONITOR_PID" 2>/dev/null || true
+    kill "$WATCHER_PID" 2>/dev/null || true
+    wait "$WATCHER_PID" 2>/dev/null || true
+
+    if [ "$COMPILE_EXIT" -eq 0 ]; then
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
+        rm -rf "$SNAPSHOT_DIR"
     else
-        # Recovery: The frozen compiler uses fork-parallel IR gen and multiple
-        # processes race on /tmp/seen_parallel_opt.sh, causing shell syntax errors.
-        # If .ll files were generated, we can recover by running opt + link ourselves.
-        LL_COUNT=$(ls /tmp/seen_module_*.ll 2>/dev/null | grep -v '\.opt\.ll$' | wc -l)
+        # Kill orphaned fork children before recovery (SIGKILL to avoid cleanup handlers)
+        echo -e "${YELLOW}Stage2 compilation failed (exit=$COMPILE_EXIT), killing orphans...${NC}"
+        kill_frozen_orphans
+
+        # Check how many .ll files we have: first from snapshot, fallback to live /tmp
+        SNAP_COUNT=$(ls "$SNAPSHOT_DIR"/seen_module_*.ll 2>/dev/null | wc -l)
+        LIVE_COUNT=$(ls /tmp/seen_module_*.ll 2>/dev/null | grep -v '\.opt\.ll$' | wc -l)
+
+        if [ "$SNAP_COUNT" -gt "$LIVE_COUNT" ]; then
+            LL_COUNT=$SNAP_COUNT
+            LL_SOURCE="snapshot"
+            echo -e "${YELLOW}Snapshot has $SNAP_COUNT .ll files (live: $LIVE_COUNT). Restoring from snapshot...${NC}"
+            # Clean /tmp of any partial files, then restore from snapshot
+            rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+            cp "$SNAPSHOT_DIR"/seen_module_*.ll /tmp/ 2>/dev/null || true
+        else
+            LL_COUNT=$LIVE_COUNT
+            LL_SOURCE="live"
+            echo -e "${YELLOW}Using $LIVE_COUNT live .ll files from /tmp.${NC}"
+        fi
+
         if [ "$LL_COUNT" -gt 30 ]; then
-            echo -e "${YELLOW}Stage2 compilation failed (opt script race), recovering with $LL_COUNT .ll files...${NC}"
+            echo -e "${YELLOW}Recovering with $LL_COUNT .ll files ($LL_SOURCE)...${NC}"
 
-            # Run the opt wrapper on each .ll file (dedup declares, fix byteAt bugs, etc.)
-            for llfile in /tmp/seen_module_*.ll; do
-                [[ "$llfile" == *.opt.ll ]] && continue
-                "$OPT_WRAPPER_DIR/opt" --version > /dev/null 2>&1  # no-op to test wrapper
-                # Apply the wrapper's fixups by calling it with a dummy pass
-                # The wrapper intercepts .ll files and applies fixups before calling real opt
-                modname=$(basename "$llfile" .ll)
-                optfile="/tmp/${modname}.opt.ll"
-                objfile="/tmp/${modname}.o"
-                # Skip if .o already exists (from a successful earlier batch)
-                [ -f "$objfile" ] && continue
-                # Run opt with fast-mode passes through the wrapper
-                if ! env PATH="$OPT_WRAPPER_DIR:$PATH" opt -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
-                    -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
-                    cp "$llfile" "$optfile"
-                fi
-                # Generate ThinLTO bitcode
-                opt --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
+            # Clean stale .o and .opt.ll from the compiler's failed internal opt/link —
+            # we must regenerate them from the raw .ll files via our own opt wrapper.
+            rm -f /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+
+            # Run recovery in subprocess (immune to set -e).
+            # Recovery works in a private temp dir to avoid interference from
+            # concurrent compilations. It outputs RECOVERY_DIR=<path> on success.
+            RECOVERY_OUTPUT=$(bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" 2>&1) || true
+            echo "$RECOVERY_OUTPUT" | grep -v '^RECOVERY_DIR='
+
+            RECOVERY_DIR=$(echo "$RECOVERY_OUTPUT" | grep '^RECOVERY_DIR=' | tail -1 | cut -d= -f2)
+            if [ -z "$RECOVERY_DIR" ] || [ ! -d "$RECOVERY_DIR" ]; then
+                echo -e "${RED}ERROR: Recovery failed — no output directory.${NC}"
+                rm -rf "$SNAPSHOT_DIR"
+                exit 1
+            fi
+
+            OBJ_COUNT=0
+            for f in "$RECOVERY_DIR"/seen_module_*.o; do
+                [ -f "$f" ] && OBJ_COUNT=$((OBJ_COUNT+1))
             done
-
-            # Count resulting .o files
-            OBJ_COUNT=$(ls /tmp/seen_module_*.o 2>/dev/null | wc -l)
             if [ "$OBJ_COUNT" -lt 30 ]; then
                 echo -e "${RED}ERROR: Recovery failed — only $OBJ_COUNT .o files produced.${NC}"
+                rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
                 exit 1
             fi
             echo "  Recovery: $OBJ_COUNT .o files ready."
+
+            # Check for empty modules that might cause link failures.
+            # Skip modules that are legitimately empty (only declares/types, no string
+            # constants — these are re-export shims with no real code).
+            EMPTY_MODULES=""
+            for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
+                [ -f "$llfile" ] || continue
+                [[ "$llfile" == *.opt.ll ]] && continue
+                DEFINES=$(grep -c '^define' "$llfile" 2>/dev/null | tail -1)
+                DEFINES=${DEFINES:-0}
+                if [ "$DEFINES" -eq 0 ] 2>/dev/null; then
+                    # Check if this module has string constants — if not, it's a
+                    # shim/re-export module with no real code (legitimately empty)
+                    STRINGS=$(grep -c '@\.str' "$llfile" 2>/dev/null | tail -1)
+                    STRINGS=${STRINGS:-0}
+                    if [ "$STRINGS" -gt 0 ] 2>/dev/null; then
+                        EMPTY_MODULES="$EMPTY_MODULES $(basename "$llfile" .ll)"
+                    fi
+                fi
+            done
+            EMPTY_COUNT=$(echo "$EMPTY_MODULES" | wc -w)
+            if [ "$EMPTY_COUNT" -gt 0 ]; then
+                echo -e "${YELLOW}Empty modules ($EMPTY_COUNT with 0 function definitions):${EMPTY_MODULES}${NC}"
+
+                # --- Retry loop: re-run frozen compiler to fill empty modules ---
+                # OOM kills are non-deterministic, so retrying will likely produce
+                # a different set of empty modules (or none at all).
+                MAX_RETRIES=2
+                RETRY=0
+                while [ "$EMPTY_COUNT" -gt 0 ] && [ "$RETRY" -lt "$MAX_RETRIES" ]; do
+                    RETRY=$((RETRY+1))
+                    echo -e "${YELLOW}Retry $RETRY/$MAX_RETRIES: re-running frozen compiler to fill $EMPTY_COUNT empty module(s)...${NC}"
+
+                    # Clean /tmp for retry run
+                    rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+
+                    RETRY_SNAPSHOT="/tmp/seen_retry_snapshot_${$}_${RETRY}"
+                    rm -rf "$RETRY_SNAPSHOT"
+
+                    env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" /dev/null --fast --no-cache > /tmp/retry_${RETRY}.log 2>&1 &
+                    RETRY_PID=$!
+
+                    start_ll_snapshot_watcher "$RETRY_PID" "$RETRY_SNAPSHOT" &
+                    RETRY_WATCHER=$!
+                    monitor_compilation "$RETRY_PID" "Retry$RETRY" &
+                    RETRY_MONITOR=$!
+
+                    # Wait with 10-min timeout
+                    timeout 600 tail --pid=$RETRY_PID -f /dev/null 2>/dev/null || true
+                    kill -9 $RETRY_PID 2>/dev/null || true; wait $RETRY_PID 2>/dev/null || true
+                    kill $RETRY_WATCHER 2>/dev/null || true; wait $RETRY_WATCHER 2>/dev/null || true
+                    kill $RETRY_MONITOR 2>/dev/null || true; wait $RETRY_MONITOR 2>/dev/null || true
+                    kill_frozen_orphans
+
+                    RETRY_COUNT=$(ls "$RETRY_SNAPSHOT"/seen_module_*.ll 2>/dev/null | wc -l)
+                    echo ""
+                    echo "  Retry $RETRY: captured $RETRY_COUNT .ll files"
+
+                    # Replace modules where retry has MORE defines (catches both
+                    # empty modules and partially-generated/truncated modules)
+                    REPLACED=0
+                    for retry_ll in "$RETRY_SNAPSHOT"/seen_module_*.ll; do
+                        [ -f "$retry_ll" ] || continue
+                        [[ "$retry_ll" == *.opt.ll ]] && continue
+                        bn=$(basename "$retry_ll")
+                        mod=$(basename "$retry_ll" .ll)
+                        orig_ll="$RECOVERY_DIR/$bn"
+                        [ -f "$orig_ll" ] || continue
+
+                        orig_defines=$(grep -c '^define' "$orig_ll" 2>/dev/null | tail -1)
+                        orig_defines=${orig_defines:-0}
+                        retry_defines=$(grep -c '^define' "$retry_ll" 2>/dev/null | tail -1)
+                        retry_defines=${retry_defines:-0}
+
+                        if [ "$retry_defines" -gt "$orig_defines" ] 2>/dev/null; then
+                            cp "$retry_ll" "$orig_ll"
+                            rm -f "$RECOVERY_DIR/${mod}.opt.ll" "$RECOVERY_DIR/${mod}.o"
+                            echo "    Replaced $bn: $orig_defines -> $retry_defines defines"
+                            REPLACED=$((REPLACED+1))
+                        fi
+                    done
+                    rm -rf "$RETRY_SNAPSHOT"
+                    echo "  Retry $RETRY: replaced $REPLACED module(s)"
+
+                    # Re-run opt wrapper + thinlto-bc on replaced modules (those missing .o)
+                    if [ "$REPLACED" -gt 0 ]; then
+                        REAL_OPT_BIN=$(command -v opt)
+                        for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
+                            [ -f "$llfile" ] || continue
+                            [[ "$llfile" == *.opt.ll ]] && continue
+                            mod=$(basename "$llfile" .ll)
+                            objfile="$RECOVERY_DIR/${mod}.o"
+                            [ -f "$objfile" ] && continue
+
+                            optfile="$RECOVERY_DIR/${mod}.opt.ll"
+                            echo "    Re-optimizing ${mod}..."
+                            # Use opt wrapper to apply dedup, byteAt fix, fix_ir.py
+                            if ! "$OPT_WRAPPER_DIR/opt" \
+                                -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
+                                -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
+                                cp "$llfile" "$optfile" 2>/dev/null || true
+                            fi
+                            "$REAL_OPT_BIN" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
+                        done
+                    fi
+
+                    # Re-count empty modules
+                    EMPTY_MODULES=""
+                    for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
+                        [ -f "$llfile" ] || continue
+                        [[ "$llfile" == *.opt.ll ]] && continue
+                        DEFINES=$(grep -c '^define' "$llfile" 2>/dev/null | tail -1)
+                        DEFINES=${DEFINES:-0}
+                        if [ "$DEFINES" -eq 0 ] 2>/dev/null; then
+                            EMPTY_MODULES="$EMPTY_MODULES $(basename "$llfile" .ll)"
+                        fi
+                    done
+                    EMPTY_COUNT=$(echo "$EMPTY_MODULES" | wc -w)
+                    if [ "$EMPTY_COUNT" -eq 0 ]; then
+                        echo -e "${GREEN}  All modules now have function definitions!${NC}"
+                    else
+                        echo -e "${YELLOW}  Still $EMPTY_COUNT empty module(s):${EMPTY_MODULES}${NC}"
+                    fi
+                done
+
+                # Recount .o files after retries
+                if [ "$RETRY" -gt 0 ]; then
+                    OBJ_COUNT=0
+                    for f in "$RECOVERY_DIR"/seen_module_*.o; do
+                        [ -f "$f" ] && OBJ_COUNT=$((OBJ_COUNT+1))
+                    done
+                    echo "  Post-retry: $OBJ_COUNT .o files ready."
+                fi
+
+                # --- Pass 2: Two-pass .ll merge for satellite modules ---
+                if [ "$EMPTY_COUNT" -gt 0 ]; then
+                # The frozen compiler generates module 5 (llvm_ir_gen.seen) correctly
+                # but outputs 0 defines for satellite codegen modules. The production
+                # compiler generates satellite modules correctly but hangs on module 5.
+                # Merge: pick the .ll with more defines from each compiler.
+                PROD_COMPILER="compiler_seen/target/seen"
+                if [ -x "$PROD_COMPILER" ]; then
+                    echo -e "${YELLOW}Running Pass 2 (production compiler) to fill empty modules...${NC}"
+
+                    # Clean /tmp for Pass 2
+                    rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+
+                    # Run production compiler with timeout + snapshot watcher
+                    PASS2_SNAPSHOT="/tmp/seen_pass2_snapshot_$$"
+                    rm -rf "$PASS2_SNAPSHOT"
+
+                    $PROD_COMPILER compile "$COMPILER_SOURCE" /dev/null --fast --no-cache > /tmp/pass2.log 2>&1 &
+                    PASS2_PID=$!
+
+                    start_ll_snapshot_watcher "$PASS2_PID" "$PASS2_SNAPSHOT" &
+                    PASS2_WATCHER=$!
+                    monitor_compilation "$PASS2_PID" "Pass2" &
+                    PASS2_MONITOR=$!
+
+                    # Wait with 10-min timeout (satellite modules complete within 5 min)
+                    timeout 600 tail --pid=$PASS2_PID -f /dev/null 2>/dev/null || true
+                    kill -9 $PASS2_PID 2>/dev/null; wait $PASS2_PID 2>/dev/null || true
+                    kill $PASS2_WATCHER 2>/dev/null; wait $PASS2_WATCHER 2>/dev/null || true
+                    kill $PASS2_MONITOR 2>/dev/null; wait $PASS2_MONITOR 2>/dev/null || true
+                    # Kill any children of the Pass 2 compiler (fork children, opt, clang)
+                    for child in $(pgrep -P $PASS2_PID 2>/dev/null); do
+                        kill -9 "$child" 2>/dev/null || true
+                    done
+                    sleep 2
+
+                    PASS2_COUNT=$(ls "$PASS2_SNAPSHOT"/seen_module_*.ll 2>/dev/null | wc -l)
+                    echo ""
+                    echo "  Pass 2: captured $PASS2_COUNT .ll files"
+
+                    # Merge: for each module, pick the .ll with more defines
+                    MERGED=0
+                    for pass1_ll in "$RECOVERY_DIR"/seen_module_*.ll; do
+                        [ -f "$pass1_ll" ] || continue
+                        [[ "$pass1_ll" == *.opt.ll ]] && continue
+                        bn=$(basename "$pass1_ll")
+                        pass2_ll="$PASS2_SNAPSHOT/$bn"
+                        [ -f "$pass2_ll" ] || continue
+
+                        p1_defines=$(grep -c '^define' "$pass1_ll" 2>/dev/null | tail -1)
+                        p1_defines=${p1_defines:-0}
+                        p2_defines=$(grep -c '^define' "$pass2_ll" 2>/dev/null | tail -1)
+                        p2_defines=${p2_defines:-0}
+
+                        if [ "$p2_defines" -gt "$p1_defines" ] 2>/dev/null; then
+                            cp "$pass2_ll" "$pass1_ll"
+                            modname=$(basename "$pass1_ll" .ll)
+                            rm -f "$RECOVERY_DIR/${modname}.opt.ll" "$RECOVERY_DIR/${modname}.o"
+                            echo "    Merged $bn: $p1_defines -> $p2_defines defines (from production)"
+                            MERGED=$((MERGED+1))
+                        fi
+                    done
+                    # Also add Pass 2 .ll files not present in RECOVERY_DIR
+                    for pass2_ll in "$PASS2_SNAPSHOT"/seen_module_*.ll; do
+                        [ -f "$pass2_ll" ] || continue
+                        [[ "$pass2_ll" == *.opt.ll ]] && continue
+                        bn=$(basename "$pass2_ll")
+                        if [ ! -f "$RECOVERY_DIR/$bn" ]; then
+                            cp "$pass2_ll" "$RECOVERY_DIR/$bn"
+                            echo "    Added $bn from Pass 2 (not in Pass 1)"
+                            MERGED=$((MERGED+1))
+                        fi
+                    done
+                    rm -rf "$PASS2_SNAPSHOT"
+                    echo "  Merged $MERGED modules from Pass 2"
+
+                    if [ "$MERGED" -gt 0 ]; then
+                        # Re-run opt + thinlto-bc on merged modules (those missing .o files)
+                        REAL_OPT_BIN=$(command -v opt)
+                        for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
+                            [ -f "$llfile" ] || continue
+                            [[ "$llfile" == *.opt.ll ]] && continue
+                            modname=$(basename "$llfile" .ll)
+                            objfile="$RECOVERY_DIR/${modname}.o"
+                            [ -f "$objfile" ] && continue
+
+                            optfile="$RECOVERY_DIR/${modname}.opt.ll"
+                            echo "    Re-optimizing $modname..."
+                            if ! "$REAL_OPT_BIN" \
+                                -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
+                                -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
+                                cp "$llfile" "$optfile" 2>/dev/null || true
+                            fi
+                            "$REAL_OPT_BIN" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
+                        done
+
+                        # Recount .o files after merge
+                        OBJ_COUNT=0
+                        for f in "$RECOVERY_DIR"/seen_module_*.o; do
+                            [ -f "$f" ] && OBJ_COUNT=$((OBJ_COUNT+1))
+                        done
+                        echo "  Post-merge: $OBJ_COUNT .o files ready."
+                    fi
+                else
+                    echo -e "${YELLOW}No production compiler available for Pass 2 merge.${NC}"
+                    echo -e "${YELLOW}Fix: revert module list changes, rebuild, update stage1_frozen, re-apply.${NC}"
+                fi
+                fi
+            fi
 
             # Pre-compile runtime
             RT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/seen_runtime"
@@ -459,10 +754,11 @@ else
                 fi
             fi
 
-            # Link
+            # Link from recovery directory (not /tmp, which may be contaminated
+            # by concurrent compilations)
             echo "  Linking $OBJ_COUNT modules..."
             LINK_OBJS=""
-            for obj in /tmp/seen_module_*.o; do
+            for obj in "$RECOVERY_DIR"/seen_module_*.o; do
                 LINK_OBJS="$LINK_OBJS $obj"
             done
             RT_OBJS="$RT_DIR/seen_runtime.o"
@@ -474,20 +770,25 @@ else
 
             if clang -O1 -flto=thin -fuse-ld=lld \
                 -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache \
+                -Wl,--allow-multiple-definition \
                 -march=native -Wl,--gc-sections -Wno-unused-command-line-argument \
                 $LINK_OBJS $RT_OBJS -o "$STAGE2" $LINK_LIBS 2>/tmp/safe_rebuild_link.log; then
                 echo -e "${GREEN}Stage2 recovery link succeeded ($(wc -c < "$STAGE2" | tr -d ' ') bytes).${NC}"
             else
                 echo -e "${RED}ERROR: Stage2 recovery link failed.${NC}"
-                cat /tmp/safe_rebuild_link.log
+                grep -E 'undefined|error' /tmp/safe_rebuild_link.log | head -10
+                rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
                 exit 1
             fi
+            rm -rf "$RECOVERY_DIR"
         else
-            echo -e "${RED}ERROR: Stage2 build failed (only $LL_COUNT .ll files).${NC}"
+            echo -e "${RED}ERROR: Stage2 build failed (only $LL_COUNT .ll files from $LL_SOURCE).${NC}"
             echo "Check /tmp/safe_rebuild_stage2.log for details."
             tail -30 /tmp/safe_rebuild_stage2.log
+            rm -rf "$SNAPSHOT_DIR"
             exit 1
         fi
+        rm -rf "$SNAPSHOT_DIR"
     fi
 fi
 
@@ -711,6 +1012,8 @@ fi
 echo ""
 echo "Installing production compiler..."
 mkdir -p compiler_seen/target
+# Remove before copy to avoid "Text file busy" if the binary is in use
+rm -f compiler_seen/target/seen 2>/dev/null || true
 cp "$VERIFIED" compiler_seen/target/seen
 chmod +x compiler_seen/target/seen
 cp "$STAGE2" stage2_head 2>/dev/null || true

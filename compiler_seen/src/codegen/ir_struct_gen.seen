@@ -1,8 +1,10 @@
-// ir_struct_gen.seen — Struct literal layout inference helpers
+// ir_struct_gen.seen — Struct literal layout inference and field store helpers
 // Extracted from llvm_ir_gen.seen generateStructLiteral() to reduce module 5 size
 // Pure analysis functions that determine struct field layouts from expressions
 
 import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
 
 // inferStructFieldTypeFromExpr — Infer LLVM field type from a struct literal field value expression
 // Returns inferred LLVM type and estimated size via sizeOut[0]
@@ -157,4 +159,45 @@ fun inferStructLayoutFromExpressions(arguments: Array<ParserExpressionNode>, siz
     }
     sizeOut[0] = totalSize
     return lb + " " + layoutFields + " " + rb
+}
+
+// emitStructFieldStoresImpl — Emit GEP + store for each struct literal field
+// fieldRegs: pre-generated value registers for each field
+// fieldLlvmTypes: pre-resolved LLVM types for each field (e.g., "i64", "%SeenString", "ptr")
+// gepIndices: pre-resolved GEP field indices
+// structLayout: the LLVM struct layout string (e.g., "{ i64, %SeenString }")
+// objPtrReg: the malloc'd struct pointer register
+fun emitStructFieldStoresImpl(output: StringBuilder, regBox: Array<Int>, structLayout: String, objPtrReg: String, fieldRegs: Array<String>, fieldLlvmTypes: Array<String>, gepIndices: Array<Int>) r: Void {
+    var i = 0
+    while i < fieldRegs.length() {
+        let fieldType = fieldLlvmTypes[i]
+        let gepIndex = gepIndices[i]
+        var valueReg = fieldRegs[i]
+        // GEP to the field
+        let fieldPtrReg = getNextRegFn(regBox)
+        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + objPtrReg + ", i32 0, i32 " + gepIndex.toString() + "\n")
+        // Handle nullable fields initialized to null/zero
+        var finalValueReg = valueReg
+        if fieldType == "%SeenString" and valueReg == "0" {
+            finalValueReg = "zeroinitializer"
+        }
+        // ptr fields: integer 0 -> null, non-zero int literal -> inttoptr
+        if fieldType == "ptr" {
+            if finalValueReg == "0" {
+                finalValueReg = "null"
+            } else {
+                var fch = 0
+                if finalValueReg.length() > 0 {
+                    fch = finalValueReg.charAt(0).toInt()
+                }
+                if fch >= 49 and fch <= 57 {
+                    let cReg = getNextRegFn(regBox)
+                    output.append("  " + cReg + " = inttoptr i64 " + finalValueReg + " to ptr\n")
+                    finalValueReg = cReg
+                }
+            }
+        }
+        output.append("  store " + fieldType + " " + finalValueReg + ", ptr " + fieldPtrReg + "\n")
+        i = i + 1
+    }
 }

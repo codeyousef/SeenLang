@@ -100,6 +100,95 @@ fun inferOperatorOverloadSuffix(operator: String) r: String {
     return ""
 }
 
+// inferReceiverMethodTypeImpl — Infer return type of receiver-sensitive methods
+// Returns the inferred type, or "" for fallthrough to other dispatch
+// callee: method name (e.g., "toUpperCase", "abs", "floor", "first")
+// receiverType: already-resolved Seen type of the receiver (e.g., "String", "Float", "Vec<Int>")
+fun inferReceiverMethodTypeImpl(callee: String, receiverType: String) r: String {
+    // toUpperCase/toLowerCase: returns Char on Char receiver, String on String
+    if callee == "toUpperCase" or callee == "toLowerCase" {
+        if receiverType == "Char" {
+            return "Char"
+        }
+        return "String"
+    }
+    // abs/min/max/clamp: return type matches receiver type (Int or Float)
+    if callee == "abs" or callee == "min" or callee == "max" or callee == "clamp" {
+        if receiverType == "Float" {
+            return "Float"
+        }
+        return "Int"
+    }
+    // floor/ceil/round/sqrt: always return Float
+    if callee == "floor" or callee == "ceil" or callee == "round" or callee == "sqrt" {
+        return "Float"
+    }
+    // Vec utility methods - receiver-sensitive return types
+    if callee == "first" or callee == "last" or callee == "remove" {
+        if receiverType.startsWith("Vec<") and receiverType.endsWith(">") {
+            let elemType = receiverType.substring(4, receiverType.length() - 1)
+            return elemType
+        }
+        if receiverType == "Vec" {
+            return "Int"
+        }
+    }
+    return ""
+}
+
+// inferCallExprTypeImpl — Infer return type from pure callee-name lookups for Call expressions
+// Handles SIMD gather types, includeStr/Bytes, ptr_deref types, cstr conversions,
+// Array/SmallVec/HashMap/BTreeMap/LinkedList constructors, Result constructors
+// Returns "" for callee names that require runtime lookup (getFunctionReturnType, isClassType, etc.)
+fun inferCallExprTypeImpl(callee: String) r: String {
+    // SIMD gather return types
+    if callee == "simd_gather_f32x4" { return "f32x4" }
+    if callee == "simd_gather_f64x2" { return "f64x2" }
+    if callee == "simd_gather_i32x4" { return "i32x4" }
+    // includeStr returns String, includeBytes returns Int (ptr)
+    if callee == "includeStr" { return "String" }
+    if callee == "includeBytes" { return "Int" }
+    // Typed pointer operation return types
+    if callee == "ptr_deref_i32" { return "Int32" }
+    if callee == "ptr_deref_i16" { return "Int16" }
+    if callee == "ptr_deref_i8" { return "Int8" }
+    if callee == "ptr_deref_f32" { return "Float32" }
+    if callee == "ptr_alloc_i32" or callee == "ptr_alloc_i16" or callee == "ptr_alloc_i8" { return "Int" }
+    // C string conversion builtins
+    if callee == "str_to_cstr" { return "Int" }
+    if callee == "cstr_to_str" { return "String" }
+    // Optional constructors
+    if callee == "Some" or callee == "None" or callee.startsWith("Some<") or callee.startsWith("None<") {
+        return "Option"
+    }
+    // Check for Array constructor - preserve generic parameter
+    if callee.startsWith("Array<") {
+        return callee
+    }
+    if callee == "Array" {
+        return "Array"
+    }
+    // SmallVec constructor type inference
+    if callee.startsWith("SmallVec<") or callee.startsWith("SmallVec[") or callee == "SmallVec" {
+        return callee
+    }
+    // Check for HashMap/BTreeMap/LinkedList constructors - preserve generic parameters
+    if callee.startsWith("HashMap<") {
+        return callee
+    }
+    if callee.startsWith("BTreeMap<") {
+        return callee
+    }
+    if callee.startsWith("LinkedList<") {
+        return callee
+    }
+    // Result constructors
+    if callee.startsWith("Err<") or callee.startsWith("Ok<") {
+        return "Result"
+    }
+    return ""
+}
+
 // extractResultInnerType — extract T from "Result<T, E>" type string
 // Returns "" if the type doesn't match Result<T, E> pattern
 fun extractResultInnerType(resultType: String) r: String {

@@ -3,7 +3,8 @@
 // These are pure AST analysis functions (no generateExpression callbacks needed)
 
 import parser.real_parser.{StatementNode, ParserExpressionNode, BlockNode}
-import codegen.ir_optimization.{parseIntManual}
+import codegen.ir_optimization.{parseIntManual, getNextRegFn, getNextBlockFn}
+import str.string.{StringBuilder}
 
 // detectMemcpyPattern — Check if a while loop is a memcpy or memmove pattern
 // Returns: 0 = no pattern, 1 = memcpy (dest[i]=src[i]), 2 = memmove (arr[i]=arr[i+1])
@@ -345,4 +346,96 @@ fun evaluateCfgPredicateImpl(cfgPred: String, enabledFeatures: String) r: Bool {
         }
     }
     return false
+}
+
+// emitForInElementFetchImpl — Emit element load for array-based for-in loop
+// Handles Int/Char (i64), Float (double), String (runtime call), and generic (i64) element types.
+// arrReg: register holding the SeenArray pointer
+// loadIdxReg: register holding the current loop index
+// loopVarReg: alloca register for the loop variable (where element is stored)
+// elementType: Seen type name of the array element
+// isString: 1 if elementType == "String", isFloat: 1 if elementType == "Float"
+fun emitForInElementFetchImpl(output: StringBuilder, regBox: Array<Int>,
+    arrReg: String, loadIdxReg: String, loopVarReg: String,
+    elementType: String, isString: Int, isFloat: Int) r: Void {
+    if loopVarReg == "" {
+        return
+    }
+    if elementType == "Int" or elementType == "Char" {
+        let fiDataPtrPtr = getNextRegFn(regBox)
+        output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+        let fiDataPtr = getNextRegFn(regBox)
+        output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
+        let fiElemPtr = getNextRegFn(regBox)
+        output.append("  " + fiElemPtr + " = getelementptr inbounds nuw i64, ptr " + fiDataPtr + ", i64 " + loadIdxReg + "\n")
+        let elemReg = getNextRegFn(regBox)
+        output.append("  " + elemReg + " = load i64, ptr " + fiElemPtr + ", align 8, !tbaa !105\n")
+        output.append("  store i64 " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
+        return
+    }
+    if isFloat == 1 {
+        let fiDataPtrPtr = getNextRegFn(regBox)
+        output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+        let fiDataPtr = getNextRegFn(regBox)
+        output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
+        let fiElemPtr = getNextRegFn(regBox)
+        output.append("  " + fiElemPtr + " = getelementptr inbounds nuw double, ptr " + fiDataPtr + ", i64 " + loadIdxReg + "\n")
+        let elemReg = getNextRegFn(regBox)
+        output.append("  " + elemReg + " = load double, ptr " + fiElemPtr + ", align 8, !tbaa !106\n")
+        output.append("  store double " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
+        return
+    }
+    if isString == 1 {
+        let elemReg = getNextRegFn(regBox)
+        output.append("  " + elemReg + " = call %SeenString @seen_arr_get_str_ptr(ptr " + arrReg + ", i64 " + loadIdxReg + ")\n")
+        output.append("  store %SeenString " + elemReg + ", ptr " + loopVarReg + "\n")
+        return
+    }
+    // Generic pointer-based access - inline GEP for ptr-sized elements
+    let fiDataPtrPtr = getNextRegFn(regBox)
+    output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+    let fiDataPtr = getNextRegFn(regBox)
+    output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
+    let fiElemPtr = getNextRegFn(regBox)
+    output.append("  " + fiElemPtr + " = getelementptr inbounds nuw i64, ptr " + fiDataPtr + ", i64 " + loadIdxReg + "\n")
+    let elemReg = getNextRegFn(regBox)
+    output.append("  " + elemReg + " = load i64, ptr " + fiElemPtr + ", align 8, !tbaa !105\n")
+    output.append("  store i64 " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
+}
+
+// emitForInPrefetchImpl — Emit software prefetch for array-based for-in loop
+// Prefetches element at i+8 for sequential array traversals (non-String types only)
+fun emitForInPrefetchImpl(output: StringBuilder, regBox: Array<Int>, blockBox: Array<Int>,
+    arrReg: String, loadIdxReg: String, lenReg: String, elementType: String) r: Void {
+    if elementType == "String" {
+        return
+    }
+    let pfIdxReg = getNextRegFn(regBox)
+    output.append("  " + pfIdxReg + " = add nuw i64 " + loadIdxReg + ", 8\n")
+    let pfCmpReg = getNextRegFn(regBox)
+    output.append("  " + pfCmpReg + " = icmp ult i64 " + pfIdxReg + ", " + lenReg + "\n")
+    let pfDoLabel = getNextBlockFn(blockBox)
+    let pfSkipLabel = getNextBlockFn(blockBox)
+    output.append("  br i1 " + pfCmpReg + ", label %" + pfDoLabel + ", label %" + pfSkipLabel + ", !prof !196\n")
+    output.append(pfDoLabel + ":\n")
+    let pfDataPtrPtr = getNextRegFn(regBox)
+    output.append("  " + pfDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
+    let pfDataPtr = getNextRegFn(regBox)
+    output.append("  " + pfDataPtr + " = load ptr, ptr " + pfDataPtrPtr + ", !tbaa !104\n")
+    let pfElemPtr = getNextRegFn(regBox)
+    output.append("  " + pfElemPtr + " = getelementptr inbounds nuw i64, ptr " + pfDataPtr + ", i64 " + pfIdxReg + "\n")
+    output.append("  call void @llvm.prefetch.p0(ptr " + pfElemPtr + ", i32 0, i32 3, i32 1) ; prefetch i+8\n")
+    output.append("  br label %" + pfSkipLabel + "\n")
+    output.append(pfSkipLabel + ":\n")
+}
+
+// emitForInIncrementImpl — Emit loop increment and back-edge for array-based for-in
+fun emitForInIncrementImpl(output: StringBuilder, regBox: Array<Int>,
+    idxReg: String, condLabel: String, loopMetaIdStr: String) r: Void {
+    let curIdx = getNextRegFn(regBox)
+    output.append("  " + curIdx + " = load i64, ptr " + idxReg + ", align 8\n")
+    let nextIdx = getNextRegFn(regBox)
+    output.append("  " + nextIdx + " = add nuw nsw i64 " + curIdx + ", 1\n")
+    output.append("  store i64 " + nextIdx + ", ptr " + idxReg + ", align 8\n")
+    output.append("  br label %" + condLabel + ", !llvm.loop !" + loopMetaIdStr + "\n")
 }

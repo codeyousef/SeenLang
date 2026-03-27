@@ -627,3 +627,159 @@ fun emitOptionUnwrapSpecializedImpl(output: StringBuilder, regBox: Array<Int>, i
     }
     return ""
 }
+
+// ============================================================
+// emitOffsetofImpl — compute byte offset of a field within a struct
+// fieldNames/fieldAligns/fieldSizes: parallel arrays, one entry per struct field
+// targetFieldName: name of the field to compute the offset for
+// Returns the byte offset (>= 0), or -1 if field not found
+// ============================================================
+fun emitOffsetofImpl(fieldNames: Array<String>, fieldAligns: Array<Int>, fieldSizes: Array<Int>, targetFieldName: String) r: Int {
+    var accum = 0
+    var i = 0
+    while i < fieldNames.length() {
+        let fAlign = fieldAligns[i]
+        let fSize = fieldSizes[i]
+        // alignUp: round accum up to fAlign boundary
+        if fAlign > 1 {
+            let rem = accum - (accum / fAlign) * fAlign
+            if rem != 0 {
+                accum = accum + (fAlign - rem)
+            }
+        }
+        if fieldNames[i] == targetFieldName {
+            return accum
+        }
+        accum = accum + fSize
+        i = i + 1
+    }
+    return -1
+}
+
+// ============================================================
+// emitIncludeStrImpl — includeStr("path") compile-time file embed
+// content: the file content to embed
+// strConstPrefix: string constant prefix for this module
+// strConstIndex: index to use for the string constant
+// Returns result register (SeenString)
+// ============================================================
+fun emitIncludeStrImpl(output: StringBuilder, regBox: Array<Int>, content: String, escapedContent: String, strConstPrefix: String, strConstIndex: Int) r: String {
+    let inclLen = content.length() + 1
+    let idxStr = strConstIndex.toString()
+    output.append("@.str." + strConstPrefix + idxStr + " = private unnamed_addr constant [" + inclLen.toString() + " x i8] c\"" + escapedContent + "\\00\"\n")
+    let inclPtrReg = getNextRegFn(regBox)
+    output.append("  " + inclPtrReg + " = getelementptr [" + inclLen.toString() + " x i8], ptr @.str." + strConstPrefix + idxStr + ", i64 0, i64 0\n")
+    let inclStrReg = getNextRegFn(regBox)
+    output.append("  " + inclStrReg + " = call %SeenString @seen_cstr_to_str(ptr " + inclPtrReg + ")\n")
+    return inclStrReg
+}
+
+// ============================================================
+// emitIncludeBytesImpl — includeBytes("path") compile-time raw byte embed
+// content: the file content to embed
+// strConstPrefix: string constant prefix for this module
+// strConstIndex: index to use for the string constant
+// Returns result register (ptr as i64)
+// ============================================================
+fun emitIncludeBytesImpl(output: StringBuilder, regBox: Array<Int>, content: String, escapedContent: String, strConstPrefix: String, strConstIndex: Int) r: String {
+    let inclBLen = content.length() + 1
+    let idxStr = strConstIndex.toString()
+    output.append("@.str." + strConstPrefix + idxStr + " = private unnamed_addr constant [" + inclBLen.toString() + " x i8] c\"" + escapedContent + "\\00\"\n")
+    let inclBPtrReg = getNextRegFn(regBox)
+    output.append("  " + inclBPtrReg + " = getelementptr [" + inclBLen.toString() + " x i8], ptr @.str." + strConstPrefix + idxStr + ", i64 0, i64 0\n")
+    let inclBIntReg = getNextRegFn(regBox)
+    output.append("  " + inclBIntReg + " = ptrtoint ptr " + inclBPtrReg + " to i64\n")
+    return inclBIntReg
+}
+
+// fillDefaultParamsImpl — Fill missing arguments with registered default values
+// Mutates argRegs/argTypeStrs to append default values for params beyond argRegs.length()
+// funcName: the function being called
+// funcParamCountArr: pipe-delimited "funcName:count|" registry
+// funcDefaultsArr: pipe-delimited "funcName:paramIdx:value:type|" registry
+// strConstPrefix: string constant prefix for this module (for String defaults)
+// stringConstants: the module's string constant table (for looking up String default indices)
+fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, funcParamCountArr: String, funcDefaultsArr: String, strConstPrefix: String, stringConstants: Array<String>) r: Void {
+    if funcDefaultsArr == "" { return }
+    var dfFuncLookup = funcName + ":"
+    var dfPcPos = funcParamCountArr.indexOf(dfFuncLookup, 0)
+    if dfPcPos < 0 { return }
+    var dfPcStart = dfPcPos + dfFuncLookup.length()
+    var dfPcEnd = funcParamCountArr.indexOf("|", dfPcStart)
+    if dfPcEnd < 0 { dfPcEnd = funcParamCountArr.length() }
+    var dfExpectedStr = funcParamCountArr.substring(dfPcStart, dfPcEnd)
+    var dfExpectedCount = parseIntManual(dfExpectedStr)
+    var dfFillIdx = argRegs.length()
+    while dfFillIdx < dfExpectedCount {
+        var dfLookup = funcName + ":" + dfFillIdx.toString() + ":"
+        var dfPos = funcDefaultsArr.indexOf(dfLookup, 0)
+        if dfPos >= 0 {
+            var dfStart = dfPos + dfLookup.length()
+            var dfEnd = funcDefaultsArr.indexOf("|", dfStart)
+            if dfEnd < 0 { dfEnd = funcDefaultsArr.length() }
+            var dfEntry = funcDefaultsArr.substring(dfStart, dfEnd)
+            var dfColon = dfEntry.indexOf(":", 0)
+            if dfColon > 0 {
+                var dfValue = dfEntry.substring(0, dfColon)
+                var dfType = dfEntry.substring(dfColon + 1, dfEntry.length())
+                if dfType == "String" {
+                    // Look up string constant index from module's string table
+                    var dfStrIdx = 0
+                    var dfSCi = 0
+                    while dfSCi < stringConstants.length() {
+                        if stringConstants[dfSCi] == dfValue {
+                            dfStrIdx = dfSCi
+                            dfSCi = stringConstants.length()
+                        }
+                        dfSCi = dfSCi + 1
+                    }
+                    var dfStrLen = dfValue.length()
+                    let dfGepReg = getNextRegFn(regBox)
+                    output.append("  " + dfGepReg + " = getelementptr [" + (dfStrLen + 1).toString() + " x i8], ptr @.str." + strConstPrefix + dfStrIdx.toString() + ", i64 0, i64 0\n")
+                    let dfInsert1 = getNextRegFn(regBox)
+                    output.append("  " + dfInsert1 + " = insertvalue %SeenString undef, i64 " + dfStrLen.toString() + ", 0\n")
+                    let dfStrReg = getNextRegFn(regBox)
+                    output.append("  " + dfStrReg + " = insertvalue %SeenString " + dfInsert1 + ", ptr " + dfGepReg + ", 1\n")
+                    argRegs.push(dfStrReg)
+                    argTypeStrs.push("%SeenString")
+                } else {
+                    if dfType == "Bool" {
+                        var dfBoolVal = "0"
+                        if dfValue == "true" { dfBoolVal = "1" }
+                        argRegs.push(dfBoolVal)
+                        argTypeStrs.push("i64")
+                    } else {
+                        if dfType == "Float" {
+                            argRegs.push(dfValue)
+                            argTypeStrs.push("double")
+                        } else {
+                            argRegs.push(dfValue)
+                            argTypeStrs.push("i64")
+                        }
+                    }
+                }
+            }
+        }
+        dfFillIdx = dfFillIdx + 1
+    }
+}
+
+// promoteFloatArgsImpl — Int-to-Float promotion for function call arguments
+// Scans floatParamFuncs for "funcName:paramIdx|" entries and converts matching i64 args to double
+// Mutates argRegs/argTypeStrs in-place to replace promoted args
+fun promoteFloatArgsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, floatParamFuncs: String) r: Void {
+    if floatParamFuncs == "" { return }
+    var fpIdx = 0
+    while fpIdx < argRegs.length() {
+        if argTypeStrs[fpIdx] == "i64" {
+            let floatLookup = funcName + ":" + fpIdx.toString() + "|"
+            if floatParamFuncs.contains(floatLookup) {
+                let sitofpReg = getNextRegFn(regBox)
+                output.append("  " + sitofpReg + " = sitofp i64 " + argRegs[fpIdx] + " to double\n")
+                argRegs.set(fpIdx, sitofpReg)
+                argTypeStrs.set(fpIdx, "double")
+            }
+        }
+        fpIdx = fpIdx + 1
+    }
+}

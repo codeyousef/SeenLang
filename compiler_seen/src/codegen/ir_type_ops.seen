@@ -1218,3 +1218,150 @@ fun emitStringBuilderMethodImpl(output: StringBuilder, regBox: Array<Int>,
     }
     return ""
 }
+
+// ============================================================
+// emitCastExprImpl — type cast dispatch table
+// Extracted from LLVMIRGenerator.generateExpression "Cast" handler.
+// innerReg: register holding the evaluated inner expression
+// innerType: Seen type of the inner expression (e.g. "Int", "Float")
+// castTarget: target Seen type (e.g. "Float", "Bool", "Int32")
+// Returns the result register (may be innerReg for no-op casts).
+// ============================================================
+fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String, innerType: String, castTarget: String) r: String {
+    let cReg = getNextRegFn(regBox)
+    // Use flag-based pattern (no early returns from nested ifs — stage1 safe)
+    var castDone = 0
+    var castResultReg = innerReg
+    // Int -> Float
+    if castDone == 0 and innerType == "Int" and castTarget == "Float" {
+        output.append("  " + cReg + " = sitofp i64 " + innerReg + " to double\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Float -> Int
+    if castDone == 0 and innerType == "Float" and castTarget == "Int" {
+        output.append("  " + cReg + " = fptosi double " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> Bool
+    if castDone == 0 and innerType == "Int" and castTarget == "Bool" {
+        output.append("  " + cReg + " = trunc i64 " + innerReg + " to i1\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Bool -> Int
+    if castDone == 0 and innerType == "Bool" and castTarget == "Int" {
+        output.append("  " + cReg + " = zext i1 " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // ptr -> Int
+    if castDone == 0 and innerType == "ptr" and castTarget == "Int" {
+        output.append("  " + cReg + " = ptrtoint ptr " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> ptr
+    if castDone == 0 and innerType == "Int" and castTarget == "ptr" {
+        output.append("  " + cReg + " = inttoptr i64 " + innerReg + " to ptr\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> Int32 (truncate i64 to i32)
+    if castDone == 0 and innerType == "Int" and castTarget == "Int32" {
+        output.append("  " + cReg + " = trunc i64 " + innerReg + " to i32\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> UInt32 (truncate i64 to i32)
+    if castDone == 0 and innerType == "Int" and castTarget == "UInt32" {
+        output.append("  " + cReg + " = trunc i64 " + innerReg + " to i32\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> Int16 (truncate i64 to i16)
+    if castDone == 0 and innerType == "Int" and castTarget == "Int16" {
+        output.append("  " + cReg + " = trunc i64 " + innerReg + " to i16\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> UInt16 (truncate i64 to i16)
+    if castDone == 0 and innerType == "Int" and castTarget == "UInt16" {
+        output.append("  " + cReg + " = trunc i64 " + innerReg + " to i16\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> Int8 (truncate i64 to i8)
+    if castDone == 0 and innerType == "Int" and castTarget == "Int8" {
+        output.append("  " + cReg + " = trunc i64 " + innerReg + " to i8\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> UInt8 (truncate i64 to i8)
+    if castDone == 0 and innerType == "Int" and castTarget == "UInt8" {
+        output.append("  " + cReg + " = trunc i64 " + innerReg + " to i8\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int32 -> Int (sign-extend i32 to i64)
+    if castDone == 0 and innerType == "Int32" and castTarget == "Int" {
+        output.append("  " + cReg + " = sext i32 " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // UInt32 -> Int (zero-extend i32 to i64)
+    if castDone == 0 and innerType == "UInt32" and castTarget == "Int" {
+        output.append("  " + cReg + " = zext i32 " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int16 -> Int (sign-extend i16 to i64)
+    if castDone == 0 and innerType == "Int16" and castTarget == "Int" {
+        output.append("  " + cReg + " = sext i16 " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // UInt16 -> Int (zero-extend i16 to i64)
+    if castDone == 0 and innerType == "UInt16" and castTarget == "Int" {
+        output.append("  " + cReg + " = zext i16 " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int8 -> Int (sign-extend i8 to i64)
+    if castDone == 0 and innerType == "Int8" and castTarget == "Int" {
+        output.append("  " + cReg + " = sext i8 " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // UInt8 -> Int (zero-extend i8 to i64)
+    if castDone == 0 and innerType == "UInt8" and castTarget == "Int" {
+        output.append("  " + cReg + " = zext i8 " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Float -> Float32 (fptrunc double to float)
+    if castDone == 0 and innerType == "Float" and castTarget == "Float32" {
+        output.append("  " + cReg + " = fptrunc double " + innerReg + " to float\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Float32 -> Float (fpext float to double)
+    if castDone == 0 and innerType == "Float32" and castTarget == "Float" {
+        output.append("  " + cReg + " = fpext float " + innerReg + " to double\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // Int -> Int64 / UInt64 — same width, no-op
+    if castDone == 0 and innerType == "Int" and (castTarget == "Int64" or castTarget == "UInt64") {
+        castResultReg = innerReg
+        castDone = 1
+    }
+    // Int64 / UInt64 -> Int — same width, no-op
+    if castDone == 0 and (innerType == "Int64" or innerType == "UInt64") and castTarget == "Int" {
+        castResultReg = innerReg
+        castDone = 1
+    }
+    // Same type / unknown — no-op: castResultReg stays as innerReg
+    return castResultReg
+}

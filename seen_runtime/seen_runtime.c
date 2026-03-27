@@ -7597,6 +7597,327 @@ void seen_small_vec_clear(int64_t handle) {
     }
 }
 
+// ============================================================================
+// Stub functions for game engine features not yet fully implemented in runtime.
+// These prevent link failures when the compiler generates references to them.
+// ============================================================================
+#include <string.h>
+
+int64_t seen_packed_chunk_create(int64_t size) { return (int64_t)calloc(1, (size_t)size); }
+void seen_packed_chunk_free(int64_t ptr) { free((void*)ptr); }
+int64_t seen_packed_chunk_get(int64_t ptr, int64_t idx) { return ((int64_t*)ptr)[idx]; }
+void seen_packed_chunk_set(int64_t ptr, int64_t idx, int64_t val) { ((int64_t*)ptr)[idx] = val; }
+int64_t seen_rle_compress(int64_t data, int64_t len) { (void)data; (void)len; return 0; }
+int64_t seen_rle_decompress(int64_t data, int64_t len) { (void)data; (void)len; return 0; }
+void seen_rle_free(int64_t ptr) { free((void*)ptr); }
+int64_t seen_chunk_brick_from_packed(int64_t p, int64_t s) { (void)p; (void)s; return 0; }
+int64_t seen_chunk_brick_from_rle(int64_t p, int64_t s) { (void)p; (void)s; return 0; }
+int64_t seen_chunk_brick_load(int64_t p) { (void)p; return 0; }
+void seen_chunk_brick_free(int64_t p) { (void)p; }
+void seen_quality_log(int64_t level, int64_t msg_ptr, int64_t msg_len) { (void)level; (void)msg_ptr; (void)msg_len; }
+int64_t seen_vk_get_physical_device_timestamp_period(void) { return 0; }
+int64_t seen_vk_create_query_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+void seen_vk_cmd_write_timestamp(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+
+// Hearton engine string helpers (SeenString already typedef'd above)
+SeenString hearton_int_to_str(int64_t val) {
+    char buf[32]; int n = snprintf(buf, sizeof(buf), "%ld", (long)val);
+    char* s = malloc(n + 1); memcpy(s, buf, n + 1);
+    return (SeenString){n, s};
+}
+SeenString hearton_float_to_str(double val) {
+    char buf[64]; int n = snprintf(buf, sizeof(buf), "%.6f", val);
+    char* s = malloc(n + 1); memcpy(s, buf, n + 1);
+    return (SeenString){n, s};
+}
+int64_t seen_string_contains(int64_t s_len, char* s_data, int64_t sub_len, char* sub_data) {
+    if (sub_len == 0) return 1;
+    if (s_len < sub_len) return 0;
+    for (int64_t i = 0; i <= s_len - sub_len; i++) {
+        if (memcmp(s_data + i, sub_data, sub_len) == 0) return 1;
+    }
+    return 0;
+}
+int64_t seen_string_token_count(int64_t s_len, char* s_data, int64_t d_len, char* d_data) {
+    (void)d_len; if (s_len == 0) return 0;
+    int64_t count = 1;
+    for (int64_t i = 0; i < s_len; i++) {
+        if (s_data[i] == d_data[0]) count++;
+    }
+    return count;
+}
+SeenString seen_string_token(int64_t s_len, char* s_data, int64_t d_len, char* d_data, int64_t idx) {
+    (void)d_len; int64_t start = 0, cur = 0;
+    for (int64_t i = 0; i < s_len && cur < idx; i++) {
+        if (s_data[i] == d_data[0]) { start = i + 1; cur++; }
+    }
+    int64_t end = s_len;
+    for (int64_t i = start; i < s_len; i++) {
+        if (s_data[i] == d_data[0]) { end = i; break; }
+    }
+    int64_t len = end - start;
+    char* r = malloc(len + 1); memcpy(r, s_data + start, len); r[len] = 0;
+    return (SeenString){len, r};
+}
+
+// ==========================================================================
+// Game engine runtime stubs — referenced by compiler's game engine modules
+// These are placeholder implementations for bootstrap builds where the full
+// game engine libraries (SDL, Vulkan, voxel, property) are not available.
+// ==========================================================================
+
+int64_t seen_chunk_brick_alloc(int64_t a) { (void)a; return 0; }
+void seen_chunk_brick_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_packed_chunk_fill(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_prop_log(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_prop_warn(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_console_print(int64_t a, int64_t b) { (void)a; (void)b; }
+double seen_string_to_float(int64_t len, char* data) { (void)len; (void)data; return 0.0; }
+int64_t seen_string_to_int(int64_t len, char* data) { (void)len; (void)data; return 0; }
+int64_t seen_string_starts_with(int64_t s_len, char* s_data, int64_t p_len, char* p_data) {
+    (void)s_len; (void)s_data; (void)p_len; (void)p_data; return 0;
+}
+
+// SDL stubs
+int64_t seen_sdl_init(int64_t a) { (void)a; return 0; }
+int64_t seen_sdl_create_window_vulkan(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_sdl_alloc_event_buffer(void) { return 0; }
+void seen_sdl_set_relative_mouse(int64_t a) { (void)a; }
+
+// Vulkan stubs
+int64_t seen_vk_create_instance(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_surface(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_pick_physical_device(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_create_logical_device(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_get_graphics_queue(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_get_present_queue(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_swapchain(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_get_swapchain_image_count(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_swapchain_image_views(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_create_render_pass(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_framebuffers(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_create_command_pool(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_allocate_command_buffers(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_create_semaphore(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_fence(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_depth_resources(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_create_depth_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_create_depth_image_view(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_buffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_allocate_memory(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_create_sampler_shadow(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_texture_atlas_from_png(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_texture_atlas_get_sampler(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_texture_atlas_get_view(int64_t a) { (void)a; return 0; }
+
+// HeartOn engine stubs
+int64_t hearton_split_comma(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t hearton_read_file_line(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+
+// String utility stubs
+typedef struct { int64_t len; char* data; } SeenStringStub;
+SeenStringStub seen_string_substring(int64_t s_len, char* s_data, int64_t start, int64_t end) {
+    (void)s_len; (void)s_data; (void)start; (void)end;
+    SeenStringStub r = {0, ""};
+    return r;
+}
+
+// Additional stubs (batch 2)
+void seen_debug_log(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_perf_log_detailed(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_perf_set_title_ext(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_perf_set_title_msg(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_console_poll_line(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_audio_write_samples(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_audio_destroy(int64_t a) { (void)a; }
+int64_t seen_sdl_get_ticks_ns(void) { return 0; }
+void seen_sdl_show_window(int64_t a) { (void)a; }
+int64_t seen_vk_create_depth_only_render_pass(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_offscreen_render_pass(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_depth_resources_sampled(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_create_depth_framebuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_depth_pack_get_view(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_descriptor_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_create_descriptor_set_layout(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_create_pipeline_layout_ext(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_allocate_descriptor_set(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+void seen_vk_update_descriptor_set_buffer(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+void seen_vk_update_descriptor_set_image(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+
+// ==========================================================================
+// Comprehensive stubs for bootstrap builds — Vulkan, SDL, voxel, audio, etc.
+// These prevent link failures when the frozen compiler generates references
+// to game engine symbols that aren't needed for the compiler itself.
+// ==========================================================================
+
+// --- Raw Vulkan API stubs (normally provided by -lvulkan) ---
+__attribute__((weak)) int64_t vkBindBufferMemory(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+__attribute__((weak)) void vkCmdEndRenderPass(int64_t a) { (void)a; }
+__attribute__((weak)) void vkDestroyBuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyCommandPool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyDescriptorPool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyDescriptorSetLayout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyDevice(int64_t a, int64_t b) { (void)a; (void)b; }
+__attribute__((weak)) void vkDestroyFence(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyFramebuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyImage(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyImageView(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyInstance(int64_t a, int64_t b) { (void)a; (void)b; }
+__attribute__((weak)) void vkDestroyPipeline(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyPipelineLayout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyRenderPass(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroySampler(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroySemaphore(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroyShaderModule(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroySurfaceKHR(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkDestroySwapchainKHR(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) int64_t vkDeviceWaitIdle(int64_t a) { (void)a; return 0; }
+__attribute__((weak)) int64_t vkEndCommandBuffer(int64_t a) { (void)a; return 0; }
+__attribute__((weak)) void vkFreeMemory(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void vkUnmapMemory(int64_t a, int64_t b) { (void)a; (void)b; }
+
+// --- Vulkan wrapper stubs ---
+int64_t seen_vk_acquire_next_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+void seen_vk_begin_command_buffer(int64_t a) { (void)a; }
+void seen_vk_begin_render_pass(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+void seen_vk_begin_render_pass_depth(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+void seen_vk_cmd_bind_compute_descriptor_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_vk_cmd_bind_descriptor_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_vk_cmd_bind_index_buffer(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_vk_cmd_bind_pipeline(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_vk_cmd_bind_vertex_buffer(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_vk_cmd_depth_image_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_vk_cmd_dispatch_compute(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+void seen_vk_cmd_draw(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_vk_cmd_draw_indexed(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_vk_cmd_draw_indexed_indirect(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+void seen_vk_cmd_image_barrier(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+void seen_vk_cmd_pipeline_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_vk_cmd_push_constants_frag(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+void seen_vk_cmd_reset_query_pool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_vk_cmd_set_scissor(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+void seen_vk_cmd_set_viewport(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+void seen_vk_cmd_storage_buffer_to_indirect_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
+int64_t seen_vk_create_blend_pipeline(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_vk_create_compute_pipeline_with_layout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_create_fullscreen_pipeline(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_vk_create_graphics_pipeline(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; return 0; }
+int64_t seen_vk_create_offscreen_framebuffer(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_vk_create_offscreen_target(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_create_offscreen_target_nearest(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; return 0; }
+int64_t seen_vk_create_overlay_color_pipeline(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_vk_create_overlay_pipeline(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_vk_create_pipeline_layout_empty(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_create_pipeline_layout_frag_push(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_create_storage_buffer(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_depth_pack_get_image(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_depth_pack_get_sampler(int64_t a) { (void)a; return 0; }
+void seen_vk_destroy_depth_pack(int64_t a) { (void)a; }
+void seen_vk_destroy_depth_resources(int64_t a) { (void)a; }
+void seen_vk_destroy_framebuffers(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_vk_destroy_image_views(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_vk_destroy_offscreen_target(int64_t a) { (void)a; }
+void seen_vk_destroy_query_pool(int64_t a) { (void)a; }
+void seen_vk_destroy_texture_atlas(int64_t a) { (void)a; }
+int64_t seen_vk_get_command_buffer(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_get_framebuffer(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_get_last_ssbo_memory(void) { return 0; }
+int64_t seen_vk_get_query_pool_results(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_get_query_result(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_load_shader_module(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+int64_t seen_vk_map_memory(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_vk_offscreen_get_image(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_offscreen_get_sampler(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_offscreen_get_view(int64_t a) { (void)a; return 0; }
+int64_t seen_vk_queue_present(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_vk_queue_submit(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_vk_recreate_swapchain(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+void seen_vk_reset_fence(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_vk_wait_for_fence(int64_t a, int64_t b) { (void)a; (void)b; }
+
+// --- SDL stubs ---
+void SDL_Quit(void) {}
+void seen_sdl_destroy_window(int64_t a) { (void)a; }
+int64_t seen_sdl_event_key_scancode(int64_t a) { (void)a; return 0; }
+int64_t seen_sdl_event_mouse_button(int64_t a) { (void)a; return 0; }
+int64_t seen_sdl_event_mouse_dx(int64_t a) { (void)a; return 0; }
+int64_t seen_sdl_event_mouse_dy(int64_t a) { (void)a; return 0; }
+int64_t seen_sdl_event_type(int64_t a) { (void)a; return 0; }
+int64_t seen_sdl_event_window_h(int64_t a) { (void)a; return 0; }
+int64_t seen_sdl_event_window_w(int64_t a) { (void)a; return 0; }
+void seen_sdl_free_event_buffer(int64_t a) { (void)a; }
+int64_t seen_sdl_poll_event(int64_t a) { (void)a; return 0; }
+
+// --- Audio stubs ---
+int64_t seen_audio_init(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+
+// --- Voxel/brick stubs ---
+void seen_brick_pt_clear(int64_t a) { (void)a; }
+void seen_brick_pt_copy_to_gpu(int64_t a, int64_t b) { (void)a; (void)b; }
+int64_t seen_brick_pt_init(int64_t a) { (void)a; return 0; }
+void seen_brick_pt_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_cascade2_pt_clear(int64_t a) { (void)a; }
+void seen_cascade2_pt_copy_to_gpu(int64_t a, int64_t b) { (void)a; (void)b; }
+int64_t seen_cascade2_pt_init(int64_t a) { (void)a; return 0; }
+void seen_cascade2_pt_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_cascade3_pt_clear(int64_t a) { (void)a; }
+void seen_cascade3_pt_copy_to_gpu(int64_t a, int64_t b) { (void)a; (void)b; }
+int64_t seen_cascade3_pt_init(int64_t a) { (void)a; return 0; }
+void seen_cascade3_pt_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_cascade4_pt_clear(int64_t a) { (void)a; }
+void seen_cascade4_pt_copy_to_gpu(int64_t a, int64_t b) { (void)a; (void)b; }
+int64_t seen_cascade4_pt_init(int64_t a) { (void)a; return 0; }
+void seen_cascade4_pt_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+int64_t seen_chunk_brick_file_exists(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+void seen_chunk_brick_save(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+int64_t seen_chunk_load_packed(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+void seen_chunk_save(int64_t a, int64_t b) { (void)a; (void)b; }
+int64_t seen_compute_brick_mip(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+int64_t seen_copy_sub_brick(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+int64_t seen_group_brick_cache_create(int64_t a) { (void)a; return 0; }
+void seen_group_brick_cache_invalidate(int64_t a, int64_t b) { (void)a; (void)b; }
+int64_t seen_group_brick_cache_lookup(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+
+// --- Memory utility stubs ---
+int64_t seen_mem_alloc(int64_t a) { return (int64_t)calloc(1, (size_t)a); }
+void seen_mem_free(int64_t a) { free((void*)a); }
+void seen_memcpy_bytes(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n); }
+void seen_memcpy_floats(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(float)); }
+void seen_memcpy_ints(int64_t dst, int64_t src, int64_t n) { if (dst && src && n > 0) memcpy((void*)dst, (void*)src, (size_t)n * sizeof(int64_t)); }
+int64_t seen_mem_load_i32(int64_t ptr, int64_t off) { return ptr ? (int64_t)(*(int32_t*)((char*)ptr + off)) : 0; }
+void seen_mem_store_f32(int64_t ptr, int64_t off, double val) { if (ptr) *(float*)((char*)ptr + off) = (float)val; }
+void seen_mem_store_i32(int64_t ptr, int64_t off, int64_t val) { if (ptr) *(int32_t*)((char*)ptr + off) = (int32_t)val; }
+
+// --- Performance/debug stubs ---
+void seen_perf_10b_metrics(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_perf_cascade_metrics(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_perf_log(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_perf_log_gpu(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_perf_log_update_phases(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+void seen_perf_memory(int64_t a) { (void)a; }
+void seen_perf_scale_metrics(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_perf_stats(int64_t a) { (void)a; }
+void seen_perf_warn(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_debug_log_load(int64_t a, int64_t b) { (void)a; (void)b; }
+void seen_debug_mesh(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+void seen_debug_print_int(int64_t a) { (void)a; }
+void seen_debug_spawn(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+
+// --- GPU request stubs ---
+int64_t seen_gpu_req_get_gx(int64_t a) { (void)a; return 0; }
+int64_t seen_gpu_req_get_gy(int64_t a) { (void)a; return 0; }
+int64_t seen_gpu_req_get_gz(int64_t a) { (void)a; return 0; }
+int64_t seen_gpu_req_get_kind(int64_t a) { (void)a; return 0; }
+
+// --- Packed chunk extra stubs ---
+int64_t seen_packed_chunk_data_ptr(int64_t a) { (void)a; return 0; }
+int64_t seen_packed_chunk_is_empty(int64_t a) { (void)a; return 1; }
+int64_t seen_rle_total_memory(void) { return 0; }
+
+// --- Shader hot-reload stubs ---
+int64_t seen_shader_check_modified(int64_t a) { (void)a; return 0; }
+void seen_shader_register_watch(int64_t a, int64_t b) { (void)a; (void)b; }
+
 // The actual main function should be defined in user code as seen_main
 // This wrapper initializes the runtime
 #ifdef SEEN_RUNTIME_MAIN

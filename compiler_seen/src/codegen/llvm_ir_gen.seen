@@ -51,7 +51,7 @@ import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, Block
 import str.string.{StringBuilder}
 import io.file.{readText, writeText, exists}
 import trace.{traceGen}
-import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, mlShouldInline, mlShouldInlineWeighted, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn}
+import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, mlShouldInline, mlShouldInlineWeighted, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitLoopMetadataImpl, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_declarations.{isFuncDefinedInModule, addStringConstantImpl, registerStructMethodImpl, emitCollectionConstructorImpl, emitMathBuiltinImpl, emitSomeConstructorImpl, emitNoneConstructorImpl, emitExternDeclImpl}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
@@ -59,13 +59,30 @@ import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl,
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, isSimdVectorTypeImpl, simdScalarTypeImpl, simdLaneCountImpl, isSwizzlePatternImpl, swizzleLaneIndexImpl, simdLlvmSuffixImpl, isDataTypeImpl, isClassTypeImpl, mapTypeImpl, resolveKnownStructFieldImpl, mapFieldNameToReceiverType}
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl}
-import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl}
+import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
+import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl}
+import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
+import codegen.ir_assignment_gen.{emitFieldStoreImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
-import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl}
+import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitLengthSizeMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
+import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, fillDefaultParamsImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
-import codegen.type_registry.{TypeRegistry}
-import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import codegen.type_registry.{TypeRegistry, CodegenState}
+import codegen.ir_function_gen.{generateLiteralFree}
+import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
+
+fun getTraceTimeSeconds() r: Int {
+    let result: CommandResult = runCommand("date +%s")
+    if commandWasSuccessful(result) {
+        let out = commandOutput(result).trim()
+        if out.length() > 0 {
+            return out.toInt()
+        }
+    }
+    return 0
+}
 
 // Host platform detection (cached, detected once)
 var g_hostTargetTriple: String = ""
@@ -234,6 +251,25 @@ var g_deferExprs: Array<ParserExpressionNode> = Array<ParserExpressionNode>()
 var g_errdeferCount: Int = 0
 var g_errdeferExprs: Array<ParserExpressionNode> = Array<ParserExpressionNode>()
 var g_errdeferTempAlloca: String = ""
+var g_fieldInfoCacheKeys: Array<String> = Array<String>()
+var g_fieldInfoCacheIdxs: Array<Int> = Array<Int>()
+
+fun findCachedFieldIndex(key: String) r: Int {
+    var i = g_fieldInfoCacheKeys.length() - 1
+    while i >= 0 {
+        if g_fieldInfoCacheKeys[i] == key {
+            return g_fieldInfoCacheIdxs[i]
+        }
+        i = i - 1
+    }
+    return -1
+}
+
+fun cacheFieldIndex(key: String, idx: Int) r: Void {
+    if idx < 0 { return }
+    g_fieldInfoCacheKeys.push(key)
+    g_fieldInfoCacheIdxs.push(idx)
+}
 
 // Cache-line aligned classes: pipe-delimited names
 var g_cacheLineClasses: String = ""
@@ -861,6 +897,11 @@ class LLVMIRGenerator {
     var moduleConstantNames: Array<String>
     var moduleConstantValues: Array<String>
     var moduleConstantTypes: Array<String>
+    // Bundled state object passed to extracted free functions in satellite modules.
+    // Reference-type fields (StringBuilder, Array, TypeRegistry) share the same
+    // heap objects as the class fields above; value-type fields (String, Int)
+    // are synced via syncState() before free-function calls.
+    var state: CodegenState
 
     static fun new() r: LLVMIRGenerator {
         return LLVMIRGenerator{
@@ -888,7 +929,8 @@ class LLVMIRGenerator {
             pendingArrayLiteralType: "",
             moduleConstantNames: Array<String>(),
             moduleConstantValues: Array<String>(),
-            moduleConstantTypes: Array<String>()
+            moduleConstantTypes: Array<String>(),
+            state: CodegenState.new()
         }
     }
 
@@ -998,7 +1040,41 @@ class LLVMIRGenerator {
         resetOptCounters()
         // Reset class method tracking (prevents methods from module 0 affecting module 1)
         registry.classMethodBaseNames = Array<String>()
+        g_fieldInfoCacheKeys = Array<String>()
+        g_fieldInfoCacheIdxs = Array<Int>()
         // Keep struct/func registries for cross-module references
+    }
+
+    // Sync class field references to the CodegenState object so that extracted
+    // free functions in satellite modules can read/write shared state.
+    // Must be called after reset() and after any per-module setup that changes
+    // value-type fields (stringConstantPrefix, currentClassName, etc.).
+    // Reference types (StringBuilder, Array, TypeRegistry) share heap objects
+    // automatically after sync; value types are copied.
+    fun syncState() r: Void {
+        state.output = output
+        state.stringConstants = stringConstants
+        state.regBox = g_regBox
+        state.blockBox = g_blockBox
+        state.varNames = varNames
+        state.varRegs = varRegs
+        state.varTypes = varTypes
+        state.indent = indent
+        state.registry = registry
+        state.currentFunctionReturnType = currentFunctionReturnType
+        state.currentClassName = currentClassName
+        if blockTerminated { state.blockTerminated = 1 } else { state.blockTerminated = 0 }
+        state.currentLoopCondLabel = currentLoopCondLabel
+        state.currentLoopEndLabel = currentLoopEndLabel
+        state.preAllocatedVars = preAllocatedVars
+        state.preAllocatedTypes = preAllocatedTypes
+        state.stringConstantPrefix = stringConstantPrefix
+        state.generatedFunctions = generatedFunctions
+        state.generatedClasses = generatedClasses
+        state.pendingArrayLiteralType = pendingArrayLiteralType
+        state.moduleConstantNames = moduleConstantNames
+        state.moduleConstantValues = moduleConstantValues
+        state.moduleConstantTypes = moduleConstantTypes
     }
 
     // Register known data types from the parser that are used as value types
@@ -2365,6 +2441,11 @@ class LLVMIRGenerator {
     // module X fails if %ClassName is defined in module Y. Use byte-offset
     // i8 GEP or memset zero-init instead.
     fun getFieldInfo(structName: String, fieldName: String) r: Int {
+        let cacheKey = structName + "." + fieldName
+        let cached = findCachedFieldIndex(cacheKey)
+        if cached >= 0 {
+            return cached
+        }
         traceGen("getFieldInfo: " + structName + "." + fieldName)
         if structName == "FrontendResult" {
             let idxCheck = findStruct(structName)
@@ -2377,20 +2458,20 @@ class LLVMIRGenerator {
         // This ensures correct indices even when registry is partially populated
         // (e.g., when type header is loaded but source hasn't been fully parsed)
         if structName == "FunctionNode" {
-            if fieldName == "name" { return 0 }
-            if fieldName == "params" { return 1 }
-            if fieldName == "returnType" { return 2 }
-            if fieldName == "body" { return 3 }
-            if fieldName == "isAsync" { return 4 }
-            if fieldName == "isInline" { return 5 }
-            if fieldName == "isStatic" { return 6 }
-            if fieldName == "isExtern" { return 7 }
-            if fieldName == "isDeterministic" { return 8 }
-            if fieldName == "isNondeterministic" { return 9 }
-            if fieldName == "decorators" { return 10 }
-            if fieldName == "line" { return 11 }
-            if fieldName == "column" { return 12 }
-            if fieldName == "isOverride" { return 13 }
+            if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "params" { cacheFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "returnType" { cacheFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "body" { cacheFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "isAsync" { cacheFieldIndex(cacheKey, 4); return 4 }
+            if fieldName == "isInline" { cacheFieldIndex(cacheKey, 5); return 5 }
+            if fieldName == "isStatic" { cacheFieldIndex(cacheKey, 6); return 6 }
+            if fieldName == "isExtern" { cacheFieldIndex(cacheKey, 7); return 7 }
+            if fieldName == "isDeterministic" { cacheFieldIndex(cacheKey, 8); return 8 }
+            if fieldName == "isNondeterministic" { cacheFieldIndex(cacheKey, 9); return 9 }
+            if fieldName == "decorators" { cacheFieldIndex(cacheKey, 10); return 10 }
+            if fieldName == "line" { cacheFieldIndex(cacheKey, 11); return 11 }
+            if fieldName == "column" { cacheFieldIndex(cacheKey, 12); return 12 }
+            if fieldName == "isOverride" { cacheFieldIndex(cacheKey, 13); return 13 }
         }
         if structName == "ClassNode" {
             if fieldName == "name" { return 0 }
@@ -2473,6 +2554,7 @@ class LLVMIRGenerator {
             if byteVal == 44 or pos == fieldNamesStr.length() {
                 let name = fieldNamesStr.substring(start, pos)
                 if name == fieldName {
+                    cacheFieldIndex(cacheKey, fieldIdx)
                     return fieldIdx
                 }
                 fieldIdx = fieldIdx + 1
@@ -2483,24 +2565,24 @@ class LLVMIRGenerator {
 
         // Fallback hardcoded field indices for less common types (not covered above)
         if structName == "FrontendDiagnostic" {
-            if fieldName == "file" { return 0 }
-            if fieldName == "line" { return 1 }
-            if fieldName == "column" { return 2 }
-            if fieldName == "severity" { return 3 }
-            if fieldName == "message" { return 4 }
+            if fieldName == "file" { cacheFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "line" { cacheFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "column" { cacheFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "severity" { cacheFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "message" { cacheFieldIndex(cacheKey, 4); return 4 }
         }
         if structName == "Token" {
-            if fieldName == "tokenType" { return 0 }
-            if fieldName == "value" { return 1 }
-            if fieldName == "line" { return 2 }
-            if fieldName == "column" { return 3 }
+            if fieldName == "tokenType" { cacheFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "value" { cacheFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "line" { cacheFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "column" { cacheFieldIndex(cacheKey, 3); return 3 }
         }
         if structName == "FieldNode" {
-            if fieldName == "name" { return 0 }
-            if fieldName == "fieldType" { return 1 }
-            if fieldName == "isMutable" { return 2 }
-            if fieldName == "defaultValue" { return 3 }
-            if fieldName == "visibility" { return 4 }
+            if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "fieldType" { cacheFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "isMutable" { cacheFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "defaultValue" { cacheFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "visibility" { cacheFieldIndex(cacheKey, 4); return 4 }
         }
         return -1  // Field not found
     }
@@ -2887,6 +2969,9 @@ class LLVMIRGenerator {
         // Emit runtime declarations
         emitRuntimeDeclarations()
 
+        // Sync class fields → CodegenState before code generation begins.
+        syncState()
+
         // WHY class methods BEFORE top-level functions:
         // @derive/@reflect/@binary/@packet decorators on classes call
         // registerStructMethod() during generateClass(), which populates
@@ -3136,6 +3221,8 @@ class LLVMIRGenerator {
     // The struct/function registries are NOT reset — they persist from Pass 1
     // (registerDeclarations) and are shared across all modules.
     fun generateSingle(program: ProgramNode, moduleIndex: Int) r: String {
+        let moduleStartTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] reset start")
         // Reset ALL per-module codegen state (generatedFunctions, generatedClasses,
         // nextReg, nextBlock, currentFunctionReturnType, loop labels, opt counters, etc.)
         reset()
@@ -3159,16 +3246,26 @@ class LLVMIRGenerator {
 
         // Collect string constants for THIS module only
         // Also piggybacks call counting for ML inline decisions + self-call detection
+        println("[irgen module " + moduleIndex.toString() + "] collect strings start")
+        let collectStringsStartTime = getTraceTimeSeconds()
         callCountClear()
         g_selfCallFuncs = ""
         g_selfCallNames = ""
         g_selfCallCount = 0
         collectStringConstants(program)
+        let collectStringsEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] collect strings done in " + (collectStringsEndTime - collectStringsStartTime).toString() + "s")
 
         // Emit module header
+        println("[irgen module " + moduleIndex.toString() + "] prologue start")
+        let prologueStartTime = getTraceTimeSeconds()
         emitPrologue()
+        let prologueEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] prologue done in " + (prologueEndTime - prologueStartTime).toString() + "s")
 
         // Emit class struct type definitions for THIS module
+        println("[irgen module " + moduleIndex.toString() + "] class type scan start")
+        let classTypeStartTime = getTraceTimeSeconds()
         var i = 0
         while i < program.items.length() {
             let item = program.items[i]
@@ -3177,11 +3274,15 @@ class LLVMIRGenerator {
             }
             i = i + 1
         }
+        let classTypeEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] class type scan done in " + (classTypeEndTime - classTypeStartTime).toString() + "s")
 
         // NOTE: vtable constants are emitted AFTER function generation (see below)
         // because g_traitImplRegistry is populated during generateFunction's impl detection.
 
         // Emit global variable declarations for THIS module
+        println("[irgen module " + moduleIndex.toString() + "] globals start")
+        let globalsStartTime = getTraceTimeSeconds()
         i = 0
         while i < program.items.length() {
             let gvItem2 = program.items[i]
@@ -3262,6 +3363,8 @@ class LLVMIRGenerator {
             }
             i = i + 1
         }
+        let globalsEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] globals done in " + (globalsEndTime - globalsStartTime).toString() + "s")
 
         // Emit external declarations for cross-module constants not defined in this module
         var xci = 0
@@ -3284,7 +3387,11 @@ class LLVMIRGenerator {
         }
 
         // Emit string constants with module prefix
+        println("[irgen module " + moduleIndex.toString() + "] string constants start")
+        let stringConstantsStartTime = getTraceTimeSeconds()
         emitStringConstantsWithPrefix(moduleIndex)
+        let stringConstantsEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] string constants done in " + (stringConstantsEndTime - stringConstantsStartTime).toString() + "s")
         // Track how many string constants exist before class/function generation
         // (derive/reflect/json codegen may add new constants that need separate emission)
         var stringConstCountBeforeGen = stringConstants.length()
@@ -3328,11 +3435,25 @@ class LLVMIRGenerator {
         }
 
         // Emit runtime declarations (skip functions defined in this module)
+        println("[irgen module " + moduleIndex.toString() + "] runtime decls start")
+        let runtimeDeclsStartTime = getTraceTimeSeconds()
         emitRuntimeDeclarations(definedFuncs)
+        let runtimeDeclsEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] runtime decls done in " + (runtimeDeclsEndTime - runtimeDeclsStartTime).toString() + "s")
+
+        // Sync class fields → CodegenState before code generation begins.
+        // Free functions in satellite modules use state.* for shared access.
+        println("[irgen module " + moduleIndex.toString() + "] sync state start")
+        let syncStateStartTime = getTraceTimeSeconds()
+        syncState()
+        let syncStateEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] sync state done in " + (syncStateEndTime - syncStateStartTime).toString() + "s")
 
         // WHY class methods BEFORE top-level functions: see generateMultiple.
         // registerStructMethod() must populate method return types before
         // generateFunction(main) calls inferExpressionType on method calls.
+        println("[irgen module " + moduleIndex.toString() + "] classes start")
+        let classesStartTime = getTraceTimeSeconds()
         i = 0
         while i < program.items.length() {
             let item = program.items[i]
@@ -3341,8 +3462,12 @@ class LLVMIRGenerator {
             }
             i = i + 1
         }
+        let classesEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] classes done in " + (classesEndTime - classesStartTime).toString() + "s")
 
         // Emit functions (top-level) for THIS module
+        println("[irgen module " + moduleIndex.toString() + "] functions start")
+        let functionsStartTime = getTraceTimeSeconds()
         i = 0
         while i < program.items.length() {
             let item = program.items[i]
@@ -3357,6 +3482,8 @@ class LLVMIRGenerator {
             }
             i = i + 1
         }
+        let functionsEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] functions done in " + (functionsEndTime - functionsStartTime).toString() + "s")
 
         // Emit vtable constants for trait implementations found in this module
         // Must be AFTER generateFunction so g_traitImplRegistry is populated
@@ -3568,6 +3695,9 @@ class LLVMIRGenerator {
         emitTBAAMetadata()
         emitLoopMetadata()
 
+        let moduleEndTime = getTraceTimeSeconds()
+        println("[irgen module " + moduleIndex.toString() + "] done in " + (moduleEndTime - moduleStartTime).toString() + "s")
+
         return output.toString()
     }
 
@@ -3654,270 +3784,9 @@ class LLVMIRGenerator {
     }
 
     fun emitLoopMetadata() r: Void {
-        output.append("\n; Loop vectorization metadata\n")
-        // Decode decorator state from indent field
-        // Encoding: indent = unroll + noVec*1000 + alignTo*10000 + regionKB*10000000 + tail*10000000000
-        let indentClean = indent - (indent / 10000000000) * 10000000000
-        let noVecFlag = (indentClean / 1000) - (indentClean / 10000) * 10
-        var unrollCnt = indentClean - (indentClean / 1000) * 1000
-        // SIMD width selection: use decorator override or ML heuristic
-        var vecWidth = selectSimdWidth(false, false)
-        if g_currentFunctionLaneWidth > 0 {
-            vecWidth = g_currentFunctionLaneWidth
-        }
-        // Register pressure: cap unroll and halve vectorize width
-        if g_currentFunctionHighPressure {
-            if unrollCnt > 2 { unrollCnt = 2 }
-            vecWidth = vecWidth / 2
-            if vecWidth < 2 { vecWidth = 2 }
-        }
-        // Default vectorization hints
-        output.append("!200 = !{!\"llvm.loop.vectorize.enable\", i1 true}\n")
-        output.append("!201 = !{!\"llvm.loop.vectorize.width\", i32 " + vecWidth.toString() + "}\n")
-        // No-vectorize metadata (used by @no_vectorize and ML small-bound loops)
-        output.append("!199 = !{!\"llvm.loop.vectorize.enable\", i1 false}\n")
-        // @unroll(N): loop unrolling hint metadata
-        if unrollCnt > 0 {
-            output.append("!198 = !{!\"llvm.loop.unroll.count\", i32 " + unrollCnt.toString() + "}\n")
-        }
-        // LICM versioning disable hint (9.8)
-        output.append("!195 = !{!\"llvm.loop.licm_versioning.disable\"}\n")
-        // Per-loop mustprogress hint (enables aggressive loop opts)
-        output.append("!194 = !{!\"llvm.loop.mustprogress\"}\n")
-        // Loop distribute enable for nested loops (enables loop-interchange)
-        output.append("!192 = !{!\"llvm.loop.distribute.enable\", i1 true}\n")
-        // Loop interleave hint for ILP (4-way interleave)
-        output.append("!193 = !{!\"llvm.loop.interleave.count\", i32 4}\n")
-        // Branch weight metadata: !197 = unlikely-true (first dest rare), !196 = likely-true (first dest likely)
-        output.append("!197 = !{!\"branch_weights\", i32 1, i32 2000}\n")
-        output.append("!196 = !{!\"branch_weights\", i32 2000, i32 1}\n")
-        // Empty metadata for !invariant.load
-        output.append("!190 = !{}\n")
-        // Full unroll metadata for small loops
-        output.append("!189 = !{!\"llvm.loop.unroll.full\"}\n")
-        // Range metadata for array lengths: non-negative, < 2^31
-        let lbrace = "{"
-        output.append("!188 = !" + lbrace + "i64 0, i64 2147483648}\n")
-        // Wider vectorize width for reduction loops (2x base)
-        let wideVecWidth = vecWidth * 2
-        output.append("!191 = !{!\"llvm.loop.vectorize.width\", i32 " + wideVecWidth.toString() + "}\n")
-        // Emit per-loop tile unroll.count metadata nodes (starting at maxMeta + 300)
-        // Parse g_loopTileHints: "metaIdx:tileSize|metaIdx:tileSize|..."
-        var nextTileNodeId = g_blockBox[0] + 302
-        // O(N) flag-string approach: build flag strings of length maxMeta, then O(1) lookup per block
-        // Avoids O(maxMeta × entries × string_length) from pipeGet scanning
-        let maxMeta = g_blockBox[0]
-        // Build flag strings initialized to all "0"
-        var reductionFlags = ""
-        var tileFlags = ""
-        var nestedFlags = ""
-        var tileSizeEntries = ""
-        var bfi = 0
-        while bfi < maxMeta {
-            reductionFlags = reductionFlags + "0"
-            tileFlags = tileFlags + "0"
-            nestedFlags = nestedFlags + "0"
-            bfi = bfi + 1
-        }
-        // Parse g_reductionLoopIds once, set "R" at each metaIdx
-        if g_reductionLoopIds != "" {
-            var rStart = 0
-            var rPos = 0
-            while rPos <= g_reductionLoopIds.length() {
-                var rDelim = 0
-                if rPos == g_reductionLoopIds.length() { rDelim = 1 }
-                if rDelim == 0 {
-                    if g_reductionLoopIds.byteAt(rPos) == 124 { rDelim = 1 }
-                }
-                if rDelim == 1 {
-                    let rEntry = g_reductionLoopIds.substring(rStart, rPos)
-                    let rIdx = parseIntManual(rEntry)
-                    if rIdx >= 0 {
-                        if rIdx < maxMeta {
-                            reductionFlags = reductionFlags.substring(0, rIdx) + "R" + reductionFlags.substring(rIdx + 1, maxMeta)
-                        }
-                    }
-                    rStart = rPos + 1
-                }
-                rPos = rPos + 1
-            }
-        }
-        // Parse g_nestedLoopIds once, set "N" at each metaIdx
-        if g_nestedLoopIds != "" {
-            var nStart = 0
-            var nPos = 0
-            while nPos <= g_nestedLoopIds.length() {
-                var nDelim = 0
-                if nPos == g_nestedLoopIds.length() { nDelim = 1 }
-                if nDelim == 0 {
-                    if g_nestedLoopIds.byteAt(nPos) == 124 { nDelim = 1 }
-                }
-                if nDelim == 1 {
-                    let nEntry = g_nestedLoopIds.substring(nStart, nPos)
-                    let nIdx = parseIntManual(nEntry)
-                    if nIdx >= 0 {
-                        if nIdx < maxMeta {
-                            nestedFlags = nestedFlags.substring(0, nIdx) + "N" + nestedFlags.substring(nIdx + 1, maxMeta)
-                        }
-                    }
-                    nStart = nPos + 1
-                }
-                nPos = nPos + 1
-            }
-        }
-        // Parse g_loopTileHints once: "metaIdx:tileSize|..."
-        // Set flag char: "F"=full-unroll(-2), "V"=no-vec(-1), "G"=GCD(8), "T"=custom tile size
-        if g_loopTileHints != "" {
-            var tStart = 0
-            var tPos = 0
-            while tPos <= g_loopTileHints.length() {
-                var tDelim = 0
-                if tPos == g_loopTileHints.length() { tDelim = 1 }
-                if tDelim == 0 {
-                    if g_loopTileHints.byteAt(tPos) == 124 { tDelim = 1 }
-                }
-                if tDelim == 1 {
-                    let tEntry = g_loopTileHints.substring(tStart, tPos)
-                    // Parse "metaIdx:tileSize"
-                    var colonPos = 0
-                    var cpScan = 0
-                    while cpScan < tEntry.length() {
-                        if tEntry.byteAt(cpScan) == 58 {
-                            colonPos = cpScan
-                        }
-                        cpScan = cpScan + 1
-                    }
-                    if colonPos > 0 {
-                        let tMetaStr = tEntry.substring(0, colonPos)
-                        let tTileStr = tEntry.substring(colonPos + 1, tEntry.length())
-                        let tIdx = parseIntManual(tMetaStr)
-                        let tSize = parseIntManual(tTileStr)
-                        if tIdx >= 0 {
-                            if tIdx < maxMeta {
-                                if tSize == -2 {
-                                    tileFlags = tileFlags.substring(0, tIdx) + "F" + tileFlags.substring(tIdx + 1, maxMeta)
-                                }
-                                if tSize == -1 {
-                                    tileFlags = tileFlags.substring(0, tIdx) + "V" + tileFlags.substring(tIdx + 1, maxMeta)
-                                }
-                                if tSize == 8 {
-                                    tileFlags = tileFlags.substring(0, tIdx) + "G" + tileFlags.substring(tIdx + 1, maxMeta)
-                                }
-                                if tSize > 0 {
-                                    if tSize != 8 {
-                                        tileFlags = tileFlags.substring(0, tIdx) + "T" + tileFlags.substring(tIdx + 1, maxMeta)
-                                        // Store custom tile size for later lookup
-                                        let tsEntry = tMetaStr + ":" + tTileStr
-                                        if tileSizeEntries == "" {
-                                            tileSizeEntries = tsEntry
-                                        } else {
-                                            tileSizeEntries = tileSizeEntries + "|" + tsEntry
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    tStart = tPos + 1
-                }
-                tPos = tPos + 1
-            }
-        }
-        // Emit one distinct metadata node per block ID used as loop metadata
-        var metaIdx = 0
-        while metaIdx < maxMeta {
-            let metaId = metaIdx + 202
-            let metaIdStr = metaId.toString()
-            if noVecFlag == 1 {
-                output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !199, !194}\n")
-            } else {
-                // O(1) flag lookups
-                let rFlag = reductionFlags.substring(metaIdx, metaIdx + 1)
-                let nFlag = nestedFlags.substring(metaIdx, metaIdx + 1)
-                var loopTileSize = 0
-                let tFlag = tileFlags.substring(metaIdx, metaIdx + 1)
-                if tFlag == "F" { loopTileSize = -2 }
-                if tFlag == "V" { loopTileSize = -1 }
-                if tFlag == "G" { loopTileSize = 8 }
-                if tFlag == "T" {
-                    // Rare case: custom tile size, scan small tileSizeEntries string
-                    let metaIdxStr = metaIdx.toString()
-                    var tsStart = 0
-                    var tsPos = 0
-                    while tsPos <= tileSizeEntries.length() {
-                        var tsDelim = 0
-                        if tsPos == tileSizeEntries.length() { tsDelim = 1 }
-                        if tsDelim == 0 {
-                            if tileSizeEntries.byteAt(tsPos) == 124 { tsDelim = 1 }
-                        }
-                        if tsDelim == 1 {
-                            let tsEntry = tileSizeEntries.substring(tsStart, tsPos)
-                            var tsColon = 0
-                            var tscScan = 0
-                            while tscScan < tsEntry.length() {
-                                if tsEntry.byteAt(tscScan) == 58 { tsColon = tscScan }
-                                tscScan = tscScan + 1
-                            }
-                            if tsColon > 0 {
-                                let tsMetaStr = tsEntry.substring(0, tsColon)
-                                if tsMetaStr == metaIdxStr {
-                                    let tsTileStr = tsEntry.substring(tsColon + 1, tsEntry.length())
-                                    loopTileSize = parseIntManual(tsTileStr)
-                                }
-                            }
-                            tsStart = tsPos + 1
-                        }
-                        tsPos = tsPos + 1
-                    }
-                }
-                // Build the distinct metadata node
-                var vecRef = "!201"
-                if rFlag == "R" { vecRef = "!191" }
-                var distRef = ""
-                if nFlag == "N" { distRef = ", !192" }
-                // Full unroll hint: tileSize=-2 means small-body loop, emit full unroll
-                var loopMetaEmitted = 0
-                if loopTileSize == -2 {
-                    output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !189, !194" + distRef + "}\n")
-                    loopMetaEmitted = 1
-                }
-                // ML per-loop no-vectorize: tileSize=-1 means small-bound loop
-                if loopMetaEmitted == 0 {
-                    if loopTileSize < 0 {
-                        output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !199, !194" + distRef + "}\n")
-                        loopMetaEmitted = 1
-                    }
-                }
-                if loopMetaEmitted == 0 {
-                    if unrollCnt > 0 {
-                        output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !198, !194, !193" + distRef + "}\n")
-                    } else {
-                        if loopTileSize > 0 {
-                            // Emit per-loop unroll.count node
-                            let tileNodeId = nextTileNodeId
-                            nextTileNodeId = nextTileNodeId + 1
-                            output.append("!" + tileNodeId.toString() + " = !{!\"llvm.loop.unroll.count\", i32 " + loopTileSize.toString() + "}\n")
-                            output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !" + tileNodeId.toString() + ", !194, !193" + distRef + "}\n")
-                        } else {
-                            output.append("!" + metaIdStr + " = distinct !{!" + metaIdStr + ", !200, " + vecRef + ", !195, !194, !193" + distRef + "}\n")
-                        }
-                    }
-                }
-            }
-            metaIdx = metaIdx + 1
-        }
-        // Ensure at least !202 exists (needed even if nextBlock is 0)
-        if maxMeta == 0 {
-            if noVecFlag == 1 {
-                output.append("!202 = distinct !{!202, !199, !194}\n")
-            } else {
-                if unrollCnt > 0 {
-                    output.append("!202 = distinct !{!202, !200, !201, !195, !198, !194, !193}\n")
-                } else {
-                    output.append("!202 = distinct !{!202, !200, !201, !195, !194, !193}\n")
-                }
-            }
-        }
+        var hp = 0
+        if g_currentFunctionHighPressure { hp = 1 }
+        emitLoopMetadataImpl(output, indent, g_currentFunctionLaneWidth, hp, g_blockBox, g_reductionLoopIds, g_nestedLoopIds, g_loopTileHints)
     }
 
     // Emit a named LLVM struct type definition (e.g., %MyClass = type { i64, ptr }).
@@ -8084,86 +7953,20 @@ class LLVMIRGenerator {
             cseClear()
             blockTerminated = false
 
-            // Get element based on type - inlined GEP for Int/Float (enables LLVM vectorization/LICM)
-            // Use independent ifs to avoid stage1 else-if bug
-            var elemFetched = false
-            if loopVarReg != "" and (elementType == "Int" or elementType == "Char") {
-                // Inline: GEP to data pointer (field 3), then index into data array
-                let fiDataPtrPtr = getNextReg()
-                output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-                let fiDataPtr = getNextReg()
-                output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
-                let fiElemPtr = getNextReg()
-                output.append("  " + fiElemPtr + " = getelementptr inbounds nuw i64, ptr " + fiDataPtr + ", i64 " + loadIdx + "\n")
-                let elemReg = getNextReg()
-                output.append("  " + elemReg + " = load i64, ptr " + fiElemPtr + ", align 8, !tbaa !105\n")
-                output.append("  store i64 " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
-                elemFetched = true
-            }
-            if loopVarReg != "" and not elemFetched and elementType == "Float" {
-                // Inline: GEP to data pointer (field 3), then index for double
-                let fiDataPtrPtr = getNextReg()
-                output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-                let fiDataPtr = getNextReg()
-                output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
-                let fiElemPtr = getNextReg()
-                output.append("  " + fiElemPtr + " = getelementptr inbounds nuw double, ptr " + fiDataPtr + ", i64 " + loadIdx + "\n")
-                let elemReg = getNextReg()
-                output.append("  " + elemReg + " = load double, ptr " + fiElemPtr + ", align 8, !tbaa !106\n")
-                output.append("  store double " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
-                elemFetched = true
-            }
-            if loopVarReg != "" and not elemFetched and elementType == "String" {
-                let elemReg = getNextReg()
-                output.append("  " + elemReg + " = call %SeenString @seen_arr_get_str_ptr(ptr " + arrReg + ", i64 " + loadIdx + ")\n")
-                output.append("  store %SeenString " + elemReg + ", ptr " + loopVarReg + "\n")
-                elemFetched = true
-            }
-            if loopVarReg != "" and not elemFetched {
-                // Generic pointer-based access - inline GEP for ptr-sized elements
-                let fiDataPtrPtr = getNextReg()
-                output.append("  " + fiDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-                let fiDataPtr = getNextReg()
-                output.append("  " + fiDataPtr + " = load ptr, ptr " + fiDataPtrPtr + ", !tbaa !104\n")
-                let fiElemPtr = getNextReg()
-                output.append("  " + fiElemPtr + " = getelementptr inbounds nuw i64, ptr " + fiDataPtr + ", i64 " + loadIdx + "\n")
-                let elemReg = getNextReg()
-                output.append("  " + elemReg + " = load i64, ptr " + fiElemPtr + ", align 8, !tbaa !105\n")
-                output.append("  store i64 " + elemReg + ", ptr " + loopVarReg + ", align 8\n")
-            }
+            // Get element based on type — delegated to ir_control_flow.seen
+            var isString = 0
+            var isFloat = 0
+            if elementType == "String" { isString = 1 }
+            if elementType == "Float" { isFloat = 1 }
+            emitForInElementFetchImpl(output, g_regBox, arrReg, loadIdx, loopVarReg, elementType, isString, isFloat)
 
             // Auto-prefetch: prefetch element i+8 for sequential array traversals
-            // Only for numeric/ptr types where data pointer is contiguous
-            if elementType != "String" {
-                let pfIdxReg = getNextReg()
-                output.append("  " + pfIdxReg + " = add nuw i64 " + loadIdx + ", 8\n")
-                let pfCmpReg = getNextReg()
-                output.append("  " + pfCmpReg + " = icmp ult i64 " + pfIdxReg + ", " + lenReg + "\n")
-                let pfDoLabel = getNextBlockLabel()
-                let pfSkipLabel = getNextBlockLabel()
-                output.append("  br i1 " + pfCmpReg + ", label %" + pfDoLabel + ", label %" + pfSkipLabel + ", !prof !196\n")
-                output.append(pfDoLabel + ":\n")
-                // GEP to data pointer and prefetch
-                let pfDataPtrPtr = getNextReg()
-                output.append("  " + pfDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-                let pfDataPtr = getNextReg()
-                output.append("  " + pfDataPtr + " = load ptr, ptr " + pfDataPtrPtr + ", !tbaa !104\n")
-                let pfElemPtr = getNextReg()
-                output.append("  " + pfElemPtr + " = getelementptr inbounds nuw i64, ptr " + pfDataPtr + ", i64 " + pfIdxReg + "\n")
-                output.append("  call void @llvm.prefetch.p0(ptr " + pfElemPtr + ", i32 0, i32 3, i32 1) ; prefetch i+8\n")
-                output.append("  br label %" + pfSkipLabel + "\n")
-                output.append(pfSkipLabel + ":\n")
-            }
+            emitForInPrefetchImpl(output, g_regBox, g_blockBox, arrReg, loadIdx, lenReg, elementType)
 
             generateBlock(stmt.loopBody)
             let bodyTerminated = blockTerminated
             if not bodyTerminated {
-                let curIdx = getNextReg()
-                output.append("  " + curIdx + " = load i64, ptr " + idxReg + ", align 8\n")
-                let nextIdx = getNextReg()
-                output.append("  " + nextIdx + " = add nuw nsw i64 " + curIdx + ", 1\n")
-                output.append("  store i64 " + nextIdx + ", ptr " + idxReg + ", align 8\n")
-                output.append("  br label %" + condLabel + ", !llvm.loop !" + loopMetaIdStr + "\n")
+                emitForInIncrementImpl(output, g_regBox, idxReg, condLabel, loopMetaIdStr)
             }
             } // end array-based else
         }
@@ -8405,16 +8208,10 @@ class LLVMIRGenerator {
                         receiverPtrReg = tmpReg
                     }
 
-                    // GEP to field
+                    // GEP to field + store via emitFieldStoreImpl
                     let fieldPtrReg = getNextReg()
                     output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + receiverPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
-
-                    // Store - handle nullable String fields initialized to null
-                    var storeValueReg = valueReg
-                    if llvmFieldType == "%SeenString" and valueReg == "0" {
-                        storeValueReg = "zeroinitializer"
-                    }
-                    output.append("  store " + llvmFieldType + " " + storeValueReg + ", ptr " + fieldPtrReg + "\n")
+                    emitFieldStoreImpl(output, g_regBox, valueReg, llvmFieldType, fieldPtrReg, 0, 0)
                     return
                 }
             }
@@ -8544,12 +8341,7 @@ class LLVMIRGenerator {
                                 let llvmFieldType = getFieldType(intermediateType, fieldName)
                                 let fieldPtrReg = getNextReg()
                                 output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + intermediatePtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
-                                // Handle nullable String fields initialized to null
-                                var storeValueReg = valueReg
-                                if llvmFieldType == "%SeenString" and valueReg == "0" {
-                                    storeValueReg = "zeroinitializer"
-                                }
-                                output.append("  store " + llvmFieldType + " " + storeValueReg + ", ptr " + fieldPtrReg + "\n")
+                                emitFieldStoreImpl(output, g_regBox, valueReg, llvmFieldType, fieldPtrReg, 0, 0)
                                 return
                             }
                         }
@@ -8608,41 +8400,7 @@ class LLVMIRGenerator {
                     let fieldPtrReg = getNextReg()
                     output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + receiverPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
 
-                    // For inline data types from struct literals, valueReg is a ptr - need to load value first
-                    // But for method calls/function calls, valueReg is already the struct value
-                    var actualValueReg = valueReg
-                    if isDataType(seenFieldType) and value.kind == "StructLiteral" {
-                        let loadedVal = getNextReg()
-                        output.append("  " + loadedVal + " = load " + llvmFieldType + ", ptr " + valueReg + "\n")
-                        actualValueReg = loadedVal
-                    }
-
-                    // Store - handle nullable String fields initialized to null
-                    if llvmFieldType == "%SeenString" and actualValueReg == "0" {
-                        actualValueReg = "zeroinitializer"
-                    }
-                    // Handle ptr fields (e.g. data enum types): integer 0 -> null, non-zero int -> inttoptr
-                    if llvmFieldType == "ptr" {
-                        if actualValueReg == "0" {
-                            actualValueReg = "null"
-                        } else {
-                            // Check if it's a plain integer literal (digits only, possibly with leading digit)
-                            var firstCh = 0
-                            if actualValueReg.length() > 0 {
-                                firstCh = actualValueReg.charAt(0).toInt()
-                            }
-                            var isIntLit = 0
-                            if firstCh >= 49 and firstCh <= 57 {
-                                isIntLit = 1
-                            }
-                            if isIntLit == 1 {
-                                let convReg = getNextReg()
-                                output.append("  " + convReg + " = inttoptr i64 " + actualValueReg + " to ptr\n")
-                                actualValueReg = convReg
-                            }
-                        }
-                    }
-                    // Bitfield write: read-modify-write with mask
+                    // Bitfield write: read-modify-write with mask (must check before emitFieldStoreImpl)
                     if g_bitfieldCount > 0 and llvmFieldType == "i64" {
                         let bfWKey = varType + "." + fieldName
                         if g_bitfieldKeys.contains(bfWKey + "|") {
@@ -8679,17 +8437,13 @@ class LLVMIRGenerator {
                                     bfWSh = bfWSh + 1
                                 }
                                 bfWMask = bfWMask - 1
-                                // Load current slot value
                                 let bfWOldReg = getNextReg()
                                 output.append("  " + bfWOldReg + " = load i64, ptr " + fieldPtrReg + "\n")
-                                // Clear bits: old & ~mask
                                 let bfWInvMask = -1 - bfWMask
                                 let bfWClearReg = getNextReg()
                                 output.append("  " + bfWClearReg + " = and i64 " + bfWOldReg + ", " + bfWInvMask.toString() + "\n")
-                                // Mask new value: new & mask
                                 let bfWNewMasked = getNextReg()
-                                output.append("  " + bfWNewMasked + " = and i64 " + actualValueReg + ", " + bfWMask.toString() + "\n")
-                                // Merge: cleared | masked_new
+                                output.append("  " + bfWNewMasked + " = and i64 " + valueReg + ", " + bfWMask.toString() + "\n")
                                 let bfWMerged = getNextReg()
                                 output.append("  " + bfWMerged + " = or i64 " + bfWClearReg + ", " + bfWNewMasked + " ; bitfield write(" + bfWWidth.toString() + ")\n")
                                 output.append("  store i64 " + bfWMerged + ", ptr " + fieldPtrReg + "\n")
@@ -8697,7 +8451,12 @@ class LLVMIRGenerator {
                             }
                         }
                     }
-                    output.append("  store " + llvmFieldType + " " + actualValueReg + ", ptr " + fieldPtrReg + "\n")
+                    // Store via emitFieldStoreImpl (handles data type load, nullable String, ptr coercion)
+                    var valueIsStructLit = 0
+                    if value.kind == "StructLiteral" { valueIsStructLit = 1 }
+                    var isDataField = 0
+                    if isDataType(seenFieldType) { isDataField = 1 }
+                    emitFieldStoreImpl(output, g_regBox, valueReg, llvmFieldType, fieldPtrReg, valueIsStructLit, isDataField)
                     return
                 }
             }
@@ -8742,19 +8501,12 @@ class LLVMIRGenerator {
                         let finalFieldIdx = getFieldInfo(firstFieldType, fieldName)
                         if finalFieldIdx >= 0 {
                             let nestedStructLayout = registry.structLayouts[nestedStructIdx]
-                            // Note: getFieldType already returns LLVM type
                             let llvmFinalFieldType = getFieldType(firstFieldType, fieldName)
 
-                            // GEP to final field
+                            // GEP to final field + store via emitFieldStoreImpl
                             let finalFieldPtrReg = getNextReg()
                             output.append("  " + finalFieldPtrReg + " = getelementptr inbounds " + nestedStructLayout + ", ptr " + nestedPtrReg + ", i32 0, i32 " + finalFieldIdx.toString() + "\n")
-
-                            // Store - handle nullable String fields initialized to null
-                            var storeValueReg = valueReg
-                            if llvmFinalFieldType == "%SeenString" and valueReg == "0" {
-                                storeValueReg = "zeroinitializer"
-                            }
-                            output.append("  store " + llvmFinalFieldType + " " + storeValueReg + ", ptr " + finalFieldPtrReg + "\n")
+                            emitFieldStoreImpl(output, g_regBox, valueReg, llvmFinalFieldType, finalFieldPtrReg, 0, 0)
                             return
                         }
                     }
@@ -8926,142 +8678,7 @@ class LLVMIRGenerator {
             let cSrcReg = generateExpression(expr.operands[0])
             let cSrcType = inferExpressionType(expr.operands[0])
             let cTgtType = expr.literalValue
-            let cReg = getNextReg()
-            // Use flag-based pattern (no early returns from nested ifs — stage1 safe)
-            var castDone = 0
-            var castResultReg = cSrcReg
-            // Int → Float
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "Float" {
-                output.append("  " + cReg + " = sitofp i64 " + cSrcReg + " to double\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Float → Int
-            if castDone == 0 and cSrcType == "Float" and cTgtType == "Int" {
-                output.append("  " + cReg + " = fptosi double " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → Bool
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "Bool" {
-                output.append("  " + cReg + " = trunc i64 " + cSrcReg + " to i1\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Bool → Int
-            if castDone == 0 and cSrcType == "Bool" and cTgtType == "Int" {
-                output.append("  " + cReg + " = zext i1 " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // ptr → Int
-            if castDone == 0 and cSrcType == "ptr" and cTgtType == "Int" {
-                output.append("  " + cReg + " = ptrtoint ptr " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → ptr
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "ptr" {
-                output.append("  " + cReg + " = inttoptr i64 " + cSrcReg + " to ptr\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → Int32 (truncate i64 to i32)
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "Int32" {
-                output.append("  " + cReg + " = trunc i64 " + cSrcReg + " to i32\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → UInt32 (truncate i64 to i32)
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "UInt32" {
-                output.append("  " + cReg + " = trunc i64 " + cSrcReg + " to i32\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → Int16 (truncate i64 to i16)
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "Int16" {
-                output.append("  " + cReg + " = trunc i64 " + cSrcReg + " to i16\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → UInt16 (truncate i64 to i16)
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "UInt16" {
-                output.append("  " + cReg + " = trunc i64 " + cSrcReg + " to i16\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → Int8 (truncate i64 to i8)
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "Int8" {
-                output.append("  " + cReg + " = trunc i64 " + cSrcReg + " to i8\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → UInt8 (truncate i64 to i8)
-            if castDone == 0 and cSrcType == "Int" and cTgtType == "UInt8" {
-                output.append("  " + cReg + " = trunc i64 " + cSrcReg + " to i8\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int32 → Int (sign-extend i32 to i64)
-            if castDone == 0 and cSrcType == "Int32" and cTgtType == "Int" {
-                output.append("  " + cReg + " = sext i32 " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // UInt32 → Int (zero-extend i32 to i64)
-            if castDone == 0 and cSrcType == "UInt32" and cTgtType == "Int" {
-                output.append("  " + cReg + " = zext i32 " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int16 → Int (sign-extend i16 to i64)
-            if castDone == 0 and cSrcType == "Int16" and cTgtType == "Int" {
-                output.append("  " + cReg + " = sext i16 " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // UInt16 → Int (zero-extend i16 to i64)
-            if castDone == 0 and cSrcType == "UInt16" and cTgtType == "Int" {
-                output.append("  " + cReg + " = zext i16 " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int8 → Int (sign-extend i8 to i64)
-            if castDone == 0 and cSrcType == "Int8" and cTgtType == "Int" {
-                output.append("  " + cReg + " = sext i8 " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // UInt8 → Int (zero-extend i8 to i64)
-            if castDone == 0 and cSrcType == "UInt8" and cTgtType == "Int" {
-                output.append("  " + cReg + " = zext i8 " + cSrcReg + " to i64\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Float → Float32 (fptrunc double to float)
-            if castDone == 0 and cSrcType == "Float" and cTgtType == "Float32" {
-                output.append("  " + cReg + " = fptrunc double " + cSrcReg + " to float\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Float32 → Float (fpext float to double)
-            if castDone == 0 and cSrcType == "Float32" and cTgtType == "Float" {
-                output.append("  " + cReg + " = fpext float " + cSrcReg + " to double\n")
-                castResultReg = cReg
-                castDone = 1
-            }
-            // Int → Int64 / UInt64 — same width, no-op
-            if castDone == 0 and cSrcType == "Int" and (cTgtType == "Int64" or cTgtType == "UInt64") {
-                castResultReg = cSrcReg
-                castDone = 1
-            }
-            // Int64 / UInt64 → Int — same width, no-op
-            if castDone == 0 and (cSrcType == "Int64" or cSrcType == "UInt64") and cTgtType == "Int" {
-                castResultReg = cSrcReg
-                castDone = 1
-            }
-            // Same type / unknown — no-op: castResultReg stays as cSrcReg
-            return castResultReg
+            return emitCastExprImpl(output, g_regBox, cSrcReg, cSrcType, cTgtType)
         }
         // 'is' type test: check enum tag or static type
         if expr.kind == "IsExpression" {
@@ -10333,7 +9950,10 @@ class LLVMIRGenerator {
         // Escape analysis hint (9.11c): LLVM heap-to-stack promotion when pointer doesn't escape
         output.append("  ; escape-analysis: heap-to-stack candidate (" + structSize.toString() + " bytes)\n")
 
-        // Store each field
+        // Collect field value registers, LLVM types, and GEP indices into parallel arrays
+        var slFieldRegs = Array<String>()
+        var slFieldTypes = Array<String>()
+        var slGepIndices = Array<Int>()
         var fieldIdx = 0
         while fieldIdx < expr.arguments.length() {
             let fieldExpr = expr.arguments[fieldIdx]
@@ -10353,13 +9973,13 @@ class LLVMIRGenerator {
                 valueReg = generateExpression(fieldExpr.operands[0])
                 pendingArrayLiteralType = savedPendingType
             }
+            slFieldRegs.push(valueReg)
 
             // Get field index and type - try registry first, then fallback
             var gepIndex = fieldIdx
             var fieldType = "i64"
 
             if structIdx >= 0 {
-                // Use registry to get field info
                 let regFieldIdx = getFieldInfo(structName, fieldName)
                 if regFieldIdx >= 0 {
                     gepIndex = regFieldIdx
@@ -10368,177 +9988,41 @@ class LLVMIRGenerator {
                 }
             }
             if structIdx < 0 {
-                // Fallback to hardcoded field mappings
-                var fieldResolved = false
-                if structName == "FrontendDiagnostic" and fieldName == "file" {
-                    gepIndex = 0
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "FrontendDiagnostic" and fieldName == "line" {
-                    gepIndex = 1
-                    fieldType = "i64"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "FrontendDiagnostic" and fieldName == "column" {
-                    gepIndex = 2
-                    fieldType = "i64"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "FrontendDiagnostic" and fieldName == "severity" {
-                    gepIndex = 3
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "FrontendDiagnostic" and fieldName == "message" {
-                    gepIndex = 4
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "CommandResult" and fieldName == "success" {
-                    gepIndex = 0
-                    fieldType = "i1"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "CommandResult" and fieldName == "output" {
-                    gepIndex = 1
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "Point" and fieldName == "x" {
-                    gepIndex = 0
-                    fieldType = "i64"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "Point" and fieldName == "y" {
-                    gepIndex = 1
-                    fieldType = "i64"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ItemNode" and fieldName == "itemType" {
-                    gepIndex = 0
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ItemNode" and fieldName == "name" {
-                    gepIndex = 1
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ItemNode" and fieldName == "visibility" {
-                    gepIndex = 2
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ItemNode" and fieldName == "importPath" {
-                    gepIndex = 3
-                    fieldType = "ptr"  // Pointer to heap-allocated SeenArray
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ItemNode" and fieldName == "importSymbols" {
-                    gepIndex = 4
-                    fieldType = "ptr"  // Pointer to heap-allocated SeenArray
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ItemNode" and fieldName == "function" {
-                    gepIndex = 5
-                    fieldType = "i64"  // Class type stored as pointer-as-int
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ItemNode" and fieldName == "classNode" {
-                    gepIndex = 6
-                    fieldType = "i64"  // Class type stored as pointer-as-int
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ItemNode" and fieldName == "enumNode" {
-                    gepIndex = 7
-                    fieldType = "i64"  // Class type stored as pointer-as-int
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ImportPathInfo" and fieldName == "text" {
-                    gepIndex = 0
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ImportPathInfo" and fieldName == "segments" {
-                    gepIndex = 1
-                    fieldType = "ptr"  // Pointer to array, not inline array
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ParamNode" and fieldName == "name" {
-                    gepIndex = 0
-                    fieldType = "%SeenString"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ParamNode" and fieldName == "paramType" {
-                    gepIndex = 1
-                    fieldType = "%TypeNode"
-                    fieldResolved = true
-                }
-                if not fieldResolved and structName == "ParamNode" and fieldName == "isMutable" {
-                    gepIndex = 2
-                    fieldType = "i1"
-                    fieldResolved = true
-                }
-                // Infer field type from expression if not resolved by hardcoded mappings
-                if not fieldResolved and fieldExpr.operands.length() > 0 {
-                    let valueExpr = fieldExpr.operands[0]
-                    if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
-                        fieldType = "%SeenString"
-                        fieldResolved = true
-                    }
-                    if not fieldResolved and valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
-                        fieldType = "i1"
-                        fieldResolved = true
-                    }
-                    if not fieldResolved and valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
-                        fieldType = "ptr"
-                        fieldResolved = true
-                    }
-                    if not fieldResolved and valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
-                        fieldType = "%" + quoteIdentIfNeeded(valueExpr.literalType)
-                        fieldResolved = true
-                    }
-                    if not fieldResolved and valueExpr.kind == "MethodCall" {
-                        // For method calls that return data types, infer the type
-                        let calleeType = inferExpressionType(valueExpr)
-                        if isDataType(calleeType) {
-                            fieldType = "%" + quoteIdentIfNeeded(calleeType)
-                            fieldResolved = true
+                // Hardcoded fallback — delegated to ir_struct_gen.seen
+                var fbGepBox = Array<Int>()
+                fbGepBox.push(fieldIdx)
+                let fbType = resolveStructLiteralFieldFallback(structName, fieldName, fbGepBox)
+                if fbType != "" {
+                    gepIndex = fbGepBox[0]
+                    fieldType = fbType
+                } else {
+                    // Infer field type from expression
+                    if fieldExpr.operands.length() > 0 {
+                        let valueExpr = fieldExpr.operands[0]
+                        if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
+                            fieldType = "%SeenString"
+                        } else if valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
+                            fieldType = "i1"
+                        } else if valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
+                            fieldType = "ptr"
+                        } else if valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
+                            fieldType = "%" + quoteIdentIfNeeded(valueExpr.literalType)
+                        } else if valueExpr.kind == "MethodCall" {
+                            let calleeType = inferExpressionType(valueExpr)
+                            if isDataType(calleeType) {
+                                fieldType = "%" + quoteIdentIfNeeded(calleeType)
+                            }
                         }
                     }
                 }
             }
-
-            // Generate GEP to field
-            let fieldPtrReg = getNextReg()
-            output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + mallocReg + ", i32 0, i32 " + gepIndex.toString() + "\n")
-
-            // Store the value - handle nullable fields initialized to null/zero
-            var finalValueReg = valueReg
-            if fieldType == "%SeenString" and valueReg == "0" {
-                finalValueReg = "zeroinitializer"
-            }
-            // ptr fields: integer 0 -> null, non-zero int literal -> inttoptr
-            if fieldType == "ptr" {
-                if finalValueReg == "0" {
-                    finalValueReg = "null"
-                } else {
-                    var fch = 0
-                    if finalValueReg.length() > 0 {
-                        fch = finalValueReg.charAt(0).toInt()
-                    }
-                    if fch >= 49 and fch <= 57 {
-                        let cReg = getNextReg()
-                        output.append("  " + cReg + " = inttoptr i64 " + finalValueReg + " to ptr\n")
-                        finalValueReg = cReg
-                    }
-                }
-            }
-            output.append("  store " + fieldType + " " + finalValueReg + ", ptr " + fieldPtrReg + "\n")
-
+            slFieldTypes.push(fieldType)
+            slGepIndices.push(gepIndex)
             fieldIdx = fieldIdx + 1
         }
+
+        // Emit GEP + store chain — delegated to ir_struct_gen.seen
+        emitStructFieldStoresImpl(output, g_regBox, structLayout, mallocReg, slFieldRegs, slFieldTypes, slGepIndices)
 
         // Class types are stored as i64 (pointer-as-int), so convert ptr to i64
         if isClassType(structName) {
@@ -10550,75 +10034,20 @@ class LLVMIRGenerator {
         return mallocReg
     }
 
-    // Generate IR for a literal value. Int: returns decimal (hex converted).
-    // Char: returns Unicode code point as i64. Bool: returns "1" or "0".
-    // String: looks up the pre-collected string constant index and emits a
-    // GEP to the global constant + seen_cstr_to_str call to build a
-    // %SeenString. Strings <= 15 bytes use SSO (Small String Optimization):
-    // inline insertvalue instead of calling seen_cstr_to_str.
-    // Float: returns the literal value directly (LLVM accepts decimal floats).
+    // Thin wrapper: delegates to generateLiteralFree in ir_function_gen.seen,
+    // then updates stats counters that aren't accessible from satellite modules.
     fun generateLiteral(expr: ParserExpressionNode) r: String {
-        if expr.literalType == "Int" or expr.literalType == "Integer" {
-            // Convert hex values to decimal (LLVM text format doesn't accept hex for integers)
-            return hexToDecimal(expr.literalValue)
-        }
-        if expr.literalType == "Char" {
-            // Character literal - return the code point as i64
-            var s = charToCodeStr(expr.literalValue)
-            return s
-        }
-        if expr.literalType == "Bool" or expr.literalType == "Boolean" {
-            if expr.literalValue == "true" {
-                return "1"
-            }
-            return "0"
-        }
+        // Sync value-type field that generateLiteralFree reads
+        state.stringConstantPrefix = stringConstantPrefix
+        let litResult = generateLiteralFree(state, expr)
+        // Update stats counter (module-level, not accessible from satellite)
         if expr.literalType == "String" {
-            // Find string constant index (or add if not pre-registered by collectStringConstants)
-            var idx = 0
-            var found = false
-            while idx < stringConstants.length() {
-                if stringConstants[idx] == expr.literalValue {
-                    found = true
-                    break
-                }
-                idx = idx + 1
-            }
-            if not found {
-                // String was missed by collectStringConstants (e.g., in IfExpression operands).
-                // Add it now so the index is correct and emitStringConstantsWithPrefix will emit it.
-                stringConstants.push(expr.literalValue)
-                idx = stringConstants.length() - 1
-                // Emit the constant definition inline since emitStringConstantsWithPrefix already ran.
-                let strLenFallback = expr.literalValue.length() + 1
-                output.append("@.str." + stringConstantPrefix + idx.toString() + " = private unnamed_addr constant [" + strLenFallback.toString() + " x i8] c\"" + expr.literalValue + "\\00\"\n")
-            }
-
-            // Convert to SeenString
-            let ptrReg = getNextReg()
-            let strLen = expr.literalValue.length() + 1
-            output.append("  " + ptrReg + " = getelementptr [" + strLen.toString() + " x i8], ptr @.str." + stringConstantPrefix + idx.toString() + ", i64 0, i64 0\n")
-
-            // Small string optimization (9.11b): strings <= 15 bytes → inline insertvalue (skip strlen call)
             if expr.literalValue.length() <= 15 {
-                let ssoLen = expr.literalValue.length()
-                let ssoR1 = getNextReg()
-                output.append("  " + ssoR1 + " = insertvalue %SeenString undef, i64 " + ssoLen.toString() + ", 0 ; SSO inline: len=" + ssoLen.toString() + "\n")
-                let ssoR2 = getNextReg()
-                output.append("  " + ssoR2 + " = insertvalue %SeenString " + ssoR1 + ", ptr " + ptrReg + ", 1\n")
                 g_stringsDeduped = g_stringsDeduped + 1
-                mlLogDecision("sso", "inlined", "len:" + ssoLen.toString())
-                return ssoR2
+                mlLogDecision("sso", "inlined", "len:" + expr.literalValue.length().toString())
             }
-
-            let strReg = getNextReg()
-            output.append("  " + strReg + " = call %SeenString @seen_cstr_to_str(ptr " + ptrReg + ")\n")
-            return strReg
         }
-        if expr.literalType == "Float" {
-            return expr.literalValue
-        }
-        return "0"
+        return litResult
     }
 
     // Generate IR for a variable reference. Looks up the variable in
@@ -10864,7 +10293,7 @@ class LLVMIRGenerator {
                 }
             }
 
-            // E-graph lookup for literal-based rules
+            // E-graph lookup for literal-based rules — delegated to ir_optimization.seen
             let action = egraphLookup(expr.operator, leftLitVal, rightLitVal, leftIsIntLit, rightIsIntLit)
             if action == "identity_left" {
                 return generateExpression(leftExpr)
@@ -10872,79 +10301,20 @@ class LLVMIRGenerator {
             if action == "identity_right" {
                 return generateExpression(rightExpr)
             }
-            if action.startsWith("const:") {
-                g_constantsFolded = g_constantsFolded + 1
-                mlLogDecision("e-graph", "folded", expr.operator + "=" + action)
-                let constVal = action.substring(6, action.length())
-                let constReg = getNextReg()
-                output.append("  " + constReg + " = add i64 " + constVal + ", 0 ; e-graph: " + expr.operator + " -> " + constVal + "\n")
-                return constReg
-            }
-            if action == "neg" {
-                let xReg = generateExpression(leftExpr)
-                let negReg = getNextReg()
-                output.append("  " + negReg + " = sub i64 0, " + xReg + " ; e-graph: x * -1 -> -x\n")
-                return negReg
-            }
-            if action.startsWith("shl:") {
-                let shiftAmt = action.substring(4, action.length())
-                let xReg = generateExpression(leftExpr)
-                let shlReg = getNextReg()
-                output.append("  " + shlReg + " = shl i64 " + xReg + ", " + shiftAmt + " ; e-graph: strength reduction\n")
-                return shlReg
-            }
-            if action.startsWith("shl_add:") {
-                let shiftAmt = action.substring(8, action.length())
-                let xReg = generateExpression(leftExpr)
-                let shlReg = getNextReg()
-                output.append("  " + shlReg + " = shl i64 " + xReg + ", " + shiftAmt + "\n")
-                let addReg = getNextReg()
-                output.append("  " + addReg + " = add i64 " + shlReg + ", " + xReg + " ; superopt: (x<<" + shiftAmt + ")+x\n")
-                return addReg
-            }
-            if action.startsWith("shl_sub:") {
-                let shiftAmt = action.substring(8, action.length())
-                let xReg = generateExpression(leftExpr)
-                let shlReg = getNextReg()
-                output.append("  " + shlReg + " = shl i64 " + xReg + ", " + shiftAmt + "\n")
-                let subReg = getNextReg()
-                output.append("  " + subReg + " = sub i64 " + shlReg + ", " + xReg + " ; superopt: (x<<" + shiftAmt + ")-x\n")
-                return subReg
-            }
-            if action.startsWith("shl_add2:") {
-                // Two-shift add: (x<<a) + (x<<b), action format "shl_add2:a,b"
-                let params = action.substring(9, action.length())
-                // Parse "a,b" — find comma position
-                var commaPos = 0
-                var ci = 0
-                while ci < params.length() {
-                    if params.byteAt(ci) == 44 { commaPos = ci }
-                    ci = ci + 1
+            if action != "" {
+                if action.startsWith("const:") {
+                    g_constantsFolded = g_constantsFolded + 1
+                    mlLogDecision("e-graph", "folded", expr.operator + "=" + action)
                 }
-                let shiftA = params.substring(0, commaPos)
-                let shiftB = params.substring(commaPos + 1, params.length())
-                let xReg = generateExpression(leftExpr)
-                let shlAReg = getNextReg()
-                output.append("  " + shlAReg + " = shl i64 " + xReg + ", " + shiftA + "\n")
-                let shlBReg = getNextReg()
-                output.append("  " + shlBReg + " = shl i64 " + xReg + ", " + shiftB + "\n")
-                let addReg = getNextReg()
-                output.append("  " + addReg + " = add i64 " + shlAReg + ", " + shlBReg + " ; superopt: (x<<" + shiftA + ")+(x<<" + shiftB + ")\n")
-                return addReg
-            }
-            if action.startsWith("and:") {
-                let mask = action.substring(4, action.length())
-                let xReg = generateExpression(leftExpr)
-                let andReg = getNextReg()
-                output.append("  " + andReg + " = and i64 " + xReg + ", " + mask + " ; e-graph: mod -> and\n")
-                return andReg
-            }
-            if action.startsWith("ashr:") {
-                let shiftAmt = action.substring(5, action.length())
-                let xReg = generateExpression(leftExpr)
-                let ashrReg = getNextReg()
-                output.append("  " + ashrReg + " = ashr i64 " + xReg + ", " + shiftAmt + " ; e-graph: div -> ashr\n")
-                return ashrReg
+                // For non-const actions, generate left operand (all remaining actions use leftReg)
+                var egLeftReg = ""
+                if not action.startsWith("const:") {
+                    egLeftReg = generateExpression(leftExpr)
+                }
+                let egResult = emitEgraphPeepholeImpl(output, g_regBox, action, egLeftReg, "", expr.operator)
+                if egResult != "" {
+                    return egResult
+                }
             }
 
             // Associative rewrite: (a + CONST1) + CONST2 → a + (CONST1+CONST2)
@@ -11021,7 +10391,7 @@ class LLVMIRGenerator {
                 }
             }
         }
-        // Float peephole optimizations (via egraph lookup)
+        // Float peephole optimizations — delegated to ir_optimization.seen
         if leftType == "Float" and rightType == "Float" {
             let fLeftIsLit = leftExpr.kind == "Literal" and leftExpr.literalType == "Float"
             let fRightIsLit = rightExpr.kind == "Literal" and rightExpr.literalType == "Float"
@@ -11034,59 +10404,23 @@ class LLVMIRGenerator {
             if fAction == "identity_right" {
                 return generateExpression(rightExpr)
             }
-            if fAction.startsWith("fconst:") {
-                g_constantsFolded = g_constantsFolded + 1
-                let fConstReg = getNextReg()
-                output.append("  " + fConstReg + " = fadd fast double 0.0, 0.0 ; e-graph: float " + expr.operator + " -> 0.0\n")
-                return fConstReg
-            }
-            if fAction == "fadd_self" {
-                let xReg = generateExpression(leftExpr)
-                let faddReg = getNextReg()
-                output.append("  " + faddReg + " = fadd fast double " + xReg + ", " + xReg + " ; e-graph: x * 2.0 -> x + x\n")
-                return faddReg
-            }
-            if fAction == "fmul_half" {
-                let xReg = generateExpression(leftExpr)
-                let fmulHalfReg = getNextReg()
-                output.append("  " + fmulHalfReg + " = fmul fast double " + xReg + ", 5.000000e-01 ; e-graph: x / 2.0 -> x * 0.5\n")
-                return fmulHalfReg
-            }
-            if fAction == "fmul_quarter" {
-                let xReg = generateExpression(leftExpr)
-                let fmqReg = getNextReg()
-                output.append("  " + fmqReg + " = fmul fast double " + xReg + ", 2.500000e-01 ; e-graph: x / 4.0 -> x * 0.25\n")
-                return fmqReg
-            }
-            if fAction == "fmul_eighth" {
-                let xReg = generateExpression(leftExpr)
-                let fmeReg = getNextReg()
-                output.append("  " + fmeReg + " = fmul fast double " + xReg + ", 1.250000e-01 ; e-graph: x / 8.0 -> x * 0.125\n")
-                return fmeReg
-            }
-            if fAction == "fmul_sixteenth" {
-                let xReg = generateExpression(leftExpr)
-                let fmsReg = getNextReg()
-                output.append("  " + fmsReg + " = fmul fast double " + xReg + ", 6.250000e-02 ; e-graph: x / 16.0 -> x * 0.0625\n")
-                return fmsReg
-            }
-            if fAction == "fneg" {
-                let xReg = generateExpression(rightExpr)
-                let fnegReg = getNextReg()
-                output.append("  " + fnegReg + " = fneg fast double " + xReg + " ; e-graph: 0.0 - x -> fneg\n")
-                return fnegReg
-            }
-            if fAction == "fneg_left" {
-                let xReg = generateExpression(leftExpr)
-                let fnegReg = getNextReg()
-                output.append("  " + fnegReg + " = fneg fast double " + xReg + " ; e-graph: x * -1.0 -> fneg\n")
-                return fnegReg
-            }
-            if fAction == "fneg_right" {
-                let xReg = generateExpression(rightExpr)
-                let fnegReg = getNextReg()
-                output.append("  " + fnegReg + " = fneg fast double " + xReg + " ; e-graph: -1.0 * x -> fneg\n")
-                return fnegReg
+            if fAction != "" {
+                if fAction.startsWith("fconst:") {
+                    g_constantsFolded = g_constantsFolded + 1
+                }
+                // Generate left/right operands as needed by the action
+                var fgLeftReg = ""
+                var fgRightReg = ""
+                if fAction == "fneg" or fAction == "fneg_right" {
+                    fgRightReg = generateExpression(rightExpr)
+                }
+                if fAction != "fneg" and fAction != "fneg_right" and not fAction.startsWith("fconst:") {
+                    fgLeftReg = generateExpression(leftExpr)
+                }
+                let fResult = emitEgraphFloatPeepholeImpl(output, g_regBox, fAction, fgLeftReg, fgRightReg, expr.operator)
+                if fResult != "" {
+                    return fResult
+                }
             }
         }
         // FMA detection: a + (b * c) or (a * b) + c → llvm.fmuladd.f64
@@ -11459,8 +10793,7 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // offsetof(Type, field) — compile-time field offset in bytes
-        // structFieldNames/structFieldTypes are comma-separated strings, not arrays
+        // offsetof(Type, field) — field walk delegated to ir_call_dispatch.seen
         if funcName == "offsetof" {
             if expr.arguments.length() >= 2 {
                 let offTypeName = inferExpressionType(expr.arguments[0])
@@ -11470,28 +10803,28 @@ class LLVMIRGenerator {
                     if sIdx >= 0 {
                         let fNamesCsv = registry.structFieldNames[sIdx]
                         let fTypesCsv = registry.structFieldTypes[sIdx]
-                        // Walk comma-separated field names/types in parallel
+                        // Pre-compute field names, aligns, sizes into parallel arrays
+                        var offFieldNamesArr = Array<String>()
+                        var offFieldAlignsArr = Array<Int>()
+                        var offFieldSizesArr = Array<Int>()
                         var offPos = 0
                         var offTPos = 0
-                        var offAccum = 0
                         while offPos < fNamesCsv.length() {
-                            // Extract next field name
                             var offComma = fNamesCsv.indexOf(",", offPos)
                             if offComma < 0 { offComma = fNamesCsv.length() }
                             let offFn = fNamesCsv.substring(offPos, offComma)
-                            // Extract next field type
                             var offTComma = fTypesCsv.indexOf(",", offTPos)
                             if offTComma < 0 { offTComma = fTypesCsv.length() }
                             let offFt = fTypesCsv.substring(offTPos, offTComma)
-                            let offFAlign = getLlvmTypeAlign(offFt)
-                            let offFSize = getLlvmTypeSize(offFt)
-                            offAccum = alignUp(offAccum, offFAlign)
-                            if offFn == offFieldName {
-                                return offAccum.toString()
-                            }
-                            offAccum = offAccum + offFSize
+                            offFieldNamesArr.push(offFn)
+                            offFieldAlignsArr.push(getLlvmTypeAlign(offFt))
+                            offFieldSizesArr.push(getLlvmTypeSize(offFt))
                             offPos = offComma + 1
                             offTPos = offTComma + 1
+                        }
+                        let offResult = emitOffsetofImpl(offFieldNamesArr, offFieldAlignsArr, offFieldSizesArr, offFieldName)
+                        if offResult >= 0 {
+                            return offResult.toString()
                         }
                     }
                 }
@@ -11519,23 +10852,16 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // comptime includeStr("path") — embed file as string constant at compile time
+        // comptime includeStr("path") — delegated to ir_call_dispatch.seen
         if funcName == "includeStr" {
             if expr.arguments.length() > 0 {
                 let inclPath = expr.arguments[0].literalValue
                 if inclPath != "" and exists(inclPath) {
                     let inclContent = readText(inclPath)
-                    // Add to stringConstants table (same pattern as missed-string-constant fallback)
                     stringConstants.push(inclContent)
                     let inclIdx = stringConstants.length() - 1
-                    let inclLen = inclContent.length() + 1
                     let inclEscaped = escapeString(inclContent)
-                    output.append("@.str." + stringConstantPrefix + inclIdx.toString() + " = private unnamed_addr constant [" + inclLen.toString() + " x i8] c\"" + inclEscaped + "\\00\"\n")
-                    let inclPtrReg = getNextReg()
-                    output.append("  " + inclPtrReg + " = getelementptr [" + inclLen.toString() + " x i8], ptr @.str." + stringConstantPrefix + inclIdx.toString() + ", i64 0, i64 0\n")
-                    let inclStrReg = getNextReg()
-                    output.append("  " + inclStrReg + " = call %SeenString @seen_cstr_to_str(ptr " + inclPtrReg + ")\n")
-                    return inclStrReg
+                    return emitIncludeStrImpl(output, g_regBox, inclContent, inclEscaped, stringConstantPrefix, inclIdx)
                 }
                 output.append("  ; WARNING: includeStr file not found: " + inclPath + "\n")
             }
@@ -11545,7 +10871,7 @@ class LLVMIRGenerator {
             return inclEmptyReg
         }
 
-        // comptime includeBytes("path") — embed file as raw pointer + size
+        // comptime includeBytes("path") — delegated to ir_call_dispatch.seen
         if funcName == "includeBytes" {
             if expr.arguments.length() > 0 {
                 let inclBPath = expr.arguments[0].literalValue
@@ -11553,14 +10879,8 @@ class LLVMIRGenerator {
                     let inclBContent = readText(inclBPath)
                     stringConstants.push(inclBContent)
                     let inclBIdx = stringConstants.length() - 1
-                    let inclBLen = inclBContent.length() + 1
                     let inclBEscaped = escapeString(inclBContent)
-                    output.append("@.str." + stringConstantPrefix + inclBIdx.toString() + " = private unnamed_addr constant [" + inclBLen.toString() + " x i8] c\"" + inclBEscaped + "\\00\"\n")
-                    let inclBPtrReg = getNextReg()
-                    output.append("  " + inclBPtrReg + " = getelementptr [" + inclBLen.toString() + " x i8], ptr @.str." + stringConstantPrefix + inclBIdx.toString() + ", i64 0, i64 0\n")
-                    let inclBIntReg = getNextReg()
-                    output.append("  " + inclBIntReg + " = ptrtoint ptr " + inclBPtrReg + " to i64\n")
-                    return inclBIntReg
+                    return emitIncludeBytesImpl(output, g_regBox, inclBContent, inclBEscaped, stringConstantPrefix, inclBIdx)
                 }
             }
             return "0"
@@ -11607,47 +10927,33 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // : debug_assert(condition) — debug-only assertion
+        // : debug_assert(condition) — delegated to ir_call_dispatch.seen
         if funcName == "debug_assert" {
             if g_boundsCheckEnabled == 1 {
                 if expr.arguments.length() > 0 {
                     let condVal = generateExpression(expr.arguments[0])
-                    let failLabel = "assert_fail_" + g_boundsCheckLabelCount.toString()
-                    let okLabel = "assert_ok_" + g_boundsCheckLabelCount.toString()
-                    g_boundsCheckLabelCount = g_boundsCheckLabelCount + 1
-                    let condBool = getNextReg()
-                    output.append("  " + condBool + " = icmp eq i64 " + condVal + ", 0\n")
-                    output.append("  br i1 " + condBool + ", label %" + failLabel + ", label %" + okLabel + "\n")
-                    output.append(failLabel + ":\n")
-                    output.append("  call void @seen_debug_assert_fail(i64 0)\n")
-                    output.append("  unreachable\n")
-                    output.append(okLabel + ":\n")
+                    var boundsCountBox = Array<Int>()
+                    boundsCountBox.push(g_boundsCheckLabelCount)
+                    emitDebugAssertCallImpl(output, g_regBox, boundsCountBox, condVal)
+                    g_boundsCheckLabelCount = boundsCountBox[0]
                     cseClear()
                 }
             }
             return "0"
         }
 
-        // C string conversion builtins for FFI
+        // C string conversion builtins — delegated to ir_call_dispatch.seen
         if funcName == "str_to_cstr" {
             if expr.arguments.length() > 0 {
                 let strArg = generateExpression(expr.arguments[0])
-                let cstrReg = getNextReg()
-                output.append("  " + cstrReg + " = call ptr @seen_str_to_cstr(%SeenString " + strArg + ")\n")
-                let intReg = getNextReg()
-                output.append("  " + intReg + " = ptrtoint ptr " + cstrReg + " to i64\n")
-                return intReg
+                return emitCStrConversionImpl(output, g_regBox, "str_to_cstr", strArg)
             }
             return "0"
         }
         if funcName == "cstr_to_str" {
             if expr.arguments.length() > 0 {
                 let ptrArg = generateExpression(expr.arguments[0])
-                let ptrReg = getNextReg()
-                output.append("  " + ptrReg + " = inttoptr i64 " + ptrArg + " to ptr\n")
-                let strReg = getNextReg()
-                output.append("  " + strReg + " = call %SeenString @seen_cstr_to_str(ptr " + ptrReg + ")\n")
-                return strReg
+                return emitCStrConversionImpl(output, g_regBox, "cstr_to_str", ptrArg)
             }
             return "0"
         }
@@ -11657,28 +10963,17 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // async_yield() — emit cooperative suspend point inside @async functions.
-        // Only valid when called from within an @async function (g_asyncFunctionCoroHdl != "").
+        // async_yield() — delegated to ir_call_dispatch.seen
         if funcName == "async_yield" {
             var isInsideAsync = 0
             if g_asyncFunctionCoroHdl != "" {
                 isInsideAsync = 1
             }
             if isInsideAsync == 1 {
-                let saveTok = getNextReg()
-                output.append("  " + saveTok + " = call token @llvm.coro.save(ptr null)\n")
-                let spVal = getNextReg()
-                output.append("  " + spVal + " = call i8 @llvm.coro.suspend(token " + saveTok + ", i1 false)\n")
-                let unreachLabel = "yield_unreachable_" + g_yieldCounter.toString()
-                let resumeLabel = "yield_resume_" + g_yieldCounter.toString()
-                g_yieldCounter = g_yieldCounter + 1
-                output.append("  switch i8 " + spVal + ", label %" + unreachLabel + " [\n")
-                output.append("    i8 0, label %" + resumeLabel + "\n")
-                output.append("    i8 1, label %" + g_asyncCleanupLabel + "\n")
-                output.append("  ]\n")
-                output.append(unreachLabel + ":\n")
-                output.append("  unreachable\n")
-                output.append(resumeLabel + ":\n")
+                var yieldCounterBox = Array<Int>()
+                yieldCounterBox.push(g_yieldCounter)
+                emitAsyncYieldCallImpl(output, g_regBox, yieldCounterBox, g_asyncCleanupLabel)
+                g_yieldCounter = yieldCounterBox[0]
             }
             return "0"
         }
@@ -11761,203 +11056,44 @@ class LLVMIRGenerator {
                 elementType = funcName.substring(6, funcName.length() - 1)
             }
 
-            // Bulk initialization: Array<Int>(count, value) or Array<Float>(count, value)
+            // Bulk initialization: Array<T>(count, value) — delegated to ir_call_dispatch.seen
             if expr.arguments.length() == 2 {
                 let countReg = generateExpression(expr.arguments[0])
                 let valueReg = generateExpression(expr.arguments[1])
-                if elementType == "Float" {
-                    let arrReg = getNextReg()
-                    output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double " + valueReg + ")\n")
-                    return arrReg
-                }
-                // Inline bulk init for Int: malloc struct + data, loop fill
-                // This exposes the fill loop to LLVM for vectorization/memset optimization
-                let arrReg = getNextReg()
-                output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
-                let byteSizeReg = getNextReg()
-                output.append("  " + byteSizeReg + " = shl i64 " + countReg + ", 3\n")
-                let dataReg = getNextReg()
+                // Detect zero-fill from AST
+                var isZeroFill = 0
+                let fillValNode = expr.arguments[1]
+                if fillValNode.kind == "Literal" and fillValNode.literalValue == "0" { isZeroFill = 1 }
                 // Decode @align_to from indent field
                 let alignClean1 = indent - (indent / 10000000000) * 10000000000
                 let alignToVal1 = (alignClean1 / 10000) - (alignClean1 / 10000000) * 1000
-                if alignToVal1 > 0 {
-                    output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 " + alignToVal1.toString() + ", i64 " + byteSizeReg + ") ; @align_to\n")
-                } else {
-                    // Default 32-byte alignment for numeric arrays (enables AVX2 aligned loads)
-                    if elementType == "Int" or elementType == "Float" {
-                        output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 32, i64 " + byteSizeReg + ") ; aligned for SIMD\n")
-                    } else {
-                        output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + byteSizeReg + ")\n")
-                    }
-                }
-                // Init struct fields
-                let lenPtr = getNextReg()
-                output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
-                output.append("  store i64 " + countReg + ", ptr " + lenPtr + ", align 8\n")
-                let capPtr = getNextReg()
-                output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
-                output.append("  store i64 " + countReg + ", ptr " + capPtr + ", align 8\n")
-                let szPtr = getNextReg()
-                output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
-                var bulkElemSz = 8
-                if elementType == "String" { bulkElemSz = 16 }
-                output.append("  store i64 " + bulkElemSz.toString() + ", ptr " + szPtr + ", align 8\n")
-                let dataPtrPtr = getNextReg()
-                output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-                output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
-                // Zero-fill optimization: use llvm.memset for fill value 0
-                let fillValNode = expr.arguments[1]
-                var isZeroFill = false
-                if fillValNode.kind == "Literal" and fillValNode.literalValue == "0" {
-                    isZeroFill = true
-                }
-                if isZeroFill {
-                    output.append("  call void @llvm.memset.p0.i64(ptr " + dataReg + ", i8 0, i64 " + byteSizeReg + ", i1 false) ; zero-fill\n")
-                    return arrReg
-                }
-                // Fill loop using alloca for index (mem2reg will promote to phi)
-                let idxAlloca = getNextReg()
-                output.append("  " + idxAlloca + " = alloca i64\n")
-                output.append("  store i64 0, ptr " + idxAlloca + "\n")
-                let fillCond = getNextBlockLabel()
-                let fillBody = getNextBlockLabel()
-                let fillDone = getNextBlockLabel()
-                output.append("  br label %" + fillCond + "\n")
-                output.append(fillCond + ":\n")
-                let idxLoad = getNextReg()
-                output.append("  " + idxLoad + " = load i64, ptr " + idxAlloca + "\n")
-                let fillCmpReg = getNextReg()
-                output.append("  " + fillCmpReg + " = icmp slt i64 " + idxLoad + ", " + countReg + "\n")
-                output.append("  br i1 " + fillCmpReg + ", label %" + fillBody + ", label %" + fillDone + "\n")
-                output.append(fillBody + ":\n")
-                let elemPtr = getNextReg()
-                output.append("  " + elemPtr + " = getelementptr inbounds i64, ptr " + dataReg + ", i64 " + idxLoad + "\n")
-                output.append("  store i64 " + valueReg + ", ptr " + elemPtr + "\n")
-                let nextIdx = getNextReg()
-                output.append("  " + nextIdx + " = add nsw i64 " + idxLoad + ", 1\n")
-                output.append("  store i64 " + nextIdx + ", ptr " + idxAlloca + "\n")
-                output.append("  br label %" + fillCond + "\n")
-                output.append(fillDone + ":\n")
-                return arrReg
+                return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg, elementType, isZeroFill, alignToVal1)
             }
 
-            // Pre-allocation constructor: Array<Int>(capacity) → empty array with given capacity
+            // Pre-allocation constructor: Array<T>(capacity) — delegated to ir_call_dispatch.seen
             if expr.arguments.length() == 1 {
                 let capReg = generateExpression(expr.arguments[0])
-                // Allocate header (32 bytes for SeenArray struct)
-                let arrReg = getNextReg()
-                output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
-                // Determine element size
                 var elemSz = 8
                 if elementType == "String" { elemSz = 16 }
                 if isDataType(elementType) { elemSz = getDataTypeSize(elementType) }
-                // Allocate data buffer: capacity * elemSize
-                let byteSizeReg = getNextReg()
-                if elemSz == 8 {
-                    output.append("  " + byteSizeReg + " = shl i64 " + capReg + ", 3\n")
-                } else {
-                    output.append("  " + byteSizeReg + " = mul nsw i64 " + capReg + ", " + elemSz.toString() + "\n")
-                }
-                let dataReg = getNextReg()
-                output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + byteSizeReg + ")\n")
-                // Store fields: len=0, cap=capacity, element_size, data=ptr
-                let lenPtr = getNextReg()
-                output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
-                output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
-                let capPtr = getNextReg()
-                output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
-                output.append("  store i64 " + capReg + ", ptr " + capPtr + ", align 8\n")
-                let szPtr = getNextReg()
-                output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
-                output.append("  store i64 " + elemSz.toString() + ", ptr " + szPtr + ", align 8\n")
-                let dataPtrPtr = getNextReg()
-                output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-                output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
-                return arrReg
+                return emitArrayPreallocImpl(output, g_regBox, capReg, elemSz)
             }
 
-            // Inline array constructor: malloc struct + init fields
-            // This exposes the full init sequence to LLVM, enabling heap-to-stack promotion
-            // when the pointer doesn't escape (e.g., single-module programs with internalize)
+            // Inline zero-arg Array<T>() constructor — delegated to ir_call_dispatch.seen
             var elemSize = 8
-            if funcName == "Array<String>" or funcName.startsWith("Array<String") {
-                elemSize = 16
-            }
-            if isDataType(elementType) {
-                elemSize = getDataTypeSize(elementType)
-            }
-            let initCap = 8
-            let initBytes = initCap * elemSize
-            let arrReg = getNextReg()
-            output.append("  " + arrReg + " = call noalias ptr @malloc(i64 32)\n")
-            // data buffer (use aligned_alloc when @align_to is active)
-            let dataReg = getNextReg()
+            if funcName == "Array<String>" or funcName.startsWith("Array<String") { elemSize = 16 }
+            if isDataType(elementType) { elemSize = getDataTypeSize(elementType) }
             // Decode @align_to from indent field
             let alignClean2 = indent - (indent / 10000000000) * 10000000000
             let alignToVal2 = (alignClean2 / 10000) - (alignClean2 / 10000000) * 1000
-            if alignToVal2 > 0 {
-                output.append("  " + dataReg + " = call noalias ptr @aligned_alloc(i64 " + alignToVal2.toString() + ", i64 " + initBytes.toString() + ") ; @align_to\n")
-            } else {
-                output.append("  " + dataReg + " = call noalias ptr @malloc(i64 " + initBytes.toString() + ")\n")
-            }
-            // len = 0
-            let lenPtr = getNextReg()
-            output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
-            output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
-            // cap
-            let capPtr = getNextReg()
-            output.append("  " + capPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 1\n")
-            output.append("  store i64 " + initCap.toString() + ", ptr " + capPtr + ", align 8\n")
-            // element_size
-            let szPtr = getNextReg()
-            output.append("  " + szPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 2\n")
-            output.append("  store i64 " + elemSize.toString() + ", ptr " + szPtr + ", align 8\n")
-            // data ptr
-            let dataPtrPtr = getNextReg()
-            output.append("  " + dataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 3\n")
-            output.append("  store ptr " + dataReg + ", ptr " + dataPtrPtr + ", align 8\n")
-            return arrReg
+            return emitArrayInlineImpl(output, g_regBox, elemSize, alignToVal2)
         }
 
-        // INLINE VEC CONSTRUCTOR
-        // : SmallVec[T, N]() — inline storage with heap fallback
+        // SmallVec constructor — delegated to ir_call_dispatch.seen
         if funcName.startsWith("SmallVec<") or funcName.startsWith("SmallVec[") or funcName == "SmallVec" {
-            // Get capacity from argument if provided, otherwise parse from type string
-            var svCapStr2 = ""
-            if expr.arguments.length() > 0 {
-                svCapStr2 = generateExpression(expr.arguments[0])
-            }
-            if svCapStr2 != "" {
-                // Capacity from argument
-                let svCallReg = getNextReg()
-                output.append("  " + svCallReg + " = call i64 @seen_small_vec_new(i64 " + svCapStr2 + ")\n")
-                return svCallReg
-            }
-            // Parse inline capacity N from type string (e.g., "SmallVec<Int, 8>")
-            var svCapacity = 8
-            var svCommaPos = funcName.indexOf(",")
-            if svCommaPos > 0 {
-                var svCapStr = funcName.substring(svCommaPos + 1, funcName.length())
-                if svCapStr.endsWith(">") or svCapStr.endsWith("]") {
-                    svCapStr = svCapStr.substring(0, svCapStr.length() - 1)
-                }
-                svCapStr = trimSpaces(svCapStr)
-                var svCapVal = 0
-                var svCapIdx = 0
-                while svCapIdx < svCapStr.length() {
-                    let svDigit = svCapStr.byteAt(svCapIdx)
-                    if svDigit >= 48 and svDigit <= 57 {
-                        svCapVal = svCapVal * 10 + (svDigit - 48)
-                    }
-                    svCapIdx = svCapIdx + 1
-                }
-                if svCapVal > 0 {
-                    svCapacity = svCapVal
-                }
-            }
-            let svCallReg = getNextReg()
-            output.append("  " + svCallReg + " = call i64 @seen_small_vec_new(i64 " + svCapacity.toString() + ")\n")
-            return svCallReg
+            var svCapArgReg = ""
+            if expr.arguments.length() > 0 { svCapArgReg = generateExpression(expr.arguments[0]) }
+            return emitSmallVecConstructorImpl(output, g_regBox, funcName, svCapArgReg)
         }
 
         // Vec<T>() creates a new empty Vec using C runtime
@@ -11981,39 +11117,30 @@ class LLVMIRGenerator {
             }
             if isReprC {
                 let structIdx = findStruct(funcName)
-                // Start with zeroinitializer
-                var reprCResult = "zeroinitializer"
-                // If arguments are provided, build struct field-by-field with insertvalue
-                if expr.arguments.length() > 0 and structIdx >= 0 {
-                    var fieldTypesStr = registry.structFieldTypes[structIdx]
-                    var curVal = "zeroinitializer"
-                    var argIdx = 0
-                    while argIdx < expr.arguments.length() {
-                        let argReg = generateExpression(expr.arguments[argIdx])
-                        // Get field LLVM type
-                        var typePos = 0
-                        var fldTypeIdx = 0
-                        while fldTypeIdx < argIdx {
-                            while typePos < fieldTypesStr.length() and fieldTypesStr.byteAt(typePos) != 124 {
-                                typePos = typePos + 1
-                            }
-                            typePos = typePos + 1
-                            fldTypeIdx = fldTypeIdx + 1
-                        }
-                        var typeEnd = typePos
-                        while typeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(typeEnd) != 124 {
-                            typeEnd = typeEnd + 1
-                        }
-                        var fldSeenType = fieldTypesStr.substring(typePos, typeEnd)
-                        let fldLlvmType = mapType(fldSeenType)
-                        let ivReg = getNextReg()
-                        output.append("  " + ivReg + " = insertvalue %" + funcName + " " + curVal + ", " + fldLlvmType + " " + argReg + ", " + argIdx.toString() + "\n")
-                        curVal = ivReg
-                        argIdx = argIdx + 1
-                    }
-                    reprCResult = curVal
+                if expr.arguments.length() == 0 or structIdx < 0 {
+                    return "zeroinitializer"
                 }
-                return reprCResult
+                // Pre-evaluate args and resolve field LLVM types for emitReprCConstructorImpl
+                var reprCArgRegs = Array<String>()
+                var reprCFieldTypes = Array<String>()
+                var fieldTypesStr = registry.structFieldTypes[structIdx]
+                var reprCArgIdx = 0
+                while reprCArgIdx < expr.arguments.length() {
+                    reprCArgRegs.push(generateExpression(expr.arguments[reprCArgIdx]))
+                    // Extract pipe-delimited Seen type at position reprCArgIdx
+                    var rcTypePos = 0
+                    var rcFldI = 0
+                    while rcFldI < reprCArgIdx {
+                        while rcTypePos < fieldTypesStr.length() and fieldTypesStr.byteAt(rcTypePos) != 124 { rcTypePos = rcTypePos + 1 }
+                        rcTypePos = rcTypePos + 1
+                        rcFldI = rcFldI + 1
+                    }
+                    var rcTypeEnd = rcTypePos
+                    while rcTypeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(rcTypeEnd) != 124 { rcTypeEnd = rcTypeEnd + 1 }
+                    reprCFieldTypes.push(mapType(fieldTypesStr.substring(rcTypePos, rcTypeEnd)))
+                    reprCArgIdx = reprCArgIdx + 1
+                }
+                return emitReprCConstructorImpl(output, g_regBox, funcName, reprCArgRegs, reprCFieldTypes)
             }
 
             // Generate inline constructor: malloc + initialize fields + return pointer-as-int
@@ -12564,22 +11691,8 @@ class LLVMIRGenerator {
                     }
                 }
                 if not dynBoxed {
-                    // Int→Float promotion: emit sitofp when Int arg meets Float param
-                    var floatPromoted = false
-                    if argType == "Int" and g_floatParamFuncs != "" {
-                        let floatLookup = funcName + ":" + argIdx.toString() + "|"
-                        if g_floatParamFuncs.contains(floatLookup) {
-                            let sitofpReg = getNextReg()
-                            output.append("  " + sitofpReg + " = sitofp i64 " + argReg + " to double\n")
-                            argRegs.push(sitofpReg)
-                            argTypeStrs.push("double")
-                            floatPromoted = true
-                        }
-                    }
-                    if not floatPromoted {
-                        argRegs.push(argReg)
-                        argTypeStrs.push(mapType(argType))
-                    }
+                    argRegs.push(argReg)
+                    argTypeStrs.push(mapType(argType))
                 }
             }
             // @move enforcement in function calls: nullify source after passing
@@ -12602,62 +11715,11 @@ class LLVMIRGenerator {
             argIdx = argIdx + 1
         }
 
-        // Default parameter injection: fill missing args from g_funcDefaultsArr
-        if g_funcDefaultsArr != "" {
-            var dfFuncLookup = funcName + ":"
-            var dfPcPos = g_funcParamCountArr.indexOf(dfFuncLookup, 0)
-            if dfPcPos >= 0 {
-                var dfPcStart = dfPcPos + dfFuncLookup.length()
-                var dfPcEnd = g_funcParamCountArr.indexOf("|", dfPcStart)
-                if dfPcEnd < 0 { dfPcEnd = g_funcParamCountArr.length() }
-                var dfExpectedStr = g_funcParamCountArr.substring(dfPcStart, dfPcEnd)
-                var dfExpectedCount = parseIntManual(dfExpectedStr)
-                var dfFillIdx = argRegs.length()
-                while dfFillIdx < dfExpectedCount {
-                    var dfLookup = funcName + ":" + dfFillIdx.toString() + ":"
-                    var dfPos = g_funcDefaultsArr.indexOf(dfLookup, 0)
-                    if dfPos >= 0 {
-                        var dfStart = dfPos + dfLookup.length()
-                        var dfEnd = g_funcDefaultsArr.indexOf("|", dfStart)
-                        if dfEnd < 0 { dfEnd = g_funcDefaultsArr.length() }
-                        var dfEntry = g_funcDefaultsArr.substring(dfStart, dfEnd)
-                        var dfColon = dfEntry.indexOf(":", 0)
-                        if dfColon > 0 {
-                            var dfValue = dfEntry.substring(0, dfColon)
-                            var dfType = dfEntry.substring(dfColon + 1, dfEntry.length())
-                            if dfType == "String" {
-                                var dfStrIdx = getStringConstantIndex(dfValue)
-                                var dfStrLen = dfValue.length()
-                                var dfGepReg = getNextReg()
-                                output.append("  " + dfGepReg + " = getelementptr [" + (dfStrLen + 1).toString() + " x i8], ptr @.str." + stringConstantPrefix + dfStrIdx.toString() + ", i64 0, i64 0\n")
-                                var dfInsert1 = getNextReg()
-                                output.append("  " + dfInsert1 + " = insertvalue %SeenString undef, i64 " + dfStrLen.toString() + ", 0\n")
-                                var dfStrReg = getNextReg()
-                                output.append("  " + dfStrReg + " = insertvalue %SeenString " + dfInsert1 + ", ptr " + dfGepReg + ", 1\n")
-                                argRegs.push(dfStrReg)
-                                argTypeStrs.push("%SeenString")
-                            } else {
-                                if dfType == "Bool" {
-                                    var dfBoolVal = "0"
-                                    if dfValue == "true" { dfBoolVal = "1" }
-                                    argRegs.push(dfBoolVal)
-                                    argTypeStrs.push("i64")
-                                } else {
-                                    if dfType == "Float" {
-                                        argRegs.push(dfValue)
-                                        argTypeStrs.push("double")
-                                    } else {
-                                        argRegs.push(dfValue)
-                                        argTypeStrs.push("i64")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    dfFillIdx = dfFillIdx + 1
-                }
-            }
-        }
+        // Default parameter injection — delegated to ir_call_dispatch.seen
+        fillDefaultParamsImpl(output, g_regBox, funcName, argRegs, argTypeStrs, g_funcParamCountArr, g_funcDefaultsArr, stringConstantPrefix, stringConstants)
+
+        // Int→Float promotion — delegated to ir_call_dispatch.seen
+        promoteFloatArgsImpl(output, g_regBox, funcName, argRegs, argTypeStrs, g_floatParamFuncs)
 
         // Infer return type from function name
         let returnType = inferExpressionType(expr)
@@ -12750,76 +11812,27 @@ class LLVMIRGenerator {
             // dyn Trait vtable dispatch: receiver is fat pointer { ptr data, ptr vtable }
             if receiverType.startsWith("dyn ") {
                 let dynTraitName = receiverType.substring(4, receiverType.length())
-                // Load fat pointer struct: inttoptr i64 to ptr
-                let dynFatPtrReg = getNextReg()
-                output.append("  " + dynFatPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
-                // Load data pointer (field 0)
-                let dynDataPtrReg = getNextReg()
-                output.append("  " + dynDataPtrReg + " = load ptr, ptr " + dynFatPtrReg + "\n")
-                // Load vtable pointer (field 1)
-                let lb = "{"
-                let rb = "}"
-                let dynVtPtrGep = getNextReg()
-                output.append("  " + dynVtPtrGep + " = getelementptr " + lb + " ptr, ptr " + rb + ", ptr " + dynFatPtrReg + ", i32 0, i32 1\n")
-                let dynVtPtrReg = getNextReg()
-                output.append("  " + dynVtPtrReg + " = load ptr, ptr " + dynVtPtrGep + "\n")
-                // Find method index in trait's method list
+                // Look up trait method names and return types from registry
                 let dynTraitIdx = findStruct(dynTraitName)
-                var dynMethodIdx = 0
+                var dynMethodNames = ""
+                var dynRetTypes = ""
                 if dynTraitIdx >= 0 {
-                    let dynMethodNames = registry.structMethodNames[dynTraitIdx]
-                    // Search comma-separated method names
-                    var dynMSearchPos = 0
-                    var dynMIdx = 0
-                    var dynMFound = false
-                    while dynMSearchPos <= dynMethodNames.length() and not dynMFound {
-                        var dynMNextComma = dynMethodNames.indexOf(",", dynMSearchPos)
-                        if dynMNextComma < 0 { dynMNextComma = dynMethodNames.length() }
-                        let dynMEntry = dynMethodNames.substring(dynMSearchPos, dynMNextComma)
-                        if dynMEntry == methodName {
-                            dynMethodIdx = dynMIdx
-                            dynMFound = true
-                        }
-                        dynMIdx = dynMIdx + 1
-                        dynMSearchPos = dynMNextComma + 1
-                    }
+                    dynMethodNames = registry.structMethodNames[dynTraitIdx]
+                    dynRetTypes = registry.structMethodRetTypes[dynTraitIdx]
                 }
-                // GEP into vtable to get function pointer
-                let dynFnPtrGep = getNextReg()
-                output.append("  " + dynFnPtrGep + " = getelementptr %" + quoteIdentIfNeeded(dynTraitName + "_vtable") + ", ptr " + dynVtPtrReg + ", i32 0, i32 " + dynMethodIdx.toString() + "\n")
-                let dynFnPtrReg = getNextReg()
-                output.append("  " + dynFnPtrReg + " = load ptr, ptr " + dynFnPtrGep + "\n")
-                // Generate arguments
-                var dynArgStr = "ptr " + dynDataPtrReg
+                // Generate argument registers and types
+                var dynArgRegs = Array<String>()
+                var dynArgTypes = Array<String>()
                 var dynAIdx = 0
                 while dynAIdx < expr.arguments.length() {
                     let dynArgReg = generateExpression(expr.arguments[dynAIdx])
                     let dynArgType = inferExpressionType(expr.arguments[dynAIdx])
-                    dynArgStr = dynArgStr + ", " + mapType(dynArgType) + " " + dynArgReg
+                    dynArgRegs.push(dynArgReg)
+                    dynArgTypes.push(mapType(dynArgType))
                     dynAIdx = dynAIdx + 1
                 }
-                // Infer return type from trait method registry
-                var dynRetType = "i64"
-                if dynTraitIdx >= 0 {
-                    let dynRetTypes = registry.structMethodRetTypes[dynTraitIdx]
-                    var dynRSearchPos = 0
-                    var dynRIdx = 0
-                    while dynRSearchPos <= dynRetTypes.length() {
-                        var dynRNextPipe = dynRetTypes.indexOf("|", dynRSearchPos)
-                        if dynRNextPipe < 0 { dynRNextPipe = dynRetTypes.length() }
-                        if dynRIdx == dynMethodIdx {
-                            let dynRetName = dynRetTypes.substring(dynRSearchPos, dynRNextPipe)
-                            dynRetType = mapType(dynRetName)
-                            dynRSearchPos = dynRetTypes.length()
-                        }
-                        dynRIdx = dynRIdx + 1
-                        dynRSearchPos = dynRNextPipe + 1
-                    }
-                }
-                // Indirect call through vtable
-                let dynResultReg = getNextReg()
-                output.append("  " + dynResultReg + " = call " + dynRetType + " " + dynFnPtrReg + "(" + dynArgStr + ") ; dyn " + dynTraitName + "." + methodName + "\n")
-                return dynResultReg
+                // Complex receivers pass data as ptr (useI64DataArg=0)
+                return emitDynTraitVtableCallImpl(output, g_regBox, receiverReg, dynTraitName, methodName, dynMethodNames, dynRetTypes, dynArgRegs, dynArgTypes, 0)
             }
 
             // Fallback: Option methods should never use String as receiver
@@ -13065,152 +12078,33 @@ class LLVMIRGenerator {
                 receiverReg = getNextReg()
                 receiverType = varType
                 output.append("  " + receiverReg + " = load " + llvmType + ", ptr " + varReg + "\n")
-                // dyn Trait vtable dispatch for simple variable receivers
+                // dyn Trait vtable dispatch for simple variable receivers — delegated to ir_call_dispatch.seen
                 if varType.startsWith("dyn ") {
                     let svDynTraitName = varType.substring(4, varType.length())
-                    // receiverReg holds i64 (fat pointer handle) — convert to ptr
-                    let svDynFatPtrReg = getNextReg()
-                    output.append("  " + svDynFatPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
-                    // Load data pointer (field 0)
-                    let svDynDataPtrReg = getNextReg()
-                    output.append("  " + svDynDataPtrReg + " = load ptr, ptr " + svDynFatPtrReg + "\n")
-                    // Load vtable pointer (field 1)
-                    let svLb = "{"
-                    let svRb = "}"
-                    let svDynVtPtrGep = getNextReg()
-                    output.append("  " + svDynVtPtrGep + " = getelementptr " + svLb + " ptr, ptr " + svRb + ", ptr " + svDynFatPtrReg + ", i32 0, i32 1\n")
-                    let svDynVtPtrReg = getNextReg()
-                    output.append("  " + svDynVtPtrReg + " = load ptr, ptr " + svDynVtPtrGep + "\n")
-                    // Find method index in trait's method list
                     let svDynTraitIdx = findStruct(svDynTraitName)
-                    var svDynMethodIdx = 0
+                    var svDynMethodNames = ""
+                    var svDynRetTypes = ""
                     if svDynTraitIdx >= 0 {
-                        let svDynMethodNames = registry.structMethodNames[svDynTraitIdx]
-                        var svDynMSearchPos = 0
-                        var svDynMIdx = 0
-                        var svDynMFound = false
-                        while svDynMSearchPos <= svDynMethodNames.length() and not svDynMFound {
-                            var svDynMNextComma = svDynMethodNames.indexOf(",", svDynMSearchPos)
-                            if svDynMNextComma < 0 { svDynMNextComma = svDynMethodNames.length() }
-                            let svDynMEntry = svDynMethodNames.substring(svDynMSearchPos, svDynMNextComma)
-                            if svDynMEntry == methodName {
-                                svDynMethodIdx = svDynMIdx
-                                svDynMFound = true
-                            }
-                            svDynMIdx = svDynMIdx + 1
-                            svDynMSearchPos = svDynMNextComma + 1
-                        }
+                        svDynMethodNames = registry.structMethodNames[svDynTraitIdx]
+                        svDynRetTypes = registry.structMethodRetTypes[svDynTraitIdx]
                     }
-                    // GEP into vtable to get function pointer
-                    let svDynFnPtrGep = getNextReg()
-                    output.append("  " + svDynFnPtrGep + " = getelementptr %" + quoteIdentIfNeeded(svDynTraitName + "_vtable") + ", ptr " + svDynVtPtrReg + ", i32 0, i32 " + svDynMethodIdx.toString() + "\n")
-                    let svDynFnPtrReg = getNextReg()
-                    output.append("  " + svDynFnPtrReg + " = load ptr, ptr " + svDynFnPtrGep + "\n")
-                    // Convert data ptr to i64 to match impl method signatures (this: ClassName → i64)
-                    let svDynDataI64 = getNextReg()
-                    output.append("  " + svDynDataI64 + " = ptrtoint ptr " + svDynDataPtrReg + " to i64\n")
-                    // Generate arguments: first arg is data as i64
-                    var svDynArgStr = "i64 " + svDynDataI64
+                    var svDynArgRegs = Array<String>()
+                    var svDynArgTypes = Array<String>()
                     var svDynAIdx = 0
                     while svDynAIdx < expr.arguments.length() {
                         let svDynArgReg = generateExpression(expr.arguments[svDynAIdx])
                         let svDynArgType = inferExpressionType(expr.arguments[svDynAIdx])
-                        svDynArgStr = svDynArgStr + ", " + mapType(svDynArgType) + " " + svDynArgReg
+                        svDynArgRegs.push(svDynArgReg)
+                        svDynArgTypes.push(mapType(svDynArgType))
                         svDynAIdx = svDynAIdx + 1
                     }
-                    // Infer return type from trait method registry
-                    var svDynRetType = "i64"
-                    if svDynTraitIdx >= 0 {
-                        let svDynRetTypes = registry.structMethodRetTypes[svDynTraitIdx]
-                        var svDynRSearchPos = 0
-                        var svDynRIdx = 0
-                        while svDynRSearchPos <= svDynRetTypes.length() {
-                            var svDynRNextPipe = svDynRetTypes.indexOf("|", svDynRSearchPos)
-                            if svDynRNextPipe < 0 { svDynRNextPipe = svDynRetTypes.length() }
-                            if svDynRIdx == svDynMethodIdx {
-                                let svDynRetName = svDynRetTypes.substring(svDynRSearchPos, svDynRNextPipe)
-                                svDynRetType = mapType(svDynRetName)
-                                svDynRSearchPos = svDynRetTypes.length()
-                            }
-                            svDynRIdx = svDynRIdx + 1
-                            svDynRSearchPos = svDynRNextPipe + 1
-                        }
-                    }
-                    // Indirect call through vtable
-                    let svDynResultReg = getNextReg()
-                    output.append("  " + svDynResultReg + " = call " + svDynRetType + " " + svDynFnPtrReg + "(" + svDynArgStr + ") ; dyn " + svDynTraitName + "." + methodName + "\n")
-                    return svDynResultReg
+                    // Simple receivers pass data as i64 (useI64DataArg=1)
+                    return emitDynTraitVtableCallImpl(output, g_regBox, receiverReg, svDynTraitName, methodName, svDynMethodNames, svDynRetTypes, svDynArgRegs, svDynArgTypes, 1)
                 }
-                // SIMD horizontal reduction ops for simple variable receivers (/)
+                // SIMD horizontal reduction ops for simple variable receivers — delegated to ir_call_dispatch.seen
                 if isSimdVectorType(varType) == 1 {
-                    let svSimdLT = mapType(varType)
-                    let svSimdST = simdScalarType(varType)
-                    let svSimdIsFloat = varType.startsWith("f32") or varType.startsWith("f64")
-                    if methodName == "reduce_add" {
-                        let svRedReg = getNextReg()
-                        if svSimdIsFloat {
-                            var svInitStr = "0.0"
-                            if svSimdST == "double" { svInitStr = "0.000000e+00" }
-                            let svIntrName = "@llvm.vector.reduce.fadd." + simdLlvmSuffix(varType)
-                            output.append("  " + svRedReg + " = call " + svSimdST + " " + svIntrName + "(" + svSimdST + " " + svInitStr + ", " + svSimdLT + " " + receiverReg + ")\n")
-                        } else {
-                            let svIntrName = "@llvm.vector.reduce.add." + simdLlvmSuffix(varType)
-                            output.append("  " + svRedReg + " = call " + svSimdST + " " + svIntrName + "(" + svSimdLT + " " + receiverReg + ")\n")
-                        }
-                        if svSimdST == "float" {
-                            let svFpextReg = getNextReg()
-                            output.append("  " + svFpextReg + " = fpext float " + svRedReg + " to double\n")
-                            return svFpextReg
-                        }
-                        if svSimdST == "i32" {
-                            let svSextReg = getNextReg()
-                            output.append("  " + svSextReg + " = sext i32 " + svRedReg + " to i64\n")
-                            return svSextReg
-                        }
-                        return svRedReg
-                    }
-                    if methodName == "reduce_min" {
-                        let svRedReg = getNextReg()
-                        if svSimdIsFloat {
-                            let svIntrName = "@llvm.vector.reduce.fmin." + simdLlvmSuffix(varType)
-                            output.append("  " + svRedReg + " = call " + svSimdST + " " + svIntrName + "(" + svSimdLT + " " + receiverReg + ")\n")
-                        } else {
-                            let svIntrName = "@llvm.vector.reduce.smin." + simdLlvmSuffix(varType)
-                            output.append("  " + svRedReg + " = call " + svSimdST + " " + svIntrName + "(" + svSimdLT + " " + receiverReg + ")\n")
-                        }
-                        if svSimdST == "float" {
-                            let svFpextReg = getNextReg()
-                            output.append("  " + svFpextReg + " = fpext float " + svRedReg + " to double\n")
-                            return svFpextReg
-                        }
-                        if svSimdST == "i32" {
-                            let svSextReg = getNextReg()
-                            output.append("  " + svSextReg + " = sext i32 " + svRedReg + " to i64\n")
-                            return svSextReg
-                        }
-                        return svRedReg
-                    }
-                    if methodName == "reduce_max" {
-                        let svRedReg = getNextReg()
-                        if svSimdIsFloat {
-                            let svIntrName = "@llvm.vector.reduce.fmax." + simdLlvmSuffix(varType)
-                            output.append("  " + svRedReg + " = call " + svSimdST + " " + svIntrName + "(" + svSimdLT + " " + receiverReg + ")\n")
-                        } else {
-                            let svIntrName = "@llvm.vector.reduce.smax." + simdLlvmSuffix(varType)
-                            output.append("  " + svRedReg + " = call " + svSimdST + " " + svIntrName + "(" + svSimdLT + " " + receiverReg + ")\n")
-                        }
-                        if svSimdST == "float" {
-                            let svFpextReg = getNextReg()
-                            output.append("  " + svFpextReg + " = fpext float " + svRedReg + " to double\n")
-                            return svFpextReg
-                        }
-                        if svSimdST == "i32" {
-                            let svSextReg = getNextReg()
-                            output.append("  " + svSextReg + " = sext i32 " + svRedReg + " to i64\n")
-                            return svSextReg
-                        }
-                        return svRedReg
-                    }
+                    let svSimdResult = emitSimdReductionVarImpl(output, g_regBox, methodName, receiverReg, varType)
+                    if svSimdResult != "" { return svSimdResult }
                 }
             }
             if not varFoundInMethodCall {
@@ -13366,100 +12260,16 @@ class LLVMIRGenerator {
             // Check if it starts with uppercase (A-Z) and is not a known variable
             let isUppercase = firstChar >= "A" and firstChar <= "Z"
             if isUppercase and findVar(potentialClassName) < 0 {
-                // INLINE VEC STATIC METHOD HANDLING
-                // Vec<String>.new() uses Vec_new_str runtime
-                if potentialClassName == "Vec" and methodName == "new" {
-                    let hasStringElem = fullClassName.contains("<String>")
-                    let hasFloatElem = fullClassName.contains("<Float>")
-                    let rawReg = getNextReg()
-                    if hasStringElem {
-                        output.append("  " + rawReg + " = call ptr @Vec_new_str()\n")
-                    } else {
-                        if hasFloatElem {
-                            output.append("  " + rawReg + " = call ptr @Vec_new_float()\n")
-                        } else {
-                            output.append("  " + rawReg + " = call ptr @Vec_new()\n")
-                        }
-                    }
-                    let resultReg = getNextReg()
-                    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-                    return resultReg
+                // Static collection .new() — delegated to ir_call_dispatch.seen
+                if methodName == "new" {
+                    let collNewResult = emitStaticCollectionNewImpl(output, g_regBox, potentialClassName, fullClassName)
+                    if collNewResult != "" { return collNewResult }
                 }
 
-                // INLINE BTREEMAP STATIC METHOD HANDLING
-                // BTreeMap<String, String>.new() uses BTreeMap_new_str_str runtime
-                // BTreeMap<String, Int>.new() uses BTreeMap_new_str runtime
-                if potentialClassName == "BTreeMap" and methodName == "new" {
-                    let hasStringKeyStatic = fullClassName.contains("<String")
-                    // Check both ", String>" (with space) and ",String>" (without space - parser may omit space)
-                    let hasStringValueStatic = fullClassName.contains(", String>") or fullClassName.contains(",String>")
-                    let rawReg = getNextReg()
-                    if hasStringKeyStatic {
-                        if hasStringValueStatic {
-                            output.append("  " + rawReg + " = call ptr @BTreeMap_new_str_str()\n")
-                        } else {
-                            output.append("  " + rawReg + " = call ptr @BTreeMap_new_str()\n")
-                        }
-                    } else {
-                        if hasStringValueStatic {
-                            output.append("  " + rawReg + " = call ptr @BTreeMap_new_int_str()\n")
-                        } else {
-                            output.append("  " + rawReg + " = call ptr @BTreeMap_new()\n")
-                        }
-                    }
-                    let resultReg = getNextReg()
-                    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-                    return resultReg
-                }
-
-                // INLINE HASHMAP STATIC METHOD HANDLING
-                if potentialClassName == "HashMap" and methodName == "new" {
-                    let hasStringKeyStatic = fullClassName.contains("<String")
-                    let hasStringValueStatic = fullClassName.contains(", String>") or fullClassName.contains(",String>")
-                    let rawReg = getNextReg()
-                    if hasStringKeyStatic {
-                        if hasStringValueStatic {
-                            output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
-                        } else {
-                            output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
-                        }
-                    } else {
-                        if hasStringValueStatic {
-                            output.append("  " + rawReg + " = call ptr @HashMap_new_int_str()\n")
-                        } else {
-                            output.append("  " + rawReg + " = call ptr @HashMap_new()\n")
-                        }
-                    }
-                    let resultReg = getNextReg()
-                    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-                    return resultReg
-                }
-
-                // INLINE LINKEDLIST STATIC METHOD HANDLING
-                if potentialClassName == "LinkedList" and methodName == "new" {
-                    let rawReg = getNextReg()
-                    if fullClassName.contains("<String") {
-                        output.append("  " + rawReg + " = call ptr @LinkedList_new_str()\n")
-                    } else {
-                        output.append("  " + rawReg + " = call ptr @LinkedList_new()\n")
-                    }
-                    let resultReg = getNextReg()
-                    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-                    return resultReg
-                }
-
-                // INLINE ARRAY withLength STATIC METHOD HANDLING
-                // Array<T>.withLength(n) creates zero-initialized array with length=n
-                // Delegates to proven runtime constructors for correctness
+                // Array<T>.withLength(n) — delegated to ir_call_dispatch.seen
                 if potentialClassName == "Array" and methodName == "withLength" {
                     let countReg = generateExpression(expr.arguments[0])
-                    let arrReg = getNextReg()
-                    if fullClassName.contains("<Float") {
-                        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double 0.0)\n")
-                    } else {
-                        output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_i64(i64 " + countReg + ", i64 0)\n")
-                    }
-                    return arrReg
+                    return emitArrayWithLengthImpl(output, g_regBox, fullClassName, countReg)
                 }
 
                 // This is a static method call
@@ -13487,70 +12297,24 @@ class LLVMIRGenerator {
                     staticArgIdx = staticArgIdx + 1
                 }
 
-                // Runtime-provided StringBuilder.new returns ptr; convert to i64 class value.
+                // StringBuilder.new — delegated to ir_call_dispatch.seen
                 if potentialClassName == "StringBuilder" and methodName == "new" {
-                    let rawReg = getNextReg()
-                    output.append("  " + rawReg + " = call ptr @" + quoteIdentIfNeeded(funcName) + "(")
-
-                    staticArgIdx = 0
-                    while staticArgIdx < staticArgRegs.length() {
-                        if staticArgIdx > 0 {
-                            output.append(", ")
-                        }
-                        output.append(staticArgTypeStrs[staticArgIdx] + " " + staticArgRegs[staticArgIdx])
-                        staticArgIdx = staticArgIdx + 1
-                    }
-
-                    output.append(")\n")
-                    let resultReg = getNextReg()
-                    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-                    return resultReg
+                    return emitStringBuilderNewCallImpl(output, g_regBox, funcName, staticArgRegs, staticArgTypeStrs)
                 }
 
-                // Special case: String.fromCharCode returns %SeenString
+                // String.fromCharCode — delegated to ir_call_dispatch.seen
                 if potentialClassName == "String" and methodName == "fromCharCode" {
-                    let strResultReg = getNextReg()
-                    output.append("  " + strResultReg + " = call %SeenString @String_fromCharCode(")
-                    staticArgIdx = 0
-                    while staticArgIdx < staticArgRegs.length() {
-                        if staticArgIdx > 0 {
-                            output.append(", ")
-                        }
-                        output.append(staticArgTypeStrs[staticArgIdx] + " " + staticArgRegs[staticArgIdx])
-                        staticArgIdx = staticArgIdx + 1
-                    }
-                    output.append(")\n")
-                    return strResultReg
+                    return emitStringFromCharCodeCallImpl(output, g_regBox, staticArgRegs, staticArgTypeStrs)
                 }
 
-                let resultReg = getNextReg()
-                // Class types return i64 directly, data types return inline struct, others return ptr
-                if isClassType(potentialClassName) {
-                    output.append("  " + resultReg + " = call i64 @" + quoteIdentIfNeeded(funcName) + "(")
-                } else if isDataType(potentialClassName) {
-                    output.append("  " + resultReg + " = call %" + quoteIdentIfNeeded(potentialClassName) + " @" + quoteIdentIfNeeded(funcName) + "(")
-                } else {
-                    output.append("  " + resultReg + " = call ptr @" + quoteIdentIfNeeded(funcName) + "(")
-                }
-
-                // Non-new static methods have ptr %this in definition (stage1_frozen isStatic bug)
-                // Pass ptr null to match the definition's implicit 'this' parameter
+                // Generic static call — delegated to ir_call_dispatch.seen
+                var isClassRecv1 = 0
+                if isClassType(potentialClassName) { isClassRecv1 = 1 }
+                var isDataRecv1 = 0
+                if isDataType(potentialClassName) { isDataRecv1 = 1 }
                 var hasImplicitThis = 0
                 if methodName != "new" { hasImplicitThis = 1 }
-                if hasImplicitThis == 1 {
-                    output.append("ptr null")
-                }
-                staticArgIdx = 0
-                while staticArgIdx < staticArgRegs.length() {
-                    if staticArgIdx > 0 or hasImplicitThis == 1 {
-                        output.append(", ")
-                    }
-                    output.append(staticArgTypeStrs[staticArgIdx] + " " + staticArgRegs[staticArgIdx])
-                    staticArgIdx = staticArgIdx + 1
-                }
-
-                output.append(")\n")
-                return resultReg
+                return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), potentialClassName, staticArgRegs, staticArgTypeStrs, isClassRecv1, isDataRecv1, hasImplicitThis)
             }
         }
 
@@ -13609,34 +12373,8 @@ class LLVMIRGenerator {
                     standaloneRetType = "void"
                 }
 
-                // Generate the call
-                if standaloneRetType == "void" {
-                    output.append("  call void @" + quoteIdentIfNeeded(methodName) + "(")
-                    argIdx = 0
-                    while argIdx < standaloneArgRegs.length() {
-                        if argIdx > 0 {
-                            output.append(", ")
-                        }
-                        output.append(standaloneArgTypes[argIdx] + " " + standaloneArgRegs[argIdx])
-                        argIdx = argIdx + 1
-                    }
-                    output.append(")\n")
-                    return "0"  // Void return
-                }
-                if standaloneRetType != "void" {
-                    let standaloneResultReg = getNextReg()
-                    output.append("  " + standaloneResultReg + " = call " + standaloneRetType + " @" + quoteIdentIfNeeded(methodName) + "(")
-                    argIdx = 0
-                    while argIdx < standaloneArgRegs.length() {
-                        if argIdx > 0 {
-                            output.append(", ")
-                        }
-                        output.append(standaloneArgTypes[argIdx] + " " + standaloneArgRegs[argIdx])
-                        argIdx = argIdx + 1
-                    }
-                    output.append(")\n")
-                    return standaloneResultReg
-                }
+                // Generate the call — delegated to ir_call_dispatch.seen
+                return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(methodName), standaloneRetType, standaloneArgRegs, standaloneArgTypes, 0)
             }
 
             // Fallback: use default value based on inferred type
@@ -14235,33 +12973,14 @@ class LLVMIRGenerator {
                 argIdx = argIdx + 1
             }
 
-            let resultReg = getNextReg()
-            // Class types return i64 (pointer-as-int), data types return inline struct, others return ptr
-            if isClassType(className) {
-                output.append("  " + resultReg + " = call i64 @" + quoteIdentIfNeeded(funcName) + "(")
-            } else if isDataType(className) {
-                output.append("  " + resultReg + " = call %" + quoteIdentIfNeeded(className) + " @" + quoteIdentIfNeeded(funcName) + "(")
-            } else {
-                output.append("  " + resultReg + " = call ptr @" + quoteIdentIfNeeded(funcName) + "(")
-            }
-
-            // Non-new static methods have ptr %this in definition (stage1_frozen isStatic bug)
+            // Fallback generic static call — delegated to ir_call_dispatch.seen
+            var isClassRecvFB = 0
+            if isClassType(className) { isClassRecvFB = 1 }
+            var isDataRecvFB = 0
+            if isDataType(className) { isDataRecvFB = 1 }
             var hasImplicitThisFB = 0
             if methodName != "new" { hasImplicitThisFB = 1 }
-            if hasImplicitThisFB == 1 {
-                output.append("ptr null")
-            }
-            argIdx = 0
-            while argIdx < argRegs.length() {
-                if argIdx > 0 or hasImplicitThisFB == 1 {
-                    output.append(", ")
-                }
-                output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
-                argIdx = argIdx + 1
-            }
-
-            output.append(")\n")
-            return resultReg
+            return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), className, argRegs, argTypeStrs, isClassRecvFB, isDataRecvFB, hasImplicitThisFB)
         }
 
         // Instance method call: generator.generate(arg) -> @LLVMIRGenerator_generate(receiver, arg)
@@ -14427,31 +13146,15 @@ class LLVMIRGenerator {
             output.append("  store " + llvmType + " " + receiverReg + ", ptr " + allocaReg + "\n")
             receiverReg = allocaReg
         }
-        // Handle void return type - don't assign to a register
-        if llvmReturnType == "void" {
-            output.append("  call void @" + quoteIdentIfNeeded(funcName) + "(" + receiverLlvmType + " " + receiverReg)
-
-            argIdx = 0
-            while argIdx < argRegs.length() {
-                output.append(", ")
-                output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
-                argIdx = argIdx + 1
-            }
-
-            output.append(")\n")
-            return "0"  // Void calls return nothing
-        }
-
         // String?.unwrap() - identity operation
         // String? maps to %SeenString (same as String); unwrap is a no-op
         if methodName == "unwrap" and instanceTypeName == "String" {
             return receiverReg
         }
 
-        // Special handling for Option<T>.unwrap() - use type-specialized functions
+        // Option<T>.unwrap() type-specialized — delegated to ir_call_dispatch.seen
         if methodName == "unwrap" and instanceTypeName == "Option" {
             // Extract the inner type from Option<T> using receiverType (before generic stripping)
-            // receiverType still has the full "Option<String>" form
             var innerType = ""
             var ltPos = -1
             var gtPos = -1
@@ -14466,56 +13169,23 @@ class LLVMIRGenerator {
                 scanPos = scanPos + 1
             }
             if ltPos >= 0 and gtPos > ltPos {
-                // Extract type between < and >
                 innerType = receiverType.substring(ltPos + 1, gtPos)
             }
-            // If we couldn't extract inner type, fall back to returnTypeStr
             if innerType == "" {
                 innerType = returnTypeStr
             }
-
-            let resultReg = getNextReg()
-            if innerType == "Bool" {
-                output.append("  " + resultReg + " = call i1 @Option_unwrap_bool(" + receiverLlvmType + " " + receiverReg + ")\n")
-                return resultReg
-            }
-            if innerType == "Int" {
-                output.append("  " + resultReg + " = call i64 @Option_unwrap_int(" + receiverLlvmType + " " + receiverReg + ")\n")
-                return resultReg
-            }
-            if innerType == "String" {
-                output.append("  " + resultReg + " = call %SeenString @Option_unwrap_string(" + receiverLlvmType + " " + receiverReg + ")\n")
-                return resultReg
-            }
-            if innerType == "Float" {
-                output.append("  " + resultReg + " = call double @Option_unwrap_float(" + receiverLlvmType + " " + receiverReg + ")\n")
-                return resultReg
-            }
-            // For any class type (Vec, Map, custom classes), unwrap returns i64
+            var isClassInner = 0
             let baseInnerType = getBaseTypeName(innerType)
-            if isClassType(baseInnerType) or baseInnerType == "Vec" or baseInnerType == "Map" or
-               baseInnerType == "HashMap" or baseInnerType == "Result" {
-                output.append("  " + resultReg + " = call i64 @Option_unwrap_boxed(" + receiverLlvmType + " " + receiverReg + ")\n")
-                return resultReg
+            if isClassType(baseInnerType) or baseInnerType == "Vec" or baseInnerType == "Map" or baseInnerType == "HashMap" or baseInnerType == "Result" {
+                isClassInner = 1
             }
+            let optUnwrapResult = emitOptionUnwrapSpecializedImpl(output, g_regBox, innerType, receiverLlvmType, receiverReg, isClassInner)
+            if optUnwrapResult != "" { return optUnwrapResult }
             // Fall through to generic Option_unwrap for other types
         }
 
-        // Call the method with the correct LLVM return type
-        // Class types already return i64 from mapType(), no conversion needed
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = call " + llvmReturnType + " @" + quoteIdentIfNeeded(funcName) + "(" + receiverLlvmType + " " + receiverReg)
-
-        argIdx = 0
-        while argIdx < argRegs.length() {
-            output.append(", ")
-            output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
-            argIdx = argIdx + 1
-        }
-
-        output.append(")\n")
-
-        return resultReg
+        // Final instance method call — delegated to ir_call_dispatch.seen
+        return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType, receiverReg, argRegs, argTypeStrs)
     }
 
     // Generate IR for an await expression. Calls the async function to get
@@ -15045,53 +13715,19 @@ class LLVMIRGenerator {
             if (expr.callee == "withLength" or expr.callee == "withCapacity") and expr.literalValue.startsWith("Array") {
                 return expr.literalValue
             }
-            // toUpperCase/toLowerCase: returns Char on Char receiver, String on String
-            if expr.callee == "toUpperCase" or expr.callee == "toLowerCase" {
-                var recType2 = ""
+            // Receiver-sensitive method return types (toUpperCase, abs, floor, Vec first/last/remove)
+            // Resolve receiver type, then delegate to inferReceiverMethodTypeImpl
+            if expr.callee == "toUpperCase" or expr.callee == "toLowerCase" or expr.callee == "abs" or expr.callee == "min" or expr.callee == "max" or expr.callee == "clamp" or expr.callee == "floor" or expr.callee == "ceil" or expr.callee == "round" or expr.callee == "sqrt" or expr.callee == "first" or expr.callee == "last" or expr.callee == "remove" {
+                var recTypeForImpl = ""
                 if expr.operands.length() > 0 {
-                    recType2 = inferExpressionType(expr.operands[0])
+                    recTypeForImpl = inferExpressionType(expr.operands[0])
                 }
-                if recType2 == "" and expr.literalValue != "" {
-                    recType2 = findVarType(expr.literalValue)
+                if recTypeForImpl == "" and expr.literalValue != "" {
+                    recTypeForImpl = findVarType(expr.literalValue)
                 }
-                if recType2 == "Char" {
-                    return "Char"
-                }
-                return "String"
-            }
-            // abs/min/max/clamp: return type matches receiver type (Int or Float)
-            if expr.callee == "abs" or expr.callee == "min" or expr.callee == "max" or expr.callee == "clamp" {
-                var recType3 = ""
-                if expr.operands.length() > 0 {
-                    recType3 = inferExpressionType(expr.operands[0])
-                }
-                if recType3 == "" and expr.literalValue != "" {
-                    recType3 = findVarType(expr.literalValue)
-                }
-                if recType3 == "Float" {
-                    return "Float"
-                }
-                return "Int"
-            }
-            // floor/ceil/round/sqrt: always return Float
-            if expr.callee == "floor" or expr.callee == "ceil" or expr.callee == "round" or expr.callee == "sqrt" {
-                return "Float"
-            }
-            // Vec utility methods - receiver-sensitive return types
-            if expr.callee == "first" or expr.callee == "last" or expr.callee == "remove" {
-                var recTypeVec = ""
-                if expr.operands.length() > 0 {
-                    recTypeVec = inferExpressionType(expr.operands[0])
-                }
-                if recTypeVec == "" and expr.literalValue != "" {
-                    recTypeVec = findVarType(expr.literalValue)
-                }
-                if recTypeVec.startsWith("Vec<") and recTypeVec.endsWith(">") {
-                    let elemType = recTypeVec.substring(4, recTypeVec.length() - 1)
-                    return elemType
-                }
-                if recTypeVec == "Vec" {
-                    return "Int"
+                let implResult = inferReceiverMethodTypeImpl(expr.callee, recTypeForImpl)
+                if implResult != "" {
+                    return implResult
                 }
             }
             let mcTable = inferMethodCallTypeTable(expr.callee)
@@ -15137,86 +13773,9 @@ class LLVMIRGenerator {
                 // Only use hardcoded collection dispatch for known collection types
                 let isCollectionGet = recType.startsWith("Array<") or recType.startsWith("Vec<") or recType.startsWith("HashMap<") or recType.startsWith("BTreeMap<") or recType.startsWith("Map<") or recType == ""
                 if isCollectionGet {
-                    // Vec<T>.get() returns T directly (not Option)
-                    if recType.startsWith("Vec<") and recType.endsWith(">") {
-                        let elementType = recType.substring(4, recType.length() - 1)
-                        return elementType
-                    }
-                    // Array<T>.get() returns T directly
-                    if recType.startsWith("Array<") and recType.endsWith(">") {
-                        let elementType = recType.substring(6, recType.length() - 1)
-                        return elementType
-                    }
-                    // BTreeMap<K, V>.get() returns Option<V>
-                    if recType.startsWith("BTreeMap<") and recType.endsWith(">") {
-                        // Find the comma that separates K and V (60='<', 62='>', 44=',')
-                        var depth = 0
-                        var commaIdx = 0 - 1
-                        var i = 9
-                        while i < recType.length() - 1 {
-                            let cb = recType.byteAt(i)
-                            if cb == 60 { depth = depth + 1 }
-                            if cb == 62 { depth = depth - 1 }
-                            if cb == 44 and depth == 0 {
-                                commaIdx = i
-                                i = recType.length()
-                            }
-                            i = i + 1
-                        }
-                        if commaIdx > 0 {
-                            var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
-                            if valueType.startsWith(" ") {
-                                valueType = valueType.substring(1, valueType.length())
-                            }
-                            return "Option<" + valueType + ">"
-                        }
-                    }
-                    // Map<K, V>.get() returns Option<V>
-                    if recType.startsWith("Map<") and recType.endsWith(">") {
-                        // Find the comma that separates K and V (60='<', 62='>', 44=',')
-                        var depth = 0
-                        var commaIdx = 0 - 1
-                        var i = 4
-                        while i < recType.length() - 1 {
-                            let cb = recType.byteAt(i)
-                            if cb == 60 { depth = depth + 1 }
-                            if cb == 62 { depth = depth - 1 }
-                            if cb == 44 and depth == 0 {
-                                commaIdx = i
-                                i = recType.length()
-                            }
-                            i = i + 1
-                        }
-                        if commaIdx > 0 {
-                            var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
-                            if valueType.startsWith(" ") {
-                                valueType = valueType.substring(1, valueType.length())
-                            }
-                            return "Option<" + valueType + ">"
-                        }
-                    }
-                    // HashMap<K, V>.get() returns Option<V>
-                    if recType.startsWith("HashMap<") and recType.endsWith(">") {
-                        var depth = 0
-                        var commaIdx = 0 - 1
-                        var i = 8
-                        while i < recType.length() - 1 {
-                            let cb = recType.byteAt(i)
-                            if cb == 60 { depth = depth + 1 }
-                            if cb == 62 { depth = depth - 1 }
-                            if cb == 44 and depth == 0 {
-                                commaIdx = i
-                                i = recType.length()
-                            }
-                            i = i + 1
-                        }
-                        if commaIdx > 0 {
-                            var valueType = recType.substring(commaIdx + 1, recType.length() - 1)
-                            if valueType.startsWith(" ") {
-                                valueType = valueType.substring(1, valueType.length())
-                            }
-                            return "Option<" + valueType + ">"
-                        }
+                    let collGetType = resolveCollectionGetTypeImpl(recType)
+                    if collGetType != "" {
+                        return collGetType
                     }
                     return "Option<Int>"  // Fallback for unrecognized collection type
                 }
@@ -15231,9 +13790,9 @@ class LLVMIRGenerator {
                 if popRecType == "" and expr.literalValue != "" {
                     popRecType = findVarType(expr.literalValue)
                 }
-                if popRecType.startsWith("Array<") and popRecType.endsWith(">") {
-                    let popElemType = popRecType.substring(6, popRecType.length() - 1)
-                    return popElemType
+                let popResult = resolvePopElementTypeImpl(popRecType)
+                if popResult != "" {
+                    return popResult
                 }
                 return "Int"
             }
@@ -15245,63 +13804,16 @@ class LLVMIRGenerator {
                     recType = inferExpressionType(expr.operands[0])
                 }
                 if recType == "" and expr.literalValue != "" {
-                    // Check if literalValue is a local variable
-                    // Use findVarType to check both varTypes and preAllocatedTypes
-                    // This is important during variable collection phase
                     recType = findVarType(expr.literalValue)
-                    // Handle chained paths like "this.range" - resolve the type
                     if recType == "" and expr.literalValue.contains(".") {
                         recType = resolveChainedPathType(expr.literalValue)
                     }
                 }
-                // Handle optional types (T?) - unwrap returns T
-                if recType.endsWith("?") {
-                    return recType.substring(0, recType.length() - 1)
-                }
-                // Handle Option<T> - unwrap returns T
-                if recType.startsWith("Option<") and recType.endsWith(">") {
-                    return recType.substring(7, recType.length() - 1)
-                }
-                // Handle Optional<T> - unwrap returns T
-                if recType.startsWith("Optional<") and recType.endsWith(">") {
-                    return recType.substring(9, recType.length() - 1)
-                }
-                if recType == "FsFileResult" {
-                    return "FsFile"
-                }
-                if recType == "Result" {
-                    return "ptr"  // Generic Result.unwrap returns ptr
-                }
-                // LSP params types - explicit handling for known nullable types
-                if recType == "DidOpenTextDocumentParams?" {
-                    return "DidOpenTextDocumentParams"
-                }
-                if recType == "DidChangeTextDocumentParams?" {
-                    return "DidChangeTextDocumentParams"
-                }
-                if recType == "DidCloseTextDocumentParams?" {
-                    return "DidCloseTextDocumentParams"
-                }
-                if recType == "DidSaveTextDocumentParams?" {
-                    return "DidSaveTextDocumentParams"
-                }
-                if recType == "TextDocumentPositionParams?" {
-                    return "TextDocumentPositionParams"
-                }
-                if recType == "CodeActionParams?" {
-                    return "CodeActionParams"
-                }
-                if recType == "DocumentFormattingParams?" {
-                    return "DocumentFormattingParams"
-                }
-                if recType == "InitializeParams?" {
-                    return "InitializeParams"
-                }
-                // For class types that are nullable but don't match T? pattern above,
-                // try to detect if it's a known nullable class and strip the wrapper
-                // This handles cases where the type might be in a different form
-                if isClassType(recType) {
-                    return recType
+                var isClassInner = 0
+                if isClassType(recType) { isClassInner = 1 }
+                let unwrapResult = resolveUnwrapTypeImpl(recType, isClassInner)
+                if unwrapResult != "" {
+                    return unwrapResult
                 }
                 return "ptr"
             }
@@ -15376,26 +13888,10 @@ class LLVMIRGenerator {
                     return inferExpressionType(expr.arguments[1])
                 }
             }
-            // SIMD gather return types
-            if expr.callee == "simd_gather_f32x4" { return "f32x4" }
-            if expr.callee == "simd_gather_f64x2" { return "f64x2" }
-            if expr.callee == "simd_gather_i32x4" { return "i32x4" }
-            // includeStr returns String, includeBytes returns Int (ptr)
-            if expr.callee == "includeStr" { return "String" }
-            if expr.callee == "includeBytes" { return "Int" }
-            // Typed pointer operation return types
-            if expr.callee == "ptr_deref_i32" { return "Int32" }
-            if expr.callee == "ptr_deref_i16" { return "Int16" }
-            if expr.callee == "ptr_deref_i8" { return "Int8" }
-            if expr.callee == "ptr_deref_f32" { return "Float32" }
-            if expr.callee == "ptr_alloc_i32" or expr.callee == "ptr_alloc_i16" or expr.callee == "ptr_alloc_i8" { return "Int" }
-            // C string conversion builtins
-            if expr.callee == "str_to_cstr" { return "Int" }
-            if expr.callee == "cstr_to_str" { return "String" }
-            // Optional constructors MUST be checked FIRST before user-defined functions
-            // because None/Some are user-defined but need special return type handling
-            if expr.callee == "Some" or expr.callee == "None" or expr.callee.startsWith("Some<") or expr.callee.startsWith("None<") {
-                return "Option"  // Use "Option" not "Optional" for consistency with isClassType
+            // Pure callee-name lookups (SIMD gather, includeStr, ptr_deref, cstr, constructors)
+            let callExprType = inferCallExprTypeImpl(expr.callee)
+            if callExprType != "" {
+                return callExprType
             }
             // Enum variant constructors: Circle(3.14) -> parent enum type
             if g_enumVariantCount > 0 {
@@ -15405,27 +13901,6 @@ class LLVMIRGenerator {
                         return enumParent
                     }
                 }
-            }
-            // Check for Array constructor - preserve generic parameter
-            if expr.callee.startsWith("Array<") {
-                return expr.callee  // Return full type like "Array<String>"
-            }
-            if expr.callee == "Array" {
-                return "Array"
-            }
-            // : SmallVec constructor type inference
-            if expr.callee.startsWith("SmallVec<") or expr.callee.startsWith("SmallVec[") or expr.callee == "SmallVec" {
-                return expr.callee
-            }
-            // Check for HashMap/BTreeMap/LinkedList constructors - preserve generic parameters
-            if expr.callee.startsWith("HashMap<") {
-                return expr.callee
-            }
-            if expr.callee.startsWith("BTreeMap<") {
-                return expr.callee
-            }
-            if expr.callee.startsWith("LinkedList<") {
-                return expr.callee
             }
             // First check user-defined functions
             let userRetType = getFunctionReturnType(expr.callee)
@@ -15442,10 +13917,6 @@ class LLVMIRGenerator {
             // Check if callee is a class constructor (e.g., Expr() -> "Expr")
             if isClassType(expr.callee) {
                 return expr.callee
-            }
-            // Result constructors (handle "Err<T, E>" and "Ok<T, E>" forms with startsWith)
-            if expr.callee.startsWith("Err<") or expr.callee.startsWith("Ok<") {
-                return "Result"
             }
             // Generic fallback: check if callee is a method on the current class (implicit this)
             if currentClassName != "" {
@@ -15693,26 +14164,9 @@ class LLVMIRGenerator {
         if expr.kind == "TryPropagate" {
             if expr.operands.length() > 0 {
                 let tryInnerType = inferExpressionType(expr.operands[0])
-                // Result<T, E> ? → returns T
-                if tryInnerType.startsWith("Result<") {
-                    // Extract T from "Result<T, E>" — find first comma respecting nesting
-                    let tryInner = tryInnerType.substring(7, tryInnerType.length() - 1)
-                    var tryComma = 0
-                    var tryIdx = 0
-                    var tryDepth = 0
-                    while tryIdx < tryInner.length() {
-                        let tryC = tryInner.substring(tryIdx, tryIdx + 1)
-                        if tryC == "<" { tryDepth = tryDepth + 1 }
-                        if tryC == ">" { tryDepth = tryDepth - 1 }
-                        if tryC == "," {
-                            if tryDepth == 0 { tryComma = tryIdx }
-                        }
-                        tryIdx = tryIdx + 1
-                    }
-                    if tryComma > 0 {
-                        return tryInner.substring(0, tryComma)
-                    }
-                    return "Int"
+                let tryResult = resolveTryPropagateTypeImpl(tryInnerType)
+                if tryResult != "" {
+                    return tryResult
                 }
                 return tryInnerType
             }

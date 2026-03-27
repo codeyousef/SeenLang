@@ -2,6 +2,64 @@
 // Extracted from ir_type_info.seen
 
 import parser.real_parser.{ParserExpressionNode, ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode}
+import codegen.ir_optimization.{simpleHash}
+
+fun stringConstBucketCount() r: Int {
+    return 4096
+}
+
+var g_stringConstCacheBuckets: Array<Int> = Array<Int>()
+var g_stringConstCacheKeys: Array<String> = Array<String>()
+var g_stringConstCacheNext: Array<Int> = Array<Int>()
+
+fun initStringConstCache() r: Void {
+    if g_stringConstCacheBuckets.length() > 0 {
+        return
+    }
+    let bucketCount = stringConstBucketCount()
+    var i = 0
+    while i < bucketCount {
+        g_stringConstCacheBuckets.push(-1)
+        i = i + 1
+    }
+}
+
+fun resetStringConstCache() r: Void {
+    g_stringConstCacheBuckets = Array<Int>()
+    g_stringConstCacheKeys = Array<String>()
+    g_stringConstCacheNext = Array<Int>()
+    initStringConstCache()
+}
+
+fun cacheStringConstUnchecked(value: String) r: Void {
+    initStringConstCache()
+    let bucket = simpleHash(value, stringConstBucketCount())
+    g_stringConstCacheKeys.push(value)
+    g_stringConstCacheNext.push(g_stringConstCacheBuckets[bucket])
+    g_stringConstCacheBuckets.set(bucket, g_stringConstCacheKeys.length() - 1)
+}
+
+fun ensureStringConstCache(stringConstants: Array<String>) r: Void {
+    initStringConstCache()
+    var i = g_stringConstCacheKeys.length()
+    while i < stringConstants.length() {
+        cacheStringConstUnchecked(stringConstants[i])
+        i = i + 1
+    }
+}
+
+fun hasCachedStringConst(value: String) r: Bool {
+    initStringConstCache()
+    let bucket = simpleHash(value, stringConstBucketCount())
+    var idx = g_stringConstCacheBuckets[bucket]
+    while idx >= 0 {
+        if g_stringConstCacheKeys[idx] == value {
+            return true
+        }
+        idx = g_stringConstCacheNext[idx]
+    }
+    return false
+}
 
 fun hexToDecimalImpl(value: String) r: String {
     let len = value.length()
@@ -590,7 +648,6 @@ fun collectStringConstantsFromStatementImpl(stmt: StatementNode, stringConstants
 fun collectStringConstantsFromExprImpl(expr: ParserExpressionNode, stringConstants: Array<String>, callCountNamesBox: Array<String>, callCountEntriesBox: Array<Int>) r: Void {
     if expr.kind == "" { return }
     if expr.kind == "Literal" and expr.literalType == "String" {
-        // Check if already in constants
         var found = false
         var i = 0
         while i < stringConstants.length() {

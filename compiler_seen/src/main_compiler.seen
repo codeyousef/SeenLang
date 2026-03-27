@@ -23,7 +23,7 @@
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, exists}
-import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, processFork, waitPid, processExit}
+import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, commandOutput, processFork, waitPid, processExit}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode}
@@ -38,9 +38,12 @@ import codegen.ir_type_dispatch.{emitVecMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
+import codegen.ir_call_dispatch.{emitStaticCollectionNewImpl}
+import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
-import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback}
+import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback, emitStructFieldStoresImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl}
 import codegen.type_registry.{findStructReg}
 import tools.translator.{translateSource}
 
@@ -136,6 +139,17 @@ fun ensureIrCacheDir() r: Void {
 // Clear all cached files
 fun clearCache() r: Void {
     let result: CommandResult = runCommand("rm -rf .seen_cache/*")
+}
+
+fun getTraceTimeSeconds() r: Int {
+    let result: CommandResult = runCommand("date +%s")
+    if commandWasSuccessful(result) {
+        let out = commandOutput(result).trim()
+        if out.length() > 0 {
+            return out.toInt()
+        }
+    }
+    return 0
 }
 
 // Helper to parse a module and return its program
@@ -407,7 +421,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("lexer.keyword_manager")
         modules.push("lexer.lexer")
         modules.push("trace")
-        modules.push("lexer.real_lexer")
+        // lexer.real_lexer removed: 2-line re-export shim, no compiler module imports it
         modules.push("parser.real_parser")
         modules.push("typechecker.interfaces")
         modules.push("typechecker.typechecker")
@@ -433,9 +447,12 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_mapping")
         modules.push("codegen.ir_type_ops")
         modules.push("codegen.ir_control_flow")
+        modules.push("codegen.ir_call_dispatch")
+        modules.push("codegen.ir_infer_type")
         modules.push("codegen.ir_function_gen")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_assignment_gen")
+        modules.push("codegen.ir_stmt_gen")
         modules.push("codegen.type_registry")
         // JSON module (required by LSP)
         modules.push("json.value")
@@ -629,6 +646,284 @@ fun compileCommandWithFullTargeting(inputFile: String, outputFile: String, profi
     return compileCommandWithAllOptions(inputFile, outputFile, profile, false, useCache, language, targetCpu, simdPolicy, simdReport, sanitizePolicy, pgoMode, pgoPath, mlLogPath, crossTarget)
 }
 
+fun normalizeCrossTargetName(target: String) r: String {
+    if target == "" {
+        return ""
+    }
+    if target == "ios-arm64" or target == "arm64-apple-ios" or target == "arm64-apple-ios17.0" {
+        return "ios-arm64"
+    }
+    if target == "macos-arm64" or target == "arm64-apple-darwin" or target == "aarch64-apple-darwin" {
+        return "macos-arm64"
+    }
+    if target == "macos-x86_64" or target == "x86_64-apple-darwin" {
+        return "macos-x86_64"
+    }
+    if target == "linux-x86_64" or target == "x86_64-linux-gnu" or target == "x86_64-unknown-linux-gnu" {
+        return "linux-x86_64"
+    }
+    if target == "linux-arm64" or target == "aarch64-linux-gnu" or target == "aarch64-unknown-linux-gnu" {
+        return "linux-arm64"
+    }
+    if target == "windows-x86_64" or target == "windows-gnu-x86_64" or target == "x86_64-pc-windows-msvc" or target == "x86_64-w64-windows-gnu" {
+        return "windows-x86_64"
+    }
+    if target == "android-arm64" or target == "aarch64-linux-android" or target == "aarch64-linux-android24" {
+        return "android-arm64"
+    }
+    return target
+}
+
+fun detectHostTargetName() r: String {
+    let unameS: CommandResult = runCommand("uname -s")
+    let unameM: CommandResult = runCommand("uname -m")
+    var os = "linux"
+    var arch = "x86_64"
+    if commandWasSuccessful(unameS) {
+        if unameS.output.contains("Darwin") {
+            os = "darwin"
+        }
+    }
+    if commandWasSuccessful(unameM) {
+        if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
+            arch = "arm64"
+        }
+    }
+    if os == "darwin" {
+        if arch == "arm64" {
+            return "macos-arm64"
+        }
+        return "macos-x86_64"
+    }
+    if arch == "arm64" {
+        return "linux-arm64"
+    }
+    return "linux-x86_64"
+}
+
+fun getAndroidApiLevel() r: String {
+    let apiResult: CommandResult = runCommand("printf '%s' \"$ANDROID_API_LEVEL\"")
+    if commandWasSuccessful(apiResult) {
+        let apiLevel = apiResult.output.trim()
+        if apiLevel != "" {
+            return apiLevel
+        }
+    }
+    return "24"
+}
+
+fun getAndroidNdkRoot() r: String {
+    let ndkHomeResult: CommandResult = runCommand("printf '%s' \"$ANDROID_NDK_HOME\"")
+    if commandWasSuccessful(ndkHomeResult) {
+        let ndkHome = ndkHomeResult.output.trim()
+        if ndkHome != "" {
+            let validateHome: CommandResult = runCommand("test -d " + ndkHome)
+            if commandWasSuccessful(validateHome) {
+                return ndkHome
+            }
+        }
+    }
+    let ndkRootResult: CommandResult = runCommand("printf '%s' \"$ANDROID_NDK_ROOT\"")
+    if commandWasSuccessful(ndkRootResult) {
+        let ndkRoot = ndkRootResult.output.trim()
+        if ndkRoot != "" {
+            let validateRoot: CommandResult = runCommand("test -d " + ndkRoot)
+            if commandWasSuccessful(validateRoot) {
+                return ndkRoot
+            }
+        }
+    }
+    return ""
+}
+
+fun getAndroidNdkHostTag() r: String {
+    let unameS: CommandResult = runCommand("uname -s")
+    let unameM: CommandResult = runCommand("uname -m")
+    var hostOs = "linux"
+    var hostArch = "x86_64"
+    if commandWasSuccessful(unameS) {
+        if unameS.output.contains("Darwin") {
+            hostOs = "darwin"
+        }
+    }
+    if commandWasSuccessful(unameM) {
+        if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
+            hostArch = "arm64"
+        }
+    }
+    return hostOs + "-" + hostArch
+}
+
+fun getAndroidSysroot() r: String {
+    let ndkRoot = getAndroidNdkRoot()
+    if ndkRoot == "" {
+        return ""
+    }
+    let hostTag = getAndroidNdkHostTag()
+    let sysroot = ndkRoot + "/toolchains/llvm/prebuilt/" + hostTag + "/sysroot"
+    let validateSysroot: CommandResult = runCommand("test -d " + sysroot)
+    if commandWasSuccessful(validateSysroot) {
+        return sysroot
+    }
+    return ""
+}
+
+fun getLinuxArm64Sysroot() r: String {
+    let sysrootEnvResult: CommandResult = runCommand("printf '%s' \"$SEEN_LINUX_ARM64_SYSROOT\"")
+    if commandWasSuccessful(sysrootEnvResult) {
+        let sysrootEnv = sysrootEnvResult.output.trim()
+        if sysrootEnv != "" {
+            let validateEnv: CommandResult = runCommand("test -d " + sysrootEnv)
+            if commandWasSuccessful(validateEnv) {
+                return sysrootEnv
+            }
+        }
+    }
+    let usrSysrootCheck: CommandResult = runCommand("test -d /usr/aarch64-linux-gnu")
+    if commandWasSuccessful(usrSysrootCheck) {
+        return "/usr/aarch64-linux-gnu"
+    }
+    let usrLocalSysrootCheck: CommandResult = runCommand("test -d /usr/local/aarch64-linux-gnu")
+    if commandWasSuccessful(usrLocalSysrootCheck) {
+        return "/usr/local/aarch64-linux-gnu"
+    }
+    let optSysrootCheck: CommandResult = runCommand("test -d /opt/aarch64-linux-gnu")
+    if commandWasSuccessful(optSysrootCheck) {
+        return "/opt/aarch64-linux-gnu"
+    }
+    return ""
+}
+
+fun targetNeedsPthreadCompileFlag(target: String) r: Bool {
+    if target == "windows-x86_64" {
+        return false
+    }
+    return true
+}
+
+fun targetNeedsPicCompileFlag(target: String) r: Bool {
+    if target == "android-arm64" {
+        return true
+    }
+    return false
+}
+
+fun buildTargetRuntimeCompileFlags(target: String) r: String {
+    var flags = ""
+    if targetNeedsPthreadCompileFlag(target) {
+        flags = flags + " -pthread"
+    }
+    if targetNeedsPicCompileFlag(target) {
+        flags = flags + " -fPIC"
+    }
+    if target == "windows-x86_64" {
+        flags = flags + " -D_WIN32_WINNT=0x0601"
+    }
+    if target == "android-arm64" {
+        flags = flags + " -D__ANDROID_API__=" + getAndroidApiLevel()
+    }
+    return flags
+}
+
+fun targetSupportsRegionRuntime(target: String) r: Bool {
+    if target == "linux-x86_64" or target == "linux-arm64" or target == "android-arm64" {
+        return true
+    }
+    return false
+}
+
+fun targetSupportsGpuRuntime(target: String) r: Bool {
+    if target == "ios-arm64" or target == "windows-x86_64" {
+        return false
+    }
+    return true
+}
+
+fun getHostVulkanCflags() r: String {
+    let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
+    if commandWasSuccessful(vulkanCheck) {
+        let cflagsResult: CommandResult = runCommand("pkg-config --cflags vulkan 2>/dev/null")
+        if commandWasSuccessful(cflagsResult) {
+            return cflagsResult.output.trim()
+        }
+    }
+    return ""
+}
+
+fun buildTargetLinkLibraries(target: String, hasGpuRuntime: Bool) r: String {
+    var libs = " -lm -lpthread"
+    if target == "windows-x86_64" {
+        libs = ""
+    } else {
+        if target == "android-arm64" {
+            libs = " -lm -ldl"
+        } else {
+            if target == "ios-arm64" {
+                libs = " -lm"
+            } else {
+                if target == "macos-arm64" or target == "macos-x86_64" {
+                    libs = " -lm"
+                }
+            }
+        }
+    }
+    if hasGpuRuntime {
+        if target == "windows-x86_64" {
+            libs = libs + " -lvulkan-1"
+        } else {
+            if target == "macos-arm64" or target == "macos-x86_64" or target == "ios-arm64" {
+            } else {
+                libs = libs + " -lvulkan"
+            }
+        }
+    }
+    return libs
+}
+
+fun buildTargetClangArgs(target: String) r: String {
+    if target == "" {
+        return ""
+    }
+    if target == "ios-arm64" {
+        let sdkResult: CommandResult = runCommand("xcrun --sdk iphoneos --show-sdk-path")
+        if commandWasSuccessful(sdkResult) {
+            return "-target arm64-apple-ios17.0 -isysroot " + sdkResult.output.trim()
+        }
+        return "-target arm64-apple-ios17.0"
+    }
+    if target == "macos-arm64" {
+        return "-target arm64-apple-darwin"
+    }
+    if target == "macos-x86_64" {
+        return "-target x86_64-apple-darwin"
+    }
+    if target == "linux-arm64" {
+        if detectHostTargetName() == "linux-arm64" {
+            return "--target=aarch64-unknown-linux-gnu"
+        }
+        let sysroot = getLinuxArm64Sysroot()
+        if sysroot != "" {
+            return "--target=aarch64-unknown-linux-gnu --sysroot=" + sysroot
+        }
+        return ""
+    }
+    if target == "linux-x86_64" {
+        return "--target=x86_64-unknown-linux-gnu"
+    }
+    if target == "windows-x86_64" {
+        return "--target=x86_64-w64-windows-gnu"
+    }
+    if target == "android-arm64" {
+        let apiLevel = getAndroidApiLevel()
+        let sysroot = getAndroidSysroot()
+        if sysroot != "" {
+            return "--target=aarch64-linux-android" + apiLevel + " --sysroot=" + sysroot
+        }
+        return ""
+    }
+    return ""
+}
+
 fun compileCommandWithProfileAndCache(inputFile: String, outputFile: String, profile: String, useCache: Bool) r: Int {
     return compileCommandWithAllOptions(inputFile, outputFile, profile, false, useCache, "en", "", "auto", false, "", "", "", "", "")
 }
@@ -753,29 +1048,57 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         generator.setEnabledFeatures(g_enabledFeaturesCli)
     }
 
+    let normalizedCrossTarget = normalizeCrossTargetName(crossTarget)
+    var effectiveTarget = normalizedCrossTarget
+    if effectiveTarget == "" {
+        effectiveTarget = detectHostTargetName()
+    }
+    let targetClangArgs = buildTargetClangArgs(effectiveTarget)
+    let targetRuntimeFlags = buildTargetRuntimeCompileFlags(effectiveTarget)
+
+    if normalizedCrossTarget == "android-arm64" and targetClangArgs == "" {
+        println("  Error: Android cross-compilation requires ANDROID_NDK_HOME or ANDROID_NDK_ROOT with a valid LLVM sysroot")
+        return 1
+    }
+    if normalizedCrossTarget == "linux-arm64" and detectHostTargetName() != "linux-arm64" and targetClangArgs == "" {
+        println("  Error: Linux ARM64 cross-compilation requires SEEN_LINUX_ARM64_SYSROOT or an installed aarch64 sysroot such as /usr/aarch64-linux-gnu")
+        return 1
+    }
+
     // Cross-compilation: override target triple and data layout
-    if crossTarget != "" {
-        if crossTarget == "ios-arm64" or crossTarget == "arm64-apple-ios" or crossTarget == "arm64-apple-ios17.0" {
+    if normalizedCrossTarget != "" {
+        if normalizedCrossTarget == "ios-arm64" {
             overrideTargetTriple("arm64-apple-ios17.0", "e-m:o-i64:64-i128:128-n32:64-S128")
             println("  Cross-compiling for iOS ARM64")
         } else {
-            if crossTarget == "macos-arm64" or crossTarget == "arm64-apple-darwin" {
+            if normalizedCrossTarget == "macos-arm64" {
                 overrideTargetTriple("arm64-apple-darwin", "e-m:o-i64:64-i128:128-n32:64-S128")
                 println("  Cross-compiling for macOS ARM64")
             } else {
-                if crossTarget == "macos-x86_64" or crossTarget == "x86_64-apple-darwin" {
+                if normalizedCrossTarget == "macos-x86_64" {
                     overrideTargetTriple("x86_64-apple-macosx", "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128")
                     println("  Cross-compiling for macOS x86_64")
                 } else {
-                    if crossTarget == "linux-x86_64" or crossTarget == "x86_64-linux-gnu" {
+                    if normalizedCrossTarget == "linux-x86_64" {
                         overrideTargetTriple("x86_64-unknown-linux-gnu", "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128")
                         println("  Cross-compiling for Linux x86_64")
                     } else {
-                        if crossTarget == "linux-arm64" or crossTarget == "aarch64-linux-gnu" {
+                        if normalizedCrossTarget == "linux-arm64" {
                             overrideTargetTriple("aarch64-unknown-linux-gnu", "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128")
                             println("  Cross-compiling for Linux ARM64")
                         } else {
-                            println("  Warning: Unknown cross-target '" + crossTarget + "', using host platform")
+                            if normalizedCrossTarget == "windows-x86_64" {
+                                overrideTargetTriple("x86_64-w64-windows-gnu", "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128")
+                                println("  Cross-compiling for Windows x86_64")
+                            } else {
+                                if normalizedCrossTarget == "android-arm64" {
+                                    let androidTriple = "aarch64-linux-android" + getAndroidApiLevel()
+                                    overrideTargetTriple(androidTriple, "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128")
+                                    println("  Cross-compiling for Android ARM64")
+                                } else {
+                                    println("  Warning: Unknown cross-target '" + crossTarget + "', using host platform")
+                                }
+                            }
                         }
                     }
                 }
@@ -1175,12 +1498,21 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             // Serial: generate IR in-process (no fork)
             println("    [" + moduleIndex.toString() + "] Generating IR (serial): " + path)
             let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
+            let moduleStartTime = getTraceTimeSeconds()
+            println("    [" + moduleIndex.toString() + "] Parse start")
+            let parseStartTime = getTraceTimeSeconds()
             let frontend = parseModule(path, language)
+            let parseEndTime = getTraceTimeSeconds()
             if not frontend.success {
                 println("[irgen] Parse failed: " + path)
                 return 1
             }
+            println("    [" + moduleIndex.toString() + "] Parse done in " + (parseEndTime - parseStartTime).toString() + "s")
+            println("    [" + moduleIndex.toString() + "] Codegen start")
+            let codegenStartTime = getTraceTimeSeconds()
             let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
+            let codegenEndTime = getTraceTimeSeconds()
+            println("    [" + moduleIndex.toString() + "] Codegen done in " + (codegenEndTime - codegenStartTime).toString() + "s")
             if g_emitLlvm {
                 let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
                 let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
@@ -1189,6 +1521,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("[irgen] Failed to write IR: " + llFile)
                 return 1
             }
+            let moduleEndTime = getTraceTimeSeconds()
+            println("    [" + moduleIndex.toString() + "] Module IR ready in " + (moduleEndTime - moduleStartTime).toString() + "s")
             llFiles.push(llFile)
             uncachedIdxStrs.push(moduleIndex.toString())
             uncachedSrcPaths.push(path)
@@ -1205,21 +1539,29 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 if pid == 0 {
                     // === CHILD: generate IR, write .ll file, then exit ===
                     let llFile = "/tmp/seen_module_" + moduleIndex.toString() + ".ll"
+                    let statusFile = "/tmp/seen_child_status_" + moduleIndex.toString() + ".txt"
+                    writeText(statusFile, "parse_start\n" + path)
                     let frontend = parseModule(path, language)
                     if not frontend.success {
+                        writeText(statusFile, "parse_failed\n" + path)
                         println("[irgen child] Parse failed: " + path)
                         processExit(1)
                     }
+                    writeText(statusFile, "parse_done\n" + path)
+                    writeText(statusFile, "codegen_start\n" + path)
                     let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
+                    writeText(statusFile, "codegen_done\n" + path)
                     // --emit-llvm: save IR alongside output for debugging
                     if g_emitLlvm {
                         let emitDst = outputFile + ".module" + moduleIndex.toString() + ".ll"
                         let emitCp: CommandResult = runCommand("cp " + llFile + " " + emitDst)
                     }
                     if not writeText(llFile, llvmIR) {
+                        writeText(statusFile, "write_failed\n" + llFile)
                         println("[irgen child] Failed to write IR: " + llFile)
                         processExit(1)
                     }
+                    writeText(statusFile, "wrote_ir\n" + llFile)
                     processExit(0)
                 } else {
                     // === PARENT: record child PID for later waitpid ===
@@ -1239,9 +1581,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var forkFailed = 0
     while waitIdx < forkPids.length() {
         let ec = waitPid(forkPids[waitIdx])
+        let statusFile = "/tmp/seen_child_status_" + forkModuleIdxStrs[waitIdx] + ".txt"
         if ec != 0 {
+            writeText(statusFile, "exit_failed\n" + ec.toString())
             println("    Error: IR gen failed (exit " + ec.toString() + ") for module " + forkModuleIdxStrs[waitIdx])
             forkFailed = 1
+        } else {
+            writeText(statusFile, "exit_ok\n" + forkModuleIdxStrs[waitIdx])
+            println("    [" + forkModuleIdxStrs[waitIdx] + "] Child exit ok")
         }
         waitIdx = waitIdx + 1
     }
@@ -1416,7 +1763,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // (dead code elimination, cross-module inlining with threshold=2000) at the
     // cost of higher memory usage and slower compilation. The merged object is
     // compiled via llc rather than ThinLTO.
-    if g_releaseMode and llFiles.length() > 1 {
+    if g_releaseMode and llFiles.length() > 1 and normalizedCrossTarget == "" {
         println("  [2.5] Release mode: cross-module LTO merge (" + llFiles.length().toString() + " modules)...")
         var llLinkCmd = "llvm-link -S "
         var lli = 0
@@ -1556,19 +1903,21 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    // iOS cross-compilation: compile runtime with iOS target flags
-    if crossTarget != "" and (crossTarget.contains("ios") or crossTarget.contains("arm64-apple-ios")) {
-        println("  [3a-ios] Compiling runtime for iOS...")
-        let sdkResult: CommandResult = runCommand("xcrun --sdk iphoneos --show-sdk-path")
-        var iosSdkPath = "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
-        if commandWasSuccessful(sdkResult) {
-            iosSdkPath = sdkResult.output.trim()
-        }
-        let rtIos: CommandResult = runCommand("clang -O3 -flto -target arm64-apple-ios17.0 -isysroot " + iosSdkPath + " -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o /tmp/seen_runtime_ios.o")
-        if commandWasSuccessful(rtIos) {
-            runtimeArg = "/tmp/seen_runtime_ios.o"
+    if normalizedCrossTarget != "" {
+        println("  [3a-target] Compiling runtime for " + effectiveTarget + "...")
+        if targetClangArgs != "" {
+            let rtTargetOut = "/tmp/seen_runtime_" + effectiveTarget + ".o"
+            let rtTargetCmd: CommandResult = runCommand("clang -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtTargetOut)
+            if commandWasSuccessful(rtTargetCmd) {
+                runtimeArg = rtTargetOut
+            } else {
+                println("    Error: target runtime compilation failed for " + effectiveTarget)
+                println(rtTargetCmd.output)
+                return 1
+            }
         } else {
-            println("    Warning: iOS runtime compilation failed, linking may fail")
+            println("    Error: target clang args unavailable for " + effectiveTarget)
+            return 1
         }
     }
 
@@ -1625,20 +1974,44 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             clangMarch = "-march=x86-64"
         }
     }
+    if normalizedCrossTarget != "" {
+        if effectiveTarget == "linux-x86_64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "windows-x86_64" {
+            clangMarch = "-march=x86-64"
+        } else {
+            clangMarch = ""
+        }
+    }
 
+        // Ensure ThinLTO cache directory exists for persistent cross-build link cache.
         // Ensure ThinLTO cache directory exists for persistent cross-build link cache.
     // This cache is shared across all Seen compilations on the machine, keyed by
     // bitcode content hash. It persists across bootstrap stages and compiler rebuilds.
     let thinltoMkdir: CommandResult = runCommand("mkdir -p /tmp/seen_thinlto_cache")
     var linkCmd = ""
-    // iOS cross-compilation: use Xcode SDK and iOS target
-    if crossTarget != "" and (crossTarget.contains("ios") or crossTarget.contains("arm64-apple-ios")) {
-        let sdkResult2: CommandResult = runCommand("xcrun --sdk iphoneos --show-sdk-path")
-        var iosSdkPath2 = "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
-        if commandWasSuccessful(sdkResult2) {
-            iosSdkPath2 = sdkResult2.output.trim()
+    if normalizedCrossTarget != "" {
+        if effectiveTarget == "ios-arm64" {
+            linkCmd = "clang " + targetClangArgs + " -O3 -flto=thin -Wl,-dead_strip -Wno-unused-command-line-argument "
+        } else {
+            if effectiveTarget == "macos-arm64" or effectiveTarget == "macos-x86_64" {
+                linkCmd = "clang " + targetClangArgs + " -O3 -flto=thin -Wl,-cache_path_lto,/tmp/seen_thinlto_cache -Wl,-dead_strip -Wno-unused-command-line-argument "
+                if clangMarch != "" {
+                    linkCmd = linkCmd + clangMarch + " "
+                }
+            } else {
+                if effectiveTarget == "windows-x86_64" {
+                    linkCmd = "clang " + targetClangArgs + " -O2 -flto=thin -fuse-ld=lld -Wno-unused-command-line-argument "
+                } else {
+                    if effectiveTarget == "android-arm64" {
+                        linkCmd = "clang " + targetClangArgs + " -O2 -flto=thin -shared -Wl,--gc-sections -Wno-unused-command-line-argument "
+                    } else {
+                        linkCmd = "clang " + targetClangArgs + " -O3 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache -Wl,--gc-sections -Wno-unused-command-line-argument "
+                        if clangMarch != "" {
+                            linkCmd = linkCmd + clangMarch + " "
+                        }
+                    }
+                }
+            }
         }
-        linkCmd = "clang -target arm64-apple-ios17.0 -isysroot " + iosSdkPath2 + " -O3 -flto=thin -Wl,-dead_strip -Wno-unused-command-line-argument "
     } else if hostOS == "Darwin" {
         // macOS link command: no -fuse-ld=lld, use Apple ld64 flags
         if g_fastMode == 1 {
@@ -1662,6 +2035,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
         }
     }
+    if g_releaseMode and llFiles.length() > 1 and normalizedCrossTarget != "" {
+        println("  [2.5] Skipping merged llc release path for cross-target build: " + effectiveTarget)
+    }
     // Append sanitizer and PGO flags to link command
     if sanitizerClangFlags != "" {
         linkCmd = linkCmd + sanitizerClangFlags + " "
@@ -1680,14 +2056,34 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if not commandWasSuccessful(checkRegionResult) {
         let regionSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.c")
         if commandWasSuccessful(regionSrcCheck) {
-            let rtRegion: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + rtPrefix + "/seen_region.o")
+            let hostRegionCmd = "clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + rtPrefix + "/seen_region.o"
+            let rtRegion: CommandResult = runCommand(hostRegionCmd)
         }
     }
     // Add region allocator object if it exists
     var regionArg = ""
-    let useRegionObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.o")
-    if commandWasSuccessful(useRegionObj) {
-        regionArg = " " + rtPrefix + "/seen_region.o"
+    if normalizedCrossTarget != "" {
+        if targetSupportsRegionRuntime(effectiveTarget) {
+            let targetRegionOut = "/tmp/seen_region_" + effectiveTarget + ".o"
+            let regionSrcCheck2: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.c")
+            if commandWasSuccessful(regionSrcCheck2) and targetClangArgs != "" {
+                let targetRegionCmd = "clang -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + targetRegionOut
+                let targetRegionResult: CommandResult = runCommand(targetRegionCmd)
+                if commandWasSuccessful(targetRegionResult) {
+                    regionArg = " " + targetRegionOut
+                } else {
+                    println("    Warning: target region runtime compilation failed for " + effectiveTarget)
+                    println(targetRegionResult.output)
+                }
+            }
+        } else {
+            println("    Skipping region runtime for " + effectiveTarget + " (no supported target-specific implementation yet)")
+        }
+    } else {
+        let useRegionObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.o")
+        if commandWasSuccessful(useRegionObj) {
+            regionArg = " " + rtPrefix + "/seen_region.o"
+        }
     }
     // Pre-compile GPU runtime if not already built
     var gpuArg = ""
@@ -1705,20 +2101,48 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
         }
     }
-    let useGpuObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.o")
-    if commandWasSuccessful(useGpuObj) {
-        gpuArg = " " + rtPrefix + "/seen_gpu.o"
+    if normalizedCrossTarget == "" {
+        let useGpuObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.o")
+        if commandWasSuccessful(useGpuObj) {
+            gpuArg = " " + rtPrefix + "/seen_gpu.o"
+        }
+    } else {
+        if targetSupportsGpuRuntime(effectiveTarget) and targetClangArgs != "" {
+            let targetGpuOut = "/tmp/seen_gpu_" + effectiveTarget + ".o"
+            var targetGpuCmd = "clang -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + targetGpuOut
+            if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
+                let hostVulkanCflags = getHostVulkanCflags()
+                if hostVulkanCflags != "" {
+                    targetGpuCmd = targetGpuCmd + " " + hostVulkanCflags
+                }
+            }
+            let targetGpuResult: CommandResult = runCommand(targetGpuCmd)
+            if commandWasSuccessful(targetGpuResult) {
+                gpuArg = " " + targetGpuOut
+            } else {
+                println("    Warning: target GPU runtime compilation failed for " + effectiveTarget)
+                println(targetGpuResult.output)
+            }
+        }
     }
-    // Link libraries: -lm -lpthread (omit -lrt on macOS where it doesn't exist)
-    // Add -lvulkan when GPU runtime is linked
-    var linkLibs = " -lm -lpthread"
+    var hasGpuRuntime = false
     if gpuArg != "" {
-        linkLibs = linkLibs + " -lvulkan"
+        hasGpuRuntime = true
     }
-    linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + " -o " + outputFile + linkLibs + tomlExtraLinkFlags
+    let linkLibs = buildTargetLinkLibraries(effectiveTarget, hasGpuRuntime)
+    linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + " -o " + outputFile + linkLibs + tomlExtraLinkFlags + " 2>&1"
 
     let linkResult: CommandResult = runCommand(linkCmd)
     if commandWasSuccessful(linkResult) {
+        let outputCheck: CommandResult = runCommand("test -f " + outputFile)
+        if not commandWasSuccessful(outputCheck) {
+            println("Link command reported success but output file was not created: " + outputFile)
+            println("Link command: " + linkCmd)
+            if linkResult.output != "" {
+                println(linkResult.output)
+            }
+            return 1
+        }
         // : Emit compilation database if requested
         if g_emitCompileDb == 1 {
             var cdbContent = "[\n"
@@ -2326,6 +2750,11 @@ fun main() r: Int {
                                                                             } else {
                                                                                 if startsWith(argv[argIdx], "--target=") {
                                                                                     crossTarget = extractFlagValue(argv[argIdx], 9)
+                                                                                } else if argv[argIdx] == "--target" {
+                                                                                    if argIdx + 1 < argv.length() {
+                                                                                        crossTarget = argv[argIdx + 1]
+                                                                                        argIdx = argIdx + 1
+                                                                                    }
                                                                                 } else if argv[argIdx] == "--bounds-check" {
                                                                                     g_boundsCheckCli = 1
                                                                                 } else if argv[argIdx] == "--panic-on-overflow" {

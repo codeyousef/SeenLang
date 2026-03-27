@@ -189,8 +189,9 @@ def fix_undefined_symbols(content):
     for undefined globals.
     """
     # Collect all called functions (both regular and quoted names)
+    # Use [^)\n]* to prevent matching across lines (string constants can contain IR-like text)
     called = {}  # name → (ret_type, arg_types_str)
-    for m in re.finditer(r'call\s+(\S+)\s+@"?([A-Za-z0-9_.<>]+)"?\s*\(([^)]*)\)', content):
+    for m in re.finditer(r'call\s+(\S+)\s+@"?([A-Za-z0-9_.<>]+)"?\s*\(([^)\n]*)\)', content):
         ret_type = m.group(1)
         fname = m.group(2)
         args = m.group(3)
@@ -198,7 +199,7 @@ def fix_undefined_symbols(content):
             called[fname] = (ret_type, args)
 
     # Also handle void calls: call void @func(...)
-    for m in re.finditer(r'call\s+void\s+@"?([A-Za-z0-9_.<>]+)"?\s*\(([^)]*)\)', content):
+    for m in re.finditer(r'call\s+void\s+@"?([A-Za-z0-9_.<>]+)"?\s*\(([^)\n]*)\)', content):
         fname = m.group(1)
         if fname not in called:
             called[fname] = ('void', m.group(2))
@@ -697,6 +698,13 @@ def _fix_function_types(func_lines):
                     result.append(f'{indent}{cast_reg} = ptrtoint ptr {reg} to i64')
                     fixed = f'{indent}ret i64 {cast_reg}'
                     reg_types[cast_reg] = 'i64'
+                elif actual == 'i64' and func_ret_type == '%SeenString':
+                    # Pack i64 into SeenString struct field 0 ({i64, ptr})
+                    next_reg_num = _next_reg_num(reg_types)
+                    pack_reg = f'%{next_reg_num}'
+                    result.append(f'{indent}{pack_reg} = insertvalue %SeenString zeroinitializer, i64 {reg}, 0')
+                    fixed = f'{indent}ret %SeenString {pack_reg}'
+                    reg_types[pack_reg] = '%SeenString'
                 elif actual == func_ret_type:
                     # Just fix the ret type annotation
                     fixed = f'{indent}ret {func_ret_type} {reg}{rm.group(6)}'
@@ -771,6 +779,140 @@ def fix_empty_type(content):
     # Fix: load , ptr → load i64, ptr  (empty type before comma)
     content = re.sub(r'= load , ptr', '= load i64, ptr', content)
     return content
+
+
+# Ground truth from seen_runtime.c / seen_runtime.h
+# C runtime functions that return SeenString ({i64, ptr} on x86-64).
+# The frozen compiler declares these as returning i64, losing the data pointer.
+RUNTIME_SEENSTRING_RETURNS = {
+    # Core string ops
+    'seen_cstr_to_str', 'seen_substring', 'seen_str_concat_ss',
+    'seen_int_to_string', 'seen_float_to_string', 'seen_char_to_str',
+    'seen_bool_to_string', 'trim',
+    # String methods
+    'String_toUpperCase', 'String_toLowerCase', 'String_reverse',
+    'String_replace', 'String_fromCharCode', 'String_unwrap',
+    # Array string ops
+    'seen_arr_get_str', 'seen_arr_get_str_ptr', 'seen_arr_pop_str',
+    # StringBuilder
+    'StringBuilder_toString',
+    # I/O
+    '__ReadFile', '__FileError', '__GetEnv', '__FloatToString',
+    '__ReadStdinLine', '__ReadStdinBytes', 'readText',
+    # Option/Result
+    'Option_unwrap_string', 'Result_unwrapErr',
+    # Vec
+    'Vec_get_str', 'Vec_pop_str', 'Vec_remove_str', 'Vec_first_str', 'Vec_last_str',
+    # HashMap
+    'HashMap_getOrDefault_str_str', 'HashMap_getOrDefault_int_str',
+    # Binary/JSON
+    'seen_binary_read_str', 'seen_json_end_object',
+    # Engine helpers
+    'hearton_int_to_str', 'hearton_float_to_str', 'seen_string_token',
+    'seen_string_substring',
+    # Misc
+    'CGenerator_generate',
+}
+
+
+def fix_runtime_string_returns(content):
+    """Fix declare/call i64 @func -> %SeenString for C runtime functions.
+
+    The frozen compiler declares C runtime functions that return SeenString
+    ({i64, ptr}) as returning i64. On x86-64 System V ABI, SeenString is
+    returned in two registers (rax=len, rdx=data_ptr). When declared as i64,
+    the caller reads only rax, losing the data pointer — breaking all string ops.
+
+    Unlike fix_cross_module_string_returns which uses cross-module .ll analysis,
+    this uses a hardcoded set of runtime functions (defined in seen_runtime.c,
+    not in any .ll file).
+    """
+    # Quick check: skip if none of these functions appear in the module
+    if not any(f'@{fn}' in content for fn in RUNTIME_SEENSTRING_RETURNS):
+        return content
+
+    lines = content.split('\n')
+    result = []
+    for line in lines:
+        # Skip string constants — they contain @-references that aren't function calls
+        if 'unnamed_addr constant' in line or 'private constant' in line:
+            result.append(line)
+            continue
+        fixed = line
+        for fname in RUNTIME_SEENSTRING_RETURNS:
+            if f'@{fname}(' not in fixed:
+                continue
+            # Fix declare
+            if f'declare i64 @{fname}(' in fixed:
+                fixed = fixed.replace(f'declare i64 @{fname}(', f'declare %SeenString @{fname}(')
+            # Fix call/invoke sites (not define lines)
+            if ('call' in fixed or 'invoke' in fixed) and 'define' not in fixed:
+                fixed = re.sub(
+                    rf'((?:tail\s+)?(?:must)?(?:call|invoke)\s+(?:(?:noundef|nonnull|signext|zeroext)\s+)*)i64(\s+@{re.escape(fname)}\()',
+                    rf'\1%SeenString\2',
+                    fixed
+                )
+        result.append(fixed)
+    return '\n'.join(result)
+
+
+def fix_cross_module_string_returns(content, all_module_files=None):
+    """Fix declare i64 @func -> declare %SeenString @func using cross-module analysis.
+
+    The frozen compiler declares cross-module String-returning functions as i64.
+    This fix checks the ACTUAL definitions in other module files to determine
+    the correct return type, then fixes declares and call sites to match.
+    This is robust because it uses ground truth (the define) not heuristics.
+    """
+    if not all_module_files:
+        return content
+
+    # Step 1: Collect functions declared as i64 in THIS module
+    i64_declared = set()
+    for m in re.finditer(r'^declare\s+i64\s+@([A-Za-z0-9_.]+)\s*\(', content, re.MULTILINE):
+        i64_declared.add(m.group(1))
+
+    if not i64_declared:
+        return content
+
+    # Step 2: Check OTHER modules for definitions returning %SeenString
+    actually_seenstring = set()
+    for mod_path in all_module_files:
+        try:
+            with open(mod_path) as f:
+                mod_content = f.read()
+        except (IOError, OSError):
+            continue
+        for fname in list(i64_declared):
+            if fname in actually_seenstring:
+                continue
+            if re.search(rf'^define\s+(?:noundef\s+)?%SeenString\s+@{re.escape(fname)}\s*\(',
+                         mod_content, re.MULTILINE):
+                actually_seenstring.add(fname)
+
+    if not actually_seenstring:
+        return content
+
+    # Step 3: Fix declares and call sites for verified %SeenString functions
+    lines = content.split('\n')
+    result = []
+    for line in lines:
+        if 'unnamed_addr constant' in line or 'private constant' in line:
+            result.append(line)
+            continue
+        fixed = line
+        for fname in actually_seenstring:
+            if f'declare i64 @{fname}(' in fixed:
+                fixed = fixed.replace(f'declare i64 @{fname}(', f'declare %SeenString @{fname}(')
+            if f'@{fname}(' in fixed and ('call' in fixed or 'invoke' in fixed) and 'define' not in fixed:
+                # Handle call/invoke with optional attributes (noundef, nonnull, etc.)
+                fixed = re.sub(
+                    rf'((?:tail\s+)?(?:must)?(?:call|invoke)\s+(?:(?:noundef|nonnull|signext|zeroext)\s+)*)i64(\s+@{re.escape(fname)}\()',
+                    rf'\1%SeenString\2',
+                    fixed
+                )
+        result.append(fixed)
+    return '\n'.join(result)
 
 
 def fix_llvmir_generator_layout(content):
@@ -1129,6 +1271,8 @@ def fix_all(content, all_module_files=None):
     content = fix_undefined_symbols(content)
     content = fix_duplicate_globals(content)
     content = fix_llvmir_generator_layout(content)
+    content = fix_runtime_string_returns(content)
+    content = fix_cross_module_string_returns(content, all_module_files)
     content = fix_arr_get_element_ptr(content)
     content = fix_type_mismatches(content)
     content = fix_empty_type(content)

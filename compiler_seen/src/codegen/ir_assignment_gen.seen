@@ -13,7 +13,7 @@ import str.string.{StringBuilder}
 // valueIsStructLiteral: 1 if the value expression was a StructLiteral (may need ptr load)
 // seenFieldType: Seen type name (used with isDataType check in caller)
 // isDataField: 1 if the field's Seen type is a data type (needs load from ptr for struct literals)
-fun emitFieldStoreImpl(output: Array<String>, regBox: Array<Int>,
+fun emitFieldStoreImpl(output: StringBuilder, regBox: Array<Int>,
     valueReg: String, llvmFieldType: String, fieldPtrReg: String,
     valueIsStructLiteral: Int, isDataField: Int) r: Void {
     var actualValueReg = valueReg
@@ -21,7 +21,7 @@ fun emitFieldStoreImpl(output: Array<String>, regBox: Array<Int>,
     // For inline data types from struct literals, valueReg is a ptr - need to load
     if isDataField == 1 and valueIsStructLiteral == 1 {
         let loadedVal = getNextRegFn(regBox)
-        output.push("  " + loadedVal + " = load " + llvmFieldType + ", ptr " + valueReg + "\n")
+        output.append("  " + loadedVal + " = load " + llvmFieldType + ", ptr " + valueReg + "\n")
         actualValueReg = loadedVal
     }
 
@@ -46,11 +46,11 @@ fun emitFieldStoreImpl(output: Array<String>, regBox: Array<Int>,
             }
             if isIntLit == 1 {
                 let convReg = getNextRegFn(regBox)
-                output.push("  " + convReg + " = inttoptr i64 " + actualValueReg + " to ptr\n")
+                output.append("  " + convReg + " = inttoptr i64 " + actualValueReg + " to ptr\n")
                 actualValueReg = convReg
             }
         }
     }
 
-    output.push("  store " + llvmFieldType + " " + actualValueReg + ", ptr " + fieldPtrReg + "\n")
+    output.append("  store " + llvmFieldType + " " + actualValueReg + ", ptr " + fieldPtrReg + "\n")
 }

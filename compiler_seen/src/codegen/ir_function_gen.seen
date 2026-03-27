@@ -1,9 +1,14 @@
-// ir_function_gen.seen — Function decorator handling and preamble generation
-// Extracted from llvm_ir_gen.seen generateFunction() to reduce module 5 size
-// Handles @intrinsic, @compute/@vertex/@fragment registration, and DSE analysis
+// ir_function_gen.seen — Function decorator handling, preamble generation, and
+// expression codegen free functions extracted from llvm_ir_gen.seen
+//
+// Phase 1: generateLiteralFree (literal expression codegen)
+// Future phases will add generateExpressionFree dispatch + more sub-generators
 
 import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.type_registry.{CodegenState, csGetNextReg}
+import codegen.ir_string_collect.{hexToDecimalImpl}
+import codegen.ir_type_info.{charToCodeStr}
 import str.string.{StringBuilder}
 
 // emitIntrinsicWrapperImpl — Generate thin wrapper for @intrinsic("llvm.xxx") decorated function
@@ -102,4 +107,75 @@ fun analyzeDeadStoresImpl(block: BlockNode) r: String {
         dsIdx = dsIdx + 1
     }
     return result
+}
+
+// ==========================================================================
+// generateLiteralFree — Generate IR for literal expressions
+// ==========================================================================
+// Extracted from LLVMIRGenerator.generateLiteral. Takes CodegenState so it
+// can read/write shared output buffer, string constants, and SSA registers.
+//
+// Handles: Int/Integer, Char, Bool/Boolean, String (with SSO), Float
+// Note: g_stringsDeduped counter and mlLogDecision are omitted (stats only,
+// no effect on generated IR). They remain in the class method thin wrapper.
+// ==========================================================================
+
+fun generateLiteralFree(s: CodegenState, expr: ParserExpressionNode) r: String {
+    if expr.literalType == "Int" or expr.literalType == "Integer" {
+        return hexToDecimalImpl(expr.literalValue)
+    }
+    if expr.literalType == "Char" {
+        var cs = charToCodeStr(expr.literalValue)
+        return cs
+    }
+    if expr.literalType == "Bool" or expr.literalType == "Boolean" {
+        if expr.literalValue == "true" {
+            return "1"
+        }
+        return "0"
+    }
+    if expr.literalType == "String" {
+        // Find string constant index (or add if not pre-registered by collectStringConstants)
+        var idx = 0
+        var found = false
+        while idx < s.stringConstants.length() {
+            if s.stringConstants[idx] == expr.literalValue {
+                found = true
+                break
+            }
+            idx = idx + 1
+        }
+        if not found {
+            // String was missed by collectStringConstants (e.g., in IfExpression operands).
+            // Add it now so the index is correct and emitStringConstantsWithPrefix will emit it.
+            s.stringConstants.push(expr.literalValue)
+            idx = s.stringConstants.length() - 1
+            // Emit the constant definition inline since emitStringConstantsWithPrefix already ran.
+            let strLenFallback = expr.literalValue.length() + 1
+            s.output.append("@.str." + s.stringConstantPrefix + idx.toString() + " = private unnamed_addr constant [" + strLenFallback.toString() + " x i8] c\"" + expr.literalValue + "\\00\"\n")
+        }
+
+        // Convert to SeenString
+        let ptrReg = csGetNextReg(s)
+        let strLen = expr.literalValue.length() + 1
+        s.output.append("  " + ptrReg + " = getelementptr [" + strLen.toString() + " x i8], ptr @.str." + s.stringConstantPrefix + idx.toString() + ", i64 0, i64 0\n")
+
+        // Small string optimization (9.11b): strings <= 15 bytes inline insertvalue (skip strlen call)
+        if expr.literalValue.length() <= 15 {
+            let ssoLen = expr.literalValue.length()
+            let ssoR1 = csGetNextReg(s)
+            s.output.append("  " + ssoR1 + " = insertvalue %SeenString undef, i64 " + ssoLen.toString() + ", 0 ; SSO inline: len=" + ssoLen.toString() + "\n")
+            let ssoR2 = csGetNextReg(s)
+            s.output.append("  " + ssoR2 + " = insertvalue %SeenString " + ssoR1 + ", ptr " + ptrReg + ", 1\n")
+            return ssoR2
+        }
+
+        let strReg = csGetNextReg(s)
+        s.output.append("  " + strReg + " = call %SeenString @seen_cstr_to_str(ptr " + ptrReg + ")\n")
+        return strReg
+    }
+    if expr.literalType == "Float" {
+        return expr.literalValue
+    }
+    return "0"
 }

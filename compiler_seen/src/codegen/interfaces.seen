@@ -16,6 +16,7 @@ enum Target {
     macOS_ARM64,
     Linux_ARM64,
     iOS_ARM64,
+    Android_ARM64,
     RISC_V,
     Unsupported
 }
@@ -186,11 +187,12 @@ class LLVMBackend extends Backend {
     fun getTargetTriple(target: Target) r: String {
         return match target {
             Target.Linux_x86_64 -> "x86_64-unknown-linux-gnu"
-            Target.Windows_x86_64 -> "x86_64-pc-windows-msvc"
+            Target.Windows_x86_64 -> "x86_64-w64-windows-gnu"
             Target.macOS_x86_64 -> "x86_64-apple-macosx14.0"
             Target.macOS_ARM64 -> "arm64-apple-macosx14.0"
             Target.Linux_ARM64 -> "aarch64-unknown-linux-gnu"
             Target.iOS_ARM64 -> "arm64-apple-ios17.0"
+            Target.Android_ARM64 -> "aarch64-linux-android24"
             _ -> "x86_64-unknown-linux-gnu"
         }
     }
@@ -205,7 +207,7 @@ class LLVMBackend extends Backend {
                 "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
             Target.macOS_ARM64, Target.iOS_ARM64 ->
                 "e-m:o-i64:64-i128:128-n32:64-S128"
-            Target.Linux_ARM64 ->
+            Target.Linux_ARM64, Target.Android_ARM64 ->
                 "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
             _ -> "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
         }
@@ -550,20 +552,125 @@ class Linker {
     fun addLibrary(name: String) r: Void {
         libraries.push(name)
     }
+
+    fun buildClangTargetArgs() r: String {
+        if target == Target.Windows_x86_64 {
+            return "--target=x86_64-w64-windows-gnu"
+        }
+        if target == Target.macOS_x86_64 {
+            return "-target x86_64-apple-darwin"
+        }
+        if target == Target.macOS_ARM64 {
+            return "-target arm64-apple-darwin"
+        }
+        if target == Target.Linux_ARM64 {
+            return "--target=aarch64-unknown-linux-gnu"
+        }
+        if target == Target.iOS_ARM64 {
+            let sdkResult: CommandResult = runCommand("xcrun --sdk iphoneos --show-sdk-path")
+            if commandWasSuccessful(sdkResult) {
+                return "-target arm64-apple-ios17.0 -isysroot " + sdkResult.output.trim()
+            }
+            return ""
+        }
+        if target == Target.Android_ARM64 {
+            return "--target=aarch64-linux-android24"
+        }
+        if target == Target.Linux_x86_64 {
+            return "--target=x86_64-unknown-linux-gnu"
+        }
+        return ""
+    }
+
+    fun appendLibraryFlags(cmd: String) r: String {
+        var out = cmd
+        var lpIdx = 0
+        while lpIdx < libraryPaths.length() {
+            out = out + " -L" + libraryPaths[lpIdx]
+            lpIdx = lpIdx + 1
+        }
+        var libIdx = 0
+        while libIdx < libraries.length() {
+            out = out + " -l" + libraries[libIdx]
+            libIdx = libIdx + 1
+        }
+        return out
+    }
     
     fun link(objectFiles: Array<String>, outputPath: String) r: Bool {
-        // Default implementation - always fail
-        return false
+        var cmd = "clang"
+        let targetArgs = buildClangTargetArgs()
+        if targetArgs != "" {
+            cmd = cmd + " " + targetArgs
+        }
+        if target == Target.iOS_ARM64 {
+            cmd = cmd + " -O2"
+        } else {
+            cmd = cmd + " -O2 -flto=thin"
+        }
+        var objIdx = 0
+        while objIdx < objectFiles.length() {
+            cmd = cmd + " " + objectFiles[objIdx]
+            objIdx = objIdx + 1
+        }
+        cmd = appendLibraryFlags(cmd)
+        cmd = cmd + " -o " + outputPath
+        let result: CommandResult = runCommand(cmd)
+        return commandWasSuccessful(result)
     }
     
     fun linkStatic(objectFiles: Array<String>, staticLibs: Array<String>, outputPath: String) r: Bool {
-        // Default implementation - always fail
-        return false
+        var cmd = "llvm-ar rcs " + outputPath
+        var objIdx = 0
+        while objIdx < objectFiles.length() {
+            cmd = cmd + " " + objectFiles[objIdx]
+            objIdx = objIdx + 1
+        }
+        var libIdx = 0
+        while libIdx < staticLibs.length() {
+            cmd = cmd + " " + staticLibs[libIdx]
+            libIdx = libIdx + 1
+        }
+        let result: CommandResult = runCommand(cmd)
+        if commandWasSuccessful(result) {
+            return true
+        }
+        var fallbackCmd = "ar rcs " + outputPath
+        objIdx = 0
+        while objIdx < objectFiles.length() {
+            fallbackCmd = fallbackCmd + " " + objectFiles[objIdx]
+            objIdx = objIdx + 1
+        }
+        libIdx = 0
+        while libIdx < staticLibs.length() {
+            fallbackCmd = fallbackCmd + " " + staticLibs[libIdx]
+            libIdx = libIdx + 1
+        }
+        let fallback: CommandResult = runCommand(fallbackCmd)
+        return commandWasSuccessful(fallback)
     }
     
     fun linkDynamic(objectFiles: Array<String>, dynamicLibs: Array<String>, outputPath: String) r: Bool {
-        // Default implementation - always fail
-        return false
+        var cmd = "clang"
+        let targetArgs = buildClangTargetArgs()
+        if targetArgs != "" {
+            cmd = cmd + " " + targetArgs
+        }
+        cmd = cmd + " -shared"
+        var objIdx = 0
+        while objIdx < objectFiles.length() {
+            cmd = cmd + " " + objectFiles[objIdx]
+            objIdx = objIdx + 1
+        }
+        var dylibIdx = 0
+        while dylibIdx < dynamicLibs.length() {
+            cmd = cmd + " " + dynamicLibs[dylibIdx]
+            dylibIdx = dylibIdx + 1
+        }
+        cmd = appendLibraryFlags(cmd)
+        cmd = cmd + " -o " + outputPath
+        let result: CommandResult = runCommand(cmd)
+        return commandWasSuccessful(result)
     }
 }
 
@@ -574,7 +681,7 @@ fun createCodeGenerator() r: CodeGenerator {
 
 fun createBackend(target: Target) r: Backend {
     if target == Target.LLVM_IR or target == Target.Linux_x86_64 or target == Target.Windows_x86_64 or
-        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 or target == Target.iOS_ARM64 {
+        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 or target == Target.iOS_ARM64 or target == Target.Android_ARM64 {
         return LLVMBackend.new(target) as Backend
     } else if target == Target.C {
         return CBackend.new() as Backend
@@ -598,7 +705,9 @@ fun parseTarget(targetStr: String) r: Target {
         "linux-x86_64" -> Target.Linux_x86_64
         "x86_64-linux-gnu" -> Target.Linux_x86_64
         "windows-x86_64" -> Target.Windows_x86_64
+        "windows-gnu-x86_64" -> Target.Windows_x86_64
         "x86_64-pc-windows-msvc" -> Target.Windows_x86_64
+        "x86_64-w64-windows-gnu" -> Target.Windows_x86_64
         "macos-x86_64" -> Target.macOS_x86_64
         "x86_64-apple-darwin" -> Target.macOS_x86_64
         "macos-arm64" -> Target.macOS_ARM64
@@ -609,6 +718,9 @@ fun parseTarget(targetStr: String) r: Target {
         "ios-arm64" -> Target.iOS_ARM64
         "arm64-apple-ios" -> Target.iOS_ARM64
         "arm64-apple-ios17.0" -> Target.iOS_ARM64
+        "android-arm64" -> Target.Android_ARM64
+        "aarch64-linux-android" -> Target.Android_ARM64
+        "aarch64-linux-android24" -> Target.Android_ARM64
         "riscv" -> Target.RISC_V
         "riscv64" -> Target.RISC_V
         _ -> Target.Unsupported

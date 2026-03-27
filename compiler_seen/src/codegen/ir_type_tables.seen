@@ -1166,3 +1166,109 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodNames.push("isSome,isNone,IsSome,IsNone,unwrap,Unwrap,unwrapOr,UnwrapOr,expect,Expect,Store,Replace,Clear")
     structMethodRetTypes.push("Bool|Bool|Bool|Bool|T|T|T|T|T|T|Void|Option<T>|Void")
 }
+
+// resolveCollectionGetTypeImpl — Resolve return type for .get() on collection types
+// Extracted from llvm_ir_gen.seen inferExpressionType() MethodCall branch
+fun resolveCollectionGetTypeImpl(recType: String) r: String {
+    if recType.startsWith("Vec<") and recType.endsWith(">") {
+        return recType.substring(4, recType.length() - 1)
+    }
+    if recType.startsWith("Array<") and recType.endsWith(">") {
+        return recType.substring(6, recType.length() - 1)
+    }
+    if recType.startsWith("BTreeMap<") and recType.endsWith(">") {
+        let valType = extractMapValueTypeImpl(recType, 9)
+        if valType != "" { return "Option<" + valType + ">" }
+    }
+    if recType.startsWith("Map<") and recType.endsWith(">") {
+        let valType = extractMapValueTypeImpl(recType, 4)
+        if valType != "" { return "Option<" + valType + ">" }
+    }
+    if recType.startsWith("HashMap<") and recType.endsWith(">") {
+        let valType = extractMapValueTypeImpl(recType, 8)
+        if valType != "" { return "Option<" + valType + ">" }
+    }
+    return ""
+}
+
+// extractMapValueTypeImpl — Extract value type V from "MapType<K, V>" starting at prefixLen
+fun extractMapValueTypeImpl(mapType: String, prefixLen: Int) r: String {
+    var depth = 0
+    var commaIdx = 0 - 1
+    var i = prefixLen
+    while i < mapType.length() - 1 {
+        let cb = mapType.byteAt(i)
+        if cb == 60 { depth = depth + 1 }
+        if cb == 62 { depth = depth - 1 }
+        if cb == 44 and depth == 0 {
+            commaIdx = i
+            i = mapType.length()
+        }
+        i = i + 1
+    }
+    if commaIdx > 0 {
+        var valueType = mapType.substring(commaIdx + 1, mapType.length() - 1)
+        if valueType.startsWith(" ") {
+            valueType = valueType.substring(1, valueType.length())
+        }
+        return valueType
+    }
+    return ""
+}
+
+// resolveUnwrapTypeImpl — Resolve return type for .unwrap() on nullable/optional types
+fun resolveUnwrapTypeImpl(recType: String, isClassInner: Int) r: String {
+    if recType.endsWith("?") {
+        return recType.substring(0, recType.length() - 1)
+    }
+    if recType.startsWith("Option<") and recType.endsWith(">") {
+        return recType.substring(7, recType.length() - 1)
+    }
+    if recType.startsWith("Optional<") and recType.endsWith(">") {
+        return recType.substring(9, recType.length() - 1)
+    }
+    if recType == "FsFileResult" { return "FsFile" }
+    if recType == "Result" { return "ptr" }
+    if recType == "DidOpenTextDocumentParams?" { return "DidOpenTextDocumentParams" }
+    if recType == "DidChangeTextDocumentParams?" { return "DidChangeTextDocumentParams" }
+    if recType == "DidCloseTextDocumentParams?" { return "DidCloseTextDocumentParams" }
+    if recType == "DidSaveTextDocumentParams?" { return "DidSaveTextDocumentParams" }
+    if recType == "TextDocumentPositionParams?" { return "TextDocumentPositionParams" }
+    if recType == "CodeActionParams?" { return "CodeActionParams" }
+    if recType == "DocumentFormattingParams?" { return "DocumentFormattingParams" }
+    if recType == "InitializeParams?" { return "InitializeParams" }
+    if isClassInner == 1 { return recType }
+    return ""
+}
+
+// resolvePopElementTypeImpl — Resolve return type for .pop() on array types
+fun resolvePopElementTypeImpl(recType: String) r: String {
+    if recType.startsWith("Array<") and recType.endsWith(">") {
+        return recType.substring(6, recType.length() - 1)
+    }
+    return ""
+}
+
+// resolveTryPropagateTypeImpl — Resolve return type for Result<T, E> ? operator
+fun resolveTryPropagateTypeImpl(innerType: String) r: String {
+    if innerType.startsWith("Result<") {
+        let tryInner = innerType.substring(7, innerType.length() - 1)
+        var tryComma = 0
+        var tryIdx = 0
+        var tryDepth = 0
+        while tryIdx < tryInner.length() {
+            let tryC = tryInner.substring(tryIdx, tryIdx + 1)
+            if tryC == "<" { tryDepth = tryDepth + 1 }
+            if tryC == ">" { tryDepth = tryDepth - 1 }
+            if tryC == "," {
+                if tryDepth == 0 { tryComma = tryIdx }
+            }
+            tryIdx = tryIdx + 1
+        }
+        if tryComma > 0 {
+            return tryInner.substring(0, tryComma)
+        }
+        return "Int"
+    }
+    return ""
+}
