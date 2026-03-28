@@ -293,9 +293,25 @@ fun getCompilerRoot() r: String {
 fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     // Convert import path segments to file path
 
-    // Check for stdlib imports (str, io, env, process, collections, core, framework)
+    // Check for compiler-root and stdlib imports first.
     if importPath.length() > 0 {
         let firstSegment = importPath[0]
+        if firstSegment == "lexer" or firstSegment == "parser" or firstSegment == "typechecker" or firstSegment == "macro" or firstSegment == "bootstrap" or firstSegment == "codegen" or firstSegment == "lsp" or firstSegment == "tools" or firstSegment == "optimization" or firstSegment == "trace" or firstSegment == "ir" or firstSegment == "types" or firstSegment == "testing" or firstSegment == "ffi" {
+            var compilerPath = "compiler_seen/src/"
+            let compRoot = getCompilerRoot()
+            if compRoot != "" {
+                compilerPath = compRoot + "/compiler_seen/src/"
+            }
+            var ci = 0
+            while ci < importPath.length() {
+                if ci > 0 {
+                    compilerPath = compilerPath + "/"
+                }
+                compilerPath = compilerPath + importPath[ci]
+                ci = ci + 1
+            }
+            return compilerPath + ".seen"
+        }
         if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "framework" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
             // This is a stdlib import — resolve from compiler root
             var filePath = "seen_std/src/"
@@ -1292,7 +1308,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         depGraph.push(edges)
         depIdx = depIdx + 1
     }
-    // DFS cycle check: color 0=white, 1=gray, 2=black
+    // DFS cycle check: color 0=white, 1=gray, 2=black, 3=queued
     var depColors = Array<Int>()
     var depCycleFound = 0
     var depCyclePath = ""
@@ -1308,11 +1324,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     depIdx = 0
     while depIdx < depPaths.length() {
         if depColors[depIdx] == 0 {
+            depColors[depIdx] = 3
             dfsStack.push(depIdx)
             dfsStackTop = dfsStackTop + 1
             while dfsStackTop > 0 {
                 let dfsNode = dfsStack[dfsStackTop - 1]
-                if depColors[dfsNode] == 0 {
+                if depColors[dfsNode] == 0 or depColors[dfsNode] == 3 {
                     depColors[dfsNode] = 1  // gray = in-progress
                     // Push neighbors
                     let dfsEdges = depGraph[dfsNode]
@@ -1338,6 +1355,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                                             depCyclePath = depPaths[dfsNode] + " -> " + dfsTarget
                                         }
                                         if depColors[dfsTargetIdx] == 0 {
+                                            depColors[dfsTargetIdx] = 3
                                             dfsStack.push(dfsTargetIdx)
                                             dfsStackTop = dfsStackTop + 1
                                         }

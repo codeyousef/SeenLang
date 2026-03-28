@@ -107,6 +107,21 @@
    - `artifacts/native-target-smoke/20260327T211904Z/`
    - `artifacts/native-target-smoke/20260327T211915Z/`
 
+### Implemented in the eighth patch set
+
+- Traced the remaining Linux `S2->S3` bootstrap segfault to the class pre-registration path in `compiler_seen/src/codegen/type_registry.seen`: `findStruct()` cached pre-registered class entries into module-level cache arrays, and the first cache write during Pass 1 class layout registration crashed inside `seen_arr_push_str`.
+- Removed the fragile struct-index cache writes in `compiler_seen/src/codegen/type_registry.seen`, which keeps `findStruct()` on the linear-scan path and avoids the imported-module cache corruption during bootstrap.
+- Re-ran minimal compiler probes with the rebuilt production compiler and validated that all of the previously crashing class-only cases now compile successfully:
+   - class with field only
+   - class with method only
+- Preserved the earlier compiler-root import-resolution fix in `compiler_seen/src/main_compiler.seen`, so nested compiler-module imports continue to resolve under `compiler_seen/src/` instead of being mis-rooted under subdirectories like `bootstrap/`.
+- Traced the next self-host blocker to the compile-time circular-dependency check in `compiler_seen/src/main_compiler.seen`: the DFS stack logic could enqueue the same white module repeatedly on cyclic graphs because nodes were not marked before push.
+- Fixed that DFS by marking modules as `queued` before pushing them during cycle detection, preventing duplicate stack growth on the compiler's cyclic import graph.
+- Rebuilt again with `scripts/safe_rebuild.sh`; Stage2 recovery linked successfully and the refreshed production compiler now moves the Linux `S2->S3` verification substantially further:
+   - previous blocker: segfault in Pass 1 class declaration registration
+   - intermediate blocker: timeout before Pass 1 while doing pre-pass cycle analysis
+   - current blocker: timeout during serial Pass 2 code generation for `compiler_seen/src/main_compiler.seen`, stalling after `[irgen module 0] functions start`
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
@@ -122,7 +137,7 @@
 
 The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation, bootstrap stability, and Windows-specific hardening rather than missing compiler routing.
 
-The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and bootstrap verification is still limited by the S2->S3 `exit=139` segfault.
+The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and bootstrap verification is now limited by a later `S2->S3` timeout during serial Pass 2 function code generation rather than the earlier Pass 1 segfault.
 
 ## Goal
 
@@ -164,6 +179,7 @@ This plan is intentionally ordered by compiler risk, toolchain complexity, and c
 - The existing platform matrix now surfaces real smoke status for native non-Linux targets instead of placeholder JSON, but it still needs CI execution on hosts that actually provide those SDKs and cross toolchains.
 - Cross-target GPU runtime compilation is now attempted per target, but still needs validation on real Android and Windows toolchains.
 - Cache reuse is now namespaced by effective target and compile mode in the stage compiler, but that isolation still needs broader validation across release, sanitizer, and profile combinations.
+- The earlier Linux bootstrap blockers in class declaration registration and compile-time dependency-cycle analysis are fixed in source, but self-host verification still hangs later in serial code generation for `main_compiler.seen`.
 - WASM still has scaffold placeholders, but that is out of scope for this native-first plan.
 
 ## Non-Goals For This Phase

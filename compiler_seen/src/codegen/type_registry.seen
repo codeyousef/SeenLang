@@ -23,20 +23,11 @@ var g_fieldInfoCacheKeys: Array<String> = Array<String>()
 var g_fieldInfoCacheIdxs: Array<Int> = Array<Int>()
 
 fun findCachedStructIndex(name: String) r: Int {
-    var i = g_findStructCacheNames.length() - 1
-    while i >= 0 {
-        if g_findStructCacheNames[i] == name {
-            return g_findStructCacheIdxs[i]
-        }
-        i = i - 1
-    }
     return -1
 }
 
 fun cacheStructIndex(name: String, idx: Int) r: Void {
-    if idx < 0 { return }
-    g_findStructCacheNames.push(name)
-    g_findStructCacheIdxs.push(idx)
+    return
 }
 
 fun findCachedFieldIndex(key: String) r: Int {
