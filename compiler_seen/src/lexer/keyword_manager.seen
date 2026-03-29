@@ -203,6 +203,89 @@ class KeywordManager {
         tokenNameMap.put("KeywordNot", SeenTokenType.LogicalNot)
     }
 
+    fun resolveTokenName(name: String) r: SeenTokenType {
+        if name == "KeywordFun" { return SeenTokenType.KeywordFun }
+        if name == "KeywordIf" { return SeenTokenType.KeywordIf }
+        if name == "KeywordElse" { return SeenTokenType.KeywordElse }
+        if name == "KeywordWhile" { return SeenTokenType.KeywordWhile }
+        if name == "KeywordFor" { return SeenTokenType.KeywordFor }
+        if name == "KeywordIn" { return SeenTokenType.KeywordIn }
+        if name == "KeywordMatch" { return SeenTokenType.KeywordMatch }
+        if name == "KeywordBreak" { return SeenTokenType.KeywordBreak }
+        if name == "KeywordContinue" { return SeenTokenType.KeywordContinue }
+        if name == "KeywordReturn" { return SeenTokenType.KeywordReturn }
+        if name == "KeywordTry" { return SeenTokenType.KeywordTry }
+        if name == "KeywordCatch" { return SeenTokenType.KeywordCatch }
+        if name == "KeywordFinally" { return SeenTokenType.KeywordFinally }
+        if name == "KeywordThrow" { return SeenTokenType.KeywordThrow }
+        if name == "KeywordLet" { return SeenTokenType.KeywordLet }
+        if name == "KeywordVar" { return SeenTokenType.KeywordVar }
+        if name == "KeywordClass" { return SeenTokenType.KeywordClass }
+        if name == "KeywordInterface" { return SeenTokenType.KeywordInterface }
+        if name == "KeywordEnum" { return SeenTokenType.KeywordEnum }
+        if name == "KeywordExtends" { return SeenTokenType.KeywordExtends }
+        if name == "KeywordImplements" { return SeenTokenType.KeywordImplements }
+        if name == "KeywordAsync" { return SeenTokenType.KeywordAsync }
+        if name == "KeywordAwait" { return SeenTokenType.KeywordAwait }
+        if name == "KeywordSpawn" { return SeenTokenType.KeywordSpawn }
+        if name == "KeywordImport" { return SeenTokenType.KeywordImport }
+        if name == "KeywordExport" { return SeenTokenType.KeywordExport }
+        if name == "KeywordUse" { return SeenTokenType.KeywordUse }
+        if name == "KeywordAs" { return SeenTokenType.KeywordAs }
+        if name == "KeywordIs" { return SeenTokenType.KeywordIs }
+        if name == "KeywordNull" { return SeenTokenType.KeywordNull }
+        if name == "KeywordTrue" { return SeenTokenType.KeywordTrue }
+        if name == "KeywordFalse" { return SeenTokenType.KeywordFalse }
+        if name == "KeywordThis" { return SeenTokenType.KeywordThis }
+        if name == "KeywordSuper" { return SeenTokenType.KeywordSuper }
+        if name == "KeywordMove" { return SeenTokenType.KeywordMove }
+        if name == "KeywordBorrow" { return SeenTokenType.KeywordBorrow }
+        if name == "KeywordRef" { return SeenTokenType.KeywordRef }
+        if name == "KeywordOwn" { return SeenTokenType.KeywordOwn }
+        if name == "KeywordDefer" { return SeenTokenType.KeywordDefer }
+        if name == "KeywordModule" { return SeenTokenType.KeywordModule }
+        if name == "KeywordImpl" { return SeenTokenType.KeywordImpl }
+        if name == "KeywordExtension" { return SeenTokenType.KeywordExtension }
+        if name == "KeywordSealed" { return SeenTokenType.KeywordSealed }
+        if name == "KeywordTrait" { return SeenTokenType.KeywordTrait }
+        if name == "KeywordUnsafe" { return SeenTokenType.KeywordUnsafe }
+        if name == "KeywordPub" { return SeenTokenType.KeywordPub }
+        if name == "KeywordStruct" { return SeenTokenType.KeywordStruct }
+        if name == "KeywordMut" { return SeenTokenType.KeywordMut }
+        if name == "KeywordConst" { return SeenTokenType.KeywordConst }
+        if name == "KeywordStatic" { return SeenTokenType.KeywordStatic }
+        if name == "KeywordOverride" { return SeenTokenType.KeywordOverride }
+        if name == "KeywordData" { return SeenTokenType.KeywordData }
+        if name == "LogicalAnd" or name == "KeywordAnd" { return SeenTokenType.LogicalAnd }
+        if name == "LogicalOr" or name == "KeywordOr" { return SeenTokenType.LogicalOr }
+        if name == "LogicalNot" or name == "KeywordNot" { return SeenTokenType.LogicalNot }
+        if name == "KeywordType" { return SeenTokenType.KeywordType }
+        if name == "KeywordErrdefer" { return SeenTokenType.KeywordErrdefer }
+        if name == "KeywordDistinct" { return SeenTokenType.KeywordDistinct }
+        if name == "KeywordUnion" { return SeenTokenType.KeywordUnion }
+        if name == "KeywordComptime" { return SeenTokenType.KeywordComptime }
+        if name == "KeywordParallelFor" { return SeenTokenType.KeywordParallelFor }
+        if name == "KeywordTransmute" { return SeenTokenType.KeywordTransmute }
+        if name == "KeywordGpu" { return SeenTokenType.KeywordGpu }
+        if name == "KeywordRegion" { return SeenTokenType.KeywordRegion }
+        if name == "KeywordWhen" { return SeenTokenType.KeywordWhen }
+        if name == "KeywordInline" { return SeenTokenType.KeywordInline }
+        return SeenTokenType.Identifier
+    }
+
+    fun findKeywordSourceEntry(text: String) r: String {
+        let prefix = "KW:" + text + "="
+        var idx = 0
+        while idx < sources.length() {
+            let entry = sources[idx]
+            if entry.startsWith(prefix) {
+                return entry.substring(prefix.length(), entry.length())
+            }
+            idx = idx + 1
+        }
+        return ""
+    }
+
     // Parse a TOML file and load [keywords] entries into the keywords map.
     // Uses character scanning to avoid dependency on split().
     fun loadFromToml(path: String) r: Void {
@@ -281,8 +364,10 @@ class KeywordManager {
                     }
                     let value = content.substring(q3 + 1, q4)
 
-                    if tokenNameMap.containsKey(value) {
-                        keywords.put(key, tokenNameMap.get(value))
+                    let resolvedToken = resolveTokenName(value)
+                    if resolvedToken != SeenTokenType.Identifier {
+                        keywords.put(key, resolvedToken)
+                        sources.push("KW:" + key + "=" + value)
                     }
                 }
                 // Skip unquoted lines (name = ..., description = ...) and non-keyword sections
@@ -511,12 +596,23 @@ class KeywordManager {
     }
 
     fun isKeyword(text: String) r: Bool {
-        return keywords.containsKey(text)
+        return findKeywordSourceEntry(text) != ""
     }
 
     fun getKeywordType(text: String) r: SeenTokenType? {
-        let res = keywords.get(text)
-        return res
+        let tokenName = findKeywordSourceEntry(text)
+        if tokenName != "" {
+            return Some(resolveTokenName(tokenName))
+        }
+        return None()
+    }
+
+    fun getKeywordTypeDirect(text: String) r: SeenTokenType {
+        let tokenName = findKeywordSourceEntry(text)
+        if tokenName != "" {
+            return resolveTokenName(tokenName)
+        }
+        return SeenTokenType.Identifier
     }
 
     fun getAllKeywords() r: Array<String> {

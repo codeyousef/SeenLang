@@ -132,6 +132,22 @@
    - Stage3 build succeeded
    - the safe rebuild now installs Stage3 as the production compiler on this host
 
+### Implemented in the tenth patch set
+
+- Traced a post-bootstrap runtime regression in the freshly installed compiler to lexer keyword lookup: trivial user compiles crashed in `SeenLexer_handleIdentifierOrKeyword(...)` immediately after scanning `fun`.
+- Reworked `compiler_seen/src/lexer/keyword_manager.seen` so keyword resolution no longer depends on bootstrap-fragile generic `Map.get()` or direct generic-map field access for `SeenTokenType` values.
+   - keyword TOML entries are now mirrored into bootstrap-stable `KW:<keyword>=<TokenName>` source entries
+   - runtime keyword resolution now scans those stored entries and maps token names with a direct resolver
+- Updated `compiler_seen/src/lexer/lexer.seen` to use the direct keyword lookup path instead of unwrapping the old generic `Option<SeenTokenType>` result.
+- Made two bootstrap-compatibility source fixes in `compiler_seen/src/main_compiler.seen` uncovered while rebuilding the compiler with older saved stages:
+   - `hashString(...)` now explicitly types `code` as `Int` so old bootstrap stages do not mis-lower `step + code` as string concatenation
+   - `translateCommand()` now uses `printRaw(...)` for stdout output, avoiding a missing `print` declaration in module-0 bootstrap IR while preserving no-newline behavior
+- Rebuilt a fresh candidate compiler from the saved `stage2_head` artifact and validated that it no longer crashes on the original hello-world compile regression.
+- Re-ran the native smoke harness with that rebuilt compiler and recorded refreshed results under:
+   - `artifacts/native-target-smoke/20260329T153620Z/`
+   - `linux-x86_64`: `success`
+   - `windows-x86_64`: `success`
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
