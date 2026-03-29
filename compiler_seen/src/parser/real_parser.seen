@@ -3650,8 +3650,14 @@ class RealParser {
                     // Build full receiver path for chained access like diag.line.field
                     var memberLitSet = false
                     if expr.kind == "MemberAccess" {
-                        // Chain: previousReceiver.previousMember -> becomes receiver for new member
-                        memberExpr.literalValue = expr.literalValue + "." + expr.variableName
+                        // Preserve complex receivers like call().field.next so later
+                        // stages still see the nested member access tree.
+                        if expr.literalValue != "" {
+                            memberExpr.literalValue = expr.literalValue + "." + expr.variableName
+                        } else {
+                            memberExpr.literalValue = ""
+                            memberExpr.operands.push(expr)
+                        }
                         memberLitSet = true
                     }
                     if not memberLitSet and (expr.kind == "MethodCall" or expr.kind == "Call" or expr.kind == "IndexAccess") {
@@ -3756,13 +3762,6 @@ class RealParser {
         // Literal checks FIRST — must come before keyword checks because
         // older bootstrap compilers may assign value 0 to unknown token types
         // (e.g. KeywordWhen), causing them to collide with IntegerLiteral=0.
-
-        // Bootstrap workaround: KeywordWhen (value 119) is outside stage1_frozen's
-        // 0-99 range, so in stage2 it has type 0 (IntegerLiteral). Intercept by
-        // string value before the IntegerLiteral check steals it.
-        if peek().getValue() == "when" {
-            return parseWhenExpression()
-        }
 
         // Integer literal
         if checkToken(SeenTokenType.IntegerLiteral) {

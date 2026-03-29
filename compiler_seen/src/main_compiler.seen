@@ -3064,31 +3064,32 @@ fun bundleCommand(argv: Array<String>) r: Int {
         let iconResult: CommandResult = runCommand("cp " + iconPath + " " + resourcesDir + "/AppIcon.icns")
     }
 
-    // Generate Info.plist
-    let plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
-        "<plist version=\"1.0\">\n" +
-        "<dict>\n" +
-        "  <key>CFBundleExecutable</key>\n" +
-        "  <string>" + appName + "</string>\n" +
-        "  <key>CFBundleIdentifier</key>\n" +
-        "  <string>" + bundleId + "</string>\n" +
-        "  <key>CFBundleName</key>\n" +
-        "  <string>" + appName + "</string>\n" +
-        "  <key>CFBundleVersion</key>\n" +
-        "  <string>" + version + "</string>\n" +
-        "  <key>CFBundleShortVersionString</key>\n" +
-        "  <string>" + version + "</string>\n" +
-        "  <key>CFBundlePackageType</key>\n" +
-        "  <string>APPL</string>\n" +
-        "  <key>CFBundleIconFile</key>\n" +
-        "  <string>AppIcon</string>\n" +
-        "  <key>LSMinimumSystemVersion</key>\n" +
-        "  <string>13.0</string>\n" +
-        "  <key>NSHighResolutionCapable</key>\n" +
-        "  <true/>\n" +
-        "</dict>\n" +
-        "</plist>"
+    // Generate Info.plist with incremental appends to avoid one deep concat tree.
+    var plist: String = ""
+    plist = plist + "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    plist = plist + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    plist = plist + "<plist version=\"1.0\">\n"
+    plist = plist + "<dict>\n"
+    plist = plist + "  <key>CFBundleExecutable</key>\n"
+    plist = plist + "  <string>" + appName + "</string>\n"
+    plist = plist + "  <key>CFBundleIdentifier</key>\n"
+    plist = plist + "  <string>" + bundleId + "</string>\n"
+    plist = plist + "  <key>CFBundleName</key>\n"
+    plist = plist + "  <string>" + appName + "</string>\n"
+    plist = plist + "  <key>CFBundleVersion</key>\n"
+    plist = plist + "  <string>" + version + "</string>\n"
+    plist = plist + "  <key>CFBundleShortVersionString</key>\n"
+    plist = plist + "  <string>" + version + "</string>\n"
+    plist = plist + "  <key>CFBundlePackageType</key>\n"
+    plist = plist + "  <string>APPL</string>\n"
+    plist = plist + "  <key>CFBundleIconFile</key>\n"
+    plist = plist + "  <string>AppIcon</string>\n"
+    plist = plist + "  <key>LSMinimumSystemVersion</key>\n"
+    plist = plist + "  <string>13.0</string>\n"
+    plist = plist + "  <key>NSHighResolutionCapable</key>\n"
+    plist = plist + "  <true/>\n"
+    plist = plist + "</dict>\n"
+    plist = plist + "</plist>"
     writeText(contentsDir + "/Info.plist", plist)
 
     println("App bundle created: " + appDir)
@@ -3419,44 +3420,45 @@ fun ipaCommand(argv: Array<String>) r: Int {
     }
     let chmodResult: CommandResult = runCommand("chmod +x " + appDir + "/" + appName)
 
-    // Step 4: Generate iOS Info.plist
-    let plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
-        "<plist version=\"1.0\">\n" +
-        "<dict>\n" +
-        "  <key>CFBundleExecutable</key>\n" +
-        "  <string>" + appName + "</string>\n" +
-        "  <key>CFBundleIdentifier</key>\n" +
-        "  <string>" + bundleId + "</string>\n" +
-        "  <key>CFBundleName</key>\n" +
-        "  <string>" + appName + "</string>\n" +
-        "  <key>CFBundleVersion</key>\n" +
-        "  <string>" + version + "</string>\n" +
-        "  <key>CFBundleShortVersionString</key>\n" +
-        "  <string>" + version + "</string>\n" +
-        "  <key>CFBundlePackageType</key>\n" +
-        "  <string>APPL</string>\n" +
-        "  <key>MinimumOSVersion</key>\n" +
-        "  <string>" + minIos + "</string>\n" +
-        "  <key>DTPlatformName</key>\n" +
-        "  <string>iphoneos</string>\n" +
-        "  <key>UIDeviceFamily</key>\n" +
-        "  <array>\n" +
-        "    <integer>1</integer>\n" +
-        "    <integer>2</integer>\n" +
-        "  </array>\n" +
-        "  <key>UILaunchStoryboardName</key>\n" +
-        "  <string></string>\n" +
-        "  <key>UIRequiredDeviceCapabilities</key>\n" +
-        "  <array>\n" +
-        "    <string>arm64</string>\n" +
-        "  </array>\n" +
-        "  <key>CFBundleSupportedPlatforms</key>\n" +
-        "  <array>\n" +
-        "    <string>iPhoneOS</string>\n" +
-        "  </array>\n" +
-        "</dict>\n" +
-        "</plist>"
+    // Step 4: Generate iOS Info.plist with incremental appends.
+    var plist: String = ""
+    plist = plist + "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    plist = plist + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    plist = plist + "<plist version=\"1.0\">\n"
+    plist = plist + "<dict>\n"
+    plist = plist + "  <key>CFBundleExecutable</key>\n"
+    plist = plist + "  <string>" + appName + "</string>\n"
+    plist = plist + "  <key>CFBundleIdentifier</key>\n"
+    plist = plist + "  <string>" + bundleId + "</string>\n"
+    plist = plist + "  <key>CFBundleName</key>\n"
+    plist = plist + "  <string>" + appName + "</string>\n"
+    plist = plist + "  <key>CFBundleVersion</key>\n"
+    plist = plist + "  <string>" + version + "</string>\n"
+    plist = plist + "  <key>CFBundleShortVersionString</key>\n"
+    plist = plist + "  <string>" + version + "</string>\n"
+    plist = plist + "  <key>CFBundlePackageType</key>\n"
+    plist = plist + "  <string>APPL</string>\n"
+    plist = plist + "  <key>MinimumOSVersion</key>\n"
+    plist = plist + "  <string>" + minIos + "</string>\n"
+    plist = plist + "  <key>DTPlatformName</key>\n"
+    plist = plist + "  <string>iphoneos</string>\n"
+    plist = plist + "  <key>UIDeviceFamily</key>\n"
+    plist = plist + "  <array>\n"
+    plist = plist + "    <integer>1</integer>\n"
+    plist = plist + "    <integer>2</integer>\n"
+    plist = plist + "  </array>\n"
+    plist = plist + "  <key>UILaunchStoryboardName</key>\n"
+    plist = plist + "  <string></string>\n"
+    plist = plist + "  <key>UIRequiredDeviceCapabilities</key>\n"
+    plist = plist + "  <array>\n"
+    plist = plist + "    <string>arm64</string>\n"
+    plist = plist + "  </array>\n"
+    plist = plist + "  <key>CFBundleSupportedPlatforms</key>\n"
+    plist = plist + "  <array>\n"
+    plist = plist + "    <string>iPhoneOS</string>\n"
+    plist = plist + "  </array>\n"
+    plist = plist + "</dict>\n"
+    plist = plist + "</plist>"
     writeText(appDir + "/Info.plist", plist)
 
     // Step 5: Embed provisioning profile if provided

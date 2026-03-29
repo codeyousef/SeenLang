@@ -11,8 +11,11 @@ fun inferMethodCallTypeTable(callee: String) r: String {
     if callee == "length" or callee == "size" or callee == "lengthCodepoints" {
         return "Int"
     }
-    if callee == "charAt" or callee == "charCodeAt" or callee == "byteAt" {
+    if callee == "charAt" {
         return "Char"
+    }
+    if callee == "charCodeAt" or callee == "byteAt" {
+        return "Int"
     }
     // Note: 'getValue' must be hardcoded because Token class methods aren't registered
     // before parser module methods are compiled (module load order issue)

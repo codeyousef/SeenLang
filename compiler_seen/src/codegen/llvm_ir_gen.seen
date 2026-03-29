@@ -36,33 +36,19 @@
 //   - g_cseKeysArr/g_cseValsArr: CSE (Common Subexpression Elimination)
 //     cache mapping expression keys to register names. Searched backwards
 //     for most-recent-scope-first semantics.
-//   - g_xmDeclareNames/g_xmDeclareStrs: cross-module function declarations
-//     built during Pass 1, emitted during Pass 2.
-//
-// Content-addressed IR cache uses v3 key scheme:
-//   hash("v3:" + declarationsHash + ":" + modulePath + ":" + moduleSourceHash)
-// so editing a function body only invalidates that module's cache.
-//
-// Debugging: set SEEN_TRACE_LLVM=all (or ir/gep/boxing/values/types/layouts/inst)
-// to trace IR generation. SEEN_DEBUG_TYPES=1 traces type checker decisions.
-// =============================================================================
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode}
 import str.string.{StringBuilder}
-import io.file.{readText, writeText, exists}
-import trace.{traceGen}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, mlShouldInline, mlShouldInlineWeighted, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitLoopMetadataImpl, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
-import codegen.ir_declarations.{isFuncDefinedInModule, addStringConstantImpl, registerStructMethodImpl, emitCollectionConstructorImpl, emitMathBuiltinImpl, emitSomeConstructorImpl, emitNoneConstructorImpl, emitExternDeclImpl}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
-import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, isSimdVectorTypeImpl, simdScalarTypeImpl, simdLaneCountImpl, isSwizzlePatternImpl, swizzleLaneIndexImpl, simdLlvmSuffixImpl, isDataTypeImpl, isClassTypeImpl, mapTypeImpl, resolveKnownStructFieldImpl, mapFieldNameToReceiverType}
+
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl}
 import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
-import codegen.ir_assignment_gen.{emitFieldStoreImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitLengthSizeMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
@@ -73,7 +59,7 @@ import codegen.type_registry.{TypeRegistry, CodegenState}
 import codegen.ir_function_gen.{generateLiteralFree}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
-fun getTraceTimeSeconds() r: Int {
+fun getIrgenTraceTimeSeconds() r: Int {
     let result: CommandResult = runCommand("date +%s")
     if commandWasSuccessful(result) {
         let out = commandOutput(result).trim()
@@ -251,24 +237,24 @@ var g_deferExprs: Array<ParserExpressionNode> = Array<ParserExpressionNode>()
 var g_errdeferCount: Int = 0
 var g_errdeferExprs: Array<ParserExpressionNode> = Array<ParserExpressionNode>()
 var g_errdeferTempAlloca: String = ""
-var g_fieldInfoCacheKeys: Array<String> = Array<String>()
-var g_fieldInfoCacheIdxs: Array<Int> = Array<Int>()
+var g_irgenFieldInfoCacheKeys: Array<String> = Array<String>()
+var g_irgenFieldInfoCacheIdxs: Array<Int> = Array<Int>()
 
-fun findCachedFieldIndex(key: String) r: Int {
-    var i = g_fieldInfoCacheKeys.length() - 1
+fun findCachedIrgenFieldIndex(key: String) r: Int {
+    var i = g_irgenFieldInfoCacheKeys.length() - 1
     while i >= 0 {
-        if g_fieldInfoCacheKeys[i] == key {
-            return g_fieldInfoCacheIdxs[i]
+        if g_irgenFieldInfoCacheKeys[i] == key {
+            return g_irgenFieldInfoCacheIdxs[i]
         }
         i = i - 1
     }
     return -1
 }
 
-fun cacheFieldIndex(key: String, idx: Int) r: Void {
+fun cacheIrgenFieldIndex(key: String, idx: Int) r: Void {
     if idx < 0 { return }
-    g_fieldInfoCacheKeys.push(key)
-    g_fieldInfoCacheIdxs.push(idx)
+    g_irgenFieldInfoCacheKeys.push(key)
+    g_irgenFieldInfoCacheIdxs.push(idx)
 }
 
 // Cache-line aligned classes: pipe-delimited names
@@ -528,7 +514,6 @@ fun cseLookup(key: String) r: String {
 }
 
 // O(1) amortized via Array.push().
-// Record a computed expression in the CSE cache for potential reuse.
 fun cseRecord(key: String, value: String) r: Void {
     g_cseKeysArr.push(key)
     g_cseValsArr.push(value)
@@ -1040,8 +1025,8 @@ class LLVMIRGenerator {
         resetOptCounters()
         // Reset class method tracking (prevents methods from module 0 affecting module 1)
         registry.classMethodBaseNames = Array<String>()
-        g_fieldInfoCacheKeys = Array<String>()
-        g_fieldInfoCacheIdxs = Array<Int>()
+        g_irgenFieldInfoCacheKeys = Array<String>()
+        g_irgenFieldInfoCacheIdxs = Array<Int>()
         // Keep struct/func registries for cross-module references
     }
 
@@ -1122,13 +1107,14 @@ class LLVMIRGenerator {
                 while mi < item.classNode.methods.length() {
                     let method = item.classNode.methods[mi]
                     let mangledName = item.classNode.name + "_" + method.name
-                    registerFunction(mangledName, method.returnType.typeName)
+                    let methodRetTypeName = normalizeDeclaredTypeNode(method.returnType)
+                    registerFunction(mangledName, methodRetTypeName)
                     if method.isAsync {
-                        registerAsyncFunction(mangledName, method.returnType.typeName)
+                        registerAsyncFunction(mangledName, methodRetTypeName)
                     }
                     // Build cross-module declare for class method (ptr self as first param for non-static)
                     let mRetType = method.returnType
-                    let mRetTypeName = mRetType.typeName
+                    let mRetTypeName = normalizeDeclaredTypeNode(mRetType)
                     var mRetLlvm = mapType(mRetTypeName)
                     if method.isAsync {
                         mRetLlvm = "ptr"
@@ -1144,7 +1130,7 @@ class LLVMIRGenerator {
                         if mDeclParams != "" { mDeclParams = mDeclParams + ", " }
                         let mdparam = mParams[mdpi]
                         let mdpType = mdparam.paramType
-                        let mdpTypeName = mdpType.typeName
+                        let mdpTypeName = normalizeDeclaredTypeNode(mdpType)
                         if isDataType(mdpTypeName) {
                             mDeclParams = mDeclParams + "ptr"
                         } else {
@@ -1214,9 +1200,10 @@ class LLVMIRGenerator {
             if item.itemType == "Function" {
                 // Register function signature
                 let funcObj = item.function
-                registerFunction(funcObj.name, funcObj.returnType.typeName)
+                let funcRetTypeName = normalizeDeclaredTypeNode(funcObj.returnType)
+                registerFunction(funcObj.name, funcRetTypeName)
                 if funcObj.isAsync {
-                    registerAsyncFunction(funcObj.name, funcObj.returnType.typeName)
+                    registerAsyncFunction(funcObj.name, funcRetTypeName)
                 }
                 // Build cross-module declare for free function (skip main)
                 // Include extern functions for cross-module visibility
@@ -2008,7 +1995,7 @@ class LLVMIRGenerator {
     fun collectStmtVars(stmt: StatementNode) r: Void {
         // Handle Let/Var declarations
         if stmt.kind == "Let" or stmt.kind == "Var" {
-            var varType = stmt.variableType.typeName
+            var varType = normalizeDeclaredTypeNode(stmt.variableType)
             if varType == "" or varType == "Unknown" or varType == "Void" {
                 varType = inferExpressionType(stmt.initializer)
             }
@@ -2350,7 +2337,7 @@ class LLVMIRGenerator {
                     }
                     // Strip :bitfield(N) annotation from type for layout, extract width
                     let fieldParamType = field.paramType
-                    var fieldType = fieldParamType.typeName
+                    var fieldType = normalizeDeclaredTypeNode(fieldParamType)
                     if fieldType.contains(":bitfield(") {
                         let bfLayoutPos = fieldType.indexOf(":bitfield(", 0)
                         if bfLayoutPos >= 0 {
@@ -2396,7 +2383,7 @@ class LLVMIRGenerator {
             }
             let method = classNode.methods[mi]
             methodNames = methodNames + method.name
-            methodRetTypes = methodRetTypes + method.returnType.typeName
+            methodRetTypes = methodRetTypes + normalizeDeclaredTypeNode(method.returnType)
             // Register base method name for generic class method skip detection
             // Check if already registered to avoid duplicates
             var alreadyRegistered = false
@@ -2442,7 +2429,7 @@ class LLVMIRGenerator {
     // i8 GEP or memset zero-init instead.
     fun getFieldInfo(structName: String, fieldName: String) r: Int {
         let cacheKey = structName + "." + fieldName
-        let cached = findCachedFieldIndex(cacheKey)
+        let cached = findCachedIrgenFieldIndex(cacheKey)
         if cached >= 0 {
             return cached
         }
@@ -2458,20 +2445,20 @@ class LLVMIRGenerator {
         // This ensures correct indices even when registry is partially populated
         // (e.g., when type header is loaded but source hasn't been fully parsed)
         if structName == "FunctionNode" {
-            if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
-            if fieldName == "params" { cacheFieldIndex(cacheKey, 1); return 1 }
-            if fieldName == "returnType" { cacheFieldIndex(cacheKey, 2); return 2 }
-            if fieldName == "body" { cacheFieldIndex(cacheKey, 3); return 3 }
-            if fieldName == "isAsync" { cacheFieldIndex(cacheKey, 4); return 4 }
-            if fieldName == "isInline" { cacheFieldIndex(cacheKey, 5); return 5 }
-            if fieldName == "isStatic" { cacheFieldIndex(cacheKey, 6); return 6 }
-            if fieldName == "isExtern" { cacheFieldIndex(cacheKey, 7); return 7 }
-            if fieldName == "isDeterministic" { cacheFieldIndex(cacheKey, 8); return 8 }
-            if fieldName == "isNondeterministic" { cacheFieldIndex(cacheKey, 9); return 9 }
-            if fieldName == "decorators" { cacheFieldIndex(cacheKey, 10); return 10 }
-            if fieldName == "line" { cacheFieldIndex(cacheKey, 11); return 11 }
-            if fieldName == "column" { cacheFieldIndex(cacheKey, 12); return 12 }
-            if fieldName == "isOverride" { cacheFieldIndex(cacheKey, 13); return 13 }
+            if fieldName == "name" { cacheIrgenFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "params" { cacheIrgenFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "returnType" { cacheIrgenFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "body" { cacheIrgenFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "isAsync" { cacheIrgenFieldIndex(cacheKey, 4); return 4 }
+            if fieldName == "isInline" { cacheIrgenFieldIndex(cacheKey, 5); return 5 }
+            if fieldName == "isStatic" { cacheIrgenFieldIndex(cacheKey, 6); return 6 }
+            if fieldName == "isExtern" { cacheIrgenFieldIndex(cacheKey, 7); return 7 }
+            if fieldName == "isDeterministic" { cacheIrgenFieldIndex(cacheKey, 8); return 8 }
+            if fieldName == "isNondeterministic" { cacheIrgenFieldIndex(cacheKey, 9); return 9 }
+            if fieldName == "decorators" { cacheIrgenFieldIndex(cacheKey, 10); return 10 }
+            if fieldName == "line" { cacheIrgenFieldIndex(cacheKey, 11); return 11 }
+            if fieldName == "column" { cacheIrgenFieldIndex(cacheKey, 12); return 12 }
+            if fieldName == "isOverride" { cacheIrgenFieldIndex(cacheKey, 13); return 13 }
         }
         if structName == "ClassNode" {
             if fieldName == "name" { return 0 }
@@ -2554,7 +2541,7 @@ class LLVMIRGenerator {
             if byteVal == 44 or pos == fieldNamesStr.length() {
                 let name = fieldNamesStr.substring(start, pos)
                 if name == fieldName {
-                    cacheFieldIndex(cacheKey, fieldIdx)
+                    cacheIrgenFieldIndex(cacheKey, fieldIdx)
                     return fieldIdx
                 }
                 fieldIdx = fieldIdx + 1
@@ -2565,24 +2552,24 @@ class LLVMIRGenerator {
 
         // Fallback hardcoded field indices for less common types (not covered above)
         if structName == "FrontendDiagnostic" {
-            if fieldName == "file" { cacheFieldIndex(cacheKey, 0); return 0 }
-            if fieldName == "line" { cacheFieldIndex(cacheKey, 1); return 1 }
-            if fieldName == "column" { cacheFieldIndex(cacheKey, 2); return 2 }
-            if fieldName == "severity" { cacheFieldIndex(cacheKey, 3); return 3 }
-            if fieldName == "message" { cacheFieldIndex(cacheKey, 4); return 4 }
+            if fieldName == "file" { cacheIrgenFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "line" { cacheIrgenFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "column" { cacheIrgenFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "severity" { cacheIrgenFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "message" { cacheIrgenFieldIndex(cacheKey, 4); return 4 }
         }
         if structName == "Token" {
-            if fieldName == "tokenType" { cacheFieldIndex(cacheKey, 0); return 0 }
-            if fieldName == "value" { cacheFieldIndex(cacheKey, 1); return 1 }
-            if fieldName == "line" { cacheFieldIndex(cacheKey, 2); return 2 }
-            if fieldName == "column" { cacheFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "tokenType" { cacheIrgenFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "value" { cacheIrgenFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "line" { cacheIrgenFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "column" { cacheIrgenFieldIndex(cacheKey, 3); return 3 }
         }
         if structName == "FieldNode" {
-            if fieldName == "name" { cacheFieldIndex(cacheKey, 0); return 0 }
-            if fieldName == "fieldType" { cacheFieldIndex(cacheKey, 1); return 1 }
-            if fieldName == "isMutable" { cacheFieldIndex(cacheKey, 2); return 2 }
-            if fieldName == "defaultValue" { cacheFieldIndex(cacheKey, 3); return 3 }
-            if fieldName == "visibility" { cacheFieldIndex(cacheKey, 4); return 4 }
+            if fieldName == "name" { cacheIrgenFieldIndex(cacheKey, 0); return 0 }
+            if fieldName == "fieldType" { cacheIrgenFieldIndex(cacheKey, 1); return 1 }
+            if fieldName == "isMutable" { cacheIrgenFieldIndex(cacheKey, 2); return 2 }
+            if fieldName == "defaultValue" { cacheIrgenFieldIndex(cacheKey, 3); return 3 }
+            if fieldName == "visibility" { cacheIrgenFieldIndex(cacheKey, 4); return 4 }
         }
         return -1  // Field not found
     }
@@ -2745,10 +2732,97 @@ class LLVMIRGenerator {
         return registry.getSeenFieldType(structName, fieldName)
     }
 
+    fun inferTypeRegistryFieldType(fieldName: String) r: String {
+        if fieldName == "structNames" { return "Array<String>" }
+        if fieldName == "structLayouts" { return "Array<String>" }
+        if fieldName == "structFieldNames" { return "Array<String>" }
+        if fieldName == "structFieldTypes" { return "Array<String>" }
+        if fieldName == "structLlvmFieldTypes" { return "Array<String>" }
+        if fieldName == "structSizes" { return "Array<Int>" }
+        if fieldName == "structMethodNames" { return "Array<String>" }
+        if fieldName == "structMethodRetTypes" { return "Array<String>" }
+        if fieldName == "funcNames" { return "Array<String>" }
+        if fieldName == "funcRetTypes" { return "Array<String>" }
+        if fieldName == "classMethodBaseNames" { return "Array<String>" }
+        if fieldName == "typeHeaderPath" { return "String" }
+        return ""
+    }
+
+    fun getSemanticFieldType(structName: String, fieldName: String) r: String {
+        let structIdx = findStruct(structName)
+        if structIdx >= 0 {
+            let fieldNamesStr = registry.structFieldNames[structIdx]
+            let fieldTypesStr = registry.structFieldTypes[structIdx]
+            if fieldNamesStr != "" and fieldTypesStr != "" {
+                let semanticFieldType = getFieldTypeFromListsReg(fieldNamesStr, fieldTypesStr, fieldName)
+                if semanticFieldType != "" {
+                    return semanticFieldType
+                }
+            }
+        }
+        if structName == "TypeRegistry" {
+            return inferTypeRegistryFieldType(fieldName)
+        }
+        return ""
+    }
+
+
+    fun splitChainedPath(path: String) r: Array<String> {
+        let segments = Array<String>()
+        var segmentStart = 0
+        var idx = 0
+        while idx <= path.length() {
+            if idx == path.length() or path.byteAt(idx) == 46 {
+                if idx > segmentStart {
+                    segments.push(path.substring(segmentStart, idx))
+                }
+                segmentStart = idx + 1
+            }
+            idx = idx + 1
+        }
+        return segments
+    }
+
+    fun buildChainedPathExpr(path: String) r: ParserExpressionNode {
+        let segments = splitChainedPath(path)
+        if segments.length() == 0 {
+            return ParserExpressionNode.new()
+        }
+
+        let baseExpr = ParserExpressionNode.new()
+        baseExpr.kind = "Variable"
+        baseExpr.variableName = segments[0]
+
+        var currentExpr = baseExpr
+        var idx = 1
+        while idx < segments.length() {
+            let segment = segments[idx]
+            let nextExpr = ParserExpressionNode.new()
+            if segment.endsWith("()") {
+                nextExpr.kind = "MethodCall"
+                nextExpr.callee = segment.substring(0, segment.length() - 2)
+                nextExpr.operands.push(currentExpr)
+            } else {
+                nextExpr.kind = "MemberAccess"
+                nextExpr.variableName = segment
+                nextExpr.operands.push(currentExpr)
+            }
+            currentExpr = nextExpr
+            idx = idx + 1
+        }
+
+        return currentExpr
+    }
 
     // Resolve the type of a chained path like "item.function.returnType"
     // Returns the type of the final field in the chain
     fun resolveChainedPathType(path: String) r: String {
+        if path.contains("()") {
+            let chainExpr = buildChainedPathExpr(path)
+            if chainExpr.kind != "None" {
+                return inferExpressionType(chainExpr)
+            }
+        }
         // Split the path at the first dot (46 = '.')
         var firstDot = -1
         var idx = 0
@@ -3221,7 +3295,7 @@ class LLVMIRGenerator {
     // The struct/function registries are NOT reset — they persist from Pass 1
     // (registerDeclarations) and are shared across all modules.
     fun generateSingle(program: ProgramNode, moduleIndex: Int) r: String {
-        let moduleStartTime = getTraceTimeSeconds()
+        let moduleStartTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] reset start")
         // Reset ALL per-module codegen state (generatedFunctions, generatedClasses,
         // nextReg, nextBlock, currentFunctionReturnType, loop labels, opt counters, etc.)
@@ -3247,25 +3321,25 @@ class LLVMIRGenerator {
         // Collect string constants for THIS module only
         // Also piggybacks call counting for ML inline decisions + self-call detection
         println("[irgen module " + moduleIndex.toString() + "] collect strings start")
-        let collectStringsStartTime = getTraceTimeSeconds()
+        let collectStringsStartTime = getIrgenTraceTimeSeconds()
         callCountClear()
         g_selfCallFuncs = ""
         g_selfCallNames = ""
         g_selfCallCount = 0
         collectStringConstants(program)
-        let collectStringsEndTime = getTraceTimeSeconds()
+        let collectStringsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] collect strings done in " + (collectStringsEndTime - collectStringsStartTime).toString() + "s")
 
         // Emit module header
         println("[irgen module " + moduleIndex.toString() + "] prologue start")
-        let prologueStartTime = getTraceTimeSeconds()
+        let prologueStartTime = getIrgenTraceTimeSeconds()
         emitPrologue()
-        let prologueEndTime = getTraceTimeSeconds()
+        let prologueEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] prologue done in " + (prologueEndTime - prologueStartTime).toString() + "s")
 
         // Emit class struct type definitions for THIS module
         println("[irgen module " + moduleIndex.toString() + "] class type scan start")
-        let classTypeStartTime = getTraceTimeSeconds()
+        let classTypeStartTime = getIrgenTraceTimeSeconds()
         var i = 0
         while i < program.items.length() {
             let item = program.items[i]
@@ -3274,7 +3348,7 @@ class LLVMIRGenerator {
             }
             i = i + 1
         }
-        let classTypeEndTime = getTraceTimeSeconds()
+        let classTypeEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] class type scan done in " + (classTypeEndTime - classTypeStartTime).toString() + "s")
 
         // NOTE: vtable constants are emitted AFTER function generation (see below)
@@ -3282,7 +3356,7 @@ class LLVMIRGenerator {
 
         // Emit global variable declarations for THIS module
         println("[irgen module " + moduleIndex.toString() + "] globals start")
-        let globalsStartTime = getTraceTimeSeconds()
+        let globalsStartTime = getIrgenTraceTimeSeconds()
         i = 0
         while i < program.items.length() {
             let gvItem2 = program.items[i]
@@ -3363,7 +3437,7 @@ class LLVMIRGenerator {
             }
             i = i + 1
         }
-        let globalsEndTime = getTraceTimeSeconds()
+        let globalsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] globals done in " + (globalsEndTime - globalsStartTime).toString() + "s")
 
         // Emit external declarations for cross-module constants not defined in this module
@@ -3388,9 +3462,9 @@ class LLVMIRGenerator {
 
         // Emit string constants with module prefix
         println("[irgen module " + moduleIndex.toString() + "] string constants start")
-        let stringConstantsStartTime = getTraceTimeSeconds()
+        let stringConstantsStartTime = getIrgenTraceTimeSeconds()
         emitStringConstantsWithPrefix(moduleIndex)
-        let stringConstantsEndTime = getTraceTimeSeconds()
+        let stringConstantsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] string constants done in " + (stringConstantsEndTime - stringConstantsStartTime).toString() + "s")
         // Track how many string constants exist before class/function generation
         // (derive/reflect/json codegen may add new constants that need separate emission)
@@ -3436,24 +3510,24 @@ class LLVMIRGenerator {
 
         // Emit runtime declarations (skip functions defined in this module)
         println("[irgen module " + moduleIndex.toString() + "] runtime decls start")
-        let runtimeDeclsStartTime = getTraceTimeSeconds()
+        let runtimeDeclsStartTime = getIrgenTraceTimeSeconds()
         emitRuntimeDeclarations(definedFuncs)
-        let runtimeDeclsEndTime = getTraceTimeSeconds()
+        let runtimeDeclsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] runtime decls done in " + (runtimeDeclsEndTime - runtimeDeclsStartTime).toString() + "s")
 
         // Sync class fields → CodegenState before code generation begins.
         // Free functions in satellite modules use state.* for shared access.
         println("[irgen module " + moduleIndex.toString() + "] sync state start")
-        let syncStateStartTime = getTraceTimeSeconds()
+        let syncStateStartTime = getIrgenTraceTimeSeconds()
         syncState()
-        let syncStateEndTime = getTraceTimeSeconds()
+        let syncStateEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] sync state done in " + (syncStateEndTime - syncStateStartTime).toString() + "s")
 
         // WHY class methods BEFORE top-level functions: see generateMultiple.
         // registerStructMethod() must populate method return types before
         // generateFunction(main) calls inferExpressionType on method calls.
         println("[irgen module " + moduleIndex.toString() + "] classes start")
-        let classesStartTime = getTraceTimeSeconds()
+        let classesStartTime = getIrgenTraceTimeSeconds()
         i = 0
         while i < program.items.length() {
             let item = program.items[i]
@@ -3462,27 +3536,32 @@ class LLVMIRGenerator {
             }
             i = i + 1
         }
-        let classesEndTime = getTraceTimeSeconds()
+        let classesEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] classes done in " + (classesEndTime - classesStartTime).toString() + "s")
 
         // Emit functions (top-level) for THIS module
         println("[irgen module " + moduleIndex.toString() + "] functions start")
-        let functionsStartTime = getTraceTimeSeconds()
+        let functionsStartTime = getIrgenTraceTimeSeconds()
         i = 0
         while i < program.items.length() {
             let item = program.items[i]
+            println("[irgen module " + moduleIndex.toString() + "] function loop item " + i.toString() + ": " + item.itemType)
             if item.itemType == "Function" {
+                println("[irgen module " + moduleIndex.toString() + "] function item confirmed at idx " + i.toString())
                 let fnName = item.function.name
                 // Skip 'new' - it's always a class method, never a standalone function
                 if fnName == "new" {
                     i = i + 1
                     continue
                 }
+                println("[irgen module " + moduleIndex.toString() + "] function name resolved: " + fnName)
+                println("[irgen module " + moduleIndex.toString() + "] function start: " + fnName)
                 generateFunction(item.function)
+                println("[irgen module " + moduleIndex.toString() + "] function done: " + fnName)
             }
             i = i + 1
         }
-        let functionsEndTime = getTraceTimeSeconds()
+        let functionsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] functions done in " + (functionsEndTime - functionsStartTime).toString() + "s")
 
         // Emit vtable constants for trait implementations found in this module
@@ -3695,7 +3774,7 @@ class LLVMIRGenerator {
         emitTBAAMetadata()
         emitLoopMetadata()
 
-        let moduleEndTime = getTraceTimeSeconds()
+        let moduleEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] done in " + (moduleEndTime - moduleStartTime).toString() + "s")
 
         return output.toString()
@@ -4004,7 +4083,7 @@ class LLVMIRGenerator {
                 var gpuFieldIdx = 0
                 while gpuFi < classNode.fields.length() {
                     let gpuField = classNode.fields[gpuFi]
-                    let gpuFieldType = mapType(gpuField.paramType.typeName)
+                    let gpuFieldType = mapType(normalizeDeclaredTypeNode(gpuField.paramType))
                     // Determine field size and alignment for std140
                     var gpuFieldSize = 8
                     var gpuFieldAlign = 8
@@ -4050,7 +4129,7 @@ class LLVMIRGenerator {
                 var ufi = 0
                 while ufi < classNode.fields.length() {
                     let uField = classNode.fields[ufi]
-                    let uFieldType = mapType(uField.paramType.typeName)
+                    let uFieldType = mapType(normalizeDeclaredTypeNode(uField.paramType))
                     var uFieldSize = 8  // default i64/ptr
                     if uFieldType == "i1" { uFieldSize = 1 }
                     if uFieldType == "i8" { uFieldSize = 1 }
@@ -4180,15 +4259,16 @@ class LLVMIRGenerator {
             while traitMI < classNode.methods.length() {
                 let traitMethod = classNode.methods[traitMI]
                 let traitFuncName = className + "_" + traitMethod.name
-                registerFunction(traitFuncName, traitMethod.returnType.typeName)
-                registerStructMethod(className, traitMethod.name, traitMethod.returnType.typeName)
+                let traitRetTypeName = normalizeDeclaredTypeNode(traitMethod.returnType)
+                registerFunction(traitFuncName, traitRetTypeName)
+                registerStructMethod(className, traitMethod.name, traitRetTypeName)
                 // Generate default implementation for methods with a body
                 if traitMethod.body.statements.length() > 0 {
                     let defaultFuncName = className + "_" + traitMethod.name + "_default"
                     output.append("; trait default method: " + defaultFuncName + "\n")
                     // Save and set per-function state
                     let savedRetType = currentFunctionReturnType
-                    currentFunctionReturnType = traitMethod.returnType.typeName
+                    currentFunctionReturnType = traitRetTypeName
                     let savedVarNames = varNames
                     let savedVarRegs = varRegs
                     let savedVarTypes = varTypes
@@ -4208,15 +4288,15 @@ class LLVMIRGenerator {
                             defParamStr = defParamStr + ", "
                         }
                         let defParam = traitMethod.params[defPI]
-                        let defParamType = mapType(defParam.paramType.typeName)
+                        let defParamType = mapType(normalizeDeclaredTypeNode(defParam.paramType))
                         let defParamReg = "%" + quoteIdentIfNeeded(defParam.name)
                         defParamStr = defParamStr + defParamType + " " + defParamReg
                         varNames.push(defParam.name)
                         varRegs.push(defParamReg)
-                        varTypes.push(defParam.paramType.typeName)
+                        varTypes.push(normalizeDeclaredTypeNode(defParam.paramType))
                         defPI = defPI + 1
                     }
-                    let defRetType = mapType(traitMethod.returnType.typeName)
+                    let defRetType = mapType(traitRetTypeName)
                     output.append("define " + defRetType + " @" + quoteIdentIfNeeded(defaultFuncName) + "(" + defParamStr + ") {\n")
                     output.append("entry:\n")
                     generateBlock(traitMethod.body)
@@ -4235,7 +4315,7 @@ class LLVMIRGenerator {
                     varTypes = savedVarTypes
                     g_regBox[0] = savedNextReg
                     blockTerminated = savedBlockTerm
-                    registerFunction(defaultFuncName, traitMethod.returnType.typeName)
+                    registerFunction(defaultFuncName, traitRetTypeName)
                 }
                 traitMI = traitMI + 1
             }
@@ -4575,7 +4655,7 @@ class LLVMIRGenerator {
         varTypes = Array<String>()
         preAllocatedVars = Array<String>()
         preAllocatedTypes = Array<String>()
-        currentFunctionReturnType = method.returnType.typeName
+        currentFunctionReturnType = normalizeDeclaredTypeNode(method.returnType)
         currentClassName = classNode.name  // Track class for method type inference
         g_currentClassParentName = classNode.parentName
         blockTerminated = false
@@ -4596,7 +4676,7 @@ class LLVMIRGenerator {
             let param = method.params[preParamIdx]
             varNames.push(param.name)
             varRegs.push("")  // Placeholder - will be cleared
-            varTypes.push(param.paramType.typeName)
+            varTypes.push(normalizeDeclaredTypeNode(param.paramType))
             preParamIdx = preParamIdx + 1
         }
 
@@ -4608,7 +4688,7 @@ class LLVMIRGenerator {
         varRegs = Array<String>()
         varTypes = Array<String>()
 
-        let returnType = mapType(method.returnType.typeName)
+        let returnType = mapType(currentFunctionReturnType)
         let className = classNode.name
         let methodName = method.name
 
@@ -4700,7 +4780,7 @@ class LLVMIRGenerator {
                 if paramIdx > 0 or hasThis {
                     output.append(", ")
                 }
-                let paramType = mapTypeForParameter(param.paramType.typeName)
+                let paramType = mapTypeForParameter(normalizeDeclaredTypeNode(param.paramType))
                 output.append(paramType + " %" + quoteIdentIfNeeded(param.name + ".arg"))
             }
             paramIdx = paramIdx + 1
@@ -4736,17 +4816,18 @@ class LLVMIRGenerator {
                 }
             }
             if isExplicitReceiver2 == 0 {
-                let seenTypeName = param.paramType.typeName
+                let seenTypeName = normalizeDeclaredTypeNode(param.paramType)
+                let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
                 // Data type params come in as ptr (ABI compat with Rust backend)
                 // Use the incoming ptr directly as the variable location
-                if isDataType(seenTypeName) {
-                    storeVar(param.name, "%" + quoteIdentIfNeeded(param.name + ".arg"), seenTypeName)
+                if isDataType(semanticSeenTypeName) {
+                    storeVar(param.name, "%" + quoteIdentIfNeeded(param.name + ".arg"), semanticSeenTypeName)
                 } else {
-                    let paramType = mapType(seenTypeName)
+                    let paramType = mapStorageTypeForParameter(seenTypeName)
                     let reg = getNextReg()
                     output.append("  " + reg + " = alloca " + paramType + "\n")
                     output.append("  store " + paramType + " %" + quoteIdentIfNeeded(param.name + ".arg") + ", ptr " + reg + "\n")
-                    storeVar(param.name, reg, seenTypeName)
+                    storeVar(param.name, reg, semanticSeenTypeName)
                 }
             }
             paramIdx = paramIdx + 1
@@ -5213,7 +5294,7 @@ class LLVMIRGenerator {
             // Skip __-prefixed extern functions — already declared by ir_declarations.seen with nounwind
             if fn.name.startsWith("__") {
                 output.append("; SKIPPED: " + fn.name + " (extern runtime function - declared by ir_declarations)\n")
-                registerFunction(fn.name, fn.returnType.typeName)
+                registerFunction(fn.name, normalizeDeclaredTypeNode(fn.returnType))
                 return
             }
             // Compute extern symbol name (map llvm_coro_* → llvm.coro.*)
@@ -5228,18 +5309,18 @@ class LLVMIRGenerator {
             while mpIdx < fn.params.length() {
                 let param = fn.params[mpIdx]
                 let ptn = param.paramType
-                let ptName = ptn.typeName
+                let ptName = normalizeDeclaredTypeNode(ptn)
                 mappedPTypes.push(mapTypeForParameter(ptName))
                 if ptName == "Float" {
                     g_floatParamFuncs = g_floatParamFuncs + fn.name + ":" + mpIdx.toString() + "|"
                 }
                 mpIdx = mpIdx + 1
             }
-            let externRetType = mapType(fn.returnType.typeName)
+            let externRetType = mapType(normalizeDeclaredTypeNode(fn.returnType))
             var isVariadic = 0
             if hasDecorator(fn, "variadic") { isVariadic = 1 }
             emitExternDeclImpl(output, fn.name, externSymbol, mappedPTypes, fn.params.length(), externRetType, isVariadic)
-            registerFunction(fn.name, fn.returnType.typeName)
+            registerFunction(fn.name, normalizeDeclaredTypeNode(fn.returnType))
             return
         }
 
@@ -5307,7 +5388,7 @@ class LLVMIRGenerator {
 
         // Register this function's return type for later call site inference
         // (may already be registered from registerDeclarations, but that's OK)
-        registerFunction(implFuncName, fn.returnType.typeName)
+        registerFunction(implFuncName, normalizeDeclaredTypeNode(fn.returnType))
 
         // Reset per-function state (nextBlock NOT reset - accumulates for per-loop metadata)
         g_regBox[0] = 1
@@ -5316,7 +5397,7 @@ class LLVMIRGenerator {
         varTypes = Array<String>()
         preAllocatedVars = Array<String>()
         preAllocatedTypes = Array<String>()
-        currentFunctionReturnType = fn.returnType.typeName
+        currentFunctionReturnType = normalizeDeclaredTypeNode(fn.returnType)
         blockTerminated = false
         // : Reset move tracking per-function
         g_movedVarNames = ""
@@ -5329,7 +5410,7 @@ class LLVMIRGenerator {
             let param = fn.params[preParamIdx]
             varNames.push(param.name)
             varRegs.push("")  // Placeholder - will be cleared
-            var preTypeName = param.paramType.typeName
+            var preTypeName = normalizeDeclaredTypeNode(param.paramType)
             // Strip ownership/comptime qualifiers for type inference
             if preTypeName.startsWith("move:") {
                 preTypeName = preTypeName.substring(5, preTypeName.length())
@@ -5362,7 +5443,7 @@ class LLVMIRGenerator {
             if preTypeName == "Float" {
                 g_floatParamFuncs = g_floatParamFuncs + implFuncName + ":" + preParamIdx.toString() + "|"
             }
-            varTypes.push(preTypeName)
+            varTypes.push(normalizeSeenTypeName(preTypeName))
             preParamIdx = preParamIdx + 1
         }
 
@@ -5375,16 +5456,20 @@ class LLVMIRGenerator {
         cseClear()
 
         // Collect all variable declarations for hoisting allocas to entry block
+        println("[irgen function] collect vars start: " + implFuncName)
         collectVariableDeclarations(fn.body)
+        println("[irgen function] collect vars done: " + implFuncName)
 
         // Clear pre-registered parameters (will be re-added with proper registers)
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
 
-        let fnTypeName = fn.returnType.typeName
+        let fnTypeName = currentFunctionReturnType
+        println("[irgen function] return-type map start: " + implFuncName)
         let returnType = mapType(fnTypeName)
         let fnName = implFuncName
+        println("[irgen function] return-type map done: " + fnName)
 
         // Special handling for main function - needs to accept argc/argv from OS
         if fnName == "main" {
@@ -5403,7 +5488,9 @@ class LLVMIRGenerator {
             output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
             // Emit allocas for all local variables at entry (avoids domination errors)
             emitPreAllocatedAllocas()
+            println("[irgen function] block start: " + fnName)
             generateBlock(fn.body)
+            println("[irgen function] block done: " + fnName)
             // Add default return if no terminator generated
             if not blockTerminated {
                 var emittedMainRet = false
@@ -5434,6 +5521,7 @@ class LLVMIRGenerator {
         }
 
         // Build function attributes
+        println("[irgen function] attrs start: " + fnName)
         var funcAttrs = ""
         if fn.isInline {
             funcAttrs = " alwaysinline"
@@ -5499,8 +5587,10 @@ class LLVMIRGenerator {
         if fn.isAsync {
             funcAttrs = funcAttrs + " presplitcoroutine"
         }
+        println("[irgen function] attrs done: " + fnName)
 
         // ML-guided inline decision
+        println("[irgen function] inline-analysis start: " + fnName)
         if not fn.isInline and not hasDecorator(fn, "noinline") {
             let bodySize = fn.body.statements.length()
             // Check for replay first
@@ -5540,8 +5630,10 @@ class LLVMIRGenerator {
                 }
             }
         }
+        println("[irgen function] inline-analysis done: " + fnName)
 
         // norecurse / noinline for recursive functions
+        println("[irgen function] recursion flags start: " + fnName)
         let isSelfRecursive = selfCallCheck(fnName, g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
         if isSelfRecursive {
             // Prevent catastrophic code explosion from inlining recursive calls
@@ -5552,8 +5644,10 @@ class LLVMIRGenerator {
         if not isSelfRecursive {
             funcAttrs = funcAttrs + " norecurse"
         }
+        println("[irgen function] recursion flags done: " + fnName)
 
         // ML register pressure estimation (9.7): count unique variables
+        println("[irgen function] reg-pressure start: " + fnName)
         var regPressureCount = fn.params.length()
         var rpIdx = 0
         while rpIdx < fn.body.statements.length() {
@@ -5568,6 +5662,7 @@ class LLVMIRGenerator {
             g_currentFunctionHighPressure = true
             mlLogDecision("reg-pressure", "high", fnName + ":" + regPressureCount.toString())
         }
+        println("[irgen function] reg-pressure done: " + fnName)
 
         // Function signature
         // Add noundef on primitive return types for stronger optimization
@@ -5585,6 +5680,7 @@ class LLVMIRGenerator {
         if hasDecorator(fn, "export") {
             fnRetPrefix = fnRetPrefix + "dso_local "
         }
+        println("[irgen function] signature start: " + fnName)
         output.append(fnRetPrefix + actualLlvmReturnType + " @" + quoteIdentIfNeeded(fnName) + "(")
 
         // Parameters
@@ -5594,7 +5690,7 @@ class LLVMIRGenerator {
                 output.append(", ")
             }
             let param = fn.params[paramIdx]
-            var sigTypeName = param.paramType.typeName
+            var sigTypeName = normalizeDeclaredTypeNode(param.paramType)
             // Strip ownership qualifiers for IR type
             if sigTypeName.startsWith("move:") {
                 sigTypeName = sigTypeName.substring(5, sigTypeName.length())
@@ -5619,6 +5715,7 @@ class LLVMIRGenerator {
 
         output.append(")" + funcAttrs + " #0 {\n")
         output.append("entry:\n")
+    println("[irgen function] signature done: " + fnName)
 
         // Coroutine preamble for async functions
         if fn.isAsync {
@@ -5654,7 +5751,7 @@ class LLVMIRGenerator {
         paramIdx = 0
         while paramIdx < fn.params.length() {
             let param = fn.params[paramIdx]
-            var seenTypeName = param.paramType.typeName
+            var seenTypeName = normalizeDeclaredTypeNode(param.paramType)
             // Strip ownership qualifiers (move:/borrow:) for codegen
             var paramOwnership = ""
             if seenTypeName.startsWith("move:") {
@@ -5670,16 +5767,17 @@ class LLVMIRGenerator {
                 let allocDefPos = seenTypeName.indexOf("~default~", 0)
                 seenTypeName = seenTypeName.substring(0, allocDefPos)
             }
+            let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
             // Data type params come in as ptr (ABI compat with Rust backend)
             // Use the incoming ptr directly as the variable location
-            if isDataType(seenTypeName) {
-                storeVar(param.name, "%" + quoteIdentIfNeeded(param.name + ".arg"), seenTypeName)
+            if isDataType(semanticSeenTypeName) {
+                storeVar(param.name, "%" + quoteIdentIfNeeded(param.name + ".arg"), semanticSeenTypeName)
             } else {
-                let paramType = mapType(seenTypeName)
+                let paramType = mapStorageTypeForParameter(seenTypeName)
                 let reg = getNextReg()
                 output.append("  " + reg + " = alloca " + paramType + "\n")
                 output.append("  store " + paramType + " %" + quoteIdentIfNeeded(param.name + ".arg") + ", ptr " + reg + "\n")
-                storeVar(param.name, reg, seenTypeName)
+                storeVar(param.name, reg, semanticSeenTypeName)
             }
             // Borrow parameter: register generational handle for safety
             if paramOwnership == "borrow" {
@@ -5691,14 +5789,17 @@ class LLVMIRGenerator {
             }
             paramIdx = paramIdx + 1
         }
+        println("[irgen function] params done: " + fnName)
 
         // Emit allocas for all local variables at entry (avoids domination errors)
         emitPreAllocatedAllocas()
+        println("[irgen function] allocas done: " + fnName)
 
         // Clear CSE cache at function boundary (safe to re-enable within function scope)
         cseClear()
 
         // Dead argument detection (9.10e): warn about unused parameters
+        println("[irgen function] dead-arg scan start: " + fnName)
         var daIdx = 0
         while daIdx < fn.params.length() {
             let daParam = fn.params[daIdx]
@@ -5739,6 +5840,7 @@ class LLVMIRGenerator {
             }
             daIdx = daIdx + 1
         }
+        println("[irgen function] dead-arg scan done: " + fnName)
 
         // Check for @profile decorator and emit profile_enter
         g_currentFunctionIsProfiled = hasDecorator(fn, "profile")
@@ -6276,7 +6378,7 @@ class LLVMIRGenerator {
         // region [strategy] [name] { body }
         // Strategy: 0=auto, 1=bump, 2=stack, 3=cxl_near, 4=cxl_far, 5=gpu
         var strategyInt = "0"
-        let strategy = stmt.variableType.typeName
+        let strategy = normalizeDeclaredTypeNode(stmt.variableType)
         if strategy == "bump" { strategyInt = "1" }
         if strategy == "stack" { strategyInt = "2" }
         if strategy == "cxl_near" { strategyInt = "3" }
@@ -6663,7 +6765,7 @@ class LLVMIRGenerator {
     // immediately overwritten (tracked in g_deadStoreSkipVars).
     fun generateLetStatement(stmt: StatementNode) r: Void {
         // Get variable type - prefer explicit type, fall back to inference
-        var varType = stmt.variableType.typeName
+        var varType = normalizeDeclaredTypeNode(stmt.variableType)
         if varType == "" or varType == "Unknown" or varType == "Void" {
             // Infer type from initializer
             if stmt.initializer.kind != "None" {
@@ -9181,6 +9283,17 @@ class LLVMIRGenerator {
         // variableName = field/member name
         let receiverName = expr.literalValue
         let fieldName = expr.variableName
+
+        if expr.operands.length() == 0 and receiverName.contains("()") and not receiverName.contains("[") {
+            let rebuiltReceiverExpr = buildChainedPathExpr(receiverName)
+            if rebuiltReceiverExpr.kind != "None" {
+                let rebuiltExpr = ParserExpressionNode.new()
+                rebuiltExpr.kind = "MemberAccess"
+                rebuiltExpr.variableName = fieldName
+                rebuiltExpr.operands.push(rebuiltReceiverExpr)
+                return generateMemberAccess(rebuiltExpr)
+            }
+        }
 
         // Enum variant access: Color.Red -> generate tag value
         if g_enumVariantCount > 0 {
@@ -12504,7 +12617,7 @@ class LLVMIRGenerator {
             }
             if receiverType == "StringBuilder" {
                 let sbPtrReg2 = convertReceiverToPtr(receiverReg, receiverType)
-                return emitStringBuilderMethodImpl(output, regCounter, "length", sbPtrReg2, "", 0)
+                return emitStringBuilderMethodImpl(output, g_regBox, "length", sbPtrReg2, "", 0)
             }
             // HashMap, LinkedList, Array, String — delegated to ir_method_gen.seen
             let lenResult = emitLengthSizeMethodImpl(output, g_regBox, receiverReg, receiverType)
@@ -12529,7 +12642,7 @@ class LLVMIRGenerator {
                 }
             }
             let sbPtrReg = convertReceiverToPtr(receiverReg, receiverType)
-            return emitStringBuilderMethodImpl(output, regCounter, methodName, sbPtrReg, sbArg0, isFloatFused)
+            return emitStringBuilderMethodImpl(output, g_regBox, methodName, sbPtrReg, sbArg0, isFloatFused)
         }
         // toString — delegated to ir_method_gen.seen
         if methodName == "toString" {
@@ -13509,6 +13622,51 @@ class LLVMIRGenerator {
         return mapped
     }
 
+    fun mapStorageTypeForParameter(seenType: String) r: String {
+        let mapped = mapTypeForParameter(seenType)
+        if mapped == "ptr noalias nonnull" {
+            return "ptr"
+        }
+        return mapped
+    }
+
+    fun normalizeSeenTypeName(seenType: String) r: String {
+        var normalized = seenType
+        if normalized.startsWith("move:") {
+            normalized = normalized.substring(5, normalized.length())
+        }
+        if normalized.startsWith("borrow:") {
+            normalized = normalized.substring(7, normalized.length())
+        }
+        if normalized.startsWith("comptime:") {
+            normalized = normalized.substring(9, normalized.length())
+        }
+        if normalized.contains("~default~") {
+            let defPos = normalized.indexOf("~default~", 0)
+            normalized = normalized.substring(0, defPos)
+        }
+        if normalized == "i1" {
+            return "Bool"
+        }
+        if normalized == "i64" {
+            return "Int"
+        }
+        if normalized == "%SeenString" {
+            return "String"
+        }
+        return normalized
+    }
+
+    fun normalizeDeclaredTypeNode(typeNode: TypeNode) r: String {
+        let normalized = normalizeSeenTypeName(typeNode.typeName)
+        if typeNode.isNullable {
+            if normalized == "Option<String>" or normalized == "Optional<String>" {
+                return "String?"
+            }
+        }
+        return normalized
+    }
+
     // Infer the Seen type of an expression for codegen decisions (operator
     // selection, ABI, field access type, etc.). This is NOT the typechecker —
     // it operates during codegen and uses the variable/function/struct registries
@@ -13617,6 +13775,17 @@ class LLVMIRGenerator {
             if expr.operator == "+" {
                 // Check if string concat - check both operands
                 if expr.operands.length() >= 2 {
+                    let leftExpr = expr.operands[0]
+                    let rightExpr = expr.operands[1]
+                    // Fast path for deep string-concat trees: avoid recursively
+                    // inferring the whole left spine when either direct operand
+                    // is already obviously string-like.
+                    if leftExpr.kind == "Literal" and leftExpr.literalType == "String" {
+                        return "String"
+                    }
+                    if rightExpr.kind == "Literal" and rightExpr.literalType == "String" {
+                        return "String"
+                    }
                     let leftType = inferExpressionType(expr.operands[0])
                     if leftType == "String" {
                         return "String"
@@ -13764,7 +13933,10 @@ class LLVMIRGenerator {
                         let thisIdx = findVar("this")
                         if thisIdx >= 0 {
                             let thisType = varTypes[thisIdx]
-                            recType = getSeenFieldType(thisType, expr.literalValue)
+                            recType = getSemanticFieldType(thisType, expr.literalValue)
+                            if recType == "" {
+                                recType = getSeenFieldType(thisType, expr.literalValue)
+                            }
                         }
                     }
                 }
@@ -13837,7 +14009,10 @@ class LLVMIRGenerator {
                     let thisIdx = findVar("this")
                     if thisIdx >= 0 {
                         let thisType = varTypes[thisIdx]
-                        let fieldType = getSeenFieldType(thisType, expr.literalValue)
+                            var fieldType = getSemanticFieldType(thisType, expr.literalValue)
+                            if fieldType == "" {
+                                fieldType = getSeenFieldType(thisType, expr.literalValue)
+                            }
                         if fieldType != "Int" or expr.literalValue == "length" {
                             receiverType = fieldType
                         }
@@ -13995,6 +14170,10 @@ class LLVMIRGenerator {
             // This fixes type inference for fields like "severity" which are Int in Diagnostic but
             // would incorrectly return String from the generic fallback below
             if expr.literalValue == "this" and currentClassName != "" {
+                let semanticFieldType = getSemanticFieldType(currentClassName, fieldName)
+                if semanticFieldType != "" {
+                    return semanticFieldType
+                }
                 let contextFieldType = getSeenFieldType(currentClassName, fieldName)
                 if contextFieldType != "" {
                     return contextFieldType
@@ -14006,6 +14185,10 @@ class LLVMIRGenerator {
             if expr.operands.length() > 0 {
                 let recvType = inferExpressionType(expr.operands[0])
                 if recvType != "" {
+                    let semanticFieldType = getSemanticFieldType(recvType, fieldName)
+                    if semanticFieldType != "" {
+                        return semanticFieldType
+                    }
                     let fieldType = getSeenFieldType(recvType, fieldName)
                     if fieldType != "" {
                         return fieldType
@@ -14019,6 +14202,10 @@ class LLVMIRGenerator {
                     // Recursively resolve the type of the chained path
                     let chainedType = resolveChainedPathType(expr.literalValue)
                     if chainedType != "" {
+                        let semanticFieldType = getSemanticFieldType(chainedType, fieldName)
+                        if semanticFieldType != "" {
+                            return semanticFieldType
+                        }
                         let fieldType = getSeenFieldType(chainedType, fieldName)
                         if fieldType != "" {
                             return fieldType
@@ -14027,9 +14214,24 @@ class LLVMIRGenerator {
                 }
                 let recvVarType = findVarType(expr.literalValue)
                 if recvVarType != "" {
+                    let semanticFieldType = getSemanticFieldType(recvVarType, fieldName)
+                    if semanticFieldType != "" {
+                        return semanticFieldType
+                    }
                     let fieldType = getSeenFieldType(recvVarType, fieldName)
                     if fieldType != "" {
                         return fieldType
+                    }
+                }
+                let thisIdx = findVar("this")
+                if thisIdx >= 0 {
+                    let thisType = varTypes[thisIdx]
+                    let receiverFieldType = getSemanticFieldType(thisType, expr.literalValue)
+                    if receiverFieldType != "" {
+                        let semanticFieldType = getSemanticFieldType(receiverFieldType, fieldName)
+                        if semanticFieldType != "" {
+                            return semanticFieldType
+                        }
                     }
                 }
             }

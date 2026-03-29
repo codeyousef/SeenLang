@@ -122,6 +122,16 @@
    - intermediate blocker: timeout before Pass 1 while doing pre-pass cycle analysis
    - current blocker: timeout during serial Pass 2 code generation for `compiler_seen/src/main_compiler.seen`, stalling after `[irgen module 0] functions start`
 
+### Implemented in the ninth patch set
+
+- Fixed parser chaining in `compiler_seen/src/parser/real_parser.seen` so complex receivers like `call().field.next` keep the nested member-access tree instead of being flattened into invalid textual receivers.
+- Removed the stale `when` bootstrap workaround from `compiler_seen/src/parser/real_parser.seen`; current token mappings already cover `KeywordWhen`, so bootstrap now uses the normal parser path.
+- Added chained-path reconstruction in `compiler_seen/src/codegen/llvm_ir_gen.seen` for textual zero-argument method segments like `unwrap()` so type inference and member-access lowering can recover older textual receiver encodings when they appear.
+- Rebuilt with `scripts/safe_rebuild.sh` after the parser and codegen fixes and verified the Linux self-host path now completes end to end:
+   - Stage2 build succeeded
+   - Stage3 build succeeded
+   - the safe rebuild now installs Stage3 as the production compiler on this host
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
@@ -130,14 +140,13 @@
 - Validate cross-target release-mode builds after the merged-`llc` path bypass so ThinLTO-backed per-module linking remains correct for the native target matrix.
 - Expand the smoke-backed platform matrix into artifact inspection and CI-managed target jobs.
 - Add CI coverage for the new target matrix.
-- Stabilize bootstrap verification enough that `scripts/safe_rebuild.sh` can complete the S2->S3 validation path without falling back to the recovered Stage2 binary.
 - Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
 
 ### Current implementation posture
 
-The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation, bootstrap stability, and Windows-specific hardening rather than missing compiler routing.
+The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation and Windows-specific hardening rather than missing compiler routing.
 
-The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and bootstrap verification is now limited by a later `S2->S3` timeout during serial Pass 2 function code generation rather than the earlier Pass 1 segfault.
+The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and Linux self-host verification now completes through Stage3 instead of falling back to the recovered Stage2 compiler.
 
 ## Goal
 
@@ -179,7 +188,7 @@ This plan is intentionally ordered by compiler risk, toolchain complexity, and c
 - The existing platform matrix now surfaces real smoke status for native non-Linux targets instead of placeholder JSON, but it still needs CI execution on hosts that actually provide those SDKs and cross toolchains.
 - Cross-target GPU runtime compilation is now attempted per target, but still needs validation on real Android and Windows toolchains.
 - Cache reuse is now namespaced by effective target and compile mode in the stage compiler, but that isolation still needs broader validation across release, sanitizer, and profile combinations.
-- The earlier Linux bootstrap blockers in class declaration registration and compile-time dependency-cycle analysis are fixed in source, but self-host verification still hangs later in serial code generation for `main_compiler.seen`.
+- Linux bootstrap verification now succeeds on the current host all the way through `scripts/safe_rebuild.sh`, including the S2->S3 validation path.
 - WASM still has scaffold placeholders, but that is out of scope for this native-first plan.
 
 ## Non-Goals For This Phase
