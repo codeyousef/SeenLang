@@ -161,19 +161,29 @@ fun emitStringFromCharCodeCallImpl(output: StringBuilder, regBox: Array<Int>, ar
 }
 
 // emitGenericStaticCallImpl — general ClassName.method() static call
-// isClassRecv: 1 if className is a class type (returns i64)
-// isDataRecv: 1 if className is a data type (returns %ClassName)
+// llvmReturnType: explicit lowered return type when known; falls back to
+// receiver-kind heuristics only for legacy callers.
 // hasImplicitThis: 1 if non-new method (pass ptr null as first arg)
-fun emitGenericStaticCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, className: String, argRegs: Array<String>, argTypeStrs: Array<String>, isClassRecv: Int, isDataRecv: Int, hasImplicitThis: Int) r: String {
-    let resultReg = getNextRegFn(regBox)
-    if isClassRecv == 1 {
-        output.append("  " + resultReg + " = call i64 @" + quotedFuncName + "(")
-    } else {
-        if isDataRecv == 1 {
-            output.append("  " + resultReg + " = call %" + quoteIdentImpl(className) + " @" + quotedFuncName + "(")
+fun emitGenericStaticCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, className: String, argRegs: Array<String>, argTypeStrs: Array<String>, isClassRecv: Int, isDataRecv: Int, hasImplicitThis: Int) r: String {
+    var callReturnType = llvmReturnType
+    if callReturnType == "" {
+        if isClassRecv == 1 {
+            callReturnType = "i64"
         } else {
-            output.append("  " + resultReg + " = call ptr @" + quotedFuncName + "(")
+            if isDataRecv == 1 {
+                callReturnType = "%" + quoteIdentImpl(className)
+            } else {
+                callReturnType = "ptr"
+            }
         }
+    }
+
+    var resultReg = "0"
+    if callReturnType == "void" {
+        output.append("  call void @" + quotedFuncName + "(")
+    } else {
+        resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call " + callReturnType + " @" + quotedFuncName + "(")
     }
     if hasImplicitThis == 1 {
         output.append("ptr null")
@@ -764,16 +774,36 @@ fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: S
     }
 }
 
+fun hasFloatParamFuncImpl(funcName: String, paramIdx: Int, floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Bool {
+    var lookupLen = floatParamFuncNames.length()
+    if floatParamParamIdxs.length() < lookupLen {
+        lookupLen = floatParamParamIdxs.length()
+    }
+    var lookupIdx = 0
+    while lookupIdx < lookupLen {
+        if floatParamParamIdxs[lookupIdx] == paramIdx and floatParamFuncNames[lookupIdx] == funcName {
+            return true
+        }
+        lookupIdx = lookupIdx + 1
+    }
+    return false
+}
+
 // promoteFloatArgsImpl — Int-to-Float promotion for function call arguments
-// Scans floatParamFuncs for "funcName:paramIdx|" entries and converts matching i64 args to double
-// Mutates argRegs/argTypeStrs in-place to replace promoted args
-fun promoteFloatArgsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, floatParamFuncs: String) r: Void {
-    if floatParamFuncs == "" { return }
+// Converts matching i64 args to double using the float parameter registry.
+// Mutates argRegs/argTypeStrs in-place to replace promoted args.
+fun promoteFloatArgsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Void {
+    var promoteLen = argRegs.length()
+    if argTypeStrs.length() < promoteLen {
+        promoteLen = argTypeStrs.length()
+    }
+    if promoteLen == 0 {
+        return
+    }
     var fpIdx = 0
-    while fpIdx < argRegs.length() {
+    while fpIdx < promoteLen {
         if argTypeStrs[fpIdx] == "i64" {
-            let floatLookup = funcName + ":" + fpIdx.toString() + "|"
-            if floatParamFuncs.contains(floatLookup) {
+            if hasFloatParamFuncImpl(funcName, fpIdx, floatParamFuncNames, floatParamParamIdxs) {
                 let sitofpReg = getNextRegFn(regBox)
                 output.append("  " + sitofpReg + " = sitofp i64 " + argRegs[fpIdx] + " to double\n")
                 argRegs.set(fpIdx, sitofpReg)

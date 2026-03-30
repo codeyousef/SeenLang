@@ -1001,6 +1001,13 @@ class SeenLexer {
             let keywordType = keywordManager.getKeywordTypeDirect(value)
             emitToken(keywordType, value, length)
         } else {
+            if value == "r" and position < source.length() and getCurrentChar() == ':' {
+                emitToken(SeenTokenType.Identifier, value, length)
+                if traceVerbose {
+                    traceLexVerbose("handleIdentifier preserved return label r before colon")
+                }
+                return
+            }
             // Check for stdlib alias (localized name -> English name)
             let aliasedName = keywordManager.resolveStdlibAlias(value)
             if aliasedName != "" {

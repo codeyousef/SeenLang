@@ -1,0 +1,129 @@
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+
+fun hashString(data: String) r: String {
+    return "deadbeef"
+}
+
+fun ipaCommand(argv: Array<String>) r: Int {
+    var fromSource = false
+    var sourceFile = ""
+    var executable = ""
+    var appName = ""
+    var bundleId = ""
+    var version = "1.0"
+    var minIos = "17.0"
+    var iconPath = ""
+    var provisioningProfile = ""
+    var identity = "-"
+    var entitlements = ""
+
+    if argv[2] == "--from-source" {
+        fromSource = true
+        if argv.length() < 4 {
+            return 1
+        }
+        sourceFile = argv[3]
+        if argv.length() < 5 {
+            return 1
+        }
+        appName = argv[4]
+        var i = 5
+        while i < argv.length() {
+            i = i + 1
+        }
+    } else {
+        executable = argv[2]
+        appName = argv[3]
+        var i = 4
+        while i < argv.length() {
+            i = i + 1
+        }
+    }
+
+    if bundleId == "" {
+        bundleId = "com.seen." + appName
+    }
+
+    if fromSource {
+        let selfPath = argv[0]
+        let hash = hashString(sourceFile)
+        let tmpOut = "/tmp/seen_ipa_bin_" + hash
+        let compileCmd = selfPath + " compile " + sourceFile + " " + tmpOut + " --target=ios-arm64"
+        let compileResult: CommandResult = runCommand(compileCmd)
+        if not commandWasSuccessful(compileResult) {
+            return 1
+        }
+        executable = tmpOut
+    }
+
+    let hash = hashString(appName + version)
+    let buildDir = "/tmp/seen_ipa_" + hash
+    let payloadDir = buildDir + "/Payload"
+    let appDir = payloadDir + "/" + appName + ".app"
+
+    let mkdirResult: CommandResult = runCommand("mkdir -p " + appDir)
+    if not commandWasSuccessful(mkdirResult) {
+        return 1
+    }
+
+    let cpResult: CommandResult = runCommand("cp " + executable + " " + appDir + "/" + appName)
+    if not commandWasSuccessful(cpResult) {
+        return 1
+    }
+    let chmodResult: CommandResult = runCommand("chmod +x " + appDir + "/" + appName)
+
+    var plist: String = ""
+    plist = plist + "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    plist = plist + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    plist = plist + "<plist version=\"1.0\">\n"
+    plist = plist + "<dict>\n"
+    plist = plist + "  <key>CFBundleExecutable</key>\n"
+    plist = plist + "  <string>" + appName + "</string>\n"
+    plist = plist + "  <key>CFBundleIdentifier</key>\n"
+    plist = plist + "  <string>" + bundleId + "</string>\n"
+    plist = plist + "  <key>CFBundleName</key>\n"
+    plist = plist + "  <string>" + appName + "</string>\n"
+    plist = plist + "  <key>CFBundleVersion</key>\n"
+    plist = plist + "  <string>" + version + "</string>\n"
+    plist = plist + "  <key>CFBundleShortVersionString</key>\n"
+    plist = plist + "  <string>" + version + "</string>\n"
+    plist = plist + "  <key>CFBundlePackageType</key>\n"
+    plist = plist + "  <string>APPL</string>\n"
+    plist = plist + "  <key>MinimumOSVersion</key>\n"
+    plist = plist + "  <string>" + minIos + "</string>\n"
+    plist = plist + "  <key>DTPlatformName</key>\n"
+    plist = plist + "  <string>iphoneos</string>\n"
+    plist = plist + "  <key>UIDeviceFamily</key>\n"
+    plist = plist + "  <array>\n"
+    plist = plist + "    <integer>1</integer>\n"
+    plist = plist + "    <integer>2</integer>\n"
+    plist = plist + "  </array>\n"
+    plist = plist + "  <key>UILaunchStoryboardName</key>\n"
+    plist = plist + "  <string></string>\n"
+    plist = plist + "  <key>UIRequiredDeviceCapabilities</key>\n"
+    plist = plist + "  <array>\n"
+    plist = plist + "    <string>arm64</string>\n"
+    plist = plist + "  </array>\n"
+    plist = plist + "  <key>CFBundleSupportedPlatforms</key>\n"
+    plist = plist + "  <array>\n"
+    plist = plist + "    <string>iPhoneOS</string>\n"
+    plist = plist + "  </array>\n"
+    plist = plist + "</dict>\n"
+    plist = plist + "</plist>"
+
+    let signResult: CommandResult = runCommand("echo sign " + identity + " " + entitlements + plist)
+    if not commandWasSuccessful(signResult) {
+        return 1
+    }
+
+    return 0
+}
+
+fun main() r: Int {
+    let argv = Array<String>()
+    argv.push("seen")
+    argv.push("ipa")
+    argv.push("demo")
+    argv.push("DemoApp")
+    return ipaCommand(argv)
+}

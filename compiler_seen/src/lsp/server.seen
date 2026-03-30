@@ -984,7 +984,9 @@ class SeenLspServer {
         }
 
         var actions = JsonValue_emptyArray()
-        var docUri = caParams.unwrap().textDocument.uri
+        let codeActionParams = caParams.unwrap()
+        let codeActionTextDocument = codeActionParams.textDocument
+        var docUri = codeActionTextDocument.uri
 
         // Find stored diagnostics for this URI
         var diagIdx = -1

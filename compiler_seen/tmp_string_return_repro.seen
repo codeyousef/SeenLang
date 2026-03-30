@@ -1,0 +1,8 @@
+fun makeText() r: String {
+    var x = 1
+    return x.toString()
+}
+
+fun main() r: Int {
+    return makeText().length()
+}

@@ -478,6 +478,13 @@ fun getFieldTypeForHeaderStruct(structName: String, fieldName: String) r: String
         if fieldName == "isAsync" { return "i1" }
         if fieldName == "isInline" { return "i1" }
         if fieldName == "isStatic" { return "i1" }
+        if fieldName == "isExtern" { return "i1" }
+        if fieldName == "isDeterministic" { return "i1" }
+        if fieldName == "isNondeterministic" { return "i1" }
+        if fieldName == "decorators" { return "ptr" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+        if fieldName == "isOverride" { return "i1" }
     }
     if structName == "ClassNode" {
         if fieldName == "name" { return "%SeenString" }
@@ -485,6 +492,7 @@ fun getFieldTypeForHeaderStruct(structName: String, fieldName: String) r: String
         if fieldName == "methods" { return "ptr" }
         if fieldName == "decorators" { return "ptr" }
         if fieldName == "isNondeterministic" { return "i1" }
+        if fieldName == "parentName" { return "%SeenString" }
     }
     if structName == "TypeNode" {
         if fieldName == "typeName" { return "%SeenString" }
@@ -597,12 +605,16 @@ fun getFieldTypeForKnownStruct(structName: String, fieldName: String) r: String 
         if fieldName == "params" { return "ptr" }
         if fieldName == "returnType" { return "%TypeNode" }
         if fieldName == "body" { return "i64" }
-        if fieldName == "isPublic" { return "i1" }
-        if fieldName == "genericParams" { return "ptr" }
         if fieldName == "isAsync" { return "i1" }
-        if fieldName == "isExtern" { return "i1" }
-        if fieldName == "isStatic" { return "i1" }
         if fieldName == "isInline" { return "i1" }
+        if fieldName == "isStatic" { return "i1" }
+        if fieldName == "isExtern" { return "i1" }
+        if fieldName == "isDeterministic" { return "i1" }
+        if fieldName == "isNondeterministic" { return "i1" }
+        if fieldName == "decorators" { return "ptr" }
+        if fieldName == "line" { return "i64" }
+        if fieldName == "column" { return "i64" }
+        if fieldName == "isOverride" { return "i1" }
     }
     if structName == "ClassNode" {
         if fieldName == "name" { return "%SeenString" }
@@ -610,6 +622,7 @@ fun getFieldTypeForKnownStruct(structName: String, fieldName: String) r: String 
         if fieldName == "methods" { return "ptr" }
         if fieldName == "decorators" { return "ptr" }
         if fieldName == "isNondeterministic" { return "i1" }
+        if fieldName == "parentName" { return "%SeenString" }
     }
     if structName == "TypeInferenceResult" {
         if fieldName == "success" { return "i1" }
@@ -786,12 +799,19 @@ fun getFieldTypeForKnownStruct(structName: String, fieldName: String) r: String 
         if fieldName == "currentProgram" { return "i64" }
         if fieldName == "currentBlock" { return "i64" }
         if fieldName == "lastStatement" { return "i64" }
+        if fieldName == "lastParsedBlock" { return "i64" }
         if fieldName == "lastFunction" { return "i64" }
+        if fieldName == "pendingDecorators" { return "ptr" }
+        if fieldName == "blockStack" { return "ptr" }
+        if fieldName == "statementStack" { return "ptr" }
+        if fieldName == "blockStackDepth" { return "i64" }
+        if fieldName == "lastParsedTypeName" { return "%SeenString" }
+        if fieldName == "lastParsedTypeNullable" { return "i1" }
         if fieldName == "errors" { return "ptr" }
         if fieldName == "currentFile" { return "%SeenString" }
     }
     if structName == "ImportPathInfo" {
-        if fieldName == "isRelative" { return "i1" }
+        if fieldName == "text" { return "%SeenString" }
         if fieldName == "segments" { return "ptr" }
     }
     if structName == "ImportSymbolNode" {
@@ -922,26 +942,27 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodRetTypes.push("")
     // FunctionNode { name: String, params: Array<ParamNode>, returnType: TypeNode (inline data), body: BlockNode (class, i64),
     //                isAsync: Bool, isInline: Bool, isStatic: Bool, isExtern: Bool,
-    //                isDeterministic: Bool, isNondeterministic: Bool, decorators: Array<AnnotationNode>, line: Int, column: Int }
-    // Actual layout from Rust: { %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64 }
+    //                isDeterministic: Bool, isNondeterministic: Bool, decorators: Array<AnnotationNode>, line: Int, column: Int,
+    //                isOverride: Bool }
+    // Actual layout from source: { %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }
     // Where %TypeNode = { %SeenString, i1 }
     structNames.push("FunctionNode")
     // Note: TypeNode is inline (data type), BlockNode is i64 (class type)
-    structLayouts.push("{ %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64 }")
-    structFieldNames.push("name,params,returnType,body,isAsync,isInline,isStatic,isExtern,isDeterministic,isNondeterministic,decorators,line,column")
-    structFieldTypes.push("String|Array<ParamNode>|TypeNode|BlockNode|Bool|Bool|Bool|Bool|Bool|Bool|Array<AnnotationNode>|Int|Int")
+    structLayouts.push("{ %SeenString, ptr, %TypeNode, i64, i1, i1, i1, i1, i1, i1, ptr, i64, i64, i1 }")
+    structFieldNames.push("name,params,returnType,body,isAsync,isInline,isStatic,isExtern,isDeterministic,isNondeterministic,decorators,line,column,isOverride")
+    structFieldTypes.push("String|Array<ParamNode>|TypeNode|BlockNode|Bool|Bool|Bool|Bool|Bool|Bool|Array<AnnotationNode>|Int|Int|Bool")
     structLlvmFieldTypes.push("")
-    // %SeenString(16) + ptr(8) + %TypeNode(24) + i64(8) + i1*6(6) + ptr(8) + i64*2(16) + padding = 128
+    // Keep the existing conservative allocation size to avoid under-allocation.
     structSizes.push(128)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // ClassNode { name: String, fields: Array<ParamNode>, methods: Array<FunctionNode>, decorators: Array<AnnotationNode>, isNondeterministic: Bool }
+    // ClassNode { name: String, fields: Array<ParamNode>, methods: Array<FunctionNode>, decorators: Array<AnnotationNode>, isNondeterministic: Bool, parentName: String }
     structNames.push("ClassNode")
-    structLayouts.push("{ %SeenString, ptr, ptr, ptr, i1 }")
-    structFieldNames.push("name,fields,methods,decorators,isNondeterministic")
-    structFieldTypes.push("String|Array<ParamNode>|Array<FunctionNode>|Array<AnnotationNode>|Bool")
+    structLayouts.push("{ %SeenString, ptr, ptr, ptr, i1, %SeenString }")
+    structFieldNames.push("name,fields,methods,decorators,isNondeterministic,parentName")
+    structFieldTypes.push("String|Array<ParamNode>|Array<FunctionNode>|Array<AnnotationNode>|Bool|String")
     structLlvmFieldTypes.push("")
-    structSizes.push(48)
+    structSizes.push(64)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // BlockNode { statements: Array<StatementNode> }
@@ -984,11 +1005,11 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodRetTypes.push("")
     // LLVMIRGenerator state (needed for accurate field typing during self-hosted codegen)
     structNames.push("LLVMIRGenerator")
-    structLayouts.push("{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr }")
-    structFieldNames.push("output,stringConstants,nextReg,nextBlock,varNames,varRegs,varTypes,indent,registry,currentFunctionReturnType,currentClassName,blockTerminated,currentLoopCondLabel,currentLoopEndLabel,preAllocatedVars,preAllocatedTypes,stringConstantPrefix,generatedFunctions,generatedClasses,typesLoadedFromHeader,runtimeDeclsLoaded,pendingArrayLiteralType,moduleConstantNames,moduleConstantValues,moduleConstantTypes")
-    structFieldTypes.push("StringBuilder|Array<String>|Int|Int|Array<String>|Array<String>|Array<String>|Int|TypeRegistry|String|String|Bool|String|String|Array<String>|Array<String>|String|Array<String>|Array<String>|Bool|Bool|String|Array<String>|Array<String>|Array<String>")
+    structLayouts.push("{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, %SeenString, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr }")
+    structFieldNames.push("output,stringConstants,nextReg,nextBlock,varNames,varRegs,varTypes,indent,structNames,structLayouts,structFieldNames,structFieldTypes,structLlvmFieldTypes,structSizes,structMethodNames,structMethodRetTypes,funcNames,funcRetTypes,classMethodBaseNames,typeHeaderPath,currentFunctionReturnType,currentClassName,blockTerminated,currentLoopCondLabel,currentLoopEndLabel,preAllocatedVars,preAllocatedTypes,stringConstantPrefix,generatedFunctions,generatedClasses,typesLoadedFromHeader,runtimeDeclsLoaded,pendingArrayLiteralType,moduleConstantNames,moduleConstantValues,moduleConstantTypes")
+    structFieldTypes.push("StringBuilder|Array<String>|Int|Int|Array<String>|Array<String>|Array<String>|Int|Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|Array<Int>|Array<String>|Array<String>|Array<String>|Array<String>|Array<String>|String|String|String|Bool|String|String|Array<String>|Array<String>|String|Array<String>|Array<String>|Bool|Bool|String|Array<String>|Array<String>|Array<String>")
     structLlvmFieldTypes.push("")
-    structSizes.push(248)
+    structSizes.push(336)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // TypeRegistry — struct/function type metadata (owned by LLVMIRGenerator.registry)
@@ -1018,13 +1039,13 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structSizes.push(24)
     structMethodNames.push("")
     structMethodRetTypes.push("")
-    // RealParser { tokens: Array<Token>, current: Int, currentProgram: ProgramNode, currentBlock: BlockNode, lastStatement: StatementNode, lastFunction: FunctionNode, pendingDecorators: Array<AnnotationNode> }
+    // RealParser { tokens: Array<Token>, current: Int, currentProgram: ProgramNode, currentBlock: BlockNode, lastStatement: StatementNode, lastParsedBlock: BlockNode, lastFunction: FunctionNode, pendingDecorators: Array<AnnotationNode>, blockStack: Array<BlockNode>, statementStack: Array<StatementNode>, blockStackDepth: Int, lastParsedTypeName: String, lastParsedTypeNullable: Bool }
     structNames.push("RealParser")
-    structLayouts.push("{ ptr, i64, i64, i64, i64, i64, ptr }")
-    structFieldNames.push("tokens,current,currentProgram,currentBlock,lastStatement,lastFunction,pendingDecorators")
-    structFieldTypes.push("Array<Token>|Int|ProgramNode|BlockNode|StatementNode|FunctionNode|Array<AnnotationNode>")
+    structLayouts.push("{ ptr, i64, i64, i64, i64, i64, i64, ptr, ptr, ptr, i64, %SeenString, i1 }")
+    structFieldNames.push("tokens,current,currentProgram,currentBlock,lastStatement,lastParsedBlock,lastFunction,pendingDecorators,blockStack,statementStack,blockStackDepth,lastParsedTypeName,lastParsedTypeNullable")
+    structFieldTypes.push("Array<Token>|Int|ProgramNode|BlockNode|StatementNode|BlockNode|FunctionNode|Array<AnnotationNode>|Array<BlockNode>|Array<StatementNode>|Int|String|Bool")
     structLlvmFieldTypes.push("")
-    structSizes.push(56)
+    structSizes.push(112)
     structMethodNames.push("")
     structMethodRetTypes.push("")
     // SeenLexer { source: String, fileId: Int, language: String, errorRecoveryMode: Bool, keywordManager: KeywordManager, position: Int, line: Int, column: Int, tokens: Array<Token> }

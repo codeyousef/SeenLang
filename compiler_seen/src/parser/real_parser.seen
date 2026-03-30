@@ -296,8 +296,14 @@ class RealParser {
     var currentProgram: ProgramNode
     var currentBlock: BlockNode
     var lastStatement: StatementNode
+    var lastParsedBlock: BlockNode
     var lastFunction: FunctionNode
     var pendingDecorators: Array<AnnotationNode>
+    var blockStack: Array<BlockNode>
+    var statementStack: Array<StatementNode>
+    var blockStackDepth: Int
+    var lastParsedTypeName: String
+    var lastParsedTypeNullable: Bool
 
     static fun new(rawTokens: Array<Token>) r: RealParser {
         return RealParser{
@@ -306,8 +312,14 @@ class RealParser {
             currentProgram: ProgramNode.new(),
             currentBlock: BlockNode.new(),
             lastStatement: StatementNode.new(),
+            lastParsedBlock: BlockNode.new(),
             lastFunction: FunctionNode.new(),
-            pendingDecorators: Array<AnnotationNode>()
+            pendingDecorators: Array<AnnotationNode>(),
+            blockStack: Array<BlockNode>(),
+            statementStack: Array<StatementNode>(),
+            blockStackDepth: 0,
+            lastParsedTypeName: "Unknown",
+            lastParsedTypeNullable: false
         }
     }
 
@@ -994,7 +1006,11 @@ class RealParser {
         }
 
         parseParameterList(func)
-        func.returnType = parseOptionalReturnType()
+        parseOptionalReturnTypeIntoScratch()
+        if lastParsedTypeName != "Unknown" or func.returnType.typeName == "Unknown" {
+            func.returnType.typeName = lastParsedTypeName
+            func.returnType.isNullable = lastParsedTypeNullable
+        }
 
         // Parse optional `where` clause: where T: Trait1 + Trait2, U: Trait3
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "where" {
@@ -1015,7 +1031,8 @@ class RealParser {
         var funcBodyParsed = false
         if matchTokenStr(SeenTokenType.LeftBrace) {
             // trace
-            func.body = parseBlock()
+            parseBlockIntoField()
+            func.body = lastParsedBlock
             // trace.toString())
             funcBodyParsed = true
         }
@@ -1093,7 +1110,11 @@ class RealParser {
         applyDecoratorsToFunction()
 
         parseParameterListField()
-        lastFunction.returnType = parseOptionalReturnType()
+        parseOptionalReturnTypeIntoScratch()
+        if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
+            lastFunction.returnType.typeName = lastParsedTypeName
+            lastFunction.returnType.isNullable = lastParsedTypeNullable
+        }
 
         // Check for '=>' fat-arrow single-expression body (= followed by >)
         var fatArrowBody = false
@@ -1115,7 +1136,8 @@ class RealParser {
         var bodyParsed = false
         if not fatArrowBody {
             if matchTokenStr(SeenTokenType.LeftBrace) {
-                lastFunction.body = parseBlock()
+                parseBlockIntoField()
+                lastFunction.body = lastParsedBlock
                 bodyParsed = true
             }
             if not bodyParsed {
@@ -1231,9 +1253,11 @@ class RealParser {
             if matchTokenStr(SeenTokenType.Identifier) {
                 let prevTok = previous()
                 var wasReturnParam = false
-                if paramOwnership == "" and prevTok.getValue() == "r" and checkToken(SeenTokenType.Colon) {
+                if paramOwnership == "" and (prevTok.getValue() == "r" or prevTok.getValue() == "seen_std.builtins.r") and checkToken(SeenTokenType.Colon) {
                     advance() // consume :
-                    lastFunction.returnType = parseTypeNode()
+                    parseTypeNodeIntoScratch()
+                    lastFunction.returnType.typeName = lastParsedTypeName
+                    lastFunction.returnType.isNullable = lastParsedTypeNullable
                     wasReturnParam = true
                     continue
                 }
@@ -1247,7 +1271,9 @@ class RealParser {
                         let param = ParamNode.new()
                         param.name = realTok.getValue()
                         if matchTokenStr(SeenTokenType.Colon) {
-                            param.paramType = parseTypeNode()
+                            parseTypeNodeIntoScratch()
+                            param.paramType.typeName = lastParsedTypeName
+                            param.paramType.isNullable = lastParsedTypeNullable
                         }
                         // Encode comptime in type string prefix
                         if param.paramType.typeName != "" {
@@ -1272,7 +1298,9 @@ class RealParser {
                     let param = ParamNode.new()
                     param.name = paramName
                     if matchTokenStr(SeenTokenType.Colon) {
-                        param.paramType = parseTypeNode()
+                        parseTypeNodeIntoScratch()
+                        param.paramType.typeName = lastParsedTypeName
+                        param.paramType.isNullable = lastParsedTypeNullable
                     }
                     // Encode ownership in type string prefix
                     if paramOwnership != "" and param.paramType.typeName != "" {
@@ -1371,9 +1399,14 @@ class RealParser {
                                 }
                             }
                             parseParameterListField()
-                            lastFunction.returnType = parseOptionalReturnType()
+                            parseOptionalReturnTypeIntoScratch()
+                            if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
+                                lastFunction.returnType.typeName = lastParsedTypeName
+                                lastFunction.returnType.isNullable = lastParsedTypeNullable
+                            }
                             if matchTokenStr(SeenTokenType.LeftBrace) {
-                                lastFunction.body = parseBlock()
+                                parseBlockIntoField()
+                                lastFunction.body = lastParsedBlock
                             } else {
                                 lastFunction.body = BlockNode.new()
                             }
@@ -1424,9 +1457,14 @@ class RealParser {
                             }
                         }
                         parseParameterListField()
-                        lastFunction.returnType = parseOptionalReturnType()
+                        parseOptionalReturnTypeIntoScratch()
+                        if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
+                            lastFunction.returnType.typeName = lastParsedTypeName
+                            lastFunction.returnType.isNullable = lastParsedTypeNullable
+                        }
                         if matchTokenStr(SeenTokenType.LeftBrace) {
-                            lastFunction.body = parseBlock()
+                            parseBlockIntoField()
+                            lastFunction.body = lastParsedBlock
                         } else {
                             lastFunction.body = BlockNode.new()
                         }
@@ -1441,7 +1479,7 @@ class RealParser {
                 if not classTokenHandled {
                     if checkToken(SeenTokenType.Identifier) {
                         let curTokVal2 = peek().getValue()
-                        if curTokVal2 != "r" and curTokVal2 != "this" {
+                        if curTokVal2 != "r" and curTokVal2 != "seen_std.builtins.r" and curTokVal2 != "this" {
                             let nextTok2 = peekAt(1)
                             if nextTok2.getType() == SeenTokenType.Colon {
                                 let bareFieldName2 = advance()
@@ -1595,9 +1633,14 @@ class RealParser {
                                 }
                             }
                             parseParameterListField()
-                            lastFunction.returnType = parseOptionalReturnType()
+                            parseOptionalReturnTypeIntoScratch()
+                            if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
+                                lastFunction.returnType.typeName = lastParsedTypeName
+                                lastFunction.returnType.isNullable = lastParsedTypeNullable
+                            }
                             if matchTokenStr(SeenTokenType.LeftBrace) {
-                                lastFunction.body = parseBlock()
+                                parseBlockIntoField()
+                                lastFunction.body = lastParsedBlock
                             } else {
                                 lastFunction.body = BlockNode.new()
                             }
@@ -1660,9 +1703,14 @@ class RealParser {
                             }
                         }
                         parseParameterListField()
-                        lastFunction.returnType = parseOptionalReturnType()
+                        parseOptionalReturnTypeIntoScratch()
+                        if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
+                            lastFunction.returnType.typeName = lastParsedTypeName
+                            lastFunction.returnType.isNullable = lastParsedTypeNullable
+                        }
                         if matchTokenStr(SeenTokenType.LeftBrace) {
-                            lastFunction.body = parseBlock()
+                            parseBlockIntoField()
+                            lastFunction.body = lastParsedBlock
                         } else {
                             lastFunction.body = BlockNode.new()
                         }
@@ -1682,7 +1730,7 @@ class RealParser {
                 if not classIntoTokenHandled {
                     if checkToken(SeenTokenType.Identifier) {
                         let curTokVal = peek().getValue()
-                        if curTokVal != "r" and curTokVal != "this" {
+                        if curTokVal != "r" and curTokVal != "seen_std.builtins.r" and curTokVal != "this" {
                             let nextTok = peekAt(1)
                             if nextTok.getType() == SeenTokenType.Colon {
                                 let bareFieldName = advance()
@@ -1901,7 +1949,10 @@ class RealParser {
             }
 
             let param = parseParam()
-            if param.name != "" {
+            if (param.name == "r" or param.name == "seen_std.builtins.r") and param.paramType.typeName != "Unknown" {
+                func.returnType.typeName = param.paramType.typeName
+                func.returnType.isNullable = param.paramType.isNullable
+            } else if param.name != "" {
                 func.params.push(param)
             }
 
@@ -1960,36 +2011,44 @@ class RealParser {
         return parseTypeNode()
     }
 
-    fun parseOptionalReturnType() r: TypeNode {
+    fun parseOptionalReturnTypeIntoScratch() r: Void {
         // Seen uses "r: Type" syntax for return types
         // Check for identifier "r" followed by colon
         if checkToken(SeenTokenType.Identifier) {
             let tok = peek()
-            if tok.getValue() == "r" {
+            if tok.getValue() == "r" or tok.getValue() == "seen_std.builtins.r" {
                 advance() // consume "r"
                 if matchTokenStr(SeenTokenType.Colon) {
-                    return parseTypeNode()
+                    parseTypeNodeIntoScratch()
+                    return
                 }
             }
         }
         // Also support arrow syntax for compatibility
         if matchTokenStr(SeenTokenType.Arrow) {
-            return parseTypeNode()
+            parseTypeNodeIntoScratch()
+            return
         }
         // Support colon return type syntax: fun foo(): Int { ... }
         if matchTokenStr(SeenTokenType.Colon) {
-            return parseTypeNode()
+            parseTypeNodeIntoScratch()
+            return
         }
-        return TypeNode.new()
+        lastParsedTypeName = "Unknown"
+        lastParsedTypeNullable = false
     }
 
-    // Parse a type annotation and return a TypeNode.
-    // Handles: simple names, qualified names (A.B), generic parameters (Map<K,V>),
-    // raw pointers (*T, *const T), nullable (T?), Result sugar (T ! E),
-    // ErrorUnion (A | B), dyn Trait, const generics, and GPU types with
-    // square-bracket syntax (Buffer[T], SmallVec[T, N]).
-    fun parseTypeNode() r: TypeNode {
-        let typeNode = TypeNode.new()
+    fun parseOptionalReturnType() r: TypeNode {
+        parseOptionalReturnTypeIntoScratch()
+        return TypeNode{ typeName: lastParsedTypeName, isNullable: lastParsedTypeNullable }
+    }
+
+    // Parse a type annotation into scratch fields.
+    fun parseTypeNodeIntoScratch() r: Void {
+        lastParsedTypeName = "Unknown"
+        lastParsedTypeNullable = false
+
+        var typeName = "Unknown"
 
         var typeIdentFound = false
 
@@ -2001,8 +2060,8 @@ class RealParser {
                 advance()
                 ptrPrefix = "*const "
             }
-            let innerType = parseTypeNode()
-            typeNode.typeName = ptrPrefix + innerType.typeName
+            parseTypeNodeIntoScratch()
+            typeName = ptrPrefix + lastParsedTypeName
             typeIdentFound = true
         }
 
@@ -2012,8 +2071,8 @@ class RealParser {
 
             // : dyn Trait — dynamic dispatch
             if name == "dyn" and checkToken(SeenTokenType.Identifier) {
-                let traitType = parseTypeNode()
-                typeNode.typeName = "dyn " + traitType.typeName
+                parseTypeNodeIntoScratch()
+                typeName = "dyn " + lastParsedTypeName
                 typeIdentFound = true
             }
 
@@ -2083,52 +2142,63 @@ class RealParser {
                 // : SmallVec[T, N] — inline storage with square bracket syntax
                 if (name == "Buffer" or name == "Uniform" or name == "Image" or name == "SmallVec") and checkToken(SeenTokenType.LeftBracket) {
                     advance()
-                    let innerType = parseTypeNode()
-                    var bracketTypeStr = innerType.typeName
+                    parseTypeNodeIntoScratch()
+                    var bracketTypeStr = lastParsedTypeName
                     // SmallVec[T, N] — also parse the capacity after comma
                     if name == "SmallVec" and checkToken(SeenTokenType.Comma) {
                         advance()
-                        let capNode = parseTypeNode()
-                        bracketTypeStr = bracketTypeStr + ", " + capNode.typeName
+                        parseTypeNodeIntoScratch()
+                        bracketTypeStr = bracketTypeStr + ", " + lastParsedTypeName
                     }
                     name = name + "<" + bracketTypeStr + ">"
                     if checkToken(SeenTokenType.RightBracket) {
                         advance()
                     }
                 }
-                typeNode.typeName = name
+                typeName = name
                 typeIdentFound = true
             }
         }
         if not typeIdentFound {
-            typeNode.typeName = "Unknown"
+            typeName = "Unknown"
         }
 
         // T? is sugar for Option<T>
         if matchTokenStr(SeenTokenType.Question) {
-            typeNode.isNullable = true
-            typeNode.typeName = "Option<" + typeNode.typeName + ">"
+            lastParsedTypeNullable = true
+            typeName = "Option<" + typeName + ">"
         }
 
         // : T ! ErrorType → Result<T, ErrorType>
         if checkToken(SeenTokenType.LogicalNot) {
             advance()
-            let errorType = parseTypeNode()
-            typeNode.typeName = "Result<" + typeNode.typeName + "," + errorType.typeName + ">"
+            let leftTypeName = typeName
+            parseTypeNodeIntoScratch()
+            typeName = "Result<" + leftTypeName + "," + lastParsedTypeName + ">"
         }
 
         // : Type | Type → ErrorUnion
         if checkToken(SeenTokenType.BitwiseOr) {
-            var unionTypes = typeNode.typeName
+            var unionTypes = typeName
             while checkToken(SeenTokenType.BitwiseOr) {
                 advance()
-                let nextType = parseTypeNode()
-                unionTypes = unionTypes + "|" + nextType.typeName
+                parseTypeNodeIntoScratch()
+                unionTypes = unionTypes + "|" + lastParsedTypeName
             }
-            typeNode.typeName = "ErrorUnion<" + unionTypes + ">"
+            typeName = "ErrorUnion<" + unionTypes + ">"
         }
 
-        return typeNode
+        lastParsedTypeName = typeName
+    }
+
+    // Parse a type annotation and return a TypeNode.
+    // Handles: simple names, qualified names (A.B), generic parameters (Map<K,V>),
+    // raw pointers (*T, *const T), nullable (T?), Result sugar (T ! E),
+    // ErrorUnion (A | B), dyn Trait, const generics, and GPU types with
+    // square-bracket syntax (Buffer[T], SmallVec[T, N]).
+    fun parseTypeNode() r: TypeNode {
+        parseTypeNodeIntoScratch()
+        return TypeNode{ typeName: lastParsedTypeName, isNullable: lastParsedTypeNullable }
     }
 
     // Parse a brace-delimited block of statements.  The opening `{` has
@@ -2137,9 +2207,15 @@ class RealParser {
     //
     // Saves and restores `currentBlock` and `lastStatement` so that nested
     // blocks (e.g. if-inside-while) do not clobber the outer parse state.
-    fun parseBlock() r: BlockNode {
-        let savedBlock = currentBlock
-        let savedLastStatement = lastStatement
+    fun parseBlockIntoField() r: Void {
+        if blockStackDepth >= blockStack.length() {
+            blockStack.push(currentBlock)
+            statementStack.push(lastStatement)
+        } else {
+            blockStack[blockStackDepth] = currentBlock
+            statementStack[blockStackDepth] = lastStatement
+        }
+        blockStackDepth = blockStackDepth + 1
         currentBlock = BlockNode.new()
         var loopCount = 0
         while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
@@ -2152,11 +2228,16 @@ class RealParser {
             parseStatementInto()
         }
         consume(SeenTokenType.RightBrace, "Expected '}' after block")
-        let result = currentBlock
-        // Restore the outer currentBlock and lastStatement so subsequent parsing works correctly
-        currentBlock = savedBlock
-        lastStatement = savedLastStatement
-        return result
+        lastParsedBlock = currentBlock
+        let restoreIndex = blockStackDepth - 1
+        currentBlock = blockStack[restoreIndex]
+        lastStatement = statementStack[restoreIndex]
+        blockStackDepth = restoreIndex
+    }
+
+    fun parseBlock() r: BlockNode {
+        parseBlockIntoField()
+        return lastParsedBlock
     }
 
     // Parse one statement and push it into `currentBlock`.
@@ -2266,7 +2347,7 @@ class RealParser {
                 consume(SeenTokenType.RightBrace, "Expected '}' after defer block")
                 lastStatement.thenBranch = deferBlock
             } else {
-                lastStatement.expression = parseExpression()
+                parseExpressionInto(lastStatement.expression)
             }
             if matchTokenStr(SeenTokenType.Semicolon) { }
             currentBlock.statements.push(lastStatement)
@@ -2285,7 +2366,7 @@ class RealParser {
                 consume(SeenTokenType.RightBrace, "Expected '}' after errdefer block")
                 lastStatement.thenBranch = errdeferBlock
             } else {
-                lastStatement.expression = parseExpression()
+                parseExpressionInto(lastStatement.expression)
             }
             if matchTokenStr(SeenTokenType.Semicolon) { }
             currentBlock.statements.push(lastStatement)
@@ -2294,7 +2375,7 @@ class RealParser {
         // Throw statement (treated like expression statement but with throw keyword consumed)
         if matchTokenStr(SeenTokenType.KeywordThrow) {
             lastStatement.kind = "Throw"
-            lastStatement.expression = parseExpression()
+            parseExpressionInto(lastStatement.expression)
             if matchTokenStr(SeenTokenType.Semicolon) { }
             currentBlock.statements.push(lastStatement)
             return
@@ -2337,7 +2418,8 @@ class RealParser {
             let tryStmt = StatementNode.new()
             tryStmt.kind = "TryCatch"
             if matchTokenStr(SeenTokenType.LeftBrace) {
-                tryStmt.thenBranch = parseBlock()
+                parseBlockIntoField()
+                tryStmt.thenBranch = lastParsedBlock
             } else {
                 tryStmt.thenBranch = BlockNode.new()
             }
@@ -2350,7 +2432,8 @@ class RealParser {
                     consume(SeenTokenType.RightParen, "Expected ')' after catch variable")
                 }
                 if matchTokenStr(SeenTokenType.LeftBrace) {
-                    tryStmt.elseBranch = parseBlock()
+                    parseBlockIntoField()
+                    tryStmt.elseBranch = lastParsedBlock
                 } else {
                     tryStmt.elseBranch = BlockNode.new()
                 }
@@ -2501,7 +2584,8 @@ class RealParser {
         }
         // Parse body block
         consume(SeenTokenType.LeftBrace, "Expected '{' after region")
-        stmt.thenBranch = parseBlock()
+        parseBlockIntoField()
+        stmt.thenBranch = lastParsedBlock
         return stmt
     }
 
@@ -2522,7 +2606,7 @@ class RealParser {
         }
 
         if matchTokenStr(SeenTokenType.Equal) {
-            lastStatement.initializer = parseExpression()
+            parseExpressionInto(lastStatement.initializer)
         }
 
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -2540,7 +2624,7 @@ class RealParser {
         }
 
         if matchTokenStr(SeenTokenType.Equal) {
-            lastStatement.initializer = parseExpression()
+            parseExpressionInto(lastStatement.initializer)
         }
 
         if matchTokenStr(SeenTokenType.Semicolon) { }
@@ -2551,10 +2635,7 @@ class RealParser {
         // trace
         lastStatement.kind = "Return"
         if not checkToken(SeenTokenType.Semicolon) and not checkToken(SeenTokenType.RightBrace) {
-            // trace
-            // Direct assignment instead of parseExpressionIntoField (which passes by value)
-            let tempExpr = parseExpression()
-            lastStatement.returnValue = tempExpr
+            parseExpressionInto(lastStatement.returnValue)
         }
         if matchTokenStr(SeenTokenType.Semicolon) { }
         // trace
@@ -2562,11 +2643,10 @@ class RealParser {
 
     fun parseWhileStatementField() r: Void {
         lastStatement.kind = "While"
-        let cond = parseExpression()
-        lastStatement.loopCondition = cond
+        parseExpressionInto(lastStatement.loopCondition)
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
-        let body = parseBlock()
-        lastStatement.loopBody = body
+        parseBlockIntoField()
+        lastStatement.loopBody = lastParsedBlock
         return
     }
 
@@ -2578,10 +2658,11 @@ class RealParser {
         // Parse 'in' keyword
         consume(SeenTokenType.KeywordIn, "Expected 'in' after loop variable")
         // Parse iterable expression -- store in expression (reuse existing field)
-        lastStatement.expression = parseExpression()
+        parseExpressionInto(lastStatement.expression)
         // Parse loop body -- store in loopBody (reuse existing field)
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
-        lastStatement.loopBody = parseBlock()
+        parseBlockIntoField()
+        lastStatement.loopBody = lastParsedBlock
         return
     }
 
@@ -2591,9 +2672,10 @@ class RealParser {
         let varToken = consume(SeenTokenType.Identifier, "Expected loop variable name after 'parallel_for'")
         lastStatement.variableName = varToken.getValue()
         consume(SeenTokenType.KeywordIn, "Expected 'in' after parallel_for variable")
-        lastStatement.expression = parseExpression()
+        parseExpressionInto(lastStatement.expression)
         consume(SeenTokenType.LeftBrace, "Expected '{' after parallel_for range")
-        lastStatement.loopBody = parseBlock()
+        parseBlockIntoField()
+        lastStatement.loopBody = lastParsedBlock
         return
     }
 
@@ -2605,7 +2687,8 @@ class RealParser {
         consume(SeenTokenType.KeywordIn, "Expected 'in' after parallel_for variable")
         stmt.expression = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after parallel_for range")
-        stmt.loopBody = parseBlock()
+        parseBlockIntoField()
+        stmt.loopBody = lastParsedBlock
         return stmt
     }
 
@@ -2616,10 +2699,10 @@ class RealParser {
             advance()  // consume 'assert'
             lastStatement.kind = "ComptimeAssert"
             consume(SeenTokenType.LeftParen, "Expected '(' after comptime assert")
-            lastStatement.expression = parseExpression()
+            parseExpressionInto(lastStatement.expression)
             // Optional message argument stored in condition field
             if matchTokenStr(SeenTokenType.Comma) {
-                lastStatement.condition = parseExpression()
+                parseExpressionInto(lastStatement.condition)
             }
             consume(SeenTokenType.RightParen, "Expected ')' after comptime assert")
             return
@@ -2627,19 +2710,22 @@ class RealParser {
         // Check if next is 'if'
         if matchTokenStr(SeenTokenType.KeywordIf) {
             lastStatement.kind = "ComptimeIf"
-            lastStatement.expression = parseExpression()
+            parseExpressionInto(lastStatement.expression)
             consume(SeenTokenType.LeftBrace, "Expected '{' after comptime if condition")
-            lastStatement.thenBranch = parseBlock()
+            parseBlockIntoField()
+            lastStatement.thenBranch = lastParsedBlock
             if matchTokenStr(SeenTokenType.KeywordElse) {
                 consume(SeenTokenType.LeftBrace, "Expected '{' after else")
-                lastStatement.elseBranch = parseBlock()
+                parseBlockIntoField()
+                lastStatement.elseBranch = lastParsedBlock
             }
             return
         }
         // Default: comptime { block }
         lastStatement.kind = "ComptimeBlock"
         consume(SeenTokenType.LeftBrace, "Expected '{' after comptime")
-        lastStatement.thenBranch = parseBlock()
+        parseBlockIntoField()
+        lastStatement.thenBranch = lastParsedBlock
         return
     }
 
@@ -2663,24 +2749,26 @@ class RealParser {
             stmt.kind = "ComptimeIf"
             stmt.expression = parseExpression()
             consume(SeenTokenType.LeftBrace, "Expected '{' after comptime if condition")
-            stmt.thenBranch = parseBlock()
+            parseBlockIntoField()
+            stmt.thenBranch = lastParsedBlock
             if matchTokenStr(SeenTokenType.KeywordElse) {
                 consume(SeenTokenType.LeftBrace, "Expected '{' after else")
-                stmt.elseBranch = parseBlock()
+                parseBlockIntoField()
+                stmt.elseBranch = lastParsedBlock
             }
             return stmt
         }
         // Default: comptime { block }
         stmt.kind = "ComptimeBlock"
         consume(SeenTokenType.LeftBrace, "Expected '{' after comptime")
-        stmt.thenBranch = parseBlock()
+        parseBlockIntoField()
+        stmt.thenBranch = lastParsedBlock
         return stmt
     }
 
     fun parseExpressionStatementField() r: Void {
         lastStatement.kind = "Expression"
-        let expr = parseExpression()
-        lastStatement.expression = expr
+        parseExpressionInto(lastStatement.expression)
         if matchTokenStr(SeenTokenType.Semicolon) { }
         return
     }
@@ -2792,7 +2880,8 @@ class RealParser {
         stmt.kind = "While"
         parseExpressionInto(stmt.loopCondition)
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
-        stmt.loopBody = parseBlock()
+        parseBlockIntoField()
+        stmt.loopBody = lastParsedBlock
         // trace
     }
 
@@ -2803,7 +2892,8 @@ class RealParser {
         consume(SeenTokenType.KeywordIn, "Expected 'in' after loop variable")
         stmt.expression = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
-        stmt.loopBody = parseBlock()
+        parseBlockIntoField()
+        stmt.loopBody = lastParsedBlock
         return
     }
 
@@ -2882,7 +2972,8 @@ class RealParser {
         stmt.kind = "While"
         stmt.loopCondition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
-        stmt.loopBody = parseBlock()
+        parseBlockIntoField()
+        stmt.loopBody = lastParsedBlock
         return stmt
     }
 
@@ -2895,7 +2986,8 @@ class RealParser {
         consume(SeenTokenType.KeywordIn, "Expected 'in' after loop variable")
         stmt.expression = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{' after for-in iterable")
-        stmt.loopBody = parseBlock()
+        parseBlockIntoField()
+        stmt.loopBody = lastParsedBlock
         return stmt
     }
 
@@ -4261,22 +4353,103 @@ class RealParser {
     // and push it into currentProgram.  Supports dot-separated paths,
     // Rust-style :: paths, `as` aliases, and braced symbol lists.
     fun parseImportItemInto() r: Void {
-        let pathInfo = parseImportPath()
-        let importSymbols = parseImportSymbols(pathInfo)
+        let importSegments = Array<String>()
+
+        if checkToken(getIdentifierType()) {
+            importSegments.push(advance().getValue())
+        } else {
+            if checkToken(SeenTokenType.KeywordAsync) {
+                importSegments.push(advance().getValue())
+            }
+        }
+
+        var importText = joinSegments(importSegments, ".")
+
+        while not isAtEnd() {
+            if matchTokenStr(getDotType()) {
+                if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
+                    break
+                }
+                if checkToken(SeenTokenType.KeywordAsync) {
+                    let seg = advance()
+                    importSegments.push(seg.getValue())
+                    importText = importText + "." + seg.getValue()
+                    continue
+                }
+                let segment = consume(getIdentifierType(), "Expected identifier in import path")
+                importSegments.push(segment.getValue())
+                importText = importText + "." + segment.getValue()
+                continue
+            }
+
+            if matchTokenStr(getColonType()) and matchTokenStr(getColonType()) {
+                if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
+                    break
+                }
+                let segment = consume(getIdentifierType(), "Expected identifier after '::'")
+                importSegments.push(segment.getValue())
+                importText = importText + "::" + segment.getValue()
+                continue
+            }
+
+            break
+        }
+
+        let importSymbols = Array<ImportSymbolNode>()
+        if matchTokenStr(getKeywordAsType()) and importSegments.length() > 0 {
+            let alias = consume(getIdentifierType(), "Expected alias after 'as'")
+            let baseName = importSegments[importSegments.length() - 1]
+            let symbol = ImportSymbolNode.new()
+            symbol.name = baseName
+            symbol.alias = alias.getValue()
+            importSymbols.push(symbol)
+        } else {
+            if matchTokenStr(getLeftBraceType()) {
+                while not isAtEnd() {
+                    if matchTokenStr(getRightBraceType()) {
+                        break
+                    }
+
+                    let symbolToken = consume(getIdentifierType(), "Expected symbol name")
+                    var aliasValue = ""
+                    if matchTokenStr(getKeywordAsType()) {
+                        let aliasToken = consume(getIdentifierType(), "Expected alias name")
+                        aliasValue = aliasToken.getValue()
+                    }
+
+                    let symbol = ImportSymbolNode.new()
+                    symbol.name = symbolToken.getValue()
+                    symbol.alias = aliasValue
+                    importSymbols.push(symbol)
+
+                    if matchTokenStr(getCommaType()) {
+                        continue
+                    }
+
+                    consume(getRightBraceType(), "Expected '}' after import list")
+                    break
+                }
+            } else {
+                if importSegments.length() > 0 {
+                    let baseName = importSegments[importSegments.length() - 1]
+                    let symbol = ImportSymbolNode.new()
+                    symbol.name = baseName
+                    symbol.alias = ""
+                    importSymbols.push(symbol)
+                }
+            }
+        }
 
         matchTokenStr(getSemicolonType())
 
         // Push directly to currentProgram instead of returning
-        currentProgram.items.push(ItemNode{
-            itemType: "Import",
-            name: pathInfo.text,
-            visibility: "",
-            importPath: pathInfo.segments,
-            importSymbols: importSymbols,
-            function: FunctionNode.new(),
-            classNode: ClassNode.new(),
-            enumNode: EnumNode.new()
-        })
+        let item = ItemNode.new()
+        item.itemType = "Import"
+        item.name = importText
+        item.visibility = ""
+        item.importPath = importSegments
+        item.importSymbols = importSymbols
+        currentProgram.items.push(item)
     }
 
     fun parseImportPath() r: ImportPathInfo {
@@ -4392,9 +4565,10 @@ class RealParser {
     // Parse `if condition { then } [else { ... }]` into lastStatement.
     fun parseIfStatementField() r: Void {
         lastStatement.kind = "If"
-        lastStatement.condition = parseExpression()
+        parseExpressionInto(lastStatement.condition)
         consume(SeenTokenType.LeftBrace, "Expected '{'")
-        lastStatement.thenBranch = parseBlock()
+        parseBlockIntoField()
+        lastStatement.thenBranch = lastParsedBlock
         // Handle else branch - use checkToken first to avoid advancing prematurely
         if checkToken(SeenTokenType.KeywordElse) {
             advance() // consume 'else'
@@ -4410,7 +4584,8 @@ class RealParser {
                 // Plain else block
                 if checkToken(SeenTokenType.LeftBrace) {
                     advance() // consume '{'
-                    lastStatement.elseBranch = parseBlock()
+                    parseBlockIntoField()
+                    lastStatement.elseBranch = lastParsedBlock
                 }
             }
         }
@@ -4421,7 +4596,8 @@ class RealParser {
         stmt.kind = "If"
         parseExpressionInto(stmt.condition)
         consume(SeenTokenType.LeftBrace, "Expected '{'")
-        stmt.thenBranch = parseBlock()
+        parseBlockIntoField()
+        stmt.thenBranch = lastParsedBlock
         // Handle else branch (supports full else-if chains recursively)
         if checkToken(SeenTokenType.KeywordElse) {
             advance() // consume 'else'
@@ -4434,7 +4610,8 @@ class RealParser {
             } else {
                 if checkToken(SeenTokenType.LeftBrace) {
                     advance() // consume '{'
-                    stmt.elseBranch = parseBlock()
+                    parseBlockIntoField()
+                    stmt.elseBranch = lastParsedBlock
                 }
             }
         }
@@ -4460,12 +4637,14 @@ class RealParser {
             consume(SeenTokenType.Equal, "Expected '=' in if let")
             stmt.condition = parseExpression()
             consume(SeenTokenType.LeftBrace, "Expected '{'")
-            stmt.thenBranch = parseBlock()
+            parseBlockIntoField()
+            stmt.thenBranch = lastParsedBlock
             if checkToken(SeenTokenType.KeywordElse) {
                 advance()
                 if checkToken(SeenTokenType.LeftBrace) {
                     advance()
-                    stmt.elseBranch = parseBlock()
+                    parseBlockIntoField()
+                    stmt.elseBranch = lastParsedBlock
                 }
             }
             return stmt
@@ -4473,7 +4652,8 @@ class RealParser {
         stmt.kind = "If"
         stmt.condition = parseExpression()
         consume(SeenTokenType.LeftBrace, "Expected '{'")
-        stmt.thenBranch = parseBlock()
+        parseBlockIntoField()
+        stmt.thenBranch = lastParsedBlock
         // Handle else branch (supports full else-if chains recursively)
         if checkToken(SeenTokenType.KeywordElse) {
             advance() // consume 'else'
@@ -4488,7 +4668,8 @@ class RealParser {
                 // Plain else block
                 if checkToken(SeenTokenType.LeftBrace) {
                     advance() // consume '{'
-                    stmt.elseBranch = parseBlock()
+                    parseBlockIntoField()
+                    stmt.elseBranch = lastParsedBlock
                 }
             }
         }

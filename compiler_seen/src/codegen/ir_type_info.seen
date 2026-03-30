@@ -848,6 +848,8 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
     }
     // String class methods
     if structName == "String" {
+        if methodName == "charAt" { return "Char" }
+        if methodName == "charCodeAt" or methodName == "byteAt" { return "Int" }
         if methodName == "fromCharCode" { return "String" }
         if methodName == "replace" { return "String" }
         if methodName == "repeat" { return "String" }

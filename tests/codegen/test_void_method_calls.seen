@@ -1,0 +1,25 @@
+class Counter {
+    var value: Int
+
+    static fun new() r: Counter {
+        return Counter{ value: 0 }
+    }
+
+    fun setValue(next: Int) r: Void {
+        this.value = next
+    }
+
+    static fun bump(counter: Counter) r: Void {
+        counter.value = counter.value + 1
+    }
+}
+
+fun main() r: Int {
+    let counter = Counter.new()
+    counter.setValue(41)
+    Counter.bump(counter)
+    if counter.value != 42 {
+        return 1
+    }
+    return 0
+}

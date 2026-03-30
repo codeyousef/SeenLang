@@ -148,6 +148,28 @@
    - `linux-x86_64`: `success`
    - `windows-x86_64`: `success`
 
+### Implemented in the eleventh patch set
+
+- Investigated the next compiler-correctness regression surfaced during native-target validation using a focused program that combined:
+   - constructor inference via `Counter.new()`
+   - instance `Void` methods
+   - static `Void` methods
+   - `main() r: Int`
+- Hardened float-argument promotion metadata in:
+   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
+   - `compiler_seen/src/codegen/ir_call_dispatch.seen`
+  so later-stage codegen no longer crashes when class-method float-parameter metadata is missing or metadata arrays drift out of sync.
+- Added codegen-side free-function return recovery in `compiler_seen/src/codegen/llvm_ir_gen.seen` so top-level functions now fall back to body-return inference when the AST reaches LLVM codegen with `returnType = Unknown`.
+- Kept constructor and static-call lowering aligned with the recovered return-type path by reusing resolved method and function return types during declaration registration and generic static-call lowering.
+- Added `tests/codegen/test_void_method_calls.seen` as a focused regression covering:
+   - constructor inference for `Counter.new()`
+   - instance `Void` method calls
+   - static `Void` method calls
+   - integer return lowering for `main()`
+- Rebuilt Stage2 from `bootstrap/stage1_frozen` and verified the focused regression now both:
+   - compiles successfully
+   - runs successfully with exit status `0`
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
@@ -157,12 +179,13 @@
 - Expand the smoke-backed platform matrix into artifact inspection and CI-managed target jobs.
 - Add CI coverage for the new target matrix.
 - Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
+- Root-cause the top-level `FunctionNode.returnType` handoff bug more directly. The parser now reads `r: Type` correctly into scratch state, but some top-level functions can still reach LLVM codegen with `returnType = Unknown`; the current LLVM recovery path is sufficient for the validated regression, but the AST-level fix is still pending.
 
 ### Current implementation posture
 
 The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation and Windows-specific hardening rather than missing compiler routing.
 
-The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and Linux self-host verification now completes through Stage3 instead of falling back to the recovered Stage2 compiler.
+The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and Linux self-host verification now completes through Stage3 instead of falling back to the recovered Stage2 compiler. Native-target validation also now has a focused regression for constructor-plus-void-method lowering, and the refreshed compiler passes that regression end to end.
 
 ## Goal
 

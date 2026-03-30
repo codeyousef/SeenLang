@@ -1,0 +1,46 @@
+import io.file.{readText}
+import lexer.lexer.{SeenLexer}
+import lexer.interfaces.{Token}
+import lexer.token_type.{SeenTokenType}
+import parser.real_parser.{RealParser}
+
+fun main() r: Int {
+    let source = readText("tests/codegen/test_void_method_calls.seen")
+    let lexer = SeenLexer.new(source, 0, "en")
+    let tokens = lexer.tokenize()
+    let parser = RealParser.new(tokens)
+    let program = parser.parse()
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Function" and item.name == "main" {
+            let body = item.function.body
+            var stmtIdx = 0
+            while stmtIdx < body.statements.length() {
+                let stmt = body.statements[stmtIdx]
+                if stmt.kind == "Let" and stmt.variableName == "counter" {
+                    println("stmt.kind=" + stmt.kind)
+                    println("stmt.variableName=" + stmt.variableName)
+                    println("init.kind=" + stmt.initializer.kind)
+                    println("init.literalValue=" + stmt.initializer.literalValue)
+                    println("init.variableName=" + stmt.initializer.variableName)
+                    println("init.callee=" + stmt.initializer.callee)
+                    println("init.operands=" + stmt.initializer.operands.length().toString())
+                    println("init.arguments=" + stmt.initializer.arguments.length().toString())
+                    if stmt.initializer.operands.length() > 0 {
+                        let receiver = stmt.initializer.operands[0]
+                        println("recv.kind=" + receiver.kind)
+                        println("recv.literalValue=" + receiver.literalValue)
+                        println("recv.variableName=" + receiver.variableName)
+                        println("recv.callee=" + receiver.callee)
+                    }
+                }
+                stmtIdx = stmtIdx + 1
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+
+    return 0
+}

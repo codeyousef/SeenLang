@@ -1,0 +1,16 @@
+var registry: Int = 2
+
+class Foo {
+    static fun new() r: Foo {
+        return Foo{}
+    }
+
+    fun test() r: Int {
+        return registry + 1
+    }
+}
+
+fun main() r: Int {
+    let foo = Foo.new()
+    return foo.test()
+}

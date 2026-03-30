@@ -1,0 +1,27 @@
+fun hashString(data: String) r: String {
+    var hash = 5381
+    var index = 0
+    while index < data.length() {
+        let code: Int = data.byteAt(index)
+        var step = hash * 33
+        step = step + code
+        hash = step % 2147483647
+        index = index + 1
+    }
+    let hexChars = "0123456789abcdef"
+    var remaining = if hash < 0 { 0 - hash } else { hash }
+    var result = ""
+    var digits = 0
+    while digits < 8 {
+        let nibble = remaining % 16
+        let digit = hexChars.substring(nibble, nibble + 1)
+        result = digit + result
+        remaining = remaining / 16
+        digits = digits + 1
+    }
+    return result
+}
+
+fun main() r: Int {
+    return hashString("ok").length()
+}

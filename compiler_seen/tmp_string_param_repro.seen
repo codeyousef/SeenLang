@@ -1,0 +1,8 @@
+fun useText(x: String) r: Int {
+    var y = 1
+    return y + x.length()
+}
+
+fun main() r: Int {
+    return useText("ok")
+}

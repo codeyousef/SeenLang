@@ -1,0 +1,17 @@
+class Foo {
+    var x: Int
+    var y: Int
+
+    static fun new() r: Foo {
+        let foo = Foo{
+            x: 1
+        }
+        foo.y = 2
+        return foo
+    }
+}
+
+fun main() r: Int {
+    let foo = Foo.new()
+    return foo.x + foo.y
+}

@@ -1,0 +1,22 @@
+data D {
+    var x: Int
+}
+
+class C {
+    var d: D
+
+    static fun new() r: C {
+        return C{
+            d: D{ x: 1 }
+        }
+    }
+
+    fun sum() r: Int {
+        return d.x + 2
+    }
+}
+
+fun main() r: Int {
+    let c = C.new()
+    return c.sum()
+}

@@ -1,0 +1,16 @@
+import io.file.{readText}
+import bootstrap.frontend.{run_frontend}
+
+fun main() r: Int {
+    let source = readText("compiler_seen/src/main_compiler.seen")
+    let result = run_frontend(source, "compiler_seen/src/main_compiler.seen", "en")
+    println("success=" + result.success.toString())
+    println("item_count=" + result.program.items.length().toString())
+    var i = 0
+    while i < result.program.items.length() {
+        let item = result.program.items[i]
+        println(i.toString() + ":" + item.itemType + ":" + item.name)
+        i = i + 1
+    }
+    return 0
+}

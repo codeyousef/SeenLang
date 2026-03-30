@@ -757,7 +757,9 @@ fun simpleHash(name: String, bucketCount: Int) r: Int {
     var h = 0
     var i = 0
     while i < name.length() {
-        h = h * 31 + name.byteAt(i)
+        let byteVal: Int = name.byteAt(i)
+        h = h * 31
+        h = h + byteVal
         i = i + 1
     }
     if h < 0 { h = 0 - h }

@@ -1,0 +1,8 @@
+fun stringify(data: String) r: String {
+    var hash = 5381
+    return hash.toString() + data
+}
+
+fun main() r: Int {
+    return stringify("ok").length()
+}
