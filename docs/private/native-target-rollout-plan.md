@@ -170,6 +170,22 @@
    - compiles successfully
    - runs successfully with exit status `0`
 
+### Implemented in the twelfth patch set
+
+- Replaced split nested `TypeNode` field mutation in `compiler_seen/src/parser/real_parser.seen` with whole-node assignment for parser paths that populate:
+   - top-level function return types
+   - method return types
+   - return-label parameters
+   - regular and `comptime` parameter types
+- Added parser-local helpers in `compiler_seen/src/parser/real_parser.seen` so the current scratch type state is materialized as a full `TypeNode` value and ownership/comptime/default-value type-name encoding is rebuilt before assignment instead of mutating nested inline fields.
+- Rebuilt the compiler again with `scripts/safe_rebuild.sh`; the frozen bootstrap still produces a fresh Stage2 compiler successfully, but the current `S2->S3` verification path is back to failing with `exit=139`, so the refreshed Stage2 compiler remains the installed production compiler on this host.
+- Re-validated `tests/codegen/test_void_method_calls.seen` end to end with the refreshed compiler and confirmed it still:
+   - compiles successfully
+   - emits a consistent integer-returning `main`
+   - runs successfully with exit status `0`
+- Added a second parser-discriminating validation using `tests/codegen/test_move_call.seen`: the top-level `Void` function `consume(...)` now lowers as `define void @consume(...)`, which the LLVM-side free-function fallback could not infer from the empty return path.
+- Re-validated supported parameter parsing with `tests/test_comptime_params.seen`, which still compiles and runs successfully after the parser-side type handoff fix.
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
@@ -179,13 +195,13 @@
 - Expand the smoke-backed platform matrix into artifact inspection and CI-managed target jobs.
 - Add CI coverage for the new target matrix.
 - Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
-- Root-cause the top-level `FunctionNode.returnType` handoff bug more directly. The parser now reads `r: Type` correctly into scratch state, but some top-level functions can still reach LLVM codegen with `returnType = Unknown`; the current LLVM recovery path is sufficient for the validated regression, but the AST-level fix is still pending.
+- Root-cause the later `S2->S3` self-host segfault that still occurs after the parser-side `FunctionNode.returnType` handoff fix. The focused constructor/void-method regressions are now validated, but full bootstrap verification is again failing with `exit=139` on this host.
 
 ### Current implementation posture
 
-The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation and Windows-specific hardening rather than missing compiler routing.
+The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation, the later self-host segfault, and Windows-specific hardening rather than missing compiler routing.
 
-The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and Linux self-host verification now completes through Stage3 instead of falling back to the recovered Stage2 compiler. Native-target validation also now has a focused regression for constructor-plus-void-method lowering, and the refreshed compiler passes that regression end to end.
+The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and the refreshed compiler is currently falling back to the recovered Stage2 binary after `S2->S3` exits `139`. Native-target validation now also has both the constructor-plus-void-method regression and a top-level `Void` free-function lowering check passing with the parser-side type handoff fix in place.
 
 ## Goal
 
@@ -227,7 +243,7 @@ This plan is intentionally ordered by compiler risk, toolchain complexity, and c
 - The existing platform matrix now surfaces real smoke status for native non-Linux targets instead of placeholder JSON, but it still needs CI execution on hosts that actually provide those SDKs and cross toolchains.
 - Cross-target GPU runtime compilation is now attempted per target, but still needs validation on real Android and Windows toolchains.
 - Cache reuse is now namespaced by effective target and compile mode in the stage compiler, but that isolation still needs broader validation across release, sanitizer, and profile combinations.
-- Linux bootstrap verification now succeeds on the current host all the way through `scripts/safe_rebuild.sh`, including the S2->S3 validation path.
+- The current parser-side return-type handoff fix still rebuilds a usable Stage2 compiler from the frozen bootstrap, but `scripts/safe_rebuild.sh` is currently falling back to that recovered Stage2 compiler because `S2->S3` verification is again failing with `exit=139` on this host.
 - WASM still has scaffold placeholders, but that is out of scope for this native-first plan.
 
 ## Non-Goals For This Phase

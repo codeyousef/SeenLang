@@ -1008,8 +1008,7 @@ class RealParser {
         parseParameterList(func)
         parseOptionalReturnTypeIntoScratch()
         if lastParsedTypeName != "Unknown" or func.returnType.typeName == "Unknown" {
-            func.returnType.typeName = lastParsedTypeName
-            func.returnType.isNullable = lastParsedTypeNullable
+            func.returnType = parsedScratchTypeNode()
         }
 
         // Parse optional `where` clause: where T: Trait1 + Trait2, U: Trait3
@@ -1112,8 +1111,7 @@ class RealParser {
         parseParameterListField()
         parseOptionalReturnTypeIntoScratch()
         if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-            lastFunction.returnType.typeName = lastParsedTypeName
-            lastFunction.returnType.isNullable = lastParsedTypeNullable
+            lastFunction.returnType = parsedScratchTypeNode()
         }
 
         // Check for '=>' fat-arrow single-expression body (= followed by >)
@@ -1256,8 +1254,7 @@ class RealParser {
                 if paramOwnership == "" and (prevTok.getValue() == "r" or prevTok.getValue() == "seen_std.builtins.r") and checkToken(SeenTokenType.Colon) {
                     advance() // consume :
                     parseTypeNodeIntoScratch()
-                    lastFunction.returnType.typeName = lastParsedTypeName
-                    lastFunction.returnType.isNullable = lastParsedTypeNullable
+                    lastFunction.returnType = parsedScratchTypeNode()
                     wasReturnParam = true
                     continue
                 }
@@ -1270,22 +1267,24 @@ class RealParser {
                         let realTok = previous()
                         let param = ParamNode.new()
                         param.name = realTok.getValue()
+                        var paramType = TypeNode.new()
                         if matchTokenStr(SeenTokenType.Colon) {
                             parseTypeNodeIntoScratch()
-                            param.paramType.typeName = lastParsedTypeName
-                            param.paramType.isNullable = lastParsedTypeNullable
+                            paramType = parsedScratchTypeNode()
                         }
+                        var paramTypeName = paramType.typeName
                         // Encode comptime in type string prefix
-                        if param.paramType.typeName != "" {
-                            param.paramType.typeName = "comptime:" + param.paramType.typeName
+                        if paramTypeName != "" {
+                            paramTypeName = "comptime:" + paramTypeName
                         } else {
-                            param.paramType.typeName = "comptime:Int"
+                            paramTypeName = "comptime:Int"
                         }
                         if matchTokenStr(SeenTokenType.Equal) {
                             let defVal = peek().getValue()
-                            param.paramType.typeName = param.paramType.typeName + "~default~" + defVal
+                            paramTypeName = paramTypeName + "~default~" + defVal
                             skipExpression()
                         }
+                        param.paramType = typeNodeWithName(paramType, paramTypeName)
                         lastFunction.params.push(param)
                         wasReturnParam = true
                     }
@@ -1297,21 +1296,23 @@ class RealParser {
                     if paramName == "self" { paramName = "this" }
                     let param = ParamNode.new()
                     param.name = paramName
+                    var paramType = TypeNode.new()
                     if matchTokenStr(SeenTokenType.Colon) {
                         parseTypeNodeIntoScratch()
-                        param.paramType.typeName = lastParsedTypeName
-                        param.paramType.isNullable = lastParsedTypeNullable
+                        paramType = parsedScratchTypeNode()
                     }
+                    var paramTypeName = paramType.typeName
                     // Encode ownership in type string prefix
-                    if paramOwnership != "" and param.paramType.typeName != "" {
-                        param.paramType.typeName = paramOwnership + ":" + param.paramType.typeName
+                    if paramOwnership != "" and paramTypeName != "" {
+                        paramTypeName = paramOwnership + ":" + paramTypeName
                     }
                     // Handle default parameter values: encode in type name suffix
                     if matchTokenStr(SeenTokenType.Equal) {
                         let defVal = peek().getValue()
-                        param.paramType.typeName = param.paramType.typeName + "~default~" + defVal
+                        paramTypeName = paramTypeName + "~default~" + defVal
                         skipExpression()
                     }
+                    param.paramType = typeNodeWithName(paramType, paramTypeName)
                     lastFunction.params.push(param)
                 }
             }
@@ -1401,8 +1402,7 @@ class RealParser {
                             parseParameterListField()
                             parseOptionalReturnTypeIntoScratch()
                             if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-                                lastFunction.returnType.typeName = lastParsedTypeName
-                                lastFunction.returnType.isNullable = lastParsedTypeNullable
+                                lastFunction.returnType = parsedScratchTypeNode()
                             }
                             if matchTokenStr(SeenTokenType.LeftBrace) {
                                 parseBlockIntoField()
@@ -1459,8 +1459,7 @@ class RealParser {
                         parseParameterListField()
                         parseOptionalReturnTypeIntoScratch()
                         if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-                            lastFunction.returnType.typeName = lastParsedTypeName
-                            lastFunction.returnType.isNullable = lastParsedTypeNullable
+                            lastFunction.returnType = parsedScratchTypeNode()
                         }
                         if matchTokenStr(SeenTokenType.LeftBrace) {
                             parseBlockIntoField()
@@ -1635,8 +1634,7 @@ class RealParser {
                             parseParameterListField()
                             parseOptionalReturnTypeIntoScratch()
                             if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-                                lastFunction.returnType.typeName = lastParsedTypeName
-                                lastFunction.returnType.isNullable = lastParsedTypeNullable
+                                lastFunction.returnType = parsedScratchTypeNode()
                             }
                             if matchTokenStr(SeenTokenType.LeftBrace) {
                                 parseBlockIntoField()
@@ -1705,8 +1703,7 @@ class RealParser {
                         parseParameterListField()
                         parseOptionalReturnTypeIntoScratch()
                         if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-                            lastFunction.returnType.typeName = lastParsedTypeName
-                            lastFunction.returnType.isNullable = lastParsedTypeNullable
+                            lastFunction.returnType = parsedScratchTypeNode()
                         }
                         if matchTokenStr(SeenTokenType.LeftBrace) {
                             parseBlockIntoField()
@@ -1950,8 +1947,7 @@ class RealParser {
 
             let param = parseParam()
             if (param.name == "r" or param.name == "seen_std.builtins.r") and param.paramType.typeName != "Unknown" {
-                func.returnType.typeName = param.paramType.typeName
-                func.returnType.isNullable = param.paramType.isNullable
+                func.returnType = param.paramType
             } else if param.name != "" {
                 func.params.push(param)
             }
@@ -1984,19 +1980,22 @@ class RealParser {
         if paramRawName == "self" { paramRawName = "this" }
         let param = ParamNode.new()
         param.name = paramRawName
-        param.paramType = parseOptionalTypeAnnotation()
+        let parsedParamType = parseOptionalTypeAnnotation()
+        var paramTypeName = parsedParamType.typeName
 
         // Encode ownership in type string prefix for downstream passes
-        if ownership != "" and param.paramType.typeName != "" {
-            param.paramType.typeName = ownership + ":" + param.paramType.typeName
+        if ownership != "" and paramTypeName != "" {
+            paramTypeName = ownership + ":" + paramTypeName
         }
 
         // Capture default values in type name suffix
         if matchTokenStr(SeenTokenType.Equal) {
             let defVal = peek().getValue()
-            param.paramType.typeName = param.paramType.typeName + "~default~" + defVal
+            paramTypeName = paramTypeName + "~default~" + defVal
             skipExpression()
         }
+
+        param.paramType = typeNodeWithName(parsedParamType, paramTypeName)
 
         return param
     }
@@ -2040,7 +2039,15 @@ class RealParser {
 
     fun parseOptionalReturnType() r: TypeNode {
         parseOptionalReturnTypeIntoScratch()
+        return parsedScratchTypeNode()
+    }
+
+    fun parsedScratchTypeNode() r: TypeNode {
         return TypeNode{ typeName: lastParsedTypeName, isNullable: lastParsedTypeNullable }
+    }
+
+    fun typeNodeWithName(baseType: TypeNode, typeName: String) r: TypeNode {
+        return TypeNode{ typeName: typeName, isNullable: baseType.isNullable }
     }
 
     // Parse a type annotation into scratch fields.
@@ -2198,7 +2205,7 @@ class RealParser {
     // square-bracket syntax (Buffer[T], SmallVec[T, N]).
     fun parseTypeNode() r: TypeNode {
         parseTypeNodeIntoScratch()
-        return TypeNode{ typeName: lastParsedTypeName, isNullable: lastParsedTypeNullable }
+        return parsedScratchTypeNode()
     }
 
     // Parse a brace-delimited block of statements.  The opening `{` has
