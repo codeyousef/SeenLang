@@ -38,6 +38,7 @@
 import lexer.interfaces.{Token, Position}
 import lexer.token_type.{SeenTokenType, SeenTokenType2, TestEnum, getA, getLeftParenType, getLeftParenType2, getRightParenType, getSemicolonType, getDotType, getLeftBraceType, getKeywordAsType, getIdentifierType, getColonType, getRightBraceType, getCommaType, getEndOfFileType, getKeywordFunType, getKeywordImportType, getKeywordUseType, getKeywordClassType, getAtType}
 import core.option.{Option}
+import trace.{traceParse, isParserTracingEnabled}
 
 extern fun __Print(s: String)
 extern fun __PrintInt(n: Int)
@@ -304,6 +305,10 @@ class RealParser {
     var blockStackDepth: Int
     var lastParsedTypeName: String
     var lastParsedTypeNullable: Bool
+    var pendingFunctionReturnTypeName: String
+    var pendingFunctionReturnTypeNullable: Bool
+    var pendingFunctionParamTypeNames: Array<String>
+    var pendingFunctionParamTypeNullables: Array<Int>
 
     static fun new(rawTokens: Array<Token>) r: RealParser {
         return RealParser{
@@ -319,7 +324,11 @@ class RealParser {
             statementStack: Array<StatementNode>(),
             blockStackDepth: 0,
             lastParsedTypeName: "Unknown",
-            lastParsedTypeNullable: false
+            lastParsedTypeNullable: false,
+            pendingFunctionReturnTypeName: "Unknown",
+            pendingFunctionReturnTypeNullable: false,
+            pendingFunctionParamTypeNames: Array<String>(),
+            pendingFunctionParamTypeNullables: Array<Int>()
         }
     }
 
@@ -331,6 +340,103 @@ class RealParser {
             return true
         }
         return false
+    }
+
+    // Seen keeps several declaration keywords contextual so existing code can
+    // still use names like `data`, `type`, `module`, and `operator` in places
+    // where an identifier is expected.
+    fun isContextualIdentifierTokenType(tokenTypeStr: String) r: Bool {
+        if tokenTypeStr == SeenTokenType.KeywordData.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordType.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordModule.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordOperator.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordInline.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordGpu.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordRegion.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordBorrow.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordMove.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordRef.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordOwn.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordStruct.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordTrait.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordUnion.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordDistinct.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordImpl.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordExtension.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordSealed.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordStatic.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordOverride.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordPub.toString() { return true }
+        if tokenTypeStr == SeenTokenType.KeywordComptime.toString() { return true }
+        return false
+    }
+
+    fun isIdentifierLikeTokenValue(tokenValue: String) r: Bool {
+        if tokenValue == "" {
+            return false
+        }
+        let firstByte = tokenValue.byteAt(0)
+        if firstByte >= 48 and firstByte <= 57 { return false }
+        if firstByte == 34 or firstByte == 39 { return false }
+        if firstByte == 40 or firstByte == 41 { return false }
+        if firstByte == 44 or firstByte == 46 or firstByte == 58 or firstByte == 59 { return false }
+        if firstByte == 60 or firstByte == 61 or firstByte == 62 or firstByte == 63 { return false }
+        if firstByte == 64 { return false }
+        if firstByte == 91 or firstByte == 93 { return false }
+        if firstByte == 123 or firstByte == 125 { return false }
+        if firstByte == 43 or firstByte == 45 or firstByte == 42 or firstByte == 47 { return false }
+        if firstByte == 33 or firstByte == 37 or firstByte == 38 or firstByte == 124 or firstByte == 94 or firstByte == 126 { 
+            return false 
+        }
+        return true
+    }
+
+    fun checkNameLikeToken() r: Bool {
+        if isAtEnd() {
+            return false
+        }
+        return isIdentifierLikeTokenValue(peek().getValue())
+    }
+
+    fun consumeNameLike(message: String) r: Token {
+        if checkNameLikeToken() {
+            return advance()
+        }
+        return peek()
+    }
+
+    fun matchNameValue(expectedName: String) r: Bool {
+        if not checkNameLikeToken() {
+            return false
+        }
+        if peek().getValue() == expectedName {
+            advance()
+            return true
+        }
+        return false
+    }
+
+    fun looksLikeIntegerLiteral(tokenValue: String) r: Bool {
+        if tokenValue == "" {
+            return false
+        }
+        let firstByte = tokenValue.byteAt(0)
+        return firstByte >= 48 and firstByte <= 57
+    }
+
+    fun looksLikeFloatLiteral(tokenValue: String) r: Bool {
+        if not looksLikeIntegerLiteral(tokenValue) {
+            return false
+        }
+        return tokenValue.contains(".") or tokenValue.contains("e") or tokenValue.contains("E")
+    }
+
+    fun looksLikeStringLiteral(tokenValue: String) r: Bool {
+        return tokenValue.length() >= 2 and tokenValue.startsWith("\"") and tokenValue.endsWith("\"")
+    }
+
+    fun looksLikeCharLiteral(tokenValue: String) r: Bool {
+        return tokenValue.length() >= 3 and tokenValue.startsWith("'") and tokenValue.endsWith("'")
     }
 
     // Check whether the current token matches the given type WITHOUT advancing.
@@ -346,6 +452,15 @@ class RealParser {
         }
         let tokTypeStr = peekTokenTypeStr()
         let expectedStr = tokenType.toString()
+        if expectedStr == SeenTokenType.Identifier.toString() {
+            if tokTypeStr == expectedStr {
+                return true
+            }
+            if isContextualIdentifierTokenType(tokTypeStr) {
+                return true
+            }
+            return isIdentifierLikeTokenValue(peek().getValue())
+        }
         return tokTypeStr == expectedStr
     }
 
@@ -779,7 +894,7 @@ class RealParser {
 
             // Handle top-level var declarations (global variables)
             if matchTokenStr(SeenTokenType.KeywordVar) {
-                let gvNameToken2 = consume(SeenTokenType.Identifier, "Expected variable name")
+                let gvNameToken2 = consumeNameLike("Expected variable name")
                 let gvName2 = gvNameToken2.getValue()
                 var gvType2 = "Int"
                 if matchTokenStr(SeenTokenType.Colon) {
@@ -856,7 +971,7 @@ class RealParser {
 
     // Top-level let/const variable declaration (shared by 'let' and 'const')
     fun parseTopLevelLetDecl() r: Void {
-        let gvNameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        let gvNameToken = consumeNameLike("Expected variable name")
         let gvName = gvNameToken.getValue()
         var gvType = "Int"
         if matchTokenStr(SeenTokenType.Colon) {
@@ -1007,7 +1122,7 @@ class RealParser {
 
         parseParameterList(func)
         parseOptionalReturnTypeIntoScratch()
-        if lastParsedTypeName != "Unknown" or func.returnType.typeName == "Unknown" {
+        if lastParsedTypeName != "Unknown" {
             func.returnType = parsedScratchTypeNode()
         }
 
@@ -1044,6 +1159,8 @@ class RealParser {
             }
         }
 
+        traceParsedFunctionShape("parseFunctionItem", func)
+
         // trace
         let item = ItemNode.new()
         // trace
@@ -1075,6 +1192,8 @@ class RealParser {
         let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         // Use class field to avoid local variable corruption
         lastFunction = FunctionNode.new()
+        clearPendingFunctionReturnType()
+        clearPendingFunctionParamTypes()
         // Handle data type method syntax: fun TypeName.methodName() -> TypeName_methodName
         var funcName = nameToken.getValue()
         if matchTokenStr(SeenTokenType.Dot) {
@@ -1109,9 +1228,12 @@ class RealParser {
         applyDecoratorsToFunction()
 
         parseParameterListField()
+        var resolvedReturnTypeName = pendingFunctionReturnTypeName
+        var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
         parseOptionalReturnTypeIntoScratch()
-        if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-            lastFunction.returnType = parsedScratchTypeNode()
+        if lastParsedTypeName != "Unknown" {
+            resolvedReturnTypeName = lastParsedTypeName
+            resolvedReturnTypeNullable = lastParsedTypeNullable
         }
 
         // Check for '=>' fat-arrow single-expression body (= followed by >)
@@ -1145,6 +1267,15 @@ class RealParser {
                 }
             }
         }
+
+        applyPendingFunctionParamTypes()
+        if resolvedReturnTypeName != "Unknown" {
+            lastParsedTypeName = resolvedReturnTypeName
+            lastParsedTypeNullable = resolvedReturnTypeNullable
+            lastFunction.returnType = parsedScratchTypeNode()
+        }
+
+        traceParsedFunctionShape("parseFunctionItemInto", lastFunction)
 
         // Push directly to currentProgram instead of returning
         // Use separate allocations to avoid heap corruption from struct literal
@@ -1235,26 +1366,26 @@ class RealParser {
             }
             // Check for move/borrow/ref/own ownership qualifier
             var paramOwnership = ""
-            if matchTokenStr(SeenTokenType.KeywordMove) {
+            if matchNameValue("move") {
                 paramOwnership = "move"
             }
-            if paramOwnership == "" and matchTokenStr(SeenTokenType.KeywordBorrow) {
+            if paramOwnership == "" and matchNameValue("borrow") {
                 paramOwnership = "borrow"
             }
-            if paramOwnership == "" and matchTokenStr(SeenTokenType.KeywordRef) {
+            if paramOwnership == "" and matchNameValue("ref") {
                 paramOwnership = "ref"
             }
-            if paramOwnership == "" and matchTokenStr(SeenTokenType.KeywordOwn) {
+            if paramOwnership == "" and matchNameValue("own") {
                 paramOwnership = "own"
             }
             // Return type parameter (r: Type syntax)
-            if matchTokenStr(SeenTokenType.Identifier) {
-                let prevTok = previous()
+            if checkNameLikeToken() {
+                let prevTok = advance()
                 var wasReturnParam = false
                 if paramOwnership == "" and (prevTok.getValue() == "r" or prevTok.getValue() == "seen_std.builtins.r") and checkToken(SeenTokenType.Colon) {
                     advance() // consume :
                     parseTypeNodeIntoScratch()
-                    lastFunction.returnType = parsedScratchTypeNode()
+                    capturePendingFunctionReturnTypeFromScratch()
                     wasReturnParam = true
                     continue
                 }
@@ -1263,16 +1394,17 @@ class RealParser {
                 var isComptimeParam = false
                 if not wasReturnParam and prevTok.getValue() == "comptime" {
                     isComptimeParam = true
-                    if matchTokenStr(SeenTokenType.Identifier) {
-                        let realTok = previous()
+                    if checkNameLikeToken() {
+                        let realTok = advance()
                         let param = ParamNode.new()
                         param.name = realTok.getValue()
-                        var paramType = TypeNode.new()
+                        var paramTypeName = "Unknown"
+                        var paramTypeNullable = false
                         if matchTokenStr(SeenTokenType.Colon) {
                             parseTypeNodeIntoScratch()
-                            paramType = parsedScratchTypeNode()
+                            paramTypeName = lastParsedTypeName
+                            paramTypeNullable = lastParsedTypeNullable
                         }
-                        var paramTypeName = paramType.typeName
                         // Encode comptime in type string prefix
                         if paramTypeName != "" {
                             paramTypeName = "comptime:" + paramTypeName
@@ -1284,8 +1416,8 @@ class RealParser {
                             paramTypeName = paramTypeName + "~default~" + defVal
                             skipExpression()
                         }
-                        param.paramType = typeNodeWithName(paramType, paramTypeName)
                         lastFunction.params.push(param)
+                        addPendingFunctionParamType(paramTypeName, paramTypeNullable)
                         wasReturnParam = true
                     }
                 }
@@ -1296,12 +1428,13 @@ class RealParser {
                     if paramName == "self" { paramName = "this" }
                     let param = ParamNode.new()
                     param.name = paramName
-                    var paramType = TypeNode.new()
+                    var paramTypeName = "Unknown"
+                    var paramTypeNullable = false
                     if matchTokenStr(SeenTokenType.Colon) {
                         parseTypeNodeIntoScratch()
-                        paramType = parsedScratchTypeNode()
+                        paramTypeName = lastParsedTypeName
+                        paramTypeNullable = lastParsedTypeNullable
                     }
-                    var paramTypeName = paramType.typeName
                     // Encode ownership in type string prefix
                     if paramOwnership != "" and paramTypeName != "" {
                         paramTypeName = paramOwnership + ":" + paramTypeName
@@ -1312,8 +1445,8 @@ class RealParser {
                         paramTypeName = paramTypeName + "~default~" + defVal
                         skipExpression()
                     }
-                    param.paramType = typeNodeWithName(paramType, paramTypeName)
                     lastFunction.params.push(param)
+                    addPendingFunctionParamType(paramTypeName, paramTypeNullable)
                 }
             }
 
@@ -1388,6 +1521,8 @@ class RealParser {
                         if matchTokenStr(SeenTokenType.KeywordFun) {
                             let methodNameTok = consume(SeenTokenType.Identifier, "Expected method name")
                             lastFunction = FunctionNode.new()
+                            clearPendingFunctionReturnType()
+                            clearPendingFunctionParamTypes()
                             lastFunction.name = methodNameTok.getValue()
                             // Skip generic type parameters
                             if checkToken(SeenTokenType.LessThan) {
@@ -1400,15 +1535,24 @@ class RealParser {
                                 }
                             }
                             parseParameterListField()
+                            var resolvedReturnTypeName = pendingFunctionReturnTypeName
+                            var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
                             parseOptionalReturnTypeIntoScratch()
-                            if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-                                lastFunction.returnType = parsedScratchTypeNode()
+                            if lastParsedTypeName != "Unknown" {
+                                resolvedReturnTypeName = lastParsedTypeName
+                                resolvedReturnTypeNullable = lastParsedTypeNullable
                             }
                             if matchTokenStr(SeenTokenType.LeftBrace) {
                                 parseBlockIntoField()
                                 lastFunction.body = lastParsedBlock
                             } else {
                                 lastFunction.body = BlockNode.new()
+                            }
+                            applyPendingFunctionParamTypes()
+                            if resolvedReturnTypeName != "Unknown" {
+                                lastParsedTypeName = resolvedReturnTypeName
+                                lastParsedTypeNullable = resolvedReturnTypeNullable
+                                lastFunction.returnType = parsedScratchTypeNode()
                             }
                             let method = lastFunction
                             method.isStatic = true
@@ -1445,6 +1589,8 @@ class RealParser {
                             if methodNameStr2 == "operator" and matchTokenStr(SeenTokenType.GreaterEqual) { methodNameStr2 = "operator_gte" }
                         }
                         lastFunction = FunctionNode.new()
+                        clearPendingFunctionReturnType()
+                        clearPendingFunctionParamTypes()
                         lastFunction.name = methodNameStr2
                         // Skip generic type parameters
                         if checkToken(SeenTokenType.LessThan) {
@@ -1457,15 +1603,24 @@ class RealParser {
                             }
                         }
                         parseParameterListField()
+                        var resolvedReturnTypeName2 = pendingFunctionReturnTypeName
+                        var resolvedReturnTypeNullable2 = pendingFunctionReturnTypeNullable
                         parseOptionalReturnTypeIntoScratch()
-                        if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-                            lastFunction.returnType = parsedScratchTypeNode()
+                        if lastParsedTypeName != "Unknown" {
+                            resolvedReturnTypeName2 = lastParsedTypeName
+                            resolvedReturnTypeNullable2 = lastParsedTypeNullable
                         }
                         if matchTokenStr(SeenTokenType.LeftBrace) {
                             parseBlockIntoField()
                             lastFunction.body = lastParsedBlock
                         } else {
                             lastFunction.body = BlockNode.new()
+                        }
+                        applyPendingFunctionParamTypes()
+                        if resolvedReturnTypeName2 != "Unknown" {
+                            lastParsedTypeName = resolvedReturnTypeName2
+                            lastParsedTypeNullable = resolvedReturnTypeNullable2
+                            lastFunction.returnType = parsedScratchTypeNode()
                         }
                         let method = lastFunction
                         method.isStatic = false
@@ -1620,6 +1775,8 @@ class RealParser {
                             // Inline parse using lastFunction field to avoid memory corruption
                             let methodNameTokInto = consume(SeenTokenType.Identifier, "Expected method name")
                             lastFunction = FunctionNode.new()
+                            clearPendingFunctionReturnType()
+                            clearPendingFunctionParamTypes()
                             lastFunction.name = methodNameTokInto.getValue()
                             // Skip generic type parameters: fun name<T: Ord>(...)
                             if checkToken(SeenTokenType.LessThan) {
@@ -1632,15 +1789,24 @@ class RealParser {
                                 }
                             }
                             parseParameterListField()
+                            var resolvedReturnTypeNameInto = pendingFunctionReturnTypeName
+                            var resolvedReturnTypeNullableInto = pendingFunctionReturnTypeNullable
                             parseOptionalReturnTypeIntoScratch()
-                            if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-                                lastFunction.returnType = parsedScratchTypeNode()
+                            if lastParsedTypeName != "Unknown" {
+                                resolvedReturnTypeNameInto = lastParsedTypeName
+                                resolvedReturnTypeNullableInto = lastParsedTypeNullable
                             }
                             if matchTokenStr(SeenTokenType.LeftBrace) {
                                 parseBlockIntoField()
                                 lastFunction.body = lastParsedBlock
                             } else {
                                 lastFunction.body = BlockNode.new()
+                            }
+                            applyPendingFunctionParamTypes()
+                            if resolvedReturnTypeNameInto != "Unknown" {
+                                lastParsedTypeName = resolvedReturnTypeNameInto
+                                lastParsedTypeNullable = resolvedReturnTypeNullableInto
+                                lastFunction.returnType = parsedScratchTypeNode()
                             }
                             let method = lastFunction
                             method.isStatic = true
@@ -1689,6 +1855,8 @@ class RealParser {
                             if methodNameStr == "operator" and matchTokenStr(SeenTokenType.GreaterEqual) { methodNameStr = "operator_gte" }
                         }
                         lastFunction = FunctionNode.new()
+                        clearPendingFunctionReturnType()
+                        clearPendingFunctionParamTypes()
                         lastFunction.name = methodNameStr
                         // Skip generic type parameters: fun name<T: Ord>(...)
                         if checkToken(SeenTokenType.LessThan) {
@@ -1701,15 +1869,24 @@ class RealParser {
                             }
                         }
                         parseParameterListField()
+                        var resolvedReturnTypeNameInto2 = pendingFunctionReturnTypeName
+                        var resolvedReturnTypeNullableInto2 = pendingFunctionReturnTypeNullable
                         parseOptionalReturnTypeIntoScratch()
-                        if lastParsedTypeName != "Unknown" or lastFunction.returnType.typeName == "Unknown" {
-                            lastFunction.returnType = parsedScratchTypeNode()
+                        if lastParsedTypeName != "Unknown" {
+                            resolvedReturnTypeNameInto2 = lastParsedTypeName
+                            resolvedReturnTypeNullableInto2 = lastParsedTypeNullable
                         }
                         if matchTokenStr(SeenTokenType.LeftBrace) {
                             parseBlockIntoField()
                             lastFunction.body = lastParsedBlock
                         } else {
                             lastFunction.body = BlockNode.new()
+                        }
+                        applyPendingFunctionParamTypes()
+                        if resolvedReturnTypeNameInto2 != "Unknown" {
+                            lastParsedTypeName = resolvedReturnTypeNameInto2
+                            lastParsedTypeNullable = resolvedReturnTypeNullableInto2
+                            lastFunction.returnType = parsedScratchTypeNode()
                         }
                         let method = lastFunction
                         method.isStatic = false
@@ -1964,13 +2141,13 @@ class RealParser {
     fun parseParam() r: ParamNode {
         // Check for move/borrow ownership qualifier before parameter name
         var ownership = ""
-        if matchTokenStr(SeenTokenType.KeywordMove) {
+        if matchNameValue("move") {
             ownership = "move"
         }
-        if ownership == "" and matchTokenStr(SeenTokenType.KeywordBorrow) {
+        if ownership == "" and matchNameValue("borrow") {
             ownership = "borrow"
         }
-        if !checkToken(SeenTokenType.Identifier) {
+        if not checkNameLikeToken() {
             return ParamNode.new()
         }
         let nameToken = advance()
@@ -2046,8 +2223,100 @@ class RealParser {
         return TypeNode{ typeName: lastParsedTypeName, isNullable: lastParsedTypeNullable }
     }
 
+    fun formatTypeNodeForTrace(typeNode: TypeNode) r: String {
+        if typeNode.typeName == "" {
+            return ""
+        }
+        if typeNode.isNullable {
+            return typeNode.typeName + "?"
+        }
+        return typeNode.typeName
+    }
+
+    fun formatParamListForTrace(params: Array<ParamNode>) r: String {
+        var summary = ""
+        var idx = 0
+        while idx < params.length() {
+            if idx > 0 {
+                summary = summary + ", "
+            }
+            let param = params[idx]
+            summary = summary + param.name + ":" + formatTypeNodeForTrace(param.paramType)
+            idx = idx + 1
+        }
+        return summary
+    }
+
+    fun traceParsedFunctionShape(source: String, fn: FunctionNode) r: Void {
+        if not isParserTracingEnabled() {
+            return
+        }
+
+        var msg = source + " name=" + fn.name
+        msg = msg + " params=[" + formatParamListForTrace(fn.params) + "]"
+        msg = msg + " return=" + formatTypeNodeForTrace(fn.returnType)
+        msg = msg + " body=" + fn.body.statements.length().toString()
+
+        if fn.body.statements.length() > 0 {
+            let firstStmt = fn.body.statements[0]
+            msg = msg + " first=" + firstStmt.kind
+            if firstStmt.returnValue.kind != "" and firstStmt.returnValue.kind != "None" {
+                msg = msg + " ret=" + firstStmt.returnValue.kind
+            }
+            if firstStmt.expression.kind != "" and firstStmt.expression.kind != "None" {
+                msg = msg + " expr=" + firstStmt.expression.kind
+            }
+        }
+
+        return
+    }
+
     fun typeNodeWithName(baseType: TypeNode, typeName: String) r: TypeNode {
         return TypeNode{ typeName: typeName, isNullable: baseType.isNullable }
+    }
+
+    fun clearPendingFunctionReturnType() r: Void {
+        pendingFunctionReturnTypeName = "Unknown"
+        pendingFunctionReturnTypeNullable = false
+    }
+
+    fun clearPendingFunctionParamTypes() r: Void {
+        pendingFunctionParamTypeNames = Array<String>()
+        pendingFunctionParamTypeNullables = Array<Int>()
+    }
+
+    fun capturePendingFunctionReturnTypeFromScratch() r: Void {
+        pendingFunctionReturnTypeName = lastParsedTypeName
+        pendingFunctionReturnTypeNullable = lastParsedTypeNullable
+    }
+
+    fun addPendingFunctionParamType(typeName: String, isNullable: Bool) r: Void {
+        pendingFunctionParamTypeNames.push(typeName)
+        if isNullable {
+            pendingFunctionParamTypeNullables.push(1)
+        } else {
+            pendingFunctionParamTypeNullables.push(0)
+        }
+    }
+
+    fun applyPendingFunctionParamTypes() r: Void {
+        var paramIdx = 0
+        while paramIdx < lastFunction.params.length() and paramIdx < pendingFunctionParamTypeNames.length() {
+            let param = lastFunction.params[paramIdx]
+            lastParsedTypeName = pendingFunctionParamTypeNames[paramIdx]
+            lastParsedTypeNullable = pendingFunctionParamTypeNullables[paramIdx] != 0
+            param.paramType = parsedScratchTypeNode()
+            paramIdx = paramIdx + 1
+        }
+    }
+
+    fun applyPendingFunctionReturnTypeToLastFunction() r: Void {
+        if pendingFunctionReturnTypeName == "Unknown" {
+            return
+        }
+        lastParsedTypeName = pendingFunctionReturnTypeName
+        lastParsedTypeNullable = pendingFunctionReturnTypeNullable
+        lastFunction.returnType = parsedScratchTypeNode()
     }
 
     // Parse a type annotation into scratch fields.
@@ -2284,7 +2553,7 @@ class RealParser {
             return
         }
         if matchTokenStr(SeenTokenType.KeywordWhile) {
-            parseWhileStatementField()
+            parseStableWhileStatementField()
             currentBlock.statements.push(lastStatement)
             return
         }
@@ -2409,7 +2678,7 @@ class RealParser {
             return parseReturnStatement()
         }
         if matchTokenStr(SeenTokenType.KeywordIf) { return parseIfStatement() }
-        if matchTokenStr(SeenTokenType.KeywordWhile) { return parseWhileStatement() }
+        if matchTokenStr(SeenTokenType.KeywordWhile) { return parseStableWhileStatement() }
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "parallel_for" {
             advance()  // consume 'parallel_for'
             return parseParallelForStatement()
@@ -2526,7 +2795,7 @@ class RealParser {
     fun parseLetStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "Let"
-        let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        let nameToken = consumeNameLike("Expected variable name")
         stmt.variableName = nameToken.getValue()
 
         if matchTokenStr(SeenTokenType.Colon) {
@@ -2544,7 +2813,7 @@ class RealParser {
     fun parseVarStatement() r: StatementNode {
         let stmt = StatementNode.new()
         stmt.kind = "Var"
-        let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        let nameToken = consumeNameLike("Expected variable name")
         stmt.variableName = nameToken.getValue()
 
         if matchTokenStr(SeenTokenType.Colon) {
@@ -2605,7 +2874,7 @@ class RealParser {
         if matchTokenStr(SeenTokenType.KeywordMut) {
             lastStatement.kind = "Var"
         }
-        let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        let nameToken = consumeNameLike("Expected variable name")
         lastStatement.variableName = nameToken.getValue()
 
         if matchTokenStr(SeenTokenType.Colon) {
@@ -2623,7 +2892,7 @@ class RealParser {
     fun parseVarStatementField() r: Void {
         // trace
         lastStatement.kind = "Var"
-        let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        let nameToken = consumeNameLike("Expected variable name")
         lastStatement.variableName = nameToken.getValue()
 
         if matchTokenStr(SeenTokenType.Colon) {
@@ -2835,7 +3104,7 @@ class RealParser {
     fun parseLetStatementInto(stmt: StatementNode) r: Void {
         // trace
         stmt.kind = "Let"
-        let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        let nameToken = consumeNameLike("Expected variable name")
         stmt.variableName = nameToken.getValue()
 
         if matchTokenStr(SeenTokenType.Colon) {
@@ -2853,7 +3122,7 @@ class RealParser {
     fun parseVarStatementInto(stmt: StatementNode) r: Void {
         // trace
         stmt.kind = "Var"
-        let nameToken = consume(SeenTokenType.Identifier, "Expected variable name")
+        let nameToken = consumeNameLike("Expected variable name")
         stmt.variableName = nameToken.getValue()
 
         if matchTokenStr(SeenTokenType.Colon) {
@@ -3046,7 +3315,7 @@ class RealParser {
             if expr.kind == "VarExpr" {
                 let assign = ParserExpressionNode.new()
                 assign.kind = "Assignment"
-                assign.variableName = expr.variableName
+                assign.variableName = getVariableExprName(expr)
                 assign.operands.push(value) // [0] = rhs value
                 return assign
             }
@@ -3101,7 +3370,7 @@ class RealParser {
 
                 let assign = ParserExpressionNode.new()
                 assign.kind = "Assignment"
-                assign.variableName = expr.variableName
+                assign.variableName = getVariableExprName(expr)
                 assign.operands.push(binaryExpr) // [0] = rhs value (x + y)
                 return assign
             }
@@ -3204,7 +3473,7 @@ class RealParser {
             bwBin.operands.push(bwRhs)
             let bwAsgn = ParserExpressionNode.new()
             bwAsgn.kind = "Assignment"
-            bwAsgn.variableName = expr.variableName
+            bwAsgn.variableName = getVariableExprName(expr)
             bwAsgn.operands.push(bwBin)
             return bwAsgn
         }
@@ -3683,13 +3952,14 @@ class RealParser {
                     // Regular function call - need a new node
                     let callExpr = ParserExpressionNode.new()
                     callExpr.kind = "Call"
-                    callExpr.callee = expr.variableName
+                    callExpr.callee = getVariableExprName(expr)
                     expr = callExpr
                 }
 
                 // Parse arguments into the current expr
                 // trace
-                if not checkToken(getRightParenType()) {
+                let emptyArgs = checkToken(getRightParenType())
+                if not emptyArgs {
                     // trace
                     expr.arguments.push(parseExpression())
                     while matchTokenStr(getCommaType()) {
@@ -3707,7 +3977,7 @@ class RealParser {
             if not callTokenHandled and checkToken(SeenTokenType.SafeNavigation) {
                 advance() // consume ?.
                 var safeNavIdentFound = false
-                if checkToken(getIdentifierType()) {
+                if checkNameLikeToken() {
                     let memberName = advance().getValue()
                     let memberExpr = ParserExpressionNode.new()
                     memberExpr.kind = "SafeNavigation"
@@ -3742,7 +4012,7 @@ class RealParser {
                 }
                 // Not '..', continue with member access (dot already consumed)
                 var dotIdentFound = false
-                if not dotAwaitHandled and checkToken(getIdentifierType()) {
+                if not dotAwaitHandled and checkNameLikeToken() {
                     let memberName = advance().getValue()
                     let memberExpr = ParserExpressionNode.new()
                     memberExpr.kind = "MemberAccess"
@@ -3773,7 +4043,7 @@ class RealParser {
                     }
                     if not memberLitSet {
                         // Simple variable access
-                        memberExpr.literalValue = expr.variableName
+                        memberExpr.literalValue = getVariableExprName(expr)
                     }
                     memberExpr.variableName = memberName         // member/method name
                     expr = memberExpr
@@ -3793,12 +4063,12 @@ class RealParser {
                 advance() // consume first :
                 if checkToken(SeenTokenType.Colon) {
                     advance() // consume second :
-                    if checkToken(getIdentifierType()) {
+                    if checkNameLikeToken() {
                         let memberName = advance().getValue()
                         let memberExpr = ParserExpressionNode.new()
                         memberExpr.kind = "MemberAccess"
                         // For static method calls, literalValue = class name, variableName = method name
-                        memberExpr.literalValue = expr.variableName
+                        memberExpr.literalValue = getVariableExprName(expr)
                         memberExpr.variableName = memberName
                         expr = memberExpr
                         callTokenHandled = true
@@ -3863,19 +4133,21 @@ class RealParser {
         // (e.g. KeywordWhen), causing them to collide with IntegerLiteral=0.
 
         // Integer literal
-        if checkToken(SeenTokenType.IntegerLiteral) {
+        let currentValue = peek().getValue()
+
+        if checkToken(SeenTokenType.IntegerLiteral) and looksLikeIntegerLiteral(currentValue) and not looksLikeFloatLiteral(currentValue) {
             let token = advance()
             return makeLiteral(token.getValue(), "Int")
         }
 
         // Float literal
-        if checkToken(SeenTokenType.FloatLiteral) {
+        if checkToken(SeenTokenType.FloatLiteral) and looksLikeFloatLiteral(currentValue) {
             let token = advance()
             return makeLiteral(token.getValue(), "Float")
         }
 
         // String literal
-        if checkToken(SeenTokenType.StringLiteral) {
+        if checkToken(SeenTokenType.StringLiteral) and looksLikeStringLiteral(currentValue) {
             let token = advance()
             let rawValue = token.getValue()
             // Strip quotes from the token value if present
@@ -3889,7 +4161,7 @@ class RealParser {
         }
 
         // Character literal
-        if checkToken(SeenTokenType.CharLiteral) {
+        if checkToken(SeenTokenType.CharLiteral) and looksLikeCharLiteral(currentValue) {
             let token = advance()
             return makeLiteral(token.getValue(), "Char")
         }
@@ -3902,6 +4174,17 @@ class RealParser {
         if checkToken(SeenTokenType.KeywordFalse) {
             advance()
             return makeLiteral("false", "Bool")
+        }
+
+        // `data` is a contextual declaration keyword, but in expression
+        // position it must behave like a plain identifier. Handle it before
+        // the expression-keyword branches below so bootstrap enum/string
+        // mismatches cannot route it into `if`/`when`/`match` parsing.
+        if checkNameLikeToken() {
+            if peek().getValue() == "data" {
+                advance()
+                return makeVariable("data")
+            }
         }
 
         // If expression: if condition { expr } else { expr }
@@ -4072,14 +4355,11 @@ class RealParser {
         }
 
         // Identifier (variable or function name or struct literal)
-        let curTok = peek()
-        // trace.toString() + " value=" + curTok.getValue())
-        if checkToken(SeenTokenType.Identifier) {
-            let token = advance()
-            var name = token.getValue()
+        if checkNameLikeToken() {
+            var name = peek().getValue()
+            advance()
             // Remap 'self' to 'this' (alias for this-pointer)
             if name == "self" { name = "this" }
-            // trace
 
             // Check for generic type syntax: Array<Type>() or Map<K,V>{}
             // This needs to be handled before struct literal check
@@ -4283,17 +4563,24 @@ class RealParser {
     // The kind is "VarExpr" (not "Variable") because the stage1 bootstrap
     // compiler has a memory-corruption bug triggered by the exact 8-byte
     // string "Variable" when stored in a struct field.
-    fun makeVariable(varName: String) r: ParserExpressionNode {
-        return ParserExpressionNode{
-            kind: "VarExpr",
-            operands: Array<ParserExpressionNode>(),
-            operator: "",
-            literalValue: "",
-            literalType: "",
-            variableName: varName,
-            callee: "",
-            arguments: Array<ParserExpressionNode>()
+    fun getVariableExprName(expr: ParserExpressionNode) r: String {
+        if expr.variableName != "" {
+            return expr.variableName
         }
+        return expr.literalValue
+    }
+
+    fun makeVariable(varName: String) r: ParserExpressionNode {
+        let expr = ParserExpressionNode.new()
+        expr.kind = "VarExpr"
+        expr.operands = Array<ParserExpressionNode>()
+        expr.operator = ""
+        expr.literalValue = ""
+        expr.literalType = ""
+        expr.variableName = varName
+        expr.callee = ""
+        expr.arguments = Array<ParserExpressionNode>()
+        return expr
     }
 
     // Parse an interpolated string like `"Hello {name}!"`.
@@ -4568,6 +4855,37 @@ class RealParser {
     //   (far from each other and from similar parse*Statement methods) avoids
     //   the collision.
     // ========================================================================
+
+    // Stable while parsers kept near the bottom of the file to avoid a
+    // stage1 bootstrap method-merging bug observed with adjacent parse*Field
+    // loop parsers.
+    fun parseStableWhileStatementField() r: Void {
+        lastStatement.kind = "While"
+        parseExpressionInto(lastStatement.loopCondition)
+        consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
+        parseBlockIntoField()
+        lastStatement.loopBody = lastParsedBlock
+        return
+    }
+
+    fun parseStableWhileStatementInto(stmt: StatementNode) r: Void {
+        stmt.kind = "While"
+        parseExpressionInto(stmt.loopCondition)
+        consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
+        parseBlockIntoField()
+        stmt.loopBody = lastParsedBlock
+        return
+    }
+
+    fun parseStableWhileStatement() r: StatementNode {
+        let stmt = StatementNode.new()
+        stmt.kind = "While"
+        stmt.loopCondition = parseExpression()
+        consume(SeenTokenType.LeftBrace, "Expected '{' after while condition")
+        parseBlockIntoField()
+        stmt.loopBody = lastParsedBlock
+        return stmt
+    }
 
     // Parse `if condition { then } [else { ... }]` into lastStatement.
     fun parseIfStatementField() r: Void {

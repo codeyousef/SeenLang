@@ -186,6 +186,25 @@
 - Added a second parser-discriminating validation using `tests/codegen/test_move_call.seen`: the top-level `Void` function `consume(...)` now lowers as `define void @consume(...)`, which the LLVM-side free-function fallback could not infer from the empty return path.
 - Re-validated supported parameter parsing with `tests/test_comptime_params.seen`, which still compiles and runs successfully after the parser-side type handoff fix.
 
+### Implemented in the thirteenth patch set
+
+- Fixed a second parser self-host regression in `compiler_seen/src/parser/real_parser.seen` where direct expression-position uses of contextual identifier `data` could be misrouted into keyword-expression parsing and swallow later top-level items, producing false `missing main function` failures.
+- Hardened identifier parsing in `parsePrimary()` so contextual `data` is forced through plain variable parsing before `if` / `when` / `match` expression branches, and switched the primary identifier read path to capture `peek().getValue()` before `advance()` to avoid another bootstrap-fragile token-copy path.
+- Kept variable-expression name recovery aligned across parser and LLVM lowering by reusing helper-based lookup in:
+   - `compiler_seen/src/parser/real_parser.seen`
+   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
+  so assignment lowering, member-call lowering, and expression type inference continue to resolve variable names when older bootstrap paths leave one of the string fields empty.
+- Removed parser/codegen debug instrumentation that had started emitting invalid LLVM during bootstrap iteration, including the expression-statement debug append in `compiler_seen/src/codegen/llvm_ir_gen.seen`.
+- Added `tests/codegen/test_parser_function_body_regression.seen` as a focused regression covering:
+   - direct `data: String` parameter use in loop conditions
+   - `byteAt`, `substring`, and `length()` access on that parameter
+   - preservation of later top-level functions including `main()`
+- Rebuilt with `scripts/safe_rebuild.sh` after the parser fix; Stage2 rebuilt successfully and was installed as the production compiler, while Stage3 verification still does not complete cleanly on this host and the script falls back to the recovered production install path.
+- Re-validated the parser-side regression with the rebuilt production compiler and confirmed that:
+   - reduced `data` repros now pass `check`
+   - `tests/codegen/test_parser_function_body_regression.seen` now passes both `check` and `compile`
+- Separated the remaining nonzero runtime result from the parser bug by running minimal string probes with the rebuilt production compiler: small programs using `String.length()` and `== ""` still compile but return the wrong result even when the parameter is named `value`, so the next blocker is now string runtime/codegen correctness rather than parser corruption.
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
@@ -196,12 +215,13 @@
 - Add CI coverage for the new target matrix.
 - Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
 - Root-cause the later `S2->S3` self-host segfault that still occurs after the parser-side `FunctionNode.returnType` handoff fix. The focused constructor/void-method regressions are now validated, but full bootstrap verification is again failing with `exit=139` on this host.
+- Root-cause the newly isolated string runtime/codegen correctness bug in the rebuilt production compiler: parser corruption around direct `data` expressions is fixed, but minimal `String.length()` and empty-string equality probes still return the wrong result at runtime.
 
 ### Current implementation posture
 
 The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation, the later self-host segfault, and Windows-specific hardening rather than missing compiler routing.
 
-The latest smoke probing replaced the stale Windows blocker with a validated cache-isolation fix. On the current Linux host, the rebuilt production compiler now emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and the refreshed compiler is currently falling back to the recovered Stage2 binary after `S2->S3` exits `139`. Native-target validation now also has both the constructor-plus-void-method regression and a top-level `Void` free-function lowering check passing with the parser-side type handoff fix in place.
+The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros. On the current Linux host, the rebuilt production compiler still emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and the current post-fix compiler refresh is again limited more by incomplete `S2->S3` verification and a newly isolated string runtime/codegen correctness bug than by target-routing gaps. Native-target validation now has the constructor-plus-void-method regression, the top-level `Void` free-function lowering check, and the parser function-body regression all compiling with the production compiler, while the remaining runtime mismatch has been narrowed to shared string behavior rather than native-target selection.
 
 ## Goal
 

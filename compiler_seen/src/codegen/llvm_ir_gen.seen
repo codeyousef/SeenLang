@@ -435,6 +435,24 @@ var g_selfCallCountBox: Array<Int> = Array<Int>()
 var g_callCountNamesBox: Array<String> = Array<String>()
 var g_callCountEntriesBox: Array<Int> = Array<Int>()
 
+fun initBootstrapFragileGlobalArrays() r: Void {
+    g_cseKeysArr = Array<String>()
+    g_cseValsArr = Array<String>()
+    g_deferExprs = Array<ParserExpressionNode>()
+    g_errdeferExprs = Array<ParserExpressionNode>()
+    g_irgenFieldInfoCacheKeys = Array<String>()
+    g_irgenFieldInfoCacheIdxs = Array<Int>()
+    g_regBox = Array<Int>()
+    g_blockBox = Array<Int>()
+    g_floatParamFuncNames = Array<String>()
+    g_floatParamParamIdxs = Array<Int>()
+    g_callCountNamesArr = Array<String>()
+    g_selfCallBox = Array<String>()
+    g_selfCallCountBox = Array<Int>()
+    g_callCountNamesBox = Array<String>()
+    g_callCountEntriesBox = Array<Int>()
+}
+
 var g_enumVariantNames: String = ""
 var g_enumVariantTags: String = ""
 var g_enumVariantFieldTypes: String = ""
@@ -893,6 +911,7 @@ class LLVMIRGenerator {
     var moduleConstantValues: Array<String>
     var moduleConstantTypes: Array<String>
     static fun new() r: LLVMIRGenerator {
+        initBootstrapFragileGlobalArrays()
         let gen = LLVMIRGenerator{
             output: StringBuilder.new(),
             stringConstants: Array<String>(),
@@ -6268,7 +6287,6 @@ class LLVMIRGenerator {
         if not handled and stmt.kind == "Expression" {
             // Check if the expression is actually an assignment
             var exprHandled = false
-            output.append("; DEBUG stmt Expression kind=" + stmt.expression.kind + " literalValue=" + stmt.expression.literalValue + "\n")
             if stmt.expression.kind == "Assignment" {
                 generateAssignmentExpr(stmt.expression)
                 exprHandled = true
@@ -10260,12 +10278,15 @@ class LLVMIRGenerator {
     // emits a load from the alloca register. Falls back to module constants
     // (@global_name), enum variant tags (i64 constants), and 'this' field
     // access if the bare name matches a struct field on the current class.
-    fun generateVariable(expr: ParserExpressionNode) r: String {
-        var varName = expr.variableName
-        if varName == "" {
-            // Try literalValue for method call receivers
-            varName = expr.literalValue
+    fun getExprVariableName(expr: ParserExpressionNode) r: String {
+        if expr.variableName != "" {
+            return expr.variableName
         }
+        return expr.literalValue
+    }
+
+    fun generateVariable(expr: ParserExpressionNode) r: String {
+        let varName = getExprVariableName(expr)
         if varName == "" {
             return "0"
         }
@@ -13909,12 +13930,13 @@ class LLVMIRGenerator {
         }
         if expr.kind == "Variable" or expr.kind == "VarExpr" {
             // Use findVarType to check both varTypes and preAllocatedTypes
-            let varType = findVarType(expr.variableName)
+            let varName = getExprVariableName(expr)
+            let varType = findVarType(varName)
             if varType != "" {
                 return varType
             }
             // Check if it's a module constant
-            let constIdx = findModuleConstant(expr.variableName)
+            let constIdx = findModuleConstant(varName)
             if constIdx >= 0 {
                 let constType = moduleConstantTypes[constIdx]
                 // Map LLVM types to Seen types
@@ -13941,21 +13963,21 @@ class LLVMIRGenerator {
             if thisIdx >= 0 {
                 let thisType = varTypes[thisIdx]
                 if thisType == "LLVMIRGenerator" {
-                    let idxCheck = getLLVMIRGeneratorFieldIndex(expr.variableName)
+                    let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
                     if idxCheck >= 0 {
-                        return getSeenFieldType(thisType, expr.variableName)
+                        return getSeenFieldType(thisType, varName)
                     }
                 }
                 let structIdx = findStruct(thisType)
                 if structIdx >= 0 {
-                    let fieldIdx = getFieldInfo(thisType, expr.variableName)
+                    let fieldIdx = getFieldInfo(thisType, varName)
                     if fieldIdx >= 0 {
-                        return getSeenFieldType(thisType, expr.variableName)
+                        return getSeenFieldType(thisType, varName)
                     }
                 }
             }
             // Recognize bare type names (used in sizeof/alignof expressions)
-            let vn = expr.variableName
+            let vn = varName
             if vn == "Int8" or vn == "UInt8" or vn == "Int16" or vn == "UInt16" or vn == "Int32" or vn == "UInt32" or vn == "Int64" or vn == "UInt64" or vn == "Float32" {
                 return vn
             }
