@@ -5,7 +5,7 @@
 // Future phases will add generateExpressionFree dispatch + more sub-generators
 
 import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
-import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_optimization.{getNextRegFn, parseIntManual}
 import codegen.type_registry.{CodegenState, csGetNextReg}
 import codegen.ir_string_collect.{hexToDecimalImpl}
 import codegen.ir_type_info.{charToCodeStr}
@@ -122,7 +122,11 @@ fun analyzeDeadStoresImpl(block: BlockNode) r: String {
 
 fun generateLiteralFree(s: CodegenState, expr: ParserExpressionNode) r: String {
     if expr.literalType == "Int" or expr.literalType == "Integer" {
-        return hexToDecimalImpl(expr.literalValue)
+        let value = expr.literalValue
+        if value.startsWith("0x") or value.startsWith("0X") or value.startsWith("0b") or value.startsWith("0B") or value.startsWith("0o") or value.startsWith("0O") {
+            return parseIntManual(value).toString()
+        }
+        return hexToDecimalImpl(value)
     }
     if expr.literalType == "Char" {
         var cs = charToCodeStr(expr.literalValue)
@@ -175,6 +179,9 @@ fun generateLiteralFree(s: CodegenState, expr: ParserExpressionNode) r: String {
         return strReg
     }
     if expr.literalType == "Float" {
+        if expr.literalValue.startsWith("0x") or expr.literalValue.startsWith("0X") or expr.literalValue.startsWith("0b") or expr.literalValue.startsWith("0B") or expr.literalValue.startsWith("0o") or expr.literalValue.startsWith("0O") {
+            return parseIntManual(expr.literalValue).toString()
+        }
         return expr.literalValue
     }
     return "0"

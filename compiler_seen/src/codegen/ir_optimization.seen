@@ -50,19 +50,46 @@ fun parseIntManual(s: String) r: Int {
     var result = 0
     var i = 0
     var negative = 0
+    var base = 10
     if s.length() > 0 {
         if s.byteAt(0) == 45 {
             negative = 1
             i = 1
         }
     }
+    if i + 1 < s.length() {
+        if s.byteAt(i) == 48 {
+            let prefix = s.byteAt(i + 1)
+            if prefix == 120 or prefix == 88 {
+                base = 16
+                i = i + 2
+            }
+            if prefix == 98 or prefix == 66 {
+                base = 2
+                i = i + 2
+            }
+            if prefix == 111 or prefix == 79 {
+                base = 8
+                i = i + 2
+            }
+        }
+    }
     while i < s.length() {
         let b = s.byteAt(i)
-        // ASCII '0'=48, '9'=57: digit value = b - 48
-        if b >= 48 {
-            if b <= 57 {
-                result = result * 10 + (b - 48)
+        var digit = -1
+        if b >= 48 and b <= 57 {
+            digit = b - 48
+        }
+        if digit < 0 and base == 16 {
+            if b >= 65 and b <= 70 {
+                digit = 10 + (b - 65)
             }
+            if b >= 97 and b <= 102 {
+                digit = 10 + (b - 97)
+            }
+        }
+        if digit >= 0 and digit < base {
+            result = result * base + digit
         }
         i = i + 1
     }

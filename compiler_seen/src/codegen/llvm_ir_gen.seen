@@ -9919,12 +9919,133 @@ class LLVMIRGenerator {
                     fieldType = llvmType
                 }
             }
+            if structType == "MacroExpansionResult" {
+                structLayout = lb + " i1, ptr, i64 " + rb
+                if fieldName == "success" {
+                    fieldIndex = 0
+                    fieldType = "i1"
+                }
+                if fieldName == "errors" {
+                    fieldIndex = 1
+                    fieldType = "ptr"
+                }
+                if fieldName == "program" {
+                    fieldIndex = 2
+                    fieldType = "i64"
+                }
+            }
+            if structType == "TypeError" {
+                structLayout = lb + " %SeenString, i64, i64, i64, %SeenString " + rb
+                if fieldName == "message" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                }
+                if fieldName == "location" {
+                    fieldIndex = 1
+                    fieldType = "i64"
+                }
+                if fieldName == "expected" {
+                    fieldIndex = 2
+                    fieldType = "i64"
+                }
+                if fieldName == "actual" {
+                    fieldIndex = 3
+                    fieldType = "i64"
+                }
+                if fieldName == "context" {
+                    fieldIndex = 4
+                    fieldType = "%SeenString"
+                }
+            }
+            if structType == "Type" {
+                structLayout = lb + " %SeenString, i1 " + rb
+                if fieldName == "name" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                }
+                if fieldName == "isNullable" {
+                    fieldIndex = 1
+                    fieldType = "i1"
+                }
+            }
+            if structType == "Location" or structType == "SourceLocation" {
+                structLayout = lb + " i64, i64, %SeenString " + rb
+                if fieldName == "line" {
+                    fieldIndex = 0
+                    fieldType = "i64"
+                }
+                if fieldName == "column" {
+                    fieldIndex = 1
+                    fieldType = "i64"
+                }
+                if fieldName == "file" {
+                    fieldIndex = 2
+                    fieldType = "%SeenString"
+                }
+            }
+            if structType == "AstNode" {
+                structLayout = lb + " %SeenString, i64, i64, i64, i64, i64, %SeenString, i1, i1, i1, i1, i1, i1 " + rb
+                if fieldName == "nodeType" {
+                    fieldIndex = 0
+                    fieldType = "%SeenString"
+                }
+                if fieldName == "functionNode" {
+                    fieldIndex = 1
+                    fieldType = "i64"
+                }
+                if fieldName == "classNode" {
+                    fieldIndex = 2
+                    fieldType = "i64"
+                }
+                if fieldName == "statementNode" {
+                    fieldIndex = 3
+                    fieldType = "i64"
+                }
+                if fieldName == "expressionNode" {
+                    fieldIndex = 4
+                    fieldType = "i64"
+                }
+                if fieldName == "blockNode" {
+                    fieldIndex = 5
+                    fieldType = "i64"
+                }
+                if fieldName == "errorMessage" {
+                    fieldIndex = 6
+                    fieldType = "%SeenString"
+                }
+                if fieldName == "hasFunction" {
+                    fieldIndex = 7
+                    fieldType = "i1"
+                }
+                if fieldName == "hasClass" {
+                    fieldIndex = 8
+                    fieldType = "i1"
+                }
+                if fieldName == "hasStatement" {
+                    fieldIndex = 9
+                    fieldType = "i1"
+                }
+                if fieldName == "hasExpression" {
+                    fieldIndex = 10
+                    fieldType = "i1"
+                }
+                if fieldName == "hasBlock" {
+                    fieldIndex = 11
+                    fieldType = "i1"
+                }
+                if fieldName == "isError" {
+                    fieldIndex = 12
+                    fieldType = "i1"
+                }
+            }
             // Delegate to unified struct field lookup in ir_type_info
-            let knownLayout = resolveKnownStructFieldImpl(structType, fieldName)
-            if knownLayout != "" {
-                structLayout = knownLayout
-                fieldIndex = g_resolvedFieldIndex
-                fieldType = decodeFieldTypeCode(g_resolvedFieldTypeCode)
+            if structType != "MacroExpansionResult" and structType != "TypeError" and structType != "Type" and structType != "Location" and structType != "SourceLocation" and structType != "AstNode" {
+                let knownLayout = resolveKnownStructFieldImpl(structType, fieldName)
+                if knownLayout != "" {
+                    structLayout = knownLayout
+                    fieldIndex = g_resolvedFieldIndex
+                    fieldType = decodeFieldTypeCode(g_resolvedFieldTypeCode)
+                }
             }
         }
 
@@ -10007,6 +10128,7 @@ class LLVMIRGenerator {
         if structType == "FrontendResult" and fieldName == "diagnostics" { return true }
         if structType == "ImportPathInfo" and fieldName == "segments" { return true }
         if structType == "TypeInferenceResult" and (fieldName == "errors" or fieldName == "warnings") { return true }
+        if structType == "MacroExpansionResult" and fieldName == "errors" { return true }
         if structType == "FunctionNode" and fieldName == "params" { return true }
         if structType == "ClassNode" and (fieldName == "fields" or fieldName == "methods" or fieldName == "decorators") { return true }
         if structType == "ParserExpressionNode" and (fieldName == "operands" or fieldName == "arguments") { return true }
@@ -10020,6 +10142,9 @@ class LLVMIRGenerator {
         if structType == "FrontendResult" and fieldName == "program" { return true }
         if structType == "ItemNode" and (fieldName == "function" or fieldName == "classNode" or fieldName == "enumNode") { return true }
         if structType == "TypeInferenceResult" and (fieldName == "type" or fieldName == "environment") { return true }
+        if structType == "MacroExpansionResult" and fieldName == "program" { return true }
+        if structType == "ComptimeValue" and fieldName == "astValue" { return true }
+        if structType == "AstNode" and (fieldName == "functionNode" or fieldName == "classNode" or fieldName == "statementNode" or fieldName == "expressionNode" or fieldName == "blockNode") { return true }
         // Note: FunctionNode.returnType is inline data type (TypeNode), not a class
         if structType == "FunctionNode" and fieldName == "body" { return true }
         if structType == "FunctionType" and fieldName == "returnType" { return true }
@@ -10061,11 +10186,54 @@ class LLVMIRGenerator {
                 fieldIndex = idx
             }
         }
+        if structType == "MacroExpansionResult" {
+            structLayout = lb + " i1, ptr, i64 " + rb
+            if fieldName == "success" { fieldIndex = 0 }
+            if fieldName == "errors" { fieldIndex = 1 }
+            if fieldName == "program" { fieldIndex = 2 }
+        }
+        if structType == "TypeError" {
+            structLayout = lb + " %SeenString, i64, i64, i64, %SeenString " + rb
+            if fieldName == "message" { fieldIndex = 0 }
+            if fieldName == "location" { fieldIndex = 1 }
+            if fieldName == "expected" { fieldIndex = 2 }
+            if fieldName == "actual" { fieldIndex = 3 }
+            if fieldName == "context" { fieldIndex = 4 }
+        }
+        if structType == "Type" {
+            structLayout = lb + " %SeenString, i1 " + rb
+            if fieldName == "name" { fieldIndex = 0 }
+            if fieldName == "isNullable" { fieldIndex = 1 }
+        }
+        if structType == "Location" or structType == "SourceLocation" {
+            structLayout = lb + " i64, i64, %SeenString " + rb
+            if fieldName == "line" { fieldIndex = 0 }
+            if fieldName == "column" { fieldIndex = 1 }
+            if fieldName == "file" { fieldIndex = 2 }
+        }
+        if structType == "AstNode" {
+            structLayout = lb + " %SeenString, i64, i64, i64, i64, i64, %SeenString, i1, i1, i1, i1, i1, i1 " + rb
+            if fieldName == "nodeType" { fieldIndex = 0 }
+            if fieldName == "functionNode" { fieldIndex = 1 }
+            if fieldName == "classNode" { fieldIndex = 2 }
+            if fieldName == "statementNode" { fieldIndex = 3 }
+            if fieldName == "expressionNode" { fieldIndex = 4 }
+            if fieldName == "blockNode" { fieldIndex = 5 }
+            if fieldName == "errorMessage" { fieldIndex = 6 }
+            if fieldName == "hasFunction" { fieldIndex = 7 }
+            if fieldName == "hasClass" { fieldIndex = 8 }
+            if fieldName == "hasStatement" { fieldIndex = 9 }
+            if fieldName == "hasExpression" { fieldIndex = 10 }
+            if fieldName == "hasBlock" { fieldIndex = 11 }
+            if fieldName == "isError" { fieldIndex = 12 }
+        }
         // Delegate to unified struct field lookup in ir_type_info
-        let knownLayout2 = resolveKnownStructFieldImpl(structType, fieldName)
-        if knownLayout2 != "" {
-            structLayout = knownLayout2
-            fieldIndex = g_resolvedFieldIndex
+        if structType != "MacroExpansionResult" and structType != "TypeError" and structType != "Type" and structType != "Location" and structType != "SourceLocation" and structType != "AstNode" {
+            let knownLayout2 = resolveKnownStructFieldImpl(structType, fieldName)
+            if knownLayout2 != "" {
+                structLayout = knownLayout2
+                fieldIndex = g_resolvedFieldIndex
+            }
         }
 
         // Generate GEP to field (without loading)
@@ -10208,29 +10376,37 @@ class LLVMIRGenerator {
                 }
             }
             if structIdx < 0 {
-                // Hardcoded fallback — delegated to ir_struct_gen.seen
-                var fbGepBox = Array<Int>()
-                fbGepBox.push(fieldIdx)
-                let fbType = resolveStructLiteralFieldFallback(structName, fieldName, fbGepBox)
-                if fbType != "" {
-                    gepIndex = fbGepBox[0]
-                    fieldType = fbType
+                // Reuse known-struct metadata even when the type was not registered
+                // in the local struct table for this module.
+                let knownFieldLayout = resolveKnownStructFieldImpl(structName, fieldName)
+                if knownFieldLayout != "" {
+                    gepIndex = g_resolvedFieldIndex
+                    fieldType = decodeFieldTypeCode(g_resolvedFieldTypeCode)
                 } else {
-                    // Infer field type from expression
-                    if fieldExpr.operands.length() > 0 {
-                        let valueExpr = fieldExpr.operands[0]
-                        if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
-                            fieldType = "%SeenString"
-                        } else if valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
-                            fieldType = "i1"
-                        } else if valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
-                            fieldType = "ptr"
-                        } else if valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
-                            fieldType = "%" + quoteIdentIfNeeded(valueExpr.literalType)
-                        } else if valueExpr.kind == "MethodCall" {
-                            let calleeType = inferExpressionType(valueExpr)
-                            if isDataType(calleeType) {
-                                fieldType = "%" + quoteIdentIfNeeded(calleeType)
+                    // Hardcoded fallback — delegated to ir_struct_gen.seen
+                    var fbGepBox = Array<Int>()
+                    fbGepBox.push(fieldIdx)
+                    let fbType = resolveStructLiteralFieldFallback(structName, fieldName, fbGepBox)
+                    if fbType != "" {
+                        gepIndex = fbGepBox[0]
+                        fieldType = fbType
+                    } else {
+                        // Infer field type from expression
+                        if fieldExpr.operands.length() > 0 {
+                            let valueExpr = fieldExpr.operands[0]
+                            if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
+                                fieldType = "%SeenString"
+                            } else if valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
+                                fieldType = "i1"
+                            } else if valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
+                                fieldType = "ptr"
+                            } else if valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
+                                fieldType = "%" + quoteIdentIfNeeded(valueExpr.literalType)
+                            } else if valueExpr.kind == "MethodCall" {
+                                let calleeType = inferExpressionType(valueExpr)
+                                if isDataType(calleeType) {
+                                    fieldType = "%" + quoteIdentIfNeeded(calleeType)
+                                }
                             }
                         }
                     }
@@ -12738,7 +12914,7 @@ class LLVMIRGenerator {
 
         if methodName == "length" or methodName == "len" or methodName == "size" {
             // Non-array collection types need class method convertReceiverToPtr
-            let isNonArrayColl = receiverType.startsWith("List<") or receiverType == "List" or receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("Map<") or receiverType == "Map" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap"
+            let isNonArrayColl = receiverType.startsWith("List<") or receiverType == "List" or receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap"
             if isNonArrayColl {
                 let collectionPtrReg = convertReceiverToPtr(receiverReg, receiverType)
                 let resultReg = getNextReg()

@@ -308,7 +308,7 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
         if structName == "InterfaceType" {
             if fieldName == "name" { return "String" }
         }
-        if structName == "Location" {
+        if structName == "Location" or structName == "SourceLocation" {
             if fieldName == "line" { return "Int" }
             if fieldName == "column" { return "Int" }
             if fieldName == "file" { return "String" }
@@ -344,6 +344,21 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
             if fieldName == "recursionLimit" { return "Int" }
             if fieldName == "currentDepth" { return "Int" }
             if fieldName == "errors" { return "Array<String>" }
+        }
+        if structName == "AstNode" {
+            if fieldName == "nodeType" { return "String" }
+            if fieldName == "functionNode" { return "FunctionNode" }
+            if fieldName == "classNode" { return "ClassNode" }
+            if fieldName == "statementNode" { return "StatementNode" }
+            if fieldName == "expressionNode" { return "ParserExpressionNode" }
+            if fieldName == "blockNode" { return "BlockNode" }
+            if fieldName == "errorMessage" { return "String" }
+            if fieldName == "hasFunction" { return "Bool" }
+            if fieldName == "hasClass" { return "Bool" }
+            if fieldName == "hasStatement" { return "Bool" }
+            if fieldName == "hasExpression" { return "Bool" }
+            if fieldName == "hasBlock" { return "Bool" }
+            if fieldName == "isError" { return "Bool" }
         }
         // IR classes from ir/interfaces.seen
         if structName == "IRGenerator" {
@@ -846,6 +861,10 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
         if methodName == "hasErrors" { return "Bool" }
         if methodName == "addError" { return "Void" }
     }
+    if structName == "ComptimeInterpreter" {
+        if methodName == "evaluate" { return "ComptimeValue" }
+        if methodName == "getErrors" { return "Array<String>" }
+    }
     // String class methods
     if structName == "String" {
         if methodName == "charAt" { return "Char" }
@@ -1180,8 +1199,8 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
         if methodName == "fromJson" { return "Range?" }
         if methodName == "toJson" { return "JsonValue" }
     }
-    if structName == "Location" {
-        if methodName == "new" { return "Location" }
+    if structName == "Location" or structName == "SourceLocation" {
+        if methodName == "new" { return structName }
         if methodName == "toJson" { return "JsonValue" }
     }
     if structName == "TextDocumentIdentifier" {

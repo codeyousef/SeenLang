@@ -1,0 +1,23 @@
+fun plusLength(text: String) r: Int {
+    return 1 + text.length()
+}
+
+fun isEmpty(text: String) r: Int {
+    if text == "" {
+        return 1
+    }
+    return 0
+}
+
+fun main() r: Int {
+    if plusLength("ok") != 3 {
+        return 1
+    }
+    if isEmpty("") != 1 {
+        return 2
+    }
+    if isEmpty("x") != 0 {
+        return 3
+    }
+    return 0
+}

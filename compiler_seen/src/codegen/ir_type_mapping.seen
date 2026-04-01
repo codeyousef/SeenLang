@@ -2,6 +2,7 @@
 // Extracted from ir_type_info.seen
 
 import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_type_info.{g_resolvedFieldIndex, g_resolvedFieldTypeCode}
 
 fun parseSimpleIntImpl(s: String) r: Int {
     if s == "" { return -9999999 }
@@ -428,10 +429,10 @@ fun isClassTypeImpl(name: String, structNames: Array<String>) r: Int {
     if findStructIdx(structNames, baseType) >= 0 {
         return 1
     }
-    if baseType == "FrontendResult" or baseType == "LLVMIRGenerator" or baseType == "ProgramNode" or baseType == "FrontendDiagnostic" or baseType == "Point" or baseType == "TypeInferenceResult" or baseType == "TypeChecker" or baseType == "RealParser" or baseType == "SeenLexer" or baseType == "TypeError" or baseType == "Location" or baseType == "Type" or baseType == "FsFileResult" or baseType == "FsFile" or baseType == "Result" or baseType == "Unit" or baseType == "Optional" or baseType == "Option" or baseType == "FunctionNode" or baseType == "ClassNode" or baseType == "EnumNode" or baseType == "BlockNode" or baseType == "Environment" or baseType == "ImportNode" or baseType == "Token" or baseType == "StringBuilder" or baseType == "Map" or baseType == "Vec" or baseType == "VecChunk" or baseType == "VecSlot" {
+    if baseType == "FrontendResult" or baseType == "LLVMIRGenerator" or baseType == "ProgramNode" or baseType == "FrontendDiagnostic" or baseType == "Point" or baseType == "TypeInferenceResult" or baseType == "TypeChecker" or baseType == "RealParser" or baseType == "SeenLexer" or baseType == "TypeError" or baseType == "Location" or baseType == "SourceLocation" or baseType == "Type" or baseType == "FsFileResult" or baseType == "FsFile" or baseType == "Result" or baseType == "Unit" or baseType == "Optional" or baseType == "Option" or baseType == "FunctionNode" or baseType == "ClassNode" or baseType == "EnumNode" or baseType == "BlockNode" or baseType == "Environment" or baseType == "ImportNode" or baseType == "Token" or baseType == "StringBuilder" or baseType == "Map" or baseType == "Vec" or baseType == "VecChunk" or baseType == "VecSlot" {
         return 1
     }
-    if baseType == "StatementNode" or baseType == "ParserExpressionNode" or baseType == "LexerError" or baseType == "KeywordManager" or baseType == "ClassType" or baseType == "FunctionType" or baseType == "InterfaceType" or baseType == "ImportSymbolNode" or baseType == "ItemNode" or baseType == "ParamNode" {
+    if baseType == "StatementNode" or baseType == "ParserExpressionNode" or baseType == "LexerError" or baseType == "KeywordManager" or baseType == "ClassType" or baseType == "FunctionType" or baseType == "InterfaceType" or baseType == "ImportSymbolNode" or baseType == "ItemNode" or baseType == "ParamNode" or baseType == "AstNode" or baseType == "ComptimeValue" {
         return 1
     }
     if baseType == "JsonValue" or baseType == "JsonParser" or baseType == "JsonBuilder" {
@@ -697,6 +698,12 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String
         if fieldName == "environment" { g_resolvedFieldIndex = 4; g_resolvedFieldTypeCode = 0 }
         return lb + " i1, i64, ptr, ptr, i64 " + rb
     }
+    if structType == "MacroExpansionResult" {
+        if fieldName == "success" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
+        if fieldName == "errors" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 2 }
+        if fieldName == "program" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
+        return lb + " i1, ptr, i64 " + rb
+    }
     if structType == "FsFileResult" {
         if fieldName == "isOk" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
         if fieldName == "file" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
@@ -798,7 +805,7 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String
         if fieldName == "name" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 3 }
         return lb + " %SeenString " + rb
     }
-    if structType == "Location" {
+    if structType == "Location" or structType == "SourceLocation" {
         if fieldName == "line" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
         if fieldName == "column" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
         if fieldName == "file" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }

@@ -297,37 +297,49 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
     if importPath.length() > 0 {
         let firstSegment = importPath[0]
         if firstSegment == "lexer" or firstSegment == "parser" or firstSegment == "typechecker" or firstSegment == "macro" or firstSegment == "bootstrap" or firstSegment == "codegen" or firstSegment == "lsp" or firstSegment == "tools" or firstSegment == "optimization" or firstSegment == "trace" or firstSegment == "ir" or firstSegment == "types" or firstSegment == "testing" or firstSegment == "ffi" {
-            var compilerPath = "compiler_seen/src/"
+            var compilerBase = "compiler_seen/src/"
             let compRoot = getCompilerRoot()
             if compRoot != "" {
-                compilerPath = compRoot + "/compiler_seen/src/"
+                compilerBase = compRoot + "/compiler_seen/src/"
             }
             var ci = 0
             while ci < importPath.length() {
                 if ci > 0 {
-                    compilerPath = compilerPath + "/"
+                    compilerBase = compilerBase + "/"
                 }
-                compilerPath = compilerPath + importPath[ci]
+                compilerBase = compilerBase + importPath[ci]
                 ci = ci + 1
             }
-            return compilerPath + ".seen"
+            let compilerModPath = compilerBase + "/mod.seen"
+            let compilerDirectPath = compilerBase + ".seen"
+            let compilerModContent = readText(compilerModPath)
+            if compilerModContent != "" {
+                return compilerModPath
+            }
+            return compilerDirectPath
         }
         if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "framework" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
             // This is a stdlib import — resolve from compiler root
-            var filePath = "seen_std/src/"
+            var stdlibBase = "seen_std/src/"
             let compRoot = getCompilerRoot()
             if compRoot != "" {
-                filePath = compRoot + "/seen_std/src/"
+                stdlibBase = compRoot + "/seen_std/src/"
             }
             var i = 0
             while i < importPath.length() {
                 if i > 0 {
-                    filePath = filePath + "/"
+                    stdlibBase = stdlibBase + "/"
                 }
-                filePath = filePath + importPath[i]
+                stdlibBase = stdlibBase + importPath[i]
                 i = i + 1
             }
-            return filePath + ".seen"
+            let stdlibModPath = stdlibBase + "/mod.seen"
+            let stdlibDirectPath = stdlibBase + ".seen"
+            let stdlibModContent = readText(stdlibModPath)
+            if stdlibModContent != "" {
+                return stdlibModPath
+            }
+            return stdlibDirectPath
         }
     }
 
@@ -421,11 +433,10 @@ fun containsPath(paths: Array<String>, path: String) r: Bool {
 }
 
 // Collect all module paths needed for compilation (without storing ASTs).
-// Parses the main file to discover imports, then adds hard-coded bootstrap
-// modules when compiling the compiler itself (detected by "main_compiler.seen"
-// in the input path). Returns paths in dependency order: main file first,
-// then discovered imports, then bootstrap modules (lexer, parser, typechecker,
-// codegen, stdlib, optimization, LSP).
+// For regular compilations this walks imports recursively so standalone builds
+// include transitive dependencies. For bootstrap compilation we keep the older
+// behavior of parsing only the main file, then appending the curated compiler
+// module list below. Returns paths in discovery order with duplicates removed.
 // The AST from import discovery is released before returning to bound memory.
 fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
     var paths = Array<String>()
@@ -434,29 +445,40 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
     paths.push(inputFile)
     processedPaths.push(inputFile)
 
-    let sourceDir = getSourceDir(inputFile)
     let isBootstrap = inputFile.contains("main_compiler.seen")
 
-    // Parse main file to discover imports (AST released after this block)
+    // Parse imports into a worklist. Non-bootstrap builds recurse through the
+    // full import graph; bootstrap still uses the curated module list below.
     if not quiet {
         println("    Discovering imports from main file...")
     }
-    let mainFrontend = parseModule(inputFile, "en")
-    if mainFrontend.success {
-        var itemIdx = 0
-        while itemIdx < mainFrontend.program.items.length() {
-            let item = mainFrontend.program.items[itemIdx]
-            if item.itemType == "Import" {
-                let importFilePath = resolveImportPath(item.importPath, sourceDir)
-                if not containsPath(processedPaths, importFilePath) {
-                    paths.push(importFilePath)
-                    processedPaths.push(importFilePath)
-                }
-            }
-            itemIdx = itemIdx + 1
+    var discoverIdx = 0
+    while discoverIdx < paths.length() {
+        if isBootstrap and discoverIdx > 0 {
+            break
         }
+
+        let currentPath = paths[discoverIdx]
+        let sourceDir = getSourceDir(currentPath)
+        let frontend = parseModule(currentPath, "en")
+        if frontend.success {
+            var itemIdx = 0
+            while itemIdx < frontend.program.items.length() {
+                let item = frontend.program.items[itemIdx]
+                if item.itemType == "Import" {
+                    let importFilePath = resolveImportPath(item.importPath, sourceDir)
+                    let isCompilerRuntimeBackedStdlib = importFilePath == "seen_std/src/str/string.seen" or importFilePath == "seen_std/src/core/option.seen" or importFilePath == "seen_std/src/core/result.seen" or importFilePath == "seen_std/src/collections/map.seen" or importFilePath.endsWith("/seen_std/src/str/string.seen") or importFilePath.endsWith("/seen_std/src/core/option.seen") or importFilePath.endsWith("/seen_std/src/core/result.seen") or importFilePath.endsWith("/seen_std/src/collections/map.seen")
+                    let skipCompilerStdlib = not isBootstrap and currentPath != inputFile and inputFile.contains("/compiler_seen/") and isCompilerRuntimeBackedStdlib
+                    if not skipCompilerStdlib and not containsPath(processedPaths, importFilePath) {
+                        paths.push(importFilePath)
+                        processedPaths.push(importFilePath)
+                    }
+                }
+                itemIdx = itemIdx + 1
+            }
+        }
+        discoverIdx = discoverIdx + 1
     }
-    // mainFrontend.program (AST) goes out of scope here
 
     // Add bootstrap modules if compiling the compiler
     if isBootstrap {
@@ -1287,11 +1309,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // and the IR generator to emit incomplete forward references. Catching
     // this early gives a clear diagnostic instead of a cryptic linker error.
     let depPaths = collectModulePaths(resolvedInput, true)
-    let sourceDir = getSourceDir(resolvedInput)
     var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
     var depIdx = 0
     while depIdx < depPaths.length() {
         let depPath = depPaths[depIdx]
+        let depSourceDir = getSourceDir(depPath)
         let depFe = parseModule(depPath, language)
         var edges = depPath
         if depFe.success {
@@ -1299,7 +1321,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             while depItemIdx < depFe.program.items.length() {
                 let depItem = depFe.program.items[depItemIdx]
                 if depItem.itemType == "Import" {
-                    let depTarget = resolveImportPath(depItem.importPath, sourceDir)
+                    let depTarget = resolveImportPath(depItem.importPath, depSourceDir)
                     edges = edges + "|" + depTarget
                 }
                 depItemIdx = depItemIdx + 1

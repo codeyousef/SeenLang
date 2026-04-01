@@ -1,29 +1,20 @@
 import bootstrap.frontend.{run_frontend}
+import lexer.{SeenLexer, LexerError}
+import parser.real_parser.{RealParser, ProgramNode}
+import typechecker.interfaces.{TypeChecker, TypeError}
+import macro.expander.{MacroExpander, MacroExpansionResult}
 
 fun main() r: Int {
-    let snippet = """
-fun demo() r: Int {
-    let value = 10
-    return value
-}
-"""
-
-    let result = run_frontend(snippet, "inline_demo", "en")
+    let result = run_frontend("fun demo() r: Int { return 10 }", "inline_demo", "en")
     if not result.success {
-        println("frontend failed unexpectedly")
-        for diag in result.diagnostics {
-            println("{diag.severity}: {diag.message}")
-        }
         return 1
     }
-
-    if result.hasWarnings() {
-        for diag in result.diagnostics {
-            if diag.severity == "warning" {
-                println("warning: {diag.message}")
-            }
-        }
+    if result.program.items.length() == 0 {
+        return 2
     }
-
+    let firstItem = result.program.items[0]
+    if firstItem.itemType != "Function" or firstItem.name != "demo" {
+        return 3
+    }
     return 0
 }

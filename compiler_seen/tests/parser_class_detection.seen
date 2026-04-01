@@ -1,33 +1,36 @@
-import lexer.real_lexer.{RealLexer}
-import parser.real_parser.{RealParser}
+import bootstrap.frontend.{run_frontend}
+import lexer.{SeenLexer, LexerError}
+import parser.real_parser.{RealParser, ProgramNode}
+import typechecker.interfaces.{TypeChecker, TypeError}
+import macro.expander.{MacroExpander, MacroExpansionResult}
 
-fun main() -> Int {
-    let source = """
-class Foo {
-    fun value() -> Int {
-        return 42
+fun main() r: Int {
+    let source = "class Foo { fun value() r: Int { return 42 } }"
+
+    let result = run_frontend(source, "parser_class_detection", "en")
+    if not result.success {
+        println("frontend failed unexpectedly")
+        for diag in result.diagnostics {
+            println("{diag.severity}: {diag.message}")
+        }
+        return 1
     }
-}
-"""
 
-    let lexer = RealLexer.new(source)
-    let tokens = lexer.tokenize()
-    let parser = RealParser.new(tokens)
-    let ast = parser.parse()
+    let ast = result.program
 
-    if ast.Items.length() == 0 {
+    if ast.items.length() == 0 {
         println("parser failed to produce any items")
-        return 1
+        return 2
     }
 
-    let classItem = ast.Items[0]
-    if classItem.ItemType != "Class" {
-        println("expected first item to be a class, found {classItem.ItemType}")
-        return 1
+    let classItem = ast.items[0]
+    if classItem.itemType != "Class" {
+        println("expected first item to be a class, found {classItem.itemType}")
+        return 3
     }
-    if classItem.Name != "Foo" {
-        println("expected class name Foo, found {classItem.Name}")
-        return 1
+    if classItem.name != "Foo" {
+        println("expected class name Foo, found {classItem.name}")
+        return 4
     }
 
     return 0

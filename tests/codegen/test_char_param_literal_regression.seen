@@ -1,0 +1,26 @@
+fun isUpperO(ch: Char) r: Int {
+    if ch == 'O' {
+        return 1
+    }
+    return 0
+}
+
+fun isSlash(ch: Char) r: Int {
+    if ch == '/' {
+        return 1
+    }
+    return 0
+}
+
+fun main() r: Int {
+    if isUpperO('O') != 1 {
+        return 1
+    }
+    if isUpperO('x') != 0 {
+        return 2
+    }
+    if isSlash('/') != 1 {
+        return 3
+    }
+    return 0
+}

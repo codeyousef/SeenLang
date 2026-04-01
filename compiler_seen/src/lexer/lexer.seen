@@ -28,6 +28,38 @@ import lexer.keyword_manager.{KeywordManager}
 import str.string.{StringBuilder}
 import trace.{traceLex, traceLexVerbose, isLexerTracingEnabled, isLexerTraceVerboseEnabled}
 
+fun seenIsUnicodeAlpha(char: Char) r: Bool {
+    return seenIsUnicodeAlphaCodePoint(char.toInt())
+}
+
+fun seenIsUnicodeAlphaCodePoint(cp: Int) r: Bool {
+    if cp >= 19968 and cp <= 40959 { return true }
+    if cp >= 1536 and cp <= 1791 { return true }
+    if cp >= 1024 and cp <= 1279 { return true }
+    if cp >= 880 and cp <= 1023 { return true }
+    if cp >= 1424 and cp <= 1535 { return true }
+    if cp >= 2304 and cp <= 2431 { return true }
+    if cp >= 12352 and cp <= 12447 { return true }
+    if cp >= 12448 and cp <= 12543 { return true }
+    if cp >= 13312 and cp <= 19903 { return true }
+    if cp >= 44032 and cp <= 55215 { return true }
+    if cp >= 192 and cp <= 591 { return true }
+    if cp >= 64336 and cp <= 65023 { return true }
+    if cp >= 65136 and cp <= 65279 { return true }
+    return false
+}
+
+fun seenMakeToken(tokenType: SeenTokenType, value: String, line: Int, column: Int, length: Int, fileId: Int) r: Token {
+    return Token {
+        tokenType: tokenType,
+        value: value,
+        line: line,
+        column: column,
+        length: length,
+        fileId: fileId
+    }
+}
+
 // Main lexer class. Holds the source text, cursor state (position/line/column),
 // and the accumulated token array. One instance per source file.
 //
@@ -219,7 +251,7 @@ class SeenLexer {
 
             // Unknown character — skip full UTF-8 sequence to avoid stuck-on-byte loops
             if errorRecoveryMode {
-                emitErrorToken(char)
+                emitToken(SeenTokenType.Error, char.toString(), 1)
                 let skipLen = utf8ByteLen(position)
                 column = column + 1
                 position = position + skipLen
@@ -237,7 +269,7 @@ class SeenLexer {
                 let snippet = source.substring(start, end)
                 println("Fatal Lexer Error: Unexpected character: " + char + " at " + errLine.toString() + ":" + errCol.toString())
                 println("  context: " + snippet)
-                emitErrorToken(char)
+                emitToken(SeenTokenType.Error, char.toString(), 1)
                 return tokens
             }
         }
@@ -280,6 +312,14 @@ class SeenLexer {
         let tokensSize = tokens.length() * 64  // Estimate 64 bytes per token
         let internalSize = 1024  // Estimate for internal structures
         return sourceSize + tokensSize + internalSize
+    }
+
+    fun emitToken(tokenType: SeenTokenType, tokenValue: String, tokenLength: Int) r: Void {
+        let tokenLine = line
+        let tokenColumn = column - tokenLength
+        let tokenFileId = fileId
+        let token = seenMakeToken(tokenType, tokenValue, tokenLine, tokenColumn, tokenLength, tokenFileId)
+        tokens.push(token)
     }
     
     // Helper methods for tokenization
@@ -330,15 +370,6 @@ class SeenLexer {
         return Position.new(line, column, fileId)
     }
     
-    fun emitToken(type: SeenTokenType, value: String, length: Int) r: Void {
-        let token = Token.new(type, value, line, column - length, length, fileId)
-        tokens.push(token)
-    }
-    
-    fun emitErrorToken(char: Char) r: Void {
-        emitToken(SeenTokenType.Error, char.toString(), 1)
-    }
-    
     fun isWhitespace(char: Char) r: Bool {
         return char == ' ' or char == '\t' or char == '\r' or char == '\n'
     }
@@ -360,59 +391,11 @@ class SeenLexer {
     }
     
     fun isUnicodeAlpha(char: Char) r: Bool {
-        let c = char.toInt()
-        // Unicode alphabetic ranges (simplified for common scripts)
-        // Chinese: 0x4E00-0x9FFF (CJK Unified Ideographs)
-        // Arabic: 0x0600-0x06FF
-        // Cyrillic: 0x0400-0x04FF
-        // Greek: 0x0370-0x03FF
-        // Hebrew: 0x0590-0x05FF
-        // Devanagari (Hindi): 0x0900-0x097F
-        // Hiragana: 0x3040-0x309F
-        // Katakana: 0x30A0-0x30FF
-
-        if c >= 0x4E00 and c <= 0x9FFF { return true }  // Chinese
-        if c >= 0x0600 and c <= 0x06FF { return true }  // Arabic
-        if c >= 0x0400 and c <= 0x04FF { return true }  // Cyrillic (Russian)
-        if c >= 0x0370 and c <= 0x03FF { return true }  // Greek
-        if c >= 0x0590 and c <= 0x05FF { return true }  // Hebrew
-        if c >= 0x0900 and c <= 0x097F { return true }  // Devanagari
-        if c >= 0x3040 and c <= 0x309F { return true }  // Hiragana
-        if c >= 0x30A0 and c <= 0x30FF { return true }  // Katakana
-        if c >= 0x3400 and c <= 0x4DBF { return true }  // CJK Extension A
-        if c >= 0xAC00 and c <= 0xD7AF { return true }  // Hangul (Korean)
-
-        return false
+        return seenIsUnicodeAlpha(char)
     }
 
     fun isUnicodeAlphaCodePoint(cp: Int) r: Bool {
-        // CJK Unified Ideographs
-        if cp >= 19968 and cp <= 40959 { return true }
-        // Arabic
-        if cp >= 1536 and cp <= 1791 { return true }
-        // Cyrillic
-        if cp >= 1024 and cp <= 1279 { return true }
-        // Greek
-        if cp >= 880 and cp <= 1023 { return true }
-        // Hebrew
-        if cp >= 1424 and cp <= 1535 { return true }
-        // Devanagari
-        if cp >= 2304 and cp <= 2431 { return true }
-        // Hiragana
-        if cp >= 12352 and cp <= 12447 { return true }
-        // Katakana
-        if cp >= 12448 and cp <= 12543 { return true }
-        // CJK Extension A
-        if cp >= 13312 and cp <= 19903 { return true }
-        // Hangul
-        if cp >= 44032 and cp <= 55215 { return true }
-        // Latin Extended
-        if cp >= 192 and cp <= 591 { return true }
-        // Arabic Presentation Forms A
-        if cp >= 64336 and cp <= 65023 { return true }
-        // Arabic Presentation Forms B
-        if cp >= 65136 and cp <= 65279 { return true }
-        return false
+        return seenIsUnicodeAlphaCodePoint(cp)
     }
 
     // Decodes a single Unicode code point from the UTF-8 byte sequence at pos.

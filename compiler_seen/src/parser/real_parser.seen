@@ -431,14 +431,6 @@ class RealParser {
         return tokenValue.contains(".") or tokenValue.contains("e") or tokenValue.contains("E")
     }
 
-    fun looksLikeStringLiteral(tokenValue: String) r: Bool {
-        return tokenValue.length() >= 2 and tokenValue.startsWith("\"") and tokenValue.endsWith("\"")
-    }
-
-    fun looksLikeCharLiteral(tokenValue: String) r: Bool {
-        return tokenValue.length() >= 3 and tokenValue.startsWith("'") and tokenValue.endsWith("'")
-    }
-
     // Check whether the current token matches the given type WITHOUT advancing.
     //
     // WHY string comparison instead of enum equality:
@@ -584,6 +576,7 @@ class RealParser {
                         cImportItem.name = "__cImport"
                         cImportItem.function = cImportFn
                         currentProgram.items.push(cImportItem)
+                        traceParse("push Function __cImport")
                         // Remove the cImport decorator from pending
                         pendingDecorators = Array<AnnotationNode>()
                     }
@@ -1287,6 +1280,7 @@ class RealParser {
         item.function = lastFunction
         // trace
         currentProgram.items.push(item)
+        traceParse("push Function " + item.name)
         // trace
     }
 
@@ -2268,6 +2262,7 @@ class RealParser {
             }
         }
 
+        traceParse(msg)
         return
     }
 
@@ -4146,8 +4141,10 @@ class RealParser {
             return makeLiteral(token.getValue(), "Float")
         }
 
-        // String literal
-        if checkToken(SeenTokenType.StringLiteral) and looksLikeStringLiteral(currentValue) {
+        // StringLiteral tokens already carry the unquoted payload from the lexer.
+        // Do not re-check for surrounding quotes here or they fall through into
+        // the name-like path and become VarExpr nodes.
+        if checkToken(SeenTokenType.StringLiteral) {
             let token = advance()
             let rawValue = token.getValue()
             // Strip quotes from the token value if present
@@ -4160,8 +4157,8 @@ class RealParser {
             return makeLiteral(strValue, "String")
         }
 
-        // Character literal
-        if checkToken(SeenTokenType.CharLiteral) and looksLikeCharLiteral(currentValue) {
+        // CharLiteral tokens also carry the raw character payload.
+        if checkToken(SeenTokenType.CharLiteral) {
             let token = advance()
             return makeLiteral(token.getValue(), "Char")
         }
@@ -4547,16 +4544,16 @@ class RealParser {
     }
 
     fun makeLiteral(value: String, typeName: String) r: ParserExpressionNode {
-        // trace
-        let expr = ParserExpressionNode.new()
-        // trace
-        expr.kind = "Literal"
-        // trace
-        expr.literalValue = value
-        // trace
-        expr.literalType = typeName
-        // trace
-        return expr
+        return ParserExpressionNode{
+            kind: "Literal",
+            operands: Array<ParserExpressionNode>(),
+            operator: "",
+            literalValue: value,
+            literalType: typeName,
+            variableName: "",
+            callee: "",
+            arguments: Array<ParserExpressionNode>()
+        }
     }
 
     // Create a variable-reference expression node.
@@ -4744,6 +4741,7 @@ class RealParser {
         item.importPath = importSegments
         item.importSymbols = importSymbols
         currentProgram.items.push(item)
+        traceParse("push Import " + item.name)
     }
 
     fun parseImportPath() r: ImportPathInfo {
