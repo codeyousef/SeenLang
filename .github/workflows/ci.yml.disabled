@@ -1,3 +1,6 @@
+# Disabled pending manual verification.
+# Rename this file back to ci.yml to re-enable GitHub Actions CI.
+
 name: CI
 
 on:

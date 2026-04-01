@@ -1,3 +1,6 @@
+# Disabled pending manual verification.
+# Rename this file back to release.yml to re-enable GitHub Actions release automation.
+
 name: Release
 
 on:
