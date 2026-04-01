@@ -43,3 +43,46 @@ jobs:
 
       - name: Run E2E tests
         run: bash tests/e2e_multilang/run_all_e2e.sh
+
+      - name: Upload compiler artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seen-compiler-linux
+          path: compiler_seen/target/seen
+          if-no-files-found: error
+
+  native-target-matrix:
+    name: Native Target Matrix
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 20 and cross-target dependencies
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main" | sudo tee /etc/apt/sources.list.d/llvm-20.list
+          sudo apt-get update
+          sudo apt-get install -y llvm-20 clang-20 lld-20 libvulkan-dev mingw-w64 libc6-dev-arm64-cross
+          echo "/usr/lib/llvm-20/bin" >> $GITHUB_PATH
+
+      - name: Download compiler artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: seen-compiler-linux
+          path: compiler_seen/target
+
+      - name: Restore compiler executable bit
+        run: chmod +x compiler_seen/target/seen
+
+      - name: Run native target matrix
+        run: bash scripts/platform_matrix.sh --stage3 "$PWD/compiler_seen/target/seen"
+
+      - name: Upload native matrix reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-target-matrix-reports
+          path: artifacts/platform-matrix

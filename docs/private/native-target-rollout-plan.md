@@ -205,23 +205,45 @@
    - `tests/codegen/test_parser_function_body_regression.seen` now passes both `check` and `compile`
 - Separated the remaining nonzero runtime result from the parser bug by running minimal string probes with the rebuilt production compiler: small programs using `String.length()` and `== ""` still compile but return the wrong result even when the parameter is named `value`, so the next blocker is now string runtime/codegen correctness rather than parser corruption.
 
+### Implemented in the fourteenth patch set
+
+- Expanded the default native platform matrix in `scripts/platform_matrix.sh` so the compile-smoke sweep now includes:
+   - `linux-x86_64`
+   - `linux-arm64`
+   - `windows-x86_64`
+   - `macos-x86_64`
+   - `macos-arm64`
+   - `ios-arm64`
+   - `android-arm64`
+- Removed out-of-scope `web-wasm32` from the default platform-matrix run while keeping the explicit web path available for manual use.
+- Fixed Linux report aggregation in `scripts/platform_matrix.sh` so top-level platform status now reflects the compile-smoke outcome instead of being masked by the default runtime-example `skipped` status.
+- Made `scripts/platform_matrix.sh` exit nonzero on real target `failure` states while preserving `unavailable` as nonfatal, so the matrix can now act as a CI gate instead of only emitting JSON.
+- Added a dedicated `native-target-matrix` job to `.github/workflows/ci.yml` that:
+   - downloads the rebuilt compiler artifact from the main Ubuntu build job
+   - installs MinGW and Linux ARM64 cross prerequisites on the runner
+   - runs `scripts/platform_matrix.sh`
+   - uploads the generated native-matrix reports as workflow artifacts
+- Re-ran the focused string regression `tests/codegen/test_string_param_literal_regression.seen` with the current production compiler and confirmed it now compiles and runs successfully with exit status `0`, so the earlier isolated string-runtime note no longer reproduces via that regression.
+- Locally validated the updated matrix script on the current Linux host with:
+   - `linux-x86_64`: real smoke run completed successfully
+   - `linux-arm64`: honest `unavailable` status without a local ARM64 sysroot
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
 - Validate the reduced Windows default link-library baseline on a real MinGW/LLVM toolchain and add back only the Windows system libraries that are proven necessary.
 - Validate Android NDK-backed runtime, GPU runtime, and final link behavior on a real NDK installation.
 - Validate cross-target release-mode builds after the merged-`llc` path bypass so ThinLTO-backed per-module linking remains correct for the native target matrix.
-- Expand the smoke-backed platform matrix into artifact inspection and CI-managed target jobs.
-- Add CI coverage for the new target matrix.
+- Extend the new CI-managed native matrix beyond Ubuntu so Apple targets run on hosts with `xcrun` and Android runs on hosts with a real NDK instead of remaining `unavailable`.
 - Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
 - Root-cause the later `S2->S3` self-host segfault that still occurs after the parser-side `FunctionNode.returnType` handoff fix. The focused constructor/void-method regressions are now validated, but full bootstrap verification is again failing with `exit=139` on this host.
-- Root-cause the newly isolated string runtime/codegen correctness bug in the rebuilt production compiler: parser corruption around direct `data` expressions is fixed, but minimal `String.length()` and empty-string equality probes still return the wrong result at runtime.
+- Re-establish or retire the earlier string runtime/codegen bug with a fresh failing repro; the focused `String.length()` / empty-string equality regression now passes with the current production compiler.
 
 ### Current implementation posture
 
 The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation, the later self-host segfault, and Windows-specific hardening rather than missing compiler routing.
 
-The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros. On the current Linux host, the rebuilt production compiler still emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and the current post-fix compiler refresh is again limited more by incomplete `S2->S3` verification and a newly isolated string runtime/codegen correctness bug than by target-routing gaps. Native-target validation now has the constructor-plus-void-method regression, the top-level `Void` free-function lowering check, and the parser function-body regression all compiling with the production compiler, while the remaining runtime mismatch has been narrowed to shared string behavior rather than native-target selection.
+The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros. On the current Linux host, the rebuilt production compiler still emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, Apple targets remain unavailable without `xcrun`, Android stays unavailable without an NDK, and the native platform matrix is now CI-gateable on Ubuntu with uploaded reports. Native-target validation now has the constructor-plus-void-method regression, the top-level `Void` free-function lowering check, the parser function-body regression, and the focused string literal regression all compiling with the production compiler, while the most important unresolved risks are again the later `S2->S3` verification failure and real-toolchain validation breadth rather than missing target routing.
 
 ## Goal
 
@@ -259,8 +281,8 @@ This plan is intentionally ordered by compiler risk, toolchain complexity, and c
 - Linux ARM64 cross-compilation now requires an explicit ARM64 sysroot on non-ARM64 hosts instead of falling through host glibc headers; the compiler probes `SEEN_LINUX_ARM64_SYSROOT` and common system paths before attempting the runtime build.
 - Auxiliary runtimes are now target-aware, but `seen_region.c` is intentionally capability-gated because it is not yet portable across the full native target matrix.
 - Cross-target release builds now avoid the host-native merged `llc` path, but still need validation under real Windows and Android toolchains.
-- A first compile-only smoke harness now exists for the native target matrix, but it still needs CI integration and real cross-toolchain execution coverage.
-- The existing platform matrix now surfaces real smoke status for native non-Linux targets instead of placeholder JSON, but it still needs CI execution on hosts that actually provide those SDKs and cross toolchains.
+- A first compile-only smoke harness now exists for the native target matrix, and the platform matrix is now wired into Ubuntu CI with report artifacts, but it still needs real cross-toolchain execution coverage on Apple and Android-capable hosts.
+- The existing platform matrix now surfaces real smoke status for the native targets instead of placeholder JSON, but Apple and Android entries still remain host-prerequisite `unavailable` on Linux CI until those SDKs are provisioned on matching runners.
 - Cross-target GPU runtime compilation is now attempted per target, but still needs validation on real Android and Windows toolchains.
 - Cache reuse is now namespaced by effective target and compile mode in the stage compiler, but that isolation still needs broader validation across release, sanitizer, and profile combinations.
 - The current parser-side return-type handoff fix still rebuilds a usable Stage2 compiler from the frozen bootstrap, but `scripts/safe_rebuild.sh` is currently falling back to that recovered Stage2 compiler because `S2->S3` verification is again failing with `exit=139` on this host.

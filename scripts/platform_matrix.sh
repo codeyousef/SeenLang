@@ -9,16 +9,17 @@ SMOKE_HARNESS="$ROOT_DIR/scripts/native_target_smoke.sh"
 RUN_LINUX_RUNTIME=0
 PLATFORMS=(
   "linux-x86_64"
+  "linux-arm64"
   "windows-x86_64"
+  "macos-x86_64"
   "macos-arm64"
   "android-arm64"
   "ios-arm64"
-  "web-wasm32"
 )
 
 usage() {
   cat <<'USAGE'
-platform_matrix.sh - Smoke test Stage3 toolchain across supported platforms.
+platform_matrix.sh - Smoke test Stage3 toolchain across native platforms.
 
 Usage: scripts/platform_matrix.sh [options]
 
@@ -90,6 +91,8 @@ else
   TARGET_PLATFORMS=("${PLATFORMS[@]}")
 fi
 
+has_failures=0
+
 run_linux() {
   local platform="$1"
   local report="$2"
@@ -100,6 +103,8 @@ run_linux() {
   local smoke_log="$smoke_dir/$platform/build.log"
   local runtime_status="success"
   local runtime_message=""
+  local platform_status="success"
+  local platform_message=""
 
   mkdir -p "$smoke_dir"
 
@@ -108,7 +113,17 @@ run_linux() {
   fi
   parse_smoke_summary "$smoke_dir" "$platform" smoke_status smoke_artifact smoke_note
 
-  if [[ "$RUN_LINUX_RUNTIME" -eq 1 ]]; then
+  if [[ "$smoke_status" == "failure" ]]; then
+    platform_status="failure"
+    runtime_status="skipped"
+    runtime_message="Linux runtime examples skipped because compile smoke failed"
+    platform_message="$smoke_note"
+  elif [[ "$smoke_status" == "unavailable" ]]; then
+    platform_status="unavailable"
+    runtime_status="skipped"
+    runtime_message="Linux runtime examples skipped because compile smoke was unavailable"
+    platform_message="$smoke_note"
+  elif [[ "$RUN_LINUX_RUNTIME" -eq 1 ]]; then
     if ! run_with_timeout_capture /tmp/linux_ecs_run.log "$STAGE3_BIN" run "$ROOT_DIR/examples/seen-ecs-min/main.seen"; then
       runtime_status="failure"
       runtime_message="failed to run seen-ecs-min"
@@ -120,15 +135,27 @@ run_linux() {
         runtime_message="failed to run seen-vulkan-min"
       fi
     fi
+
+    if [[ "$runtime_status" == "failure" ]]; then
+      platform_status="failure"
+      platform_message="$runtime_message"
+    else
+      platform_message="$smoke_note"
+    fi
   else
     runtime_status="skipped"
     runtime_message="Linux runtime examples skipped; pass --with-runtime to execute them"
+    platform_message="$runtime_message"
+  fi
+
+  if [[ -z "$platform_message" ]]; then
+    platform_message="$smoke_note"
   fi
 
   cat > "$report" <<JSON
 {
   "platform": "$platform",
-  "status": "$runtime_status",
+  "status": "$platform_status",
   "stage3": "${STAGE3_BIN}",
   "smoke_status": "$smoke_status",
   "smoke_artifact": "$(json_escape "$smoke_artifact")",
@@ -137,7 +164,8 @@ run_linux() {
   "ecs_log": "$(json_escape_file /tmp/linux_ecs.log)",
   "ecs_run_log": "$(json_escape_file /tmp/linux_ecs_run.log)",
   "vulkan_log": "$(json_escape_file /tmp/linux_vulkan.log)",
-  "message": "$(json_escape "$runtime_message")"
+  "runtime_status": "$runtime_status",
+  "message": "$(json_escape "$platform_message")"
 }
 JSON
 }
@@ -248,6 +276,14 @@ JSON
       exit 1
       ;;
   esac
+
+  report_status="$(awk -F '"' '/^  "status":/ { print $4; exit }' "$report")"
+  if [[ "$report_status" == "failure" ]]; then
+    has_failures=1
+  fi
  done
 
 echo "Platform reports written to $REPORT_DIR"
+if [[ "$has_failures" -ne 0 ]]; then
+  exit 1
+fi
