@@ -1068,6 +1068,37 @@ class LLVMIRGenerator {
         return
     }
 
+    fun getFloatParamRegistryName(fn: FunctionNode) r: String {
+        var registryName = fn.name
+        if fn.params.length() > 0 {
+            let firstParam = fn.params[0]
+            if firstParam.name == "this" {
+                let firstParamType = firstParam.paramType.typeName
+                if isClassType(firstParamType) {
+                    let expectedPrefix = firstParamType + "_"
+                    if not registryName.startsWith(expectedPrefix) {
+                        registryName = expectedPrefix + registryName
+                    }
+                }
+            }
+        }
+        return registryName
+    }
+
+    fun registerFloatParamMetadata(funcName: String, params: Array<ParamNode>) r: Void {
+        var paramIdx = 0
+        while paramIdx < params.length() {
+            let paramTypeName = normalizeDeclaredTypeNode(params[paramIdx].paramType)
+            if paramTypeName == "Float" {
+                if not hasFloatParamFuncImpl(funcName, paramIdx, g_floatParamFuncNames, g_floatParamParamIdxs) {
+                    g_floatParamFuncNames.push(funcName)
+                    g_floatParamParamIdxs.push(paramIdx)
+                }
+            }
+            paramIdx = paramIdx + 1
+        }
+    }
+
     // Register known data types from the parser that are used as value types
     // These need to be manually registered because 'data' definitions aren't
     // captured as program items like 'class' definitions
@@ -1118,15 +1149,7 @@ class LLVMIRGenerator {
                     if method.isAsync {
                         registerAsyncFunction(mangledName, methodRetTypeName)
                     }
-                    var mFloatIdx = 0
-                    while mFloatIdx < method.params.length() {
-                        let mFloatParamType = normalizeDeclaredTypeNode(method.params[mFloatIdx].paramType)
-                        if mFloatParamType == "Float" {
-                            g_floatParamFuncNames.push(mangledName)
-                            g_floatParamParamIdxs.push(mFloatIdx)
-                        }
-                        mFloatIdx = mFloatIdx + 1
-                    }
+                    registerFloatParamMetadata(mangledName, method.params)
                     // Build cross-module declare for class method (ptr self as first param for non-static)
                     let mRetTypeName = methodRetTypeName
                     var mRetLlvm = mapType(mRetTypeName)
@@ -1214,11 +1237,13 @@ class LLVMIRGenerator {
             if item.itemType == "Function" {
                 // Register function signature
                 let funcObj = item.function
+                let floatRegistryFuncName = getFloatParamRegistryName(funcObj)
                 let funcRetTypeName = resolveFunctionReturnType(funcObj)
                 registerFunction(funcObj.name, funcRetTypeName)
                 if funcObj.isAsync {
                     registerAsyncFunction(funcObj.name, funcRetTypeName)
                 }
+                registerFloatParamMetadata(floatRegistryFuncName, funcObj.params)
                 // Build cross-module declare for free function (skip main)
                 // Include extern functions for cross-module visibility
                 let funcBody = funcObj.body
@@ -5404,10 +5429,6 @@ class LLVMIRGenerator {
                 let ptn = param.paramType
                 let ptName = normalizeDeclaredTypeNode(ptn)
                 mappedPTypes.push(mapTypeForParameter(ptName))
-                if ptName == "Float" {
-                    g_floatParamFuncNames.push(fn.name)
-                    g_floatParamParamIdxs.push(mpIdx)
-                }
                 mpIdx = mpIdx + 1
             }
             let externRetType = mapType(normalizeDeclaredTypeNode(fn.returnType))
@@ -5535,11 +5556,6 @@ class LLVMIRGenerator {
             if preTypeName.startsWith("dyn ") {
                 let dynTraitParam = preTypeName.substring(4, preTypeName.length())
                 g_dynParamFuncs = g_dynParamFuncs + implFuncName + ":" + preParamIdx.toString() + ":" + dynTraitParam + "|"
-            }
-            // Register Float parameters for implicit Int→Float promotion at call sites
-            if preTypeName == "Float" {
-                g_floatParamFuncNames.push(implFuncName)
-                g_floatParamParamIdxs.push(preParamIdx)
             }
             varTypes.push(normalizeSeenTypeName(preTypeName))
             preParamIdx = preParamIdx + 1

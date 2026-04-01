@@ -248,22 +248,31 @@
 - Kept the Linux/Cross and Apple report artifacts separate in CI so failures can be attributed to the correct host/toolchain lane.
 - Validated the updated workflow file locally for YAML/tooling errors; actual hosted CI execution still needs to be observed on GitHub runners.
 
+### Implemented in the sixteenth patch set
+
+- Kept the GitHub Actions workflow definitions disabled on this branch and updated the rollout notes so hosted CI follow-up stays explicitly paused until manual native-target verification is complete.
+- Moved float-parameter promotion metadata registration in `compiler_seen/src/codegen/llvm_ir_gen.seen` fully into Pass 1 declaration scanning, including normalized impl-method names, so later codegen no longer mutates that global registry while class bodies are being emitted.
+- Removed the redundant Pass 2 float-registry mutations from extern and function codegen paths; the stale Linux self-host crash was hitting `promoteFloatArgsImpl` after those late mutations during `seen_std/src/json/parser.seen` class generation.
+- Re-ran `./scripts/safe_rebuild.sh` on the current Linux host and confirmed:
+   - `S1->S2` still completes successfully from the frozen bootstrap
+   - `S2->S3` now compiles successfully without the historical `exit=139`
+   - the rebuild promotes Stage3 as the installed production compiler on this host
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
 - Validate the reduced Windows default link-library baseline on a real MinGW/LLVM toolchain and add back only the Windows system libraries that are proven necessary.
 - Validate Android NDK-backed runtime, GPU runtime, and final link behavior on a real NDK installation.
 - Validate cross-target release-mode builds after the merged-`llc` path bypass so ThinLTO-backed per-module linking remains correct for the native target matrix.
-- Observe the first hosted Apple and Android CI runs and harden the workflow if GitHub runner differences expose bootstrap, SDK, or provisioning issues.
+- Keep the CI workflow definitions disabled on this branch until manual native-target verification is complete, then observe the first hosted Apple and Android CI runs and harden the workflow if GitHub runner differences expose bootstrap, SDK, or provisioning issues.
 - Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
-- Root-cause the later `S2->S3` self-host segfault that still occurs after the parser-side `FunctionNode.returnType` handoff fix. The focused constructor/void-method regressions are now validated, but full bootstrap verification is again failing with `exit=139` on this host.
 - Re-establish or retire the earlier string runtime/codegen bug with a fresh failing repro; the focused `String.length()` / empty-string equality regression now passes with the current production compiler.
 
 ### Current implementation posture
 
-The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation, the later self-host segfault, and Windows-specific hardening rather than missing compiler routing.
+The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily validation and Windows-specific hardening rather than missing compiler routing.
 
-The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros. On the current Linux host, the rebuilt production compiler still emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap on this machine, and the CI configuration now includes dedicated Ubuntu Android-backed and macOS Apple-host native matrix lanes instead of relying on Linux-only placeholder unavailability for those targets. Native-target validation now has the constructor-plus-void-method regression, the top-level `Void` free-function lowering check, the parser function-body regression, and the focused string literal regression all compiling with the production compiler, while the most important unresolved risks are again the later `S2->S3` verification failure and the first real hosted CI executions across the expanded native matrix.
+The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros, and the later float-promotion registry fix now lets `scripts/safe_rebuild.sh` complete `S2->S3` on the current Linux host without the earlier `promoteFloatArgsImpl` segfault. On this machine, the rebuilt production compiler still emits the correct artifact formats for both `linux-x86_64` and `windows-x86_64`; Linux ARM64 remains an honest sysroot prerequisite gap, and the repository now carries dedicated Ubuntu Android-backed and macOS Apple-host native matrix definitions that are intentionally disabled until manual verification is complete. Native-target validation now has the constructor-plus-void-method regression, the top-level `Void` free-function lowering check, the parser function-body regression, the focused string literal regression, and a successful Linux `S2->S3` rebuild all validated locally; the most important unresolved risks are the first real hosted CI executions after re-enable plus Windows and Android toolchain hardening.
 
 ## Goal
 
@@ -301,11 +310,11 @@ This plan is intentionally ordered by compiler risk, toolchain complexity, and c
 - Linux ARM64 cross-compilation now requires an explicit ARM64 sysroot on non-ARM64 hosts instead of falling through host glibc headers; the compiler probes `SEEN_LINUX_ARM64_SYSROOT` and common system paths before attempting the runtime build.
 - Auxiliary runtimes are now target-aware, but `seen_region.c` is intentionally capability-gated because it is not yet portable across the full native target matrix.
 - Cross-target release builds now avoid the host-native merged `llc` path, but still need validation under real Windows and Android toolchains.
-- A first compile-only smoke harness now exists for the native target matrix, and the platform matrix is now wired into CI on both Ubuntu and macOS hosts, but it still needs real hosted-run validation and possible workflow hardening once those jobs execute on GitHub runners.
-- The existing platform matrix now surfaces real smoke status for the native targets instead of placeholder JSON, and the CI configuration now provisions both an Android NDK-backed Linux lane and an Apple `xcrun` lane; remaining risk is in first-run stability rather than missing CI routing.
+- A first compile-only smoke harness now exists for the native target matrix, and disabled workflow definitions for Ubuntu and macOS CI lanes are checked in for later re-enable once manual verification is complete.
+- The existing platform matrix now surfaces real smoke status for the native targets instead of placeholder JSON, and the repository has preserved Apple and Android CI workflow definitions ready to restore later; remaining risk is in real hosted-run stability once those workflows are intentionally turned back on.
 - Cross-target GPU runtime compilation is now attempted per target, but still needs validation on real Android and Windows toolchains.
 - Cache reuse is now namespaced by effective target and compile mode in the stage compiler, but that isolation still needs broader validation across release, sanitizer, and profile combinations.
-- The current parser-side return-type handoff fix still rebuilds a usable Stage2 compiler from the frozen bootstrap, but `scripts/safe_rebuild.sh` is currently falling back to that recovered Stage2 compiler because `S2->S3` verification is again failing with `exit=139` on this host.
+- The current parser-side return-type handoff fix plus the later float-promotion registry fix now let `scripts/safe_rebuild.sh` complete a full Linux `S2->S3` rebuild and promote Stage3 on this host, though broader host coverage and continued bootstrap validation are still warranted.
 - WASM still has scaffold placeholders, but that is out of scope for this native-first plan.
 
 ## Non-Goals For This Phase
