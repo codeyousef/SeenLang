@@ -9,10 +9,30 @@ fi
 SEEN_BIN=$1
 SOURCE=$2
 OUTPUT=$3
+if [[ ! -x "$SEEN_BIN" ]]; then
+  echo "Seen binary not found or not executable: $SEEN_BIN" >&2
+  exit 1
+fi
+
+if [[ ! -f "$SOURCE" ]]; then
+  echo "Source file not found: $SOURCE" >&2
+  exit 1
+fi
+
 if [[ ${OUTPUT##*.} != "aab" ]]; then
   echo "output file must end with .aab" >&2
   exit 1
 fi
+
+mkdir -p "$(dirname "$OUTPUT")"
+
+CLI_HELP="$($SEEN_BIN 2>&1 || true)"
+CLI_SUBCOMMAND="compile"
+if grep -q 'seen build <' <<< "$CLI_HELP"; then
+  CLI_SUBCOMMAND="build"
+fi
+
+ANDROID_TARGET="${SEEN_ANDROID_TARGET:-android-arm64}"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -20,36 +40,45 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT
 
-FILES_ROOT=$(dirname "$OUTPUT")
-BUNDLE_NAME=$(basename "$OUTPUT")
 BASE_DIR="$WORKDIR/base"
 LIB_DIR="$BASE_DIR/lib/arm64-v8a"
 MANIFEST_DIR="$BASE_DIR/manifest"
 mkdir -p "$LIB_DIR" "$MANIFEST_DIR" "$BASE_DIR/dex" "$BASE_DIR/assets" "$BASE_DIR/res" "$BASE_DIR/root"
 
-if [[ -z "${ANDROID_NDK_HOME:-}" ]]; then
-  echo "ANDROID_NDK_HOME must be set" >&2
+if [[ -z "${ANDROID_NDK_HOME:-}" && -z "${ANDROID_NDK_ROOT:-}" ]]; then
+  echo "ANDROID_NDK_HOME or ANDROID_NDK_ROOT must be set" >&2
   exit 1
+fi
+
+if [[ -z "${ANDROID_NDK_HOME:-}" && -n "${ANDROID_NDK_ROOT:-}" ]]; then
+  export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+fi
+
+if [[ -z "${ANDROID_NDK_ROOT:-}" && -n "${ANDROID_NDK_HOME:-}" ]]; then
+  export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
 fi
 
 PROJECT_DIR=$(cd "$(dirname "$SOURCE")" && pwd)
 
 ABI_DIR="arm64-v8a"
 case "${ANDROID_ABI:-}" in
-  arm64-v8a|armeabi-v7a|x86|x86_64)
-    ABI_DIR="$ANDROID_ABI"
+  ""|arm64-v8a)
     ;;
-  *) ;;
+  *)
+    echo "ANDROID_ABI=${ANDROID_ABI} is not supported; bundle_android.sh currently supports arm64-v8a only" >&2
+    exit 1
+    ;;
 esac
 
-$SEEN_BIN build "$SOURCE" --backend llvm --target aarch64-linux-android --output "$LIB_DIR/libapp.so"
+build_android_library() {
+  if [[ "$CLI_SUBCOMMAND" == "build" ]]; then
+    "$SEEN_BIN" build "$SOURCE" --backend llvm --target "$ANDROID_TARGET" --output "$LIB_DIR/libapp.so"
+  else
+    "$SEEN_BIN" compile "$SOURCE" "$LIB_DIR/libapp.so" --backend llvm "--target=$ANDROID_TARGET"
+  fi
+}
 
-if [[ "$ABI_DIR" != "arm64-v8a" ]]; then
-  mkdir -p "$BASE_DIR/lib/$ABI_DIR"
-  mv "$LIB_DIR/libapp.so" "$BASE_DIR/lib/$ABI_DIR/libapp.so"
-  rmdir "$LIB_DIR"
-  LIB_DIR="$BASE_DIR/lib/$ABI_DIR"
-fi
+build_android_library
 
 copy_tree_if_exists() {
   local src=$1

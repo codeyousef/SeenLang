@@ -7,6 +7,7 @@ DEFAULT_SOURCE_FILE="$ROOT_DIR/examples/hello_world/hello_english.seen"
 SOURCE_OVERRIDE=""
 OUTPUT_ROOT="$ROOT_DIR/artifacts/native-target-smoke"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+RELEASE_MODE=0
 DEFAULT_TARGETS=(
   "linux-x86_64"
   "linux-arm64"
@@ -28,6 +29,7 @@ Options:
   --source <file>       Override the default target-specific source list with one file
   --output-dir <dir>    Output directory for reports and artifacts
   --target <name>       Limit run to a single target (repeatable)
+  --release             Add --release to compiler invocations
   -h, --help            Show this help message
 
 Statuses:
@@ -55,6 +57,10 @@ while [[ $# -gt 0 ]]; do
     --target)
       SELECTED_TARGETS+=("$2")
       shift 2
+      ;;
+    --release)
+      RELEASE_MODE=1
+      shift
       ;;
     -h|--help)
       usage
@@ -256,6 +262,9 @@ run_build() {
   else
     command=("$COMPILER_BIN" compile "$source_file" "$artifact" --backend llvm "--target=$target")
   fi
+  if [[ "$RELEASE_MODE" -eq 1 ]]; then
+    command+=(--release)
+  fi
   if command -v timeout >/dev/null 2>&1; then
     timeout 600 "${command[@]}" >"$log_file" 2>&1
   else
@@ -294,7 +303,11 @@ for target in "${TARGETS[@]}"; do
         artifact_path="$case_artifact"
       fi
 
-      echo "[native-smoke] building $target:$case_name from ${source_file#$ROOT_DIR/}" >> "$log_file"
+      if [[ "$RELEASE_MODE" -eq 1 ]]; then
+        echo "[native-smoke] building $target:$case_name from ${source_file#$ROOT_DIR/} [release]" >> "$log_file"
+      else
+        echo "[native-smoke] building $target:$case_name from ${source_file#$ROOT_DIR/}" >> "$log_file"
+      fi
 
       if [[ ! -f "$source_file" ]]; then
         case_status="failure"
@@ -344,15 +357,32 @@ for target in "${TARGETS[@]}"; do
         note="$case_summary"
       fi
 
+      case_output_note="$case_note"
+      if [[ "$RELEASE_MODE" -eq 1 ]]; then
+        if [[ -n "$case_output_note" ]]; then
+          case_output_note="mode=release; $case_output_note"
+        else
+          case_output_note="mode=release"
+        fi
+      fi
+
       printf '%s\t%s\t%s\t%s\t%s\n' \
         "$case_name" \
         "$(escape_field "${source_file#$ROOT_DIR/}")" \
         "$case_status" \
         "$(escape_field "$case_artifact")" \
-        "$(escape_field "$case_note")" >> "$case_results_file"
+        "$(escape_field "$case_output_note")" >> "$case_results_file"
 
       case_index=$((case_index + 1))
     done
+  fi
+
+  if [[ "$RELEASE_MODE" -eq 1 ]]; then
+    if [[ -n "$note" ]]; then
+      note="mode=release; $note"
+    else
+      note="mode=release"
+    fi
   fi
 
   printf '%s\t%s\t%s\t%s\n' \

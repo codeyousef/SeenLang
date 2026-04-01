@@ -37,18 +37,20 @@ target/release/seen_cli build examples/seen-ecs-min/src/main.seen \
   --output build/web/seen-ecs-min.wasm
 ```
 
-### Android bundle
+### Android shared library
 
 ```bash
 export ANDROID_NDK_HOME=/path/to/ndk
-export ANDROID_API_LEVEL=33
 
 target/release/seen_cli build examples/seen-ecs-min/src/main.seen \
   --backend llvm \
-  --target aarch64-linux-android \
-  --bundle android \
-  --output build/android/seen-ecs-min.aab
+  --target android-arm64 \
+  --output build/android/libseen-ecs-min.so
 ```
+
+To package an Android App Bundle, use `scripts/bundle_android.sh` with a project tree that already contains
+`AndroidManifest.xml`, `dex/`, and any Android resources. The repository's JNI-ready packaging example is
+`examples/android/hello_ndk/`.
 
 The simulation prints a concise summary (frames, casualties, survivors, simulated distance). CI can run the interpreter
 variant to prove the project builds without touching LLVM or the Android toolchain.

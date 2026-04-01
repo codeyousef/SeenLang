@@ -6,5 +6,5 @@ description = "Deterministic ECS workload for the Seen MVP."
 
 [build]
 entry = "src/main.seen"
-targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-linux-android"]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "android-arm64"]
 optimize = "speed"

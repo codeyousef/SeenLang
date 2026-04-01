@@ -45,18 +45,19 @@ target/release/seen_cli build examples/seen-vulkan-min/src/main.seen \
   --output build/web/triangle.wasm
 ```
 
-### Android `.aab`
+### Android shared library
 
 ```bash
 export ANDROID_NDK_HOME=/path/to/ndk
-export ANDROID_API_LEVEL=33
 
 target/release/seen_cli build examples/seen-vulkan-min/src/main.seen \
   --backend llvm \
-  --target aarch64-linux-android \
-  --bundle android \
-  --output build/android/seen-vulkan-min.aab
+  --target android-arm64 \
+  --output build/android/libseen_vulkan_min.so
 ```
+
+If you want an Android App Bundle, package a source tree that already contains Android manifest, dex, and resource
+files via `scripts/bundle_android.sh`. The repository's ready-to-bundle sample is `examples/android/hello_ndk/`.
 
 The CLI emits a per-frame validation report. CI can grep for `validation_errors=0` to ensure the simulated validation
 layers stayed happy. Because the sample avoids host-specific syscalls it can be exercised on any platform that supports
