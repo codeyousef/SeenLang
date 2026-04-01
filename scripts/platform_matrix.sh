@@ -213,6 +213,12 @@ parse_smoke_summary() {
   IFS=$'\t' read -r _target out_status_ref out_artifact_ref out_note_ref <<< "$row"
 }
 
+find_smoke_log() {
+  local smoke_root="$1"
+  local platform="$2"
+  find "$smoke_root" -path "*/$platform/build.log" -print | head -n 1
+}
+
 run_with_timeout_capture() {
   local log_file="$1"
   shift
@@ -230,13 +236,17 @@ run_native_smoke_report() {
   local status="failure"
   local artifact=""
   local note=""
-  local smoke_log="$smoke_dir/$platform/build.log"
+  local smoke_log=""
 
   mkdir -p "$smoke_dir"
   if bash "$SMOKE_HARNESS" --compiler "$STAGE3_BIN" --output-dir "$smoke_dir" --target "$platform" >/tmp/platform_matrix_${platform}.log 2>&1; then
     :
   fi
   parse_smoke_summary "$smoke_dir" "$platform" status artifact note
+  smoke_log="$(find_smoke_log "$smoke_dir" "$platform")"
+  if [[ -z "$smoke_log" ]]; then
+    smoke_log="$smoke_dir/$platform/build.log"
+  fi
 
   cat > "$report" <<JSON
 {

@@ -271,11 +271,25 @@
 - Re-ran manual Windows native smoke on the current Linux host with the rebuilt compiler and confirmed the produced `hello_smoke.exe` still links cleanly through the local MinGW toolchain with imports limited to `KERNEL32.dll` plus the expected UCRT DLL set.
 - Re-ran manual Android native smoke with a real local NDK (`r29`, API 24) and confirmed the compiler now produces a valid `ARM64` Android shared object for the hello-world smoke target instead of failing in target runtime compilation or link setup.
 
+### Implemented in the eighteenth patch set
+
+- Expanded `scripts/native_target_smoke.sh` so the default native matrix no longer stops at hello-world only:
+   - every target still compiles `examples/hello_world/hello_english.seen`
+   - `windows-x86_64` also compiles `tests/codegen/test_game_engine_features.seen`
+   - `android-arm64` also compiles `tests/gpu/test_compute_basic.seen`
+- Kept `summary.tsv` at one row per target for existing consumers while adding per-target `case-results.tsv` files and aggregate `build.log` output so the broader case set is inspectable without breaking `scripts/platform_matrix.sh`.
+- Marked `scripts/native_target_smoke.sh` executable so it matches its own CLI usage text and can be invoked directly like the other platform scripts.
+- Fixed `scripts/platform_matrix.sh` to resolve the actual timestamped smoke `build.log` path emitted by the harness instead of recording a stale non-timestamped location in the JSON reports.
+- Re-ran broadened native smoke locally and confirmed:
+   - `windows-x86_64` now succeeds for both the hello-world smoke source and `tests/codegen/test_game_engine_features.seen`
+   - `android-arm64` now succeeds for both the hello-world smoke source and `tests/gpu/test_compute_basic.seen` on the local NDK (`r29`, API 24)
+- Re-ran `scripts/platform_matrix.sh` for `windows-x86_64` and `android-arm64` against the current stage compiler and confirmed the generated JSON reports now carry the widened success notes plus valid nested smoke log paths.
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
-- Broaden Windows validation beyond the current hello-world smoke on a real MinGW/LLVM toolchain and confirm whether richer runtime/stdlib coverage needs any additional Windows system libraries.
-- Broaden Android validation beyond hello-world smoke on a real NDK installation, especially GPU runtime coverage, richer stdlib/runtime paths, and eventual on-device execution.
+- Broaden Windows validation beyond the current hello-world plus compile-only stdlib smoke on a real MinGW/LLVM toolchain and confirm whether richer runtime/stdlib coverage needs any additional Windows system libraries.
+- Broaden Android validation beyond the current hello-world plus compile-only compute smoke on a real NDK installation, especially richer GPU runtime coverage, broader stdlib/runtime paths, and eventual on-device execution.
 - Validate cross-target release-mode builds after the merged-`llc` path bypass so ThinLTO-backed per-module linking remains correct for the native target matrix.
 - Keep the CI workflow definitions disabled on this branch until manual native-target verification is complete, then observe the first hosted Apple and Android CI runs and harden the workflow if GitHub runner differences expose bootstrap, SDK, or provisioning issues.
 - Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
@@ -283,9 +297,9 @@
 
 ### Current implementation posture
 
-The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, and target-aware link-library selection for Android and Windows. The remaining work is now primarily broader validation coverage, GPU/runtime portability follow-through, and Windows-specific hardening rather than missing compiler routing.
+The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, target-aware link-library selection for Android and Windows, and a broader native smoke harness that covers more than hello-world for the highest-risk non-Linux targets. The remaining work is now primarily still-broader validation coverage, GPU/runtime portability follow-through, and Windows-specific hardening rather than missing compiler routing.
 
-The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros, and the later float-promotion registry fix now lets `scripts/safe_rebuild.sh` complete `S2->S3` on the current Linux host without the earlier `promoteFloatArgsImpl` segfault. On this machine, the rebuilt production compiler now emits the correct artifact formats for `linux-x86_64`, `windows-x86_64`, and `android-arm64`, with the Android smoke path validated against a real local NDK and the Windows smoke path validated against the local MinGW toolchain. Linux ARM64 remains an honest sysroot prerequisite gap, and the repository now carries dedicated Ubuntu Android-backed and macOS Apple-host native matrix definitions that are intentionally disabled until manual verification is complete. Native-target validation now has the constructor-plus-void-method regression, the top-level `Void` free-function lowering check, the parser function-body regression, the focused string literal regression, a successful Linux `S2->S3` rebuild, local Windows smoke, and local Android NDK-backed smoke all validated; the most important unresolved risks are broader Windows/Android coverage and the first real hosted CI executions after re-enable.
+The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros, and the later float-promotion registry fix now lets `scripts/safe_rebuild.sh` complete `S2->S3` on the current Linux host without the earlier `promoteFloatArgsImpl` segfault. On this machine, the rebuilt production compiler now emits the correct artifact formats for `linux-x86_64`, `windows-x86_64`, and `android-arm64`, with the Android smoke path validated against a real local NDK and the Windows smoke path validated against the local MinGW toolchain. Linux ARM64 remains an honest sysroot prerequisite gap, and the repository now carries dedicated Ubuntu Android-backed and macOS Apple-host native matrix definitions that are intentionally disabled until manual verification is complete. Native-target validation now has the constructor-plus-void-method regression, the top-level `Void` free-function lowering check, the parser function-body regression, the focused string literal regression, a successful Linux `S2->S3` rebuild, local Windows smoke plus a richer compile-only stdlib case, and local Android NDK-backed smoke plus a compile-only compute case all validated; the most important unresolved risks are still-broader Windows/Android coverage and the first real hosted CI executions after re-enable.
 
 ## Goal
 

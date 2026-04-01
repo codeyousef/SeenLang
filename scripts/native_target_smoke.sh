@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")"/.. && pwd)"
 COMPILER_BIN="$ROOT_DIR/compiler_seen/target/seen"
-SOURCE_FILE="$ROOT_DIR/examples/hello_world/hello_english.seen"
+DEFAULT_SOURCE_FILE="$ROOT_DIR/examples/hello_world/hello_english.seen"
+SOURCE_OVERRIDE=""
 OUTPUT_ROOT="$ROOT_DIR/artifacts/native-target-smoke"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DEFAULT_TARGETS=(
@@ -24,7 +25,7 @@ Usage: scripts/native_target_smoke.sh [options]
 
 Options:
   --compiler <path>     Path to Seen compiler binary
-  --source <file>       Seen source file to compile
+  --source <file>       Override the default target-specific source list with one file
   --output-dir <dir>    Output directory for reports and artifacts
   --target <name>       Limit run to a single target (repeatable)
   -h, --help            Show this help message
@@ -44,7 +45,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --source)
-      SOURCE_FILE="$2"
+      SOURCE_OVERRIDE="$2"
       shift 2
       ;;
     --output-dir)
@@ -72,8 +73,13 @@ if [[ ! -x "$COMPILER_BIN" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$SOURCE_FILE" ]]; then
-  echo "Source file not found: $SOURCE_FILE" >&2
+if [[ -n "$SOURCE_OVERRIDE" && ! -f "$SOURCE_OVERRIDE" ]]; then
+  echo "Source file not found: $SOURCE_OVERRIDE" >&2
+  exit 1
+fi
+
+if [[ -z "$SOURCE_OVERRIDE" && ! -f "$DEFAULT_SOURCE_FILE" ]]; then
+  echo "Default source file not found: $DEFAULT_SOURCE_FILE" >&2
   exit 1
 fi
 
@@ -108,6 +114,56 @@ artifact_name_for_target() {
       ;;
     *)
       printf 'hello_smoke'
+      ;;
+  esac
+}
+
+case_name_for_source() {
+  local source_file="$1"
+  local case_name
+  case_name="$(basename "$source_file")"
+  case_name="${case_name%.seen}"
+  case_name="${case_name//[^A-Za-z0-9._-]/_}"
+  printf '%s' "$case_name"
+}
+
+sources_for_target() {
+  local target="$1"
+  if [[ -n "$SOURCE_OVERRIDE" ]]; then
+    printf '%s\n' "$SOURCE_OVERRIDE"
+    return
+  fi
+
+  printf '%s\n' "$DEFAULT_SOURCE_FILE"
+  case "$target" in
+    windows-*)
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_game_engine_features.seen"
+      ;;
+    android-*)
+      printf '%s\n' "$ROOT_DIR/tests/gpu/test_compute_basic.seen"
+      ;;
+  esac
+}
+
+artifact_name_for_case() {
+  local target="$1"
+  local case_name="$2"
+  local case_index="$3"
+
+  if [[ "$case_index" -eq 0 ]]; then
+    artifact_name_for_target "$target"
+    return
+  fi
+
+  case "$target" in
+    windows-*)
+      printf '%s.exe' "$case_name"
+      ;;
+    android-*)
+      printf 'lib%s.so' "$case_name"
+      ;;
+    *)
+      printf '%s' "$case_name"
       ;;
   esac
 }
@@ -190,14 +246,15 @@ escape_field() {
 }
 
 run_build() {
-  local target="$1"
-  local artifact="$2"
-  local log_file="$3"
+  local source_file="$1"
+  local target="$2"
+  local artifact="$3"
+  local log_file="$4"
   local -a command
   if [[ "$CLI_SUBCOMMAND" == "build" ]]; then
-    command=("$COMPILER_BIN" build "$SOURCE_FILE" --backend llvm --target "$target" --output "$artifact")
+    command=("$COMPILER_BIN" build "$source_file" --backend llvm --target "$target" --output "$artifact")
   else
-    command=("$COMPILER_BIN" compile "$SOURCE_FILE" "$artifact" --backend llvm "--target=$target")
+    command=("$COMPILER_BIN" compile "$source_file" "$artifact" --backend llvm "--target=$target")
   fi
   if command -v timeout >/dev/null 2>&1; then
     timeout 600 "${command[@]}" >"$log_file" 2>&1
@@ -209,38 +266,93 @@ run_build() {
 for target in "${TARGETS[@]}"; do
   target_dir="$RUN_DIR/$target"
   mkdir -p "$target_dir"
-  artifact_path="$target_dir/$(artifact_name_for_target "$target")"
   log_file="$target_dir/build.log"
+  case_results_file="$target_dir/case-results.tsv"
+  artifact_path=""
   note=""
   status="success"
+
+  printf 'case\tsource\tstatus\tartifact\tnote\n' > "$case_results_file"
+  : > "$log_file"
 
   if ! preflight_msg="$(preflight_target "$target" 2>&1)"; then
     status="unavailable"
     note="$preflight_msg"
-    : > "$log_file"
   else
-    echo "[native-smoke] building $target"
-    if run_build "$target" "$artifact_path" "$log_file"; then
-      if [[ ! -e "$artifact_path" ]]; then
-        status="failure"
-        note="build command succeeded but artifact was not produced"
-      else
-        if command -v file >/dev/null 2>&1; then
-          note="$(file -b "$artifact_path" 2>/dev/null || true)"
-        else
-          note="artifact created"
-        fi
-        if ! artifact_matches_target "$target" "$note"; then
-          status="failure"
-          note="artifact format does not match target: $note"
-          has_failures=1
-        fi
+    mapfile -t target_sources < <(sources_for_target "$target")
+    case_index=0
+    for source_file in "${target_sources[@]}"; do
+      case_name="$(case_name_for_source "$source_file")"
+      case_dir="$target_dir/$case_name"
+      case_log="$case_dir/build.log"
+      case_artifact="$case_dir/$(artifact_name_for_case "$target" "$case_name" "$case_index")"
+      case_status="success"
+      case_note=""
+
+      mkdir -p "$case_dir"
+      if [[ -z "$artifact_path" ]]; then
+        artifact_path="$case_artifact"
       fi
-    else
-      status="failure"
-      note="$(tail -n 1 "$log_file" 2>/dev/null || echo 'build failed')"
-      has_failures=1
-    fi
+
+      echo "[native-smoke] building $target:$case_name from ${source_file#$ROOT_DIR/}" >> "$log_file"
+
+      if [[ ! -f "$source_file" ]]; then
+        case_status="failure"
+        case_note="source file not found: $source_file"
+        printf '%s\n' "$case_note" > "$case_log"
+        has_failures=1
+      elif run_build "$source_file" "$target" "$case_artifact" "$case_log"; then
+        if [[ ! -e "$case_artifact" ]]; then
+          case_status="failure"
+          case_note="build command succeeded but artifact was not produced"
+          has_failures=1
+        else
+          if command -v file >/dev/null 2>&1; then
+            case_note="$(file -b "$case_artifact" 2>/dev/null || true)"
+          else
+            case_note="artifact created"
+          fi
+          if ! artifact_matches_target "$target" "$case_note"; then
+            case_status="failure"
+            case_note="artifact format does not match target: $case_note"
+            has_failures=1
+          fi
+        fi
+      else
+        case_status="failure"
+        case_note="$(tail -n 1 "$case_log" 2>/dev/null || echo 'build failed')"
+        has_failures=1
+      fi
+
+      {
+        echo "=== $case_name (${source_file#$ROOT_DIR/}) ==="
+        cat "$case_log"
+        echo
+      } >> "$log_file"
+
+      if [[ "$case_status" == "failure" ]]; then
+        status="failure"
+      fi
+
+      case_summary="$case_name=$case_status"
+      if [[ -n "$case_note" ]]; then
+        case_summary="$case_summary ($case_note)"
+      fi
+      if [[ -n "$note" ]]; then
+        note="$note; $case_summary"
+      else
+        note="$case_summary"
+      fi
+
+      printf '%s\t%s\t%s\t%s\t%s\n' \
+        "$case_name" \
+        "$(escape_field "${source_file#$ROOT_DIR/}")" \
+        "$case_status" \
+        "$(escape_field "$case_artifact")" \
+        "$(escape_field "$case_note")" >> "$case_results_file"
+
+      case_index=$((case_index + 1))
+    done
   fi
 
   printf '%s\t%s\t%s\t%s\n' \
