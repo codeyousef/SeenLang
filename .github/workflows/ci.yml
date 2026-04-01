@@ -52,10 +52,10 @@ jobs:
           if-no-files-found: error
 
   native-target-matrix:
-    name: Native Target Matrix
+    name: Native Target Matrix (Linux/Cross)
     needs: build-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +65,7 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
           echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main" | sudo tee /etc/apt/sources.list.d/llvm-20.list
           sudo apt-get update
-          sudo apt-get install -y llvm-20 clang-20 lld-20 libvulkan-dev mingw-w64 libc6-dev-arm64-cross
+          sudo apt-get install -y llvm-20 clang-20 lld-20 libvulkan-dev mingw-w64 libc6-dev-arm64-cross curl unzip
           echo "/usr/lib/llvm-20/bin" >> $GITHUB_PATH
 
       - name: Download compiler artifact
@@ -77,12 +77,63 @@ jobs:
       - name: Restore compiler executable bit
         run: chmod +x compiler_seen/target/seen
 
+      - name: Install Android NDK
+        run: |
+          NDK_VERSION="r27c"
+          NDK_ZIP="android-ndk-${NDK_VERSION}-linux.zip"
+          NDK_URL="https://dl.google.com/android/repository/${NDK_ZIP}"
+          curl -L "$NDK_URL" -o "/tmp/${NDK_ZIP}"
+          unzip -q "/tmp/${NDK_ZIP}" -d "$RUNNER_TEMP"
+          echo "ANDROID_NDK_HOME=$RUNNER_TEMP/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$RUNNER_TEMP/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
+
       - name: Run native target matrix
-        run: bash scripts/platform_matrix.sh --stage3 "$PWD/compiler_seen/target/seen"
+        run: |
+          bash scripts/platform_matrix.sh \
+            --stage3 "$PWD/compiler_seen/target/seen" \
+            --platform linux-x86_64 \
+            --platform linux-arm64 \
+            --platform windows-x86_64 \
+            --platform android-arm64
 
       - name: Upload native matrix reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-target-matrix-reports
+          name: native-target-matrix-linux-cross-reports
+          path: artifacts/platform-matrix
+
+  native-target-matrix-apple:
+    name: Native Target Matrix (Apple)
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM for bootstrap rebuild
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Rebuild compiler on macOS
+        timeout-minutes: 75
+        run: ./scripts/safe_rebuild.sh
+
+      - name: Run Apple native target matrix
+        run: |
+          bash scripts/platform_matrix.sh \
+            --stage3 "$PWD/compiler_seen/target/seen" \
+            --platform macos-x86_64 \
+            --platform macos-arm64 \
+            --platform ios-arm64
+
+      - name: Upload Apple native matrix reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-target-matrix-apple-reports
           path: artifacts/platform-matrix
