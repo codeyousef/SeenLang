@@ -995,6 +995,27 @@ fun buildTargetClangArgs(target: String) r: String {
     return ""
 }
 
+fun buildTargetClangDriver(target: String) r: String {
+    if target == "android-arm64" {
+        let ndkRoot = getAndroidNdkRoot()
+        if ndkRoot != "" {
+            let hostTag = getAndroidNdkHostTag()
+            let apiLevel = getAndroidApiLevel()
+            let wrapper = ndkRoot + "/toolchains/llvm/prebuilt/" + hostTag + "/bin/aarch64-linux-android" + apiLevel + "-clang"
+            let wrapperCheck: CommandResult = runCommand("test -x " + wrapper)
+            if commandWasSuccessful(wrapperCheck) {
+                return wrapper
+            }
+            let ndkClang = ndkRoot + "/toolchains/llvm/prebuilt/" + hostTag + "/bin/clang"
+            let clangCheck: CommandResult = runCommand("test -x " + ndkClang)
+            if commandWasSuccessful(clangCheck) {
+                return ndkClang
+            }
+        }
+    }
+    return "clang"
+}
+
 fun compileCommandWithProfileAndCache(inputFile: String, outputFile: String, profile: String, useCache: Bool) r: Int {
     return compileCommandWithAllOptions(inputFile, outputFile, profile, false, useCache, "en", "", "auto", false, "", "", "", "", "")
 }
@@ -1126,6 +1147,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     let cacheSignature = buildCacheSignature(profile, language, targetCpu, simdPolicy, sanitizePolicy, pgoMode, effectiveTarget, panicOnOverflow)
     let targetClangArgs = buildTargetClangArgs(effectiveTarget)
+    let targetClangDriver = buildTargetClangDriver(effectiveTarget)
     let targetRuntimeFlags = buildTargetRuntimeCompileFlags(effectiveTarget)
 
     if normalizedCrossTarget == "android-arm64" and targetClangArgs == "" {
@@ -1984,7 +2006,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  [3a-target] Compiling runtime for " + effectiveTarget + "...")
         if targetClangArgs != "" {
             let rtTargetOut = "/tmp/seen_runtime_" + effectiveTarget + ".o"
-            let rtTargetCmd: CommandResult = runCommand("clang -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtTargetOut)
+            let rtTargetCmd: CommandResult = runCommand(targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtTargetOut)
             if commandWasSuccessful(rtTargetCmd) {
                 runtimeArg = rtTargetOut
             } else {
@@ -2067,21 +2089,21 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var linkCmd = ""
     if normalizedCrossTarget != "" {
         if effectiveTarget == "ios-arm64" {
-            linkCmd = "clang " + targetClangArgs + " -O3 -flto=thin -Wl,-dead_strip -Wno-unused-command-line-argument "
+            linkCmd = targetClangDriver + " " + targetClangArgs + " -O3 -flto=thin -Wl,-dead_strip -Wno-unused-command-line-argument "
         } else {
             if effectiveTarget == "macos-arm64" or effectiveTarget == "macos-x86_64" {
-                linkCmd = "clang " + targetClangArgs + " -O3 -flto=thin -Wl,-cache_path_lto,/tmp/seen_thinlto_cache -Wl,-dead_strip -Wno-unused-command-line-argument "
+                linkCmd = targetClangDriver + " " + targetClangArgs + " -O3 -flto=thin -Wl,-cache_path_lto,/tmp/seen_thinlto_cache -Wl,-dead_strip -Wno-unused-command-line-argument "
                 if clangMarch != "" {
                     linkCmd = linkCmd + clangMarch + " "
                 }
             } else {
                 if effectiveTarget == "windows-x86_64" {
-                    linkCmd = "clang " + targetClangArgs + " -O2 -flto=thin -fuse-ld=lld -Wno-unused-command-line-argument "
+                    linkCmd = targetClangDriver + " " + targetClangArgs + " -O2 -flto=thin -fuse-ld=lld -Wno-unused-command-line-argument "
                 } else {
                     if effectiveTarget == "android-arm64" {
-                        linkCmd = "clang " + targetClangArgs + " -O2 -flto=thin -shared -Wl,--gc-sections -Wno-unused-command-line-argument "
+                        linkCmd = targetClangDriver + " " + targetClangArgs + " -O2 -flto=thin -shared -Wl,--gc-sections -Wno-unused-command-line-argument "
                     } else {
-                        linkCmd = "clang " + targetClangArgs + " -O3 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache -Wl,--gc-sections -Wno-unused-command-line-argument "
+                        linkCmd = targetClangDriver + " " + targetClangArgs + " -O3 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache -Wl,--gc-sections -Wno-unused-command-line-argument "
                         if clangMarch != "" {
                             linkCmd = linkCmd + clangMarch + " "
                         }
@@ -2144,7 +2166,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let targetRegionOut = "/tmp/seen_region_" + effectiveTarget + ".o"
             let regionSrcCheck2: CommandResult = runCommand("test -f " + rtPrefix + "/seen_region.c")
             if commandWasSuccessful(regionSrcCheck2) and targetClangArgs != "" {
-                let targetRegionCmd = "clang -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + targetRegionOut
+                let targetRegionCmd = targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_region.c -o " + targetRegionOut
                 let targetRegionResult: CommandResult = runCommand(targetRegionCmd)
                 if commandWasSuccessful(targetRegionResult) {
                     regionArg = " " + targetRegionOut
@@ -2186,7 +2208,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     } else {
         if targetSupportsGpuRuntime(effectiveTarget) and targetClangArgs != "" {
             let targetGpuOut = "/tmp/seen_gpu_" + effectiveTarget + ".o"
-            var targetGpuCmd = "clang -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + targetGpuOut
+            var targetGpuCmd = targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + targetGpuOut
             if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
                 let hostVulkanCflags = getHostVulkanCflags()
                 if hostVulkanCflags != "" {

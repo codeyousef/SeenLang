@@ -28,7 +28,9 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if !defined(__ANDROID__)
 #include <execinfo.h>
+#endif
 #include <math.h>
 #include <time.h>
 #include <sched.h>
@@ -40,10 +42,10 @@
 #include <TargetConditionals.h>
 #endif
 
-// macOS aligned_alloc compatibility shim
-// macOS requires size to be a multiple of alignment for aligned_alloc;
-// use posix_memalign instead which is more portable.
-#if defined(__APPLE__)
+// Apple/Android aligned_alloc compatibility shim.
+// Some POSIX toolchains either lack aligned_alloc or require stricter C11
+// feature availability than the runtime build currently uses.
+#if defined(__APPLE__) || defined(__ANDROID__)
 #include <stdlib.h>
 static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
     void* ptr = NULL;
@@ -346,6 +348,12 @@ int64_t __ExecuteProgram(SeenString path) {
     memcpy(cpath, path.data, path.len);
     cpath[path.len] = 0;
 
+#if defined(__ANDROID__)
+    int status = system(cpath);
+    free(cpath);
+    return (int64_t)status;
+#else
+
     pid_t pid;
     char *argv[] = {"/bin/sh", "-c", cpath, NULL};
     int err = posix_spawn(&pid, "/bin/sh", NULL, NULL, argv, environ);
@@ -361,6 +369,7 @@ int64_t __ExecuteProgram(SeenString path) {
     if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
     if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
     return -1;
+#endif
 }
 #endif
 
@@ -1219,7 +1228,7 @@ SeenString seen_str_concat_ss(SeenString a, SeenString b) {
         fprintf(stderr, "  a.len=%" PRId64 ", a.data=%p\n", a.len, a.data);
         fprintf(stderr, "  b.len=%" PRId64 ", b.data=%p\n", b.len, b.data);
         fflush(stderr);
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__ANDROID__)
         void* bt[20];
         int nptrs = backtrace(bt, 20);
         backtrace_symbols_fd(bt, nptrs, 2);
@@ -3857,7 +3866,7 @@ static void seen_cpu_detect_impl(void) {
 #elif defined(__aarch64__)
 
 #if defined(__linux__)
-#include <sys/auxval.h>
+#include <sys/auxv.h>
 #include <asm/hwcap.h>
 static void seen_cpu_detect_impl(void) {
     if (g_cpu_features.detected) return;
@@ -6011,7 +6020,7 @@ void __ChannelClose(int64_t handle) {
 // Takes a SeenString (len + data pointer) since Seen String = %SeenString struct.
 void __panic(int64_t len, char* data) {
     fprintf(stderr, "PANIC: %.*s\n", (int)len, data);
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__ANDROID__)
     // Print stack trace (backtrace not available on Windows/mingw)
     void* bt_buf[64];
     int bt_size = backtrace(bt_buf, 64);
@@ -6950,7 +6959,7 @@ int64_t seen_set_thread_affinity(int64_t core_id) {
 #if defined(_WIN32)
     DWORD_PTR mask = (DWORD_PTR)1 << core_id;
     return (SetThreadAffinityMask(GetCurrentThread(), mask) != 0) ? 1 : 0;
-#elif defined(__linux__) && defined(_GNU_SOURCE)
+#elif defined(__linux__) && defined(_GNU_SOURCE) && !defined(__ANDROID__)
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET((int)core_id, &cpuset);
