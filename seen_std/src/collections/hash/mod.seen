@@ -1,5 +1,5 @@
-// seen_std.hash.mod
-// Generic hashing utility functions.
+// seen_std.collections.hash.mod
+// Compatibility hashing helpers for collections.hash_map import paths.
 
 fun hashInt(value: Int) r: Int {
     var h = value
@@ -24,9 +24,7 @@ fun hashString(value: String) r: Int {
 }
 
 fun hashFloat(value: Float) r: Int {
-    // Simple hash: multiply by large value and convert to int
     let scaled = value * 1000000.0
-    // Use integer part by truncation (cast semantics)
     return hashInt(scaled as Int)
 }
 
@@ -37,5 +35,6 @@ fun hashBool(value: Bool) r: Int {
     return 0
 }
 
-fun combineHashes(h1: Int, h2: Int) r: Int {    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2))
+fun combineHashes(h1: Int, h2: Int) r: Int {
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2))
 }

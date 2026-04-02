@@ -478,6 +478,104 @@ fun emitHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName:
     return ""
 }
 
+// Emit LLVM IR for StringHashMap<V> method calls using the string-keyed HashMap runtime.
+// This specialized path covers the currently supported value layouts: i64 ABI slot
+// values and SeenString values.
+fun emitStringHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrVal: Bool) r: String {
+    if methodName == "len" or methodName == "length" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + resultReg + " = call i64 @HashMap_size_str_str(ptr " + mapPtrReg + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @HashMap_size_str(ptr " + mapPtrReg + ")\n")
+        }
+        return resultReg
+    }
+
+    if methodName == "isEmpty" {
+        let sizeReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + sizeReg + " = call i64 @HashMap_size_str_str(ptr " + mapPtrReg + ")\n")
+        } else {
+            output.append("  " + sizeReg + " = call i64 @HashMap_size_str(ptr " + mapPtrReg + ")\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = icmp eq i64 " + sizeReg + ", 0\n")
+        return resultReg
+    }
+
+    if methodName == "insert" {
+        let ignoredReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + ignoredReg + " = call i1 @HashMap_insert_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+        } else {
+            output.append("  " + ignoredReg + " = call i1 @HashMap_insert_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+        }
+        return "0"
+    }
+
+    if methodName == "get" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + resultReg + " = call i64 @HashMap_get_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @HashMap_get_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        }
+        return resultReg
+    }
+
+    if methodName == "getOrDefault" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + resultReg + " = call %SeenString @HashMap_getOrDefault_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", %SeenString " + arg1 + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i64 @HashMap_getOrDefault_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ", i64 " + arg1 + ")\n")
+        }
+        return resultReg
+    }
+
+    if methodName == "contains" {
+        let resultReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + resultReg + " = call i1 @HashMap_containsKey_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  " + resultReg + " = call i1 @HashMap_containsKey_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        }
+        return resultReg
+    }
+
+    if methodName == "remove" {
+        let removedOptReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + removedOptReg + " = call i64 @HashMap_remove_str_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        } else {
+            output.append("  " + removedOptReg + " = call i64 @HashMap_remove_str(ptr " + mapPtrReg + ", %SeenString " + arg0 + ")\n")
+        }
+        let removedPtrReg = getNextRegFn(regBox)
+        output.append("  " + removedPtrReg + " = inttoptr i64 " + removedOptReg + " to ptr\n")
+        let hasValuePtrReg = getNextRegFn(regBox)
+        if hasStrVal {
+            output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, %SeenString }, ptr " + removedPtrReg + ", i32 0, i32 0\n")
+        } else {
+            output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + removedPtrReg + ", i32 0, i32 0\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        return resultReg
+    }
+
+    if methodName == "clear" {
+        if hasStrVal {
+            output.append("  call void @HashMap_clear_str_str(ptr " + mapPtrReg + ")\n")
+        } else {
+            output.append("  call void @HashMap_clear_str(ptr " + mapPtrReg + ")\n")
+        }
+        return "0"
+    }
+
+    return ""
+}
+
 // Emit LLVM IR for LinkedList method calls
 // llPtrReg must already be a ptr (inttoptr done by caller)
 fun emitLinkedListMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, llPtrReg: String, arg0: String, hasStr: Bool) r: String {
@@ -585,7 +683,7 @@ fun emitLinkedListMethodImpl(output: StringBuilder, regBox: Array<Int>, methodNa
     return ""
 }
 
-// Collection method dispatch: Vec, BTreeMap, HashMap, LinkedList
+// Collection method dispatch: Vec, BTreeMap, HashMap, StringHashMap, LinkedList
 // Consolidates duplicated dispatch logic from complex and simple receiver paths
 fun dispatchCollectionMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String,
@@ -655,6 +753,18 @@ fun dispatchCollectionMethodImpl(output: StringBuilder, regBox: Array<Int>,
         let hmResult = emitHashMapMethodImpl(output, regBox, methodName, mapPtrReg, arg0, arg1, hasStringKey, hasStringValue)
         if hmResult != "" {
             return hmResult
+        }
+    }
+
+    // StringHashMap dispatch
+    let isStringHashMapType = receiverType == "StringHashMap" or receiverType.startsWith("StringHashMap<")
+    if isStringHashMapType {
+        let mapPtrReg = getNextRegFn(regBox)
+        output.append("  " + mapPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        let hasStringValue = receiverType.contains("<String>")
+        let shmResult = emitStringHashMapMethodImpl(output, regBox, methodName, mapPtrReg, arg0, arg1, hasStringValue)
+        if shmResult != "" {
+            return shmResult
         }
     }
 

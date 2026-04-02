@@ -812,17 +812,19 @@ fun emitStringMethodImpl(output: StringBuilder, regBox: Array<Int>,
     methodName: String, receiverReg: String, receiverType: String,
     arg0: String, arg1: String, argCount: Int) r: String {
 
-    if methodName == "startsWith" {
+    let isStringReceiver = receiverType == "String" or receiverType == ""
+
+    if methodName == "startsWith" and isStringReceiver {
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = call i1 @startsWith(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
         return resultReg
     }
-    if methodName == "endsWith" {
+    if methodName == "endsWith" and isStringReceiver {
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = call i1 @endsWith(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
         return resultReg
     }
-    if methodName == "contains" {
+    if methodName == "contains" and isStringReceiver {
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = call i1 @contains(%SeenString " + receiverReg + ", %SeenString " + arg0 + ")\n")
         return resultReg
@@ -963,26 +965,17 @@ fun emitOptionMethodImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBo
         return resultReg
     }
 
-    if methodName == "unwrapOr" {
+    if methodName == "unwrapOr" or methodName == "UnwrapOr" {
         let hasValuePtrReg = getNextRegFn(regBox)
         output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 0\n")
         let hasValueReg = getNextRegFn(regBox)
         output.append("  " + hasValueReg + " = load i1, ptr " + hasValuePtrReg + "\n")
-        let someLabel = getNextBlockFn(blockLabelBox)
-        let noneLabel = getNextBlockFn(blockLabelBox)
-        let mergeLabel = getNextBlockFn(blockLabelBox)
-        output.append("  br i1 " + hasValueReg + ", label %" + someLabel + ", label %" + noneLabel + "\n")
-        output.append(someLabel + ":\n")
         let valuePtrReg = getNextRegFn(regBox)
         output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 1\n")
         let someValReg = getNextRegFn(regBox)
         output.append("  " + someValReg + " = load i64, ptr " + valuePtrReg + "\n")
-        output.append("  br label %" + mergeLabel + "\n")
-        output.append(noneLabel + ":\n")
-        output.append("  br label %" + mergeLabel + "\n")
-        output.append(mergeLabel + ":\n")
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = phi i64 [ " + someValReg + ", %" + someLabel + " ], [ " + defaultReg + ", %" + noneLabel + " ]\n")
+        output.append("  " + resultReg + " = select i1 " + hasValueReg + ", i64 " + someValReg + ", i64 " + defaultReg + "\n")
         return resultReg
     }
 

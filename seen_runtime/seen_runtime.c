@@ -2049,8 +2049,8 @@ SeenString CGenerator_generate(void* gen, void* program) {
 
 void* Ok(void* value) { return value; }
 void* Err(SeenString message) { return NULL; }
-void* Some(void* value) { return value; }
-void* None(void) { return NULL; }
+__attribute__((weak)) void* Some(void* value) { return value; }
+__attribute__((weak)) void* None(void) { return NULL; }
 
 // Generic default value - returns null/zero for any type
 // Used by Option<T> for default initialization
@@ -4873,10 +4873,10 @@ int64_t HashMap_get(void* mapPtr, int64_t key) {
     int64_t idx = (int64_t)(h & (uint64_t)mask);
     while (1) {
         if (map->states[idx] == 0) {
-            return 0;
+            return BTreeMap_make_none();
         }
         if (map->states[idx] == 1 && map->keys[idx] == key) {
-            return map->values[idx];
+            return BTreeMap_make_some(map->values[idx]);
         }
         idx = (idx + 1) & mask;
     }
@@ -5081,9 +5081,9 @@ int64_t HashMap_get_str(void* mapPtr, SeenString key) {
     int64_t mask = map->capacity - 1;
     int64_t idx = (int64_t)(h & (uint64_t)mask);
     while (1) {
-        if (map->states[idx] == 0) return 0;
+        if (map->states[idx] == 0) return BTreeMap_make_none();
         if (map->states[idx] == 1 && hashmap_str_eq(map->keys[idx], key)) {
-            return map->values[idx];
+            return BTreeMap_make_some(map->values[idx]);
         }
         idx = (idx + 1) & mask;
     }

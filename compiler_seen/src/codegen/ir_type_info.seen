@@ -883,7 +883,7 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
     // Option/Optional class methods (generic type - handles both Option and Optional names)
     if structName == "Option" or structName == "Optional" or structName.startsWith("Option<") or structName.startsWith("Optional<") {
         if methodName == "isSome" or methodName == "IsSome" or methodName == "isNone" or methodName == "IsNone" { return "Bool" }
-        if methodName == "unwrapOr" {
+        if methodName == "unwrapOr" or methodName == "UnwrapOr" {
             if structName.startsWith("Option<") and structName.endsWith(">") {
                 let elemType = structName.substring(7, structName.length() - 1)
                 return elemType
@@ -1132,6 +1132,26 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
             }
             return "Vec"
         }
+    }
+    // StringHashMap<V> class methods
+    if structName == "StringHashMap" or structName.startsWith("StringHashMap<") {
+        if methodName == "len" or methodName == "capacity" or methodName == "loadFactorPercent" { return "Int" }
+        if methodName == "isEmpty" or methodName == "contains" or methodName == "remove" { return "Bool" }
+        if methodName == "insert" or methodName == "clear" or methodName == "resize" or methodName == "insertInternal" or methodName == "ensureCapacityFor" { return "Void" }
+        if methodName == "get" {
+            if structName.startsWith("StringHashMap<") and structName.endsWith(">") {
+                let valueType = structName.substring(14, structName.length() - 1)
+                return "Option<" + valueType + ">"
+            }
+            return "Option"
+        }
+        if methodName == "getOrDefault" {
+            if structName.startsWith("StringHashMap<") and structName.endsWith(">") {
+                return structName.substring(14, structName.length() - 1)
+            }
+            return "Int"
+        }
+        if methodName == "keys" { return "Array<String>" }
     }
     // LinkedList<T> class methods
     if structName == "LinkedList" or structName.startsWith("LinkedList<") {

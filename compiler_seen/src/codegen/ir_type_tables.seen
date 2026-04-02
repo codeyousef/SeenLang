@@ -1180,12 +1180,12 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodNames.push("pushFront,pushBack,popFront,popBack,peekFront,peekBack,size,len,isEmpty,clear")
     structMethodRetTypes.push("Void|Void|Option<T>|Option<T>|Option<T>|Option<T>|Int|Int|Bool|Void")
 
-    // Option<T> { hasValue: Bool, storage: Array<T> } - Array-boxed for runtime polymorphism
+    // Option<T> { hasValue: Bool, value: T } - generic value lowered via i64 ABI slot
     structNames.push("Option")
-    structLayouts.push("{ i1, ptr }")
-    structFieldNames.push("hasValue,storage")
-    structFieldTypes.push("Bool|Array<T>")
-    structLlvmFieldTypes.push("i1|ptr")
+    structLayouts.push("{ i1, i64 }")
+    structFieldNames.push("hasValue,value")
+    structFieldTypes.push("Bool|T")
+    structLlvmFieldTypes.push("i1|i64")
     structSizes.push(16)
     structMethodNames.push("isSome,isNone,IsSome,IsNone,unwrap,Unwrap,unwrapOr,UnwrapOr,expect,Expect,Store,Replace,Clear")
     structMethodRetTypes.push("Bool|Bool|Bool|Bool|T|T|T|T|T|T|Void|Option<T>|Void")
@@ -1210,6 +1210,10 @@ fun resolveCollectionGetTypeImpl(recType: String) r: String {
     }
     if recType.startsWith("HashMap<") and recType.endsWith(">") {
         let valType = extractMapValueTypeImpl(recType, 8)
+        if valType != "" { return "Option<" + valType + ">" }
+    }
+    if recType.startsWith("StringHashMap<") and recType.endsWith(">") {
+        let valType = recType.substring(14, recType.length() - 1)
         if valType != "" { return "Option<" + valType + ">" }
     }
     return ""

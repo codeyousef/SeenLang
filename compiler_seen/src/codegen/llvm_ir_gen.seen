@@ -4726,7 +4726,8 @@ class LLVMIRGenerator {
     // ClassName_methodName. Non-static methods receive an implicit `ptr %this`
     // first parameter pointing to the heap-allocated struct.
     //
-    // Option class methods (isSome, isNone) are inlined as null-pointer checks
+    // Option class methods (isSome, isNone) are inlined against the direct-value
+    // option object layout used by runtime unwrap helpers.
     // rather than delegated to the C runtime.
     //
     // CRITICAL: cseClear() is called at method entry to prevent the cross-method
@@ -4738,25 +4739,26 @@ class LLVMIRGenerator {
         if classNode.name == "JsonParseResult" or classNode.name == "JsonParser" or classNode.name == "LLVMIRGenerator" {
             println("[irgen class method start] " + classNode.name + "." + method.name)
         }
-        // Handle Option class methods specially
-        // C runtime uses: Some(v) = v, None() = NULL, so Option is just a pointer value
-        // isSome() checks ptr != null, isNone() checks ptr == null
+        // Handle Option class methods specially.
         if classNode.name == "Option" or classNode.name.startsWith("Option<") {
             let methodName = method.name
-            // Generate isSome/IsSome - check if pointer is not NULL
+            // Generate isSome/IsSome - load the hasValue field directly.
             if methodName == "isSome" or methodName == "IsSome" {
                 output.append("define i1 @Option_" + methodName + "(ptr %this) {\n")
                 output.append("entry:\n")
-                output.append("  %isSome = icmp ne ptr %this, null\n")
-                output.append("  ret i1 %isSome\n")
+                output.append("  %hasValuePtr = getelementptr inbounds { i1, i64 }, ptr %this, i32 0, i32 0\n")
+                output.append("  %hasValue = load i1, ptr %hasValuePtr\n")
+                output.append("  ret i1 %hasValue\n")
                 output.append("}\n\n")
                 return
             }
-            // Generate isNone/IsNone - check if pointer is NULL
+            // Generate isNone/IsNone - negate the hasValue field.
             if methodName == "isNone" or methodName == "IsNone" {
                 output.append("define i1 @Option_" + methodName + "(ptr %this) {\n")
                 output.append("entry:\n")
-                output.append("  %isNone = icmp eq ptr %this, null\n")
+                output.append("  %hasValuePtr = getelementptr inbounds { i1, i64 }, ptr %this, i32 0, i32 0\n")
+                output.append("  %hasValue = load i1, ptr %hasValuePtr\n")
+                output.append("  %isNone = xor i1 %hasValue, true\n")
                 output.append("  ret i1 %isNone\n")
                 output.append("}\n\n")
                 return
@@ -5397,13 +5399,6 @@ class LLVMIRGenerator {
         // Otherwise skip — they'll be declared by emitAllRuntimeDeclarations
         if fn.name.startsWith("__") and fn.body.statements.length() == 0 and not fn.isExtern {
             output.append("; SKIPPED: " + fn.name + " (extern C function - declared by runtime)\n")
-            return
-        }
-
-        // Skip Some and None - use C runtime implementations (they have different semantics)
-        // C runtime: Some(v) returns v, None() returns NULL (no struct wrapper)
-        if fn.name == "Some" or fn.name == "None" {
-            output.append("; SKIPPED: " + fn.name + " (use C runtime implementation)\n")
             return
         }
 
@@ -12273,7 +12268,7 @@ class LLVMIRGenerator {
             let isOptionType = receiverType == "Option" or receiverType.startsWith("Option<")
             if isOptionType {
                 var optDefaultReg = "0"
-                if methodName == "unwrapOr" and expr.arguments.length() > 0 {
+                if (methodName == "unwrapOr" or methodName == "UnwrapOr") and expr.arguments.length() > 0 {
                     optDefaultReg = generateExpression(expr.arguments[0])
                 }
                 let optResult = emitOptionMethodImpl(output, g_regBox, g_blockLabelBox, methodName, receiverReg, optDefaultReg)
@@ -12305,7 +12300,7 @@ class LLVMIRGenerator {
             }
 
             // INLINE COLLECTION METHOD HANDLING (delegated to ir_type_tables.seen dispatchCollectionMethodImpl)
-            let isCollectionTypeC = receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or receiverType == "HashMap" or receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
+            let isCollectionTypeC = receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or receiverType == "HashMap" or receiverType.startsWith("StringHashMap<") or receiverType == "StringHashMap" or receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
             if isCollectionTypeC {
                 var collArg0c = "0"
                 var collArg1c = "0"
@@ -12612,7 +12607,7 @@ class LLVMIRGenerator {
         let isOptionTypeSimple = receiverType == "Option" or receiverType.startsWith("Option<")
         if isOptionTypeSimple and receiverReg != "" {
             var optDefaultRegS = "0"
-            if methodName == "unwrapOr" and expr.arguments.length() > 0 {
+            if (methodName == "unwrapOr" or methodName == "UnwrapOr") and expr.arguments.length() > 0 {
                 optDefaultRegS = generateExpression(expr.arguments[0])
             }
             let optResultS = emitOptionMethodImpl(output, g_regBox, g_blockLabelBox, methodName, receiverReg, optDefaultRegS)
@@ -12636,7 +12631,7 @@ class LLVMIRGenerator {
         }
 
         // INLINE COLLECTION METHOD HANDLING for simple variable receivers (delegated)
-        let isCollectionTypeSimple = receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or receiverType == "HashMap" or receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
+        let isCollectionTypeSimple = receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or receiverType == "HashMap" or receiverType.startsWith("StringHashMap<") or receiverType == "StringHashMap" or receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
         if isCollectionTypeSimple and receiverReg != "" {
             var collArg0s = "0"
             var collArg1s = "0"
@@ -12690,6 +12685,32 @@ class LLVMIRGenerator {
                 if methodName == "new" {
                     let collNewResult = emitStaticCollectionNewImpl(output, g_regBox, potentialClassName, fullClassName)
                     if collNewResult != "" { return collNewResult }
+                }
+
+                if methodName == "withCapacity" and (potentialClassName == "HashMap" or potentialClassName == "StringHashMap") and expr.arguments.length() > 0 {
+                    let capArg = generateExpression(expr.arguments[0])
+                    var hasStringKey = fullClassName.contains("<String")
+                    let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>") or fullClassName.contains("<String>")
+                    if potentialClassName == "StringHashMap" {
+                        hasStringKey = true
+                    }
+                    let rawReg = getNextReg()
+                    if hasStringKey {
+                        if hasStringValue {
+                            output.append("  " + rawReg + " = call ptr @HashMap_new_str_str_with_capacity(i64 " + capArg + ")\n")
+                        } else {
+                            output.append("  " + rawReg + " = call ptr @HashMap_new_str_with_capacity(i64 " + capArg + ")\n")
+                        }
+                    } else {
+                        if hasStringValue {
+                            output.append("  " + rawReg + " = call ptr @HashMap_new_int_str_with_capacity(i64 " + capArg + ")\n")
+                        } else {
+                            output.append("  " + rawReg + " = call ptr @HashMap_new_with_capacity(i64 " + capArg + ")\n")
+                        }
+                    }
+                    let resultReg = getNextReg()
+                    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+                    return resultReg
                 }
 
                 // Array<T>.withLength(n) — delegated to ir_call_dispatch.seen
@@ -14267,7 +14288,11 @@ class LLVMIRGenerator {
                 }
                 // Check for static method calls - literalValue is the class name (e.g., LspResponse::success)
                 if recVarType == "" {
-                    let staticRetType = getMethodReturnType(expr.literalValue, expr.callee)
+                    let staticOwnerType = getBaseTypeName(expr.literalValue)
+                    var staticRetType = getMethodReturnType(expr.literalValue, expr.callee)
+                    if staticRetType == "" and staticOwnerType != expr.literalValue {
+                        staticRetType = getMethodReturnType(staticOwnerType, expr.callee)
+                    }
                     if staticRetType != "" {
                         return staticRetType
                     }
@@ -14292,6 +14317,12 @@ class LLVMIRGenerator {
             if expr.callee == "new" {
                 // Static constructor - returns the class type
                 return expr.literalValue
+            }
+            if expr.callee == "withCapacity" {
+                let capacityOwnerType = getBaseTypeName(expr.literalValue)
+                if capacityOwnerType == "Vec" or capacityOwnerType == "HashMap" or capacityOwnerType == "BTreeMap" or capacityOwnerType == "LinkedList" or capacityOwnerType == "StringHashMap" {
+                    return expr.literalValue
+                }
             }
             // Array<T>.withLength(n) / Array<T>.withCapacity(n) returns Array<T>
             if (expr.callee == "withLength" or expr.callee == "withCapacity") and expr.literalValue.startsWith("Array") {
@@ -14356,7 +14387,7 @@ class LLVMIRGenerator {
                 // Debug: Trace get() method type inference
                 traceGen("inferExpressionType: get() recType=" + recType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
                 // Only use hardcoded collection dispatch for known collection types
-                let isCollectionGet = recType.startsWith("Array<") or recType.startsWith("Vec<") or recType.startsWith("HashMap<") or recType.startsWith("BTreeMap<") or recType.startsWith("Map<") or recType == ""
+                let isCollectionGet = recType.startsWith("Array<") or recType.startsWith("Vec<") or recType.startsWith("HashMap<") or recType.startsWith("StringHashMap<") or recType.startsWith("BTreeMap<") or recType.startsWith("Map<") or recType == ""
                 if isCollectionGet {
                     let collGetType = resolveCollectionGetTypeImpl(recType)
                     if collGetType != "" {

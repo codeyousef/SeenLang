@@ -13,5 +13,9 @@ fun <T> List<T>.firstOrNull() r: T? {
 }
 
 fun <K, V> Map<K, V>.getOrDefault(key: K, defaultValue: V) r: V {
-    return this.get(key).UnwrapOr(defaultValue)
+    let option = this.get(key)
+    if option.isSome() {
+        return option.unwrap()
+    }
+    return defaultValue
 }

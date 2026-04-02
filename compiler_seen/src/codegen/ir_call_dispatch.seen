@@ -43,7 +43,7 @@ fun widenResultImpl(output: StringBuilder, regBox: Array<Int>, reg: String, scal
     return reg
 }
 
-// emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/LinkedList .new() static calls
+// emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/StringHashMap/LinkedList .new() static calls
 // Returns result register (ptrtoint'd ptr), or "" if className not matched
 fun emitStaticCollectionNewImpl(output: StringBuilder, regBox: Array<Int>, className: String, fullClassName: String) r: String {
     if className == "Vec" {
@@ -100,6 +100,18 @@ fun emitStaticCollectionNewImpl(output: StringBuilder, regBox: Array<Int>, class
             } else {
                 output.append("  " + rawReg + " = call ptr @HashMap_new()\n")
             }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+    if className == "StringHashMap" {
+        let hasStringValue = fullClassName.contains("<String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringValue {
+            output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
+        } else {
+            output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
         }
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
