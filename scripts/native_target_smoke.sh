@@ -144,6 +144,8 @@ sources_for_target() {
   case "$target" in
     windows-*)
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_game_engine_features.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/hash_map_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
       ;;
     android-*)
       printf '%s\n' "$ROOT_DIR/tests/gpu/test_compute_basic.seen"
