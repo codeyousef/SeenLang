@@ -8172,8 +8172,9 @@ class LLVMIRGenerator {
                 isStringIterable = 1
                 elementType = "Char"
             }
-            let lenReg = getNextReg()
+            var lenReg = ""
             if isStringIterable == 1 {
+                lenReg = getNextReg()
                 var arrStrReg = arrReg
                 if arrReg == "0" {
                     arrStrReg = "zeroinitializer"
@@ -8182,6 +8183,7 @@ class LLVMIRGenerator {
             }
             if isStringIterable == 0 {
                 let lenPtrReg = getNextReg()
+                lenReg = getNextReg()
                 output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
                 output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
             }
