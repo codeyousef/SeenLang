@@ -103,6 +103,11 @@ fun buildCacheSignature(profile: String, language: String, targetCpu: String, si
     } else {
         signature = signature + "|bounds=0"
     }
+    if effectiveTarget == "android-arm64" {
+        signature = signature + "|moduleobj=target-clang"
+    } else {
+        signature = signature + "|moduleobj=host-opt"
+    }
     return signature
 }
 
@@ -1763,6 +1768,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let objFile = "/tmp/seen_module_" + midx + ".o"
 
             var moduleOptCmd = "opt -passes='" + optPasses + "'" + optInternalize + " -inline-threshold=" + optThreshold + " -S " + llFile + " -o " + optFile + pgoOptFlags
+            var androidClangOptLevel = "-O3"
+            if g_fastMode == 1 {
+                androidClangOptLevel = "-O1"
+            } else {
+                if g_O2Mode == 1 {
+                    androidClangOptLevel = "-O2"
+                }
+            }
+            if normalizedCrossTarget == "android-arm64" {
+                moduleOptCmd = targetClangDriver + " " + androidClangOptLevel + " -S -emit-llvm -Wno-unused-command-line-argument -x ir " + targetClangArgs + " " + llFile + " -o " + optFile
+            }
 
             // Add ML remarks file if needed
             if actualMlLogPath != "" {
@@ -1773,11 +1789,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             // opt --thinlto-bc produces bitcode with ThinLTO module summaries (needed for LLD's --thinlto-cache-dir)
             // Skip Polly in fast mode for faster builds
             var pollyStep = ""
-            if g_fastMode == 0 {
+            if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" {
                 let pollyFile = "/tmp/seen_module_" + midx + ".polly.ll"
                 pollyStep = " && (opt -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " 2>/dev/null && mv " + pollyFile + " " + optFile + " || true)"
             }
-            script = script + "(" + moduleOptCmd + " || cp " + llFile + " " + optFile + ")" + pollyStep + " && opt --thinlto-bc " + optFile + " -o " + objFile + " &\n"
+            var moduleObjCmd = "opt --thinlto-bc " + optFile + " -o " + objFile
+            if normalizedCrossTarget == "android-arm64" {
+                moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
+            }
+            script = script + "(" + moduleOptCmd + " || cp " + llFile + " " + optFile + ")" + pollyStep + " && " + moduleObjCmd + " &\n"
 
             pi = pi + 1
         }

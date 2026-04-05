@@ -152,6 +152,7 @@ sources_for_target() {
       printf '%s\n' "$ROOT_DIR/tests/gpu/test_compute_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/hash_map_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/str_basic.seen"
       ;;
   esac
 }
