@@ -195,6 +195,26 @@ seen build program.seen --emit-compile-db
 # produces compile_commands.json
 ```
 
+## Linux ARM64 Cross Sysroot
+
+On pacman-compatible Linux hosts, you can create a local AArch64 cross sysroot for Seen without installing system packages globally:
+
+```bash
+./scripts/setup_linux_arm64_sysroot.sh
+source artifacts/toolchains/linux-arm64/env.sh
+```
+
+The helper resolves the Arch/CachyOS cross-package URLs with `pacman -Sp`, downloads them locally, and extracts them under `artifacts/toolchains/linux-arm64/`. The generated `env.sh` exports both `SEEN_LINUX_ARM64_SYSROOT` and `SEEN_LINUX_ARM64_GCC_TOOLCHAIN`, which is enough for `compiler_seen/target/seen` and the native smoke harness to produce Linux ARM64 binaries on an x86_64 Linux host.
+
+Validate the local setup with either command:
+
+```bash
+bash scripts/native_target_smoke.sh --compiler compiler_seen/target/seen --target linux-arm64
+bash scripts/platform_matrix.sh --stage3 compiler_seen/target/seen --platform linux-arm64
+```
+
+If you want the helper to replace an existing extracted toolchain directory, rerun it with `--force`.
+
 ## Import from C
 
 Generate Seen bindings from a C header:
