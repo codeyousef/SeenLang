@@ -1,0 +1,1 @@
+This Android bundle packages the deterministic Seen Vulkan sample.

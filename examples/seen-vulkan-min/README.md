@@ -56,8 +56,22 @@ target/release/seen_cli build examples/seen-vulkan-min/src/main.seen \
   --output build/android/libseen_vulkan_min.so
 ```
 
-If you want an Android App Bundle, package a source tree that already contains Android manifest, dex, and resource
-files via `scripts/bundle_android.sh`. The repository's ready-to-bundle sample is `examples/android/hello_ndk/`.
+### Android App Bundle
+
+```bash
+export ANDROID_NDK_HOME=/path/to/ndk
+
+bash scripts/bundle_android.sh \
+  compiler_seen/target/seen \
+  examples/seen-vulkan-min/src/main.seen \
+  artifacts/android/seen_vulkan_min.aab
+```
+
+The sample now carries Android manifest and resource metadata in the project root, and `scripts/bundle_android.sh`
+resolves `examples/seen-vulkan-min/Seen.toml` as the project root automatically. The packager also reuses the shared
+Android dex loader scaffold from `examples/android/hello_ndk/` when a project does not carry its own dex payload, so
+the resulting bundle includes the sample shader asset at `assets/shaders/triangle.spv` together with the generated
+`arm64-v8a/libapp.so`.
 
 The CLI emits a per-frame validation report. CI can grep for `validation_errors=0` to ensure the simulated validation
 layers stayed happy. Because the sample avoids host-specific syscalls it can be exercised on any platform that supports

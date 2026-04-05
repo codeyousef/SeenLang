@@ -26,9 +26,9 @@ data Vec2 {
 }
 
 data Vec3 {
-    r: Float,
-    g: Float,
-    b: Float,
+    red: Float,
+    green: Float,
+    blue: Float,
 }
 
 data VulkanVertex {
@@ -89,7 +89,7 @@ fun run_vulkan_sample(config: VulkanAppConfig) -> VulkanFrameSummary {
         total_frame_time = total_frame_time + result.estimated_ms
     }
 
-    let frames_float = frames * 1.0
+    let frames_float = frames.toFloat()
     let average_frame_time = total_frame_time / frames_float
 
     return VulkanFrameSummary {
@@ -135,9 +135,9 @@ fun record_frame(frame_index: Int, vertices: List<VulkanVertex>, state: VulkanRe
 
 fun estimate_frame_time(frame_index: Int, commands: Int, swapchain_images: Int) -> Float {
     let base = 0.9
-    let commands_float = commands * 1.0
-    let swapchain_float = swapchain_images * 1.0
-    let frame_float = frame_index * 1.0
+    let commands_float = commands.toFloat()
+    let swapchain_float = swapchain_images.toFloat()
+    let frame_float = frame_index.toFloat()
     let command_penalty = commands_float * 0.2
     let swapchain_bonus = swapchain_float * 0.05
     let jitter = frame_float * 0.03
@@ -148,15 +148,15 @@ fun triangle_vertices() -> List<VulkanVertex> {
     return [
         VulkanVertex {
             position: Vec2 { x: 0.0, y: -0.5 },
-            color: Vec3 { r: 1.0, g: 0.0, b: 0.0 },
+            color: Vec3 { red: 1.0, green: 0.0, blue: 0.0 },
         },
         VulkanVertex {
             position: Vec2 { x: 0.5, y: 0.5 },
-            color: Vec3 { r: 0.0, g: 1.0, b: 0.0 },
+            color: Vec3 { red: 0.0, green: 1.0, blue: 0.0 },
         },
         VulkanVertex {
             position: Vec2 { x: -0.5, y: 0.5 },
-            color: Vec3 { r: 0.0, g: 0.0, b: 1.0 },
+            color: Vec3 { red: 0.0, green: 0.0, blue: 1.0 },
         },
     ]
 }

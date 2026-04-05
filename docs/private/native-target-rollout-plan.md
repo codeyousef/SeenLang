@@ -343,21 +343,104 @@
 - Re-ran the widened Android smoke harness with `--release` and confirmed the same four-case set still succeeds in release mode.
 - Re-ran `scripts/platform_matrix.sh --stage3 compiler_seen/target/seen --platform android-arm64` with the same local NDK and confirmed the generated JSON report now carries the widened four-case Android success note plus the correct nested native-smoke log path.
 
+### Implemented in the twenty-fourth patch set
+
+- Ran a focused cross-target probe sweep with `scripts/native_target_smoke.sh --source ...` across the four reachable Linux-host targets:
+   - `linux-x86_64`
+   - `linux-arm64`
+   - `windows-x86_64`
+   - `android-arm64`
+  and confirmed the following additional cases all produce correct target artifacts everywhere in that set:
+   - `seen_std/tests/string_buffer_basic.seen`
+   - `tests/codegen/test_parser_function_body_regression.seen`
+   - `tests/codegen/test_when_enum.seen`
+   - `tests/e2e_multilang/en/test_keywords_control_en.seen`
+- Widened `scripts/native_target_smoke.sh` again based on that probe sweep so the default local smoke sets are now:
+   - `linux-x86_64`: `hello_english`, `hash_map_basic`, `string_hash_map_basic`, `str_basic`, `string_buffer_basic`, `test_parser_function_body_regression`, `test_when_enum`, `test_keywords_control_en`
+   - `linux-arm64`: the same eight-case non-GPU set as `linux-x86_64`
+   - `windows-x86_64`: the prior five-case set plus `string_buffer_basic`, `test_parser_function_body_regression`, `test_when_enum`, and `test_keywords_control_en`
+   - `android-arm64`: the prior five-case set plus `string_buffer_basic`, `test_parser_function_body_regression`, `test_when_enum`, and `test_keywords_control_en`
+- Re-ran the widened default smoke harness in normal mode and confirmed local success for all four reachable targets with the new default sets.
+- Re-ran the same widened default smoke harness with `--release` and confirmed local success for:
+   - `linux-x86_64`
+   - `linux-arm64`
+   - `windows-x86_64`
+   - `android-arm64`
+- Revalidated `scripts/bundle_android.sh` against `examples/android/hello_ndk/main.seen` on the local NDK (`r29`, API 24) and confirmed the emitted `.aab` still contains the expected manifest, `classes.dex`, and `arm64-v8a/libapp.so` payload.
+- Re-ran the full default `scripts/platform_matrix.sh` on the current Linux host with the helper-provisioned Linux ARM64 sysroot plus the local Android NDK and confirmed:
+   - `linux-x86_64`: `success`
+   - `linux-arm64`: `success`
+   - `windows-x86_64`: `success`
+   - `android-arm64`: `success`
+   - `macos-x86_64`: `unavailable` (`xcrun` missing on this Linux host)
+   - `macos-arm64`: `unavailable` (`xcrun` missing on this Linux host)
+   - `ios-arm64`: `unavailable` (`xcrun` missing on this Linux host)
+
+### Implemented in the twenty-fifth patch set
+
+- Fixed the Android-target Seen GPU sample path in `examples/seen-vulkan-min/src/main.seen` by replacing the compiler-fragile integer-to-float shorthand with explicit `.toFloat()` calls and renaming the sample's color fields away from the current float-field `r/g/b` lowering bug.
+- Extended `scripts/bundle_android.sh` so Android packaging can use a real Seen project root instead of only the source file directory:
+   - resolves the nearest parent `Seen.toml` as the packaging root when present
+   - copies project `shaders/` into bundle assets as `assets/shaders/`
+   - falls back to the shared `examples/android/hello_ndk/dex/` loader scaffold when a project does not carry its own dex payload
+- Added ready-to-bundle Android metadata for `examples/seen-vulkan-min/`:
+   - `AndroidManifest.xml`
+   - `res/values/strings.xml`
+   - `root/NOTICE.txt`
+- Revalidated Android bundling for both:
+   - `examples/android/hello_ndk/main.seen`
+   - `examples/seen-vulkan-min/src/main.seen`
+  and confirmed the Vulkan sample `.aab` now contains the expected `arm64-v8a/libapp.so`, manifest/resources, shared dex loader, and `assets/shaders/triangle.spv` payload.
+- Ran a focused Android GPU compile sweep across all checked-in `tests/gpu/*.seen` cases on `android-arm64` with the local NDK (`r29`, API 24) and confirmed all current GPU compile probes succeed.
+- Widened the default `android-arm64` smoke set again to add representative GPU coverage beyond `test_compute_basic`:
+   - `tests/gpu/test_compute_builtins.seen`
+   - `tests/gpu/test_vertex_fragment.seen`
+   - `tests/gpu/test_shader_reflection.seen`
+- Re-ran `scripts/native_target_smoke.sh` for `android-arm64` in both normal mode and `--release` mode with the expanded GPU-aware default set and confirmed all Android default cases succeed.
+- Re-ran `scripts/platform_matrix.sh --platform android-arm64` after the GPU widening and confirmed the generated Android report remains `success` with the expanded GPU compile coverage.
+
+### Implemented in the twenty-sixth patch set
+
+- Verified the local Android SDK, build-tools, emulator, and AVD inventory on this Linux host instead of treating Android runtime follow-through as an unavailable environment:
+   - SDK root: `/home/yousef/Android/Sdk`
+   - NDK: `r29` at `/home/yousef/Android/Sdk/ndk/29.0.14206865`
+   - installed host tools: `adb`, `emulator`, `aapt`, `d8`, `zipalign`, `apksigner`
+   - local AVD: `Pixel_9_Pro`
+- Added `scripts/package_android_apk.sh` as an installable-APK helper for Seen Android samples. The helper now:
+   - compiles `libapp.so` for `android-arm64`
+   - generates a minimal Java `MainActivity`
+   - generates a JNI loader `libseen_android_loader.so`
+   - emits `classes.dex`
+   - packages, zipaligns, and signs a debug APK
+- Hardened the APK helper during emulator bring-up so it works for real sample projects instead of only the first happy path:
+   - resolves Android project roots using packaging markers rather than the repository root `Seen.toml`
+   - includes all generated Java inner classes in `classes.dex`
+   - stores native libraries uncompressed and 16 KiB-page-aligned in the APK
+   - emits explicit `SeenActivity` and `SeenLoader` log lines for runtime diagnosis
+- Made `examples/android/hello_ndk/main.seen` self-contained for APK execution by removing the unresolved sample-only `seen_print(...)` extern dependency; the loader UI now reports the Seen program exit code directly.
+- Booted the local `Pixel_9_Pro` emulator, installed APKs with `adb install --no-incremental`, launched them with `am start -W`, and confirmed successful emulator execution for both:
+   - `examples/android/hello_ndk/main.seen`
+   - `examples/seen-vulkan-min/src/main.seen`
+- Verified runtime behavior from `adb logcat` on the emulator:
+   - `hello_ndk`: `libapp.so loaded`, `main symbol resolved`, `Seen exit code: 0`
+   - `seen_vulkan_min`: `libapp.so loaded`, `main symbol resolved`, `Seen exit code: 0`
+- Isolated one emulator-specific install caveat during this work: incremental `adb install -r` repeatedly crashed native library startup with `SIGBUS`, while `adb install --no-incremental` produced stable APK execution for the validated samples.
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
-- Broaden Windows validation beyond the current widened smoke set (`hello_english`, `test_game_engine_features`, `hash_map_basic`, and `string_hash_map_basic`) on a real MinGW/LLVM toolchain and confirm whether richer runtime/stdlib coverage needs any additional Windows system libraries.
-- Broaden Android validation beyond the current widened smoke set (`hello_english`, `test_compute_basic`, `hash_map_basic`, and `string_hash_map_basic`) and the validated `hello_ndk` bundle path on a real NDK installation, especially richer GPU runtime coverage, broader stdlib/runtime paths, and eventual on-device execution.
-- Broaden cross-target release-mode validation beyond the current Windows and Android release smoke coverage so ThinLTO-backed per-module linking is also exercised on Apple hosts and Linux ARM64 when those toolchains are available.
+- Extend Windows validation beyond the current nine-case local smoke set only if a concrete richer runtime or system-library path needs coverage beyond the already-green stdlib, parser, control-flow, and game-engine cases.
+- Extend Android validation beyond the current compile, bundle, and local emulator execution coverage to physical-device validation and broader real GPU-runtime follow-through. On this Linux host the Android SDK/emulator toolchain is present and the local AVD path is now validated, but reliable APK execution currently depends on `adb install --no-incremental` for these native-library-heavy samples.
+- Run the same widened smoke and release flow on an Apple host for `macos-x86_64`, `macos-arm64`, and `ios-arm64`; those targets remain honest `unavailable` results on Linux because `xcrun` is absent.
 - Keep the CI workflow definitions disabled on this branch until manual native-target verification is complete, then observe the first hosted Apple and Android CI runs and harden the workflow if GitHub runner differences expose bootstrap, SDK, or provisioning issues.
 - Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
 - Re-establish or retire the earlier string runtime/codegen bug with a fresh failing repro; the focused `String.length()` / empty-string equality regression now passes with the current production compiler.
 
 ### Current implementation posture
 
-The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, target-aware link-library selection for Android and Windows, a broader native smoke harness that covers more than hello-world for the highest-risk non-Linux targets, explicit release-mode smoke support for manual cross-target validation, and a packaging helper that works with the current stage CLI instead of only the newer `build` surface. The remaining work is now primarily still-broader validation coverage, GPU/runtime portability follow-through, and Windows-specific hardening rather than missing compiler routing.
+The compiler is no longer relying on target names alone for Android. The native path now has real target-model, target-aware runtime compilation, capability-gated auxiliary runtime compilation, target-aware link-library selection for Android and Windows, a smoke harness with widened default source sets for all four reachable Linux-host targets plus representative Android GPU coverage, explicit release-mode smoke support for manual cross-target validation, an `.aab` packaging helper that works with the current stage CLI, and a validated installable-APK helper for local emulator execution. The remaining work is now primarily Apple-host follow-through, physical-device Android and broader GPU-runtime validation, and hosted CI observation after re-enable rather than missing compiler routing.
 
-The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros, and the later float-promotion registry fix now lets `scripts/safe_rebuild.sh` complete `S2->S3` on the current Linux host without the earlier `promoteFloatArgsImpl` segfault. On this machine, the rebuilt production compiler now emits the correct artifact formats for `linux-x86_64`, `windows-x86_64`, and `android-arm64`, with the Android smoke path validated against a real local NDK, the `hello_ndk` Android packaging helper validated end to end, the Windows smoke path validated against the local MinGW toolchain, the focused `HashMap` / `StringHashMap` stdlib cases now validated on Linux plus Windows compile-only smoke, the widened four-case Windows and Android smoke harnesses plus matching platform-matrix reports now validated locally, and the current Windows/Android release-mode smoke tier validated locally as well. Linux ARM64 remains an honest sysroot prerequisite gap, and the repository now carries dedicated Ubuntu Android-backed and macOS Apple-host native matrix definitions that are intentionally disabled until manual verification is complete. Native-target validation now has the constructor-plus-void-method regression, the top-level `Void` free-function lowering check, the parser function-body regression, the focused string literal regression, a successful Linux `S2->S3` rebuild, local Windows smoke plus widened compile-only coverage for `hello_english`, `test_game_engine_features`, `hash_map_basic`, and `string_hash_map_basic`, local Android NDK-backed smoke plus widened compile-only coverage for `hello_english`, `test_compute_basic`, `hash_map_basic`, and `string_hash_map_basic` plus the validated bundle path, widened Windows and Android release smoke across the same four-case sets, and Windows/Android release smoke validated; the most important unresolved risks are still-broader Windows/Android coverage and the first real hosted CI executions after re-enable.
+The latest native-target and bootstrap validation closed the parser-side `data` regression that was swallowing top-level items in reduced self-host repros, and the later float-promotion registry fix now lets `scripts/safe_rebuild.sh` complete `S2->S3` on the current Linux host without the earlier `promoteFloatArgsImpl` segfault. On this machine, the rebuilt production compiler now emits the correct artifact formats for `linux-x86_64`, `linux-arm64`, `windows-x86_64`, and `android-arm64`, with widened normal and `--release` smoke both validated locally across the current default sets, the `hello_ndk` Android bundle and installable-APK paths now validated through emulator execution, the `seen-vulkan-min` Android bundle path validated with its shader asset included plus emulator execution to exit code `0`, and the full local platform matrix reporting `success` for those four reachable targets while Apple targets remain honest `unavailable` results on Linux without `xcrun`. Native-target validation now includes the focused `HashMap` / `StringHashMap` stdlib cases, `str_basic`, `string_buffer_basic`, the parser function-body regression, the enum `match` regression, the English control-flow keyword e2e case, the Windows `test_game_engine_features` path, the Android `test_compute_basic`, `test_compute_builtins`, `test_vertex_fragment`, and `test_shader_reflection` paths, installable Android APK validation on the local `Pixel_9_Pro` AVD, a successful Linux `S2->S3` rebuild, and helper-backed Linux ARM64 smoke and release validation; the most important unresolved risks are Apple-host validation, physical Android device coverage plus broader real GPU runtime coverage, and the first real hosted CI executions after the workflow files are intentionally re-enabled.
 
 ## Goal
 
@@ -391,7 +474,7 @@ This plan is intentionally ordered by compiler risk, toolchain complexity, and c
 
 - Windows still needs more ABI-specific hardening, but the current rebuilt stage compiler now produces a real `.exe` for the smoke target instead of silently succeeding without an artifact.
 - Windows link defaults are now less Unix-biased and no longer force a Winsock dependency, and a local MinGW smoke run currently imports only `KERNEL32.dll` plus the expected UCRT DLL set, but broader runtime coverage still needs validation.
-- Android now depends on a real NDK/sysroot instead of implicit host fallback, and the hello-world smoke path now links successfully on a local NDK install, but broader runtime/GPU and on-device validation are still outstanding.
+- Android now depends on a real NDK/sysroot instead of implicit host fallback, the hello-world smoke path links successfully on a local NDK install, and both `hello_ndk` plus `seen-vulkan-min` now execute successfully on the local emulator via installable APKs; broader physical-device and real GPU-runtime validation are still outstanding.
 - Linux ARM64 cross-compilation now requires an explicit ARM64 sysroot on non-ARM64 hosts instead of falling through host glibc headers; the compiler probes `SEEN_LINUX_ARM64_SYSROOT` and common system paths before attempting the runtime build.
 - Auxiliary runtimes are now target-aware, but `seen_region.c` is intentionally capability-gated because it is not yet portable across the full native target matrix.
 - Cross-target release builds now avoid the host-native merged `llc` path, but still need validation under real Windows and Android toolchains.

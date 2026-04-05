@@ -58,7 +58,34 @@ if [[ -z "${ANDROID_NDK_ROOT:-}" && -n "${ANDROID_NDK_HOME:-}" ]]; then
   export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
 fi
 
-PROJECT_DIR=$(cd "$(dirname "$SOURCE")" && pwd)
+resolve_project_dir() {
+  local source_dir
+  source_dir=$(cd "$(dirname "$SOURCE")" && pwd)
+  local dir="$source_dir"
+
+  while true; do
+    if [[ -f "$dir/AndroidManifest.xml" || -d "$dir/dex" || -d "$dir/res" || -d "$dir/assets" || -d "$dir/root" || -f "$dir/Seen.toml" ]]; then
+      printf '%s\n' "$dir"
+      return
+    fi
+
+    if [[ "$dir" == "/" || "$dir" == "$REPO_ROOT" ]]; then
+      break
+    fi
+
+    local parent
+    parent=$(dirname "$dir")
+    if [[ "$parent" == "$dir" ]]; then
+      break
+    fi
+    dir="$parent"
+  done
+
+  printf '%s\n' "$source_dir"
+}
+
+PROJECT_DIR="$(resolve_project_dir)"
+DEFAULT_ANDROID_TEMPLATE_DIR="$REPO_ROOT/examples/android/hello_ndk"
 
 ABI_DIR="arm64-v8a"
 case "${ANDROID_ABI:-}" in
@@ -93,6 +120,7 @@ copy_tree_if_exists "$PROJECT_DIR/assets" "$BASE_DIR/assets"
 copy_tree_if_exists "$PROJECT_DIR/res" "$BASE_DIR/res"
 copy_tree_if_exists "$PROJECT_DIR/root" "$BASE_DIR/root"
 copy_tree_if_exists "$PROJECT_DIR/dex" "$BASE_DIR/dex"
+copy_tree_if_exists "$PROJECT_DIR/shaders" "$BASE_DIR/assets/shaders"
 
 if [[ -f "$PROJECT_DIR/AndroidManifest.xml" ]]; then
   cp "$PROJECT_DIR/AndroidManifest.xml" "$MANIFEST_DIR/AndroidManifest.xml"
@@ -121,6 +149,8 @@ fi
 
 if compgen -G "$BASE_DIR/dex/*.dex" > /dev/null; then
   :
+elif [[ -d "$DEFAULT_ANDROID_TEMPLATE_DIR/dex" ]]; then
+  copy_tree_if_exists "$DEFAULT_ANDROID_TEMPLATE_DIR/dex" "$BASE_DIR/dex"
 else
   echo "error: no dex files found under $BASE_DIR/dex. Provide classes.dex before bundling." >&2
   exit 1

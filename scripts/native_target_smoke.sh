@@ -142,17 +142,37 @@ sources_for_target() {
 
   printf '%s\n' "$DEFAULT_SOURCE_FILE"
   case "$target" in
+    linux-*)
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/hash_map_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/str_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/string_buffer_basic.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_parser_function_body_regression.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_when_enum.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_control_en.seen"
+      ;;
     windows-*)
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_game_engine_features.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/hash_map_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/str_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/string_buffer_basic.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_parser_function_body_regression.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_when_enum.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_control_en.seen"
       ;;
     android-*)
       printf '%s\n' "$ROOT_DIR/tests/gpu/test_compute_basic.seen"
+      printf '%s\n' "$ROOT_DIR/tests/gpu/test_compute_builtins.seen"
+      printf '%s\n' "$ROOT_DIR/tests/gpu/test_vertex_fragment.seen"
+      printf '%s\n' "$ROOT_DIR/tests/gpu/test_shader_reflection.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/hash_map_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/str_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/string_buffer_basic.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_parser_function_body_regression.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_when_enum.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_control_en.seen"
       ;;
   esac
 }

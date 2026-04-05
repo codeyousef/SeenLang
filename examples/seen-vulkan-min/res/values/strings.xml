@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Seen Vulkan Minimal</string>
+    <string name="sample_summary">Deterministic Vulkan-style validation sample for Android packaging.</string>
+</resources>
