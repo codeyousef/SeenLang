@@ -870,6 +870,66 @@ fun getLinuxArm64Sysroot() r: String {
     return ""
 }
 
+fun getLinuxArm64GccToolchain(sysroot: String) r: String {
+    let toolchainEnvResult: CommandResult = runCommand("printf '%s' \"$SEEN_LINUX_ARM64_GCC_TOOLCHAIN\"")
+    if commandWasSuccessful(toolchainEnvResult) {
+        let toolchainEnv = toolchainEnvResult.output.trim()
+        if toolchainEnv != "" {
+            let validateEnv: CommandResult = runCommand("test -d " + toolchainEnv)
+            if commandWasSuccessful(validateEnv) {
+                return toolchainEnv
+            }
+        }
+    }
+    if sysroot != "" {
+        let parentDirResult: CommandResult = runCommand("dirname " + sysroot)
+        if commandWasSuccessful(parentDirResult) {
+            let parentDir = parentDirResult.output.trim()
+            if parentDir != "" {
+                let gccDirCheck: CommandResult = runCommand("test -d " + parentDir + "/lib/gcc/aarch64-linux-gnu")
+                if commandWasSuccessful(gccDirCheck) {
+                    return parentDir
+                }
+            }
+        }
+    }
+    let gccPathResult: CommandResult = runCommand("command -v aarch64-linux-gnu-gcc 2>/dev/null")
+    if commandWasSuccessful(gccPathResult) {
+        let gccPath = gccPathResult.output.trim()
+        if gccPath != "" {
+            let gccBinDirResult: CommandResult = runCommand("dirname " + gccPath)
+            if commandWasSuccessful(gccBinDirResult) {
+                let gccBinDir = gccBinDirResult.output.trim()
+                if gccBinDir != "" {
+                    let toolchainRootResult: CommandResult = runCommand("dirname " + gccBinDir)
+                    if commandWasSuccessful(toolchainRootResult) {
+                        let toolchainRoot = toolchainRootResult.output.trim()
+                        if toolchainRoot != "" {
+                            return toolchainRoot
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return ""
+}
+
+fun sourcesNeedGpuRuntime(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        let sourceText = readText(modulePaths[mi])
+        if sourceText.contains("@compute") or sourceText.contains("@vertex") or sourceText.contains("@fragment") {
+            return true
+        }
+        if sourceText.contains("Buffer<") or sourceText.contains("Uniform<") or sourceText.contains("Image<") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
 fun targetNeedsPthreadCompileFlag(target: String) r: Bool {
     if target == "windows-x86_64" {
         return false
@@ -979,7 +1039,12 @@ fun buildTargetClangArgs(target: String) r: String {
         }
         let sysroot = getLinuxArm64Sysroot()
         if sysroot != "" {
-            return "--target=aarch64-unknown-linux-gnu --sysroot=" + sysroot
+            var args = "--target=aarch64-unknown-linux-gnu --sysroot=" + sysroot
+            let gccToolchain = getLinuxArm64GccToolchain(sysroot)
+            if gccToolchain != "" {
+                args = args + " --gcc-toolchain=" + gccToolchain
+            }
+            return args
         }
         return ""
     }
@@ -2206,41 +2271,44 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     // Pre-compile GPU runtime if not already built
     var gpuArg = ""
-    let checkGpuResult: CommandResult = runCommand("test " + rtPrefix + "/seen_gpu.o -nt " + rtPrefix + "/seen_gpu.c")
-    if not commandWasSuccessful(checkGpuResult) {
-        let gpuSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.c")
-        if commandWasSuccessful(gpuSrcCheck) {
-            // Check if vulkan headers are available before trying to compile
-            let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
-            if commandWasSuccessful(vulkanCheck) {
-                let rtGpu: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o $(pkg-config --cflags vulkan) 2>&1")
-            } else {
-                // Try without pkg-config (headers might be in standard paths)
-                let rtGpu2: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o 2>&1")
-            }
-        }
-    }
-    if normalizedCrossTarget == "" {
-        let useGpuObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.o")
-        if commandWasSuccessful(useGpuObj) {
-            gpuArg = " " + rtPrefix + "/seen_gpu.o"
-        }
-    } else {
-        if targetSupportsGpuRuntime(effectiveTarget) and targetClangArgs != "" {
-            let targetGpuOut = "/tmp/seen_gpu_" + effectiveTarget + ".o"
-            var targetGpuCmd = targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + targetGpuOut
-            if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
-                let hostVulkanCflags = getHostVulkanCflags()
-                if hostVulkanCflags != "" {
-                    targetGpuCmd = targetGpuCmd + " " + hostVulkanCflags
+    let needsGpuRuntime = sourcesNeedGpuRuntime(modulePaths)
+    if needsGpuRuntime {
+        let checkGpuResult: CommandResult = runCommand("test " + rtPrefix + "/seen_gpu.o -nt " + rtPrefix + "/seen_gpu.c")
+        if not commandWasSuccessful(checkGpuResult) {
+            let gpuSrcCheck: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.c")
+            if commandWasSuccessful(gpuSrcCheck) {
+                // Check if vulkan headers are available before trying to compile
+                let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
+                if commandWasSuccessful(vulkanCheck) {
+                    let rtGpu: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o $(pkg-config --cflags vulkan) 2>&1")
+                } else {
+                    // Try without pkg-config (headers might be in standard paths)
+                    let rtGpu2: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -c -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + rtPrefix + "/seen_gpu.o 2>&1")
                 }
             }
-            let targetGpuResult: CommandResult = runCommand(targetGpuCmd)
-            if commandWasSuccessful(targetGpuResult) {
-                gpuArg = " " + targetGpuOut
-            } else {
-                println("    Warning: target GPU runtime compilation failed for " + effectiveTarget)
-                println(targetGpuResult.output)
+        }
+        if normalizedCrossTarget == "" {
+            let useGpuObj: CommandResult = runCommand("test -f " + rtPrefix + "/seen_gpu.o")
+            if commandWasSuccessful(useGpuObj) {
+                gpuArg = " " + rtPrefix + "/seen_gpu.o"
+            }
+        } else {
+            if targetSupportsGpuRuntime(effectiveTarget) and targetClangArgs != "" {
+                let targetGpuOut = "/tmp/seen_gpu_" + effectiveTarget + ".o"
+                var targetGpuCmd = targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_gpu.c -o " + targetGpuOut
+                if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
+                    let hostVulkanCflags = getHostVulkanCflags()
+                    if hostVulkanCflags != "" {
+                        targetGpuCmd = targetGpuCmd + " " + hostVulkanCflags
+                    }
+                }
+                let targetGpuResult: CommandResult = runCommand(targetGpuCmd)
+                if commandWasSuccessful(targetGpuResult) {
+                    gpuArg = " " + targetGpuOut
+                } else {
+                    println("    Warning: target GPU runtime compilation failed for " + effectiveTarget)
+                    println(targetGpuResult.output)
+                }
             }
         }
     }
