@@ -147,9 +147,16 @@ sources_for_target() {
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/str_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_buffer_basic.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_address_of.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_fn_pointer.seen"
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_parser_function_body_regression.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_trait_vtable.seen"
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_when_enum.seen"
       printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_control_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_literals_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_types_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_vars_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_stdlib_collections_en.seen"
       ;;
     windows-*)
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_game_engine_features.seen"
@@ -157,9 +164,16 @@ sources_for_target() {
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/str_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_buffer_basic.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_address_of.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_fn_pointer.seen"
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_parser_function_body_regression.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_trait_vtable.seen"
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_when_enum.seen"
       printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_control_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_literals_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_types_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_vars_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_stdlib_collections_en.seen"
       ;;
     android-*)
       printf '%s\n' "$ROOT_DIR/tests/gpu/test_compute_basic.seen"
@@ -170,9 +184,16 @@ sources_for_target() {
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/str_basic.seen"
       printf '%s\n' "$ROOT_DIR/seen_std/tests/string_buffer_basic.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_address_of.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_fn_pointer.seen"
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_parser_function_body_regression.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_trait_vtable.seen"
       printf '%s\n' "$ROOT_DIR/tests/codegen/test_when_enum.seen"
       printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_control_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_literals_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_types_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_vars_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_stdlib_collections_en.seen"
       ;;
   esac
 }

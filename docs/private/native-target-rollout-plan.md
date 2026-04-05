@@ -426,15 +426,49 @@
    - `seen_vulkan_min`: `libapp.so loaded`, `main symbol resolved`, `Seen exit code: 0`
 - Isolated one emulator-specific install caveat during this work: incremental `adb install -r` repeatedly crashed native library startup with `SIGBUS`, while `adb install --no-incremental` produced stable APK execution for the validated samples.
 
+### Implemented in the twenty-seventh patch set
+
+- Ran one more optional non-Apple local widening pass on the four reachable Linux-host targets (`linux-x86_64`, `linux-arm64`, `windows-x86_64`, `android-arm64`) before touching the default smoke sets.
+- Proved three additional codegen cases across all four reachable targets:
+   - `tests/codegen/test_address_of.seen`
+   - `tests/codegen/test_fn_pointer.seen`
+   - `tests/codegen/test_trait_vtable.seen`
+- Proved four additional English e2e cases across the same four targets:
+   - `tests/e2e_multilang/en/test_keywords_literals_en.seen`
+   - `tests/e2e_multilang/en/test_keywords_types_en.seen`
+   - `tests/e2e_multilang/en/test_keywords_vars_en.seen`
+   - `tests/e2e_multilang/en/test_stdlib_collections_en.seen`
+- Widened the default smoke sets in `scripts/native_target_smoke.sh` with only those newly proven all-green cases. The current default sets are now:
+   - `linux-x86_64`: a fifteen-case non-GPU set with hello-world, stdlib string and map coverage, `test_address_of`, `test_fn_pointer`, `test_parser_function_body_regression`, `test_trait_vtable`, `test_when_enum`, and the English control/literals/types/vars/stdlib-collections e2e probes
+   - `linux-arm64`: the same fifteen-case non-GPU set as `linux-x86_64`
+   - `windows-x86_64`: the current Windows hello/game-engine path plus the same new stdlib, codegen, and English e2e coverage for a sixteen-case default set
+   - `android-arm64`: the existing hello/GPU set plus the same new stdlib, codegen, and English e2e coverage for a nineteen-case default set
+- Re-ran the widened default smoke harness in normal mode and confirmed local success for:
+   - `linux-x86_64`
+   - `linux-arm64`
+   - `windows-x86_64`
+   - `android-arm64`
+- Re-ran the same widened default smoke harness with `--release` and confirmed local success for the same four reachable targets.
+- Re-ran `scripts/platform_matrix.sh` with the widened default sets and the validated local Linux ARM64 sysroot plus Android NDK environment, and confirmed aggregate `success` reports for all four reachable Linux-host targets.
+- Explicitly revalidated cache isolation without clearing `.seen_cache` or `/tmp/seen_ir_cache` by alternating `seen_std/tests/string_buffer_basic.seen` across:
+   - `linux-x86_64` normal
+   - `windows-x86_64` normal
+   - `android-arm64` release
+   - `linux-x86_64` release
+   - `windows-x86_64` release
+   - `linux-arm64` normal
+   - `android-arm64` normal
+   - `linux-x86_64` normal again
+  and confirmed every run still emitted the correct target-format artifact with no cross-target or profile contamination.
+- Retired the lingering focused string-runtime follow-up as an active rollout blocker by rerunning `tests/codegen/test_string_param_literal_regression.seen` with the current production compiler and confirming exit code `0`.
+
 ### Remaining in-progress work
 
 - Harden Windows link flags and runtime library selection beyond the initial GNU path.
-- Extend Windows validation beyond the current nine-case local smoke set only if a concrete richer runtime or system-library path needs coverage beyond the already-green stdlib, parser, control-flow, and game-engine cases.
-- Extend Android validation beyond the current compile, bundle, and local emulator execution coverage to physical-device validation and broader real GPU-runtime follow-through. On this Linux host the Android SDK/emulator toolchain is present and the local AVD path is now validated, but reliable APK execution currently depends on `adb install --no-incremental` for these native-library-heavy samples.
+- Extend Windows validation beyond the current sixteen-case local smoke set only if a concrete richer runtime or system-library path needs coverage beyond the already-green stdlib, parser, control-flow, English e2e, trait/function-pointer codegen, and game-engine cases.
+- Extend Android validation beyond the current nineteen-case compile-smoke set plus local bundle and emulator execution coverage to physical-device validation and broader real GPU-runtime follow-through. On this Linux host the Android SDK/emulator toolchain is present and the local AVD path is now validated, but reliable APK execution currently depends on `adb install --no-incremental` for these native-library-heavy samples.
 - Run the same widened smoke and release flow on an Apple host for `macos-x86_64`, `macos-arm64`, and `ios-arm64`; those targets remain honest `unavailable` results on Linux because `xcrun` is absent.
 - Keep the CI workflow definitions disabled on this branch until manual native-target verification is complete, then observe the first hosted Apple and Android CI runs and harden the workflow if GitHub runner differences expose bootstrap, SDK, or provisioning issues.
-- Keep validating cache isolation across target/profile combinations so cross-target requests do not reuse incompatible cached objects.
-- Re-establish or retire the earlier string runtime/codegen bug with a fresh failing repro; the focused `String.length()` / empty-string equality regression now passes with the current production compiler.
 
 ### Current implementation posture
 
