@@ -558,17 +558,76 @@ bool __RemoveEnv(SeenString name) {
 // String Utility Functions
 // ============================================================================
 
+static inline int64_t seen_utf8_char_len(unsigned char c) {
+    if ((c & 0x80) == 0) {
+        return 1;
+    }
+    if ((c & 0xE0) == 0xC0) {
+        return 2;
+    }
+    if ((c & 0xF0) == 0xE0) {
+        return 3;
+    }
+    if ((c & 0xF8) == 0xF0) {
+        return 4;
+    }
+    return 1;
+}
+
+static int64_t seen_utf8_offset_for_index(SeenString s, int64_t index) {
+    if (index <= 0) {
+        return 0;
+    }
+
+    const unsigned char* data = (const unsigned char*)s.data;
+    int64_t byte_idx = 0;
+    int64_t codepoint_idx = 0;
+
+    while (byte_idx < s.len && codepoint_idx < index) {
+        byte_idx += seen_utf8_char_len(data[byte_idx]);
+        if (byte_idx > s.len) {
+            byte_idx = s.len;
+        }
+        codepoint_idx++;
+    }
+
+    return byte_idx;
+}
+
+static int64_t seen_utf8_codepoint_count(SeenString s) {
+    const unsigned char* data = (const unsigned char*)s.data;
+    int64_t codepoint_count = 0;
+    int64_t byte_idx = 0;
+
+    while (byte_idx < s.len) {
+        byte_idx += seen_utf8_char_len(data[byte_idx]);
+        if (byte_idx > s.len) {
+            byte_idx = s.len;
+        }
+        codepoint_count++;
+    }
+
+    return codepoint_count;
+}
+
 SeenArray split(SeenString text, SeenString delimiter) {
     SeenArray result = seen_arr_new_str();
 
     if (delimiter.len == 0) {
         // Split into characters
-        for (int64_t i = 0; i < text.len; i++) {
-            char* ch = (char*)malloc(2);
-            ch[0] = text.data[i];
-            ch[1] = 0;
-            SeenString s = { 1, ch };
+        int64_t byte_idx = 0;
+        while (byte_idx < text.len) {
+            int64_t next_byte_idx = byte_idx + seen_utf8_char_len((unsigned char)text.data[byte_idx]);
+            if (next_byte_idx > text.len) {
+                next_byte_idx = text.len;
+            }
+            int64_t ch_len = next_byte_idx - byte_idx;
+            char* ch = (char*)malloc(ch_len + 1);
+            memcpy(ch, text.data + byte_idx, ch_len);
+            ch[ch_len] = 0;
+            SeenString s = { ch_len, ch };
             seen_arr_push_str(&result, s);
+            byte_idx = next_byte_idx;
         }
         return result;
     }
@@ -603,7 +662,7 @@ static inline bool is_whitespace(char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-SeenString trim(SeenString text) {
+__attribute__((weak)) SeenString trim(SeenString text) {
     int64_t start = 0;
     int64_t end = text.len;
 
@@ -1374,28 +1433,7 @@ int64_t String_byteAt(SeenString s, int64_t byte_idx) {
 
 // Get the number of UTF-8 codepoints (characters) in a string
 int64_t seen_string_length_codepoints(SeenString s) {
-    const unsigned char* data = (const unsigned char*)s.data;
-    int64_t codepoint_count = 0;
-    int64_t byte_idx = 0;
-
-    while (byte_idx < s.len) {
-        unsigned char c = data[byte_idx];
-
-        if ((c & 0x80) == 0) {
-            byte_idx += 1;
-        } else if ((c & 0xE0) == 0xC0) {
-            byte_idx += 2;
-        } else if ((c & 0xF0) == 0xE0) {
-            byte_idx += 3;
-        } else if ((c & 0xF8) == 0xF0) {
-            byte_idx += 4;
-        } else {
-            byte_idx += 1;  // Invalid, skip
-        }
-        codepoint_count++;
-    }
-
-    return codepoint_count;
+    return seen_utf8_codepoint_count(s);
 }
 
 int64_t Char_toInt(int64_t c) {
@@ -2828,6 +2866,22 @@ void Vec_clear(void* vecPtr) {
     vec->length = 0;
 }
 
+int64_t Vec_capacity(void* vecPtr) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    return vec->capacity;
+}
+
+void Vec_ensureCapacity(void* vecPtr, int64_t capacity) {
+    SeenVec* vec = (SeenVec*)vecPtr;
+    if (capacity <= vec->capacity) return;
+    int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
+    while (newCap < capacity) {
+        newCap *= 2;
+    }
+    vec->data = (int64_t*)realloc(vec->data, sizeof(int64_t) * newCap);
+    vec->capacity = newCap;
+}
+
 // Vec<Int> utility methods
 
 int64_t Vec_contains(void* vecPtr, int64_t value) {
@@ -3086,6 +3140,22 @@ int64_t Vec_len_str(void* vecPtr) {
     return vec->length;
 }
 
+int64_t Vec_capacity_str(void* vecPtr) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    return vec->capacity;
+}
+
+void Vec_ensureCapacity_str(void* vecPtr, int64_t capacity) {
+    SeenVecStr* vec = (SeenVecStr*)vecPtr;
+    if (capacity <= vec->capacity) return;
+    int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
+    while (newCap < capacity) {
+        newCap *= 2;
+    }
+    vec->data = (SeenString*)realloc(vec->data, sizeof(SeenString) * newCap);
+    vec->capacity = newCap;
+}
+
 void Vec_set_str(void* vecPtr, int64_t index, SeenString value) {
     SeenVecStr* vec = (SeenVecStr*)vecPtr;
     if (index < 0 || index >= vec->length) return;
@@ -3238,6 +3308,22 @@ void Vec_clear_float(void* vecPtr) {
 int64_t Vec_len_float(void* vecPtr) {
     SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
     return vec->length;
+}
+
+int64_t Vec_capacity_float(void* vecPtr) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    return vec->capacity;
+}
+
+void Vec_ensureCapacity_float(void* vecPtr, int64_t capacity) {
+    SeenVecFloat* vec = (SeenVecFloat*)vecPtr;
+    if (capacity <= vec->capacity) return;
+    int64_t newCap = vec->capacity == 0 ? 8 : vec->capacity;
+    while (newCap < capacity) {
+        newCap *= 2;
+    }
+    vec->data = (double*)realloc(vec->data, sizeof(double) * newCap);
+    vec->capacity = newCap;
 }
 
 int64_t Vec_contains_float(void* vecPtr, double value) {

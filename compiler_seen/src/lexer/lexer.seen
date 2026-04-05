@@ -533,16 +533,7 @@ class SeenLexer {
             }
 
             if ch == '\\' {
-                if position + 1 >= source.length() {
-                    throw LexerError.new("Unterminated string literal", getCurrentPosition(), "")
-                }
-                let escaped = peekChar(1)
-                if traceVerbose {
-                    traceLexVerbose("string escape pos=" + position.toString() + " escaped=" + escaped.toString() + " code=" + escaped.toInt().toString())
-                }
-                valueBuilder.append(handleEscapeSequence(escaped))
-                advance()
-                advance()
+                valueBuilder.append(readEscapeSequence(traceVerbose, "Unterminated string literal"))
                 continue
             }
 
@@ -637,13 +628,7 @@ class SeenLexer {
             let ch = getCurrentChar()
             if ch == '\\' {
                 // Handle escape sequences
-                if position + 1 >= source.length() {
-                    throw LexerError.new("Unterminated character literal", getCurrentPosition(), "")
-                }
-                let escaped = peekChar(1)
-                value = handleEscapeSequence(escaped)
-                advance()
-                advance()
+                value = readEscapeSequence(false, "Unterminated character literal")
             } else {
                 value = ch.toString()
                 advance()
@@ -664,6 +649,49 @@ class SeenLexer {
         if traceVerbose {
             traceLexVerbose("handleCharLiteral exit pos=" + position.toString() + " len=" + length.toString())
         }
+    }
+
+    fun readEscapeSequence(traceVerbose: Bool, unterminatedMessage: String) r: String {
+        if position + 1 >= source.length() {
+            throw LexerError.new(unterminatedMessage, getCurrentPosition(), "")
+        }
+
+        let escaped = peekChar(1)
+        if traceVerbose {
+            traceLexVerbose("string escape pos=" + position.toString() + " escaped=" + escaped.toString() + " code=" + escaped.toInt().toString())
+        }
+
+        if escaped == 'u' {
+            if position + 5 >= source.length() {
+                throw LexerError.new("Incomplete unicode escape sequence", getCurrentPosition(), "")
+            }
+
+            let h0 = peekChar(2)
+            let h1 = peekChar(3)
+            let h2 = peekChar(4)
+            let h3 = peekChar(5)
+            if not isHexDigit(h0) or not isHexDigit(h1) or not isHexDigit(h2) or not isHexDigit(h3) {
+                throw LexerError.new("Invalid unicode escape sequence", getCurrentPosition(), "")
+            }
+
+            let code = hexDigitToInt(h0) * 4096 +
+                hexDigitToInt(h1) * 256 +
+                hexDigitToInt(h2) * 16 +
+                hexDigitToInt(h3)
+            let value = String.fromCharCode(code)
+            advance()
+            advance()
+            advance()
+            advance()
+            advance()
+            advance()
+            return value
+        }
+
+        let value = handleEscapeSequence(escaped)
+        advance()
+        advance()
+        return value
     }
 
     fun handleEscapeSequence(escaped: Char) r: String {
@@ -711,13 +739,7 @@ class SeenLexer {
             }
 
             if not inExpression and ch == '\\' {
-                if position + 1 >= source.length() {
-                    throw LexerError.new("Unterminated string literal", getCurrentPosition(), "")
-                }
-                let escaped = peekChar(1)
-                currentPart = currentPart + handleEscapeSequence(escaped)
-                advance()
-                advance()
+                currentPart = currentPart + readEscapeSequence(false, "Unterminated string literal")
                 continue
             }
 
@@ -914,6 +936,16 @@ class SeenLexer {
     
     fun isHexDigit(char: Char) r: Bool {
         return isDigit(char) or (char >= 'a' and char <= 'f') or (char >= 'A' and char <= 'F')
+    }
+
+    fun hexDigitToInt(char: Char) r: Int {
+        if char >= '0' and char <= '9' {
+            return char.toInt() - '0'.toInt()
+        }
+        if char >= 'a' and char <= 'f' {
+            return char.toInt() - 'a'.toInt() + 10
+        }
+        return char.toInt() - 'A'.toInt() + 10
     }
     
     fun isBinaryDigit(char: Char) r: Bool {

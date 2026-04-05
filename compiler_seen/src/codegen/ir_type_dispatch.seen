@@ -34,6 +34,13 @@ fun emitVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: Str
         return resultReg
     }
 
+    // capacity
+    if methodName == "capacity" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @Vec_capacity" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return resultReg
+    }
+
     // isEmpty
     if methodName == "isEmpty" {
         let lenReg = getNextRegFn(regBox)
@@ -80,6 +87,12 @@ fun emitVecMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: Str
     // clear
     if methodName == "clear" {
         output.append("  call void @Vec_clear" + suffix + "(ptr " + vecPtrReg + ")\n")
+        return "0"
+    }
+
+    // reserve/ensureCapacity
+    if methodName == "reserve" or methodName == "ensureCapacity" {
+        output.append("  call void @Vec_ensureCapacity" + suffix + "(ptr " + vecPtrReg + ", i64 " + arg0 + ")\n")
         return "0"
     }
 

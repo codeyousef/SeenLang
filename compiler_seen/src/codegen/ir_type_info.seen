@@ -870,6 +870,7 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
         if methodName == "charAt" { return "Char" }
         if methodName == "charCodeAt" or methodName == "byteAt" { return "Int" }
         if methodName == "fromCharCode" { return "String" }
+        if methodName == "toCString" { return "Int" }
         if methodName == "replace" { return "String" }
         if methodName == "repeat" { return "String" }
         if methodName == "trim" { return "String" }
@@ -879,6 +880,9 @@ fun getMethodReturnTypeImpl(structName: String, methodName: String, structNames:
         if methodName == "split" { return "Array<String>" }
         if methodName == "isEmpty" { return "Bool" }
         if methodName == "startsWith" or methodName == "endsWith" or methodName == "contains" { return "Bool" }
+    }
+    if structName == "Int" {
+        if methodName == "toSeenString" { return "String" }
     }
     // Option/Optional class methods (generic type - handles both Option and Optional names)
     if structName == "Option" or structName == "Optional" or structName.startsWith("Option<") or structName.startsWith("Optional<") {

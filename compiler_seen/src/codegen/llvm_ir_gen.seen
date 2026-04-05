@@ -1117,6 +1117,16 @@ class LLVMIRGenerator {
     // Called once per module by main_compiler.seen before any generateSingle().
     // The registries built here form the declarationsHash component of the
     // content-addressed IR cache key.
+    fun isRuntimeBackedStringCompatFunction(funcName: String) r: Bool {
+        if funcName == "String_toUpperCase" or funcName == "String_toLowerCase" or funcName == "String_toInt" or funcName == "String_toFloat" or funcName == "String_reverse" or funcName == "String_isEmpty" or funcName == "String_count" or funcName == "String_replace" {
+            return true
+        }
+        if funcName == "split" or funcName == "startsWith" or funcName == "endsWith" or funcName == "contains" or funcName == "indexOf" {
+            return true
+        }
+        return false
+    }
+
     fun registerDeclarations(program: ProgramNode) r: Void {
         // First, register known data types
         registerKnownDataTypes()
@@ -1140,9 +1150,16 @@ class LLVMIRGenerator {
                 registerStructLayout(item.classNode)
 
                 // Also register class methods as functions
+                let declIsStringBuilder = item.classNode.name == "StringBuilder"
                 var mi = 0
                 while mi < item.classNode.methods.length() {
                     let method = item.classNode.methods[mi]
+                    if declIsStringBuilder {
+                        if method.name == "new" or method.name == "append" or method.name == "appendChar" or method.name == "toString" or method.name == "clear" or method.name == "length" {
+                            mi = mi + 1
+                            continue
+                        }
+                    }
                     let mangledName = item.classNode.name + "_" + method.name
                     let methodRetTypeName = resolveMethodReturnType(item.classNode.name, method)
                     registerFunction(mangledName, methodRetTypeName)
@@ -1237,6 +1254,7 @@ class LLVMIRGenerator {
             if item.itemType == "Function" {
                 // Register function signature
                 let funcObj = item.function
+                let isRuntimeStringCompat = isRuntimeBackedStringCompatFunction(funcObj.name)
                 let floatRegistryFuncName = getFloatParamRegistryName(funcObj)
                 let funcRetTypeName = resolveFunctionReturnType(funcObj)
                 registerFunction(funcObj.name, funcRetTypeName)
@@ -1252,6 +1270,7 @@ class LLVMIRGenerator {
                 // Determine if this function should be registered cross-module
                 var doRegXM = 0
                 if bodyStmtCount > 0 { doRegXM = 1 }
+                if isRuntimeStringCompat { doRegXM = 0 }
                 // Register non-__ extern functions for cross-module visibility
                 if funcObj.isExtern and bodyStmtCount == 0 {
                     doRegXM = 1
@@ -3196,6 +3215,10 @@ class LLVMIRGenerator {
                         i = i + 1
                         continue
                     }
+                    if isRuntimeBackedStringCompatFunction(fnName) {
+                        i = i + 1
+                        continue
+                    }
                     // : @cImport("header.h") — auto-generate extern declarations from C headers
                     if fnName == "__cImport" and item.function.hasDecorator("cImport") {
                         var cImportHeaderPath = ""
@@ -3591,7 +3614,9 @@ class LLVMIRGenerator {
         while collectIdx < program.items.length() {
             let collectItem = program.items[collectIdx]
             if collectItem.itemType == "Function" {
-                definedFuncs.push(collectItem.function.name)
+                if not isRuntimeBackedStringCompatFunction(collectItem.function.name) {
+                    definedFuncs.push(collectItem.function.name)
+                }
             }
             if collectItem.itemType == "Class" {
                 // Also collect class method names (format: ClassName_methodName)
@@ -3666,6 +3691,10 @@ class LLVMIRGenerator {
                 let fnName = item.function.name
                 // Skip 'new' - it's always a class method, never a standalone function
                 if fnName == "new" {
+                    i = i + 1
+                    continue
+                }
+                if isRuntimeBackedStringCompatFunction(fnName) {
                     i = i + 1
                     continue
                 }
@@ -4493,9 +4522,8 @@ class LLVMIRGenerator {
             return
         }
 
-        // For StringBuilder, only the basic methods (new, append, appendChar, toString)
-        // are provided by the C runtime. Other methods like clear, isEmpty, length
-        // are defined in Seen and need to be generated.
+        // For StringBuilder, the runtime-backed methods should not be emitted from
+        // the source class because call sites already dispatch to the C runtime ABI.
         let isStringBuilder = className == "StringBuilder"
 
         // Scan decorators for @derive/@binary/@reflect/@packet in generateClass
@@ -4563,7 +4591,7 @@ class LLVMIRGenerator {
             }
             // For StringBuilder, skip methods provided by C runtime
             if isStringBuilder {
-                if method.name == "new" or method.name == "append" or method.name == "appendChar" or method.name == "toString" {
+                if method.name == "new" or method.name == "append" or method.name == "appendChar" or method.name == "toString" or method.name == "clear" or method.name == "length" {
                     i = i + 1
                     continue
                 }
@@ -8139,10 +8167,24 @@ class LLVMIRGenerator {
             }
 
             // Get array length - inlined GEP (field 0 of %SeenArray) instead of C runtime call
-            let lenPtrReg = getNextReg()
-            output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+            var isStringIterable = 0
+            if iterType == "String" {
+                isStringIterable = 1
+                elementType = "Char"
+            }
             let lenReg = getNextReg()
-            output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
+            if isStringIterable == 1 {
+                var arrStrReg = arrReg
+                if arrReg == "0" {
+                    arrStrReg = "zeroinitializer"
+                }
+                output.append("  " + lenReg + " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
+            }
+            if isStringIterable == 0 {
+                let lenPtrReg = getNextReg()
+                output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+                output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
+            }
 
             // Use pre-allocated entry-block alloca for index counter (enables mem2reg)
             let arrIdxName = "__forin_idx_" + loopVarName
@@ -8174,14 +8216,25 @@ class LLVMIRGenerator {
             blockTerminated = false
 
             // Get element based on type — delegated to ir_control_flow.seen
-            var isString = 0
-            var isFloat = 0
-            if elementType == "String" { isString = 1 }
-            if elementType == "Float" { isFloat = 1 }
-            emitForInElementFetchImpl(output, g_regBox, arrReg, loadIdx, loopVarReg, elementType, isString, isFloat)
+            if isStringIterable == 1 {
+                var arrStrReg2 = arrReg
+                if arrReg == "0" {
+                    arrStrReg2 = "zeroinitializer"
+                }
+                let charReg = getNextReg()
+                output.append("  " + charReg + " = call i64 @seen_char_at(%SeenString " + arrStrReg2 + ", i64 " + loadIdx + ")\n")
+                output.append("  store i64 " + charReg + ", ptr " + loopVarReg + ", align 8\n")
+            }
+            if isStringIterable == 0 {
+                var isString = 0
+                var isFloat = 0
+                if elementType == "String" { isString = 1 }
+                if elementType == "Float" { isFloat = 1 }
+                emitForInElementFetchImpl(output, g_regBox, arrReg, loadIdx, loopVarReg, elementType, isString, isFloat)
 
-            // Auto-prefetch: prefetch element i+8 for sequential array traversals
-            emitForInPrefetchImpl(output, g_regBox, g_blockBox, arrReg, loadIdx, lenReg, elementType)
+                // Auto-prefetch: prefetch element i+8 for sequential array traversals
+                emitForInPrefetchImpl(output, g_regBox, g_blockBox, arrReg, loadIdx, lenReg, elementType)
+            }
 
             generateBlock(stmt.loopBody)
             let bodyTerminated = blockTerminated
@@ -11363,6 +11416,15 @@ class LLVMIRGenerator {
             }
             return "0"
         }
+        if funcName == "split" {
+            if expr.arguments.length() >= 2 {
+                let textArg = generateExpression(expr.arguments[0])
+                let delimArg = generateExpression(expr.arguments[1])
+                let splitReg = getNextReg()
+                output.append("  " + splitReg + " = call ptr @String_split(%SeenString " + textArg + ", %SeenString " + delimArg + ")\n")
+                return splitReg
+            }
+        }
         if funcName == "cstr_to_str" {
             if expr.arguments.length() > 0 {
                 let ptrArg = generateExpression(expr.arguments[0])
@@ -11998,6 +12060,16 @@ class LLVMIRGenerator {
                         }
                     }
                     argIdx = argIdx + 1
+                }
+
+                if thisType == "StringBuilder" and (funcName == "append" or funcName == "appendInt" or funcName == "appendFloat" or funcName == "appendChar" or funcName == "clear" or funcName == "length" or funcName == "toString") {
+                    let thisPtrReg = getNextReg()
+                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+                    var sbArg0 = ""
+                    if argRegs.length() > 0 {
+                        sbArg0 = argRegs[0]
+                    }
+                    return emitStringBuilderMethodImpl(output, g_regBox, funcName, thisPtrReg, sbArg0, 0)
                 }
 
                 let methodFuncName = thisType + "_" + funcName
@@ -13022,6 +13094,12 @@ class LLVMIRGenerator {
         if strArgCount > 1 { strArg1 = generateExpression(expr.arguments[1]) }
         let strResult = emitStringMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, strArg0, strArg1, strArgCount)
         if strResult != "" { return strResult }
+        if methodName == "toCString" and receiverType == "String" {
+            return emitCStrConversionImpl(output, g_regBox, "str_to_cstr", receiverReg)
+        }
+        if methodName == "toSeenString" and receiverType == "Int" {
+            return emitCStrConversionImpl(output, g_regBox, "cstr_to_str", receiverReg)
+        }
         // trim on class receivers (non-String) — needs convertReceiverToPtr class method
         if methodName == "trim" {
             if receiverType != "String" and receiverType != "" {
@@ -13032,7 +13110,7 @@ class LLVMIRGenerator {
                 return resultReg
             }
         }
-        if methodName == "push" {
+        if methodName == "push" and (receiverType.startsWith("Array<") or receiverType == "Array") {
             // push needs pointer to array to modify in place
             // Generate argument first
             let argExpr = expr.arguments[0]

@@ -140,49 +140,106 @@ fun split(text: String, delimiter: String) r: Array<String> {
     return pieces
 }
 
+fun utf8ByteLenFromLeadByte(byte: Int) r: Int {
+    if byte < 128 {
+        return 1
+    }
+    if byte < 224 {
+        return 2
+    }
+    if byte < 240 {
+        return 3
+    }
+    if byte < 248 {
+        return 4
+    }
+    return 1
+}
+
+fun utf8CodepointLength(text: String) r: Int {
+    let byteLength = text.length()
+    var count = 0
+    var byteIndex = 0
+    while byteIndex < byteLength {
+        byteIndex = byteIndex + utf8ByteLenFromLeadByte(text.byteAt(byteIndex))
+        if byteIndex > byteLength {
+            byteIndex = byteLength
+        }
+        count = count + 1
+    }
+    return count
+}
+
+fun utf8ByteIndex(text: String, codepointIndex: Int) r: Int {
+    if codepointIndex <= 0 {
+        return 0
+    }
+    let byteLength = text.length()
+    var currentCodepoint = 0
+    var byteIndex = 0
+    while byteIndex < byteLength and currentCodepoint < codepointIndex {
+        byteIndex = byteIndex + utf8ByteLenFromLeadByte(text.byteAt(byteIndex))
+        if byteIndex > byteLength {
+            byteIndex = byteLength
+        }
+        currentCodepoint = currentCodepoint + 1
+    }
+    return byteIndex
+}
+
+fun substringByCodepoints(text: String, start: Int, end: Int) r: String {
+    let startByte = utf8ByteIndex(text, start)
+    let endByte = utf8ByteIndex(text, end)
+    if startByte >= endByte {
+        return ""
+    }
+    return text.substring(startByte, endByte)
+}
+
 fun trim(text: String) r: String {
     return trimEnd(trimStart(text))
 }
 
 fun trimStart(text: String) r: String {
-    let length = text.length()
-    if length == 0 {
+    let codepointLength = utf8CodepointLength(text)
+    if codepointLength == 0 {
         return text
     }
     var start = 0
-    while start < length and isWhitespace(text.charAt(start)) {
+    while start < codepointLength and isWhitespace(text.charAt(start)) {
         start = start + 1
     }
     if start == 0 {
         return text
     }
-    if start >= length {
+    if start >= codepointLength {
         return ""
     }
-    return text.substring(start, length)
+    return substringByCodepoints(text, start, codepointLength)
 }
 
 fun trimEnd(text: String) r: String {
-    let length = text.length()
-    if length == 0 {
+    let codepointLength = utf8CodepointLength(text)
+    if codepointLength == 0 {
         return text
     }
-    var end = length - 1
+    var end = codepointLength - 1
     while end >= 0 and isWhitespace(text.charAt(end)) {
         end = end - 1
     }
     if end < 0 {
         return ""
     }
-    if end == length - 1 {
+    if end == codepointLength - 1 {
         return text
     }
-    return text.substring(0, end + 1)
+    return substringByCodepoints(text, 0, end + 1)
 }
 
 fun isBlank(text: String) r: Bool {
+    let codepointLength = utf8CodepointLength(text)
     var i = 0
-    while i < text.length() {
+    while i < codepointLength {
         if not isWhitespace(text.charAt(i)) {
             return false
         }
@@ -263,8 +320,8 @@ fun lastIndexOf(text: String, needle: String) r: Int {
 
 fun lines(text: String, dropEmpty: Bool = false) r: Array<String> {
     let result = Array<String>()
-    let length = text.length()
-    if length == 0 {
+    let codepointLength = utf8CodepointLength(text)
+    if codepointLength == 0 {
         if not dropEmpty {
             result.push("")
         }
@@ -272,22 +329,22 @@ fun lines(text: String, dropEmpty: Bool = false) r: Array<String> {
     }
     var lineStart = 0
     var index = 0
-    while index < length {
+    while index < codepointLength {
         let ch = text.charAt(index)
         if ch == '\n' or ch == '\r' {
-            let line = text.substring(lineStart, index)
+            let line = substringByCodepoints(text, lineStart, index)
             if not(dropEmpty and line.length() == 0) {
                 result.push(line)
             }
-            if ch == '\r' and index + 1 < length and text.charAt(index + 1) == '\n' {
+            if ch == '\r' and index + 1 < codepointLength and text.charAt(index + 1) == '\n' {
                 index = index + 1
             }
             lineStart = index + 1
         }
         index = index + 1
     }
-    if lineStart <= length {
-        let tail: String = text.substring(lineStart, length)
+    if lineStart <= codepointLength {
+        let tail: String = substringByCodepoints(text, lineStart, codepointLength)
         if not(dropEmpty and tail.length() == 0) {
             result.push(tail)
         }
@@ -297,8 +354,8 @@ fun lines(text: String, dropEmpty: Bool = false) r: Array<String> {
 
 fun splitWhitespace(text: String, dropEmpty: Bool = true) r: Array<String> {
     let result = Array<String>()
-    let length = text.length()
-    if length == 0 {
+    let codepointLength = utf8CodepointLength(text)
+    if codepointLength == 0 {
         if not dropEmpty {
             result.push("")
         }
@@ -307,10 +364,10 @@ fun splitWhitespace(text: String, dropEmpty: Bool = true) r: Array<String> {
 
     var start = 0
     var index = 0
-    while index < length {
+    while index < codepointLength {
         if isWhitespace(text.charAt(index)) {
             if index > start or not dropEmpty {
-                result.push(text.substring(start, index))
+                result.push(substringByCodepoints(text, start, index))
             }
             index = index + 1
             start = index
@@ -319,8 +376,8 @@ fun splitWhitespace(text: String, dropEmpty: Bool = true) r: Array<String> {
         }
     }
 
-    if start < length {
-        result.push(text.substring(start, length))
+    if start < codepointLength {
+        result.push(substringByCodepoints(text, start, codepointLength))
     } else if not dropEmpty {
         result.push("")
     }

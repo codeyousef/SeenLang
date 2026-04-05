@@ -650,6 +650,12 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("Vec_len", definedFuncs) {
             output.append("declare i64 @Vec_len(ptr) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("Vec_capacity", definedFuncs) {
+            output.append("declare i64 @Vec_capacity(ptr) nounwind readonly\n")
+        }
+        if not isFuncDefinedInModule("Vec_ensureCapacity", definedFuncs) {
+            output.append("declare void @Vec_ensureCapacity(ptr, i64) nounwind\n")
+        }
         // Vec<Int> utility methods
         if not isFuncDefinedInModule("Vec_contains", definedFuncs) {
             output.append("declare i64 @Vec_contains(ptr, i64) nounwind readonly\n")
@@ -715,6 +721,12 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("Vec_len_str", definedFuncs) {
             output.append("declare i64 @Vec_len_str(ptr) nounwind readonly\n")
         }
+        if not isFuncDefinedInModule("Vec_capacity_str", definedFuncs) {
+            output.append("declare i64 @Vec_capacity_str(ptr) nounwind readonly\n")
+        }
+        if not isFuncDefinedInModule("Vec_ensureCapacity_str", definedFuncs) {
+            output.append("declare void @Vec_ensureCapacity_str(ptr, i64) nounwind\n")
+        }
         if not isFuncDefinedInModule("Vec_set_str", definedFuncs) {
             output.append("declare void @Vec_set_str(ptr, i64, %SeenString) nounwind\n")
         }
@@ -767,6 +779,12 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         }
         if not isFuncDefinedInModule("Vec_len_float", definedFuncs) {
             output.append("declare i64 @Vec_len_float(ptr) nounwind readonly\n")
+        }
+        if not isFuncDefinedInModule("Vec_capacity_float", definedFuncs) {
+            output.append("declare i64 @Vec_capacity_float(ptr) nounwind readonly\n")
+        }
+        if not isFuncDefinedInModule("Vec_ensureCapacity_float", definedFuncs) {
+            output.append("declare void @Vec_ensureCapacity_float(ptr, i64) nounwind\n")
         }
         if not isFuncDefinedInModule("Vec_contains_float", definedFuncs) {
             output.append("declare i64 @Vec_contains_float(ptr, double) nounwind readonly\n")
