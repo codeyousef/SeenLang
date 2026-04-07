@@ -3,6 +3,90 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_type_info.{g_resolvedFieldIndex, g_resolvedFieldTypeCode}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+
+var g_comptimeTargetName: String = ""
+
+fun normalizeComptimeTargetName(target: String) r: String {
+    if target == "" { return "" }
+    if target == "linux-x86_64" or target == "x86_64-unknown-linux-gnu" { return "linux-x86_64" }
+    if target == "linux-arm64" or target == "aarch64-unknown-linux-gnu" or target == "arm64-unknown-linux-gnu" { return "linux-arm64" }
+    if target == "windows-x86_64" or target == "x86_64-w64-windows-gnu" { return "windows-x86_64" }
+    if target == "macos-arm64" or target == "arm64-apple-darwin" or target == "aarch64-apple-darwin" or target.startsWith("arm64-apple-macosx") or target.startsWith("aarch64-apple-macosx") {
+        return "macos-arm64"
+    }
+    if target == "macos-x86_64" or target == "x86_64-apple-darwin" or target.startsWith("x86_64-apple-macosx") {
+        return "macos-x86_64"
+    }
+    if target == "ios-sim-arm64" or target == "arm64-apple-ios-simulator" or target == "aarch64-apple-ios-simulator" or ((target.startsWith("arm64-apple-ios") or target.startsWith("aarch64-apple-ios")) and target.contains("simulator")) {
+        return "ios-sim-arm64"
+    }
+    if target == "ios-arm64" or target == "arm64-apple-ios" or target == "aarch64-apple-ios" or ((target.startsWith("arm64-apple-ios") or target.startsWith("aarch64-apple-ios")) and not target.contains("simulator")) {
+        return "ios-arm64"
+    }
+    if target == "android-arm64" or target.startsWith("aarch64-linux-android") or target.startsWith("arm64-linux-android") {
+        return "android-arm64"
+    }
+    return target
+}
+
+fun detectHostComptimeTargetName() r: String {
+    let unameS: CommandResult = runCommand("uname -s")
+    let unameM: CommandResult = runCommand("uname -m")
+    var os = "linux"
+    var arch = "x86_64"
+    if commandWasSuccessful(unameS) {
+        if unameS.output.contains("Darwin") {
+            os = "darwin"
+        } else {
+            if unameS.output.contains("Windows") or unameS.output.contains("MINGW") or unameS.output.contains("MSYS") {
+                os = "windows"
+            }
+        }
+    }
+    if commandWasSuccessful(unameM) {
+        if unameM.output.contains("arm64") or unameM.output.contains("aarch64") {
+            arch = "arm64"
+        }
+    }
+    if os == "darwin" {
+        if arch == "arm64" {
+            return "macos-arm64"
+        }
+        return "macos-x86_64"
+    }
+    if os == "windows" {
+        return "windows-x86_64"
+    }
+    if arch == "arm64" {
+        return "linux-arm64"
+    }
+    return "linux-x86_64"
+}
+
+fun setComptimeTargetName(target: String) r: Void {
+    let normalized = normalizeComptimeTargetName(target)
+    if normalized == "" {
+        g_comptimeTargetName = detectHostComptimeTargetName()
+        return
+    }
+    g_comptimeTargetName = normalized
+}
+
+fun getComptimeTargetName() r: String {
+    if g_comptimeTargetName == "" {
+        g_comptimeTargetName = detectHostComptimeTargetName()
+    }
+    return g_comptimeTargetName
+}
+
+fun comptimeTargetIsX86_64(target: String) r: Bool {
+    return target == "linux-x86_64" or target == "windows-x86_64" or target == "macos-x86_64"
+}
+
+fun comptimeTargetIsAarch64(target: String) r: Bool {
+    return target == "linux-arm64" or target == "macos-arm64" or target == "ios-arm64" or target == "ios-sim-arm64" or target == "android-arm64"
+}
 
 fun parseSimpleIntImpl(s: String) r: Int {
     if s == "" { return -9999999 }
@@ -235,16 +319,48 @@ fun evaluateConstExprImpl(expr: ParserExpressionNode, comptimeNames: String, com
     // Comptime platform/feature detection
     if expr.kind == "MemberAccess" {
         if expr.literalValue == "target" {
-            if expr.variableName == "isLinux" { return 1 }
-            if expr.variableName == "isMacos" { return 0 }
-            if expr.variableName == "isWindows" { return 0 }
-            if expr.variableName == "isX86_64" { return 1 }
-            if expr.variableName == "isAarch64" { return 0 }
-            if expr.variableName == "hasSSE2" { return 1 }
-            if expr.variableName == "hasAVX2" { return 1 }
+            let activeTarget = getComptimeTargetName()
+            let isX86_64 = comptimeTargetIsX86_64(activeTarget)
+            let isAarch64 = comptimeTargetIsAarch64(activeTarget)
+            if expr.variableName == "isLinux" {
+                if activeTarget == "linux-x86_64" or activeTarget == "linux-arm64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isMacos" {
+                if activeTarget == "macos-arm64" or activeTarget == "macos-x86_64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isIos" {
+                if activeTarget == "ios-arm64" or activeTarget == "ios-sim-arm64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isWindows" {
+                if activeTarget == "windows-x86_64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isSimulator" {
+                if activeTarget == "ios-sim-arm64" { return 1 }
+                return 0
+            }
+            if expr.variableName == "isX86_64" {
+                if isX86_64 { return 1 }
+                return 0
+            }
+            if expr.variableName == "isAarch64" {
+                if isAarch64 { return 1 }
+                return 0
+            }
+            if expr.variableName == "hasSSE2" {
+                if isX86_64 { return 1 }
+                return 0
+            }
+            if expr.variableName == "hasAVX2" { return 0 }
             if expr.variableName == "hasAVX512" { return 0 }
-            if expr.variableName == "hasFMA" { return 1 }
-            if expr.variableName == "hasNeon" { return 0 }
+            if expr.variableName == "hasFMA" { return 0 }
+            if expr.variableName == "hasNeon" {
+                if isAarch64 { return 1 }
+                return 0
+            }
             if expr.variableName == "pointerSize" { return 8 }
         }
     }

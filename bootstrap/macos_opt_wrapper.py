@@ -84,6 +84,24 @@ def _infer_reg_type(lines, store_line_idx, val_reg):
     return 'i64'  # safe fallback
 
 
+def strip_malformed_anonymous_globals(ll_file):
+    """Remove malformed anonymous global declarations like '@ = external global 0'."""
+    with open(ll_file) as f:
+        lines = f.readlines()
+
+    out = []
+    changed = False
+    for line in lines:
+        if re.match(r'^@\s*=\s*(?:external\s+)?(?:internal\s+)?(?:local_unnamed_addr\s+)?(?:unnamed_addr\s+)?global\b', line):
+            changed = True
+            continue
+        out.append(line)
+
+    if changed:
+        with open(ll_file, 'w') as f:
+            f.writelines(out)
+
+
 def fix_codegen_bugs(ll_file, duplicate_globals=None, extern_refs=None):
     """Fix codegen bugs: malformed types, void in structs, undefined functions,
     malformed globals, duplicate globals, type mismatches in calls.
@@ -848,6 +866,7 @@ all_globals, duplicate_globals, extern_refs = collect_all_globals(ll_dir)
 # Only apply codegen fixes to raw .ll files (not .opt.ll which have LLVM attributes)
 for arg in sys.argv[1:]:
     if arg.endswith('.ll') and os.path.exists(arg):
+        strip_malformed_anonymous_globals(arg)
         is_opt_ll = arg.endswith('.opt.ll')
         if not is_opt_ll:
             fix_codegen_bugs(arg, duplicate_globals, extern_refs)

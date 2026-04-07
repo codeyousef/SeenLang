@@ -1,0 +1,54 @@
+// Regression: comptime target predicates must follow the effective compile target.
+
+fun main() r: Int {
+    comptime if (target.pointerSize != 8) {
+        println("PTR:bad")
+        return 1
+    }
+
+    comptime if (target.isIos) {
+        comptime if (target.isSimulator) {
+            println("TARGET:ios-sim-arm64")
+        } else {
+            println("TARGET:ios-arm64")
+        }
+    } else {
+        comptime if (target.isMacos) {
+            comptime if (target.isAarch64) {
+                println("TARGET:macos-arm64")
+            } else {
+                println("TARGET:macos-x86_64")
+            }
+        } else {
+            comptime if (target.isLinux) {
+                comptime if (target.isAarch64) {
+                    println("TARGET:linux-arm64")
+                } else {
+                    println("TARGET:linux-x86_64")
+                }
+            } else {
+                comptime if (target.isWindows) {
+                    println("TARGET:windows-x86_64")
+                } else {
+                    println("TARGET:other")
+                }
+            }
+        }
+    }
+
+    comptime if (target.hasNeon) {
+        println("SIMD:neon")
+    }
+    comptime if (target.hasSSE2) {
+        println("SIMD:sse2")
+    }
+    comptime if (target.hasAVX2) {
+        println("SIMD:avx2")
+    }
+    comptime if (target.hasFMA) {
+        println("SIMD:fma")
+    }
+
+    println("PASS: comptime_target_predicates")
+    return 0
+}

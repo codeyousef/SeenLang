@@ -16,6 +16,7 @@ enum Target {
     macOS_ARM64,
     Linux_ARM64,
     iOS_ARM64,
+    iOS_Simulator_ARM64,
     Android_ARM64,
     RISC_V,
     Unsupported
@@ -192,6 +193,7 @@ class LLVMBackend extends Backend {
             Target.macOS_ARM64 -> "arm64-apple-macosx14.0"
             Target.Linux_ARM64 -> "aarch64-unknown-linux-gnu"
             Target.iOS_ARM64 -> "arm64-apple-ios17.0"
+            Target.iOS_Simulator_ARM64 -> "arm64-apple-ios17.0-simulator"
             Target.Android_ARM64 -> "aarch64-linux-android24"
             _ -> "x86_64-unknown-linux-gnu"
         }
@@ -205,7 +207,7 @@ class LLVMBackend extends Backend {
                 "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
             Target.macOS_x86_64 ->
                 "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
-            Target.macOS_ARM64, Target.iOS_ARM64 ->
+            Target.macOS_ARM64, Target.iOS_ARM64, Target.iOS_Simulator_ARM64 ->
                 "e-m:o-i64:64-i128:128-n32:64-S128"
             Target.Linux_ARM64, Target.Android_ARM64 ->
                 "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
@@ -573,6 +575,13 @@ class Linker {
             }
             return ""
         }
+        if target == Target.iOS_Simulator_ARM64 {
+            let sdkResult: CommandResult = runCommand("xcrun --sdk iphonesimulator --show-sdk-path")
+            if commandWasSuccessful(sdkResult) {
+                return "-target arm64-apple-ios17.0-simulator -isysroot " + sdkResult.output.trim()
+            }
+            return ""
+        }
         if target == Target.Android_ARM64 {
             return "--target=aarch64-linux-android24"
         }
@@ -603,7 +612,7 @@ class Linker {
         if targetArgs != "" {
             cmd = cmd + " " + targetArgs
         }
-        if target == Target.iOS_ARM64 {
+        if target == Target.iOS_ARM64 or target == Target.iOS_Simulator_ARM64 {
             cmd = cmd + " -O2"
         } else {
             cmd = cmd + " -O2 -flto=thin"
@@ -681,7 +690,7 @@ fun createCodeGenerator() r: CodeGenerator {
 
 fun createBackend(target: Target) r: Backend {
     if target == Target.LLVM_IR or target == Target.Linux_x86_64 or target == Target.Windows_x86_64 or
-        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 or target == Target.iOS_ARM64 or target == Target.Android_ARM64 {
+        target == Target.macOS_x86_64 or target == Target.macOS_ARM64 or target == Target.Linux_ARM64 or target == Target.iOS_ARM64 or target == Target.iOS_Simulator_ARM64 or target == Target.Android_ARM64 {
         return LLVMBackend.new(target) as Backend
     } else if target == Target.C {
         return CBackend.new() as Backend
@@ -718,6 +727,9 @@ fun parseTarget(targetStr: String) r: Target {
         "ios-arm64" -> Target.iOS_ARM64
         "arm64-apple-ios" -> Target.iOS_ARM64
         "arm64-apple-ios17.0" -> Target.iOS_ARM64
+        "ios-sim-arm64" -> Target.iOS_Simulator_ARM64
+        "arm64-apple-ios-simulator" -> Target.iOS_Simulator_ARM64
+        "arm64-apple-ios17.0-simulator" -> Target.iOS_Simulator_ARM64
         "android-arm64" -> Target.Android_ARM64
         "aarch64-linux-android" -> Target.Android_ARM64
         "aarch64-linux-android24" -> Target.Android_ARM64

@@ -1,7 +1,8 @@
 // Seen Language Server Protocol Implementation
 // Full LSP server with JSON-RPC over stdio
 
-import json.{JsonValue, JsonValue_emptyObject, JsonValue_emptyArray, JsonValue_array, JsonValue_string, JsonValue_number, JsonValue_bool, JsonValue_nullValue, parseJson, toJson}
+import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_emptyArray, JsonValue_array, JsonValue_string, JsonValue_number, JsonValue_bool, JsonValue_nullValue}
+import json.parser.{parseJson}
 import lsp.types.{
     LspPosition, LspPosition_new, LspPosition_fromJson,
     Range, Range_new, Range_fromJson,
@@ -42,7 +43,7 @@ import lsp.jsonrpc.{
 import lexer.lexer.{SeenLexer}
 import lexer.token.{Token, SeenTokenType, TOKEN_EOF}
 import parser.real_parser.{RealParser, ProgramNode}
-import typechecker.type_checker.{SeenTypeChecker}
+import typechecker.typechecker.{SeenTypeChecker}
 import bootstrap.frontend.{run_frontend, FrontendResult, FrontendDiagnostic, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 
 // ============================================================================

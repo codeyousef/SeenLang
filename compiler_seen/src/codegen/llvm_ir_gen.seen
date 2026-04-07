@@ -229,6 +229,16 @@ var g_xmConstMutable: String = ""
 var g_xmConstSeenTypes: String = ""
 var g_xmConstCount: Int = 0
 
+fun isValidCrossModuleConstantEntry(name: String, llvmType: String) r: Bool {
+    if name == "" {
+        return false
+    }
+    if llvmType == "" or llvmType == "0" {
+        return false
+    }
+    return true
+}
+
 // Defer statement tracking: array of deferred statement expressions per block scope
 var g_deferCount: Int = 0
 var g_deferExprs: Array<ParserExpressionNode> = Array<ParserExpressionNode>()
@@ -1340,18 +1350,20 @@ class LLVMIRGenerator {
                 }
                 var grMut = "0"
                 if parseGlobalVarMutable(grEncoded) { grMut = "1" }
-                if g_xmConstNames == "" {
-                    g_xmConstNames = grItem.name
-                    g_xmConstTypes = grLlvmType
-                    g_xmConstMutable = grMut
-                    g_xmConstSeenTypes = grSeenType
-                } else {
-                    g_xmConstNames = g_xmConstNames + "|" + grItem.name
-                    g_xmConstTypes = g_xmConstTypes + "|" + grLlvmType
-                    g_xmConstMutable = g_xmConstMutable + "|" + grMut
-                    g_xmConstSeenTypes = g_xmConstSeenTypes + "|" + grSeenType
+                if isValidCrossModuleConstantEntry(grItem.name, grLlvmType) {
+                    if g_xmConstNames == "" {
+                        g_xmConstNames = grItem.name
+                        g_xmConstTypes = grLlvmType
+                        g_xmConstMutable = grMut
+                        g_xmConstSeenTypes = grSeenType
+                    } else {
+                        g_xmConstNames = g_xmConstNames + "|" + grItem.name
+                        g_xmConstTypes = g_xmConstTypes + "|" + grLlvmType
+                        g_xmConstMutable = g_xmConstMutable + "|" + grMut
+                        g_xmConstSeenTypes = g_xmConstSeenTypes + "|" + grSeenType
+                    }
+                    g_xmConstCount = g_xmConstCount + 1
                 }
-                g_xmConstCount = g_xmConstCount + 1
             }
             gri = gri + 1
         }
@@ -1949,10 +1961,10 @@ class LLVMIRGenerator {
             var xi = 0
             while xi < g_xmConstCount {
                 let xcName = pipeGet(g_xmConstNames, xi)
-                if xcName == name {
+                let xcType = pipeGet(g_xmConstTypes, xi)
+                if isValidCrossModuleConstantEntry(xcName, xcType) and xcName == name {
                     // Promote into per-module arrays so subsequent lookups
                     // and type/mutability access work at the returned index
-                    let xcType = pipeGet(g_xmConstTypes, xi)
                     let xcMut = pipeGet(g_xmConstMutable, xi)
                     let xcSeenType = pipeGet(g_xmConstSeenTypes, xi)
                     moduleConstantNames.push(name)
@@ -3592,7 +3604,7 @@ class LLVMIRGenerator {
                 }
                 xcj = xcj + 1
             }
-            if xcAlreadyDefined == 0 {
+            if isValidCrossModuleConstantEntry(xcName, xcType) and xcAlreadyDefined == 0 {
                 output.append("@" + quoteIdentIfNeeded(xcName) + " = external global " + xcType + "\n")
             }
             xci = xci + 1

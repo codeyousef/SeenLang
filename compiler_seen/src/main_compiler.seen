@@ -35,7 +35,7 @@ import codegen.ir_decl_features.{emitFeatureDecls}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, setComptimeTargetName}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
 import codegen.ir_call_dispatch.{emitStaticCollectionNewImpl}
@@ -323,7 +323,7 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
             }
             return compilerDirectPath
         }
-        if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "framework" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
+        if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "json" or firstSegment == "framework" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
             // This is a stdlib import — resolve from compiler root
             var stdlibBase = "seen_std/src/"
             let compRoot = getCompilerRoot()
@@ -722,11 +722,44 @@ fun compileCommandWithFullTargeting(inputFile: String, outputFile: String, profi
     return compileCommandWithAllOptions(inputFile, outputFile, profile, false, useCache, language, targetCpu, simdPolicy, simdReport, sanitizePolicy, pgoMode, pgoPath, mlLogPath, crossTarget)
 }
 
+fun targetIsIosSimulatorName(target: String) r: Bool {
+    if target == "" {
+        return false
+    }
+    if target == "ios-sim-arm64" or target == "arm64-apple-ios-simulator" or target == "aarch64-apple-ios-simulator" or target == "arm64-apple-ios17.0-simulator" or target == "aarch64-apple-ios17.0-simulator" {
+        return true
+    }
+    if (target.startsWith("arm64-apple-ios") or target.startsWith("aarch64-apple-ios")) and target.contains("simulator") {
+        return true
+    }
+    return false
+}
+
+fun targetIsIosDeviceName(target: String) r: Bool {
+    if target == "" {
+        return false
+    }
+    if target == "ios-arm64" or target == "arm64-apple-ios" or target == "aarch64-apple-ios" or target == "arm64-apple-ios17.0" or target == "aarch64-apple-ios17.0" {
+        return true
+    }
+    if (target.startsWith("arm64-apple-ios") or target.startsWith("aarch64-apple-ios")) and not target.contains("simulator") {
+        return true
+    }
+    return false
+}
+
+fun targetIsIosFamily(target: String) r: Bool {
+    return targetIsIosDeviceName(target) or targetIsIosSimulatorName(target)
+}
+
 fun normalizeCrossTargetName(target: String) r: String {
     if target == "" {
         return ""
     }
-    if target == "ios-arm64" or target == "arm64-apple-ios" or target == "arm64-apple-ios17.0" {
+    if targetIsIosSimulatorName(target) {
+        return "ios-sim-arm64"
+    }
+    if targetIsIosDeviceName(target) {
         return "ios-arm64"
     }
     if target == "macos-arm64" or target == "arm64-apple-darwin" or target == "aarch64-apple-darwin" {
@@ -969,7 +1002,7 @@ fun targetSupportsRegionRuntime(target: String) r: Bool {
 }
 
 fun targetSupportsGpuRuntime(target: String) r: Bool {
-    if target == "ios-arm64" or target == "windows-x86_64" {
+    if targetIsIosFamily(target) or target == "windows-x86_64" {
         return false
     }
     return true
@@ -994,7 +1027,7 @@ fun buildTargetLinkLibraries(target: String, hasGpuRuntime: Bool) r: String {
         if target == "android-arm64" {
             libs = " -lm -ldl"
         } else {
-            if target == "ios-arm64" {
+            if targetIsIosFamily(target) {
                 libs = " -lm"
             } else {
                 if target == "macos-arm64" or target == "macos-x86_64" {
@@ -1007,7 +1040,7 @@ fun buildTargetLinkLibraries(target: String, hasGpuRuntime: Bool) r: String {
         if target == "windows-x86_64" {
             libs = libs + " -lvulkan-1"
         } else {
-            if target == "macos-arm64" or target == "macos-x86_64" or target == "ios-arm64" {
+            if target == "macos-arm64" or target == "macos-x86_64" or targetIsIosFamily(target) {
             } else {
                 libs = libs + " -lvulkan"
             }
@@ -1027,11 +1060,18 @@ fun buildTargetClangArgs(target: String) r: String {
         }
         return "-target arm64-apple-ios17.0"
     }
+    if target == "ios-sim-arm64" {
+        let sdkResult: CommandResult = runCommand("xcrun --sdk iphonesimulator --show-sdk-path")
+        if commandWasSuccessful(sdkResult) {
+            return "-target arm64-apple-ios17.0-simulator -isysroot " + sdkResult.output.trim()
+        }
+        return "-target arm64-apple-ios17.0-simulator"
+    }
     if target == "macos-arm64" {
-        return "-target arm64-apple-darwin"
+        return "-target arm64-apple-macosx14.0"
     }
     if target == "macos-x86_64" {
-        return "-target x86_64-apple-darwin"
+        return "-target x86_64-apple-macosx14.0"
     }
     if target == "linux-arm64" {
         if detectHostTargetName() == "linux-arm64" {
@@ -1084,6 +1124,56 @@ fun buildTargetClangDriver(target: String) r: String {
         }
     }
     return "clang"
+}
+
+fun resolveLlvmToolFromDir(dir: String, tool: String) r: String {
+    if dir == "" {
+        return ""
+    }
+    let candidate = dir + "/" + tool
+    let candidateCheck: CommandResult = runCommand("test -x " + candidate)
+    if commandWasSuccessful(candidateCheck) {
+        return candidate
+    }
+    return ""
+}
+
+fun resolveLlvmTool(tool: String) r: String {
+    let pathResult: CommandResult = runCommand("command -v " + tool + " 2>/dev/null")
+    if commandWasSuccessful(pathResult) {
+        let resolvedPath = pathResult.output.trim()
+        if resolvedPath != "" {
+            return resolvedPath
+        }
+    }
+
+    let seenLlvmBinResult: CommandResult = runCommand("printf '%s' \"$SEEN_LLVM_BIN\"")
+    if commandWasSuccessful(seenLlvmBinResult) {
+        let seenLlvmBin = seenLlvmBinResult.output.trim()
+        let resolvedSeenTool = resolveLlvmToolFromDir(seenLlvmBin, tool)
+        if resolvedSeenTool != "" {
+            return resolvedSeenTool
+        }
+    }
+
+    let llvmBinResult: CommandResult = runCommand("printf '%s' \"$LLVM_BIN\"")
+    if commandWasSuccessful(llvmBinResult) {
+        let llvmBin = llvmBinResult.output.trim()
+        let resolvedLlvmTool = resolveLlvmToolFromDir(llvmBin, tool)
+        if resolvedLlvmTool != "" {
+            return resolvedLlvmTool
+        }
+    }
+
+    let homebrewArmTool = resolveLlvmToolFromDir("/opt/homebrew/opt/llvm/bin", tool)
+    if homebrewArmTool != "" {
+        return homebrewArmTool
+    }
+    let homebrewIntelTool = resolveLlvmToolFromDir("/usr/local/opt/llvm/bin", tool)
+    if homebrewIntelTool != "" {
+        return homebrewIntelTool
+    }
+    return ""
 }
 
 fun compileCommandWithProfileAndCache(inputFile: String, outputFile: String, profile: String, useCache: Bool) r: Int {
@@ -1215,13 +1305,22 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if effectiveTarget == "" {
         effectiveTarget = detectHostTargetName()
     }
+    setComptimeTargetName(effectiveTarget)
     let cacheSignature = buildCacheSignature(profile, language, targetCpu, simdPolicy, sanitizePolicy, pgoMode, effectiveTarget, panicOnOverflow)
     let targetClangArgs = buildTargetClangArgs(effectiveTarget)
     let targetClangDriver = buildTargetClangDriver(effectiveTarget)
     let targetRuntimeFlags = buildTargetRuntimeCompileFlags(effectiveTarget)
+    let llvmOptTool = resolveLlvmTool("opt")
+    let llvmLlcTool = resolveLlvmTool("llc")
+    let llvmLinkTool = resolveLlvmTool("llvm-link")
 
     if normalizedCrossTarget == "android-arm64" and targetClangArgs == "" {
         println("  Error: Android cross-compilation requires ANDROID_NDK_HOME or ANDROID_NDK_ROOT with a valid LLVM sysroot")
+        return 1
+    }
+    if normalizedCrossTarget != "android-arm64" and llvmOptTool == "" {
+        println("  Error: LLVM tool not found: opt")
+        println("  Hint: install LLVM or set SEEN_LLVM_BIN to your LLVM bin directory")
         return 1
     }
     if normalizedCrossTarget == "linux-arm64" and detectHostTargetName() != "linux-arm64" and targetClangArgs == "" {
@@ -1231,16 +1330,20 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
     // Cross-compilation: override target triple and data layout
     if normalizedCrossTarget != "" {
-        if normalizedCrossTarget == "ios-arm64" {
+        if normalizedCrossTarget == "ios-sim-arm64" {
+            overrideTargetTriple("arm64-apple-ios17.0-simulator", "e-m:o-i64:64-i128:128-n32:64-S128")
+            println("  Cross-compiling for iOS Simulator ARM64")
+        } else {
+            if normalizedCrossTarget == "ios-arm64" {
             overrideTargetTriple("arm64-apple-ios17.0", "e-m:o-i64:64-i128:128-n32:64-S128")
             println("  Cross-compiling for iOS ARM64")
         } else {
             if normalizedCrossTarget == "macos-arm64" {
-                overrideTargetTriple("arm64-apple-darwin", "e-m:o-i64:64-i128:128-n32:64-S128")
+                overrideTargetTriple("arm64-apple-macosx14.0", "e-m:o-i64:64-i128:128-n32:64-S128")
                 println("  Cross-compiling for macOS ARM64")
             } else {
                 if normalizedCrossTarget == "macos-x86_64" {
-                    overrideTargetTriple("x86_64-apple-macosx", "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128")
+                    overrideTargetTriple("x86_64-apple-macosx14.0", "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128")
                     println("  Cross-compiling for macOS x86_64")
                 } else {
                     if normalizedCrossTarget == "linux-x86_64" {
@@ -1267,6 +1370,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     }
                 }
             }
+        }
         }
     }
 
@@ -1581,8 +1685,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // ============================================================
     // PASS 2: Stream compile each module (one AST at a time)
     // ============================================================
-    // Clean stale object files from previous builds to prevent linking wrong .o files
-    let cleanCmd = "rm -f /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll"
+    // Clean stale per-module LLVM temp files so later invocations cannot
+    // accidentally reuse or inspect IR/object artifacts from previous builds.
+    let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o"
     __ExecuteProgram(cleanCmd)
 
     println("  [Pass 2] Compiling modules...")
@@ -1832,7 +1937,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let optFile = "/tmp/seen_module_" + midx + ".opt.ll"
             let objFile = "/tmp/seen_module_" + midx + ".o"
 
-            var moduleOptCmd = "opt -passes='" + optPasses + "'" + optInternalize + " -inline-threshold=" + optThreshold + " -S " + llFile + " -o " + optFile + pgoOptFlags
+            var moduleOptCmd = llvmOptTool + " -passes='" + optPasses + "'" + optInternalize + " -inline-threshold=" + optThreshold + " -S " + llFile + " -o " + optFile + pgoOptFlags
             var androidClangOptLevel = "-O3"
             if g_fastMode == 1 {
                 androidClangOptLevel = "-O1"
@@ -1856,9 +1961,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             var pollyStep = ""
             if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" {
                 let pollyFile = "/tmp/seen_module_" + midx + ".polly.ll"
-                pollyStep = " && (opt -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " 2>/dev/null && mv " + pollyFile + " " + optFile + " || true)"
+                pollyStep = " && (" + llvmOptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " 2>/dev/null && mv " + pollyFile + " " + optFile + " || true)"
             }
-            var moduleObjCmd = "opt --thinlto-bc " + optFile + " -o " + objFile
+            var moduleObjCmd = llvmOptTool + " --thinlto-bc " + optFile + " -o " + objFile
             if normalizedCrossTarget == "android-arm64" {
                 moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
             }
@@ -1948,54 +2053,58 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // cost of higher memory usage and slower compilation. The merged object is
     // compiled via llc rather than ThinLTO.
     if g_releaseMode and llFiles.length() > 1 and normalizedCrossTarget == "" {
-        println("  [2.5] Release mode: cross-module LTO merge (" + llFiles.length().toString() + " modules)...")
-        var llLinkCmd = "llvm-link -S "
-        var lli = 0
-        while lli < llFiles.length() {
-            llLinkCmd = llLinkCmd + llFiles[lli] + " "
-            lli = lli + 1
-        }
-        let mergedLl = "/tmp/seen_merged_release.ll"
-        llLinkCmd = llLinkCmd + "-o " + mergedLl
-        let llLinkResult: CommandResult = runCommand(llLinkCmd)
-        if commandWasSuccessful(llLinkResult) {
-            // Try Polly pre-pass for polyhedral loop optimization (best-effort)
-            let pollyOut = "/tmp/seen_merged_polly.ll"
-            let pollyCmd = "opt -passes='polly-canonicalize,polly' -S " + mergedLl + " -o " + pollyOut + " 2>/dev/null"
-            let pollyResult: CommandResult = runCommand(pollyCmd)
-            var mergedInput = mergedLl
-            if commandWasSuccessful(pollyResult) {
-                mergedInput = pollyOut
-                println("    Polly: polyhedral loop optimization applied")
+        if llvmLinkTool == "" or llvmLlcTool == "" {
+            println("  [2.5] Skipping merged release path: missing llvm-link or llc")
+        } else {
+            println("  [2.5] Release mode: cross-module LTO merge (" + llFiles.length().toString() + " modules)...")
+            var llLinkCmd = llvmLinkTool + " -S "
+            var lli = 0
+            while lli < llFiles.length() {
+                llLinkCmd = llLinkCmd + llFiles[lli] + " "
+                lli = lli + 1
             }
-            // Run opt with internalize on merged module (enables cross-module inlining)
-            let mergedOpt = "/tmp/seen_merged_release.opt.ll"
-            let mergedOptCmd = "opt -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),internalize,default<O3>,function(loop-unroll-and-jam)' -internalize-public-api-list=main -inline-threshold=2000 -S " + mergedInput + " -o " + mergedOpt
-            let mergedOptResult: CommandResult = runCommand(mergedOptCmd)
-            if commandWasSuccessful(mergedOptResult) {
-                // Compile merged optimized IR to single object file
-                let mergedObj = "/tmp/seen_merged_release.o"
-                let mergedLlcCmd = "llc -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -align-loops=32 -fp-contract=fast -mcpu=native " + mergedOpt + " -o " + mergedObj
-                let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
-                if commandWasSuccessful(mergedLlcResult) {
-                    // Replace all per-module object files with single merged object
-                    objectFiles = Array<String>()
-                    objectFiles.push(mergedObj)
-                    println("    Cross-module LTO: merged " + llFiles.length().toString() + " modules into 1")
+            let mergedLl = "/tmp/seen_merged_release.ll"
+            llLinkCmd = llLinkCmd + "-o " + mergedLl
+            let llLinkResult: CommandResult = runCommand(llLinkCmd)
+            if commandWasSuccessful(llLinkResult) {
+                // Try Polly pre-pass for polyhedral loop optimization (best-effort)
+                let pollyOut = "/tmp/seen_merged_polly.ll"
+                let pollyCmd = llvmOptTool + " -passes='polly-canonicalize,polly' -S " + mergedLl + " -o " + pollyOut + " 2>/dev/null"
+                let pollyResult: CommandResult = runCommand(pollyCmd)
+                var mergedInput = mergedLl
+                if commandWasSuccessful(pollyResult) {
+                    mergedInput = pollyOut
+                    println("    Polly: polyhedral loop optimization applied")
+                }
+                // Run opt with internalize on merged module (enables cross-module inlining)
+                let mergedOpt = "/tmp/seen_merged_release.opt.ll"
+                let mergedOptCmd = llvmOptTool + " -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),internalize,default<O3>,function(loop-unroll-and-jam)' -internalize-public-api-list=main -inline-threshold=2000 -S " + mergedInput + " -o " + mergedOpt
+                let mergedOptResult: CommandResult = runCommand(mergedOptCmd)
+                if commandWasSuccessful(mergedOptResult) {
+                    // Compile merged optimized IR to single object file
+                    let mergedObj = "/tmp/seen_merged_release.o"
+                    let mergedLlcCmd = llvmLlcTool + " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -align-loops=32 -fp-contract=fast -mcpu=native " + mergedOpt + " -o " + mergedObj
+                    let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
+                    if commandWasSuccessful(mergedLlcResult) {
+                        // Replace all per-module object files with single merged object
+                        objectFiles = Array<String>()
+                        objectFiles.push(mergedObj)
+                        println("    Cross-module LTO: merged " + llFiles.length().toString() + " modules into 1")
+                    } else {
+                        println("    Warning: LLC on merged module failed, using per-module objects")
+                    }
                 } else {
-                    println("    Warning: LLC on merged module failed, using per-module objects")
+                    println("    Warning: opt on merged module failed, using per-module objects")
+                }
+                // --emit-llvm: save merged IR for debugging
+                if g_emitLlvm {
+                    let emitMerge: CommandResult = runCommand("cp " + mergedOpt + " " + outputFile + ".merged.opt.ll")
+                    println("    Emitted merged IR: " + outputFile + ".merged.opt.ll")
                 }
             } else {
-                println("    Warning: opt on merged module failed, using per-module objects")
+                println("    Warning: llvm-link failed, using per-module objects")
+                println(llLinkResult.output)
             }
-            // --emit-llvm: save merged IR for debugging
-            if g_emitLlvm {
-                let emitMerge: CommandResult = runCommand("cp " + mergedOpt + " " + outputFile + ".merged.opt.ll")
-                println("    Emitted merged IR: " + outputFile + ".merged.opt.ll")
-            }
-        } else {
-            println("    Warning: llvm-link failed, using per-module objects")
-            println(llLinkResult.output)
         }
     }
 
@@ -2173,7 +2282,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let thinltoMkdir: CommandResult = runCommand("mkdir -p /tmp/seen_thinlto_cache")
     var linkCmd = ""
     if normalizedCrossTarget != "" {
-        if effectiveTarget == "ios-arm64" {
+        if effectiveTarget == "ios-arm64" or effectiveTarget == "ios-sim-arm64" {
             linkCmd = targetClangDriver + " " + targetClangArgs + " -O3 -flto=thin -Wl,-dead_strip -Wno-unused-command-line-argument "
         } else {
             if effectiveTarget == "macos-arm64" or effectiveTarget == "macos-x86_64" {
@@ -2724,7 +2833,7 @@ fun printUsage() r: Void {
     println("  --pgo-use=<path>         Use PGO profile for optimization")
     println("  --ml-log=<path>          Collect ML training data from optimization remarks")
     println("  --ml-decision-log=<path> Write optimization decision log (JSONL format)")
-    println("  --target=<platform>      Cross-compile target (ios-arm64)")
+    println("  --target=<platform>      Cross-compile target (ios-arm64, ios-sim-arm64)")
     println("  --fast                   Lightweight optimization (for bootstrap verification)")
     println("  --no-fork                Disable fork-parallel IR generation (sequential)")
     println("")

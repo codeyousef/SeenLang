@@ -553,7 +553,7 @@ class LLVMBackend extends Backend {
     
     fun initializeFeatures(target: Target) r: Void {
         features = match target {
-            Target.macOS_ARM64, Target.iOS_ARM64 -> ["+neon", "+crypto", "+fullfp16", "+ras", "+lse", "+rdm", "+rcpc", "+zcm", "+zcz"]
+            Target.macOS_ARM64, Target.iOS_ARM64, Target.iOS_Simulator_ARM64 -> ["+neon", "+crypto", "+fullfp16", "+ras", "+lse", "+rdm", "+rcpc", "+zcm", "+zcz"]
             Target.Linux_ARM64 -> ["+neon", "+crypto"]
             _ -> ["+sse2", "+sse3", "+ssse3", "+sse4.1", "+sse4.2"]
         }

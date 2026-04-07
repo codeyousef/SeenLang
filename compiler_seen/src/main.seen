@@ -348,6 +348,7 @@ fun printUsage() r: Void {
     printLn("      linux-x86_64              Linux x86_64 executable")
     printLn("      linux-arm64               Linux ARM64 executable")
     printLn("      ios-arm64                 iOS ARM64 artifact")
+    printLn("      ios-sim-arm64             iOS Simulator ARM64 artifact")
     printLn("      android-arm64             Android ARM64 shared library")
     printLn("  -O0, -O1, -O2, -O3            Optimization level")
     printLn("  --release                      Optimized build (alias for -O3)")
@@ -745,6 +746,7 @@ fun targetToString(target: Target) r: String {
         Target.macOS_ARM64 -> "macos-arm64"
         Target.Linux_ARM64 -> "linux-arm64"
         Target.iOS_ARM64 -> "ios-arm64"
+        Target.iOS_Simulator_ARM64 -> "ios-sim-arm64"
         Target.Android_ARM64 -> "android-arm64"
         Target.RISC_V -> "riscv"
         _ -> "native"

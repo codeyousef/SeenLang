@@ -15,6 +15,7 @@ DEFAULT_TARGETS=(
   "macos-x86_64"
   "macos-arm64"
   "ios-arm64"
+  "ios-sim-arm64"
   "android-arm64"
 )
 
@@ -175,6 +176,23 @@ sources_for_target() {
       printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_vars_en.seen"
       printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_stdlib_collections_en.seen"
       ;;
+    macos-*|ios-*)
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/hash_map_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/string_hash_map_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/str_basic.seen"
+      printf '%s\n' "$ROOT_DIR/seen_std/tests/string_buffer_basic.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_address_of.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_comptime_target_predicates.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_fn_pointer.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_parser_function_body_regression.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_trait_vtable.seen"
+      printf '%s\n' "$ROOT_DIR/tests/codegen/test_when_enum.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_control_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_literals_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_types_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_keywords_vars_en.seen"
+      printf '%s\n' "$ROOT_DIR/tests/e2e_multilang/en/test_stdlib_collections_en.seen"
+      ;;
     android-*)
       printf '%s\n' "$ROOT_DIR/tests/gpu/test_compute_basic.seen"
       printf '%s\n' "$ROOT_DIR/tests/gpu/test_compute_builtins.seen"
@@ -240,7 +258,7 @@ artifact_matches_target() {
     macos-arm64)
       [[ "$description" == *"Mach-O"* && ( "$description" == *"arm64"* || "$description" == *"aarch64"* ) ]]
       ;;
-    ios-arm64)
+    ios-arm64|ios-sim-arm64)
       [[ "$description" == *"Mach-O"* && ( "$description" == *"arm64"* || "$description" == *"aarch64"* ) ]]
       ;;
     android-*)
@@ -335,7 +353,10 @@ for target in "${TARGETS[@]}"; do
     status="unavailable"
     note="$preflight_msg"
   else
-    mapfile -t target_sources < <(sources_for_target "$target")
+    target_sources=()
+    while IFS= read -r source_file; do
+      target_sources+=("$source_file")
+    done < <(sources_for_target "$target")
     case_index=0
     for source_file in "${target_sources[@]}"; do
       case_name="$(case_name_for_source "$source_file")"

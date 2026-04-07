@@ -213,6 +213,18 @@ bash scripts/native_target_smoke.sh --compiler compiler_seen/target/seen --targe
 bash scripts/platform_matrix.sh --stage3 compiler_seen/target/seen --platform linux-arm64
 ```
 
+For hosts that can execute the produced binaries directly, `platform_matrix.sh --with-runtime`
+also runs lightweight runtime checks in addition to compile smoke. On Apple Silicon macOS,
+the Apple runtime subset now covers `hello_english`, `test_comptime_target_predicates`,
+`hash_map_basic`, `string_hash_map_basic`, `str_basic`, and `string_buffer_basic` for
+`macos-arm64`, `macos-x86_64`, and `ios-sim-arm64`.
+
+The same command also exposes a capability-gated `ios-arm64` physical-device lane. Pass
+`--ios-device <udid>` to target a specific iPhone, `--ios-provisioning-profile <path>` to
+embed a development profile, and optionally `--ios-sign-identity`, `--ios-entitlements`, and
+`--ios-bundle-prefix` if your local signing setup needs them. When no provisioned device is
+available, the report stays explicit `unavailable` instead of silently pretending the lane ran.
+
 If you want the helper to replace an existing extracted toolchain directory, rerun it with `--force`.
 
 ## Import from C
