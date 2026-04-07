@@ -121,6 +121,7 @@ enum SeenTokenType {
     KeywordWhen,      // when (119)
     KeywordOperator,  // operator (120)
     KeywordInline,    // inline (121)
+    KeywordLoop,      // loop (122)
 }
 
 fun getLeftParenType() r: SeenTokenType {

@@ -1687,7 +1687,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // ============================================================
     // Clean stale per-module LLVM temp files so later invocations cannot
     // accidentally reuse or inspect IR/object artifacts from previous builds.
-    let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o"
+    let cleanCmd = "rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log /tmp/seen_parallel_opt.sh"
     __ExecuteProgram(cleanCmd)
 
     println("  [Pass 2] Compiling modules...")
@@ -1889,7 +1889,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // to run N instances in parallel. Generating a shell script with backgrounded
     // commands + wait is simpler and more portable than managing N fork+exec pairs
     // from Seen code. Each module goes through:
-    //   1. opt -O3 (main optimization) -- falls back to raw .ll on failure
+    //   1. opt -O3 (main optimization) -- hard-fail the module on any error
     //   2. Polly polyhedral optimization (best-effort, skipped in --fast mode)
     //   3. opt --thinlto-bc (emit bitcode with ThinLTO module summaries for LLD)
     if uncachedIdxStrs.length() > 0 {
@@ -1955,19 +1955,37 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 moduleOptCmd = moduleOptCmd + " -pass-remarks-output=/tmp/seen_ml_remarks_" + midx + ".yaml -pass-remarks-format=yaml"
             }
 
-            // Each module: (opt ... || cp fallback) && polly best-effort && opt --thinlto-bc ... , backgrounded
-            // opt --thinlto-bc produces bitcode with ThinLTO module summaries (needed for LLD's --thinlto-cache-dir)
-            // Skip Polly in fast mode for faster builds
+            let statusFile = "/tmp/seen_module_" + midx + ".opt.status"
+            let logFile = "/tmp/seen_module_" + midx + ".opt.log"
+            // Each module writes a status file and log so the parent can stop the
+            // build on the first optimization/object-emission failure instead of
+            // silently falling back to raw IR and continuing toward link.
+            // opt --thinlto-bc produces bitcode with ThinLTO module summaries
+            // (needed for LLD's --thinlto-cache-dir). Skip Polly in fast mode.
             var pollyStep = ""
             if g_fastMode == 0 and normalizedCrossTarget != "android-arm64" {
                 let pollyFile = "/tmp/seen_module_" + midx + ".polly.ll"
-                pollyStep = " && (" + llvmOptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " 2>/dev/null && mv " + pollyFile + " " + optFile + " || true)"
+                pollyStep = "    (" + llvmOptTool + " -passes='polly-canonicalize,polly' -S " + optFile + " -o " + pollyFile + " >>" + logFile + " 2>&1 && mv " + pollyFile + " " + optFile + ") || true\n"
             }
             var moduleObjCmd = llvmOptTool + " --thinlto-bc " + optFile + " -o " + objFile
             if normalizedCrossTarget == "android-arm64" {
                 moduleObjCmd = targetClangDriver + " " + androidClangOptLevel + " -flto=thin -ffunction-sections -fdata-sections -Wno-unused-command-line-argument -c -x ir " + targetClangArgs + " " + optFile + " -o " + objFile
             }
-            script = script + "(" + moduleOptCmd + " || cp " + llFile + " " + optFile + ")" + pollyStep + " && " + moduleObjCmd + " &\n"
+            script = script + "(\n"
+            script = script + "  rm -f " + objFile + " " + optFile + " " + statusFile + " " + logFile + "\n"
+            script = script + "  if " + moduleOptCmd + " >" + logFile + " 2>&1; then\n"
+            if pollyStep != "" {
+                script = script + pollyStep
+            }
+            script = script + "    if " + moduleObjCmd + " >>" + logFile + " 2>&1; then\n"
+            script = script + "      printf 'ok' > " + statusFile + "\n"
+            script = script + "    else\n"
+            script = script + "      printf 'object' > " + statusFile + "\n"
+            script = script + "    fi\n"
+            script = script + "  else\n"
+            script = script + "    printf 'opt' > " + statusFile + "\n"
+            script = script + "  fi\n"
+            script = script + ") &\n"
 
             pi = pi + 1
         }
@@ -1978,19 +1996,52 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
         let chmodResult: CommandResult = runCommand("chmod +x /tmp/seen_parallel_opt.sh")
+        if not commandWasSuccessful(chmodResult) {
+            println("    Error: Failed to make parallel optimization script executable")
+            return 1
+        }
         let parallelResult: CommandResult = runCommand("/tmp/seen_parallel_opt.sh")
 
-        // Verify all object files were created
+        // Verify all modules reported successful optimization/object emission
+        // before collecting any objects for the final link.
         var vi = 0
         while vi < uncachedIdxStrs.length() {
             let midx = uncachedIdxStrs[vi]
+            let statusFile = "/tmp/seen_module_" + midx + ".opt.status"
+            let statusText = loadFileContent(statusFile)
+            if statusText != "ok" {
+                if statusText == "opt" {
+                    println("    Error: optimization failed for module " + midx)
+                } else {
+                    if statusText == "object" {
+                        println("    Error: object emission failed for module " + midx)
+                    } else {
+                        println("    Error: module optimization did not complete for module " + midx)
+                    }
+                }
+                let logFile = "/tmp/seen_module_" + midx + ".opt.log"
+                let logTail: CommandResult = runCommand("tail -n 40 " + logFile)
+                if commandWasSuccessful(logTail) {
+                    println(logTail.output)
+                }
+                return 1
+            }
             let objFile = "/tmp/seen_module_" + midx + ".o"
             let checkObj: CommandResult = runCommand("test -f " + objFile)
             if not commandWasSuccessful(checkObj) {
-                println("    Error: optimization failed for module " + midx)
+                println("    Error: module " + midx + " reported success but did not produce an object file")
+                let logFile = "/tmp/seen_module_" + midx + ".opt.log"
+                let logTail: CommandResult = runCommand("tail -n 40 " + logFile)
+                if commandWasSuccessful(logTail) {
+                    println(logTail.output)
+                }
                 return 1
             }
             vi = vi + 1
+        }
+        if not commandWasSuccessful(parallelResult) {
+            println("    Error: parallel optimization script reported failure")
+            return 1
         }
 
         // Collect object files, emit debug IR, collect ML data, and write cache

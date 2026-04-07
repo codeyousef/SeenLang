@@ -1,0 +1,5 @@
+import d15_empty_class_module.{InventoryDeclEmptyClass}
+
+fun main() r: Int {
+    return 0
+}

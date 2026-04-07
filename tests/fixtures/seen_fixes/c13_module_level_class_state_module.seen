@@ -1,0 +1,13 @@
+class Keyboard {
+    var pressed: Int
+
+    static fun new() r: Keyboard {
+        return Keyboard { pressed: 1 }
+    }
+}
+
+var gKeyboard = Keyboard.new()
+
+fun readPressed() r: Int {
+    return gKeyboard.pressed
+}

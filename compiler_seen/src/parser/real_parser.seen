@@ -875,82 +875,19 @@ class RealParser {
             // Handle top-level let declarations (global variables)
             if matchTokenStr(SeenTokenType.KeywordLet) {
                 if matchTokenStr(SeenTokenType.KeywordMut) { }  // consume optional mut
-                parseTopLevelLetDecl()
+                parseTopLevelGlobalDecl(false)
                 continue
             }
 
             // 'const' treated as top-level 'let'
             if matchTokenStr(SeenTokenType.KeywordConst) {
-                parseTopLevelLetDecl()
+                parseTopLevelGlobalDecl(false)
                 continue
             }
 
             // Handle top-level var declarations (global variables)
             if matchTokenStr(SeenTokenType.KeywordVar) {
-                let gvNameToken2 = consumeNameLike("Expected variable name")
-                let gvName2 = gvNameToken2.getValue()
-                var gvType2 = "Int"
-                if matchTokenStr(SeenTokenType.Colon) {
-                    let gvTypeNode2 = parseTypeNode()
-                    gvType2 = gvTypeNode2.typeName
-                }
-                // Handle complex types (Array, Vec, Map, etc.) - emit as ptr null globals
-                var gvIsComplex2 = false
-                if gvType2.startsWith("Array") { gvIsComplex2 = true }
-                if gvType2.startsWith("Vec") { gvIsComplex2 = true }
-                if gvType2.startsWith("Map") { gvIsComplex2 = true }
-                if gvType2.startsWith("HashMap") { gvIsComplex2 = true }
-                if gvIsComplex2 {
-                    // Consume initializer tokens (init handled in codegen as ptr null)
-                    if matchTokenStr(SeenTokenType.Equal) {
-                        if checkToken(SeenTokenType.LeftBracket) {
-                            advance()
-                            var gvBracketDepth2 = 1
-                            while gvBracketDepth2 > 0 and not isAtEnd() {
-                                if checkToken(SeenTokenType.LeftBracket) { gvBracketDepth2 = gvBracketDepth2 + 1 }
-                                if checkToken(SeenTokenType.RightBracket) { gvBracketDepth2 = gvBracketDepth2 - 1 }
-                                advance()
-                            }
-                        } else {
-                            var gvParenDepth3 = 0
-                            while not isAtEnd() {
-                                if checkToken(SeenTokenType.LeftParen) { gvParenDepth3 = gvParenDepth3 + 1 }
-                                if checkToken(SeenTokenType.RightParen) {
-                                    if gvParenDepth3 <= 1 {
-                                        advance()
-                                        break
-                                    }
-                                    gvParenDepth3 = gvParenDepth3 - 1
-                                }
-                                advance()
-                            }
-                        }
-                    }
-                    if matchTokenStr(SeenTokenType.Semicolon) { }
-                    let gvItemCx = ItemNode.new()
-                    gvItemCx.itemType = "GlobalVar"
-                    gvItemCx.name = gvName2
-                    gvItemCx.visibility = "V" + gvType2 + ":"
-                    currentProgram.items.push(gvItemCx)
-                    continue
-                }
-                var gvInit2 = ""
-                if matchTokenStr(SeenTokenType.Equal) {
-                    var gvIsNeg2 = false
-                    if matchTokenStr(SeenTokenType.Minus) { gvIsNeg2 = true }
-                    let gvValToken2 = advance()
-                    gvInit2 = gvValToken2.getValue()
-                    if gvIsNeg2 { gvInit2 = "-" + gvInit2 }
-                    if gvType2 == "Int" and gvInit2.contains(".") {
-                        gvType2 = "Float"
-                    }
-                }
-                if matchTokenStr(SeenTokenType.Semicolon) { }
-                let gvItem2 = ItemNode.new()
-                gvItem2.itemType = "GlobalVar"
-                gvItem2.name = gvName2
-                gvItem2.visibility = "V" + gvType2 + ":" + gvInit2
-                currentProgram.items.push(gvItem2)
+                parseTopLevelGlobalDecl(true)
                 continue
             }
 
@@ -962,69 +899,186 @@ class RealParser {
         return currentProgram
     }
 
-    // Top-level let/const variable declaration (shared by 'let' and 'const')
-    fun parseTopLevelLetDecl() r: Void {
+    fun topLevelGlobalInitFunctionName() r: String {
+        return "__seen_internal_module_init__"
+    }
+
+    fun ensureTopLevelInitFunctionIndex() r: Int {
+        var i = 0
+        while i < currentProgram.items.length() {
+            let item = currentProgram.items[i]
+            if item.itemType == "Function" {
+                if item.function.name == topLevelGlobalInitFunctionName() {
+                    return i
+                }
+            }
+            i = i + 1
+        }
+
+        let initItem = ItemNode.new()
+        initItem.itemType = "Function"
+        initItem.name = topLevelGlobalInitFunctionName()
+        initItem.function = FunctionNode.new()
+        initItem.function.name = topLevelGlobalInitFunctionName()
+        let initReturnType = TypeNode.new()
+        initReturnType.typeName = "Void"
+        initItem.function.returnType = initReturnType
+        initItem.function.decorators.push(AnnotationNode.new("init"))
+        currentProgram.items.push(initItem)
+        return currentProgram.items.length() - 1
+    }
+
+    fun appendTopLevelGlobalInitializer(varName: String, initExpr: ParserExpressionNode) r: Void {
+        let initIdx = ensureTopLevelInitFunctionIndex()
+        let initStmt = StatementNode.new()
+        initStmt.kind = "Assignment"
+        initStmt.variableName = varName
+        initStmt.initializer = initExpr
+        let initItem = currentProgram.items[initIdx]
+        initItem.function.body.statements.push(initStmt)
+    }
+
+    fun inferTopLevelGlobalType(initExpr: ParserExpressionNode) r: String {
+        if initExpr.kind == "Literal" {
+            if initExpr.literalType != "" {
+                return initExpr.literalType
+            }
+        }
+        if initExpr.kind == "StructLiteral" {
+            return initExpr.literalType
+        }
+        if initExpr.kind == "ArrayLiteral" {
+            if initExpr.arguments.length() > 0 {
+                let elemType = inferTopLevelGlobalType(initExpr.arguments[0])
+                if elemType != "" {
+                    return "Array<" + elemType + ">"
+                }
+            }
+            return "Array"
+        }
+        if initExpr.kind == "MethodCall" {
+            if initExpr.callee == "new" {
+                if initExpr.literalValue != "" {
+                    return initExpr.literalValue
+                }
+                if initExpr.operands.length() > 0 {
+                    let recvName = getVariableExprName(initExpr.operands[0])
+                    if recvName != "" {
+                        return recvName
+                    }
+                }
+            }
+        }
+        if initExpr.kind == "Call" {
+            if initExpr.callee.length() > 0 {
+                let firstChar = initExpr.callee.charAt(0)
+                if firstChar >= "A" {
+                    if firstChar <= "Z" {
+                        return initExpr.callee
+                    }
+                }
+            }
+        }
+        if initExpr.kind == "VarExpr" or initExpr.kind == "Variable" {
+            let varName = getVariableExprName(initExpr)
+            if varName.length() > 0 {
+                let firstChar = varName.charAt(0)
+                if firstChar >= "A" {
+                    if firstChar <= "Z" {
+                        return varName
+                    }
+                }
+            }
+        }
+        if initExpr.kind == "Unary" {
+            if initExpr.operator == "!" {
+                return "Bool"
+            }
+            if initExpr.operands.length() > 0 {
+                return inferTopLevelGlobalType(initExpr.operands[0])
+            }
+        }
+        if initExpr.kind == "Binary" {
+            let op = initExpr.operator
+            if op == "==" { return "Bool" }
+            if op == "!=" { return "Bool" }
+            if op == "<" { return "Bool" }
+            if op == ">" { return "Bool" }
+            if op == "<=" { return "Bool" }
+            if op == ">=" { return "Bool" }
+            if op == "and" { return "Bool" }
+            if op == "or" { return "Bool" }
+            if initExpr.operands.length() > 0 {
+                let leftType = inferTopLevelGlobalType(initExpr.operands[0])
+                if initExpr.operands.length() > 1 {
+                    let rightType = inferTopLevelGlobalType(initExpr.operands[1])
+                    if leftType == "String" { return "String" }
+                    if rightType == "String" { return "String" }
+                    if leftType == "Float" { return "Float" }
+                    if rightType == "Float" { return "Float" }
+                    if leftType != "" { return leftType }
+                    if rightType != "" { return rightType }
+                }
+                if leftType != "" { return leftType }
+            }
+            return "Int"
+        }
+        return ""
+    }
+
+    fun extractTopLevelStaticInitializer(initExpr: ParserExpressionNode) r: String {
+        if initExpr.kind != "Literal" {
+            return ""
+        }
+        if initExpr.literalType == "Int" or initExpr.literalType == "Float" {
+            return initExpr.literalValue
+        }
+        if initExpr.literalType == "Bool" {
+            if initExpr.literalValue == "true" {
+                return "true"
+            }
+            return "false"
+        }
+        return ""
+    }
+
+    // Top-level let/const/var declaration
+    fun parseTopLevelGlobalDecl(isMutable: Bool) r: Void {
         let gvNameToken = consumeNameLike("Expected variable name")
         let gvName = gvNameToken.getValue()
-        var gvType = "Int"
+        var gvType = ""
         if matchTokenStr(SeenTokenType.Colon) {
             let gvTypeNode = parseTypeNode()
             gvType = gvTypeNode.typeName
         }
-        // Skip complex types (Array, Vec, Map, etc.) - can't emit as simple LLVM globals
-        var gvIsComplex = false
-        if gvType.startsWith("Array") { gvIsComplex = true }
-        if gvType.startsWith("Vec") { gvIsComplex = true }
-        if gvType.startsWith("Map") { gvIsComplex = true }
-        if gvType.startsWith("HashMap") { gvIsComplex = true }
-        if gvIsComplex {
-            // Skip to end of declaration: consume until ] or ) or next top-level token
-            if matchTokenStr(SeenTokenType.Equal) {
-                if checkToken(SeenTokenType.LeftBracket) {
-                    // Array literal: skip to matching ]
-                    advance()
-                    var gvBracketDepth = 1
-                    while gvBracketDepth > 0 and not isAtEnd() {
-                        if checkToken(SeenTokenType.LeftBracket) { gvBracketDepth = gvBracketDepth + 1 }
-                        if checkToken(SeenTokenType.RightBracket) { gvBracketDepth = gvBracketDepth - 1 }
-                        advance()
-                    }
-                } else {
-                    // Constructor call or other: skip to ) or newline
-                    var gvParenDepth2 = 0
-                    while not isAtEnd() {
-                        if checkToken(SeenTokenType.LeftParen) { gvParenDepth2 = gvParenDepth2 + 1 }
-                        if checkToken(SeenTokenType.RightParen) {
-                            if gvParenDepth2 <= 1 {
-                                advance()
-                                break
-                            }
-                            gvParenDepth2 = gvParenDepth2 - 1
-                        }
-                        advance()
-                    }
-                }
-            }
-            if matchTokenStr(SeenTokenType.Semicolon) { }
-            return
-        }
-        var gvInit = ""
+
+        var gvHasInitializer = false
+        var gvInitExpr = ParserExpressionNode.new()
         if matchTokenStr(SeenTokenType.Equal) {
-            var gvIsNeg = false
-            if matchTokenStr(SeenTokenType.Minus) { gvIsNeg = true }
-            let gvValToken = advance()
-            gvInit = gvValToken.getValue()
-            if gvIsNeg { gvInit = "-" + gvInit }
-            if gvType == "Int" and gvInit.contains(".") {
-                gvType = "Float"
-            }
+            gvInitExpr = parseExpression()
+            gvHasInitializer = true
         }
+
+        if gvType == "" and gvHasInitializer {
+            gvType = inferTopLevelGlobalType(gvInitExpr)
+        }
+        if gvType == "" {
+            gvType = "Int"
+        }
+
         if matchTokenStr(SeenTokenType.Semicolon) { }
+
         let gvItem = ItemNode.new()
         gvItem.itemType = "GlobalVar"
         gvItem.name = gvName
-        gvItem.visibility = "L" + gvType + ":" + gvInit
+        var gvPrefix = "L"
+        if isMutable { gvPrefix = "V" }
+        gvItem.visibility = gvPrefix + gvType + ":" + extractTopLevelStaticInitializer(gvInitExpr)
         currentProgram.items.push(gvItem)
+
+        if gvHasInitializer {
+            appendTopLevelGlobalInitializer(gvName, gvInitExpr)
+        }
     }
 
     // Parse a decorator and add to pending decorators
@@ -2552,6 +2606,15 @@ class RealParser {
             currentBlock.statements.push(lastStatement)
             return
         }
+        if matchTokenStr(SeenTokenType.KeywordLoop) {
+            lastStatement.kind = "While"
+            lastStatement.loopCondition = makeLiteral("true", "Bool")
+            consume(SeenTokenType.LeftBrace, "Expected '{' after loop")
+            parseBlockIntoField()
+            lastStatement.loopBody = lastParsedBlock
+            currentBlock.statements.push(lastStatement)
+            return
+        }
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "parallel_for" {
             advance()  // consume 'parallel_for'
             parseParallelForStatementField()
@@ -2674,6 +2737,15 @@ class RealParser {
         }
         if matchTokenStr(SeenTokenType.KeywordIf) { return parseIfStatement() }
         if matchTokenStr(SeenTokenType.KeywordWhile) { return parseStableWhileStatement() }
+        if matchTokenStr(SeenTokenType.KeywordLoop) {
+            let stmt = StatementNode.new()
+            stmt.kind = "While"
+            stmt.loopCondition = makeLiteral("true", "Bool")
+            consume(SeenTokenType.LeftBrace, "Expected '{' after loop")
+            parseBlockIntoField()
+            stmt.loopBody = lastParsedBlock
+            return stmt
+        }
         if checkToken(SeenTokenType.Identifier) and peek().getValue() == "parallel_for" {
             advance()  // consume 'parallel_for'
             return parseParallelForStatement()

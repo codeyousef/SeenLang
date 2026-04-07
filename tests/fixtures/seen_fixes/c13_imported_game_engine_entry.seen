@@ -1,0 +1,5 @@
+import c13_imported_game_engine_module.{runImportedGameEngineChecks}
+
+fun main() r: Int {
+    return runImportedGameEngineChecks()
+}

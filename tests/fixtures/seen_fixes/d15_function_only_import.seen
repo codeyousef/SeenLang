@@ -1,0 +1,10 @@
+import d15_function_only_module.{functionOnlyValue, functionOnlySum}
+
+fun main() r: Int {
+    let x = functionOnlyValue()
+    let y = functionOnlySum(x, 1)
+    if y == 43 {
+        return 0
+    }
+    return 1
+}

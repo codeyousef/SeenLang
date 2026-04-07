@@ -1,0 +1,15 @@
+class Keyboard {
+    var pressed: Int
+
+    static fun new() r: Keyboard {
+        return Keyboard { pressed: 0 }
+    }
+
+    fun isPressed() r: Int {
+        return this.pressed
+    }
+
+    fun update() r: Void {
+        this.pressed = this.pressed + 1
+    }
+}

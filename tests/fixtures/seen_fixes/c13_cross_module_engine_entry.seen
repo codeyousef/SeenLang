@@ -1,0 +1,8 @@
+import c13_engine_module.{runImportedGame}
+
+fun main() r: Int {
+    if runImportedGame() == 1 {
+        return 0
+    }
+    return 1
+}

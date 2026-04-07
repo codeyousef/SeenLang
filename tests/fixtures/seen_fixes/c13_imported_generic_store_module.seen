@@ -1,0 +1,17 @@
+class Store<T> {
+    var items: Array<T>
+
+    static fun new() r: Store<Int> {
+        return Store<Int> { items: Array<Int>() }
+    }
+}
+
+fun makeStore() r: Store<Int> {
+    return Store<Int>.new()
+}
+
+fun seedAndRead() r: Int {
+    let store = Store<Int>.new()
+    store.items.push(42)
+    return store.items.get(0)
+}

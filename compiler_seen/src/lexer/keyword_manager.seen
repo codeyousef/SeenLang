@@ -108,6 +108,7 @@ class KeywordManager {
         tokenNameMap.put("KeywordMatch", SeenTokenType.KeywordMatch)
         tokenNameMap.put("KeywordBreak", SeenTokenType.KeywordBreak)
         tokenNameMap.put("KeywordContinue", SeenTokenType.KeywordContinue)
+        tokenNameMap.put("KeywordLoop", SeenTokenType.KeywordLoop)
         tokenNameMap.put("KeywordReturn", SeenTokenType.KeywordReturn)
         tokenNameMap.put("KeywordTry", SeenTokenType.KeywordTry)
         tokenNameMap.put("KeywordCatch", SeenTokenType.KeywordCatch)
@@ -213,6 +214,7 @@ class KeywordManager {
         if name == "KeywordMatch" { return SeenTokenType.KeywordMatch }
         if name == "KeywordBreak" { return SeenTokenType.KeywordBreak }
         if name == "KeywordContinue" { return SeenTokenType.KeywordContinue }
+        if name == "KeywordLoop" { return SeenTokenType.KeywordLoop }
         if name == "KeywordReturn" { return SeenTokenType.KeywordReturn }
         if name == "KeywordTry" { return SeenTokenType.KeywordTry }
         if name == "KeywordCatch" { return SeenTokenType.KeywordCatch }

@@ -1,0 +1,7 @@
+fun functionOnlyValue() r: Int {
+    return 42
+}
+
+fun functionOnlySum(a: Int, b: Int) r: Int {
+    return a + b
+}

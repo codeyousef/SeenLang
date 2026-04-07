@@ -491,6 +491,7 @@ fun getSeenTokenTypeValueImpl(memberName: String) r: Int {
     if memberName == "KeywordWhen" { return 119 }
     if memberName == "KeywordOperator" { return 120 }
     if memberName == "KeywordInline" { return 121 }
+    if memberName == "KeywordLoop" { return 122 }
     return 0  // Unknown member - fallback
 }
 
@@ -818,4 +819,3 @@ fun collectStringConstantsImpl(program: ProgramNode, stringConstants: Array<Stri
         i = i + 1
     }
 }
-

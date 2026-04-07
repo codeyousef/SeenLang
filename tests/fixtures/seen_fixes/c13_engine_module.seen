@@ -1,0 +1,19 @@
+import c13_keyboard_types_module.{Keyboard}
+
+class Game {
+    var keyboard: Keyboard
+
+    static fun new() r: Game {
+        return Game { keyboard: Keyboard.new() }
+    }
+
+    fun run() r: Int {
+        this.keyboard.update()
+        return this.keyboard.isPressed()
+    }
+}
+
+fun runImportedGame() r: Int {
+    let game = Game.new()
+    return game.run()
+}

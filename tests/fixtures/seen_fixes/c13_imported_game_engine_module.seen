@@ -1,0 +1,88 @@
+enum VoxelType { Air, Grass, Dirt, Stone }
+
+@trait
+class Component {
+    fun tick(this: Component, dt: Int) r: Int
+}
+
+class Player {
+    var health: Int
+    var speed: Int
+
+    static fun new(h: Int, s: Int) r: Player {
+        return Player { health: h, speed: s }
+    }
+}
+
+impl Component for Player {
+    fun tick(this: Player, dt: Int) r: Int {
+        return this.speed * dt
+    }
+}
+
+class Store<T> {
+    var items: Array<T>
+
+    static fun new() r: Store<Int> {
+        return Store<Int> { items: Array<Int>() }
+    }
+}
+
+fun applyGravity(entity: Int, force: Int) r: Int {
+    return entity + force
+}
+
+fun registerSystem(callback: Int, priority: Int) r: Int {
+    return callback(priority, 10)
+}
+
+fun createWindow(width: Int = 1280, height: Int = 720) r: Int {
+    return width * height
+}
+
+fun runImportedGameEngineChecks() r: Int {
+    var passed = 0
+
+    let voxel = VoxelType.Grass
+    if voxel == VoxelType.Grass { passed = passed + 1 }
+
+    var registry = HashMap<String, Int>()
+    registry.insert("player", 1)
+    registry.insert("enemy", 2)
+    if registry.get("player") == 1 { passed = passed + 1 }
+
+    let running = true
+    if running { passed = passed + 1 }
+
+    let msg = "Engine: " + "HeartOn"
+    if msg == "Engine: HeartOn" { passed = passed + 1 }
+
+    var items = Array<Int>()
+    items.push(10)
+    items.push(20)
+    items.push(30)
+    var sum = 0
+    for item in items {
+        sum = sum + item
+    }
+    if sum == 60 { passed = passed + 1 }
+
+    var count = 0
+    for i in 0..5 {
+        count = count + 1
+    }
+    if count == 5 { passed = passed + 1 }
+
+    if registerSystem(applyGravity, 5) == 15 { passed = passed + 1 }
+    if createWindow() == 921600 { passed = passed + 1 }
+    if createWindow(1920) == 1382400 { passed = passed + 1 }
+
+    let store = Store<Int>.new()
+    store.items.push(42)
+    if store.items.get(0) == 42 { passed = passed + 1 }
+
+    if passed == 10 {
+        return 0
+    }
+    return 1
+}

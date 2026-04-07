@@ -1,0 +1,10 @@
+import c13_imported_generic_store_module.{makeStore, seedAndRead}
+
+fun main() r: Int {
+    let store = makeStore()
+    store.items.push(7)
+    if store.items.get(0) == 7 and seedAndRead() == 42 {
+        return 0
+    }
+    return 1
+}

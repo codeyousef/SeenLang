@@ -1,0 +1,8 @@
+import c13_module_level_game_module.{runGlobalGame}
+
+fun main() r: Int {
+    if runGlobalGame() == 2 {
+        return 0
+    }
+    return 1
+}
