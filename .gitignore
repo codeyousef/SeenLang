@@ -207,3 +207,7 @@ llms-full.txt
 tests/misc_root_tests/test_*
 !tests/misc_root_tests/test_*.seen
 .build_tmp/
+benchmarks/COMPREHENSIVE_BENCHMARK_RESULTS.md
+benchmarks/quick_benchmark.sh
+benchmarks/run_comprehensive_comparison.sh
+vscode-seen/package-lock.json
