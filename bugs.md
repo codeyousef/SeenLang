@@ -216,7 +216,7 @@ features the compiler and stdlib already expose:
 5. Broaden capability checking beyond opt-in token usage and add richer effect kinds
 6. Extend `@send` / `@sync` from structural validation to concurrency-boundary checks
 
-### Important current limitations
+### Important remaining limitations after the recent fixes
 
 * **`sealed` is enforced now**, including cross-module and alias-import
   inheritance rejection, but it still does not power exhaustiveness checking
