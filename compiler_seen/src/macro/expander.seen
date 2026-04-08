@@ -246,6 +246,14 @@ class MacroExpander {
         if name == "inline" { return true }
         if name == "async" { return true }
         if name == "test" { return true }
+        if name == "using" { return true }
+        if name == "effect" { return true }
+        if name == "send" { return true }
+        if name == "sync" { return true }
+        if name == "sealed" { return true }
+        if name == "trait" { return true }
+        if name == "type_alias" { return true }
+        if name == "distinct" { return true }
         if name == "allow_allocator_optimizations" { return true }
         if name == "macro" { return true }
         if name == "_c_import" { return true }

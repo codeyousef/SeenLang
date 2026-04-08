@@ -213,19 +213,22 @@ features the compiler and stdlib already expose:
 2. Resource wrappers using `defer`, `errdefer`, and `@c_resource`
 3. Definite-initialization and nullability enforcement behind existing flags
 4. Enum exhaustiveness checking
-5. Capability checking integrated into normal `check` / `build`
-6. Real enforcement for `@send` / `@sync` at concurrency boundaries
+5. Broaden capability checking beyond opt-in token usage and add richer effect kinds
+6. Extend `@send` / `@sync` from structural validation to concurrency-boundary checks
 
 ### Important current limitations
 
-* **`sealed` is not a strong foundation yet**: it is parsed, but current tests
-  describe it as parse-only / not necessarily full codegen or enforcement.
-* **`effect` is reserved vocabulary, not a wired effect system**: use
-  capabilities first instead of designing around a new effect syntax.
-* **`@send` / `@sync` exist as annotations**, but repo inspection suggests they
-  are currently tracked more than fully enforced.
-* **The capability model already exists in the compiler**, so it is a lower
-  risk path than inventing a new effect framework from scratch.
+* **`sealed` is enforced now**, including cross-module and alias-import
+  inheritance rejection, but it still does not power exhaustiveness checking
+  for `when` / `match`.
+* **`effect(...)` is real syntax now**, but today it lowers onto the existing
+  token-based capability model (`@using(Token)`) instead of a richer effect-row
+  system.
+* **`@send` / `@sync` now reject incompatible field graphs**, including imported
+  types, but they are not yet enforced at every thread / executor boundary.
+* **Capability checking is available in normal compiler flows, but it is still
+  opt-in**: the checker activates when a program uses `effect(...)` or
+  `@using(...)`, so fully ambient enforcement remains future work.
 
 ### Practical summary
 

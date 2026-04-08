@@ -197,6 +197,7 @@ class KeywordManager {
         tokenNameMap.put("KeywordRegion", SeenTokenType.KeywordRegion)
         tokenNameMap.put("KeywordWhen", SeenTokenType.KeywordWhen)
         tokenNameMap.put("KeywordInline", SeenTokenType.KeywordInline)
+        tokenNameMap.put("KeywordEffect", SeenTokenType.KeywordEffect)
 
         // Aliases from misc keywords that map to word operators
         tokenNameMap.put("KeywordAnd", SeenTokenType.LogicalAnd)
@@ -272,6 +273,7 @@ class KeywordManager {
         if name == "KeywordRegion" { return SeenTokenType.KeywordRegion }
         if name == "KeywordWhen" { return SeenTokenType.KeywordWhen }
         if name == "KeywordInline" { return SeenTokenType.KeywordInline }
+        if name == "KeywordEffect" { return SeenTokenType.KeywordEffect }
         return SeenTokenType.Identifier
     }
 

@@ -492,6 +492,7 @@ fun getSeenTokenTypeValueImpl(memberName: String) r: Int {
     if memberName == "KeywordOperator" { return 120 }
     if memberName == "KeywordInline" { return 121 }
     if memberName == "KeywordLoop" { return 122 }
+    if memberName == "KeywordEffect" { return 123 }
     return 0  // Unknown member - fallback
 }
 

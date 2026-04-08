@@ -26,7 +26,7 @@ import io.file.{readText, writeText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, commandOutput, processFork, waitPid, processExit}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, overrideTargetTriple}
-import parser.real_parser.{ProgramNode, ItemNode}
+import parser.real_parser.{ProgramNode, ItemNode, ClassNode}
 import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
@@ -857,6 +857,265 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
     }
 
     return paths
+}
+
+fun importProvidesSymbol(importItem: ItemNode, symbolName: String) r: Bool {
+    return resolveImportedSymbolName(importItem, symbolName) != ""
+}
+
+fun resolveImportedSymbolName(importItem: ItemNode, symbolName: String) r: String {
+    if importItem.itemType != "Import" {
+        return ""
+    }
+
+    if importItem.importSymbols.length() == 0 {
+        return symbolName
+    }
+
+    var i = 0
+    while i < importItem.importSymbols.length() {
+        let symbol = importItem.importSymbols[i]
+        if symbol.alias == symbolName {
+            return symbol.name
+        }
+        if symbol.alias == "" and symbol.name == symbolName {
+            return symbol.name
+        }
+        i = i + 1
+    }
+
+    return ""
+}
+
+fun findProgramClass(program: ProgramNode, className: String) r: ClassNode {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            if item.classNode.name == className {
+                return item.classNode
+            }
+        }
+        i = i + 1
+    }
+    return ClassNode.new()
+}
+
+fun findParsedModuleClass(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, className: String) r: ClassNode {
+    var i = 0
+    while i < modulePaths.length() {
+        if modulePaths[i] == targetPath {
+            return findProgramClass(frontends[i].program, className)
+        }
+        i = i + 1
+    }
+    return ClassNode.new()
+}
+
+fun findReferencedClassInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, className: String) r: ClassNode {
+    let localClass = findProgramClass(moduleProgram, className)
+    if localClass.name != "" {
+        return localClass
+    }
+
+    let sourceDir = getSourceDir(modulePath)
+    var i = 0
+    while i < moduleProgram.items.length() {
+        let item = moduleProgram.items[i]
+        let importedSymbolName = resolveImportedSymbolName(item, className)
+        if importedSymbolName != "" {
+            let importedPath = resolveImportPath(item.importPath, sourceDir)
+            if importedPath != "" {
+                let importedClass = findParsedModuleClass(modulePaths, frontends, importedPath, importedSymbolName)
+                if importedClass.name != "" {
+                    return importedClass
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return ClassNode.new()
+}
+
+fun isIdentifierStartChar(ch: String) r: Bool {
+    if ch == "_" { return true }
+    if ch >= "a" and ch <= "z" { return true }
+    if ch >= "A" and ch <= "Z" { return true }
+    return false
+}
+
+fun isIdentifierPartChar(ch: String) r: Bool {
+    if isIdentifierStartChar(ch) { return true }
+    if ch >= "0" and ch <= "9" { return true }
+    return false
+}
+
+fun findUndecoratedReferencedClassInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, ownerClassName: String, typeName: String, requiredDecorator: String) r: String {
+    var pos = 0
+    while pos < typeName.length() {
+        let ch = typeName.substring(pos, pos + 1)
+        if isIdentifierStartChar(ch) {
+            let start = pos
+            pos = pos + 1
+            while pos < typeName.length() {
+                let inner = typeName.substring(pos, pos + 1)
+                if not isIdentifierPartChar(inner) {
+                    break
+                }
+                pos = pos + 1
+            }
+
+            let token = typeName.substring(start, pos)
+            if token != ownerClassName {
+                let referenced = findReferencedClassInModules(modulePath, moduleProgram, modulePaths, frontends, token)
+                if referenced.name != "" {
+                    if not referenced.hasDecorator(requiredDecorator) and not referenced.hasDecorator("type_alias") {
+                        return token
+                    }
+                }
+            }
+        } else {
+            pos = pos + 1
+        }
+    }
+
+    return ""
+}
+
+fun programDefinesSealedClass(program: ProgramNode, className: String) r: Bool {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            if item.classNode.name == className and item.classNode.hasDecorator("sealed") {
+                return true
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun parsedModuleHasSealedClass(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, className: String) r: Bool {
+    var i = 0
+    while i < modulePaths.length() {
+        if modulePaths[i] == targetPath {
+            return programDefinesSealedClass(frontends[i].program, className)
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun findImportedSealedParentModule(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, parentName: String) r: String {
+    if programDefinesSealedClass(moduleProgram, parentName) {
+        return ""
+    }
+
+    let sourceDir = getSourceDir(modulePath)
+    var i = 0
+    while i < moduleProgram.items.length() {
+        let item = moduleProgram.items[i]
+        let importedSymbolName = resolveImportedSymbolName(item, parentName)
+        if importedSymbolName != "" {
+            let importedPath = resolveImportPath(item.importPath, sourceDir)
+            if importedPath != "" {
+                if parsedModuleHasSealedClass(modulePaths, frontends, importedPath, importedSymbolName) {
+                    return importedPath
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return ""
+}
+
+fun validateSealedModules(modulePaths: Array<String>, language: String) r: FrontendResult {
+    let result = FrontendResult.new()
+    let frontends = Array<FrontendResult>()
+
+    var i = 0
+    while i < modulePaths.length() {
+        let frontend = parseModule(modulePaths[i], language)
+        if not frontend.success {
+            return frontend
+        }
+        frontends.push(frontend)
+        i = i + 1
+    }
+
+    i = 0
+    while i < modulePaths.length() {
+        let modulePath = modulePaths[i]
+        let program = frontends[i].program
+
+        var itemIdx = 0
+        while itemIdx < program.items.length() {
+            let item = program.items[itemIdx]
+            if item.itemType == "Class" {
+                let cls = item.classNode
+                if cls.parentName != "" {
+                    let sealedModule = findImportedSealedParentModule(modulePath, program, modulePaths, frontends, cls.parentName)
+                    if sealedModule != "" {
+                        let message = encodeDiagMessage(
+                            "sealed class `" + cls.parentName + "` cannot be extended outside `" + sealedModule + "`",
+                            "E007",
+                            "Move `" + cls.name + "` into `" + sealedModule + "` or remove `sealed` from `" + cls.parentName + "`.",
+                            "",
+                            0
+                        )
+                        result.addDiagnostic(FrontendDiagnostic.new(modulePath, 0, 0, "error", message))
+                    }
+                }
+                if cls.hasDecorator("send") {
+                    var sendFieldIdx = 0
+                    while sendFieldIdx < cls.fields.length() {
+                        let field = cls.fields[sendFieldIdx]
+                        let badType = findUndecoratedReferencedClassInModules(modulePath, program, modulePaths, frontends, cls.name, field.paramType.typeName, "send")
+                        if badType != "" {
+                            let message = encodeDiagMessage(
+                                "@send class '" + cls.name + "' cannot contain field '" + field.name + "' of type '" + badType + "' without @send",
+                                "E006",
+                                "Mark '" + badType + "' with @send or change field '" + field.name + "' to a compatible type.",
+                                "",
+                                0
+                            )
+                            result.addDiagnostic(FrontendDiagnostic.new(modulePath, 0, 0, "error", message))
+                        }
+                        sendFieldIdx = sendFieldIdx + 1
+                    }
+                }
+                if cls.hasDecorator("sync") {
+                    var syncFieldIdx = 0
+                    while syncFieldIdx < cls.fields.length() {
+                        let field = cls.fields[syncFieldIdx]
+                        let badType = findUndecoratedReferencedClassInModules(modulePath, program, modulePaths, frontends, cls.name, field.paramType.typeName, "sync")
+                        if badType != "" {
+                            let message = encodeDiagMessage(
+                                "@sync class '" + cls.name + "' cannot contain field '" + field.name + "' of type '" + badType + "' without @sync",
+                                "E006",
+                                "Mark '" + badType + "' with @sync or change field '" + field.name + "' to a compatible type.",
+                                "",
+                                0
+                            )
+                            result.addDiagnostic(FrontendDiagnostic.new(modulePath, 0, 0, "error", message))
+                        }
+                        syncFieldIdx = syncFieldIdx + 1
+                    }
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+
+        i = i + 1
+    }
+
+    if not result.hasErrors() {
+        result.success = true
+    }
+    return result
 }
 
 // Collect ML training data from LLVM optimization remarks YAML file.
@@ -1794,6 +2053,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // and the IR generator to emit incomplete forward references. Catching
     // this early gives a clear diagnostic instead of a cryptic linker error.
     let depPaths = collectModulePaths(resolvedInput, true)
+    let sealedValidation = validateSealedModules(depPaths, language)
+    if not sealedValidation.success {
+        printFrontendDiagnostics(sealedValidation)
+        return 1
+    }
     var depGraph = Array<String>()   // pipe-delimited adjacency: "from|to1|to2|..."
     var depIdx = 0
     while depIdx < depPaths.length() {
@@ -2843,6 +3107,13 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
         return 1
     }
 
+    let checkModulePaths = collectModulePaths(inputFile, true)
+    let checkSealedValidation = validateSealedModules(checkModulePaths, language)
+    if not checkSealedValidation.success {
+        printFrontendDiagnostics(checkSealedValidation)
+        return 1
+    }
+
     if profile == "deterministic" {
         let deterResult = checkDeterminismWithProfile(frontend.program, true)
         if deterResult.hasErrors() {
@@ -3042,6 +3313,11 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
     let modulePaths = collectModulePaths(jitInput, not verbose)
     if verbose {
         println("    Found " + modulePaths.length().toString() + " modules")
+    }
+    let jitSealedValidation = validateSealedModules(modulePaths, language)
+    if not jitSealedValidation.success {
+        printFrontendDiagnostics(jitSealedValidation)
+        return 1
     }
 
     var passIdx = 0

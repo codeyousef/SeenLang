@@ -1,0 +1,9 @@
+import sealed_alias_base.{Root as ImportedRoot}
+
+class Derived extends ImportedRoot {
+    var value: Int
+}
+
+fun main() r: Int {
+    return 0
+}

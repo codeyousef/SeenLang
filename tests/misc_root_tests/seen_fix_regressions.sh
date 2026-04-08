@@ -15,6 +15,16 @@ C13_MODULE_CONST_BIND_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_const_
 C12_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_direct_entry_missing_user_decl.seen"
 C12_MODULE_CONST_BIND_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_module_const_local_bind.seen"
 C14_SHADOWED_BRANCH_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c14_shadowed_branch_locals.seen"
+EFFECT_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/effect_capability_ok.seen"
+CAPABILITY_WRONG_EFFECT_SRC="$ROOT_DIR/tests/fixtures/current_limitations/capability_missing_effect.seen"
+METHOD_WRONG_EFFECT_SRC="$ROOT_DIR/tests/fixtures/current_limitations/effect_method_wrong.seen"
+SEND_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/send_annotation_invalid_field.seen"
+SYNC_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sync_annotation_invalid_field.seen"
+SEND_IMPORTED_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/send_annotation_imported_invalid_entry.seen"
+SYNC_IMPORTED_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sync_annotation_imported_invalid_entry.seen"
+SEALED_CROSS_MODULE_ENTRY_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_cross_module_entry.seen"
+SEALED_ALIAS_ENTRY_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_alias_entry.seen"
+SEALED_SAME_MODULE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_same_module_ok.seen"
 
 cleanup_seen_artifacts() {
     rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache "$TMP_ROOT"
@@ -55,6 +65,13 @@ run_compile_in_dir() {
     fi
 }
 
+run_check() {
+    local source_file="$1"
+    local log_file="$2"
+
+    timeout 120 "$COMPILER" check "$source_file" --language en >"$log_file" 2>&1
+}
+
 run_success_case() {
     local label="$1"
     local source_file="$2"
@@ -70,6 +87,49 @@ run_success_case() {
 
     if ! "$output_file" >/dev/null 2>&1; then
         echo "FAIL: $label binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: $label"
+}
+
+run_check_success_case() {
+    local label="$1"
+    local source_file="$2"
+    local log_file="$3"
+
+    cleanup_seen_artifacts
+    if ! run_check "$source_file" "$log_file"; then
+        echo "FAIL: $label check failed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: $label"
+}
+
+run_check_failure_case() {
+    local label="$1"
+    local source_file="$2"
+    local log_file="$3"
+    local expected_pattern="$4"
+
+    cleanup_seen_artifacts
+
+    set +e
+    run_check "$source_file" "$log_file"
+    local status=$?
+    set -e
+
+    if [[ "$status" -eq 0 ]]; then
+        echo "FAIL: $label unexpectedly passed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -Eq "$expected_pattern" "$log_file"; then
+        echo "FAIL: $label did not report the expected diagnostic"
         cat "$log_file"
         exit 1
     fi
@@ -396,6 +456,16 @@ run_success_case "C13 module-level game state" "$C13_GLOBAL_GAME_SRC" "$TMP_ROOT
 run_success_case "C13 module-const local bind" "$C13_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c13_module_const_local_bind" "$TMP_ROOT/c13_module_const_local_bind.log"
 run_success_case "C14 shadowed branch locals" "$C14_SHADOWED_BRANCH_SRC" "$TMP_ROOT/c14_shadowed_branch_locals" "$TMP_ROOT/c14_shadowed_branch_locals.log"
 run_success_case "C12 module-const local bind" "$C12_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c12_module_const_local_bind" "$TMP_ROOT/c12_module_const_local_bind.log"
+run_check_success_case "effect(FileToken) allows restricted call" "$EFFECT_OK_SRC" "$TMP_ROOT/effect_capability_ok.log"
+run_check_failure_case "effect(NetToken) rejects file capability use" "$CAPABILITY_WRONG_EFFECT_SRC" "$TMP_ROOT/capability_wrong_effect.log" 'Missing capability token for restricted operation|requires @using\(FileToken\)'
+run_check_failure_case "method effect(NetToken) rejects file capability use" "$METHOD_WRONG_EFFECT_SRC" "$TMP_ROOT/method_wrong_effect.log" 'Missing capability token for restricted operation|requires @using\(FileToken\)'
+run_check_failure_case "@send rejects non-send field" "$SEND_INVALID_SRC" "$TMP_ROOT/send_invalid.log" '@send class .* cannot contain field .* without @send'
+run_check_failure_case "@sync rejects non-sync field" "$SYNC_INVALID_SRC" "$TMP_ROOT/sync_invalid.log" '@sync class .* cannot contain field .* without @sync'
+run_check_failure_case "@send rejects imported non-send field" "$SEND_IMPORTED_INVALID_SRC" "$TMP_ROOT/send_imported_invalid.log" '@send class .* cannot contain field .* without @send'
+run_check_failure_case "@sync rejects imported non-sync field" "$SYNC_IMPORTED_INVALID_SRC" "$TMP_ROOT/sync_imported_invalid.log" '@sync class .* cannot contain field .* without @sync'
+run_check_failure_case "sealed cross-module inheritance is rejected" "$SEALED_CROSS_MODULE_ENTRY_SRC" "$TMP_ROOT/sealed_cross_module.log" 'sealed class .* cannot be extended outside'
+run_check_failure_case "sealed alias-import inheritance is rejected" "$SEALED_ALIAS_ENTRY_SRC" "$TMP_ROOT/sealed_alias.log" 'sealed class .* cannot be extended outside'
+run_success_case "sealed same-module inheritance stays allowed" "$SEALED_SAME_MODULE_OK_SRC" "$TMP_ROOT/sealed_same_module_ok" "$TMP_ROOT/sealed_same_module_ok.log"
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case

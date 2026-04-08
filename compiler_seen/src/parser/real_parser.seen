@@ -300,6 +300,7 @@ class RealParser {
     var lastParsedBlock: BlockNode
     var lastFunction: FunctionNode
     var pendingDecorators: Array<AnnotationNode>
+    var pendingSealedModifier: Int
     var blockStack: Array<BlockNode>
     var statementStack: Array<StatementNode>
     var blockStackDepth: Int
@@ -310,9 +311,41 @@ class RealParser {
     var pendingFunctionParamTypeNames: Array<String>
     var pendingFunctionParamTypeNullables: Array<Int>
 
+    static fun tokenStartsEffectModifier(rawTokens: Array<Token>, index: Int) r: Bool {
+        if index < 0 or index >= rawTokens.length() {
+            return false
+        }
+        let tok = rawTokens[index]
+        if tok.getValue() != "effect" {
+            return false
+        }
+        if index + 1 >= rawTokens.length() {
+            return false
+        }
+        return rawTokens[index + 1].getValue() == "("
+    }
+
+    static fun rewriteEffectTokens(rawTokens: Array<Token>) r: Array<Token> {
+        let rewritten = Array<Token>()
+        var i = 0
+        while i < rawTokens.length() {
+            let tok = rawTokens[i]
+            // Do not inspect token enum values here: bootstrap can miscompile
+            // cross-module SeenTokenType reads from Token objects.
+            if RealParser.tokenStartsEffectModifier(rawTokens, i) {
+                rewritten.push(Token.new(getAtType(), "@", tok.getLine(), tok.getColumn(), 1, tok.getFileId()))
+                rewritten.push(Token.new(SeenTokenType.Identifier, "using", tok.getLine(), tok.getColumn(), 5, tok.getFileId()))
+            } else {
+                rewritten.push(tok)
+            }
+            i = i + 1
+        }
+        return rewritten
+    }
+
     static fun new(rawTokens: Array<Token>) r: RealParser {
         return RealParser{
-            tokens: rawTokens,
+            tokens: RealParser.rewriteEffectTokens(rawTokens),
             current: 0,
             currentProgram: ProgramNode.new(),
             currentBlock: BlockNode.new(),
@@ -320,6 +353,7 @@ class RealParser {
             lastParsedBlock: BlockNode.new(),
             lastFunction: FunctionNode.new(),
             pendingDecorators: Array<AnnotationNode>(),
+            pendingSealedModifier: 0,
             blockStack: Array<BlockNode>(),
             statementStack: Array<StatementNode>(),
             blockStackDepth: 0,
@@ -551,6 +585,7 @@ class RealParser {
     fun parse() r: ProgramNode {
         currentProgram = ProgramNode.new()
         pendingDecorators = Array<AnnotationNode>()
+        pendingSealedModifier = 0
 
         while not isAtEnd() {
             // Use peekTokenTypeStr to avoid creating Token copy that corrupts memory
@@ -626,7 +661,36 @@ class RealParser {
 
             // Consume optional 'sealed' modifier before class/enum
             if matchTokenStr(SeenTokenType.KeywordSealed) {
-                // fall through to class/enum parsing below
+                pendingSealedModifier = 1
+            }
+
+            if matchTokenStr(SeenTokenType.AtSymbol) {
+                parseDecoratorInto()
+                if pendingDecorators.length() > 0 {
+                    let lastDecAfterSealed = pendingDecorators[pendingDecorators.length() - 1]
+                    if lastDecAfterSealed.name == "cImport" {
+                        let cImportFnAfterSealed = FunctionNode.new()
+                        cImportFnAfterSealed.name = "__cImport"
+                        let cImportAnnAfterSealed = AnnotationNode.new("cImport")
+                        if lastDecAfterSealed.arguments.length() > 0 {
+                            cImportAnnAfterSealed.addArgument(lastDecAfterSealed.arguments[0])
+                        }
+                        cImportFnAfterSealed.decorators.push(cImportAnnAfterSealed)
+                        let cImportItemAfterSealed = ItemNode.new()
+                        cImportItemAfterSealed.itemType = "Function"
+                        cImportItemAfterSealed.name = "__cImport"
+                        cImportItemAfterSealed.function = cImportFnAfterSealed
+                        currentProgram.items.push(cImportItemAfterSealed)
+                        traceParse("push Function __cImport")
+                        pendingDecorators = Array<AnnotationNode>()
+                    }
+                }
+                continue
+            }
+
+            if checkToken(SeenTokenType.KeywordEffect) {
+                parseEffectModifierInto()
+                continue
             }
 
             // 'type' keyword — type alias: type Foo = Bar<Baz>
@@ -1139,6 +1203,28 @@ class RealParser {
         pendingDecorators.push(annotation)
     }
 
+    fun parseEffectModifierInto() r: Void {
+        consume(SeenTokenType.KeywordEffect, "Expected 'effect'")
+        pendingDecorators.push(AnnotationNode.new("effect"))
+        let effectIndex = pendingDecorators.length() - 1
+
+        if matchTokenStr(SeenTokenType.LeftParen) {
+            while not checkToken(SeenTokenType.RightParen) and not isAtEnd() {
+                if checkNameLikeToken() {
+                    let effectArg = advance().getValue()
+                    pendingDecorators[effectIndex].addArgument(effectArg)
+                } else {
+                    advance()
+                }
+
+                if not matchTokenStr(SeenTokenType.Comma) {
+                    break
+                }
+            }
+            consume(SeenTokenType.RightParen, "Expected ')' after effect arguments")
+        }
+    }
+
     fun parseFunctionItem() r: ItemNode {
         // trace
         if isAtEnd() {
@@ -1403,6 +1489,14 @@ class RealParser {
         pendingDecorators = Array<AnnotationNode>()
     }
 
+    fun applyPendingTypeModifiersToClass(classNode: ClassNode) r: Void {
+        if pendingSealedModifier == 1 {
+            pendingDecorators.push(AnnotationNode.new("sealed"))
+            pendingSealedModifier = 0
+        }
+        applyDecoratorsToClass(classNode)
+    }
+
     // Parse parameter list into lastFunction (avoids passing FunctionNode by value)
     fun parseParameterListField() r: Void {
         consume(SeenTokenType.LeftParen, "Expected '(' after function name")
@@ -1513,6 +1607,7 @@ class RealParser {
         let nameToken = consume(SeenTokenType.Identifier, "Expected class name")
         let classNode = ClassNode.new()
         classNode.name = nameToken.getValue()
+        applyPendingTypeModifiersToClass(classNode)
         // trace
 
         // Skip generic type parameters if present (e.g., class BTreeMap<K, V> { ... })
@@ -1543,25 +1638,37 @@ class RealParser {
                 }
                 // Check for 'var' or 'let' (field)
                 var classTokenHandled = false
-                if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
-                    if matchTokenStr(SeenTokenType.KeywordMut) { }  // consume optional mut
-                    let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
-                    consume(SeenTokenType.Colon, "Expected ':' after field name")
-                    let fieldType = parseTypeNode()
-                    // : Bit field syntax: fieldName: Type : N
-                    if checkToken(SeenTokenType.Colon) {
-                        advance()
-                        if checkToken(SeenTokenType.IntegerLiteral) {
-                            let bitWidth = advance().getValue()
-                            fieldType.typeName = fieldType.typeName + ":bitfield(" + bitWidth + ")"
-                        }
-                    }
-                    let field = ParamNode.new()
-                    field.name = fieldName.getValue()
-                    field.paramType = fieldType
-                    classNode.fields.push(field)
-                    // trace
+                if matchTokenStr(SeenTokenType.AtSymbol) {
+                    parseDecoratorInto()
                     classTokenHandled = true
+                }
+                if not classTokenHandled {
+                    if checkToken(SeenTokenType.KeywordEffect) {
+                        parseEffectModifierInto()
+                        classTokenHandled = true
+                    }
+                }
+                if not classTokenHandled {
+                    if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
+                        if matchTokenStr(SeenTokenType.KeywordMut) { }  // consume optional mut
+                        let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
+                        consume(SeenTokenType.Colon, "Expected ':' after field name")
+                        let fieldType = parseTypeNode()
+                        // : Bit field syntax: fieldName: Type : N
+                        if checkToken(SeenTokenType.Colon) {
+                            advance()
+                            if checkToken(SeenTokenType.IntegerLiteral) {
+                                let bitWidth = advance().getValue()
+                                fieldType.typeName = fieldType.typeName + ":bitfield(" + bitWidth + ")"
+                            }
+                        }
+                        let field = ParamNode.new()
+                        field.name = fieldName.getValue()
+                        field.paramType = fieldType
+                        classNode.fields.push(field)
+                        // trace
+                        classTokenHandled = true
+                    }
                 }
                 // Check for 'static' method
                 if not classTokenHandled {
@@ -1582,6 +1689,7 @@ class RealParser {
                                     advance()
                                 }
                             }
+                            applyDecoratorsToFunction()
                             parseParameterListField()
                             var resolvedReturnTypeName = pendingFunctionReturnTypeName
                             var resolvedReturnTypeNullable = pendingFunctionReturnTypeNullable
@@ -1650,6 +1758,7 @@ class RealParser {
                                 advance()
                             }
                         }
+                        applyDecoratorsToFunction()
                         parseParameterListField()
                         var resolvedReturnTypeName2 = pendingFunctionReturnTypeName
                         var resolvedReturnTypeNullable2 = pendingFunctionReturnTypeNullable
@@ -1780,8 +1889,8 @@ class RealParser {
             classNode.parentName = parentTok.getValue()
         }
 
-        // Apply pending decorators to this class
-        applyDecoratorsToClass(classNode)
+        // Apply pending decorators and keyword modifiers to this class
+        applyPendingTypeModifiersToClass(classNode)
 
         // Parse class body
         if matchTokenStr(SeenTokenType.LeftBrace) {
@@ -1796,25 +1905,37 @@ class RealParser {
                 var classIntoTokenHandled = false
                 var sawOverrideInto = 0
                 var sawAsyncInto = 0
-                if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
-                    if matchTokenStr(SeenTokenType.KeywordMut) { }  // consume optional mut
-                    let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
-                    consume(SeenTokenType.Colon, "Expected ':' after field name")
-                    let fieldType = parseTypeNode()
-                    // : Bit field syntax: fieldName: Type : N
-                    if checkToken(SeenTokenType.Colon) {
-                        advance()
-                        if checkToken(SeenTokenType.IntegerLiteral) {
-                            let bitWidthInto = advance().getValue()
-                            fieldType.typeName = fieldType.typeName + ":bitfield(" + bitWidthInto + ")"
-                        }
-                    }
-                    let field = ParamNode.new()
-                    field.name = fieldName.getValue()
-                    field.paramType = fieldType
-                    classNode.fields.push(field)
-                    // trace
+                if matchTokenStr(SeenTokenType.AtSymbol) {
+                    parseDecoratorInto()
                     classIntoTokenHandled = true
+                }
+                if not classIntoTokenHandled {
+                    if checkToken(SeenTokenType.KeywordEffect) {
+                        parseEffectModifierInto()
+                        classIntoTokenHandled = true
+                    }
+                }
+                if not classIntoTokenHandled {
+                    if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
+                        if matchTokenStr(SeenTokenType.KeywordMut) { }  // consume optional mut
+                        let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
+                        consume(SeenTokenType.Colon, "Expected ':' after field name")
+                        let fieldType = parseTypeNode()
+                        // : Bit field syntax: fieldName: Type : N
+                        if checkToken(SeenTokenType.Colon) {
+                            advance()
+                            if checkToken(SeenTokenType.IntegerLiteral) {
+                                let bitWidthInto = advance().getValue()
+                                fieldType.typeName = fieldType.typeName + ":bitfield(" + bitWidthInto + ")"
+                            }
+                        }
+                        let field = ParamNode.new()
+                        field.name = fieldName.getValue()
+                        field.paramType = fieldType
+                        classNode.fields.push(field)
+                        // trace
+                        classIntoTokenHandled = true
+                    }
                 }
                 // Check for 'static' method prefix
                 if not classIntoTokenHandled {
@@ -1836,6 +1957,7 @@ class RealParser {
                                     advance()
                                 }
                             }
+                            applyDecoratorsToFunction()
                             parseParameterListField()
                             var resolvedReturnTypeNameInto = pendingFunctionReturnTypeName
                             var resolvedReturnTypeNullableInto = pendingFunctionReturnTypeNullable
@@ -1916,6 +2038,7 @@ class RealParser {
                                 advance()
                             }
                         }
+                        applyDecoratorsToFunction()
                         parseParameterListField()
                         var resolvedReturnTypeNameInto2 = pendingFunctionReturnTypeName
                         var resolvedReturnTypeNullableInto2 = pendingFunctionReturnTypeNullable
@@ -2020,6 +2143,7 @@ class RealParser {
         let nameToken = consume(SeenTokenType.Identifier, "Expected struct name")
         let classNode = ClassNode.new()
         classNode.name = nameToken.getValue()
+        applyPendingTypeModifiersToClass(classNode)
 
         // Skip optional generic params <T, U>
         if checkToken(SeenTokenType.LessThan) {
@@ -2063,6 +2187,10 @@ class RealParser {
             return ItemNode.new()
         }
 
+        if pendingSealedModifier == 1 {
+            pendingSealedModifier = 0
+        }
+
         let nameToken = consume(SeenTokenType.Identifier, "Expected enum name")
         let enumNode = EnumNode.new()
         enumNode.name = nameToken.getValue()
@@ -2097,6 +2225,10 @@ class RealParser {
     fun parseEnumItemInto() r: Void {
         if isAtEnd() {
             return
+        }
+
+        if pendingSealedModifier == 1 {
+            pendingSealedModifier = 0
         }
 
         let nameToken = consume(SeenTokenType.Identifier, "Expected enum name")

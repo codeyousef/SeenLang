@@ -19,7 +19,7 @@
 // through to IR generation.
 
 import lexer.{SeenLexer, LexerError}
-import parser.real_parser.{RealParser, ProgramNode}
+import parser.real_parser.{RealParser, ProgramNode, FunctionNode, ClassNode, StatementNode, ParserExpressionNode, BlockNode}
 import typechecker.interfaces.{TypeChecker}
 import typechecker.interfaces.{TypeError}
 import macro.expander.{MacroExpander}
@@ -157,8 +157,492 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
     // Use macro-transformed program
     result.program = macroResult.program
 
+    if programUsesCapabilityAnnotations(result.program) {
+        addCapabilityDiagnostics(result, fileLabel, result.program)
+        if result.hasErrors() {
+            return result
+        }
+    }
+
+    if programUsesClassDecorator(result.program, "send") {
+        validateDecoratorClosedClasses(result, fileLabel, result.program, "send")
+    }
+
+    if programUsesClassDecorator(result.program, "sync") {
+        validateDecoratorClosedClasses(result, fileLabel, result.program, "sync")
+    }
+
+    if result.hasErrors() {
+        return result
+    }
+
     result.success = true
     return result
+}
+
+fun functionHasDecorator(func: FunctionNode, decoratorName: String) r: Bool {
+    var i = 0
+    while i < func.decorators.length() {
+        if func.decorators[i].name == decoratorName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun isCapabilityDecoratorName(name: String) r: Bool {
+    return name == "using" or name == "effect"
+}
+
+fun functionHasCapabilityDecorator(func: FunctionNode) r: Bool {
+    var i = 0
+    while i < func.decorators.length() {
+        if isCapabilityDecoratorName(func.decorators[i].name) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun programUsesCapabilityAnnotations(program: ProgramNode) r: Bool {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            if functionHasCapabilityDecorator(item.function) {
+                return true
+            }
+        }
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            var mi = 0
+            while mi < cls.methods.length() {
+                if functionHasCapabilityDecorator(cls.methods[mi]) {
+                    return true
+                }
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun programUsesClassDecorator(program: ProgramNode, decoratorName: String) r: Bool {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            if item.classNode.hasDecorator(decoratorName) {
+                return true
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Keep capability validation local to the frontend so bootstrap does not depend
+// on extra modules that the frozen compiler does not add to its curated list.
+fun frontendFunctionHasCapabilityToken(func: FunctionNode, token: String) r: Bool {
+    var di = 0
+    while di < func.decorators.length() {
+        let decorator = func.decorators[di]
+        if isCapabilityDecoratorName(decorator.name) {
+            var ai = 0
+            while ai < decorator.arguments.length() {
+                let arg = decorator.arguments[ai]
+                if arg == token or arg == "AllToken" {
+                    return true
+                }
+                ai = ai + 1
+            }
+        }
+        di = di + 1
+    }
+    return false
+}
+
+fun frontendCollectCapabilityFunctions(program: ProgramNode, functions: Array<FunctionNode>, functionNames: Array<String>) r: Void {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            let func = item.function
+            functions.push(func)
+            functionNames.push(func.name)
+        }
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            var mi = 0
+            while mi < cls.methods.length() {
+                let method = cls.methods[mi]
+                functions.push(method)
+                functionNames.push(cls.name + "." + method.name)
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun frontendFindCapabilityFunction(functions: Array<FunctionNode>, functionNames: Array<String>, name: String) r: FunctionNode {
+    var i = 0
+    while i < functionNames.length() {
+        if functionNames[i] == name {
+            return functions[i]
+        }
+        i = i + 1
+    }
+    return FunctionNode.new()
+}
+
+fun frontendGetFunctionCapabilities(func: FunctionNode) r: Array<String> {
+    let caps = Array<String>()
+    var di = 0
+    while di < func.decorators.length() {
+        let decorator = func.decorators[di]
+        if isCapabilityDecoratorName(decorator.name) {
+            var ai = 0
+            while ai < decorator.arguments.length() {
+                caps.push(decorator.arguments[ai])
+                ai = ai + 1
+            }
+        }
+        di = di + 1
+    }
+    return caps
+}
+
+fun frontendCapabilityIsFileRestricted(funcName: String) r: Bool {
+    if funcName == "readText" or funcName == "writeText" or funcName == "exists" {
+        return true
+    }
+    if funcName == "deleteFile" or funcName == "createDirectory" {
+        return true
+    }
+    if funcName == "FsFile.open" or funcName == "FsFile.read" {
+        return true
+    }
+    if funcName == "FsFile.write" or funcName == "FsFile.close" {
+        return true
+    }
+    if funcName == "readFile" or funcName == "writeFile" or funcName == "appendFile" {
+        return true
+    }
+    if funcName == "readDir" or funcName == "createDir" {
+        return true
+    }
+    if funcName == "removeFile" or funcName == "removeDir" {
+        return true
+    }
+    if funcName == "rename" or funcName == "copy" or funcName == "pathExists" {
+        return true
+    }
+    return false
+}
+
+fun frontendCapabilityIsNetRestricted(funcName: String) r: Bool {
+    if funcName == "TcpListener.bind" or funcName == "TcpStream.connect" {
+        return true
+    }
+    if funcName == "TcpStream.read" or funcName == "TcpStream.write" {
+        return true
+    }
+    if funcName == "fetch" or funcName == "httpGet" or funcName == "httpPost" {
+        return true
+    }
+    if funcName == "socket" or funcName == "connect" or funcName == "listen" {
+        return true
+    }
+    if funcName == "UdpSocket.bind" or funcName == "UdpSocket.send" {
+        return true
+    }
+    if funcName == "UdpSocket.recv" {
+        return true
+    }
+    return false
+}
+
+fun frontendCapabilityIsProcessRestricted(funcName: String) r: Bool {
+    if funcName == "execCommand" or funcName == "runProgram" or funcName == "runCommand" {
+        return true
+    }
+    if funcName == "spawn" or funcName == "exec" or funcName == "fork" {
+        return true
+    }
+    if funcName == "Command.run" or funcName == "Command.output" {
+        return true
+    }
+    return false
+}
+
+fun frontendCapabilityIsEnvRestricted(funcName: String) r: Bool {
+    if funcName == "env.get" or funcName == "env.set" {
+        return true
+    }
+    if funcName == "env.removeEnv" or funcName == "env.args" {
+        return true
+    }
+    if funcName == "getEnv" or funcName == "setEnv" or funcName == "getArgs" {
+        return true
+    }
+    if funcName == "currentDir" or funcName == "homeDir" {
+        return true
+    }
+    return false
+}
+
+fun frontendCapabilityIsDynLoadRestricted(funcName: String) r: Bool {
+    if funcName == "HotModule.load" or funcName == "HotModule.getFunction" {
+        return true
+    }
+    if funcName == "dlopen" or funcName == "dlsym" or funcName == "loadLibrary" {
+        return true
+    }
+    return false
+}
+
+fun frontendCapabilityRequiredToken(calledFunc: String) r: String {
+    if frontendCapabilityIsFileRestricted(calledFunc) {
+        return "FileToken"
+    }
+    if frontendCapabilityIsNetRestricted(calledFunc) {
+        return "NetToken"
+    }
+    if frontendCapabilityIsProcessRestricted(calledFunc) {
+        return "ProcessToken"
+    }
+    if frontendCapabilityIsEnvRestricted(calledFunc) {
+        return "EnvToken"
+    }
+    if frontendCapabilityIsDynLoadRestricted(calledFunc) {
+        return "DynLoadToken"
+    }
+    return ""
+}
+
+fun frontendAddCapabilityViolation(result: FrontendResult, fileLabel: String, line: Int, message: String, functionName: String, calledFunction: String, requiredToken: String) r: Void {
+    var fullMessage = message
+    if functionName.length() > 0 {
+        fullMessage = fullMessage + " in function '" + functionName + "'"
+    }
+    if calledFunction.length() > 0 {
+        fullMessage = fullMessage + " when calling '" + calledFunction + "'"
+    }
+    if requiredToken.length() > 0 {
+        fullMessage = fullMessage + " (requires @using(" + requiredToken + "))"
+    }
+
+    var suggestion = ""
+    if requiredToken.length() > 0 and functionName.length() > 0 {
+        suggestion = "Add effect(" + requiredToken + ") or @using(" + requiredToken + ") to '" + functionName + "'."
+    }
+
+    let encoded = encodeDiagMessage(fullMessage, "E005", suggestion, "", 0)
+    result.addDiagnostic(FrontendDiagnostic.new(fileLabel, line, 0, "error", encoded))
+}
+
+fun frontendCheckCapabilityCalledFunction(result: FrontendResult, fileLabel: String, functions: Array<FunctionNode>, functionNames: Array<String>, callerFunc: FunctionNode, callerName: String, calledName: String, funcLine: Int) r: Void {
+    let requiredToken = frontendCapabilityRequiredToken(calledName)
+    if requiredToken != "" {
+        if not frontendFunctionHasCapabilityToken(callerFunc, requiredToken) {
+            frontendAddCapabilityViolation(result, fileLabel, funcLine, "Missing capability token for restricted operation", callerName, calledName, requiredToken)
+        }
+    }
+
+    let calledFunc = frontendFindCapabilityFunction(functions, functionNames, calledName)
+    if calledFunc.name != "" {
+        let calledCaps = frontendGetFunctionCapabilities(calledFunc)
+        var i = 0
+        while i < calledCaps.length() {
+            let cap = calledCaps[i]
+            if not frontendFunctionHasCapabilityToken(callerFunc, cap) {
+                frontendAddCapabilityViolation(result, fileLabel, funcLine, "Calling function that requires capability token", callerName, calledName, cap)
+            }
+            i = i + 1
+        }
+    }
+}
+
+fun frontendCheckCapabilityExpression(result: FrontendResult, fileLabel: String, functions: Array<FunctionNode>, functionNames: Array<String>, func: FunctionNode, funcName: String, expr: ParserExpressionNode, funcLine: Int) r: Void {
+    if expr.kind == "None" or expr.kind == "" {
+        return
+    }
+
+    if expr.kind == "Call" {
+        let calledName = expr.callee
+        frontendCheckCapabilityCalledFunction(result, fileLabel, functions, functionNames, func, funcName, calledName, funcLine)
+
+        var i = 0
+        while i < expr.arguments.length() {
+            frontendCheckCapabilityExpression(result, fileLabel, functions, functionNames, func, funcName, expr.arguments[i], funcLine)
+            i = i + 1
+        }
+    }
+
+    if expr.kind == "MethodCall" or expr.kind == "MemberAccess" {
+        let methodName = expr.callee
+        let fullMethodName = expr.variableName + "." + methodName
+        frontendCheckCapabilityCalledFunction(result, fileLabel, functions, functionNames, func, funcName, fullMethodName, funcLine)
+        frontendCheckCapabilityCalledFunction(result, fileLabel, functions, functionNames, func, funcName, methodName, funcLine)
+
+        var i = 0
+        while i < expr.arguments.length() {
+            frontendCheckCapabilityExpression(result, fileLabel, functions, functionNames, func, funcName, expr.arguments[i], funcLine)
+            i = i + 1
+        }
+    }
+
+    if expr.kind == "Binary" {
+        var i = 0
+        while i < expr.operands.length() {
+            frontendCheckCapabilityExpression(result, fileLabel, functions, functionNames, func, funcName, expr.operands[i], funcLine)
+            i = i + 1
+        }
+    }
+}
+
+fun frontendCheckCapabilityStatement(result: FrontendResult, fileLabel: String, functions: Array<FunctionNode>, functionNames: Array<String>, func: FunctionNode, funcName: String, stmt: StatementNode, funcLine: Int) r: Void {
+    if stmt.kind == "Expression" or stmt.kind == "Return" {
+        frontendCheckCapabilityExpression(result, fileLabel, functions, functionNames, func, funcName, stmt.expression, funcLine)
+        frontendCheckCapabilityExpression(result, fileLabel, functions, functionNames, func, funcName, stmt.returnValue, funcLine)
+    }
+
+    if stmt.kind == "Let" or stmt.kind == "Var" {
+        frontendCheckCapabilityExpression(result, fileLabel, functions, functionNames, func, funcName, stmt.initializer, funcLine)
+    }
+
+    if stmt.kind == "If" {
+        frontendCheckCapabilityExpression(result, fileLabel, functions, functionNames, func, funcName, stmt.condition, funcLine)
+        frontendCheckCapabilityBlock(result, fileLabel, functions, functionNames, func, funcName, stmt.thenBranch, funcLine)
+        frontendCheckCapabilityBlock(result, fileLabel, functions, functionNames, func, funcName, stmt.elseBranch, funcLine)
+    }
+
+    if stmt.kind == "While" {
+        frontendCheckCapabilityExpression(result, fileLabel, functions, functionNames, func, funcName, stmt.loopCondition, funcLine)
+        frontendCheckCapabilityBlock(result, fileLabel, functions, functionNames, func, funcName, stmt.loopBody, funcLine)
+    }
+}
+
+fun frontendCheckCapabilityBlock(result: FrontendResult, fileLabel: String, functions: Array<FunctionNode>, functionNames: Array<String>, func: FunctionNode, funcName: String, block: BlockNode, funcLine: Int) r: Void {
+    var i = 0
+    while i < block.statements.length() {
+        frontendCheckCapabilityStatement(result, fileLabel, functions, functionNames, func, funcName, block.statements[i], funcLine)
+        i = i + 1
+    }
+}
+
+fun addCapabilityDiagnostics(result: FrontendResult, fileLabel: String, program: ProgramNode) r: Void {
+    let functions = Array<FunctionNode>()
+    let functionNames = Array<String>()
+    frontendCollectCapabilityFunctions(program, functions, functionNames)
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            let func = item.function
+            frontendCheckCapabilityBlock(result, fileLabel, functions, functionNames, func, func.name, func.body, func.line)
+        }
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            var mi = 0
+            while mi < cls.methods.length() {
+                let method = cls.methods[mi]
+                let methodName = cls.name + "." + method.name
+                frontendCheckCapabilityBlock(result, fileLabel, functions, functionNames, method, methodName, method.body, method.line)
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun frontendFindProgramClass(program: ProgramNode, className: String) r: ClassNode {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            if item.classNode.name == className {
+                return item.classNode
+            }
+        }
+        i = i + 1
+    }
+    return ClassNode.new()
+}
+
+fun frontendIsIdentifierStartChar(ch: String) r: Bool {
+    if ch == "_" { return true }
+    if ch >= "a" and ch <= "z" { return true }
+    if ch >= "A" and ch <= "Z" { return true }
+    return false
+}
+
+fun frontendIsIdentifierPartChar(ch: String) r: Bool {
+    if frontendIsIdentifierStartChar(ch) { return true }
+    if ch >= "0" and ch <= "9" { return true }
+    return false
+}
+
+fun findUndecoratedReferencedClass(program: ProgramNode, ownerClassName: String, typeName: String, requiredDecorator: String) r: String {
+    var pos = 0
+    while pos < typeName.length() {
+        let ch = typeName.substring(pos, pos + 1)
+        if frontendIsIdentifierStartChar(ch) {
+            let start = pos
+            pos = pos + 1
+            while pos < typeName.length() {
+                let inner = typeName.substring(pos, pos + 1)
+                if not frontendIsIdentifierPartChar(inner) {
+                    break
+                }
+                pos = pos + 1
+            }
+
+            let token = typeName.substring(start, pos)
+            if token != ownerClassName {
+                let referenced = frontendFindProgramClass(program, token)
+                if referenced.name != "" {
+                    if not referenced.hasDecorator(requiredDecorator) and not referenced.hasDecorator("type_alias") {
+                        return token
+                    }
+                }
+            }
+        } else {
+            pos = pos + 1
+        }
+    }
+
+    return ""
+}
+
+fun validateDecoratorClosedClasses(result: FrontendResult, fileLabel: String, program: ProgramNode, requiredDecorator: String) r: Void {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            let cls = item.classNode
+            if cls.hasDecorator(requiredDecorator) {
+                var fi = 0
+                while fi < cls.fields.length() {
+                    let field = cls.fields[fi]
+                    let badType = findUndecoratedReferencedClass(program, cls.name, field.paramType.typeName, requiredDecorator)
+                    if badType != "" {
+                        let message = "@" + requiredDecorator + " class '" + cls.name + "' cannot contain field '" + field.name + "' of type '" + badType + "' without @" + requiredDecorator
+                        let suggestion = "Mark '" + badType + "' with @" + requiredDecorator + " or change field '" + field.name + "' to a compatible type."
+                        let encoded = encodeDiagMessage(message, "E006", suggestion, "", 0)
+                        result.addDiagnostic(FrontendDiagnostic.new(fileLabel, 0, 0, "error", encoded))
+                    }
+                    fi = fi + 1
+                }
+            }
+        }
+        i = i + 1
+    }
 }
 
 // --- Diagnostic extras encoding ---
@@ -306,5 +790,3 @@ fun diagnostic_from_type_error(error: TypeError, fileLabel: String) r: FrontendD
         encoded
     )
 }
-
-

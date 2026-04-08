@@ -1,0 +1,12 @@
+class MutableState {
+    var value: Int
+}
+
+@sync
+class SharedState {
+    var raw: MutableState
+}
+
+fun main() r: Int {
+    return 0
+}

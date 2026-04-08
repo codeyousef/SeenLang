@@ -1,0 +1,12 @@
+import io.file.{readText}
+
+class Reader {
+    effect(NetToken)
+    fun load() r: String {
+        return readText("Seen.toml")
+    }
+}
+
+fun main() r: Int {
+    return 0
+}

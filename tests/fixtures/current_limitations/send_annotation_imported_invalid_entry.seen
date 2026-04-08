@@ -1,0 +1,10 @@
+import send_annotation_imported_invalid_dep.{Worker}
+
+@send
+class Task {
+    var worker: Worker
+}
+
+fun main() r: Int {
+    return 0
+}

@@ -1,0 +1,12 @@
+class RawState {
+    var value: Int
+}
+
+@send
+class Message {
+    var raw: RawState
+}
+
+fun main() r: Int {
+    return 0
+}

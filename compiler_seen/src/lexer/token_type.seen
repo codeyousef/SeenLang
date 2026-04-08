@@ -122,6 +122,7 @@ enum SeenTokenType {
     KeywordOperator,  // operator (120)
     KeywordInline,    // inline (121)
     KeywordLoop,      // loop (122)
+    KeywordEffect,    // effect (123)
 }
 
 fun getLeftParenType() r: SeenTokenType {

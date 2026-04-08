@@ -164,12 +164,16 @@ class CapabilityChecker {
         return FunctionNode.new()
     }
 
+    fun isCapabilityDecoratorName(name: String) r: Bool {
+        return name == "using" or name == "effect"
+    }
+
     // Check if function has a specific capability token
     fun functionHasCapability(func: FunctionNode, token: String) r: Bool {
         var di = 0
         while di < func.decorators.length() {
             let decorator = func.decorators[di]
-            if decorator.name == "using" {
+            if isCapabilityDecoratorName(decorator.name) {
                 var ai = 0
                 while ai < decorator.arguments.length() {
                     let arg = decorator.arguments[ai]
@@ -193,7 +197,7 @@ class CapabilityChecker {
         var di = 0
         while di < func.decorators.length() {
             let decorator = func.decorators[di]
-            if decorator.name == "using" {
+            if isCapabilityDecoratorName(decorator.name) {
                 var ai = 0
                 while ai < decorator.arguments.length() {
                     caps.push(decorator.arguments[ai])

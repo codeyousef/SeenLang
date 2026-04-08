@@ -1,0 +1,9 @@
+import sealed_cross_module_base.{Base}
+
+class Derived extends Base {
+    var other: Int
+}
+
+fun main() r: Int {
+    return 0
+}

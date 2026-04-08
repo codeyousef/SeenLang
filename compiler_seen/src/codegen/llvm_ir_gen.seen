@@ -449,6 +449,13 @@ var g_selfCallBox: Array<String> = Array<String>()
 var g_selfCallCountBox: Array<Int> = Array<Int>()
 var g_callCountNamesBox: Array<String> = Array<String>()
 var g_callCountEntriesBox: Array<Int> = Array<Int>()
+// Bootstrap-sensitive transient scope state. Keep this out of the
+// LLVMIRGenerator object layout so the frozen compiler never has to lower
+// self-hosted field stores for it.
+var preAllocatedRegs: Array<String> = Array<String>()
+var activeVarCount: Int = 0
+var declOrdinalNames: Array<String> = Array<String>()
+var declOrdinalCounts: Array<Int> = Array<Int>()
 
 fun initBootstrapFragileGlobalArrays() r: Void {
     g_cseKeysArr = Array<String>()
@@ -466,6 +473,10 @@ fun initBootstrapFragileGlobalArrays() r: Void {
     g_selfCallCountBox = Array<Int>()
     g_callCountNamesBox = Array<String>()
     g_callCountEntriesBox = Array<Int>()
+    preAllocatedRegs = Array<String>()
+    activeVarCount = 0
+    declOrdinalNames = Array<String>()
+    declOrdinalCounts = Array<Int>()
 }
 
 var g_enumVariantNames: String = ""
@@ -908,10 +919,6 @@ class LLVMIRGenerator {
     // Pre-allocated variable names and types (for hoisting allocas to entry block)
     var preAllocatedVars: Array<String>
     var preAllocatedTypes: Array<String>
-    var preAllocatedRegs: Array<String>
-    var activeVarCount: Int
-    var declOrdinalNames: Array<String>
-    var declOrdinalCounts: Array<Int>
     // Module prefix for per-module compilation (empty for multi-module)
     var stringConstantPrefix: String
     // Track which functions have been emitted in current module (reset per-module)
@@ -959,10 +966,6 @@ class LLVMIRGenerator {
             currentLoopEndLabel: "",
             preAllocatedVars: Array<String>(),
             preAllocatedTypes: Array<String>(),
-            preAllocatedRegs: Array<String>(),
-            activeVarCount: 0,
-            declOrdinalNames: Array<String>(),
-            declOrdinalCounts: Array<Int>(),
             stringConstantPrefix: "",
             generatedFunctions: Array<String>(),
             generatedClasses: Array<String>(),
@@ -973,6 +976,7 @@ class LLVMIRGenerator {
             moduleConstantValues: Array<String>(),
             moduleConstantTypes: Array<String>()
         }
+        gen.reset()
         return gen
     }
 

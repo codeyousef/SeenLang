@@ -1,0 +1,11 @@
+sealed class Base {
+    var value: Int
+}
+
+class Derived extends Base {
+    var other: Int
+}
+
+fun main() r: Int {
+    return 0
+}
