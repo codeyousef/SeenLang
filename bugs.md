@@ -216,20 +216,6 @@ features the compiler and stdlib already expose:
 5. Broaden capability checking beyond opt-in token usage and add richer effect kinds
 6. Extend `@send` / `@sync` from structural validation to concurrency-boundary checks
 
-### Important remaining limitations after the recent fixes
-
-* **`sealed` is enforced now**, including cross-module and alias-import
-  inheritance rejection, but it still does not power exhaustiveness checking
-  for `when` / `match`.
-* **`effect(...)` is real syntax now**, but today it lowers onto the existing
-  token-based capability model (`@using(Token)`) instead of a richer effect-row
-  system.
-* **`@send` / `@sync` now reject incompatible field graphs**, including imported
-  types, but they are not yet enforced at every thread / executor boundary.
-* **Capability checking is available in normal compiler flows, but it is still
-  opt-in**: the checker activates when a program uses `effect(...)` or
-  `@using(...)`, so fully ambient enforcement remains future work.
-
 ### Practical summary
 
 If you want to implement the bug-prevention ideas in this file using the
