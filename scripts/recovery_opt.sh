@@ -1,10 +1,11 @@
 #!/bin/bash
 # Recovery script: fix up .ll files and produce .o files.
-# Runs WITHOUT set -e so non-fatal fixup failures don't abort the caller.
+# Runs WITHOUT set -e so per-module failures can be reported explicitly.
 #
 # Works in a private temp directory to avoid interference from concurrent
 # compilations that share /tmp/seen_module_* paths.
 #
+# Recovery only succeeds when EVERY copied .ll file produces a matching .o file.
 # On success, prints "RECOVERY_DIR=<path>" as the LAST line of output.
 # The caller should link .o files from that directory instead of /tmp.
 #
@@ -32,6 +33,7 @@ fi
 REAL_OPT=$(command -v opt)
 PROCESSED=0
 FAILED=0
+FAILED_MODULES=""
 
 # Copy .ll files to a private directory so concurrent compilations
 # (which also write to /tmp/seen_module_*) can't interfere.
@@ -65,28 +67,39 @@ for llfile in "$WORK_DIR"/seen_module_*.ll; do
     if ! "$OPT_CMD" \
         -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),default<O1>' \
         -inline-threshold=250 -S "$llfile" -o "$optfile" 2>/dev/null; then
-        # Opt wrapper failed — use raw fixed .ll as fallback
-        # (the wrapper already applied fixups to $llfile in place)
-        if [ -f "$llfile" ]; then
-            cp "$llfile" "$optfile" 2>/dev/null || { FAILED=$((FAILED+1)); continue; }
-        else
-            FAILED=$((FAILED+1))
-            continue
-        fi
+        echo "  ERROR: opt failed for $modname"
+        FAILED=$((FAILED+1))
+        FAILED_MODULES="$FAILED_MODULES $modname"
+        continue
     fi
 
     # Generate ThinLTO bitcode
-    [ -f "$optfile" ] || { FAILED=$((FAILED+1)); continue; }
-    "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null || true
+    if [ ! -f "$optfile" ]; then
+        echo "  ERROR: opt did not emit $optfile"
+        FAILED=$((FAILED+1))
+        FAILED_MODULES="$FAILED_MODULES $modname"
+        continue
+    fi
+    if ! "$REAL_OPT" --thinlto-bc "$optfile" -o "$objfile" 2>/dev/null; then
+        echo "  ERROR: thinlto-bc failed for $modname"
+        FAILED=$((FAILED+1))
+        FAILED_MODULES="$FAILED_MODULES $modname"
+        continue
+    fi
 
     if [ -f "$objfile" ]; then
         PROCESSED=$((PROCESSED+1))
     else
+        echo "  ERROR: object file missing for $modname"
         FAILED=$((FAILED+1))
+        FAILED_MODULES="$FAILED_MODULES $modname"
     fi
 done
 
 echo "  Recovery: processed=$PROCESSED failed=$FAILED"
+if [ -n "$FAILED_MODULES" ]; then
+    echo "  Failed modules:$FAILED_MODULES"
+fi
 
 # Count .o files in work directory
 OBJ_COUNT=0
@@ -97,10 +110,11 @@ echo "  Total .o files: $OBJ_COUNT"
 
 # Output work directory path for the caller to use for linking.
 # The caller is responsible for cleaning up this directory.
-if [ "$OBJ_COUNT" -gt 30 ]; then
+if [ "$FAILED" -eq 0 ] && [ "$OBJ_COUNT" -eq "$LL_COUNT" ]; then
     echo "RECOVERY_DIR=$WORK_DIR"
     exit 0
 else
+    echo "  ERROR: recovery requires a complete object set ($OBJ_COUNT/$LL_COUNT produced)"
     rm -rf "$WORK_DIR"
     exit 1
 fi

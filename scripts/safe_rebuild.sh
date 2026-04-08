@@ -182,6 +182,83 @@ kill_frozen_orphans() {
     sleep 2
 }
 
+extract_expected_module_count() {
+    local log_file=$1
+    local count=""
+    if [ -f "$log_file" ]; then
+        count=$(grep -Eo 'Found [0-9]+ modules' "$log_file" 2>/dev/null | head -1 | awk '{print $2}')
+    fi
+    if [ -z "$count" ]; then
+        echo 0
+    else
+        echo "$count"
+    fi
+}
+
+count_module_objects() {
+    local dir=$1
+    local count=0
+    for f in "$dir"/seen_module_*.o; do
+        [ -f "$f" ] || continue
+        count=$((count+1))
+    done
+    echo "$count"
+}
+
+count_plain_module_lls() {
+    local dir=$1
+    local count=0
+    for f in "$dir"/seen_module_*.ll; do
+        [ -f "$f" ] || continue
+        [[ "$f" == *.opt.ll ]] && continue
+        count=$((count+1))
+    done
+    echo "$count"
+}
+
+count_module_opt_lls() {
+    local dir=$1
+    local count=0
+    for f in "$dir"/seen_module_*.opt.ll; do
+        [ -f "$f" ] || continue
+        count=$((count+1))
+    done
+    echo "$count"
+}
+
+list_modules_missing_objects() {
+    local dir=$1
+    local missing=""
+    for llfile in "$dir"/seen_module_*.ll; do
+        [ -f "$llfile" ] || continue
+        [[ "$llfile" == *.opt.ll ]] && continue
+        local modname=$(basename "$llfile" .ll)
+        if [ ! -f "$dir/${modname}.o" ]; then
+            missing="$missing ${modname}"
+        fi
+    done
+    echo "$missing"
+}
+
+find_problem_empty_modules() {
+    local dir=$1
+    local empty=""
+    for llfile in "$dir"/seen_module_*.ll; do
+        [ -f "$llfile" ] || continue
+        [[ "$llfile" == *.opt.ll ]] && continue
+        local defines=$(grep -c '^define' "$llfile" 2>/dev/null | tail -1)
+        defines=${defines:-0}
+        if [ "$defines" -eq 0 ] 2>/dev/null; then
+            local strings=$(grep -c '@\.str' "$llfile" 2>/dev/null | tail -1)
+            strings=${strings:-0}
+            if [ "$strings" -gt 0 ] 2>/dev/null; then
+                empty="$empty $(basename "$llfile" .ll)"
+            fi
+        fi
+    done
+    echo "$empty"
+}
+
 echo "=== Safe Rebuild Script ==="
 echo ""
 
@@ -394,15 +471,19 @@ rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
 if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: PATH already set via export above; use --no-cache
     # The frozen compiler may fail at its internal link step (e.g., internal globals
-    # eliminated by opt) but still produce .opt.ll files we can relink in step 1b.
+    # eliminated by opt) but still produce a full .opt.ll set we can relink in step 1b.
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-cache; then
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
     else
-        OPT_LL_COUNT=$(ls /tmp/seen_module_*.opt.ll 2>/dev/null | wc -l | tr -d ' ')
-        if [ "$OPT_LL_COUNT" -gt 30 ]; then
-            echo -e "${YELLOW}Stage2 internal link failed, but $OPT_LL_COUNT .opt.ll files available for relink.${NC}"
+        EXPECTED_STAGE2_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage2.log)
+        OPT_LL_COUNT=$(count_module_opt_lls /tmp)
+        if [ "$EXPECTED_STAGE2_MODULES" -gt 0 ] && [ "$OPT_LL_COUNT" -eq "$EXPECTED_STAGE2_MODULES" ]; then
+            echo -e "${YELLOW}Stage2 internal link failed, but the full $OPT_LL_COUNT/$EXPECTED_STAGE2_MODULES .opt.ll set is available for relink.${NC}"
         else
             echo -e "${RED}ERROR: Stage2 build failed!${NC}"
+            if [ "$EXPECTED_STAGE2_MODULES" -gt 0 ]; then
+                echo "Expected $EXPECTED_STAGE2_MODULES optimized modules, found $OPT_LL_COUNT."
+            fi
             echo "Check /tmp/safe_rebuild_stage2.log for details."
             tail -30 /tmp/safe_rebuild_stage2.log
             exit 1
@@ -435,7 +516,24 @@ else
     kill "$WATCHER_PID" 2>/dev/null || true
     wait "$WATCHER_PID" 2>/dev/null || true
 
+    EXPECTED_STAGE2_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage2.log)
+    if [ "$EXPECTED_STAGE2_MODULES" -le 0 ]; then
+        echo -e "${RED}ERROR: Could not determine expected module count for Stage2.${NC}"
+        echo "Check /tmp/safe_rebuild_stage2.log for details."
+        tail -30 /tmp/safe_rebuild_stage2.log
+        rm -rf "$SNAPSHOT_DIR"
+        exit 1
+    fi
+
     if [ "$COMPILE_EXIT" -eq 0 ]; then
+        STAGE2_OBJ_COUNT=$(count_module_objects /tmp)
+        if [ "$STAGE2_OBJ_COUNT" -ne "$EXPECTED_STAGE2_MODULES" ]; then
+            echo -e "${RED}ERROR: Stage2 reported success but produced only $STAGE2_OBJ_COUNT/$EXPECTED_STAGE2_MODULES module objects.${NC}"
+            echo "Check /tmp/safe_rebuild_stage2.log for details."
+            tail -30 /tmp/safe_rebuild_stage2.log
+            rm -rf "$SNAPSHOT_DIR"
+            exit 1
+        fi
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
         rm -rf "$SNAPSHOT_DIR"
     else
@@ -444,8 +542,8 @@ else
         kill_frozen_orphans
 
         # Check how many .ll files we have: first from snapshot, fallback to live /tmp
-        SNAP_COUNT=$(ls "$SNAPSHOT_DIR"/seen_module_*.ll 2>/dev/null | wc -l)
-        LIVE_COUNT=$(ls /tmp/seen_module_*.ll 2>/dev/null | grep -v '\.opt\.ll$' | wc -l)
+        SNAP_COUNT=$(count_plain_module_lls "$SNAPSHOT_DIR")
+        LIVE_COUNT=$(count_plain_module_lls /tmp)
 
         if [ "$SNAP_COUNT" -gt "$LIVE_COUNT" ]; then
             LL_COUNT=$SNAP_COUNT
@@ -460,8 +558,8 @@ else
             echo -e "${YELLOW}Using $LIVE_COUNT live .ll files from /tmp.${NC}"
         fi
 
-        if [ "$LL_COUNT" -gt 30 ]; then
-            echo -e "${YELLOW}Recovering with $LL_COUNT .ll files ($LL_SOURCE)...${NC}"
+        if [ "$LL_COUNT" -eq "$EXPECTED_STAGE2_MODULES" ]; then
+            echo -e "${YELLOW}Recovering with the full $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll set ($LL_SOURCE)...${NC}"
 
             # Clean stale .o and .opt.ll from the compiler's failed internal opt/link —
             # we must regenerate them from the raw .ll files via our own opt wrapper.
@@ -470,8 +568,15 @@ else
             # Run recovery in subprocess (immune to set -e).
             # Recovery works in a private temp dir to avoid interference from
             # concurrent compilations. It outputs RECOVERY_DIR=<path> on success.
-            RECOVERY_OUTPUT=$(bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" 2>&1) || true
-            echo "$RECOVERY_OUTPUT" | grep -v '^RECOVERY_DIR='
+            RECOVERY_EXIT=0
+            RECOVERY_OUTPUT=$(bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" 2>&1) || RECOVERY_EXIT=$?
+            echo "$RECOVERY_OUTPUT" | grep -v '^RECOVERY_DIR=' || true
+
+            if [ "$RECOVERY_EXIT" -ne 0 ]; then
+                echo -e "${RED}ERROR: Recovery failed.${NC}"
+                rm -rf "$SNAPSHOT_DIR"
+                exit 1
+            fi
 
             RECOVERY_DIR=$(echo "$RECOVERY_OUTPUT" | grep '^RECOVERY_DIR=' | tail -1 | cut -d= -f2)
             if [ -z "$RECOVERY_DIR" ] || [ ! -d "$RECOVERY_DIR" ]; then
@@ -480,36 +585,22 @@ else
                 exit 1
             fi
 
-            OBJ_COUNT=0
-            for f in "$RECOVERY_DIR"/seen_module_*.o; do
-                [ -f "$f" ] && OBJ_COUNT=$((OBJ_COUNT+1))
-            done
-            if [ "$OBJ_COUNT" -lt 30 ]; then
-                echo -e "${RED}ERROR: Recovery failed — only $OBJ_COUNT .o files produced.${NC}"
+            OBJ_COUNT=$(count_module_objects "$RECOVERY_DIR")
+            if [ "$OBJ_COUNT" -ne "$EXPECTED_STAGE2_MODULES" ]; then
+                MISSING_MODULES=$(list_modules_missing_objects "$RECOVERY_DIR")
+                echo -e "${RED}ERROR: Recovery failed — only $OBJ_COUNT/$EXPECTED_STAGE2_MODULES .o files produced.${NC}"
+                if [ -n "$MISSING_MODULES" ]; then
+                    echo "Missing objects:$MISSING_MODULES"
+                fi
                 rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
                 exit 1
             fi
-            echo "  Recovery: $OBJ_COUNT .o files ready."
+            echo "  Recovery: $OBJ_COUNT/$EXPECTED_STAGE2_MODULES .o files ready."
 
             # Check for empty modules that might cause link failures.
             # Skip modules that are legitimately empty (only declares/types, no string
             # constants — these are re-export shims with no real code).
-            EMPTY_MODULES=""
-            for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
-                [ -f "$llfile" ] || continue
-                [[ "$llfile" == *.opt.ll ]] && continue
-                DEFINES=$(grep -c '^define' "$llfile" 2>/dev/null | tail -1)
-                DEFINES=${DEFINES:-0}
-                if [ "$DEFINES" -eq 0 ] 2>/dev/null; then
-                    # Check if this module has string constants — if not, it's a
-                    # shim/re-export module with no real code (legitimately empty)
-                    STRINGS=$(grep -c '@\.str' "$llfile" 2>/dev/null | tail -1)
-                    STRINGS=${STRINGS:-0}
-                    if [ "$STRINGS" -gt 0 ] 2>/dev/null; then
-                        EMPTY_MODULES="$EMPTY_MODULES $(basename "$llfile" .ll)"
-                    fi
-                fi
-            done
+            EMPTY_MODULES=$(find_problem_empty_modules "$RECOVERY_DIR")
             EMPTY_COUNT=$(echo "$EMPTY_MODULES" | wc -w)
             if [ "$EMPTY_COUNT" -gt 0 ]; then
                 echo -e "${YELLOW}Empty modules ($EMPTY_COUNT with 0 function definitions):${EMPTY_MODULES}${NC}"
@@ -597,16 +688,7 @@ else
                     fi
 
                     # Re-count empty modules
-                    EMPTY_MODULES=""
-                    for llfile in "$RECOVERY_DIR"/seen_module_*.ll; do
-                        [ -f "$llfile" ] || continue
-                        [[ "$llfile" == *.opt.ll ]] && continue
-                        DEFINES=$(grep -c '^define' "$llfile" 2>/dev/null | tail -1)
-                        DEFINES=${DEFINES:-0}
-                        if [ "$DEFINES" -eq 0 ] 2>/dev/null; then
-                            EMPTY_MODULES="$EMPTY_MODULES $(basename "$llfile" .ll)"
-                        fi
-                    done
+                    EMPTY_MODULES=$(find_problem_empty_modules "$RECOVERY_DIR")
                     EMPTY_COUNT=$(echo "$EMPTY_MODULES" | wc -w)
                     if [ "$EMPTY_COUNT" -eq 0 ]; then
                         echo -e "${GREEN}  All modules now have function definitions!${NC}"
@@ -617,11 +699,8 @@ else
 
                 # Recount .o files after retries
                 if [ "$RETRY" -gt 0 ]; then
-                    OBJ_COUNT=0
-                    for f in "$RECOVERY_DIR"/seen_module_*.o; do
-                        [ -f "$f" ] && OBJ_COUNT=$((OBJ_COUNT+1))
-                    done
-                    echo "  Post-retry: $OBJ_COUNT .o files ready."
+                    OBJ_COUNT=$(count_module_objects "$RECOVERY_DIR")
+                    echo "  Post-retry: $OBJ_COUNT/$EXPECTED_STAGE2_MODULES .o files ready."
                 fi
 
                 # --- Pass 2: Two-pass .ll merge for satellite modules ---
@@ -721,17 +800,33 @@ else
                         done
 
                         # Recount .o files after merge
-                        OBJ_COUNT=0
-                        for f in "$RECOVERY_DIR"/seen_module_*.o; do
-                            [ -f "$f" ] && OBJ_COUNT=$((OBJ_COUNT+1))
-                        done
-                        echo "  Post-merge: $OBJ_COUNT .o files ready."
+                        OBJ_COUNT=$(count_module_objects "$RECOVERY_DIR")
+                        echo "  Post-merge: $OBJ_COUNT/$EXPECTED_STAGE2_MODULES .o files ready."
                     fi
                 else
                     echo -e "${YELLOW}No production compiler available for Pass 2 merge.${NC}"
                     echo -e "${YELLOW}Fix: revert module list changes, rebuild, update stage1_frozen, re-apply.${NC}"
                 fi
                 fi
+            fi
+
+            EMPTY_MODULES=$(find_problem_empty_modules "$RECOVERY_DIR")
+            EMPTY_COUNT=$(echo "$EMPTY_MODULES" | wc -w)
+            if [ "$EMPTY_COUNT" -gt 0 ]; then
+                echo -e "${RED}ERROR: Recovery left $EMPTY_COUNT module(s) with missing function bodies:${EMPTY_MODULES}${NC}"
+                rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
+                exit 1
+            fi
+
+            OBJ_COUNT=$(count_module_objects "$RECOVERY_DIR")
+            if [ "$OBJ_COUNT" -ne "$EXPECTED_STAGE2_MODULES" ]; then
+                MISSING_MODULES=$(list_modules_missing_objects "$RECOVERY_DIR")
+                echo -e "${RED}ERROR: Recovery object set is incomplete ($OBJ_COUNT/$EXPECTED_STAGE2_MODULES).${NC}"
+                if [ -n "$MISSING_MODULES" ]; then
+                    echo "Missing objects:$MISSING_MODULES"
+                fi
+                rm -rf "$SNAPSHOT_DIR" "$RECOVERY_DIR"
+                exit 1
             fi
 
             # Pre-compile runtime
@@ -782,7 +877,7 @@ else
             fi
             rm -rf "$RECOVERY_DIR"
         else
-            echo -e "${RED}ERROR: Stage2 build failed (only $LL_COUNT .ll files from $LL_SOURCE).${NC}"
+            echo -e "${RED}ERROR: Stage2 build failed after generating only $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll files from $LL_SOURCE.${NC}"
             echo "Check /tmp/safe_rebuild_stage2.log for details."
             tail -30 /tmp/safe_rebuild_stage2.log
             rm -rf "$SNAPSHOT_DIR"
@@ -865,7 +960,16 @@ else:
     print(f'    Post-opt fixup: {len(missing)} missing globals, {len(missing & set(orig_defs.keys()))} fixed')
 POSTOPT_FIX
 
-    OPT_LL_COUNT=$(ls /tmp/seen_module_*.opt.ll 2>/dev/null | wc -l | tr -d ' ')
+    EXPECTED_STAGE2_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage2.log)
+    OPT_LL_COUNT=$(count_module_opt_lls /tmp)
+    if [ "$EXPECTED_STAGE2_MODULES" -le 0 ]; then
+        echo -e "${RED}ERROR: Could not determine expected module count for macOS relink.${NC}"
+        exit 1
+    fi
+    if [ "$OPT_LL_COUNT" -ne "$EXPECTED_STAGE2_MODULES" ]; then
+        echo -e "${RED}ERROR: Refusing macOS relink with only $OPT_LL_COUNT/$EXPECTED_STAGE2_MODULES optimized modules.${NC}"
+        exit 1
+    fi
     if [ "$OPT_LL_COUNT" -gt 0 ]; then
         echo "    Found $OPT_LL_COUNT .opt.ll modules, relinking with llc..."
         RELINK_FAILED=0
@@ -923,7 +1027,16 @@ if [ "$HOST_OS" = "Darwin" ]; then
     # Relink stage3
     echo ""
     echo "Step 2b: macOS relink stage3 from .opt.ll files..."
-    OPT_LL_COUNT=$(ls /tmp/seen_module_*.opt.ll 2>/dev/null | wc -l | tr -d ' ')
+    EXPECTED_STAGE3_MODULES=$(extract_expected_module_count /tmp/safe_rebuild_stage3.log)
+    OPT_LL_COUNT=$(count_module_opt_lls /tmp)
+    if [ "$EXPECTED_STAGE3_MODULES" -le 0 ]; then
+        echo -e "${RED}ERROR: Could not determine expected module count for macOS stage3 relink.${NC}"
+        exit 1
+    fi
+    if [ "$OPT_LL_COUNT" -ne "$EXPECTED_STAGE3_MODULES" ]; then
+        echo -e "${RED}ERROR: Refusing macOS stage3 relink with only $OPT_LL_COUNT/$EXPECTED_STAGE3_MODULES optimized modules.${NC}"
+        exit 1
+    fi
     if [ "$OPT_LL_COUNT" -gt 0 ]; then
         echo "    Found $OPT_LL_COUNT .opt.ll modules, relinking with llc..."
         RELINK_FAILED=0

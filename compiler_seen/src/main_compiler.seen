@@ -192,11 +192,127 @@ fun getTraceTimeSeconds() r: Int {
 
 // Helper to parse a module and return its program
 fun parseModule(path: String, lang: String) r: FrontendResult {
-    let source = readText(path)
-    if source == "" {
-        println("  Warning: could not read module " + path)
+    if not exists(path) {
+        let frontend = FrontendResult.new()
+        let message = encodeDiagMessage(
+            "could not read module `" + path + "`",
+            "E005",
+            "",
+            "note: imported and Seen.toml-declared modules must exist on disk",
+            0
+        )
+        frontend.addDiagnostic(FrontendDiagnostic.new(path, 1, 1, "error", message))
+        return frontend
     }
+    let source = readText(path)
     return run_frontend(source, path, lang)
+}
+
+fun stripTomlQuotedValue(value: String) r: String {
+    var result = value.trim()
+    if result.startsWith("\"") {
+        result = result.substring(1, result.length())
+    }
+    if result.endsWith("\"") {
+        result = result.substring(0, result.length() - 1)
+    }
+    return result
+}
+
+fun extractTomlProjectName(content: String) r: String {
+    var inProject = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = content.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("[") {
+                if line.endsWith("]") {
+                    let section = line.substring(1, line.length() - 1)
+                    if section == "project" {
+                        inProject = 1
+                    } else {
+                        inProject = 0
+                    }
+                }
+            } else {
+                if inProject == 1 {
+                    if line != "" and not line.startsWith("#") {
+                        let eqPos = line.indexOf("=", 0)
+                        if eqPos > 0 {
+                            let key = line.substring(0, eqPos).trim()
+                            if key == "name" {
+                                let value = line.substring(eqPos + 1, line.length()).trim()
+                                return stripTomlQuotedValue(value)
+                            }
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun extractTomlBuildEntry(content: String) r: String {
+    var inBuild = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = content.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("[") {
+                if line.endsWith("]") {
+                    let section = line.substring(1, line.length() - 1)
+                    if section == "build" {
+                        inBuild = 1
+                    } else {
+                        inBuild = 0
+                    }
+                }
+            } else {
+                if inBuild == 1 {
+                    if line != "" and not line.startsWith("#") {
+                        let eqPos = line.indexOf("=", 0)
+                        if eqPos > 0 {
+                            let key = line.substring(0, eqPos).trim()
+                            if key == "entry" {
+                                let value = line.substring(eqPos + 1, line.length()).trim()
+                                return stripTomlQuotedValue(value)
+                            }
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
 }
 
 // Resolve module path to actual file path
@@ -355,12 +471,24 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
         filePath = filePath + "/"
     }
 
-    // Check if first import segment matches last segment of sourceDir
-    // Only skip if the resulting file actually exists
+    // Check if first import segment duplicates the source layout or the project
+    // package prefix. Only skip if the resulting file actually exists.
     var startIdx = 0
-    if importPath.length() > 0 {
+    if importPath.length() > 1 {
         let lastDirSegment = getLastSegment(sourceDir)
+        var shouldTrySkip = 0
         if lastDirSegment == importPath[0] {
+            shouldTrySkip = 1
+        } else {
+            let tomlContent = readText("Seen.toml")
+            if tomlContent != "" {
+                let projectName = extractTomlProjectName(tomlContent)
+                if projectName == importPath[0] {
+                    shouldTrySkip = 1
+                }
+            }
+        }
+        if shouldTrySkip == 1 {
             // Build path with first segment skipped to check existence
             var testSkip = filePath
             var ti = 1
@@ -437,6 +565,157 @@ fun containsPath(paths: Array<String>, path: String) r: Bool {
     return false
 }
 
+fun pushUniquePath(paths: Array<String>, processedPaths: Array<String>, path: String) r: Void {
+    if path != "" {
+        if not containsPath(processedPaths, path) {
+            paths.push(path)
+            processedPaths.push(path)
+        }
+    }
+    return
+}
+
+fun extractQuotedTomlStrings(line: String) r: Array<String> {
+    let values = Array<String>()
+    var pos = 0
+    while pos < line.length() {
+        if line.byteAt(pos) == 34 {
+            let start = pos + 1
+            var end = start
+            while end < line.length() {
+                if line.byteAt(end) == 34 {
+                    values.push(line.substring(start, end))
+                    pos = end + 1
+                    break
+                }
+                end = end + 1
+            }
+            if end >= line.length() {
+                pos = line.length()
+            }
+        } else {
+            pos = pos + 1
+        }
+    }
+    return values
+}
+
+fun extractTomlProjectModules(content: String) r: Array<String> {
+    let modules = Array<String>()
+    var inProject = 0
+    var collectingModules = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = content.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("[") {
+                if line.endsWith("]") {
+                    let section = line.substring(1, line.length() - 1)
+                    if section == "project" {
+                        inProject = 1
+                    } else {
+                        inProject = 0
+                    }
+                    collectingModules = 0
+                }
+            } else {
+                if inProject == 1 {
+                    if line != "" and not line.startsWith("#") {
+                        if collectingModules == 1 {
+                            let lineModules = extractQuotedTomlStrings(line)
+                            var lineModuleIdx = 0
+                            while lineModuleIdx < lineModules.length() {
+                                let modulePath = lineModules[lineModuleIdx]
+                                if not containsPath(modules, modulePath) {
+                                    modules.push(modulePath)
+                                }
+                                lineModuleIdx = lineModuleIdx + 1
+                            }
+                            if line.contains("]") {
+                                collectingModules = 0
+                            }
+                        } else {
+                            let eqPos = line.indexOf("=", 0)
+                            if eqPos > 0 {
+                                let key = line.substring(0, eqPos).trim()
+                                let value = line.substring(eqPos + 1, line.length()).trim()
+                                if key == "modules" {
+                                    let valueModules = extractQuotedTomlStrings(value)
+                                    var valueModuleIdx = 0
+                                    while valueModuleIdx < valueModules.length() {
+                                        let modulePath = valueModules[valueModuleIdx]
+                                        if not containsPath(modules, modulePath) {
+                                            modules.push(modulePath)
+                                        }
+                                        valueModuleIdx = valueModuleIdx + 1
+                                    }
+                                    if value.contains("[") and not value.contains("]") {
+                                        collectingModules = 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return modules
+}
+
+fun discoverImportsFromModule(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, isBootstrap: Bool) r: Void {
+    let sourceDir = getSourceDir(currentPath)
+    let frontend = parseModule(currentPath, "en")
+    if frontend.success {
+        var itemIdx = 0
+        while itemIdx < frontend.program.items.length() {
+            let item = frontend.program.items[itemIdx]
+            if item.itemType == "Import" {
+                let importFilePath = resolveImportPath(item.importPath, sourceDir)
+                let isCompilerRuntimeBackedStdlib = importFilePath == "seen_std/src/str/string.seen" or importFilePath == "seen_std/src/core/option.seen" or importFilePath == "seen_std/src/core/result.seen" or importFilePath == "seen_std/src/collections/map.seen" or importFilePath.endsWith("/seen_std/src/str/string.seen") or importFilePath.endsWith("/seen_std/src/core/option.seen") or importFilePath.endsWith("/seen_std/src/core/result.seen") or importFilePath.endsWith("/seen_std/src/collections/map.seen")
+                let skipCompilerStdlib = not isBootstrap and currentPath != inputFile and inputFile.contains("/compiler_seen/") and isCompilerRuntimeBackedStdlib
+                if not skipCompilerStdlib {
+                    pushUniquePath(paths, processedPaths, importFilePath)
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+    }
+    return
+}
+
+fun moduleDeclaresMain(path: String) r: Bool {
+    let frontend = parseModule(path, "en")
+    if not frontend.success {
+        return false
+    }
+    var itemIdx = 0
+    while itemIdx < frontend.program.items.length() {
+        let item = frontend.program.items[itemIdx]
+        if item.itemType == "Function" {
+            if item.function.name == "main" {
+                return true
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+    return false
+}
+
 // Collect all module paths needed for compilation (without storing ASTs).
 // For regular compilations this walks imports recursively so standalone builds
 // include transitive dependencies. For bootstrap compilation we keep the older
@@ -447,10 +726,37 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
     var paths = Array<String>()
     var processedPaths = Array<String>()
 
-    paths.push(inputFile)
-    processedPaths.push(inputFile)
-
     let isBootstrap = inputFile.contains("main_compiler.seen")
+
+    pushUniquePath(paths, processedPaths, inputFile)
+
+    if not isBootstrap {
+        let tomlContent = readText("Seen.toml")
+        if tomlContent != "" {
+            let projectModules = extractTomlProjectModules(tomlContent)
+            if not quiet and projectModules.length() > 0 {
+                println("    Adding " + projectModules.length().toString() + " modules from Seen.toml...")
+            }
+            var projectModuleIdx = 0
+            while projectModuleIdx < projectModules.length() {
+                pushUniquePath(paths, processedPaths, projectModules[projectModuleIdx])
+                projectModuleIdx = projectModuleIdx + 1
+            }
+            let buildEntry = extractTomlBuildEntry(tomlContent)
+            if buildEntry != "" {
+                if not moduleDeclaresMain(inputFile) {
+                    if not quiet {
+                        println("    Adding Seen.toml build entry: " + buildEntry)
+                    }
+                    pushUniquePath(paths, processedPaths, buildEntry)
+                }
+                if not quiet {
+                    println("    Seeding imports from Seen.toml build entry: " + buildEntry)
+                }
+                discoverImportsFromModule(paths, processedPaths, inputFile, buildEntry, isBootstrap)
+            }
+        }
+    }
 
     // Parse imports into a worklist. Non-bootstrap builds recurse through the
     // full import graph; bootstrap still uses the curated module list below.
@@ -464,24 +770,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         }
 
         let currentPath = paths[discoverIdx]
-        let sourceDir = getSourceDir(currentPath)
-        let frontend = parseModule(currentPath, "en")
-        if frontend.success {
-            var itemIdx = 0
-            while itemIdx < frontend.program.items.length() {
-                let item = frontend.program.items[itemIdx]
-                if item.itemType == "Import" {
-                    let importFilePath = resolveImportPath(item.importPath, sourceDir)
-                    let isCompilerRuntimeBackedStdlib = importFilePath == "seen_std/src/str/string.seen" or importFilePath == "seen_std/src/core/option.seen" or importFilePath == "seen_std/src/core/result.seen" or importFilePath == "seen_std/src/collections/map.seen" or importFilePath.endsWith("/seen_std/src/str/string.seen") or importFilePath.endsWith("/seen_std/src/core/option.seen") or importFilePath.endsWith("/seen_std/src/core/result.seen") or importFilePath.endsWith("/seen_std/src/collections/map.seen")
-                    let skipCompilerStdlib = not isBootstrap and currentPath != inputFile and inputFile.contains("/compiler_seen/") and isCompilerRuntimeBackedStdlib
-                    if not skipCompilerStdlib and not containsPath(processedPaths, importFilePath) {
-                        paths.push(importFilePath)
-                        processedPaths.push(importFilePath)
-                    }
-                }
-                itemIdx = itemIdx + 1
-            }
-        }
+        discoverImportsFromModule(paths, processedPaths, inputFile, currentPath, isBootstrap)
         discoverIdx = discoverIdx + 1
     }
 
@@ -1630,7 +1919,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 }
             }
         } else {
-            println("    Warning: Failed to parse " + path)
+            printFrontendDiagnostics(frontend)
+            println("    Error: Failed to parse " + path)
+            return 1
         }
         // AST goes out of scope here - memory released
         passIdx = passIdx + 1
@@ -1693,6 +1984,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     println("  [Pass 2] Compiling modules...")
     var objectFiles = Array<String>()
     var llFiles = Array<String>()
+    var expectedLinkObjects = modulePaths.length()
     var moduleIndex = 0
     var cachedCount = 0
     var uncachedIdxStrs = Array<String>()
@@ -2103,58 +2395,63 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // (dead code elimination, cross-module inlining with threshold=2000) at the
     // cost of higher memory usage and slower compilation. The merged object is
     // compiled via llc rather than ThinLTO.
-    if g_releaseMode and llFiles.length() > 1 and normalizedCrossTarget == "" {
-        if llvmLinkTool == "" or llvmLlcTool == "" {
-            println("  [2.5] Skipping merged release path: missing llvm-link or llc")
+    if g_releaseMode and modulePaths.length() > 1 and normalizedCrossTarget == "" {
+        if llFiles.length() != modulePaths.length() {
+            println("  [2.5] Skipping merged release path: only " + llFiles.length().toString() + "/" + modulePaths.length().toString() + " modules have raw IR available")
         } else {
-            println("  [2.5] Release mode: cross-module LTO merge (" + llFiles.length().toString() + " modules)...")
-            var llLinkCmd = llvmLinkTool + " -S "
-            var lli = 0
-            while lli < llFiles.length() {
-                llLinkCmd = llLinkCmd + llFiles[lli] + " "
-                lli = lli + 1
-            }
-            let mergedLl = "/tmp/seen_merged_release.ll"
-            llLinkCmd = llLinkCmd + "-o " + mergedLl
-            let llLinkResult: CommandResult = runCommand(llLinkCmd)
-            if commandWasSuccessful(llLinkResult) {
-                // Try Polly pre-pass for polyhedral loop optimization (best-effort)
-                let pollyOut = "/tmp/seen_merged_polly.ll"
-                let pollyCmd = llvmOptTool + " -passes='polly-canonicalize,polly' -S " + mergedLl + " -o " + pollyOut + " 2>/dev/null"
-                let pollyResult: CommandResult = runCommand(pollyCmd)
-                var mergedInput = mergedLl
-                if commandWasSuccessful(pollyResult) {
-                    mergedInput = pollyOut
-                    println("    Polly: polyhedral loop optimization applied")
+            if llvmLinkTool == "" or llvmLlcTool == "" {
+                println("  [2.5] Skipping merged release path: missing llvm-link or llc")
+            } else {
+                println("  [2.5] Release mode: cross-module LTO merge (" + llFiles.length().toString() + " modules)...")
+                var llLinkCmd = llvmLinkTool + " -S "
+                var lli = 0
+                while lli < llFiles.length() {
+                    llLinkCmd = llLinkCmd + llFiles[lli] + " "
+                    lli = lli + 1
                 }
-                // Run opt with internalize on merged module (enables cross-module inlining)
-                let mergedOpt = "/tmp/seen_merged_release.opt.ll"
-                let mergedOptCmd = llvmOptTool + " -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),internalize,default<O3>,function(loop-unroll-and-jam)' -internalize-public-api-list=main -inline-threshold=2000 -S " + mergedInput + " -o " + mergedOpt
-                let mergedOptResult: CommandResult = runCommand(mergedOptCmd)
-                if commandWasSuccessful(mergedOptResult) {
-                    // Compile merged optimized IR to single object file
-                    let mergedObj = "/tmp/seen_merged_release.o"
-                    let mergedLlcCmd = llvmLlcTool + " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -align-loops=32 -fp-contract=fast -mcpu=native " + mergedOpt + " -o " + mergedObj
-                    let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
-                    if commandWasSuccessful(mergedLlcResult) {
-                        // Replace all per-module object files with single merged object
-                        objectFiles = Array<String>()
-                        objectFiles.push(mergedObj)
-                        println("    Cross-module LTO: merged " + llFiles.length().toString() + " modules into 1")
+                let mergedLl = "/tmp/seen_merged_release.ll"
+                llLinkCmd = llLinkCmd + "-o " + mergedLl
+                let llLinkResult: CommandResult = runCommand(llLinkCmd)
+                if commandWasSuccessful(llLinkResult) {
+                    // Try Polly pre-pass for polyhedral loop optimization (best-effort)
+                    let pollyOut = "/tmp/seen_merged_polly.ll"
+                    let pollyCmd = llvmOptTool + " -passes='polly-canonicalize,polly' -S " + mergedLl + " -o " + pollyOut + " 2>/dev/null"
+                    let pollyResult: CommandResult = runCommand(pollyCmd)
+                    var mergedInput = mergedLl
+                    if commandWasSuccessful(pollyResult) {
+                        mergedInput = pollyOut
+                        println("    Polly: polyhedral loop optimization applied")
+                    }
+                    // Run opt with internalize on merged module (enables cross-module inlining)
+                    let mergedOpt = "/tmp/seen_merged_release.opt.ll"
+                    let mergedOptCmd = llvmOptTool + " -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),internalize,default<O3>,function(loop-unroll-and-jam)' -internalize-public-api-list=main -inline-threshold=2000 -S " + mergedInput + " -o " + mergedOpt
+                    let mergedOptResult: CommandResult = runCommand(mergedOptCmd)
+                    if commandWasSuccessful(mergedOptResult) {
+                        // Compile merged optimized IR to single object file
+                        let mergedObj = "/tmp/seen_merged_release.o"
+                        let mergedLlcCmd = llvmLlcTool + " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -align-loops=32 -fp-contract=fast -mcpu=native " + mergedOpt + " -o " + mergedObj
+                        let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
+                        if commandWasSuccessful(mergedLlcResult) {
+                            // Replace all per-module object files with single merged object
+                            objectFiles = Array<String>()
+                            objectFiles.push(mergedObj)
+                            expectedLinkObjects = 1
+                            println("    Cross-module LTO: merged " + llFiles.length().toString() + " modules into 1")
+                        } else {
+                            println("    Warning: LLC on merged module failed, using per-module objects")
+                        }
                     } else {
-                        println("    Warning: LLC on merged module failed, using per-module objects")
+                        println("    Warning: opt on merged module failed, using per-module objects")
+                    }
+                    // --emit-llvm: save merged IR for debugging
+                    if g_emitLlvm {
+                        let emitMerge: CommandResult = runCommand("cp " + mergedOpt + " " + outputFile + ".merged.opt.ll")
+                        println("    Emitted merged IR: " + outputFile + ".merged.opt.ll")
                     }
                 } else {
-                    println("    Warning: opt on merged module failed, using per-module objects")
+                    println("    Warning: llvm-link failed, using per-module objects")
+                    println(llLinkResult.output)
                 }
-                // --emit-llvm: save merged IR for debugging
-                if g_emitLlvm {
-                    let emitMerge: CommandResult = runCommand("cp " + mergedOpt + " " + outputFile + ".merged.opt.ll")
-                    println("    Emitted merged IR: " + outputFile + ".merged.opt.ll")
-                }
-            } else {
-                println("    Warning: llvm-link failed, using per-module objects")
-                println(llLinkResult.output)
             }
         }
     }
@@ -2168,6 +2465,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // full LTO would require 5+ GB RAM; ThinLTO stays under 1 GB while still
     // enabling cross-module inlining. The ThinLTO cache at /tmp/seen_thinlto_cache
     // means unchanged modules skip link-time optimization entirely on rebuilds.
+    if objectFiles.length() != expectedLinkObjects {
+        println("    Error: refusing to link partial module set (" + objectFiles.length().toString() + "/" + expectedLinkObjects.toString() + " link objects)")
+        return 1
+    }
     println("  [3] Linking " + objectFiles.length().toString() + " object files...")
 
     // Pre-compile the C runtime to a ThinLTO-compatible .o file. This is done once
@@ -2749,6 +3050,9 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
         let frontend = parseModule(path, language)
         if frontend.success {
             generator.registerDeclarations(frontend.program)
+        } else {
+            printFrontendDiagnostics(frontend)
+            return 1
         }
         passIdx = passIdx + 1
     }
@@ -2766,9 +3070,9 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
         let path = modulePaths[moduleIndex]
         let frontend = parseModule(path, language)
         if not frontend.success {
+            printFrontendDiagnostics(frontend)
             println("    Error: Failed to parse " + path)
-            moduleIndex = moduleIndex + 1
-            continue
+            return 1
         }
         let llvmIR = generator.generateSingle(frontend.program, moduleIndex)
         let llFile = "/tmp/seen_jit_module_" + moduleIndex.toString() + ".ll"

@@ -908,6 +908,10 @@ class LLVMIRGenerator {
     // Pre-allocated variable names and types (for hoisting allocas to entry block)
     var preAllocatedVars: Array<String>
     var preAllocatedTypes: Array<String>
+    var preAllocatedRegs: Array<String>
+    var activeVarCount: Int
+    var declOrdinalNames: Array<String>
+    var declOrdinalCounts: Array<Int>
     // Module prefix for per-module compilation (empty for multi-module)
     var stringConstantPrefix: String
     // Track which functions have been emitted in current module (reset per-module)
@@ -955,6 +959,10 @@ class LLVMIRGenerator {
             currentLoopEndLabel: "",
             preAllocatedVars: Array<String>(),
             preAllocatedTypes: Array<String>(),
+            preAllocatedRegs: Array<String>(),
+            activeVarCount: 0,
+            declOrdinalNames: Array<String>(),
+            declOrdinalCounts: Array<Int>(),
             stringConstantPrefix: "",
             generatedFunctions: Array<String>(),
             generatedClasses: Array<String>(),
@@ -1058,6 +1066,10 @@ class LLVMIRGenerator {
         currentLoopEndLabel = ""
         preAllocatedVars = Array<String>()
         preAllocatedTypes = Array<String>()
+        preAllocatedRegs = Array<String>()
+        activeVarCount = 0
+        declOrdinalNames = Array<String>()
+        declOrdinalCounts = Array<Int>()
         stringConstantPrefix = ""
         generatedFunctions = Array<String>()
         generatedClasses = Array<String>()
@@ -2019,19 +2031,24 @@ class LLVMIRGenerator {
     }
 
     // Helper to store variable
-    // Push a variable binding onto the variable tracking arrays.
-    // Variables are never popped — scoping is achieved by searching backwards
-    // in findVar(), so inner bindings naturally shadow outer ones.
+    // Push or reactivate a variable binding in the current lexical scope.
     fun storeVar(name: String, reg: String, varType: String) r: Void {
-        varNames.push(name)
-        varRegs.push(reg)
-        varTypes.push(varType)
+        if activeVarCount < varNames.length() {
+            varNames[activeVarCount] = name
+            varRegs[activeVarCount] = reg
+            varTypes[activeVarCount] = varType
+        } else {
+            varNames.push(name)
+            varRegs.push(reg)
+            varTypes.push(varType)
+        }
+        activeVarCount = activeVarCount + 1
     }
 
     // Helper to find variable. Searches backwards (newest variable first) since
     // most references are to recently declared variables.
     fun findVar(name: String) r: Int {
-        var i = varNames.length() - 1
+        var i = activeVarCount - 1
         while i >= 0 {
             if varNames[i] == name {
                 return i
@@ -2300,6 +2317,36 @@ class LLVMIRGenerator {
         return -1
     }
 
+    fun findPreAllocatedOccurrence(name: String, ordinal: Int) r: Int {
+        var seen = 0
+        var i = 0
+        while i < preAllocatedVars.length() {
+            if preAllocatedVars[i] == name {
+                seen = seen + 1
+                if seen == ordinal {
+                    return i
+                }
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fun nextDeclarationOrdinal(name: String) r: Int {
+        var i = 0
+        while i < declOrdinalNames.length() {
+            if declOrdinalNames[i] == name {
+                let nextOrdinal = declOrdinalCounts[i] + 1
+                declOrdinalCounts[i] = nextOrdinal
+                return nextOrdinal
+            }
+            i = i + 1
+        }
+        declOrdinalNames.push(name)
+        declOrdinalCounts.push(1)
+        return 1
+    }
+
     // Emit pool_free calls for all local class-type variables before a return
     // skipVar: name of the variable being returned (should not be freed)
     // Emit free calls for all heap-allocated local variables at function exit.
@@ -2392,9 +2439,9 @@ class LLVMIRGenerator {
     // Emit allocas for all pre-allocated variables at function entry
     // This ensures all allocas are in the entry block, avoiding domination errors
     fun emitPreAllocatedAllocas() r: Void {
+        preAllocatedRegs = Array<String>()
         var i = 0
         while i < preAllocatedVars.length() {
-            let varName = preAllocatedVars[i]
             let varType = preAllocatedTypes[i]
             let llvmType = mapType(varType)
             let reg = getNextReg()
@@ -2404,8 +2451,7 @@ class LLVMIRGenerator {
             } else {
                 output.append("  " + reg + " = alloca " + llvmType + "\n")
             }
-            // Store the mapping for later use
-            storeVar(varName, reg, varType)
+            preAllocatedRegs.push(reg)
             i = i + 1
         }
     }
@@ -4545,11 +4591,23 @@ class LLVMIRGenerator {
                     let savedVarNames = varNames
                     let savedVarRegs = varRegs
                     let savedVarTypes = varTypes
+                    let savedPreAllocatedVars = preAllocatedVars
+                    let savedPreAllocatedTypes = preAllocatedTypes
+                    let savedPreAllocatedRegs = preAllocatedRegs
+                    let savedDeclOrdinalNames = declOrdinalNames
+                    let savedDeclOrdinalCounts = declOrdinalCounts
+                    let savedActiveVarCount = activeVarCount
                     let savedNextReg = g_regBox[0]
                     let savedBlockTerm = blockTerminated
                     varNames = Array<String>()
                     varRegs = Array<String>()
                     varTypes = Array<String>()
+                    preAllocatedVars = Array<String>()
+                    preAllocatedTypes = Array<String>()
+                    preAllocatedRegs = Array<String>()
+                    declOrdinalNames = Array<String>()
+                    declOrdinalCounts = Array<Int>()
+                    activeVarCount = 0
                     g_regBox[0] = 1
                     blockTerminated = false
                     cseClear()
@@ -4564,9 +4622,7 @@ class LLVMIRGenerator {
                         let defParamType = mapType(normalizeDeclaredTypeNode(defParam.paramType))
                         let defParamReg = "%" + quoteIdentIfNeeded(defParam.name)
                         defParamStr = defParamStr + defParamType + " " + defParamReg
-                        varNames.push(defParam.name)
-                        varRegs.push(defParamReg)
-                        varTypes.push(normalizeDeclaredTypeNode(defParam.paramType))
+                        storeVar(defParam.name, defParamReg, normalizeDeclaredTypeNode(defParam.paramType))
                         defPI = defPI + 1
                     }
                     let defRetType = mapType(traitRetTypeName)
@@ -4586,6 +4642,12 @@ class LLVMIRGenerator {
                     varNames = savedVarNames
                     varRegs = savedVarRegs
                     varTypes = savedVarTypes
+                    preAllocatedVars = savedPreAllocatedVars
+                    preAllocatedTypes = savedPreAllocatedTypes
+                    preAllocatedRegs = savedPreAllocatedRegs
+                    declOrdinalNames = savedDeclOrdinalNames
+                    declOrdinalCounts = savedDeclOrdinalCounts
+                    activeVarCount = savedActiveVarCount
                     g_regBox[0] = savedNextReg
                     blockTerminated = savedBlockTerm
                     registerFunction(defaultFuncName, traitRetTypeName)
@@ -4932,6 +4994,10 @@ class LLVMIRGenerator {
         varTypes = Array<String>()
         preAllocatedVars = Array<String>()
         preAllocatedTypes = Array<String>()
+        preAllocatedRegs = Array<String>()
+        activeVarCount = 0
+        declOrdinalNames = Array<String>()
+        declOrdinalCounts = Array<Int>()
         currentFunctionReturnType = resolveMethodReturnType(classNode.name, method)
         currentClassName = classNode.name  // Track class for method type inference
         g_currentClassParentName = classNode.parentName
@@ -4944,16 +5010,12 @@ class LLVMIRGenerator {
         // Also pre-register 'this' for instance methods (non-static)
         let isStaticMethod = method.isStatic
         if not isStaticMethod {
-            varNames.push("this")
-            varRegs.push("")  // Placeholder - will be cleared
-            varTypes.push(classNode.name)
+            storeVar("this", "", classNode.name)
         }
         var preParamIdx = 0
         while preParamIdx < method.params.length() {
             let param = method.params[preParamIdx]
-            varNames.push(param.name)
-            varRegs.push("")  // Placeholder - will be cleared
-            varTypes.push(normalizeDeclaredTypeNode(param.paramType))
+            storeVar(param.name, "", normalizeDeclaredTypeNode(param.paramType))
             preParamIdx = preParamIdx + 1
         }
 
@@ -4964,6 +5026,7 @@ class LLVMIRGenerator {
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
+        activeVarCount = 0
 
         let returnType = mapType(currentFunctionReturnType)
         let className = classNode.name
@@ -5665,6 +5728,10 @@ class LLVMIRGenerator {
         varTypes = Array<String>()
         preAllocatedVars = Array<String>()
         preAllocatedTypes = Array<String>()
+        preAllocatedRegs = Array<String>()
+        activeVarCount = 0
+        declOrdinalNames = Array<String>()
+        declOrdinalCounts = Array<Int>()
         currentFunctionReturnType = resolvedFunctionReturnType
         currentClassName = ""
         g_currentClassParentName = ""
@@ -5678,8 +5745,6 @@ class LLVMIRGenerator {
         var preParamIdx = 0
         while preParamIdx < fn.params.length() {
             let param = fn.params[preParamIdx]
-            varNames.push(param.name)
-            varRegs.push("")  // Placeholder - will be cleared
             var preTypeName = normalizeDeclaredTypeNode(param.paramType)
             // Strip ownership/comptime qualifiers for type inference
             if preTypeName.startsWith("move:") {
@@ -5709,7 +5774,7 @@ class LLVMIRGenerator {
                 let dynTraitParam = preTypeName.substring(4, preTypeName.length())
                 g_dynParamFuncs = g_dynParamFuncs + implFuncName + ":" + preParamIdx.toString() + ":" + dynTraitParam + "|"
             }
-            varTypes.push(normalizeSeenTypeName(preTypeName))
+            storeVar(param.name, "", normalizeSeenTypeName(preTypeName))
             preParamIdx = preParamIdx + 1
         }
 
@@ -5730,6 +5795,7 @@ class LLVMIRGenerator {
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
+        activeVarCount = 0
 
         let fnTypeName = currentFunctionReturnType
         println("[irgen function] return-type map start: " + implFuncName)
@@ -6360,6 +6426,7 @@ class LLVMIRGenerator {
         // Dead store elimination (9.10b): scan for var x = literal; x = expr2 with no read of x
         // Only skip literal initializers (Int, Float, Bool, String) to preserve side effects
         let savedDeadStoreSkip = g_deadStoreSkipVars
+        let savedActiveVarCount = activeVarCount
         var dsIdx = 0
         while dsIdx < block.statements.length() - 1 {
             let dsStmt = block.statements[dsIdx]
@@ -6437,6 +6504,7 @@ class LLVMIRGenerator {
         g_deferCount = savedDeferCount
         // Restore dead store skip list (scoped to this block)
         g_deadStoreSkipVars = savedDeadStoreSkip
+        activeVarCount = savedActiveVarCount
     }
 
     // Top-level statement dispatch. Routes each statement kind to its
@@ -6599,16 +6667,16 @@ class LLVMIRGenerator {
             output.append(tryCatchLabel + ":\n")
             output.append("  ; catch {\n")
             // If catch variable was declared, bind it (as i64 0 for now)
+            let savedCatchVarCount = activeVarCount
             if stmt.variableName != "" {
                 let catchVarReg = getNextReg()
-                varNames.push(stmt.variableName)
-                varRegs.push(catchVarReg)
-                varTypes.push("Int")
+                storeVar(stmt.variableName, catchVarReg, "Int")
                 output.append("  " + catchVarReg + " = add i64 0, 0 ; catch binding\n")
             }
             if stmt.elseBranch.statements.length() > 0 {
                 generateBlock(stmt.elseBranch)
             }
+            activeVarCount = savedCatchVarCount
             if not blockTerminated {
                 output.append("  br label %" + tryEndLabel + "\n")
             }
@@ -6768,6 +6836,12 @@ class LLVMIRGenerator {
         let savedVarNames = varNames
         let savedVarRegs = varRegs
         let savedVarTypes = varTypes
+        let savedPreAllocatedVars = preAllocatedVars
+        let savedPreAllocatedTypes = preAllocatedTypes
+        let savedPreAllocatedRegs = preAllocatedRegs
+        let savedDeclOrdinalNames = declOrdinalNames
+        let savedDeclOrdinalCounts = declOrdinalCounts
+        let savedActiveVarCount = activeVarCount
         let savedNextReg = g_regBox[0]
         let savedBlockTerm = blockTerminated
 
@@ -6776,15 +6850,19 @@ class LLVMIRGenerator {
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
+        preAllocatedVars = Array<String>()
+        preAllocatedTypes = Array<String>()
+        preAllocatedRegs = Array<String>()
+        declOrdinalNames = Array<String>()
+        declOrdinalCounts = Array<Int>()
+        activeVarCount = 0
         g_regBox[0] = 1
         blockTerminated = false
 
         output.append("define i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
         output.append("entry:\n")
         // Bind loop variable to %0
-        varNames.push(stmt.variableName)
-        varRegs.push("%0")
-        varTypes.push("Int")
+        storeVar(stmt.variableName, "%0", "Int")
         // Generate body block
         generateBlock(stmt.loopBody)
         if not blockTerminated {
@@ -6801,6 +6879,12 @@ class LLVMIRGenerator {
         varNames = savedVarNames
         varRegs = savedVarRegs
         varTypes = savedVarTypes
+        preAllocatedVars = savedPreAllocatedVars
+        preAllocatedTypes = savedPreAllocatedTypes
+        preAllocatedRegs = savedPreAllocatedRegs
+        declOrdinalNames = savedDeclOrdinalNames
+        declOrdinalCounts = savedDeclOrdinalCounts
+        activeVarCount = savedActiveVarCount
         g_regBox[0] = savedNextReg
         blockTerminated = savedBlockTerm
 
@@ -7032,6 +7116,8 @@ class LLVMIRGenerator {
     // Supports dead store elimination: skips literal initializers that are
     // immediately overwritten (tracked in g_deadStoreSkipVars).
     fun generateLetStatement(stmt: StatementNode) r: Void {
+        let declOrdinal = nextDeclarationOrdinal(stmt.variableName)
+        let preIdx = findPreAllocatedOccurrence(stmt.variableName, declOrdinal)
         // Get variable type - prefer explicit type, fall back to inference
         var varType = normalizeDeclaredTypeNode(stmt.variableType)
         if varType == "" or varType == "Unknown" or varType == "Void" {
@@ -7042,7 +7128,6 @@ class LLVMIRGenerator {
         }
         // Final fallback: "Void" or "" type → use pre-allocated type or "Int"
         if varType == "" or varType == "Unknown" or varType == "Void" {
-            let preIdx = findPreAllocated(stmt.variableName)
             if preIdx >= 0 {
                 varType = preAllocatedTypes[preIdx]
             }
@@ -7051,34 +7136,19 @@ class LLVMIRGenerator {
             varType = "Int"
         }
         let llvmType = mapType(varType)
-
-        // Check if this variable was pre-allocated at function entry
-        let existingIdx = findVar(stmt.variableName)
         var reg = ""
-        if existingIdx >= 0 {
-            let existingLlvmType = mapType(varTypes[existingIdx])
+        if preIdx >= 0 and preIdx < preAllocatedRegs.length() {
+            let existingLlvmType = mapType(preAllocatedTypes[preIdx])
             if existingLlvmType == llvmType {
-                // Variable was pre-allocated with a compatible type, reuse the slot.
-                reg = varRegs[existingIdx]
-                if varType != "" and varType != "Unknown" {
-                    varTypes[existingIdx] = varType
-                }
-            } else {
-                // Pre-allocation is only an optimization. If the early type guess
-                // disagrees with the final inferred type, allocate a correct slot
-                // here rather than emitting an invalid store into the hoisted one.
-                reg = getNextReg()
-                output.append("  " + reg + " = alloca " + llvmType + "\n")
-                varRegs[existingIdx] = reg
-                varTypes[existingIdx] = varType
+                reg = preAllocatedRegs[preIdx]
             }
         }
-        if existingIdx < 0 {
+        if reg == "" {
             // Fallback: allocate here (shouldn't happen with proper collection)
             reg = getNextReg()
             output.append("  " + reg + " = alloca " + llvmType + "\n")
-            storeVar(stmt.variableName, reg, varType)
         }
+        storeVar(stmt.variableName, reg, varType)
 
         // Initialize if there's an initializer
         if stmt.initializer.kind != "None" {
@@ -7574,12 +7644,10 @@ class LLVMIRGenerator {
         let bindReg = getNextReg()
         output.append("  " + bindReg + " = alloca i64, align 8\n")
         output.append("  store i64 " + exprReg + ", ptr " + bindReg + "\n")
-        varNames.push(bindName)
-        varRegs.push(bindReg)
-        varTypes.push("Int")
+        let savedIfLetVarCount = activeVarCount
+        storeVar(bindName, bindReg, "Int")
         generateBlock(stmt.thenBranch)
-        // Note: binding remains in scope arrays (pop not used here for scope management)
-        // This is harmless since the then-block code has already been generated
+        activeVarCount = savedIfLetVarCount
         let thenTerminated = blockTerminated
         if not thenTerminated {
             output.append("  br label %" + endLabel + "\n")
@@ -8178,18 +8246,32 @@ class LLVMIRGenerator {
         // Save outer loop context
         let savedCondLabel = currentLoopCondLabel
         let savedEndLabel = currentLoopEndLabel
+        let savedForInVarCount = activeVarCount
         currentLoopCondLabel = condLabel + "|" + loopMetaIdStr
         currentLoopEndLabel = endLabel
 
         // Find the pre-allocated loop variable
         // ForIn stores: variableName=loop var, expression=iterable, loopBody=body
         let loopVarName = stmt.variableName
-        let loopVarIdx = findVar(loopVarName)
-        var loopVarReg = ""
-        if loopVarIdx >= 0 {
-            loopVarReg = varRegs[loopVarIdx]
+        var loopVarType = findVarType(loopVarName)
+        if loopVarType == "" {
+            loopVarType = "Int"
         }
-
+        let loopVarOrdinal = nextDeclarationOrdinal(loopVarName)
+        let loopVarPreIdx = findPreAllocatedOccurrence(loopVarName, loopVarOrdinal)
+        var loopVarReg = ""
+        if loopVarPreIdx >= 0 and loopVarPreIdx < preAllocatedRegs.length() {
+            loopVarReg = preAllocatedRegs[loopVarPreIdx]
+        }
+        if loopVarReg == "" {
+            let loopVarLlvmType = mapType(loopVarType)
+            loopVarReg = getNextReg()
+            if loopVarLlvmType == "i64" or loopVarLlvmType == "double" or loopVarLlvmType == "ptr" {
+                output.append("  " + loopVarReg + " = alloca " + loopVarLlvmType + ", align 8\n")
+            } else {
+                output.append("  " + loopVarReg + " = alloca " + loopVarLlvmType + "\n")
+            }
+        }
         let forInIterable = stmt.expression
         let forInIterKind = forInIterable.kind
         if forInIterKind == "Range" {
@@ -8199,14 +8281,16 @@ class LLVMIRGenerator {
 
             // Use pre-allocated entry-block alloca for index counter (enables mem2reg)
             let idxName = "__forin_idx_" + loopVarName
-            let idxVarIdx = findVar(idxName)
             var idxReg = ""
-            if idxVarIdx >= 0 {
-                idxReg = varRegs[idxVarIdx]
-            } else {
+            let idxPreIdx = findPreAllocatedOccurrence(idxName, 1)
+            if idxPreIdx >= 0 and idxPreIdx < preAllocatedRegs.length() {
+                idxReg = preAllocatedRegs[idxPreIdx]
+            }
+            if idxReg == "" {
                 idxReg = getNextReg()
                 output.append("  " + idxReg + " = alloca i64, align 8\n")
             }
+            storeVar(loopVarName, loopVarReg, loopVarType)
             output.append("  store i64 " + startReg + ", ptr " + idxReg + "\n")
 
             // Jump to condition
@@ -8257,6 +8341,7 @@ class LLVMIRGenerator {
                 let iterStoreReg = getNextReg()
                 output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
                 output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
+                storeVar(loopVarName, loopVarReg, loopVarType)
 
                 output.append("  br label %" + condLabel + "\n")
                 output.append(condLabel + ":\n")
@@ -8322,14 +8407,16 @@ class LLVMIRGenerator {
 
             // Use pre-allocated entry-block alloca for index counter (enables mem2reg)
             let arrIdxName = "__forin_idx_" + loopVarName
-            let arrIdxVarIdx = findVar(arrIdxName)
             var idxReg = ""
-            if arrIdxVarIdx >= 0 {
-                idxReg = varRegs[arrIdxVarIdx]
-            } else {
+            let arrIdxPreIdx = findPreAllocatedOccurrence(arrIdxName, 1)
+            if arrIdxPreIdx >= 0 and arrIdxPreIdx < preAllocatedRegs.length() {
+                idxReg = preAllocatedRegs[arrIdxPreIdx]
+            }
+            if idxReg == "" {
                 idxReg = getNextReg()
                 output.append("  " + idxReg + " = alloca i64, align 8\n")
             }
+            storeVar(loopVarName, loopVarReg, loopVarType)
             output.append("  store i64 0, ptr " + idxReg + "\n")
 
             // Jump to condition
@@ -8384,6 +8471,7 @@ class LLVMIRGenerator {
         blockTerminated = false
 
         // Restore outer loop context
+        activeVarCount = savedForInVarCount
         currentLoopCondLabel = savedCondLabel
         currentLoopEndLabel = savedEndLabel
     }
@@ -9254,6 +9342,12 @@ class LLVMIRGenerator {
         let clSavedVarNames = varNames
         let clSavedVarRegs = varRegs
         let clSavedVarTypes = varTypes
+        let clSavedPreAllocatedVars = preAllocatedVars
+        let clSavedPreAllocatedTypes = preAllocatedTypes
+        let clSavedPreAllocatedRegs = preAllocatedRegs
+        let clSavedDeclOrdinalNames = declOrdinalNames
+        let clSavedDeclOrdinalCounts = declOrdinalCounts
+        let clSavedActiveVarCount = activeVarCount
         let clSavedNextReg = g_regBox[0]
         let clSavedBlockTerminated = blockTerminated
         let clSavedReturnType = currentFunctionReturnType
@@ -9263,6 +9357,12 @@ class LLVMIRGenerator {
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
+        preAllocatedVars = Array<String>()
+        preAllocatedTypes = Array<String>()
+        preAllocatedRegs = Array<String>()
+        declOrdinalNames = Array<String>()
+        declOrdinalCounts = Array<Int>()
+        activeVarCount = 0
         g_regBox[0] = 1
         blockTerminated = false
         currentFunctionReturnType = "Int"
@@ -9278,9 +9378,7 @@ class LLVMIRGenerator {
             let cpLocal = getNextReg()
             output.append("  " + cpLocal + " = alloca i64\n")
             output.append("  store i64 " + cpReg + ", ptr " + cpLocal + "\n")
-            varNames.push(cpName)
-            varRegs.push(cpLocal)
-            varTypes.push("Int")
+            storeVar(cpName, cpLocal, "Int")
             paramIdx = paramIdx + 1
         }
 
@@ -9299,6 +9397,12 @@ class LLVMIRGenerator {
         varNames = clSavedVarNames
         varRegs = clSavedVarRegs
         varTypes = clSavedVarTypes
+        preAllocatedVars = clSavedPreAllocatedVars
+        preAllocatedTypes = clSavedPreAllocatedTypes
+        preAllocatedRegs = clSavedPreAllocatedRegs
+        declOrdinalNames = clSavedDeclOrdinalNames
+        declOrdinalCounts = clSavedDeclOrdinalCounts
+        activeVarCount = clSavedActiveVarCount
         g_regBox[0] = clSavedNextReg
         blockTerminated = clSavedBlockTerminated
         currentFunctionReturnType = clSavedReturnType
@@ -11658,7 +11762,7 @@ class LLVMIRGenerator {
         // Indirect call: if callee is a local variable (closure/function pointer), do indirect call
         var icVarIdx = 0
         var icIsIndirect = false
-        while icVarIdx < varNames.length() {
+        while icVarIdx < activeVarCount {
             if varNames[icVarIdx] == funcName {
                 icIsIndirect = true
                 break

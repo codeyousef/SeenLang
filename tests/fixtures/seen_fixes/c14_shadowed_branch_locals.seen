@@ -1,0 +1,23 @@
+fun shadowed(flag: Int) r: Int {
+    var out = 0
+    if flag == 0 {
+        let cur = 11
+        if cur == 11 { out = 1 }
+    }
+    if flag == 1 {
+        let cur = 22
+        if cur == 22 { out = 2 }
+    }
+    if flag == 2 {
+        let cur = 3.5
+        if cur > 3.0 { out = 3 }
+    }
+    return out
+}
+
+fun main() r: Int {
+    if shadowed(1) == 2 {
+        return 0
+    }
+    return 1
+}
