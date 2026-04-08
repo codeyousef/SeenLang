@@ -1,0 +1,22 @@
+class Keyboard {
+    var pressed: Int
+
+    static fun new() r: Keyboard {
+        return Keyboard { pressed: 1 }
+    }
+}
+
+class Game {
+    var keyboard: Keyboard
+
+    static fun new() r: Game {
+        return Game { keyboard: Keyboard.new() }
+    }
+}
+
+var gGame = Game.new()
+
+fun readPressedViaLocal() r: Int {
+    let localPressed = gGame.keyboard.pressed
+    return localPressed
+}

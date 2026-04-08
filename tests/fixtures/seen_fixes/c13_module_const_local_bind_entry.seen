@@ -1,0 +1,8 @@
+import c13_module_const_local_bind_module.{readPressedViaLocal}
+
+fun main() r: Int {
+    if readPressedViaLocal() == 1 {
+        return 0
+    }
+    return 1
+}

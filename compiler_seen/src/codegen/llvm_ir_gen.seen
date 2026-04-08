@@ -14424,27 +14424,27 @@ class LLVMIRGenerator {
             }
             // Check if it's a module constant
             let constIdx = findModuleConstant(varName)
-            if constIdx >= 0 {
-                let constType = moduleConstantTypes[constIdx]
-                // Map LLVM types to Seen types
-                if constType == "i64" {
-                    return "Int"
-                }
-                if constType == "double" {
+        if constIdx >= 0 {
+            let constType = moduleConstantTypes[constIdx]
+            let seenType = getModuleConstSeenType(constIdx)
+            if seenType != "" {
+                return seenType
+            }
+            // Map LLVM types to Seen types
+            if constType == "i64" {
+                return "Int"
+            }
+            if constType == "double" {
                     return "Float"
                 }
                 if constType == "i1" {
                     return "Bool"
                 }
-                if constType == "%SeenString" {
-                    return "String"
-                }
-                if constType == "ptr" {
-                    let seenType = getModuleConstSeenType(constIdx)
-                    if seenType != "" { return seenType }
-                }
-                return "Int"  // Default
+            if constType == "%SeenString" {
+                return "String"
             }
+            return "Int"  // Default
+        }
             // Variable not found - check if it's a field on 'this'
             let thisIdx = findVar("this")
             if thisIdx >= 0 {

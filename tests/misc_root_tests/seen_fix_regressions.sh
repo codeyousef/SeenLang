@@ -11,7 +11,9 @@ C13_GENERIC_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_imported_generic_store_
 C13_ENGINE_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_cross_module_engine_entry.seen"
 C13_GLOBAL_CLASS_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_level_class_state_entry.seen"
 C13_GLOBAL_GAME_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_level_game_entry.seen"
+C13_MODULE_CONST_BIND_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_const_local_bind_entry.seen"
 C12_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_direct_entry_missing_user_decl.seen"
+C12_MODULE_CONST_BIND_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_module_const_local_bind.seen"
 
 cleanup_seen_artifacts() {
     rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache "$TMP_ROOT"
@@ -117,6 +119,8 @@ run_success_case "C13 imported generic store" "$C13_GENERIC_SRC" "$TMP_ROOT/c13_
 run_success_case "C13 cross-module engine" "$C13_ENGINE_SRC" "$TMP_ROOT/c13_cross_module_engine" "$TMP_ROOT/c13_cross_module_engine.log"
 run_success_case "C13 module-level class state" "$C13_GLOBAL_CLASS_SRC" "$TMP_ROOT/c13_module_level_class_state" "$TMP_ROOT/c13_module_level_class_state.log"
 run_success_case "C13 module-level game state" "$C13_GLOBAL_GAME_SRC" "$TMP_ROOT/c13_module_level_game" "$TMP_ROOT/c13_module_level_game.log"
+run_success_case "C13 module-const local bind" "$C13_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c13_module_const_local_bind" "$TMP_ROOT/c13_module_const_local_bind.log"
+run_success_case "C12 module-const local bind" "$C12_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c12_module_const_local_bind" "$TMP_ROOT/c12_module_const_local_bind.log"
 run_c12_case
 
 cleanup_seen_artifacts
