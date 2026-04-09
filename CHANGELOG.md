@@ -5,12 +5,40 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.4-alpha] - 2026-03-16
+## [0.4.0] - 2026-04-09
+
+### Added
+
+#### Native targets and packaging
+- Cross-target CLI/build plumbing now covers `windows-x86_64`, `macos-x86_64`, `macos-arm64`, `ios-arm64`, `ios-sim-arm64`, `linux-arm64`, and `android-arm64`, including target-aware output naming and nearest-`Seen.toml` language detection for project builds.
+- Added native rollout tooling and packaging helpers, including `scripts/native_target_smoke.sh`, expanded `scripts/platform_matrix.sh`, `scripts/setup_linux_arm64_sysroot.sh`, `scripts/android_ndk_env.sh`, and `scripts/package_android_apk.sh`.
+
+#### Safety and validation
+- Added capability-token enforcement for `@using(...)` / `@effect(...)` checks and expanded validation coverage for `@send`, `@sync`, and `sealed` restrictions.
+- Added broad regression coverage for multi-module compiler fixes, `Seen.toml` project resolution, recovery-opt failure handling, and current limitation fixtures.
+
+### Changed
+
+#### Release and tooling
+- Corrected the release line back to the pre-1.0 series; this branch is versioned as `0.4.0`, replacing the erroneous `1.0.4-alpha` heading.
+- Build caches are now isolated by effective target/profile/build signature, and the native-target documentation now covers Apple, Android, and local Linux ARM64 toolchains plus runtime smoke commands.
+- GitHub-hosted CI/release workflows in this branch were moved to `.disabled` variants while the expanded native-target rollout work proceeded outside hosted workflows.
 
 ### Fixed
 
-#### Codegen
-- `extern fun` declarations with Float parameters now register in `g_floatParamFuncs`, enabling Int-to-Float implicit promotion (`sitofp i64 → double`) at call sites. Previously, extern functions early-returned before the Float parameter registration code, causing Int arguments to be passed as raw `i64` bits reinterpreted as `double` (e.g., `1280` → `≈0.0`). Fixes zero-size viewports and corrupted UBO data in programs using FFI functions like `seen_vk_cmd_set_viewport` and `seen_mem_store_f32`.
+#### Bootstrap and build system
+- Linux Stage2→Stage3 bootstrap, self-host rebuild, and recovery-opt handling are more robust: `safe_rebuild.sh`, `fix_ir.py`, and related recovery scripts now handle staged failures, stale artifacts, and bootstrap crashes more cleanly.
+- Fixed Android bundle/release path handling, emulator APK validation, and widened Windows/Android native smoke coverage.
+- `Seen.toml` project discovery now handles absolute-path project members, standalone non-members, build-entry seeding, and root-level scratch `main()` files correctly. This removes the HeartOn standalone IR-generation crash path while preserving nested project fallback behavior.
+
+#### Frontend, parser, and codegen
+- Fixed keyword lookup, parser type handoff, parser data/function-body regressions, and frontend/class-detection issues that were blocking self-host and multi-module builds.
+- Fixed unicode string lowering, `Vec` dispatch, `HashMap` `Option` lowering, `StringHashMap` dispatch, module-constant type inference, void method calls, extern Float parameter registration/promotion, and `for`-loop SSA ordering regressions.
+- Fixed documented multi-module and recovery regressions, including the HeartOn module-handling failures that previously crashed during IR generation and now progress to ordinary diagnostics or linker failures instead.
+
+#### Runtime, standard library, and validation
+- Updated runtime and stdlib support used by the new native-target lanes, including string helpers, file I/O paths, `Option`, and hash collection behavior.
+- Expanded regression fixtures and root-level smoke checks for compiler crash repros, native-target rollout, and safety-rule enforcement.
 
 ## [0.3.7] - 2026-03-16
 

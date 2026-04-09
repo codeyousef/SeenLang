@@ -1,8 +1,0 @@
-fun addOne(x: Int) r: Int {
-    var y = 1
-    return x + y
-}
-
-fun main() r: Int {
-    return addOne(2)
-}

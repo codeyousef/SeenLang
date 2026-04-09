@@ -1,8 +1,0 @@
-import codegen.type_registry.{TypeRegistry}
-
-var registry: TypeRegistry = TypeRegistry.new()
-
-fun main() r: Int {
-    registry.typeHeaderPath = "abc"
-    return registry.typeHeaderPath.length()
-}

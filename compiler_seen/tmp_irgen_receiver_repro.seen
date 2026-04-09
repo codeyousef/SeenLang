@@ -1,7 +1,0 @@
-import codegen.llvm_ir_gen.{LLVMIRGenerator}
-
-fun main() r: Int {
-    let generator = LLVMIRGenerator.new()
-    generator.setBoundsCheckEnabled(1)
-    return 0
-}
