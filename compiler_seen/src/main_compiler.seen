@@ -828,7 +828,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
             let projectRoot = getSourceDir(tomlPath)
             let projectModules = extractTomlProjectModules(tomlContent)
             let buildEntry = extractTomlBuildEntry(tomlContent)
-            if inputBelongsToProject(projectRoot, inputFile, projectModules, buildEntry) {
+            let inputIsProjectMember = inputBelongsToProject(projectRoot, inputFile, projectModules, buildEntry)
+            if inputIsProjectMember {
                 if not quiet and projectModules.length() > 0 {
                     println("    Adding " + projectModules.length().toString() + " modules from Seen.toml...")
                 }
@@ -840,17 +841,23 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
                 }
             }
             if buildEntry != "" {
+                let inputDeclaresMain = moduleDeclaresMain(inputFile)
+                let rootStandaloneMain = inputDeclaresMain and getSourceDir(inputFile) == projectRoot and not inputIsProjectMember
                 let resolvedBuildEntry = resolveProjectPath(projectRoot, buildEntry)
-                if not moduleDeclaresMain(inputFile) {
-                    if not quiet {
-                        println("    Adding Seen.toml build entry: " + buildEntry)
+                // Keep root-level scratch entrypoints standalone even when a project build
+                // entry exists; nested project files still inherit build-entry imports.
+                if not rootStandaloneMain {
+                    if not inputDeclaresMain {
+                        if not quiet {
+                            println("    Adding Seen.toml build entry: " + buildEntry)
+                        }
+                        pushUniquePath(paths, processedPaths, resolvedBuildEntry)
                     }
-                    pushUniquePath(paths, processedPaths, resolvedBuildEntry)
+                    if not quiet {
+                        println("    Seeding imports from Seen.toml build entry: " + buildEntry)
+                    }
+                    discoverImportsFromModule(paths, processedPaths, inputFile, resolvedBuildEntry, isBootstrap)
                 }
-                if not quiet {
-                    println("    Seeding imports from Seen.toml build entry: " + buildEntry)
-                }
-                discoverImportsFromModule(paths, processedPaths, inputFile, resolvedBuildEntry, isBootstrap)
             }
         }
     }

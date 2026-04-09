@@ -672,6 +672,67 @@ EOF
     echo "PASS: Seen.toml build entry imports are seeded into compilation"
 }
 
+run_root_main_build_entry_isolation_case() {
+    local project_dir="$TMP_ROOT/root_main_build_entry_isolation"
+    local output_file="$project_dir/root_main_build_entry_isolation"
+    local log_file="$project_dir/root_main_build_entry_isolation.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "demo"
+version = "0.1.0"
+language = "en"
+
+[build]
+entry = "main.seen"
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import demo::missing::core
+EOF
+
+    cat >"$project_dir/bug_repro.seen" <<'EOF'
+fun main() r: Int {
+    return 0
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "bug_repro.seen" "$output_file" "$log_file"; then
+        echo "FAIL: root-level standalone main should ignore Seen.toml build-entry seeding"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'Seeding imports from Seen.toml build entry' "$log_file"; then
+        echo "FAIL: root-level standalone main still seeded build-entry imports"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'could not read module' "$log_file"; then
+        echo "FAIL: root-level standalone main still tried to resolve build-entry imports"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q 'Found 1 modules' "$log_file"; then
+        echo "FAIL: root-level standalone main unexpectedly changed module discovery"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: root-level standalone main binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: root-level standalone main stays isolated from build entry"
+}
+
 run_build_entry_main_fallback_case() {
     local project_dir="$TMP_ROOT/build_entry_main_fallback"
     local output_file="$project_dir/build_entry_main_fallback"
@@ -796,6 +857,7 @@ run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case
 run_build_entry_seed_case
+run_root_main_build_entry_isolation_case
 run_build_entry_main_fallback_case
 run_missing_import_failure_case
 
