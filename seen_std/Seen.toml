@@ -33,7 +33,7 @@ modules = [
 
     # Time and async
     "src/time/time.seen",
-    "src/async/task.seen",
+    "src/async/runtime.seen",
 
     # FFI and strings
     "src/ffi/cinterop.seen",

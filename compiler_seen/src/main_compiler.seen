@@ -480,7 +480,8 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
         if lastDirSegment == importPath[0] {
             shouldTrySkip = 1
         } else {
-            let tomlContent = readText("Seen.toml")
+            let tomlPath = findNearestSeenTomlFromDir(sourceDir)
+            let tomlContent = loadFileContent(tomlPath)
             if tomlContent != "" {
                 let projectName = extractTomlProjectName(tomlContent)
                 if projectName == importPath[0] {
@@ -545,6 +546,96 @@ fun getSourceDir(filePath: String) r: String {
         return ""
     }
     return filePath.substring(0, lastSlash)
+}
+
+fun isAbsolutePath(path: String) r: Bool {
+    if path.length() == 0 {
+        return false
+    }
+    return path.byteAt(0) == 47
+}
+
+fun findNearestSeenTomlFromDir(initialDir: String) r: String {
+    var searchDir = initialDir
+    var searching = 1
+    while searching == 1 {
+        var candidate = "Seen.toml"
+        if searchDir == "/" {
+            candidate = "/Seen.toml"
+        } else {
+            if searchDir != "" {
+                candidate = searchDir + "/Seen.toml"
+            }
+        }
+        if loadFileContent(candidate) != "" {
+            return candidate
+        }
+        if searchDir == "" or searchDir == "/" {
+            searching = 0
+        } else {
+            let parentDir = getSourceDir(searchDir)
+            if parentDir == searchDir {
+                searching = 0
+            } else {
+                if parentDir == "" {
+                    if isAbsolutePath(searchDir) {
+                        searchDir = "/"
+                    } else {
+                        searchDir = ""
+                    }
+                } else {
+                    searchDir = parentDir
+                }
+            }
+        }
+    }
+    return ""
+}
+
+fun findNearestSeenTomlForInput(inputFile: String) r: String {
+    return findNearestSeenTomlFromDir(getSourceDir(inputFile))
+}
+
+fun readNearestSeenTomlForInput(inputFile: String) r: String {
+    let tomlPath = findNearestSeenTomlForInput(inputFile)
+    if tomlPath == "" {
+        return ""
+    }
+    return readText(tomlPath)
+}
+
+fun resolveProjectPath(projectRoot: String, path: String) r: String {
+    if path == "" {
+        return ""
+    }
+    if isAbsolutePath(path) {
+        return path
+    }
+    if projectRoot == "" {
+        return path
+    }
+    if projectRoot == "/" {
+        return "/" + path
+    }
+    return projectRoot + "/" + path
+}
+
+fun inputBelongsToProject(projectRoot: String, inputFile: String, projectModules: Array<String>, buildEntry: String) r: Bool {
+    if buildEntry != "" {
+        let resolvedBuildEntry = resolveProjectPath(projectRoot, buildEntry)
+        if resolvedBuildEntry == inputFile {
+            return true
+        }
+    }
+    var projectModuleIdx = 0
+    while projectModuleIdx < projectModules.length() {
+        let projectModulePath = resolveProjectPath(projectRoot, projectModules[projectModuleIdx])
+        if projectModulePath == inputFile {
+            return true
+        }
+        projectModuleIdx = projectModuleIdx + 1
+    }
+    return false
 }
 
 // Check if a path is in the array (handles absolute vs relative paths)
@@ -731,29 +822,35 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
     pushUniquePath(paths, processedPaths, inputFile)
 
     if not isBootstrap {
-        let tomlContent = readText("Seen.toml")
+        let tomlPath = findNearestSeenTomlForInput(inputFile)
+        let tomlContent = loadFileContent(tomlPath)
         if tomlContent != "" {
+            let projectRoot = getSourceDir(tomlPath)
             let projectModules = extractTomlProjectModules(tomlContent)
-            if not quiet and projectModules.length() > 0 {
-                println("    Adding " + projectModules.length().toString() + " modules from Seen.toml...")
-            }
-            var projectModuleIdx = 0
-            while projectModuleIdx < projectModules.length() {
-                pushUniquePath(paths, processedPaths, projectModules[projectModuleIdx])
-                projectModuleIdx = projectModuleIdx + 1
-            }
             let buildEntry = extractTomlBuildEntry(tomlContent)
+            if inputBelongsToProject(projectRoot, inputFile, projectModules, buildEntry) {
+                if not quiet and projectModules.length() > 0 {
+                    println("    Adding " + projectModules.length().toString() + " modules from Seen.toml...")
+                }
+                var projectModuleIdx = 0
+                while projectModuleIdx < projectModules.length() {
+                    let projectModulePath = resolveProjectPath(projectRoot, projectModules[projectModuleIdx])
+                    pushUniquePath(paths, processedPaths, projectModulePath)
+                    projectModuleIdx = projectModuleIdx + 1
+                }
+            }
             if buildEntry != "" {
+                let resolvedBuildEntry = resolveProjectPath(projectRoot, buildEntry)
                 if not moduleDeclaresMain(inputFile) {
                     if not quiet {
                         println("    Adding Seen.toml build entry: " + buildEntry)
                     }
-                    pushUniquePath(paths, processedPaths, buildEntry)
+                    pushUniquePath(paths, processedPaths, resolvedBuildEntry)
                 }
                 if not quiet {
                     println("    Seeding imports from Seen.toml build entry: " + buildEntry)
                 }
-                discoverImportsFromModule(paths, processedPaths, inputFile, buildEntry, isBootstrap)
+                discoverImportsFromModule(paths, processedPaths, inputFile, resolvedBuildEntry, isBootstrap)
             }
         }
     }
@@ -1951,8 +2048,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // shader files to compile with glslc before linking.
     var tomlExtraLinkFlags = ""
     var tomlAssetShaders = ""
-    let tomlContent = readText("Seen.toml")
+    let tomlPath = findNearestSeenTomlForInput(resolvedInput)
+    let tomlContent = loadFileContent(tomlPath)
     if tomlContent != "" {
+        let projectRoot = getSourceDir(tomlPath)
         println("  Reading Seen.toml...")
         var tomlSection = ""
         var tomlLineStart = 0
@@ -2008,8 +2107,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                                     if shaderPath.endsWith("\"") {
                                         shaderPath = shaderPath.substring(0, shaderPath.length() - 1)
                                     }
-                                    tomlAssetShaders = tomlAssetShaders + shaderPath + "|"
-                                    println("    asset shader: " + shaderPath)
+                                    let resolvedShaderPath = resolveProjectPath(projectRoot, shaderPath)
+                                    tomlAssetShaders = tomlAssetShaders + resolvedShaderPath + "|"
+                                    println("    asset shader: " + resolvedShaderPath)
                                 }
                             }
                         }
@@ -3741,7 +3841,7 @@ fun main() r: Int {
         }
         // Read language from Seen.toml [project] if CLI didn't explicitly set it
         if languageFromCli == 0 {
-            let tc = readText("Seen.toml")
+            let tc = readNearestSeenTomlForInput(inputFile)
             if tc != "" {
                 let tl = extractTomlProjectLanguage(tc)
                 if tl != "" {
@@ -3767,7 +3867,7 @@ fun main() r: Int {
         var language = parseLanguage(argv, 3)
         // Read language from Seen.toml [project] if CLI didn't explicitly set --language
         if not hasLanguageFlag(argv, 3) {
-            let tc = readText("Seen.toml")
+            let tc = readNearestSeenTomlForInput(argv[2])
             if tc != "" {
                 let tl = extractTomlProjectLanguage(tc)
                 if tl != "" {
@@ -3812,7 +3912,7 @@ fun main() r: Int {
         }
         // Read language from Seen.toml [project] if CLI didn't explicitly set --language
         if not hasLanguageFlag(argv, 2) {
-            let tc = readText("Seen.toml")
+            let tc = readNearestSeenTomlForInput(runInputFile)
             if tc != "" {
                 let tl = extractTomlProjectLanguage(tc)
                 if tl != "" {

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")"/.. && pwd)"
+source "$ROOT_DIR/scripts/android_ndk_env.sh"
 COMPILER_BIN="$ROOT_DIR/compiler_seen/target/seen"
 DEFAULT_SOURCE_FILE="$ROOT_DIR/examples/hello_world/hello_english.seen"
 SOURCE_OVERRIDE=""
@@ -102,6 +103,8 @@ CLI_SUBCOMMAND="compile"
 if grep -q 'seen build <' <<< "$CLI_HELP"; then
   CLI_SUBCOMMAND="build"
 fi
+
+normalize_android_ndk_env >/dev/null 2>&1 || true
 
 RUN_DIR="$OUTPUT_ROOT/$TIMESTAMP"
 mkdir -p "$RUN_DIR"
@@ -287,13 +290,10 @@ preflight_target() {
       return 1
       ;;
     android-*)
-      if [[ -n "${ANDROID_NDK_HOME:-}" && -d "${ANDROID_NDK_HOME:-}" ]]; then
+      if normalize_android_ndk_env; then
         return 0
       fi
-      if [[ -n "${ANDROID_NDK_ROOT:-}" && -d "${ANDROID_NDK_ROOT:-}" ]]; then
-        return 0
-      fi
-      echo "ANDROID_NDK_HOME or ANDROID_NDK_ROOT is required"
+      echo "Android NDK not found. Set ANDROID_NDK_HOME/ANDROID_NDK_ROOT or install it under the standard Android SDK path"
       return 1
       ;;
     macos-*|ios-*)

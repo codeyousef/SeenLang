@@ -53,8 +53,8 @@ path = "src/time/time.seen"
 hash = "305c472283a062c305b28e41fc72f20746e11f11505b672f79337367e4c4da0c"
 
 [[modules]]
-path = "src/async/task.seen"
-hash = "6c6815a62f880edf7f88ef01ef603505f9884f51aea357285a519f081733fb61"
+path = "src/async/runtime.seen"
+hash = "451d0714cf9bae2e78a2d0b5c323f9f3e0b6f7eda7fc17fbcafc837e0d355ad9"
 
 [[modules]]
 path = "src/ffi/cinterop.seen"

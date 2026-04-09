@@ -1,0 +1,8 @@
+import c13_imported_helper_global_state_module.{readPressed}
+
+fun main() r: Int {
+    if readPressed() == 1 {
+        return 0
+    }
+    return 1
+}

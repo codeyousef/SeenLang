@@ -21,7 +21,7 @@
 // passed through to the lexer's KeywordManager.
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote}
-import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang, compileCommandWithFullTargeting as StageCompileWithFullTargeting}
+import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang, compileCommandWithFullTargeting as StageCompileWithFullTargeting, readNearestSeenTomlForInput}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import io.file.{readText, writeText}
@@ -118,7 +118,7 @@ fun main() r: Int {
         }
         // Read language from Seen.toml [project] if CLI didn't explicitly set --language
         if not hasLanguageFlag(args, 2) {
-            let tc = readText("Seen.toml")
+            let tc = readNearestSeenTomlForInput(options.sourceFile)
             if tc != "" {
                 let tl = extractTomlLanguage(tc)
                 if tl != "" {
@@ -132,7 +132,7 @@ fun main() r: Int {
         // Parse language from remaining args, then check Seen.toml
         var language = parseLanguageFlag(args, 3)
         if not hasLanguageFlag(args, 3) {
-            let tc = readText("Seen.toml")
+            let tc = readNearestSeenTomlForInput(sourceFile)
             if tc != "" {
                 let tl = extractTomlLanguage(tc)
                 if tl != "" {
@@ -147,7 +147,7 @@ fun main() r: Int {
         // Parse language from remaining args, then check Seen.toml
         var language = parseLanguageFlag(args, 3)
         if not hasLanguageFlag(args, 3) {
-            let tc = readText("Seen.toml")
+            let tc = readNearestSeenTomlForInput(sourceFile)
             if tc != "" {
                 let tl = extractTomlLanguage(tc)
                 if tl != "" {

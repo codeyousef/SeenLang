@@ -36,6 +36,7 @@ ANDROID_TARGET="${SEEN_ANDROID_TARGET:-android-arm64}"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+source "$SCRIPT_DIR/android_ndk_env.sh"
 
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -45,17 +46,9 @@ LIB_DIR="$BASE_DIR/lib/arm64-v8a"
 MANIFEST_DIR="$BASE_DIR/manifest"
 mkdir -p "$LIB_DIR" "$MANIFEST_DIR" "$BASE_DIR/dex" "$BASE_DIR/assets" "$BASE_DIR/res" "$BASE_DIR/root"
 
-if [[ -z "${ANDROID_NDK_HOME:-}" && -z "${ANDROID_NDK_ROOT:-}" ]]; then
-  echo "ANDROID_NDK_HOME or ANDROID_NDK_ROOT must be set" >&2
+if ! normalize_android_ndk_env; then
+  echo "Android NDK not found. Set ANDROID_NDK_HOME/ANDROID_NDK_ROOT or install it under the standard Android SDK path" >&2
   exit 1
-fi
-
-if [[ -z "${ANDROID_NDK_HOME:-}" && -n "${ANDROID_NDK_ROOT:-}" ]]; then
-  export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
-fi
-
-if [[ -z "${ANDROID_NDK_ROOT:-}" && -n "${ANDROID_NDK_HOME:-}" ]]; then
-  export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
 fi
 
 resolve_project_dir() {

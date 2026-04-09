@@ -11,8 +11,10 @@ C13_GENERIC_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_imported_generic_store_
 C13_ENGINE_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_cross_module_engine_entry.seen"
 C13_GLOBAL_CLASS_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_level_class_state_entry.seen"
 C13_GLOBAL_GAME_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_level_game_entry.seen"
+C13_HELPER_GLOBAL_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_imported_helper_global_state_entry.seen"
 C13_MODULE_CONST_BIND_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c13_module_const_local_bind_entry.seen"
 C12_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_direct_entry_missing_user_decl.seen"
+C12_HELPER_GLOBAL_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_helper_global_state.seen"
 C12_MODULE_CONST_BIND_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c12_module_const_local_bind.seen"
 C14_SHADOWED_BRANCH_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c14_shadowed_branch_locals.seen"
 EFFECT_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/effect_capability_ok.seen"
@@ -70,6 +72,19 @@ run_check() {
     local log_file="$2"
 
     timeout 120 "$COMPILER" check "$source_file" --language en >"$log_file" 2>&1
+}
+
+run_compile_with_path_override() {
+    local path_prefix="$1"
+    local source_file="$2"
+    local output_file="$3"
+    local log_file="$4"
+
+    if [[ "$BUILD_CMD" == "build" ]]; then
+        PATH="$path_prefix:$PATH" timeout 120 "$COMPILER" build "$source_file" -o "$output_file" --fast >"$log_file" 2>&1
+    else
+        PATH="$path_prefix:$PATH" timeout 120 "$COMPILER" compile "$source_file" "$output_file" --fast >"$log_file" 2>&1
+    fi
 }
 
 run_success_case() {
@@ -233,6 +248,96 @@ EOF
     echo "PASS: recovery_opt rejects partial object sets"
 }
 
+setup_fake_llvm_dir() {
+    local kind="$1"
+    local fake_dir="$2"
+    local fake_log="$3"
+    local real_opt
+    local real_llc
+    local real_link
+
+    real_opt="$(command -v opt)"
+    real_llc="$(command -v llc)"
+    real_link="$(command -v llvm-link)"
+
+    mkdir -p "$fake_dir"
+    ln -sf "$real_llc" "$fake_dir/llc"
+    ln -sf "$real_link" "$fake_dir/llvm-link"
+
+    cat >"$fake_dir/opt" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+echo "\$*" >> "$fake_log"
+case "$kind" in
+  opt)
+    if [[ "\$*" == *"/tmp/seen_module_1.ll"* && "\$*" != *"--thinlto-bc"* ]]; then
+      echo "forced opt failure for module 1" >&2
+      exit 1
+    fi
+    ;;
+  object)
+    if [[ "\$*" == *"--thinlto-bc"* && "\$*" == *"/tmp/seen_module_1.opt.ll"* ]]; then
+      echo "forced object emission failure for module 1" >&2
+      exit 1
+    fi
+    ;;
+esac
+exec "$real_opt" "\$@"
+EOF
+    chmod +x "$fake_dir/opt"
+}
+
+run_real_compiler_failure_case() {
+    local label="$1"
+    local kind="$2"
+    local expected_driver_error="$3"
+    local expected_forced_error="$4"
+    local output_file="$TMP_ROOT/c13_forced_${kind}_failure"
+    local log_file="$TMP_ROOT/c13_forced_${kind}_failure.log"
+    local fake_dir="$TMP_ROOT/fake_llvm_${kind}"
+    local fake_log="$TMP_ROOT/fake_llvm_${kind}.log"
+
+    cleanup_seen_artifacts
+    setup_fake_llvm_dir "$kind" "$fake_dir" "$fake_log"
+
+    set +e
+    run_compile_with_path_override "$fake_dir" "$C13_ENGINE_SRC" "$output_file" "$log_file"
+    local status=$?
+    set -e
+
+    if [[ "$status" -eq 0 ]]; then
+        echo "FAIL: $label unexpectedly passed"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if [[ -f "$output_file" ]]; then
+        echo "FAIL: $label produced a success-shaped output binary"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q "$expected_driver_error" "$log_file"; then
+        echo "FAIL: $label did not report the expected compiler-side failure"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q "$expected_forced_error" "$log_file"; then
+        echo "FAIL: $label did not surface the injected LLVM failure"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'Build succeeded ->' "$log_file"; then
+        echo "FAIL: $label still printed a success-shaped build message"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: $label"
+}
+
 run_toml_project_modules_case() {
     local project_dir="$TMP_ROOT/toml_project_modules"
     local output_file="$project_dir/toml_project_modules"
@@ -293,6 +398,221 @@ EOF
     fi
 
     echo "PASS: Seen.toml project modules are included in compilation"
+}
+
+run_c12_abs_path_project_case() {
+    local project_dir="$TMP_ROOT/c12_abs_path_project"
+    local outside_dir="$TMP_ROOT/c12_abs_path_outside"
+    local output_file="$TMP_ROOT/c12_abs_path_project_bin"
+    local log_file="$TMP_ROOT/c12_abs_path_project.log"
+    local source_file="$project_dir/game.seen"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir" "$outside_dir"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "c12repro"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "support.seen",
+    "game.seen"
+]
+
+[build]
+entry = "game.seen"
+optimize = "speed"
+EOF
+
+    cat >"$project_dir/support.seen" <<'EOF'
+class PropertyRegistry {
+    var count: Int
+    var floatValues: Array<Float>
+
+    static fun new() r: PropertyRegistry {
+        return PropertyRegistry {
+            count: 0,
+            floatValues: Array<Float>()
+        }
+    }
+
+    fun registerFloat(default_: Float) r: Int {
+        let handle = this.count
+        this.floatValues.push(default_)
+        this.count = this.count + 1
+        return handle
+    }
+}
+
+class PropHandles {
+    var gravity: Int
+
+    static fun new() r: PropHandles {
+        return PropHandles { gravity: -1 }
+    }
+}
+
+class PresetStack {
+    var registry: PropertyRegistry
+    var stageHandles: Array<Int>
+    var stageFloatValues: Array<Float>
+
+    static fun new(registry: PropertyRegistry) r: PresetStack {
+        return PresetStack {
+            registry: registry,
+            stageHandles: Array<Int>(),
+            stageFloatValues: Array<Float>()
+        }
+    }
+
+    fun beginPreset() {
+        this.stageHandles = Array<Int>()
+        this.stageFloatValues = Array<Float>()
+    }
+
+    fun stageFloat(handle: Int, value: Float) {
+        this.stageHandles.push(handle)
+        this.stageFloatValues.push(value)
+    }
+}
+
+class Engine {
+    var props: PropertyRegistry
+    var propHandles: PropHandles
+
+    static fun new() r: Engine {
+        return Engine {
+            props: PropertyRegistry.new(),
+            propHandles: PropHandles.new()
+        }
+    }
+
+    fun initProperties() {
+        this.propHandles.gravity = this.props.registerFloat(-32.0)
+    }
+}
+EOF
+
+    cat >"$project_dir/game.seen" <<'EOF'
+fun runGame() {
+    let engine = Engine.new()
+    engine.initProperties()
+
+    var presetStack = PresetStack.new(engine.props)
+    presetStack.beginPreset()
+    presetStack.stageFloat(engine.propHandles.gravity, -32.0)
+}
+
+fun main() r: Int {
+    runGame()
+    return 0
+}
+EOF
+
+    set +e
+    if [[ "$BUILD_CMD" == "build" ]]; then
+        (
+            cd "$outside_dir" &&
+            timeout 120 "$COMPILER" build "$source_file" -o "$output_file" >"$log_file" 2>&1
+        )
+    else
+        (
+            cd "$outside_dir" &&
+            timeout 120 "$COMPILER" compile "$source_file" "$output_file" >"$log_file" 2>&1
+        )
+    fi
+    local status=$?
+    set -e
+
+    if [[ "$status" -ne 0 ]]; then
+        echo "FAIL: C12 absolute-path direct-entry project module did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q 'Found 2 modules' "$log_file"; then
+        echo "FAIL: C12 absolute-path direct-entry project module did not load Seen.toml project modules"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: C12 absolute-path direct-entry project module binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: C12 absolute-path direct-entry project module"
+}
+
+run_non_member_abs_path_case() {
+    local project_dir="$TMP_ROOT/non_member_abs_path_project"
+    local outside_dir="$TMP_ROOT/non_member_abs_path_outside"
+    local output_file="$TMP_ROOT/non_member_abs_path_bin"
+    local log_file="$TMP_ROOT/non_member_abs_path.log"
+    local source_file="$project_dir/tests/standalone.seen"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/tests" "$outside_dir"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "non-member-project"
+version = "0.1.0"
+language = "en"
+modules = [
+    "missing.seen"
+]
+EOF
+
+    cat >"$project_dir/tests/standalone.seen" <<'EOF'
+fun main() r: Int {
+    return 0
+}
+EOF
+
+    set +e
+    if [[ "$BUILD_CMD" == "build" ]]; then
+        (
+            cd "$outside_dir" &&
+            timeout 120 "$COMPILER" build "$source_file" -o "$output_file" >"$log_file" 2>&1
+        )
+    else
+        (
+            cd "$outside_dir" &&
+            timeout 120 "$COMPILER" compile "$source_file" "$output_file" >"$log_file" 2>&1
+        )
+    fi
+    local status=$?
+    set -e
+
+    if [[ "$status" -ne 0 ]]; then
+        echo "FAIL: non-member absolute-path input should not load Seen.toml project modules"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'could not read module' "$log_file"; then
+        echo "FAIL: non-member absolute-path input still tried to load Seen.toml project modules"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! grep -q 'Found 1 modules' "$log_file"; then
+        echo "FAIL: non-member absolute-path input unexpectedly changed module discovery"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: non-member absolute-path binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: non-member absolute-path input stays standalone"
 }
 
 run_build_entry_seed_case() {
@@ -453,9 +773,15 @@ run_success_case "C13 imported generic store" "$C13_GENERIC_SRC" "$TMP_ROOT/c13_
 run_success_case "C13 cross-module engine" "$C13_ENGINE_SRC" "$TMP_ROOT/c13_cross_module_engine" "$TMP_ROOT/c13_cross_module_engine.log"
 run_success_case "C13 module-level class state" "$C13_GLOBAL_CLASS_SRC" "$TMP_ROOT/c13_module_level_class_state" "$TMP_ROOT/c13_module_level_class_state.log"
 run_success_case "C13 module-level game state" "$C13_GLOBAL_GAME_SRC" "$TMP_ROOT/c13_module_level_game" "$TMP_ROOT/c13_module_level_game.log"
+run_success_case "C13 imported helper global state" "$C13_HELPER_GLOBAL_SRC" "$TMP_ROOT/c13_imported_helper_global_state" "$TMP_ROOT/c13_imported_helper_global_state.log"
 run_success_case "C13 module-const local bind" "$C13_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c13_module_const_local_bind" "$TMP_ROOT/c13_module_const_local_bind.log"
 run_success_case "C14 shadowed branch locals" "$C14_SHADOWED_BRANCH_SRC" "$TMP_ROOT/c14_shadowed_branch_locals" "$TMP_ROOT/c14_shadowed_branch_locals.log"
+run_success_case "C12 helper global state" "$C12_HELPER_GLOBAL_SRC" "$TMP_ROOT/c12_helper_global_state" "$TMP_ROOT/c12_helper_global_state.log"
 run_success_case "C12 module-const local bind" "$C12_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c12_module_const_local_bind" "$TMP_ROOT/c12_module_const_local_bind.log"
+run_c12_abs_path_project_case
+run_non_member_abs_path_case
+run_real_compiler_failure_case "C13 real compiler opt failure stops before link" "opt" "Error: optimization failed for module 1" "forced opt failure for module 1"
+run_real_compiler_failure_case "C13 real compiler object failure stops before link" "object" "Error: object emission failed for module 1" "forced object emission failure for module 1"
 run_check_success_case "effect(FileToken) allows restricted call" "$EFFECT_OK_SRC" "$TMP_ROOT/effect_capability_ok.log"
 run_check_failure_case "effect(NetToken) rejects file capability use" "$CAPABILITY_WRONG_EFFECT_SRC" "$TMP_ROOT/capability_wrong_effect.log" 'Missing capability token for restricted operation|requires @using\(FileToken\)'
 run_check_failure_case "method effect(NetToken) rejects file capability use" "$METHOD_WRONG_EFFECT_SRC" "$TMP_ROOT/method_wrong_effect.log" 'Missing capability token for restricted operation|requires @using\(FileToken\)'

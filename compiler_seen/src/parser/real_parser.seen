@@ -959,6 +959,7 @@ class RealParser {
             advance()
         }
 
+        refineTopLevelGlobalTypes()
         // trace.toString())
         return currentProgram
     }
@@ -1002,6 +1003,208 @@ class RealParser {
         initItem.function.body.statements.push(initStmt)
     }
 
+    fun isTopLevelGlobalMutableEncoded(encoded: String) r: Bool {
+        if encoded.length() > 0 {
+            if encoded.byteAt(0) == 86 {
+                return true
+            }
+        }
+        return false
+    }
+
+    fun parseTopLevelGlobalEncodedType(encoded: String) r: String {
+        var start = 0
+        if encoded.length() > 0 {
+            let firstByte = encoded.byteAt(0)
+            if firstByte == 76 or firstByte == 86 {
+                start = 1
+            }
+        }
+        var i = start
+        while i < encoded.length() {
+            if encoded.byteAt(i) == 58 {
+                return encoded.substring(start, i)
+            }
+            i = i + 1
+        }
+        return encoded.substring(start, encoded.length())
+    }
+
+    fun parseTopLevelGlobalEncodedStaticValue(encoded: String) r: String {
+        var i = 0
+        while i < encoded.length() {
+            if encoded.byteAt(i) == 58 {
+                return encoded.substring(i + 1, encoded.length())
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun normalizeTopLevelInferredType(typeName: String) r: String {
+        if typeName == "" {
+            return ""
+        }
+        var end = typeName.length()
+        if end > 0 {
+            if typeName.byteAt(end - 1) == 63 {
+                end = end - 1
+            }
+        }
+        var i = 0
+        while i < end {
+            if typeName.byteAt(i) == 60 {
+                return typeName.substring(0, i)
+            }
+            i = i + 1
+        }
+        return typeName.substring(0, end)
+    }
+
+    fun findCurrentProgramFunctionReturnType(functionName: String) r: String {
+        var i = currentProgram.items.length() - 1
+        while i >= 0 {
+            let item = currentProgram.items[i]
+            if item.itemType == "Function" {
+                if item.function.name == functionName {
+                    let returnType = item.function.returnType.typeName
+                    if returnType != "" and returnType != "Unknown" {
+                        return returnType
+                    }
+                }
+            }
+            i = i - 1
+        }
+        return ""
+    }
+
+    fun findCurrentProgramGlobalType(globalName: String) r: String {
+        var i = currentProgram.items.length() - 1
+        while i >= 0 {
+            let item = currentProgram.items[i]
+            if item.itemType == "GlobalVar" {
+                if item.name == globalName {
+                    return parseTopLevelGlobalEncodedType(item.visibility)
+                }
+            }
+            i = i - 1
+        }
+        return ""
+    }
+
+    fun findCurrentProgramFieldType(typeName: String, fieldName: String) r: String {
+        let normalizedType = normalizeTopLevelInferredType(typeName)
+        if normalizedType == "" {
+            return ""
+        }
+        var i = currentProgram.items.length() - 1
+        while i >= 0 {
+            let item = currentProgram.items[i]
+            if item.itemType == "Class" {
+                if item.classNode.name == normalizedType {
+                    var fieldIdx = 0
+                    while fieldIdx < item.classNode.fields.length() {
+                        let field = item.classNode.fields[fieldIdx]
+                        if field.name == fieldName {
+                            return field.paramType.typeName
+                        }
+                        fieldIdx = fieldIdx + 1
+                    }
+                }
+            }
+            i = i - 1
+        }
+        return ""
+    }
+
+    fun findCurrentProgramMethodReturnType(typeName: String, methodName: String) r: String {
+        let normalizedType = normalizeTopLevelInferredType(typeName)
+        if normalizedType == "" {
+            return ""
+        }
+        var i = currentProgram.items.length() - 1
+        while i >= 0 {
+            let item = currentProgram.items[i]
+            if item.itemType == "Class" {
+                if item.classNode.name == normalizedType {
+                    var methodIdx = 0
+                    while methodIdx < item.classNode.methods.length() {
+                        let method = item.classNode.methods[methodIdx]
+                        if method.name == methodName {
+                            let returnType = method.returnType.typeName
+                            if returnType != "" and returnType != "Unknown" {
+                                return returnType
+                            }
+                        }
+                        methodIdx = methodIdx + 1
+                    }
+                }
+            }
+            i = i - 1
+        }
+        return ""
+    }
+
+    fun findTopLevelGlobalInitializerExpr(globalName: String) r: ParserExpressionNode {
+        var i = 0
+        while i < currentProgram.items.length() {
+            let item = currentProgram.items[i]
+            if item.itemType == "Function" {
+                if item.function.name == topLevelGlobalInitFunctionName() {
+                    var stmtIdx = 0
+                    while stmtIdx < item.function.body.statements.length() {
+                        let stmt = item.function.body.statements[stmtIdx]
+                        if stmt.kind == "Assignment" and stmt.variableName == globalName {
+                            return stmt.initializer
+                        }
+                        stmtIdx = stmtIdx + 1
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return ParserExpressionNode.new()
+    }
+
+    fun shouldRefineTopLevelGlobalType(currentType: String, inferredType: String) r: Bool {
+        if inferredType == "" or inferredType == currentType {
+            return false
+        }
+        if currentType == "Int" {
+            return true
+        }
+        if currentType == "ptr" {
+            return true
+        }
+        if currentType == "Array" and inferredType.startsWith("Array<") {
+            return true
+        }
+        return false
+    }
+
+    fun refineTopLevelGlobalTypes() r: Void {
+        var i = 0
+        while i < currentProgram.items.length() {
+            let item = currentProgram.items[i]
+            if item.itemType == "GlobalVar" {
+                let initExpr = findTopLevelGlobalInitializerExpr(item.name)
+                if initExpr.kind != "None" {
+                    let currentType = parseTopLevelGlobalEncodedType(item.visibility)
+                    let inferredType = inferTopLevelGlobalType(initExpr)
+                    if shouldRefineTopLevelGlobalType(currentType, inferredType) {
+                        let staticValue = parseTopLevelGlobalEncodedStaticValue(item.visibility)
+                        var mutPrefix = "L"
+                        if isTopLevelGlobalMutableEncoded(item.visibility) {
+                            mutPrefix = "V"
+                        }
+                        item.visibility = mutPrefix + inferredType + ":" + staticValue
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+
     fun inferTopLevelGlobalType(initExpr: ParserExpressionNode) r: String {
         if initExpr.kind == "Literal" {
             if initExpr.literalType != "" {
@@ -1032,9 +1235,26 @@ class RealParser {
                     }
                 }
             }
+            var receiverType = ""
+            if initExpr.operands.length() > 0 {
+                receiverType = inferTopLevelGlobalType(initExpr.operands[0])
+            }
+            if receiverType == "" and initExpr.literalValue != "" {
+                receiverType = initExpr.literalValue
+            }
+            if receiverType != "" {
+                let methodReturnType = findCurrentProgramMethodReturnType(receiverType, initExpr.callee)
+                if methodReturnType != "" {
+                    return methodReturnType
+                }
+            }
         }
         if initExpr.kind == "Call" {
             if initExpr.callee.length() > 0 {
+                let functionReturnType = findCurrentProgramFunctionReturnType(initExpr.callee)
+                if functionReturnType != "" {
+                    return functionReturnType
+                }
                 let firstChar = initExpr.callee.charAt(0)
                 if firstChar >= "A" {
                     if firstChar <= "Z" {
@@ -1046,10 +1266,34 @@ class RealParser {
         if initExpr.kind == "VarExpr" or initExpr.kind == "Variable" {
             let varName = getVariableExprName(initExpr)
             if varName.length() > 0 {
+                let globalType = findCurrentProgramGlobalType(varName)
+                if globalType != "" {
+                    return globalType
+                }
                 let firstChar = varName.charAt(0)
                 if firstChar >= "A" {
                     if firstChar <= "Z" {
                         return varName
+                    }
+                }
+            }
+        }
+        if initExpr.kind == "MemberAccess" {
+            if initExpr.operands.length() > 0 {
+                let receiverType = inferTopLevelGlobalType(initExpr.operands[0])
+                if receiverType != "" {
+                    let fieldType = findCurrentProgramFieldType(receiverType, initExpr.variableName)
+                    if fieldType != "" {
+                        return fieldType
+                    }
+                }
+            }
+            if initExpr.literalValue != "" {
+                let baseType = findCurrentProgramGlobalType(initExpr.literalValue)
+                if baseType != "" {
+                    let fieldType = findCurrentProgramFieldType(baseType, initExpr.variableName)
+                    if fieldType != "" {
+                        return fieldType
                     }
                 }
             }

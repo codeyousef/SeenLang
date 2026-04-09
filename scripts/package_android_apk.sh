@@ -8,7 +8,7 @@ package_android_apk.sh - build a debug-installable Android APK for a Seen source
 Usage: scripts/package_android_apk.sh <seen_binary> <source.seen> <output.apk>
 
 Requirements:
-  - ANDROID_NDK_HOME or ANDROID_NDK_ROOT
+  - Android NDK available via ANDROID_NDK_HOME / ANDROID_NDK_ROOT or a standard Android SDK install
   - Android SDK with build-tools, platforms, and platform-tools installed
   - Java (javac)
 
@@ -46,17 +46,10 @@ mkdir -p "$(dirname "$OUTPUT")"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+source "$SCRIPT_DIR/android_ndk_env.sh"
 
-if [[ -z "${ANDROID_NDK_HOME:-}" && -n "${ANDROID_NDK_ROOT:-}" ]]; then
-  export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
-fi
-
-if [[ -z "${ANDROID_NDK_ROOT:-}" && -n "${ANDROID_NDK_HOME:-}" ]]; then
-  export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
-fi
-
-if [[ -z "${ANDROID_NDK_HOME:-}" || -z "${ANDROID_NDK_ROOT:-}" ]]; then
-  echo "ANDROID_NDK_HOME or ANDROID_NDK_ROOT must be set" >&2
+if ! normalize_android_ndk_env; then
+  echo "Android NDK not found. Set ANDROID_NDK_HOME/ANDROID_NDK_ROOT or install it under the standard Android SDK path" >&2
   exit 1
 fi
 
