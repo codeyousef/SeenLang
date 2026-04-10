@@ -3616,14 +3616,19 @@ fun printUsage() r: Void {
     println("  --simd=<policy>          SIMD policy (auto, none, sse4.2, avx2, avx512)")
     println("  --simd-report            Show LLVM vectorization report (brief)")
     println("  --simd-report=full       Show detailed per-loop vectorization report")
-    println("  --backend=<name>         Backend (llvm)")
+    println("  --backend=<name>         Backend selection (llvm only in this binary)")
+    println("  --backend <name>         Same as above")
     println("  --deterministic          Deterministic mode (scalar SIMD, no HashMap)")
     println("  --sanitize=<policy>      Sanitizer (address, undefined, thread, memory)")
     println("  --pgo-generate           Generate PGO instrumentation profile")
     println("  --pgo-use=<path>         Use PGO profile for optimization")
     println("  --ml-log=<path>          Collect ML training data from optimization remarks")
     println("  --ml-decision-log=<path> Write optimization decision log (JSONL format)")
-    println("  --target=<platform>      Cross-compile target (ios-arm64, ios-sim-arm64)")
+    println("  --target=<platform>      Cross-compile target")
+    println("  --target <platform>      Same as above")
+    println("                           linux-x86_64, linux-arm64, windows-x86_64,")
+    println("                           macos-x86_64, macos-arm64, ios-arm64,")
+    println("                           ios-sim-arm64, android-arm64")
     println("  --fast                   Lightweight optimization (for bootstrap verification)")
     println("  --no-fork                Disable fork-parallel IR generation (sequential)")
     println("")
@@ -3803,7 +3808,12 @@ fun main() r: Int {
                                     if startsWith(argv[argIdx], "--simd=") {
                                         simdPolicy = extractFlagValue(argv[argIdx], 7)
                                     } else {
-                                        if startsWith(argv[argIdx], "--backend=") {
+                                        if argv[argIdx] == "--backend" {
+                                            if argIdx + 1 < argv.length() {
+                                                argIdx = argIdx + 1
+                                                backend = argv[argIdx]
+                                            }
+                                        } else if startsWith(argv[argIdx], "--backend=") {
                                             backend = extractFlagValue(argv[argIdx], 10)
                                         } else {
                                             if startsWith(argv[argIdx], "--sanitize=") {
@@ -3836,7 +3846,7 @@ fun main() r: Int {
                                                                             } else {
                                                                                 if startsWith(argv[argIdx], "--target=") {
                                                                                     crossTarget = extractFlagValue(argv[argIdx], 9)
-                                                                                } else if argv[argIdx] == "--target" {
+                                                                                } else if argv[argIdx] == "--target" or argv[argIdx] == "-t" {
                                                                                     if argIdx + 1 < argv.length() {
                                                                                         crossTarget = argv[argIdx + 1]
                                                                                         argIdx = argIdx + 1
@@ -3890,7 +3900,7 @@ fun main() r: Int {
         }
         // Check backend selection
         if backend != "llvm" {
-            println("Error: Backend '" + backend + "' is not implemented. Only 'llvm' is supported.")
+            println("Error: Backend '" + backend + "' is not implemented in this binary. Supported backend: llvm.")
             return 1
         }
         let inputFile = positionalArgs[0]

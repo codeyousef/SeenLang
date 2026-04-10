@@ -16,55 +16,17 @@ The frozen bootstrap compiler has several known issues:
 | `if not X` broken | Use `if X { return }` + fall-through |
 | `.getTokenType()` cross-module issue | Use `checkToken(SeenTokenType.X)` |
 
-## Production Compiler Codegen Bugs
+## Recently Covered Regression Patterns
 
-### `static fun` in classes
+The current compiler source now has regression coverage for several patterns that were previously listed here as active production codegen bugs:
 
-Adds phantom void fields to struct type.
-
-**Workaround:** Use free functions instead of static class methods.
-
-### Class constructor struct literals
-
-`ClassName { field: val }` returns `i64` not `ptr`, causing type mismatch.
-
-**Workaround:** Use `static fun new()` factory methods that work around the issue.
-
-### Module-level `var x = func()`
-
-Emits function name as initializer instead of calling the function.
-
-**Workaround:** Assign in `main()` instead of at module level.
-
-### Module-level `Array<T>` variables
-
-Dispatch works but initialization doesn't run at startup.
-
-**Workaround:** Initialize the array in `main()`.
-
-### Functions returning `Array<T>` via `r:` syntax
-
-May allocate return variable as `i64` instead of `ptr`.
-
-**Workaround:** Return via out-parameter or use intermediate variable.
-
-### `let` in while loops with string expressions
-
-`let str = fn.params[i].paramType.typeName` inside while loop triggers `store %SeenString 0` (invalid IR).
-
-**Workaround:** Use `var` outside the loop body.
-
-### Module-level String variables
-
-`var g_foo = ""` generates invalid IR.
-
-**Workaround:** Use Int encoding with decoder function, or initialize in `main()`.
-
-### String interpolation with `{` at start
-
-`"{identifier"` triggers string interpolation, producing value `0`.
-
-**Workaround:** `let lb = "{"` then `lb + "rest"`. Note: `"{ identifier"` (space after `{`) works because space prevents interpolation.
+- `static fun` in classes
+- class constructor struct literals
+- module-level `var x = func()`
+- module-level `Array<T>` / `String` initialization
+- functions returning `Array<T>` via `r:` syntax
+- `let` bindings of string expressions inside `while` loops
+- leading-brace string literals such as `"{identifier"`
 
 ## Cold Compile Hang
 

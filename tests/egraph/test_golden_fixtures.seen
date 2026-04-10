@@ -2,7 +2,7 @@
 // Verifies algebraic simplification rules
 // Tests: x+0->x, x*1->x, x*2->x<<1, x-x->0, x/1->x, x*0->0, x==x->true
 
-// Encode node ops as integers to avoid module-level Array<String>
+// Encode node ops as integers to keep the golden fixtures compact
 // var_x=1, const_0=2, const_1=3, const_2=4, const_true=5
 // add=10, mul=11, sub=12, div=13, shl=14, eq=15
 

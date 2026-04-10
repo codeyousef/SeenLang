@@ -1,0 +1,66 @@
+fun makeValue() r: Int {
+    return 7
+}
+
+fun makeNames() r: Array<String> {
+    var names = Array<String>()
+    names.push("alpha")
+    names.push("beta")
+    return names
+}
+
+var g_value = makeValue()
+var g_message = "hello"
+var g_names = Array<String>()
+
+class FieldType {
+    var typeName: String
+}
+
+class FnParam {
+    var paramType: FieldType
+}
+
+fun main() r: Int {
+    if g_value != 7 {
+        println("FAIL: module-level func init = " + g_value.toString())
+        return 1
+    }
+    if g_message != "hello" {
+        println("FAIL: module-level string = " + g_message)
+        return 1
+    }
+
+    g_names.push("seen")
+    if g_names.length() != 1 or g_names[0] != "seen" {
+        println("FAIL: module-level Array<String>")
+        return 1
+    }
+
+    let names = makeNames()
+    if names.length() != 2 or names[1] != "beta" {
+        println("FAIL: Array<String> return")
+        return 1
+    }
+
+    let leadingBrace = "{identifier"
+    if leadingBrace != "{identifier" {
+        println("FAIL: leading brace string = " + leadingBrace)
+        return 1
+    }
+
+    var params = Array<FnParam>()
+    params.push(FnParam { paramType: FieldType { typeName: "alpha" } })
+    var i = 0
+    while i < params.length() {
+        let name = params[i].paramType.typeName
+        if name == "alpha" {
+            println("PASS: module and array regressions")
+            return 0
+        }
+        i = i + 1
+    }
+
+    println("FAIL: while string let")
+    return 1
+}

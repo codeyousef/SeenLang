@@ -1,24 +1,18 @@
 // E2E Test: Variable Keywords (English)
 // Keywords tested: let, var
 // NOTE: const and let mut have codegen bugs (produce 0), so we use let/var
-// NOTE: static fun adds phantom void fields, so we use free functions
-// NOTE: Class constructor struct literals return i64 not ptr, so we use field assignment
 
 class Config {
     var name: String
     var value: Int
 
+    static fun create(n: String, v: Int) r: Config {
+        return Config { name: n, value: v }
+    }
+
     fun getValue() r: Int {
         return this.value
     }
-}
-
-// Free function replacement for static fun (which adds phantom void fields)
-fun createConfig(n: String, v: Int) r: Config {
-    var cfg = Config()
-    cfg.name = n
-    cfg.value = v
-    return cfg
 }
 
 fun main() r: Int {
@@ -61,12 +55,12 @@ fun main() r: Int {
         return 1
     }
 
-    // Test 5: free function (static fun adds phantom void fields, use free function)
-    let cfg = createConfig("test", 99)
+    // Test 5: static factory method + class struct literal
+    let cfg = Config.create("test", 99)
     if cfg.getValue() == 99 {
-        println("PASS: free function (static method workaround)")
+        println("PASS: static factory method")
     } else {
-        println("FAIL: free function (static method workaround)")
+        println("FAIL: static factory method")
         return 1
     }
 

@@ -4198,8 +4198,6 @@ class LLVMIRGenerator {
     // If types were loaded from a header file (typesLoadedFromHeader), skips
     // emission for types that already have a header-sourced layout (detected by
     // the presence of inline "{ i64, ptr }" for SeenString rather than "%SeenString").
-    // WARNING: "static fun" in classes adds a phantom void field to the struct
-    // type — use free functions instead of static methods to avoid this.
     fun emitClassType(classNode: ClassNode) r: Void {
         // Skip if already emitted in this module (deduplication)
         var classIdx = 0
@@ -10603,11 +10601,9 @@ class LLVMIRGenerator {
 
     // Generate IR for a struct literal expression (StructName { field: val, ... }).
     // Allocates the struct on the heap via malloc, memsets to zero, then stores
-    // each field at its GEP offset. For data types (value semantics), the
-    // pointer is returned directly. For class types, the pointer is cast to i64.
-    // WARNING: Class constructor struct literals return i64 (not ptr) — callers
-    // that expect ptr will get a type mismatch. Use the constructor function
-    // call syntax (ClassName(args)) instead for class types.
+    // each field at its GEP offset. Data types use value semantics and return
+    // the allocated pointer directly. Class values follow the current ABI and
+    // are represented as pointer-as-i64 in expression results.
     fun generateStructLiteral(expr: ParserExpressionNode) r: String {
         // Get struct name from literalType
         let structName = expr.literalType
@@ -15542,9 +15538,6 @@ class LLVMIRGenerator {
     // Generate IR for string interpolation: "Hello {name}!"
     // Emits a chain of seen_str_concat_ss calls, converting each interpolated
     // expression to a string (via toString, seen_int_to_string, etc.).
-    // WARNING: Curly brace "{identifier" triggers interpolation — use
-    // `let lb = "{"` workaround when you need literal braces in strings.
-    // Existing code "{ i64, ptr }" works because space after "{" prevents it.
     fun generateStringInterpolation(expr: ParserExpressionNode) r: String {
         var resultReg = ""
         let numParts = expr.arguments.length()
