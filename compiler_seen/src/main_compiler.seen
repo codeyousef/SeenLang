@@ -581,6 +581,38 @@ fun isAbsolutePath(path: String) r: Bool {
     return path.byteAt(0) == 47
 }
 
+fun resolveRealInputPath(path: String) r: String {
+    if path == "" {
+        return ""
+    }
+    var resolved = path
+    if not isAbsolutePath(resolved) {
+        let pwdResult = runCommand("pwd")
+        if commandWasSuccessful(pwdResult) {
+            var cwd = pwdResult.output
+            if cwd.length() > 0 {
+                if cwd.byteAt(cwd.length() - 1) == 10 {
+                    cwd = cwd.substring(0, cwd.length() - 1)
+                }
+            }
+            resolved = cwd + "/" + resolved
+        }
+    }
+    let realpathResult = runCommand("readlink -f \"" + resolved + "\"")
+    if commandWasSuccessful(realpathResult) {
+        var realpath = realpathResult.output
+        if realpath.length() > 0 {
+            if realpath.byteAt(realpath.length() - 1) == 10 {
+                realpath = realpath.substring(0, realpath.length() - 1)
+            }
+        }
+        if realpath != "" {
+            return realpath
+        }
+    }
+    return resolved
+}
+
 fun findNearestSeenTomlFromDir(initialDir: String) r: String {
     var searchDir = initialDir
     var searching = 1
@@ -697,9 +729,10 @@ fun containsPath(paths: Array<String>, path: String) r: Bool {
 
 fun pushUniquePath(paths: Array<String>, processedPaths: Array<String>, path: String) r: Void {
     if path != "" {
-        if not containsPath(processedPaths, path) {
-            paths.push(path)
-            processedPaths.push(path)
+        let normalizedPath = resolveRealInputPath(path)
+        if not containsPath(processedPaths, normalizedPath) {
+            paths.push(normalizedPath)
+            processedPaths.push(normalizedPath)
         }
     }
     return
@@ -1925,22 +1958,9 @@ var g_noFork = 0
 //
 // Returns 0 on success, 1 on any compilation or linking failure.
 fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile: String, panicOnOverflow: Bool, useCache: Bool, language: String, targetCpu: String, simdPolicy: String, simdReport: Bool, sanitizePolicy: String, pgoMode: String, pgoPath: String, mlLogPath: String, crossTarget: String) r: Int {
-    // Resolve relative input path to absolute so downstream path resolution works from any CWD
-    var resolvedInput = inputFile
-    if inputFile.length() > 0 {
-        if inputFile.byteAt(0) != 47 {
-            let pwdResult = runCommand("pwd")
-            if commandWasSuccessful(pwdResult) {
-                var cwd = pwdResult.output
-                if cwd.length() > 0 {
-                    if cwd.byteAt(cwd.length() - 1) == 10 {
-                        cwd = cwd.substring(0, cwd.length() - 1)
-                    }
-                }
-                resolvedInput = cwd + "/" + inputFile
-            }
-        }
-    }
+    // Canonicalize the entry path so symlinked workspaces behave the same as
+    // the real source tree during module discovery.
+    let resolvedInput = resolveRealInputPath(inputFile)
     println("Stage1 compiling (Two-Pass Memory Optimized)")
     let isDeterministicProfile = profile == "deterministic"
     if isDeterministicProfile {
@@ -3247,20 +3267,21 @@ fun checkCommand(inputFile: String) r: Int {
 // pipeline (lex -> parse -> typecheck) and optionally the determinism checker.
 // Returns 0 if all checks pass, 1 on any error.
 fun checkCommandWithProfile(inputFile: String, profile: String, language: String) r: Int {
-    let sourceCode = readText(inputFile)
+    let resolvedInput = resolveRealInputPath(inputFile)
+    let sourceCode = readText(resolvedInput)
     if sourceCode == "" {
-        println("[ERROR] Failed to read source: " + inputFile)
+        println("[ERROR] Failed to read source: " + resolvedInput)
         return 1
     }
 
-    let frontend = run_frontend(sourceCode, inputFile, language)
-    validateBasics(frontend, inputFile)
+    let frontend = run_frontend(sourceCode, resolvedInput, language)
+    validateBasics(frontend, resolvedInput)
     if not frontend.success {
         printFrontendDiagnostics(frontend)
         return 1
     }
 
-    let checkModulePaths = collectModulePaths(inputFile, true)
+    let checkModulePaths = collectModulePaths(resolvedInput, true)
     let checkSealedValidation = validateSealedModules(checkModulePaths, language)
     if not checkSealedValidation.success {
         printFrontendDiagnostics(checkSealedValidation)
@@ -3422,22 +3443,7 @@ fun ensureJitRuntime() r: String {
 // consume ThinLTO bitcode. Falls back to AOT compilation if lli is not
 // available or if JIT runtime build fails.
 fun jitRunCommand(inputFile: String, verbose: Bool, language: String) r: Int {
-    // Resolve relative input path to absolute
-    var jitInput = inputFile
-    if inputFile.length() > 0 {
-        if inputFile.byteAt(0) != 47 {
-            let jitPwd = runCommand("pwd")
-            if commandWasSuccessful(jitPwd) {
-                var jitCwd = jitPwd.output
-                if jitCwd.length() > 0 {
-                    if jitCwd.byteAt(jitCwd.length() - 1) == 10 {
-                        jitCwd = jitCwd.substring(0, jitCwd.length() - 1)
-                    }
-                }
-                jitInput = jitCwd + "/" + inputFile
-            }
-        }
-    }
+    let jitInput = resolveRealInputPath(inputFile)
     if verbose {
         println("[jit] Compiling " + inputFile + "...")
     }

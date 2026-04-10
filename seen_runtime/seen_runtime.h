@@ -252,6 +252,20 @@ void* seen_arr_get_element(SeenArray a, int64_t idx);
 // Get i64 value from array at index (for @derive(Deserialize))
 int64_t seen_arr_get_i64(SeenArray* arr, int64_t idx);
 
+// JSON derive helpers
+void seen_json_key_int(int64_t jb_handle, SeenString key, int64_t val);
+void seen_json_key_str(int64_t jb_handle, SeenString key, SeenString val);
+void seen_json_key_float(int64_t jb_handle, SeenString key, double val);
+void seen_json_key_bool(int64_t jb_handle, SeenString key, int64_t val);
+void seen_json_key_null(int64_t jb_handle, SeenString key);
+SeenString seen_json_end_object(int64_t jb_handle);
+int64_t seen_json_start_object(int64_t unused);
+SeenString seen_json_object_get(SeenString json, SeenString key);
+int64_t seen_json_decode_int(SeenString raw);
+double seen_json_decode_float(SeenString raw);
+SeenString seen_json_decode_string(SeenString raw);
+int64_t seen_json_decode_bool(SeenString raw);
+
 // ============================================================================
 // Print Functions
 // ============================================================================

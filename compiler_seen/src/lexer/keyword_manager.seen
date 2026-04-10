@@ -6,6 +6,52 @@ import collections.map.{Map}
 import io.file.{readText}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 
+fun trimTrailingNewline(value: String) r: String {
+    if value.length() > 0 {
+        if value.byteAt(value.length() - 1) == 10 {
+            return value.substring(0, value.length() - 1)
+        }
+    }
+    return value
+}
+
+fun parentDir(path: String) r: String {
+    var lastSlash = path.length() - 1
+    while lastSlash >= 0 {
+        if path.byteAt(lastSlash) == 47 { break }
+        lastSlash = lastSlash - 1
+    }
+    if lastSlash < 0 {
+        return ""
+    }
+    if lastSlash == 0 {
+        return "/"
+    }
+    return path.substring(0, lastSlash)
+}
+
+fun resolveLanguagesRootFromCompilerSource(language: String) r: String {
+    // Detached bootstrap workspaces often omit languages/ but keep compiler_seen/
+    // symlinked back to the source checkout, so resolve through that real path.
+    let sourceResult = runCommand("readlink -f \"compiler_seen/src/main_compiler.seen\"")
+    if commandWasSuccessful(sourceResult) {
+        let sourcePath = trimTrailingNewline(sourceResult.output)
+        if sourcePath != "" {
+            let srcDir = parentDir(sourcePath)
+            let compilerDir = parentDir(srcDir)
+            let root = parentDir(compilerDir)
+            if root != "" {
+                let absTest = root + "/languages/" + language + "/" + language + "-keywords-control.toml"
+                let absCheck = readText(absTest)
+                if absCheck != "" {
+                    return root + "/languages/"
+                }
+            }
+        }
+    }
+    return ""
+}
+
 // Resolve the languages/ directory. Tries CWD-relative first, then uses
 // /proc/self/exe to find the compiler root (works from any CWD on Linux).
 fun resolveLanguagesRoot(language: String) r: String {
@@ -15,15 +61,14 @@ fun resolveLanguagesRoot(language: String) r: String {
     if cwdTest != "" {
         return "languages/"
     }
+    let sourceRoot = resolveLanguagesRootFromCompilerSource(language)
+    if sourceRoot != "" {
+        return sourceRoot
+    }
     // Slow path: use /proc/$PPID/exe — $PPID is the compiler (parent of the shell)
     let exeResult = runCommand("readlink -f /proc/$PPID/exe")
     if commandWasSuccessful(exeResult) {
-        var exePath = exeResult.output
-        if exePath.length() > 0 {
-            if exePath.byteAt(exePath.length() - 1) == 10 {
-                exePath = exePath.substring(0, exePath.length() - 1)
-            }
-        }
+        let exePath = trimTrailingNewline(exeResult.output)
         // Strip 3 levels: <root>/compiler_seen/target/seen → <root>
         var last1 = exePath.length() - 1
         while last1 >= 0 {

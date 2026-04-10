@@ -1,5 +1,5 @@
-// Regression: non-constructor static class calls still lower with a dummy
-// null receiver in the current ABI and must preserve that call shape.
+// Regression: receiver-free static class calls must keep matching their
+// emitted ClassName_method signature when they return class instances.
 
 class Counter {
     var value: Int

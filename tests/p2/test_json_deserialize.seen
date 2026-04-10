@@ -1,0 +1,42 @@
+@derive(Json)
+class Settings {
+    volume: Int
+    name: String
+    active: Bool
+    ratio: Float
+}
+
+fun main() r: Int {
+    let lb = "{"
+    let json = lb + "\"volume\":80,\"name\":\"lcd\",\"active\":true,\"ratio\":1.5}"
+    let s = Settings.fromJson(json)
+
+    if s.volume != 80 {
+        println("FAIL: json_deserialize volume")
+        return 1
+    }
+    if s.name != "lcd" {
+        println("FAIL: json_deserialize name = " + s.name)
+        return 1
+    }
+    if s.active {
+    } else {
+        println("FAIL: json_deserialize active")
+        return 1
+    }
+    if s.ratio > 1.49 {
+        if s.ratio < 1.51 {
+            let out = s.toJson()
+            let expected = lb + "\"volume\": 80, \"name\": \"lcd\", \"active\": true, \"ratio\": 1.5}"
+            if out == expected {
+                println("PASS: json_deserialize")
+                return 0
+            }
+            println("FAIL: json_deserialize toJson = " + out)
+            return 1
+        }
+    }
+
+    println("FAIL: json_deserialize ratio")
+    return 1
+}

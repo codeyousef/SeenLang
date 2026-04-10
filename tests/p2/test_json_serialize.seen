@@ -6,8 +6,21 @@ class Settings {
 
 fun main() r: Int {
     let s = Settings(80, 50)
+    if s.volume != 80 {
+        println("FAIL: json_serialize volume = " + s.volume.toString())
+        return 1
+    }
+    if s.brightness != 50 {
+        println("FAIL: json_serialize brightness = " + s.brightness.toString())
+        return 1
+    }
     let json = s.toJson()
-    println(json)
+    let lb = "{"
+    let expected = lb + "\"volume\": 80, \"brightness\": 50}"
+    if json != expected {
+        println("FAIL: json_serialize output = " + json)
+        return 1
+    }
     println("PASS: json_serialize")
     return 0
 }

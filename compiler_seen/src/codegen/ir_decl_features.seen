@@ -5,6 +5,7 @@ import parser.real_parser.{ClassNode}
 import codegen.ir_declarations.{isFuncDefinedInModule, addStringConstantImpl, registerStructMethodImpl}
 import codegen.ir_optimization.{pipeGet, parseIntManual}
 import codegen.ir_type_info.{findStructIdx}
+import codegen.type_registry.{getTypeSizeReg}
 
 // Emit P0-P3 feature declarations (concurrency, safety, SIMD, GPU, derive, etc.)
 fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void {
@@ -292,6 +293,24 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
     }
     if not isFuncDefinedInModule("seen_json_key_bool", definedFuncs) {
         output.append("declare void @seen_json_key_bool(i64, %SeenString, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_key_null", definedFuncs) {
+        output.append("declare void @seen_json_key_null(i64, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_object_get", definedFuncs) {
+        output.append("declare %SeenString @seen_json_object_get(%SeenString, %SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_decode_int", definedFuncs) {
+        output.append("declare i64 @seen_json_decode_int(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_decode_float", definedFuncs) {
+        output.append("declare double @seen_json_decode_float(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_decode_string", definedFuncs) {
+        output.append("declare %SeenString @seen_json_decode_string(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_json_decode_bool", definedFuncs) {
+        output.append("declare i64 @seen_json_decode_bool(%SeenString) nounwind\n")
     }
 
     // ============================================================
@@ -757,20 +776,34 @@ fun generateBinaryDeserializerImpl(output: StringBuilder, classNode: ClassNode, 
     registerStructMethodImpl(className, "deserialize", className, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
 }
 
-fun generateJsonSerializeImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>, stringConstants: Array<String>, stringConstantPrefix: String) r: Void {
+fun computeJsonObjectSize(classNode: ClassNode, structNames: Array<String>, structSizes: Array<Int>) r: Int {
+    var totalSize = 0
+    var fi = 0
+    while fi < classNode.fields.length() {
+        totalSize = totalSize + getTypeSizeReg(classNode.fields[fi].paramType.typeName, structNames, structSizes)
+        fi = fi + 1
+    }
+    if totalSize == 0 {
+        return 8
+    }
+    return totalSize
+}
+
+fun generateJsonSerializeImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>, stringConstants: Array<String>, stringConstantPrefix: String) r: Void {
     let className = classNode.name
     output.append("; @derive(Json) serialize for " + className + "\n")
     output.append("define %SeenString @" + className + "_toJson(ptr %this) #0 {\n")
     output.append("entry:\n")
     output.append("  %jb = call i64 @seen_json_start_object(i64 0)\n")
     var fi = 0
+    var byteOff = 0
     while fi < classNode.fields.length() {
         let fis = fi.toString()
         let field = classNode.fields[fi]
         let fType = field.paramType.typeName
         let keyIdx = addStringConstantImpl(stringConstants, field.name)
         output.append("  %key_" + fis + " = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + keyIdx.toString() + ")\n")
-        output.append("  %fp_" + fis + " = getelementptr inbounds i64, ptr %this, i64 " + fis + "\n")
+        output.append("  %fp_" + fis + " = getelementptr inbounds i8, ptr %this, i64 " + byteOff.toString() + "\n")
         if fType == "String" {
             output.append("  %fv_" + fis + " = load %SeenString, ptr %fp_" + fis + "\n")
             output.append("  call void @seen_json_key_str(i64 %jb, %SeenString %key_" + fis + ", %SeenString %fv_" + fis + ")\n")
@@ -784,11 +817,16 @@ fun generateJsonSerializeImpl(output: StringBuilder, classNode: ClassNode, struc
                     output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
                     output.append("  call void @seen_json_key_bool(i64 %jb, %SeenString %key_" + fis + ", i64 %fv_" + fis + ")\n")
                 } else {
-                    output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
-                    output.append("  call void @seen_json_key_int(i64 %jb, %SeenString %key_" + fis + ", i64 %fv_" + fis + ")\n")
+                    if fType == "Int" or fType == "Char" {
+                        output.append("  %fv_" + fis + " = load i64, ptr %fp_" + fis + "\n")
+                        output.append("  call void @seen_json_key_int(i64 %jb, %SeenString %key_" + fis + ", i64 %fv_" + fis + ")\n")
+                    } else {
+                        output.append("  call void @seen_json_key_null(i64 %jb, %SeenString %key_" + fis + ")\n")
+                    }
                 }
             }
         }
+        byteOff = byteOff + getTypeSizeReg(fType, structNames, structSizes)
         fi = fi + 1
     }
     output.append("  %result = call %SeenString @seen_json_end_object(i64 %jb)\n")
@@ -797,15 +835,78 @@ fun generateJsonSerializeImpl(output: StringBuilder, classNode: ClassNode, struc
     registerStructMethodImpl(className, "toJson", "String", structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
 }
 
-fun generateJsonDeserializeImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+fun generateJsonDeserializeImpl(output: StringBuilder, classNode: ClassNode, structNames: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>, funcNames: Array<String>, funcRetTypes: Array<String>, stringConstants: Array<String>, stringConstantPrefix: String) r: Void {
     let className = classNode.name
-    let numFields = classNode.fields.length()
-    let sz = numFields * 8
+    let sz = computeJsonObjectSize(classNode, structNames, structSizes)
     output.append("; @derive(Json) deserialize for " + className + "\n")
     output.append("define i64 @" + className + "_fromJson(%SeenString %json) #0 {\n")
     output.append("entry:\n")
     output.append("  %mem = call ptr @malloc(i64 " + sz.toString() + ")\n")
     output.append("  call void @llvm.memset.p0.i64(ptr %mem, i8 0, i64 " + sz.toString() + ", i1 false)\n")
+    var initFi = 0
+    var initByteOff = 0
+    while initFi < classNode.fields.length() {
+        let initFis = initFi.toString()
+        let initFieldType = classNode.fields[initFi].paramType.typeName
+        var isArrayField = 0
+        if initFieldType.startsWith("Array<") {
+            isArrayField = 1
+        }
+        if initFieldType.startsWith("List<") {
+            isArrayField = 1
+        }
+        if isArrayField == 1 {
+            output.append("  %init_fp_" + initFis + " = getelementptr inbounds i8, ptr %mem, i64 " + initByteOff.toString() + "\n")
+            var elemType = ""
+            if initFieldType.startsWith("Array<") {
+                elemType = initFieldType.substring(6, initFieldType.length() - 1)
+            }
+            if initFieldType.startsWith("List<") {
+                elemType = initFieldType.substring(5, initFieldType.length() - 1)
+            }
+            if elemType == "String" {
+                output.append("  %init_arr_" + initFis + " = call ptr @seen_arr_new_str_ptr()\n")
+            } else {
+                output.append("  %init_arr_" + initFis + " = call ptr @seen_arr_new_ptr_ptr()\n")
+            }
+            output.append("  store ptr %init_arr_" + initFis + ", ptr %init_fp_" + initFis + "\n")
+        }
+        initByteOff = initByteOff + getTypeSizeReg(initFieldType, structNames, structSizes)
+        initFi = initFi + 1
+    }
+    var fi = 0
+    var byteOff = 0
+    while fi < classNode.fields.length() {
+        let fis = fi.toString()
+        let field = classNode.fields[fi]
+        let fType = field.paramType.typeName
+        let keyIdx = addStringConstantImpl(stringConstants, field.name)
+        output.append("  %key_" + fis + " = call %SeenString @seen_cstr_to_str(ptr @.str." + stringConstantPrefix + keyIdx.toString() + ")\n")
+        output.append("  %raw_" + fis + " = call %SeenString @seen_json_object_get(%SeenString %json, %SeenString %key_" + fis + ")\n")
+        output.append("  %fp_" + fis + " = getelementptr inbounds i8, ptr %mem, i64 " + byteOff.toString() + "\n")
+        if fType == "String" {
+            output.append("  %val_" + fis + " = call %SeenString @seen_json_decode_string(%SeenString %raw_" + fis + ")\n")
+            output.append("  store %SeenString %val_" + fis + ", ptr %fp_" + fis + "\n")
+        } else {
+            if fType == "Float" {
+                output.append("  %val_" + fis + " = call double @seen_json_decode_float(%SeenString %raw_" + fis + ")\n")
+                output.append("  %bits_" + fis + " = bitcast double %val_" + fis + " to i64\n")
+                output.append("  store i64 %bits_" + fis + ", ptr %fp_" + fis + "\n")
+            } else {
+                if fType == "Bool" {
+                    output.append("  %val_" + fis + " = call i64 @seen_json_decode_bool(%SeenString %raw_" + fis + ")\n")
+                    output.append("  store i64 %val_" + fis + ", ptr %fp_" + fis + "\n")
+                } else {
+                    if fType == "Int" or fType == "Char" {
+                        output.append("  %val_" + fis + " = call i64 @seen_json_decode_int(%SeenString %raw_" + fis + ")\n")
+                        output.append("  store i64 %val_" + fis + ", ptr %fp_" + fis + "\n")
+                    }
+                }
+            }
+        }
+        byteOff = byteOff + getTypeSizeReg(fType, structNames, structSizes)
+        fi = fi + 1
+    }
     output.append("  %json_ret = ptrtoint ptr %mem to i64\n")
     output.append("  ret i64 %json_ret\n")
     output.append("}\n\n")

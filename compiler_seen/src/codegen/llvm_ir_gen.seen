@@ -4929,12 +4929,12 @@ class LLVMIRGenerator {
 
     // P2 : JSON serialization
     fun generateJsonSerialize(classNode: ClassNode) r: Void {
-        generateJsonSerializeImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, stringConstants, stringConstantPrefix)
+        generateJsonSerializeImpl(output, classNode, structNames, structSizes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, stringConstants, stringConstantPrefix)
     }
 
-    // P2 : JSON deserialization (stub — returns empty instance)
+    // P2 : JSON deserialization
     fun generateJsonDeserialize(classNode: ClassNode) r: Void {
-        generateJsonDeserializeImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
+        generateJsonDeserializeImpl(output, classNode, structNames, structSizes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, stringConstants, stringConstantPrefix)
     }
 
     // P2 : Packet writer
@@ -12010,6 +12010,49 @@ class LLVMIRGenerator {
                 }
             }
 
+            // Initialize positional constructor arguments in field order.
+            // ClassName(a, b) should populate the first fields rather than
+            // returning a zeroed object.
+            if structIdx >= 0 and expr.arguments.length() > 0 {
+                var ctorFieldTypesStr = structFieldTypes[structIdx]
+                var ctorByteOffset = 0
+                var ctorTypePos = 0
+                var ctorArgIdx = 0
+                while ctorArgIdx < expr.arguments.length() and ctorTypePos < ctorFieldTypesStr.length() {
+                    var ctorTypeEnd = ctorTypePos
+                    while ctorTypeEnd < ctorFieldTypesStr.length() and ctorFieldTypesStr.byteAt(ctorTypeEnd) != 124 {
+                        ctorTypeEnd = ctorTypeEnd + 1
+                    }
+                    var ctorFieldSeenType = ctorFieldTypesStr.substring(ctorTypePos, ctorTypeEnd)
+                    let ctorArgExpr = expr.arguments[ctorArgIdx]
+                    let ctorArgReg = generateExpression(ctorArgExpr)
+                    let ctorFieldPtrReg = getNextReg()
+                    output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorByteOffset.toString() + "\n")
+                    if isDataType(ctorFieldSeenType) {
+                        if ctorArgExpr.kind == "StructLiteral" {
+                            let ctorFieldSize = getDataTypeSize(ctorFieldSeenType)
+                            output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + ctorFieldPtrReg + ", ptr " + ctorArgReg + ", i64 " + ctorFieldSize.toString() + ", i1 false)\n")
+                        } else {
+                            output.append("  store %" + ctorFieldSeenType + " " + ctorArgReg + ", ptr " + ctorFieldPtrReg + "\n")
+                        }
+                    } else {
+                        let ctorFieldLlvmType = mapType(ctorFieldSeenType)
+                        var ctorStoreReg = ctorArgReg
+                        if ctorFieldLlvmType == "ptr" and ctorStoreReg == "0" {
+                            ctorStoreReg = "null"
+                        }
+                        output.append("  store " + ctorFieldLlvmType + " " + ctorStoreReg + ", ptr " + ctorFieldPtrReg + "\n")
+                    }
+                    ctorByteOffset = ctorByteOffset + getTypeSize(ctorFieldSeenType)
+                    ctorArgIdx = ctorArgIdx + 1
+                    if ctorTypeEnd < ctorFieldTypesStr.length() {
+                        ctorTypePos = ctorTypeEnd + 1
+                    } else {
+                        ctorTypePos = ctorFieldTypesStr.length()
+                    }
+                }
+            }
+
             // Convert pointer to i64 (class types are stored as pointer-as-int)
             let intReg = getNextReg()
             output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
@@ -13163,12 +13206,10 @@ class LLVMIRGenerator {
                 if isClassType(potentialClassName) { isClassRecv1 = 1 }
                 var isDataRecv1 = 0
                 if isDataType(potentialClassName) { isDataRecv1 = 1 }
-                // Static class methods currently lower with a dummy ptr receiver in
-                // their emitted ABI. Pass ptr null for non-constructors so calls keep
-                // matching the generated function signature until method lowering is
-                // made truly receiver-free.
-                var hasImplicitThis = 0
-                if methodName != "new" { hasImplicitThis = 1 }
+                // Static methods lower receiver-free. Do not synthesize a dummy
+                // ptr argument here or the call ABI no longer matches the emitted
+                // ClassName_methodName signature.
+                let hasImplicitThis = 0
                 fillDefaultParamsLocal(funcName, staticArgRegs, staticArgTypeStrs)
                 staticArgRegs = g_defaultFillArgRegs
                 staticArgTypeStrs = g_defaultFillArgTypeStrs
@@ -13180,6 +13221,22 @@ class LLVMIRGenerator {
         // If receiver couldn't be resolved, check if this is a standalone function call
         // This handles cases where class methods were incorrectly parsed as standalone functions
         if receiverReg == "" {
+            // If receiver resolution failed entirely but the callee still exists as
+            // an implicit current-class method or a plain free function, lower it
+            // through generateCall() instead of defaulting to String_* helpers.
+            var lowerAsCall = false
+            if currentClassName != "" {
+                let implicitMethodRetType = getMethodReturnType(currentClassName, methodName)
+                if implicitMethodRetType != "" {
+                    lowerAsCall = true
+                }
+            }
+            if not lowerAsCall and getFunctionReturnType(methodName) != "" {
+                lowerAsCall = true
+            }
+            if lowerAsCall {
+                return generateCall(expr)
+            }
             // Check if this method name matches a known standalone function
             // These are methods that should be on RealParser class but are parsed as standalone
             let isStandaloneFunc = methodName == "checkToken" or methodName == "advance" or methodName == "isAtEnd" or methodName == "peek" or methodName == "peekTokenType" or methodName == "peekTokenTypeStr" or methodName == "previous" or methodName == "consume" or methodName == "matchTokenStr" or methodName == "joinSegments" or methodName == "skipExpression" or methodName == "toArray"
@@ -13240,7 +13297,7 @@ class LLVMIRGenerator {
             }
 
             // Fallback: use default value based on inferred type
-            output.append("; WARNING: receiver not resolved for " + methodName + ", receiverType='" + receiverType + "', using default\n")
+            output.append("; WARNING: receiver not resolved for " + methodName + ", receiverType='" + receiverType + "', currentClass='" + currentClassName + "', literal='" + expr.literalValue + "', operands=" + expr.operands.length().toString() + ", using default\n")
 
             // Special case: toString on unknown receiver type - return proper string
             if methodName == "toString" {
@@ -13857,10 +13914,9 @@ class LLVMIRGenerator {
             if isClassType(className) { isClassRecvFB = 1 }
             var isDataRecvFB = 0
             if isDataType(className) { isDataRecvFB = 1 }
-            // Keep fallback static-call emission aligned with the current lowered
-            // ABI: non-constructor static methods still expect a dummy ptr receiver.
-            var hasImplicitThisFB = 0
-            if methodName != "new" { hasImplicitThisFB = 1 }
+            // Fallback static calls share the same receiver-free ABI as the main
+            // static-call path.
+            let hasImplicitThisFB = 0
             fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
             argRegs = g_defaultFillArgRegs
             argTypeStrs = g_defaultFillArgTypeStrs
@@ -14814,6 +14870,24 @@ class LLVMIRGenerator {
                     return registryRetType
                 }
             }
+            // Some parser paths still produce a zero-receiver MethodCall for what is
+            // semantically either an implicit current-class call or a plain free
+            // function call. Mirror generateCall() so both paths infer the same type.
+            if expr.literalValue == "" and expr.operands.length() == 0 {
+                if currentClassName != "" {
+                    let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
+                    if implicitMethodRetType != "" {
+                        return implicitMethodRetType
+                    }
+                }
+                let freeFuncRetType = getFunctionReturnType(expr.callee)
+                if freeFuncRetType != "" {
+                    if isAsyncFunction(expr.callee) {
+                        return "ptr"
+                    }
+                    return freeFuncRetType
+                }
+            }
             // Handle variable receiver (obj.method())
             if expr.literalValue != "" and expr.literalValue != "this" {
                 let recVarType = findVarType(expr.literalValue)
@@ -15019,6 +15093,22 @@ class LLVMIRGenerator {
                 if methodRetType != "" {
                     return methodRetType
                 }
+            }
+            // Some parser paths leave unresolved MethodCall nodes even though the
+            // callee should lower exactly like a plain Call node. Only fall back
+            // here after receiver-based resolution has already failed.
+            if currentClassName != "" {
+                let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
+                if implicitMethodRetType != "" {
+                    return implicitMethodRetType
+                }
+            }
+            let freeFuncRetType = getFunctionReturnType(expr.callee)
+            if freeFuncRetType != "" {
+                if isAsyncFunction(expr.callee) {
+                    return "ptr"
+                }
+                return freeFuncRetType
             }
             // Last-resort Bool detection: scan funcRetTypes for any method with this name returning Bool
             let boolSuffix = "_" + expr.callee

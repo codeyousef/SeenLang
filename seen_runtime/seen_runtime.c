@@ -64,6 +64,8 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 
 #endif // _WIN32
 
+#include <ctype.h>
+
 // ============================================================================
 // Pool Allocator - size-class slab allocator with free-list recycling
 // ============================================================================
@@ -7488,6 +7490,269 @@ static void jb_write_key(SeenJsonBuilder* jb, SeenString key) {
     jb->fieldCount++;
 }
 
+static const char* seen_json_skip_ws_ptr(const char* p, const char* end) {
+    while (p < end && isspace((unsigned char)*p)) {
+        p++;
+    }
+    return p;
+}
+
+static SeenString seen_json_trim_slice(const char* start, const char* end) {
+    SeenString empty = {0, ""};
+    if (!start || !end || start >= end) {
+        return empty;
+    }
+    while (start < end && isspace((unsigned char)*start)) {
+        start++;
+    }
+    while (end > start && isspace((unsigned char)*(end - 1))) {
+        end--;
+    }
+    SeenString result = {(int64_t)(end - start), (char*)start};
+    return result;
+}
+
+static const char* seen_json_skip_string_ptr(const char* p, const char* end) {
+    if (!p || p >= end || *p != '"') {
+        return p;
+    }
+    p++;
+    while (p < end) {
+        if (*p == '\\') {
+            p++;
+            if (p < end) {
+                p++;
+            }
+            continue;
+        }
+        if (*p == '"') {
+            return p + 1;
+        }
+        p++;
+    }
+    return end;
+}
+
+static const char* seen_json_skip_container_ptr(const char* p, const char* end, char open_ch, char close_ch) {
+    if (!p || p >= end || *p != open_ch) {
+        return p;
+    }
+    int depth = 0;
+    while (p < end) {
+        if (*p == '"') {
+            p = seen_json_skip_string_ptr(p, end);
+            continue;
+        }
+        if (*p == open_ch) {
+            depth++;
+            p++;
+            continue;
+        }
+        if (*p == close_ch) {
+            depth--;
+            p++;
+            if (depth == 0) {
+                return p;
+            }
+            continue;
+        }
+        p++;
+    }
+    return end;
+}
+
+static const char* seen_json_skip_value_ptr(const char* p, const char* end) {
+    p = seen_json_skip_ws_ptr(p, end);
+    if (!p || p >= end) {
+        return end;
+    }
+    if (*p == '"') {
+        return seen_json_skip_string_ptr(p, end);
+    }
+    if (*p == '{') {
+        return seen_json_skip_container_ptr(p, end, '{', '}');
+    }
+    if (*p == '[') {
+        return seen_json_skip_container_ptr(p, end, '[', ']');
+    }
+    while (p < end &&
+           *p != ',' &&
+           *p != '}' &&
+           *p != ']' &&
+           !isspace((unsigned char)*p)) {
+        p++;
+    }
+    return p;
+}
+
+SeenString seen_json_object_get(SeenString json, SeenString key) {
+    SeenString empty = {0, ""};
+    if (!json.data || json.len <= 0 || !key.data || key.len <= 0) {
+        return empty;
+    }
+
+    const char* start = json.data;
+    const char* end = json.data + json.len;
+    const char* p = seen_json_skip_ws_ptr(start, end);
+    if (p >= end || *p != '{') {
+        return empty;
+    }
+    p++;
+
+    while (p < end) {
+        p = seen_json_skip_ws_ptr(p, end);
+        if (p >= end || *p == '}') {
+            return empty;
+        }
+        if (*p != '"') {
+            return empty;
+        }
+
+        const char* key_start = p + 1;
+        const char* scan = key_start;
+        int has_escape = 0;
+        while (scan < end) {
+            if (*scan == '\\') {
+                has_escape = 1;
+                scan++;
+                if (scan < end) {
+                    scan++;
+                }
+                continue;
+            }
+            if (*scan == '"') {
+                break;
+            }
+            scan++;
+        }
+        if (scan >= end) {
+            return empty;
+        }
+
+        const char* key_end = scan;
+        p = scan + 1;
+        p = seen_json_skip_ws_ptr(p, end);
+        if (p >= end || *p != ':') {
+            return empty;
+        }
+        p++;
+
+        const char* value_start = seen_json_skip_ws_ptr(p, end);
+        const char* value_end = seen_json_skip_value_ptr(value_start, end);
+        if (!has_escape &&
+            (key_end - key_start) == key.len &&
+            memcmp(key_start, key.data, (size_t)key.len) == 0) {
+            return seen_json_trim_slice(value_start, value_end);
+        }
+
+        p = seen_json_skip_ws_ptr(value_end, end);
+        if (p < end && *p == ',') {
+            p++;
+            continue;
+        }
+        if (p < end && *p == '}') {
+            return empty;
+        }
+    }
+
+    return empty;
+}
+
+int64_t seen_json_decode_int(SeenString raw) {
+    if (!raw.data || raw.len <= 0) {
+        return 0;
+    }
+    SeenString trimmed = seen_json_trim_slice(raw.data, raw.data + raw.len);
+    if (!trimmed.data || trimmed.len <= 0) {
+        return 0;
+    }
+    char* cstr = seen_str_to_cstr(trimmed);
+    if (!cstr) {
+        return 0;
+    }
+    int64_t result = strtoll(cstr, NULL, 10);
+    free(cstr);
+    return result;
+}
+
+double seen_json_decode_float(SeenString raw) {
+    if (!raw.data || raw.len <= 0) {
+        return 0.0;
+    }
+    SeenString trimmed = seen_json_trim_slice(raw.data, raw.data + raw.len);
+    if (!trimmed.data || trimmed.len <= 0) {
+        return 0.0;
+    }
+    char* cstr = seen_str_to_cstr(trimmed);
+    if (!cstr) {
+        return 0.0;
+    }
+    double result = strtod(cstr, NULL);
+    free(cstr);
+    return result;
+}
+
+SeenString seen_json_decode_string(SeenString raw) {
+    SeenString empty = {0, ""};
+    if (!raw.data || raw.len < 2) {
+        return empty;
+    }
+    SeenString trimmed = seen_json_trim_slice(raw.data, raw.data + raw.len);
+    if (trimmed.len < 2 || trimmed.data[0] != '"' || trimmed.data[trimmed.len - 1] != '"') {
+        return empty;
+    }
+
+    char* out = (char*)malloc((size_t)trimmed.len);
+    if (!out) {
+        return empty;
+    }
+
+    int64_t out_len = 0;
+    for (int64_t i = 1; i < trimmed.len - 1; i++) {
+        char ch = trimmed.data[i];
+        if (ch == '\\' && i + 1 < trimmed.len - 1) {
+            i++;
+            char esc = trimmed.data[i];
+            switch (esc) {
+                case '"': out[out_len++] = '"'; break;
+                case '\\': out[out_len++] = '\\'; break;
+                case '/': out[out_len++] = '/'; break;
+                case 'b': out[out_len++] = '\b'; break;
+                case 'f': out[out_len++] = '\f'; break;
+                case 'n': out[out_len++] = '\n'; break;
+                case 'r': out[out_len++] = '\r'; break;
+                case 't': out[out_len++] = '\t'; break;
+                case 'u':
+                    if (i + 4 < trimmed.len - 1) {
+                        i += 4;
+                    }
+                    out[out_len++] = '?';
+                    break;
+                default:
+                    out[out_len++] = esc;
+                    break;
+            }
+        } else {
+            out[out_len++] = ch;
+        }
+    }
+
+    out[out_len] = '\0';
+    SeenString result = {out_len, out};
+    return result;
+}
+
+int64_t seen_json_decode_bool(SeenString raw) {
+    if (!raw.data || raw.len <= 0) {
+        return 0;
+    }
+    SeenString trimmed = seen_json_trim_slice(raw.data, raw.data + raw.len);
+    if (trimmed.len == 4 && memcmp(trimmed.data, "true", 4) == 0) {
+        return 1;
+    }
+    return 0;
+}
+
 void seen_json_key_int(int64_t jb_handle, SeenString key, int64_t val) {
     SeenJsonBuilder* jb = (SeenJsonBuilder*)(uintptr_t)jb_handle;
     jb_write_key(jb, key);
@@ -7522,6 +7787,12 @@ void seen_json_key_bool(int64_t jb_handle, SeenString key, int64_t val) {
     } else {
         jb_append_str(jb, "false");
     }
+}
+
+void seen_json_key_null(int64_t jb_handle, SeenString key) {
+    SeenJsonBuilder* jb = (SeenJsonBuilder*)(uintptr_t)jb_handle;
+    jb_write_key(jb, key);
+    jb_append_str(jb, "null");
 }
 
 SeenString seen_json_end_object(int64_t jb_handle) {

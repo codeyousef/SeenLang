@@ -1,0 +1,39 @@
+// Regression: zero-receiver MethodCall nodes inside class methods must lower
+// like ordinary calls, not fall back to bogus String_* dispatch.
+
+fun floorInt(x: Float) r: Int {
+    let xi = x as Int
+    if x < 0.0 {
+        let xf = xi as Float
+        if x != xf {
+            return xi - 1
+        }
+    }
+    return xi
+}
+
+class NoiseLike {
+    static fun new() r: NoiseLike {
+        return NoiseLike {}
+    }
+
+    fun adjust(v: Float) r: Float {
+        return v + 0.5
+    }
+
+    fun sample(v: Float) r: Float {
+        let base = floorInt(v)
+        return adjust(base as Float)
+    }
+}
+
+fun main() r: Int {
+    let n = NoiseLike.new()
+    let got = n.sample(3.7)
+    if got > 3.49 and got < 3.51 {
+        println("PASS: implicit zero-receiver calls")
+        return 0
+    }
+    println("FAIL: implicit zero-receiver calls = " + got.toString())
+    return 1
+}
