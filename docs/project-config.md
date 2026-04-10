@@ -62,9 +62,20 @@ modules = [
 ```toml
 [dependencies]
 seen_std = "../seen_std"
+hearton_shim = { system = true, path = "native/lib" }
 ```
 
-Dependencies are specified as relative paths to other Seen projects.
+Dependencies can be either:
+
+- relative paths to other Seen projects
+- system libraries declared with `system = true`
+
+For project-local native libraries, add `path = "..."` to point at the
+directory containing the library file. The path is resolved relative to the
+nearest `Seen.toml`. Seen adds `-L<resolved-path>` during linking, and on
+native Linux/macOS builds it also records that directory as a runtime search
+path so the output can run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH`
+wrappers.
 
 ## [build] Section
 

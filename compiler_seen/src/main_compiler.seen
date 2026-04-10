@@ -219,6 +219,32 @@ fun stripTomlQuotedValue(value: String) r: String {
     return result
 }
 
+fun extractTomlInlineQuotedField(value: String, fieldName: String) r: String {
+    var fieldPos = value.indexOf(fieldName + " =", 0)
+    if fieldPos < 0 {
+        fieldPos = value.indexOf(fieldName + "=", 0)
+    }
+    if fieldPos < 0 {
+        return ""
+    }
+    var pos = fieldPos + fieldName.length()
+    while pos < value.length() {
+        if value.byteAt(pos) == 34 {
+            let start = pos + 1
+            var end = start
+            while end < value.length() {
+                if value.byteAt(end) == 34 {
+                    return value.substring(start, end)
+                }
+                end = end + 1
+            }
+            return ""
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
 fun extractTomlProjectName(content: String) r: String {
     var inProject = 0
     var lineStart = 0
@@ -618,6 +644,19 @@ fun resolveProjectPath(projectRoot: String, path: String) r: String {
         return "/" + path
     }
     return projectRoot + "/" + path
+}
+
+fun buildLocalLibrarySearchFlags(resolvedPath: String, effectiveTarget: String, normalizedCrossTarget: String) r: String {
+    if resolvedPath == "" {
+        return ""
+    }
+    var flags = " -L" + resolvedPath
+    if normalizedCrossTarget == "" {
+        if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
+            flags = flags + " -Wl,-rpath," + resolvedPath
+        }
+    }
+    return flags
 }
 
 fun inputBelongsToProject(projectRoot: String, inputFile: String, projectModules: Array<String>, buildEntry: String) r: Bool {
@@ -2050,7 +2089,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // ============================================================
     // : Dependency management -- parse Seen.toml if present
     // ============================================================
-    // Reads [dependencies] for system library link flags (-lname),
+    // Reads [dependencies] for system library link flags (-lname) and
+    // project-local library search paths (-L plus native-host rpath),
     // [features] for compile-time feature flags, and [assets] for
     // shader files to compile with glslc before linking.
     var tomlExtraLinkFlags = ""
@@ -2090,11 +2130,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                             let tomlVal = tomlLineTrimmed.substring(tomlEqPos + 1, tomlLineTrimmed.length()).trim()
                             // [dependencies] section: system libs → -lname link flags
                             if tomlSection == "dependencies" {
+                                let tomlDepPath = extractTomlInlineQuotedField(tomlVal, "path")
                                 if tomlVal.contains("system = true") or tomlVal.contains("system=true") {
                                     tomlExtraLinkFlags = tomlExtraLinkFlags + " -l" + tomlKey
-                                    println("    dep: " + tomlKey + " (system)")
-                                }
-                                if tomlVal.contains("path =") or tomlVal.contains("path=") {
+                                    if tomlDepPath != "" {
+                                        let resolvedDepPath = resolveProjectPath(projectRoot, tomlDepPath)
+                                        tomlExtraLinkFlags = tomlExtraLinkFlags + buildLocalLibrarySearchFlags(resolvedDepPath, effectiveTarget, normalizedCrossTarget)
+                                        println("    dep: " + tomlKey + " (system path: " + resolvedDepPath + ")")
+                                    } else {
+                                        println("    dep: " + tomlKey + " (system)")
+                                    }
+                                } else if tomlDepPath != "" {
                                     println("    dep: " + tomlKey + " (local path)")
                                 }
                             }

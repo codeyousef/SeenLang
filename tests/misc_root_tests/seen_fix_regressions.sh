@@ -400,6 +400,80 @@ EOF
     echo "PASS: Seen.toml project modules are included in compilation"
 }
 
+run_local_system_dependency_case() {
+    local project_dir="$TMP_ROOT/local_system_dependency"
+    local outside_dir="$TMP_ROOT/local_system_dependency_outside"
+    local output_file="$TMP_ROOT/local_system_dependency_bin"
+    local log_file="$TMP_ROOT/local_system_dependency.log"
+    local source_file="$project_dir/main.seen"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/native/lib" "$outside_dir"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "local-system-dependency"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+hearton_shim = { system = true, path = "native/lib" }
+EOF
+
+    cat >"$project_dir/native/hearton_shim.c" <<'EOF'
+#include <stdint.h>
+
+int64_t hearton_bonus(int64_t base) {
+    return base + 7;
+}
+EOF
+
+    if ! clang -shared -fPIC "$project_dir/native/hearton_shim.c" -o "$project_dir/native/lib/libhearton_shim.so" >/dev/null 2>&1; then
+        echo "FAIL: local system dependency shim did not build"
+        exit 1
+    fi
+
+    cat >"$project_dir/main.seen" <<'EOF'
+extern fun hearton_bonus(base: Int) r: Int
+
+fun main() r: Int {
+    if hearton_bonus(35) == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    set +e
+    if [[ "$BUILD_CMD" == "build" ]]; then
+        (
+            cd "$outside_dir" &&
+            env -u LIBRARY_PATH -u LD_LIBRARY_PATH timeout 120 "$COMPILER" build "$source_file" -o "$output_file" --fast >"$log_file" 2>&1
+        )
+    else
+        (
+            cd "$outside_dir" &&
+            env -u LIBRARY_PATH -u LD_LIBRARY_PATH timeout 120 "$COMPILER" compile "$source_file" "$output_file" --fast >"$log_file" 2>&1
+        )
+    fi
+    local status=$?
+    set -e
+
+    if [[ "$status" -ne 0 ]]; then
+        echo "FAIL: local system dependency did not compile without LIBRARY_PATH"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! env -u LIBRARY_PATH -u LD_LIBRARY_PATH "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: local system dependency binary still needs runtime library env overrides"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: Seen.toml local system dependency paths link and run"
+}
+
 run_c12_abs_path_project_case() {
     local project_dir="$TMP_ROOT/c12_abs_path_project"
     local outside_dir="$TMP_ROOT/c12_abs_path_outside"
@@ -856,6 +930,7 @@ run_success_case "sealed same-module inheritance stays allowed" "$SEALED_SAME_MO
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case
+run_local_system_dependency_case
 run_build_entry_seed_case
 run_root_main_build_entry_isolation_case
 run_build_entry_main_fallback_case

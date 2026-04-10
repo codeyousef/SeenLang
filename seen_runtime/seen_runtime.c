@@ -7973,6 +7973,49 @@ int64_t seen_group_brick_cache_create(int64_t a) { (void)a; return 0; }
 void seen_group_brick_cache_invalidate(int64_t a, int64_t b) { (void)a; (void)b; }
 int64_t seen_group_brick_cache_lookup(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 
+// --- Bootstrap-only testing / voxel classification stubs ---
+int64_t seen_test_pass(void) { return 0; }
+int64_t seen_test_fail(void) { return 0; }
+int64_t seen_voxel_behavior_is_solid(void) { return 0; }
+int64_t seen_voxel_behavior_is_transparent(void) { return 0; }
+
+#define SEEN_BOOTSTRAP_I64_STUB(name) int64_t name(void) { return 0; }
+SEEN_BOOTSTRAP_I64_STUB(seen_debug_collision_blocked)
+SEEN_BOOTSTRAP_I64_STUB(seen_debug_collision_probe)
+SEEN_BOOTSTRAP_I64_STUB(seen_debug_ground_column)
+SEEN_BOOTSTRAP_I64_STUB(seen_debug_physics)
+SEEN_BOOTSTRAP_I64_STUB(seen_debug_stepup)
+SEEN_BOOTSTRAP_I64_STUB(seen_error_clear)
+SEEN_BOOTSTRAP_I64_STUB(seen_error_code)
+SEEN_BOOTSTRAP_I64_STUB(seen_error_message_len)
+SEEN_BOOTSTRAP_I64_STUB(seen_error_message_ptr)
+SEEN_BOOTSTRAP_I64_STUB(seen_error_subsystem)
+SEEN_BOOTSTRAP_I64_STUB(seen_rt_atlas_clear)
+SEEN_BOOTSTRAP_I64_STUB(seen_rt_atlas_upload_batch)
+SEEN_BOOTSTRAP_I64_STUB(seen_shader_reload_module)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_cmd_prepare_fallback_atlas)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_create_debug_line_pipeline)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_create_host_visible_buffer)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_create_offscreen_target_sampled)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_create_offscreen_target_transfer_sampled)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_destroy_buffer)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_device_wait_idle)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_end_command_buffer)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_end_render_pass)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_free_memory)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_get_last_buffer_memory)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_get_swapchain_format)
+SEEN_BOOTSTRAP_I64_STUB(seen_vk_unmap_memory)
+SEEN_BOOTSTRAP_I64_STUB(seen_voxel_behavior_far_field_diag_kind)
+SEEN_BOOTSTRAP_I64_STUB(seen_voxel_behavior_is_decorative_lod)
+SEEN_BOOTSTRAP_I64_STUB(seen_voxel_behavior_is_landmark_ground)
+SEEN_BOOTSTRAP_I64_STUB(seen_voxel_behavior_is_point_light_kind)
+SEEN_BOOTSTRAP_I64_STUB(seen_voxel_behavior_is_stable_far_field)
+SEEN_BOOTSTRAP_I64_STUB(seen_voxel_behavior_is_water)
+SEEN_BOOTSTRAP_I64_STUB(seen_voxel_behavior_reset_defaults)
+SEEN_BOOTSTRAP_I64_STUB(seen_world_to_chunk_coord)
+#undef SEEN_BOOTSTRAP_I64_STUB
+
 // --- Memory utility stubs ---
 int64_t seen_mem_alloc(int64_t a) { return (int64_t)calloc(1, (size_t)a); }
 void seen_mem_free(int64_t a) { free((void*)a); }

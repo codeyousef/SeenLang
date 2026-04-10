@@ -48,6 +48,17 @@ The compiler always links:
 
 Additional libraries (e.g., `-lvulkan`) are added when GPU features are used.
 
+### Project-local system libraries
+
+For native shims that live inside your project, declare the library in `Seen.toml` and add a local search path:
+
+```toml
+[dependencies]
+seen_platform = { system = true, path = "native/lib" }
+```
+
+`path` is resolved relative to the nearest `Seen.toml`. Seen adds `-L<resolved-path>` during linking, and on native Linux/macOS builds it also records that directory as a runtime search path so raw `seen build` outputs can run without wrapper-set `LIBRARY_PATH` or `LD_LIBRARY_PATH`.
+
 ## @cImport
 
 Generate Seen bindings from a C header file:
