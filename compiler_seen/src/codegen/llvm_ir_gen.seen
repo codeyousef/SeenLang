@@ -52,7 +52,7 @@ import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitLengthSizeMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, fillDefaultParamsImpl, hasFloatParamFuncImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState}
@@ -343,6 +343,8 @@ var g_cResourceDestructors: String = ""
 // Default parameter registries
 var g_funcDefaultsArr: String = ""      // pipe-delimited "funcName:paramIdx:value:type|"
 var g_funcParamCountArr: String = ""    // pipe-delimited "funcName:count|"
+var g_defaultFillArgRegs: Array<String> = Array<String>()
+var g_defaultFillArgTypeStrs: Array<String> = Array<String>()
 
 // dyn Trait vtable dispatch
 var g_dynTraitNames: String = ""
@@ -5749,6 +5751,7 @@ class LLVMIRGenerator {
         var preParamIdx = 0
         while preParamIdx < fn.params.length() {
             let param = fn.params[preParamIdx]
+            let rawPreTypeName = param.paramType.typeName
             var preTypeName = normalizeDeclaredTypeNode(param.paramType)
             // Strip ownership/comptime qualifiers for type inference
             if preTypeName.startsWith("move:") {
@@ -5767,11 +5770,21 @@ class LLVMIRGenerator {
                 }
             }
             // Extract and register default parameter values
-            if preTypeName.contains("~default~") {
-                let defSepPos = preTypeName.indexOf("~default~", 0)
-                let defValue = preTypeName.substring(defSepPos + 9, preTypeName.length())
-                preTypeName = preTypeName.substring(0, defSepPos)
-                g_funcDefaultsArr = g_funcDefaultsArr + implFuncName + ":" + preParamIdx.toString() + ":" + defValue + ":" + preTypeName + "|"
+            var defaultTypeName = rawPreTypeName
+            if defaultTypeName.startsWith("move:") {
+                defaultTypeName = defaultTypeName.substring(5, defaultTypeName.length())
+            }
+            if defaultTypeName.startsWith("borrow:") {
+                defaultTypeName = defaultTypeName.substring(7, defaultTypeName.length())
+            }
+            if defaultTypeName.startsWith("comptime:") {
+                defaultTypeName = defaultTypeName.substring(9, defaultTypeName.length())
+            }
+            if defaultTypeName.contains("~default~") {
+                let defSepPos = defaultTypeName.indexOf("~default~", 0)
+                let defValue = defaultTypeName.substring(defSepPos + 9, defaultTypeName.length())
+                let defTypeName = normalizeSeenTypeName(defaultTypeName.substring(0, defSepPos))
+                g_funcDefaultsArr = g_funcDefaultsArr + implFuncName + ":" + preParamIdx.toString() + ":" + defValue + ":" + defTypeName + "|"
             }
             // Register dyn Trait parameters for fat pointer boxing at call sites
             if preTypeName.startsWith("dyn ") {
@@ -12265,6 +12278,9 @@ class LLVMIRGenerator {
                 }
 
                 let methodFuncName = thisType + "_" + funcName
+                fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
+                argRegs = g_defaultFillArgRegs
+                argTypeStrs = g_defaultFillArgTypeStrs
 
                 // Tail call optimization for misplaced method calls
                 var mpCallPrefix = "call"
@@ -12354,6 +12370,9 @@ class LLVMIRGenerator {
                 }
 
                 let methodFuncName = thisType + "_" + funcName
+                fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
+                argRegs = g_defaultFillArgRegs
+                argTypeStrs = g_defaultFillArgTypeStrs
                 let llvmReturnType = mapType(methodRetType)
 
                 // Tail call optimization for implicit self-method calls
@@ -12484,7 +12503,9 @@ class LLVMIRGenerator {
         }
 
         // Default parameter injection — delegated to ir_call_dispatch.seen
-        fillDefaultParamsImpl(output, g_regBox, funcName, argRegs, argTypeStrs, g_funcParamCountArr, g_funcDefaultsArr, stringConstantPrefix, stringConstants)
+        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
+        argRegs = g_defaultFillArgRegs
+        argTypeStrs = g_defaultFillArgTypeStrs
 
         if currentClassName == "JsonParseResult" or currentClassName == "JsonParser" or currentClassName == "LLVMIRGenerator" {
             println("[irgen call pre-promote] class=" + currentClassName + " func=" + funcName + " regs=" + argRegs.length().toString() + " types=" + argTypeStrs.length().toString())
@@ -13144,6 +13165,9 @@ class LLVMIRGenerator {
                 if isDataType(potentialClassName) { isDataRecv1 = 1 }
                 var hasImplicitThis = 0
                 if methodName != "new" { hasImplicitThis = 1 }
+                fillDefaultParamsLocal(funcName, staticArgRegs, staticArgTypeStrs)
+                staticArgRegs = g_defaultFillArgRegs
+                staticArgTypeStrs = g_defaultFillArgTypeStrs
                 recordLateUserDeclare(funcName, staticLlvmReturnType, staticArgTypeStrs, hasImplicitThis)
                 return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), staticLlvmReturnType, potentialClassName, staticArgRegs, staticArgTypeStrs, isClassRecv1, isDataRecv1, hasImplicitThis)
             }
@@ -13205,6 +13229,9 @@ class LLVMIRGenerator {
                 }
 
                 // Generate the call — delegated to ir_call_dispatch.seen
+                fillDefaultParamsLocal(methodName, standaloneArgRegs, standaloneArgTypes)
+                standaloneArgRegs = g_defaultFillArgRegs
+                standaloneArgTypes = g_defaultFillArgTypeStrs
                 return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(methodName), standaloneRetType, standaloneArgRegs, standaloneArgTypes, 0)
             }
 
@@ -13828,6 +13855,9 @@ class LLVMIRGenerator {
             if isDataType(className) { isDataRecvFB = 1 }
             var hasImplicitThisFB = 0
             if methodName != "new" { hasImplicitThisFB = 1 }
+            fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
+            argRegs = g_defaultFillArgRegs
+            argTypeStrs = g_defaultFillArgTypeStrs
             recordLateUserDeclare(funcName, staticLlvmReturnType, argTypeStrs, hasImplicitThisFB)
             return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), staticLlvmReturnType, className, argRegs, argTypeStrs, isClassRecvFB, isDataRecvFB, hasImplicitThisFB)
         }
@@ -14036,6 +14066,9 @@ class LLVMIRGenerator {
         }
 
         // Final instance method call — delegated to ir_call_dispatch.seen
+        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
+        argRegs = g_defaultFillArgRegs
+        argTypeStrs = g_defaultFillArgTypeStrs
         return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType, receiverReg, argRegs, argTypeStrs)
     }
 
@@ -14403,6 +14436,122 @@ class LLVMIRGenerator {
             }
         }
         return normalized
+    }
+
+    fun fillDefaultParamsLocal(funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: Void {
+        g_defaultFillArgRegs = argRegs
+        g_defaultFillArgTypeStrs = argTypeStrs
+        if g_funcDefaultsArr == "" or g_funcParamCountArr == "" {
+            return
+        }
+        let funcLookup = funcName + ":"
+        let paramCountPos = g_funcParamCountArr.indexOf(funcLookup, 0)
+        if paramCountPos < 0 {
+            return
+        }
+        let paramCountStart = paramCountPos + funcLookup.length()
+        var paramCountEnd = g_funcParamCountArr.indexOf("|", paramCountStart)
+        if paramCountEnd < 0 {
+            paramCountEnd = g_funcParamCountArr.length()
+        }
+        let expectedCount = parseIntManual(g_funcParamCountArr.substring(paramCountStart, paramCountEnd))
+        var fillIdx = g_defaultFillArgRegs.length()
+        while fillIdx < expectedCount {
+            let defaultLookup = funcName + ":" + fillIdx.toString() + ":"
+            let defaultPos = g_funcDefaultsArr.indexOf(defaultLookup, 0)
+            if defaultPos >= 0 {
+                let defaultStart = defaultPos + defaultLookup.length()
+                var defaultEnd = g_funcDefaultsArr.indexOf("|", defaultStart)
+                if defaultEnd < 0 {
+                    defaultEnd = g_funcDefaultsArr.length()
+                }
+                let defaultEntry = g_funcDefaultsArr.substring(defaultStart, defaultEnd)
+                let typeSep = defaultEntry.indexOf(":", 0)
+                if typeSep > 0 {
+                    let defaultValue = defaultEntry.substring(0, typeSep)
+                    let defaultType = defaultEntry.substring(typeSep + 1, defaultEntry.length())
+                    if defaultType == "String" {
+                        var strIdx = -1
+                        var sci = 0
+                        while sci < stringConstants.length() {
+                            if stringConstants[sci] == defaultValue {
+                                strIdx = sci
+                                sci = stringConstants.length()
+                            }
+                            sci = sci + 1
+                        }
+                        if strIdx >= 0 {
+                            let strLen = defaultValue.length()
+                            let gepReg = getNextReg()
+                            output.append("  " + gepReg + " = getelementptr [" + (strLen + 1).toString() + " x i8], ptr @.str." + stringConstantPrefix + strIdx.toString() + ", i64 0, i64 0\n")
+                            let insertLenReg = getNextReg()
+                            output.append("  " + insertLenReg + " = insertvalue %SeenString undef, i64 " + strLen.toString() + ", 0\n")
+                            let strReg = getNextReg()
+                            output.append("  " + strReg + " = insertvalue %SeenString " + insertLenReg + ", ptr " + gepReg + ", 1\n")
+                            g_defaultFillArgRegs.push(strReg)
+                            g_defaultFillArgTypeStrs.push("%SeenString")
+                        }
+                    } else if defaultType == "Float" {
+                        g_defaultFillArgRegs.push(defaultValue)
+                        g_defaultFillArgTypeStrs.push("double")
+                    } else if defaultType == "Bool" {
+                        if defaultValue == "true" {
+                            g_defaultFillArgRegs.push("1")
+                        } else {
+                            g_defaultFillArgRegs.push("0")
+                        }
+                        g_defaultFillArgTypeStrs.push("i64")
+                    } else {
+                        g_defaultFillArgRegs.push(defaultValue)
+                        g_defaultFillArgTypeStrs.push("i64")
+                    }
+                }
+            }
+            fillIdx = fillIdx + 1
+        }
+    }
+
+    fun collectDefaultParamStringConstantsFromFunction(fn: FunctionNode) r: Void {
+        var paramIdx = 0
+        while paramIdx < fn.params.length() {
+            let paramTypeName = fn.params[paramIdx].paramType.typeName
+            if paramTypeName.contains("~default~") {
+                let defaultPos = paramTypeName.indexOf("~default~", 0)
+                let defaultValue = paramTypeName.substring(defaultPos + 9, paramTypeName.length())
+                if normalizeSeenTypeName(paramTypeName) == "String" {
+                    var exists = false
+                    var sci = 0
+                    while sci < stringConstants.length() {
+                        if stringConstants[sci] == defaultValue {
+                            exists = true
+                            sci = stringConstants.length()
+                        }
+                        sci = sci + 1
+                    }
+                    if not exists {
+                        stringConstants.push(defaultValue)
+                    }
+                }
+            }
+            paramIdx = paramIdx + 1
+        }
+    }
+
+    fun collectDefaultParamStringConstants(program: ProgramNode) r: Void {
+        var itemIdx = 0
+        while itemIdx < program.items.length() {
+            let item = program.items[itemIdx]
+            if item.itemType == "Function" {
+                collectDefaultParamStringConstantsFromFunction(item.function)
+            } else if item.itemType == "Class" {
+                var methodIdx = 0
+                while methodIdx < item.classNode.methods.length() {
+                    collectDefaultParamStringConstantsFromFunction(item.classNode.methods[methodIdx])
+                    methodIdx = methodIdx + 1
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
     }
 
     fun inferReturnExprType(className: String, expr: ParserExpressionNode) r: String {
@@ -15285,6 +15434,7 @@ class LLVMIRGenerator {
         initCollectionBoxes()
         collectStringConstantsImpl(program, stringConstants, g_selfCallBox, g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox)
         syncCollectionBoxes()
+        collectDefaultParamStringConstants(program)
     }
 
     // Thin wrapper for collectStringConstantsFromExpr (called from inferExpressionType)

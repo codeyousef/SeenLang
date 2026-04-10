@@ -30,9 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Linux Stage2→Stage3 bootstrap, self-host rebuild, and recovery-opt handling are more robust: `safe_rebuild.sh`, `fix_ir.py`, and related recovery scripts now handle staged failures, stale artifacts, and bootstrap crashes more cleanly.
 - Fixed Android bundle/release path handling, emulator APK validation, and widened Windows/Android native smoke coverage.
 - `Seen.toml` project discovery now handles absolute-path project members, standalone non-members, build-entry seeding, and root-level scratch `main()` files correctly. This removes the HeartOn standalone IR-generation crash path while preserving nested project fallback behavior.
+- `Seen.toml` system dependencies can now declare a local `path`, so project-local native shims link with resolved `-L` flags and native Linux/macOS runtime search paths without extra library-path wrappers.
 
 #### Frontend, parser, and codegen
 - Fixed keyword lookup, parser type handoff, parser data/function-body regressions, and frontend/class-detection issues that were blocking self-host and multi-module builds.
+- Fixed default-parameter lowering so omitted arguments now inject their registered defaults correctly at call sites, including string and integer defaults.
 - Fixed unicode string lowering, `Vec` dispatch, `HashMap` `Option` lowering, `StringHashMap` dispatch, module-constant type inference, void method calls, extern Float parameter registration/promotion, and `for`-loop SSA ordering regressions.
 - Fixed documented multi-module and recovery regressions, including the HeartOn module-handling failures that previously crashed during IR generation and now progress to ordinary diagnostics or linker failures instead.
 
