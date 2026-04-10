@@ -180,36 +180,33 @@ class DeterminismChecker {
     }
 
     // Validate @syscall decorators against the UWW syscall whitelist
-    // NOTE: Currently disabled during bootstrap due to type coercion issues
-    // with Array<String> element access. Enable when string array indexing is fixed.
     fun validateSyscallDecorators(program: ProgramNode) r: Void {
-        // TODO: Re-enable syscall validation when Array<String> indexing works
-        // var i = 0
-        // while i < program.items.length() {
-        //     let item = program.items[i]
-        //     if item.itemType == "Function" {
-        //         let func = item.function
-        //         var di = 0
-        //         while di < func.decorators.length() {
-        //             let decorator = func.decorators[di]
-        //             if decorator.name == "syscall" {
-        //                 if decorator.arguments.length() > 0 {
-        //                     let syscallName = decorator.arguments[0]
-        //                     if not isValidUWWSyscall(syscallName) {
-        //                         let error = DeterminismError.new(
-        //                             "Invalid UWW syscall",
-        //                             func.name,
-        //                             ""
-        //                         )
-        //                         result.addError(error)
-        //                     }
-        //                 }
-        //             }
-        //             di = di + 1
-        //         }
-        //     }
-        //     i = i + 1
-        // }
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Function" {
+                let func = item.function
+                var di = 0
+                while di < func.decorators.length() {
+                    let decorator = func.decorators[di]
+                    if decorator.name == "syscall" {
+                        if decorator.arguments.length() > 0 {
+                            let syscallName = decorator.arguments[0]
+                            if not isValidUWWSyscall(syscallName) {
+                                let error = DeterminismError.new(
+                                    "Invalid UWW syscall",
+                                    func.name,
+                                    ""
+                                )
+                                result.addError(error)
+                            }
+                        }
+                    }
+                    di = di + 1
+                }
+            }
+            i = i + 1
+        }
     }
 
     // Check if a syscall name is in the valid UWW syscall whitelist
