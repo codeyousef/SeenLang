@@ -13163,6 +13163,10 @@ class LLVMIRGenerator {
                 if isClassType(potentialClassName) { isClassRecv1 = 1 }
                 var isDataRecv1 = 0
                 if isDataType(potentialClassName) { isDataRecv1 = 1 }
+                // Static class methods currently lower with a dummy ptr receiver in
+                // their emitted ABI. Pass ptr null for non-constructors so calls keep
+                // matching the generated function signature until method lowering is
+                // made truly receiver-free.
                 var hasImplicitThis = 0
                 if methodName != "new" { hasImplicitThis = 1 }
                 fillDefaultParamsLocal(funcName, staticArgRegs, staticArgTypeStrs)
@@ -13853,6 +13857,8 @@ class LLVMIRGenerator {
             if isClassType(className) { isClassRecvFB = 1 }
             var isDataRecvFB = 0
             if isDataType(className) { isDataRecvFB = 1 }
+            // Keep fallback static-call emission aligned with the current lowered
+            // ABI: non-constructor static methods still expect a dummy ptr receiver.
             var hasImplicitThisFB = 0
             if methodName != "new" { hasImplicitThisFB = 1 }
             fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)

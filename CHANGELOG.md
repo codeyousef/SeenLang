@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Frontend, parser, and codegen
 - Fixed keyword lookup, parser type handoff, parser data/function-body regressions, and frontend/class-detection issues that were blocking self-host and multi-module builds.
 - Fixed default-parameter lowering so omitted arguments now inject their registered defaults correctly at call sites, including string and integer defaults.
+- Added regression coverage for static class methods returning class instances, and documented the current ABI-compatible null-receiver lowering used by non-constructor static calls.
 - Fixed unicode string lowering, `Vec` dispatch, `HashMap` `Option` lowering, `StringHashMap` dispatch, module-constant type inference, void method calls, extern Float parameter registration/promotion, and `for`-loop SSA ordering regressions.
 - Fixed documented multi-module and recovery regressions, including the HeartOn module-handling failures that previously crashed during IR generation and now progress to ordinary diagnostics or linker failures instead.
 

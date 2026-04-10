@@ -1,0 +1,22 @@
+// Regression: non-constructor static class calls still lower with a dummy
+// null receiver in the current ABI and must preserve that call shape.
+
+class Counter {
+    var value: Int
+
+    static fun make(v: Int) r: Counter {
+        let c = Counter()
+        c.value = v
+        return c
+    }
+}
+
+fun main() r: Int {
+    let c = Counter.make(7)
+    if c.value == 7 {
+        println("PASS: static class return")
+        return 0
+    }
+    println("FAIL: static class return = " + c.value.toString())
+    return 1
+}
