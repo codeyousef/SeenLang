@@ -57,7 +57,7 @@ For native shims that live inside your project, declare the library in `Seen.tom
 seen_platform = { system = true, path = "native/lib" }
 ```
 
-`path` is resolved relative to the nearest `Seen.toml`. Seen adds `-L<resolved-path>` during linking, and on native Linux/macOS builds it also records that directory as a runtime search path so raw `seen build` outputs can run without wrapper-set `LIBRARY_PATH` or `LD_LIBRARY_PATH`.
+`path` is resolved relative to the nearest `Seen.toml`. Seen adds `-L<resolved-path>` during linking. On native Linux/macOS builds it also records that directory as a runtime search path, so `seen build` outputs run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH` wrappers.
 
 ## @cImport
 

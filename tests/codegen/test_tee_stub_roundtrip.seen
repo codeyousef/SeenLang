@@ -1,0 +1,24 @@
+import security.enclave.{TEE, SealPolicy, getLocalAttestation, unsealData}
+
+fun expect(condition: Bool, message: String) r: Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() r: Int {
+    let sealed = TEE.sealWithAAD("secret payload", "aad", SealPolicy.mrenclave())
+    expect(sealed.isValid(), "stub sealing should produce valid output")
+    expect(unsealData(sealed) == "secret payload", "sealed payload should round-trip")
+
+    let signerSealed = TEE.sealWithAAD("signer payload", "aad-2", SealPolicy.mrsigner())
+    expect(signerSealed.isValid(), "mrsigner sealing should produce valid output")
+    expect(unsealData(signerSealed) == "signer payload", "mrsigner payload should round-trip")
+
+    let report = getLocalAttestation("user-data")
+    expect(report.isValid(), "attestation report should be marked valid")
+    expect(report.getMeasurement().length() > 0, "attestation report should expose measurement")
+    expect(TEE.verifyAttestation(report, report.getMeasurement()), "attestation verification should accept the emitted measurement")
+
+    return 0
+}

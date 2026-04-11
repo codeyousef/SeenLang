@@ -16,7 +16,14 @@ const SQRT2: Float = 1.41421356237309504880
 const FRAC_1_PI: Float = 0.31830988618379067154
 const FRAC_2_PI: Float = 0.63661977236758134308
 const FRAC_1_SQRT2: Float = 0.70710678118654752440
-// TODO: INFINITY, NEG_INFINITY, NAN — codegen emits `fdiv fast double` with nnan/ninf semantics
+
+extern "C" fun seen_math_positive_infinity() r: Float
+extern "C" fun seen_math_negative_infinity() r: Float
+extern "C" fun seen_math_nan() r: Float
+
+let INFINITY: Float = seen_math_positive_infinity()
+let NEG_INFINITY: Float = seen_math_negative_infinity()
+let NAN: Float = seen_math_nan()
 
 fun abs(value: Float) r: Float {
     if value < 0.0 {
@@ -589,14 +596,11 @@ fun atanh(x: Float) r: Float {
 // --- IEEE 754 classification ---
 
 fun isnan(x: Float) r: Bool {
-    // NaN is the only value where x != x (fcmp ole returns false for NaN)
-    return not (x <= x)
+    return x.isNaN()
 }
 
 fun isinf(x: Float) r: Bool {
-    // Can't reliably detect Inf in pure Seen due to fast-math nnan/ninf flags.
-    // Returns false for all normal values. Useful as interface contract.
-    return false
+    return x.isInfinite()
 }
 
 fun isfinite(x: Float) r: Bool {

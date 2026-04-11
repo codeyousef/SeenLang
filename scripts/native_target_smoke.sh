@@ -316,6 +316,17 @@ escape_field() {
   printf '%s' "$value"
 }
 
+cleanup_compiler_state() {
+  rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache /tmp/seen_thinlto_cache
+  rm -f \
+    /tmp/seen_module_*.ll \
+    /tmp/seen_module_*.o \
+    /tmp/seen_module_*.opt.ll \
+    /tmp/seen_module_*.polly.ll \
+    /tmp/seen_module_*.opt.status \
+    /tmp/seen_module_*.opt.log
+}
+
 run_build() {
   local source_file="$1"
   local target="$2"
@@ -382,7 +393,12 @@ for target in "${TARGETS[@]}"; do
         case_note="source file not found: $source_file"
         printf '%s\n' "$case_note" > "$case_log"
         has_failures=1
-      elif run_build "$source_file" "$target" "$case_artifact" "$case_log"; then
+      else
+        # Seen compiler builds share fixed cache/temp paths, so isolate each case.
+        cleanup_compiler_state
+      fi
+
+      if [[ "$case_status" == "success" ]] && run_build "$source_file" "$target" "$case_artifact" "$case_log"; then
         if [[ ! -e "$case_artifact" ]]; then
           case_status="failure"
           case_note="build command succeeded but artifact was not produced"

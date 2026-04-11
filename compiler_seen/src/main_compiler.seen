@@ -73,6 +73,35 @@ fun hashString(data: String) r: String {
     return result
 }
 
+fun mainCompilerStringsEqualBytes(left: String, right: String) r: Bool {
+    if left.length() != right.length() {
+        return false
+    }
+    var index = 0
+    while index < left.length() {
+        if left.byteAt(index) != right.byteAt(index) {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun mainCompilerIsMainFunctionName(name: String) r: Bool {
+    return mainCompilerStringsEqualBytes(name, "main")
+}
+
+fun mainCompilerItemFunctionNameEquals(item: ItemNode, functionName: String) r: Bool {
+    return mainCompilerStringsEqualBytes(item.function.name, functionName)
+}
+
+fun mainCompilerItemDeclaresMain(item: ItemNode) r: Bool {
+    if mainCompilerIsMainFunctionName(item.name) {
+        return true
+    }
+    return mainCompilerIsMainFunctionName(item.function.name)
+}
+
 fun buildCacheSignature(profile: String, language: String, targetCpu: String, simdPolicy: String,
     sanitizePolicy: String, pgoMode: String, effectiveTarget: String, panicOnOverflow: Bool) r: String {
     var signature = "cache-v3"
@@ -341,12 +370,27 @@ fun extractTomlBuildEntry(content: String) r: String {
     return ""
 }
 
+fun isStdlibImportRoot(segment: String) r: Bool {
+    return segment == "async" or segment == "audio" or segment == "collections" or segment == "core" or segment == "crypto" or segment == "env" or segment == "ffi" or segment == "framework" or segment == "fs" or segment == "graphics" or segment == "hash" or segment == "input" or segment == "io" or segment == "json" or segment == "math" or segment == "memory" or segment == "net" or segment == "platform" or segment == "process" or segment == "random" or segment == "scripting" or segment == "security" or segment == "simd" or segment == "str" or segment == "sync" or segment == "thread" or segment == "time" or segment == "uww"
+}
+
+fun firstModuleSegment(modulePath: String) r: String {
+    var i = 0
+    while i < modulePath.length() {
+        if modulePath.byteAt(i) == 46 {
+            return modulePath.substring(0, i)
+        }
+        i = i + 1
+    }
+    return modulePath
+}
+
 // Resolve module path to actual file path
 fun resolveModulePath(modulePath: String) r: String {
     // Determine base path: stdlib modules go to seen_std/src/, compiler modules to compiler_seen/src/
     let root = getCompilerRoot()
     var basePath = "compiler_seen/src/"
-    if modulePath.startsWith("str.") or modulePath.startsWith("ffi.") or modulePath.startsWith("core.") or modulePath.startsWith("collections.") or modulePath.startsWith("io.") or modulePath.startsWith("process.") or modulePath.startsWith("env.") or modulePath.startsWith("json.") or modulePath.startsWith("framework.") or modulePath.startsWith("security.") or modulePath.startsWith("sync.") or modulePath.startsWith("thread.") {
+    if isStdlibImportRoot(firstModuleSegment(modulePath)) {
         basePath = "seen_std/src/"
     }
     if root != "" {
@@ -463,9 +507,12 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
             if compilerModContent != "" {
                 return compilerModPath
             }
-            return compilerDirectPath
+            let compilerDirectContent = readText(compilerDirectPath)
+            if compilerDirectContent != "" {
+                return compilerDirectPath
+            }
         }
-        if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "json" or firstSegment == "framework" or firstSegment == "security" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
+        if isStdlibImportRoot(firstSegment) {
             // This is a stdlib import — resolve from compiler root
             var stdlibBase = "seen_std/src/"
             let compRoot = getCompilerRoot()
@@ -486,7 +533,10 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
             if stdlibModContent != "" {
                 return stdlibModPath
             }
-            return stdlibDirectPath
+            let stdlibDirectContent = readText(stdlibDirectPath)
+            if stdlibDirectContent != "" {
+                return stdlibDirectPath
+            }
         }
     }
 
@@ -869,10 +919,8 @@ fun moduleDeclaresMain(path: String) r: Bool {
     var itemIdx = 0
     while itemIdx < frontend.program.items.length() {
         let item = frontend.program.items[itemIdx]
-        if item.itemType == "Function" {
-            if item.function.name == "main" {
-                return true
-            }
+        if mainCompilerItemDeclaresMain(item) {
+            return true
         }
         itemIdx = itemIdx + 1
     }
@@ -1132,10 +1180,8 @@ fun findProgramFunction(program: ProgramNode, functionName: String) r: FunctionN
     var i = 0
     while i < program.items.length() {
         let item = program.items[i]
-        if item.itemType == "Function" {
-            if item.function.name == functionName {
-                return item.function
-            }
+        if mainCompilerItemFunctionNameEquals(item, functionName) {
+            return item.function
         }
         i = i + 1
     }
@@ -2333,6 +2379,80 @@ fun getHostVulkanCflags() r: String {
     return ""
 }
 
+fun pkgConfigExists(pkg: String) r: Bool {
+    let pkgResult: CommandResult = runCommand("pkg-config --exists " + pkg + " 2>/dev/null")
+    return commandWasSuccessful(pkgResult)
+}
+
+fun pkgConfigOutput(flag: String, pkg: String) r: String {
+    let pkgResult: CommandResult = runCommand("pkg-config " + flag + " " + pkg + " 2>/dev/null")
+    if commandWasSuccessful(pkgResult) {
+        return pkgResult.output.trim()
+    }
+    return ""
+}
+
+fun sourcesNeedLinuxPlatformVulkanShim(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        let modulePath = modulePaths[mi]
+        if modulePath.endsWith("/seen_std/src/platform/linux/vulkan.seen") or modulePath.endsWith("/seen_std/src/graphics/renderer.seen") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
+fun sourcesNeedLinuxPlatformAlsaShim(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        if modulePaths[mi].endsWith("/seen_std/src/platform/linux/alsa.seen") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
+fun sourcesNeedLinuxPlatformPipewireShim(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        if modulePaths[mi].endsWith("/seen_std/src/platform/linux/pipewire.seen") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
+fun sourcesNeedLinuxPlatformEvdevShim(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        if modulePaths[mi].endsWith("/seen_std/src/platform/linux/evdev.seen") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
+fun sourcesNeedTeeHardwareRuntime(modulePaths: Array<String>) r: Bool {
+    var mi = 0
+    while mi < modulePaths.length() {
+        let modulePath = modulePaths[mi]
+        if modulePath.endsWith("/seen_std/src/security/enclave.seen") {
+            return true
+        }
+        let sourceText = readText(modulePath)
+        if sourceText.contains("@enclave") or sourceText.contains("@seal(") or sourceText.contains("@attestation(") {
+            return true
+        }
+        mi = mi + 1
+    }
+    return false
+}
+
 fun buildTargetLinkLibraries(target: String, hasGpuRuntime: Bool) r: String {
     var libs = " -lm -lpthread"
     if target == "windows-x86_64" {
@@ -3456,7 +3576,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     if commandWasSuccessful(mergedOptResult) {
                         // Compile merged optimized IR to single object file
                         let mergedObj = "/tmp/seen_merged_release.o"
-                        let mergedLlcCmd = llvmLlcTool + " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -align-loops=32 -fp-contract=fast -mcpu=native " + mergedOpt + " -o " + mergedObj
+                        let mergedLlcCmd = llvmLlcTool + " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -fp-contract=fast -mcpu=native " + mergedOpt + " -o " + mergedObj
                         let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
                         if commandWasSuccessful(mergedLlcResult) {
                             // Replace all per-module object files with single merged object
@@ -3513,8 +3633,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let runtimeSrc = rtPrefix + "/seen_runtime.c"
     let teeRuntimeObj = rtPrefix + "/seen_tee_common.o"
     let teeRuntimeSrc = rtPrefix + "/seen_tee_common.c"
+    let teeSgxRuntimeSrc = rtPrefix + "/seen_tee_sgx.c"
+    let teeSevRuntimeSrc = rtPrefix + "/seen_tee_sev.c"
     let teeRuntimeExists: CommandResult = runCommand("test -f " + teeRuntimeSrc)
     let hasTeeRuntime = commandWasSuccessful(teeRuntimeExists)
+    let teeSgxRuntimeExists: CommandResult = runCommand("test -f " + teeSgxRuntimeSrc)
+    let hasTeeSgxRuntime = commandWasSuccessful(teeSgxRuntimeExists)
+    let teeSevRuntimeExists: CommandResult = runCommand("test -f " + teeSevRuntimeSrc)
+    let hasTeeSevRuntime = commandWasSuccessful(teeSevRuntimeExists)
     var sanitizerClangFlags = ""
     if sanitizePolicy != "" {
         sanitizerClangFlags = " -fsanitize=" + sanitizePolicy + " -fno-omit-frame-pointer -g"
@@ -3541,6 +3667,26 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         pgoClangFlags = " -fprofile-use=" + pgoPath
         println("  PGO: use profile from " + pgoPath)
+    }
+    let needsTeeHardwareRuntime = sourcesNeedTeeHardwareRuntime(modulePaths)
+    var teeRuntimeCompileFlags = ""
+    var teeRuntimeLinkFlags = ""
+    let hostTargetForTee = detectHostTargetName()
+    let teeCanUseHostHardware = needsTeeHardwareRuntime and effectiveTarget == hostTargetForTee and (hostTargetForTee == "linux-x86_64" or hostTargetForTee == "linux-arm64")
+    if teeCanUseHostHardware and hasTeeSevRuntime {
+        if pkgConfigExists("openssl") {
+            teeRuntimeCompileFlags = teeRuntimeCompileFlags + " -DSEEN_TEE_ENABLE_SEV"
+            let opensslCflags = pkgConfigOutput("--cflags", "openssl")
+            if opensslCflags != "" {
+                teeRuntimeCompileFlags = teeRuntimeCompileFlags + " " + opensslCflags
+            }
+            let opensslLibs = pkgConfigOutput("--libs", "openssl")
+            if opensslLibs != "" {
+                teeRuntimeLinkFlags = teeRuntimeLinkFlags + " " + opensslLibs
+            }
+        } else {
+            println("    Warning: OpenSSL pkg-config metadata not found; building TEE runtime without SEV backend")
+        }
     }
     if sanitizePolicy == "" {
         let checkRtResult: CommandResult = runCommand("test " + rtPrefix + "/seen_runtime.o -nt " + rtPrefix + "/seen_runtime.c")
@@ -3578,40 +3724,40 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // Check if pre-compiled runtime exists
     var runtimeArg = ""
     var teeRuntimeSourceArg = ""
-    var teeRuntimeObjectArg = ""
     if hasTeeRuntime {
         teeRuntimeSourceArg = " " + teeRuntimeSrc
+    }
+    if hasTeeSgxRuntime {
+        teeRuntimeSourceArg = teeRuntimeSourceArg + " " + teeSgxRuntimeSrc
+    }
+    if hasTeeSevRuntime {
+        teeRuntimeSourceArg = teeRuntimeSourceArg + " " + teeSevRuntimeSrc
+    }
+    var teeInlineArg = ""
+    if teeRuntimeSourceArg != "" {
+        teeInlineArg = " -I " + rtPrefix
+        if teeRuntimeCompileFlags != "" {
+            teeInlineArg = teeInlineArg + teeRuntimeCompileFlags
+        }
+        if sanitizePolicy != "" {
+            teeInlineArg = teeInlineArg + sanitizerClangFlags
+        }
+        teeInlineArg = teeInlineArg + teeRuntimeSourceArg
     }
     if sanitizePolicy != "" {
         // Use sanitized runtime object
         let useSanitizedRt: CommandResult = runCommand("test -f /tmp/seen_runtime_sanitized.o")
-        var haveSanitizedTeeRt = true
-        if hasTeeRuntime {
-            let useSanitizedTeeRt: CommandResult = runCommand("test -f /tmp/seen_tee_common_sanitized.o")
-            haveSanitizedTeeRt = commandWasSuccessful(useSanitizedTeeRt)
-            if haveSanitizedTeeRt {
-                teeRuntimeObjectArg = " /tmp/seen_tee_common_sanitized.o"
-            }
-        }
-        if commandWasSuccessful(useSanitizedRt) and haveSanitizedTeeRt {
-            runtimeArg = "/tmp/seen_runtime_sanitized.o" + teeRuntimeObjectArg
+        if commandWasSuccessful(useSanitizedRt) {
+            runtimeArg = "/tmp/seen_runtime_sanitized.o" + teeInlineArg
         } else {
-            runtimeArg = "-I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c" + teeRuntimeSourceArg + sanitizerClangFlags
+            runtimeArg = "-I " + rtPrefix + sanitizerClangFlags + teeRuntimeCompileFlags + " " + rtPrefix + "/seen_runtime.c" + teeRuntimeSourceArg
         }
     } else {
         let usePrecompiledRt: CommandResult = runCommand("test -f " + rtPrefix + "/seen_runtime.o")
-        var haveHostTeeRt = true
-        if hasTeeRuntime {
-            let useHostTeeRt: CommandResult = runCommand("test -f " + teeRuntimeObj)
-            haveHostTeeRt = commandWasSuccessful(useHostTeeRt)
-            if haveHostTeeRt {
-                teeRuntimeObjectArg = " " + teeRuntimeObj
-            }
-        }
-        if commandWasSuccessful(usePrecompiledRt) and haveHostTeeRt {
-            runtimeArg = rtPrefix + "/seen_runtime.o" + teeRuntimeObjectArg
+        if commandWasSuccessful(usePrecompiledRt) {
+            runtimeArg = rtPrefix + "/seen_runtime.o" + teeInlineArg
         } else {
-            runtimeArg = "-I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c" + teeRuntimeSourceArg
+            runtimeArg = "-I " + rtPrefix + teeRuntimeCompileFlags + " " + rtPrefix + "/seen_runtime.c" + teeRuntimeSourceArg
         }
     }
 
@@ -3621,18 +3767,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let rtTargetOut = "/tmp/seen_runtime_" + effectiveTarget + ".o"
             let rtTargetCmd: CommandResult = runCommand(targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtTargetOut)
             if commandWasSuccessful(rtTargetCmd) {
-                runtimeArg = rtTargetOut
-                if hasTeeRuntime {
-                    let teeTargetOut = "/tmp/seen_tee_common_" + effectiveTarget + ".o"
-                    let teeTargetCmd: CommandResult = runCommand(targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + teeRuntimeSrc + " -o " + teeTargetOut)
-                    if commandWasSuccessful(teeTargetCmd) {
-                        runtimeArg = runtimeArg + " " + teeTargetOut
-                    } else {
-                        println("    Error: target TEE runtime compilation failed for " + effectiveTarget)
-                        println(teeTargetCmd.output)
-                        return 1
-                    }
-                }
+                runtimeArg = rtTargetOut + teeInlineArg
             } else {
                 println("    Error: target runtime compilation failed for " + effectiveTarget)
                 println(rtTargetCmd.output)
@@ -3754,7 +3889,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if g_O2Mode == 1 {
                 linkCmd = "clang -O2 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache " + clangMarch + " -Wl,--gc-sections -Wno-unused-command-line-argument "
             } else {
-                linkCmd = "clang -O3 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache " + clangMarch + " -Wl,--gc-sections -ffp-contract=fast -Wno-unused-command-line-argument -mllvm -align-loops=32 -mllvm -inline-threshold=1500 "
+                linkCmd = "clang -O3 -flto=thin -fuse-ld=lld -Wl,--thinlto-cache-dir=/tmp/seen_thinlto_cache " + clangMarch + " -Wl,--gc-sections -ffp-contract=fast -Wno-unused-command-line-argument -mllvm -inline-threshold=1500 "
             }
         }
     }
@@ -3855,8 +3990,107 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if gpuArg != "" {
         hasGpuRuntime = true
     }
+    var platformShimArg = ""
+    var platformShimLinkFlags = ""
+    let needsLinuxVulkanShim = sourcesNeedLinuxPlatformVulkanShim(modulePaths)
+    let needsLinuxAlsaShim = sourcesNeedLinuxPlatformAlsaShim(modulePaths)
+    let needsLinuxPipewireShim = sourcesNeedLinuxPlatformPipewireShim(modulePaths)
+    let needsLinuxEvdevShim = sourcesNeedLinuxPlatformEvdevShim(modulePaths)
+    if needsLinuxVulkanShim or needsLinuxAlsaShim or needsLinuxPipewireShim or needsLinuxEvdevShim {
+        let hostTarget = detectHostTargetName()
+        let hostIsLinux = hostTarget == "linux-x86_64" or hostTarget == "linux-arm64"
+        if not hostIsLinux or effectiveTarget != hostTarget {
+            println("    Error: Linux platform shim modules currently require targeting the host Linux toolchain")
+            return 1
+        }
+        var platformShimFlags = ""
+        if needsLinuxVulkanShim {
+            if not pkgConfigExists("vulkan") {
+                println("    Error: missing pkg-config package 'vulkan' required by platform.linux.vulkan/graphics.renderer")
+                return 1
+            }
+            platformShimFlags = platformShimFlags + " -DSEEN_USE_VULKAN"
+            let vulkanCflags = pkgConfigOutput("--cflags", "vulkan")
+            if vulkanCflags != "" {
+                platformShimFlags = platformShimFlags + " " + vulkanCflags
+            }
+            let vulkanLibs = pkgConfigOutput("--libs", "vulkan")
+            if vulkanLibs != "" {
+                platformShimLinkFlags = platformShimLinkFlags + " " + vulkanLibs
+            }
+        }
+        if needsLinuxAlsaShim {
+            if not pkgConfigExists("alsa") {
+                println("    Error: missing pkg-config package 'alsa' required by platform.linux.alsa")
+                return 1
+            }
+            platformShimFlags = platformShimFlags + " -DSEEN_USE_ALSA"
+            let alsaCflags = pkgConfigOutput("--cflags", "alsa")
+            if alsaCflags != "" {
+                platformShimFlags = platformShimFlags + " " + alsaCflags
+            }
+            let alsaLibs = pkgConfigOutput("--libs", "alsa")
+            if alsaLibs != "" {
+                platformShimLinkFlags = platformShimLinkFlags + " " + alsaLibs
+            }
+        }
+        if needsLinuxPipewireShim {
+            if not pkgConfigExists("libpipewire-0.3") {
+                println("    Error: missing pkg-config package 'libpipewire-0.3' required by platform.linux.pipewire")
+                return 1
+            }
+            platformShimFlags = platformShimFlags + " -DSEEN_USE_PIPEWIRE"
+            let pipewireCflags = pkgConfigOutput("--cflags", "libpipewire-0.3")
+            if pipewireCflags != "" {
+                platformShimFlags = platformShimFlags + " " + pipewireCflags
+            }
+            let pipewireLibs = pkgConfigOutput("--libs", "libpipewire-0.3")
+            if pipewireLibs != "" {
+                platformShimLinkFlags = platformShimLinkFlags + " " + pipewireLibs
+            }
+        }
+        if needsLinuxEvdevShim {
+            if not pkgConfigExists("libevdev") {
+                println("    Error: missing pkg-config package 'libevdev' required by platform.linux.evdev")
+                return 1
+            }
+            platformShimFlags = platformShimFlags + " -DSEEN_USE_EVDEV"
+            let evdevCflags = pkgConfigOutput("--cflags", "libevdev")
+            if evdevCflags != "" {
+                platformShimFlags = platformShimFlags + " " + evdevCflags
+            }
+            let evdevLibs = pkgConfigOutput("--libs", "libevdev")
+            if evdevLibs != "" {
+                platformShimLinkFlags = platformShimLinkFlags + " " + evdevLibs
+            }
+        }
+        var platformShimSrc = "seen_std/src/platform/linux/shim/seen_platform_shim.c"
+        if compRoot != "" {
+            platformShimSrc = compRoot + "/seen_std/src/platform/linux/shim/seen_platform_shim.c"
+        }
+        let shimSourceCheck: CommandResult = runCommand("test -f " + platformShimSrc)
+        if not commandWasSuccessful(shimSourceCheck) {
+            println("    Error: missing Linux platform shim source: " + platformShimSrc)
+            return 1
+        }
+        var platformShimOut = "/tmp/seen_platform_shim_" + effectiveTarget + ".o"
+        if sanitizePolicy != "" {
+            platformShimOut = "/tmp/seen_platform_shim_" + effectiveTarget + "_" + sanitizePolicy + ".o"
+        }
+        var platformShimCmd = "clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -fPIC" + sanitizerClangFlags + " -c" + platformShimFlags + " " + platformShimSrc + " -o " + platformShimOut
+        if normalizedCrossTarget != "" and targetClangArgs != "" {
+            platformShimCmd = targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections -fPIC" + targetRuntimeFlags + sanitizerClangFlags + " -c " + targetClangArgs + platformShimFlags + " " + platformShimSrc + " -o " + platformShimOut
+        }
+        let platformShimResult: CommandResult = runCommand(platformShimCmd)
+        if not commandWasSuccessful(platformShimResult) {
+            println("    Error: Linux platform shim compilation failed")
+            println(platformShimResult.output)
+            return 1
+        }
+        platformShimArg = " " + platformShimOut
+    }
     let linkLibs = buildTargetLinkLibraries(effectiveTarget, hasGpuRuntime)
-    linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + " -o " + outputFile + linkLibs + tomlExtraLinkFlags + " 2>&1"
+    linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + platformShimArg + " -o " + outputFile + linkLibs + teeRuntimeLinkFlags + platformShimLinkFlags + tomlExtraLinkFlags + " 2>&1"
 
     let linkResult: CommandResult = runCommand(linkCmd)
     if commandWasSuccessful(linkResult) {
@@ -4034,10 +4268,8 @@ fun validateBasics(frontend: FrontendResult, inputFile: String) r: Void {
     var i = 0
     while i < program.items.length() {
         var item = program.items[i]
-        if item.itemType == "Function" {
-            if item.function.name == "main" {
-                hasMain = 1
-            }
+        if mainCompilerItemDeclaresMain(item) {
+            hasMain = 1
         }
         i = i + 1
     }

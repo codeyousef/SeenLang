@@ -35,6 +35,11 @@ done
 WIN_DIR="${PROJECT_DIR}/target-windows"
 PACKAGE_DIR="${WIN_DIR}/seen-${VERSION}-windows-x64"
 INSTALLER_DIR="${PROJECT_DIR}/installer/windows"
+NUMERIC_VERSION="${VERSION%%-*}"
+IFS='.' read -r VI_MAJOR VI_MINOR VI_PATCH _ <<EOF
+$NUMERIC_VERSION
+EOF
+PRODUCT_VERSION="${VI_MAJOR:-0}.${VI_MINOR:-0}.${VI_PATCH:-0}.0"
 
 echo "============================================"
 echo "  Seen Language Windows Build (from Linux)"
@@ -119,6 +124,7 @@ if command -v makensis &>/dev/null; then
     # NSIS on Linux uses forward slashes
     makensis \
         -DVERSION="$VERSION" \
+        -DPRODUCT_VERSION="$PRODUCT_VERSION" \
         -DSOURCE_DIR="$PACKAGE_DIR" \
         "$INSTALLER_DIR/seen.nsi"
 

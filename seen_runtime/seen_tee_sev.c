@@ -445,5 +445,11 @@ SeenTEEStatus __seen_sev_unseal_data(
 // Stub implementations when SEV is not enabled
 int __seen_sev_available(void) { return 0; }
 SeenTEEStatus __seen_sev_init(void) { return SEEN_TEE_ERR_NOT_SUPPORTED; }
+void __seen_sev_cleanup(void) {}
+SeenTEEStatus __seen_sev_get_report(const uint8_t* report_data, size_t report_data_size, SeenAttestationType attest_type, SeenAttestationReport* report_output) { (void)report_data; (void)report_data_size; (void)attest_type; (void)report_output; return SEEN_TEE_ERR_NOT_SUPPORTED; }
+SeenTEEStatus __seen_sev_verify_report(const SeenAttestationReport* report, const uint8_t* expected_measurement, size_t measurement_size) { (void)report; (void)expected_measurement; (void)measurement_size; return SEEN_TEE_ERR_NOT_SUPPORTED; }
+SeenTEEStatus __seen_sev_derive_key(const uint8_t* key_id, size_t key_id_size, uint8_t* key_output) { (void)key_id; (void)key_id_size; (void)key_output; return SEEN_TEE_ERR_NOT_SUPPORTED; }
+SeenTEEStatus __seen_sev_seal_data(const uint8_t* plaintext, size_t plaintext_size, const uint8_t* additional_data, size_t additional_size, SeenSealPolicy policy, SeenSealedData* sealed_output) { (void)plaintext; (void)plaintext_size; (void)additional_data; (void)additional_size; (void)policy; (void)sealed_output; return SEEN_TEE_ERR_NOT_SUPPORTED; }
+SeenTEEStatus __seen_sev_unseal_data(const SeenSealedData* sealed_input, uint8_t* plaintext_output, size_t* plaintext_size) { (void)sealed_input; (void)plaintext_output; (void)plaintext_size; return SEEN_TEE_ERR_NOT_SUPPORTED; }
 
 #endif // SEEN_TEE_ENABLE_SEV

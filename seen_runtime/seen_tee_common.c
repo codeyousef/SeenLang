@@ -2,17 +2,32 @@
 // Shared utilities and stub implementation for TEE operations
 // Part of UWW Infrastructure (Task 5.3)
 
-#include "seen_tee.h"
+#include "seen_runtime.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+#include <ctype.h>
 
 // Forward declarations for platform-specific implementations
 extern SeenTEEStatus __seen_sgx_init(void);
 extern SeenTEEStatus __seen_sev_init(void);
 extern int __seen_sgx_available(void);
 extern int __seen_sev_available(void);
+extern int64_t __seen_sgx_enclave_create(const char* enclave_path, size_t heap_size, size_t stack_size);
+extern SeenTEEStatus __seen_sgx_enclave_destroy(int64_t enclave_id);
+extern SeenTEEStatus __seen_sgx_enclave_enter(int64_t enclave_id);
+extern SeenTEEStatus __seen_sgx_enclave_exit(void);
+extern SeenTEEStatus __seen_sgx_seal_data(const uint8_t* plaintext, size_t plaintext_size, const uint8_t* additional_data, size_t additional_size, SeenSealPolicy policy, SeenSealedData* sealed_output);
+extern SeenTEEStatus __seen_sgx_unseal_data(const SeenSealedData* sealed_input, uint8_t* plaintext_output, size_t* plaintext_size);
+extern SeenTEEStatus __seen_sgx_get_report(const uint8_t* report_data, size_t report_data_size, SeenAttestationType attest_type, SeenAttestationReport* report_output);
+extern SeenTEEStatus __seen_sgx_verify_report(const SeenAttestationReport* report, const uint8_t* expected_measurement, size_t measurement_size);
+extern SeenTEEStatus __seen_sgx_derive_key(const uint8_t* key_id, size_t key_id_size, uint8_t* key_output);
+extern SeenTEEStatus __seen_sev_get_report(const uint8_t* report_data, size_t report_data_size, SeenAttestationType attest_type, SeenAttestationReport* report_output);
+extern SeenTEEStatus __seen_sev_verify_report(const SeenAttestationReport* report, const uint8_t* expected_measurement, size_t measurement_size);
+extern SeenTEEStatus __seen_sev_derive_key(const uint8_t* key_id, size_t key_id_size, uint8_t* key_output);
+extern SeenTEEStatus __seen_sev_seal_data(const uint8_t* plaintext, size_t plaintext_size, const uint8_t* additional_data, size_t additional_size, SeenSealPolicy policy, SeenSealedData* sealed_output);
+extern SeenTEEStatus __seen_sev_unseal_data(const SeenSealedData* sealed_input, uint8_t* plaintext_output, size_t* plaintext_size);
 
 // ============================================================================
 // Global State
@@ -156,8 +171,15 @@ SeenTEEStatus __seen_enclave_enter(int64_t enclave_id) {
         return SEEN_TEE_SUCCESS;
     }
 
-    // Real TEE would call platform-specific implementation
-    // This will be overridden by SGX/SEV implementations
+    if (g_tee_type == SEEN_TEE_SGX) {
+        SeenTEEStatus status = __seen_sgx_enclave_enter(enclave_id);
+        if (status == SEEN_TEE_SUCCESS) {
+            g_in_enclave = 1;
+            g_current_enclave_id = enclave_id;
+        }
+        return status;
+    }
+
     return SEEN_TEE_ERR_NOT_SUPPORTED;
 }
 
@@ -170,6 +192,15 @@ SeenTEEStatus __seen_enclave_exit(void) {
         g_in_enclave = 0;
         g_current_enclave_id = -1;
         return SEEN_TEE_SUCCESS;
+    }
+
+    if (g_tee_type == SEEN_TEE_SGX) {
+        SeenTEEStatus status = __seen_sgx_enclave_exit();
+        if (status == SEEN_TEE_SUCCESS) {
+            g_in_enclave = 0;
+            g_current_enclave_id = -1;
+        }
+        return status;
     }
 
     return SEEN_TEE_ERR_NOT_SUPPORTED;
@@ -190,6 +221,10 @@ int64_t __seen_enclave_create(const char* enclave_path, size_t heap_size, size_t
         return stub_enclave_counter++;
     }
 
+    if (g_tee_type == SEEN_TEE_SGX) {
+        return __seen_sgx_enclave_create(enclave_path, heap_size, stack_size);
+    }
+
     return -1;  // Not supported
 }
 
@@ -202,6 +237,15 @@ SeenTEEStatus __seen_enclave_destroy(int64_t enclave_id) {
             g_current_enclave_id = -1;
         }
         return SEEN_TEE_SUCCESS;
+    }
+
+    if (g_tee_type == SEEN_TEE_SGX) {
+        SeenTEEStatus status = __seen_sgx_enclave_destroy(enclave_id);
+        if (status == SEEN_TEE_SUCCESS && g_current_enclave_id == enclave_id) {
+            g_in_enclave = 0;
+            g_current_enclave_id = -1;
+        }
+        return status;
     }
 
     return SEEN_TEE_ERR_NOT_SUPPORTED;
@@ -258,6 +302,28 @@ SeenTEEStatus __seen_seal_data(
         return SEEN_TEE_SUCCESS;
     }
 
+    if (g_tee_type == SEEN_TEE_SGX) {
+        return __seen_sgx_seal_data(
+            plaintext,
+            plaintext_size,
+            additional_data,
+            additional_size,
+            policy,
+            sealed_output
+        );
+    }
+
+    if (g_tee_type == SEEN_TEE_SEV) {
+        return __seen_sev_seal_data(
+            plaintext,
+            plaintext_size,
+            additional_data,
+            additional_size,
+            policy,
+            sealed_output
+        );
+    }
+
     return SEEN_TEE_ERR_NOT_SUPPORTED;
 }
 
@@ -284,6 +350,14 @@ SeenTEEStatus __seen_unseal_data(
                         g_stub_key, plaintext_output);
         *plaintext_size = sealed_input->sealed_size;
         return SEEN_TEE_SUCCESS;
+    }
+
+    if (sealed_input->tee_type == SEEN_TEE_SGX) {
+        return __seen_sgx_unseal_data(sealed_input, plaintext_output, plaintext_size);
+    }
+
+    if (sealed_input->tee_type == SEEN_TEE_SEV) {
+        return __seen_sev_unseal_data(sealed_input, plaintext_output, plaintext_size);
     }
 
     return SEEN_TEE_ERR_NOT_SUPPORTED;
@@ -331,6 +405,32 @@ SeenTEEStatus __seen_get_attestation_report(
         return SEEN_TEE_SUCCESS;
     }
 
+    if (g_tee_type == SEEN_TEE_SGX) {
+        SeenTEEStatus status = __seen_sgx_get_report(
+            report_data,
+            report_data_size,
+            attest_type,
+            report_output
+        );
+        if (status == SEEN_TEE_SUCCESS && report_output->timestamp == 0) {
+            report_output->timestamp = (int64_t)time(NULL);
+        }
+        return status;
+    }
+
+    if (g_tee_type == SEEN_TEE_SEV) {
+        SeenTEEStatus status = __seen_sev_get_report(
+            report_data,
+            report_data_size,
+            attest_type,
+            report_output
+        );
+        if (status == SEEN_TEE_SUCCESS && report_output->timestamp == 0) {
+            report_output->timestamp = (int64_t)time(NULL);
+        }
+        return status;
+    }
+
     return SEEN_TEE_ERR_NOT_SUPPORTED;
 }
 
@@ -358,6 +458,14 @@ SeenTEEStatus __seen_verify_attestation_report(
             }
         }
         return SEEN_TEE_SUCCESS;
+    }
+
+    if (report->tee_type == SEEN_TEE_SGX) {
+        return __seen_sgx_verify_report(report, expected_measurement, measurement_size);
+    }
+
+    if (report->tee_type == SEEN_TEE_SEV) {
+        return __seen_sev_verify_report(report, expected_measurement, measurement_size);
     }
 
     return SEEN_TEE_ERR_NOT_SUPPORTED;
@@ -389,6 +497,14 @@ SeenTEEStatus __seen_derive_key(
             }
         }
         return SEEN_TEE_SUCCESS;
+    }
+
+    if (g_tee_type == SEEN_TEE_SGX) {
+        return __seen_sgx_derive_key(key_id, key_id_size, key_output);
+    }
+
+    if (g_tee_type == SEEN_TEE_SEV) {
+        return __seen_sev_derive_key(key_id, key_id_size, key_output);
     }
 
     return SEEN_TEE_ERR_NOT_SUPPORTED;
@@ -424,41 +540,127 @@ static size_t hex_to_bytes(const char* hex, uint8_t* bytes, size_t max_len) {
     return byte_len;
 }
 
-char* __seen_seal_string(const char* plaintext, const char* additional_data, int policy) {
-    if (!plaintext) return NULL;
+static const char* skip_json_whitespace(const char* cursor) {
+    while (cursor && *cursor && isspace((unsigned char)*cursor)) {
+        cursor++;
+    }
+    return cursor;
+}
 
-    size_t plain_len = strlen(plaintext);
-    const uint8_t* aad = additional_data ? (const uint8_t*)additional_data : NULL;
-    size_t aad_len = additional_data ? strlen(additional_data) : 0;
+static int extract_json_bool_field(const char* json, const char* key, int* value) {
+    if (!json || !key || !value) {
+        return 0;
+    }
+    char needle[64];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char* key_pos = strstr(json, needle);
+    if (!key_pos) {
+        return 0;
+    }
+    const char* colon = strchr(key_pos, ':');
+    if (!colon) {
+        return 0;
+    }
+    const char* field = skip_json_whitespace(colon + 1);
+    if (!field) {
+        return 0;
+    }
+    if (strncmp(field, "true", 4) == 0) {
+        *value = 1;
+        return 1;
+    }
+    if (strncmp(field, "false", 5) == 0) {
+        *value = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static int extract_json_string_field(const char* json, const char* key, char* output, size_t output_size) {
+    if (!json || !key || !output || output_size == 0) {
+        return 0;
+    }
+    char needle[64];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char* key_pos = strstr(json, needle);
+    if (!key_pos) {
+        output[0] = '\0';
+        return 0;
+    }
+    const char* colon = strchr(key_pos, ':');
+    if (!colon) {
+        output[0] = '\0';
+        return 0;
+    }
+    const char* field = skip_json_whitespace(colon + 1);
+    if (!field || *field != '"') {
+        output[0] = '\0';
+        return 0;
+    }
+    field++;
+    const char* end = strchr(field, '"');
+    if (!end) {
+        output[0] = '\0';
+        return 0;
+    }
+    size_t copy_size = (size_t)(end - field);
+    if (copy_size >= output_size) {
+        copy_size = output_size - 1;
+    }
+    memcpy(output, field, copy_size);
+    output[copy_size] = '\0';
+    return 1;
+}
+
+SeenString __seen_seal_string(SeenString plaintext, SeenString additional_data, int64_t policy) {
+    if (!plaintext.data) {
+        return seen_cstr_to_str("");
+    }
+
+    const uint8_t* aad = additional_data.data ? (const uint8_t*)additional_data.data : NULL;
+    size_t aad_len = additional_data.data ? (size_t)additional_data.len : 0;
 
     SeenSealedData sealed;
     SeenTEEStatus status = __seen_seal_data(
-        (const uint8_t*)plaintext, plain_len,
+        (const uint8_t*)plaintext.data, (size_t)plaintext.len,
         aad, aad_len,
         (SeenSealPolicy)policy,
         &sealed
     );
 
     if (status != SEEN_TEE_SUCCESS) {
-        return NULL;
+        return seen_cstr_to_str("");
     }
 
-    return bytes_to_hex(sealed.sealed_data, sealed.sealed_size);
+    char* hex = bytes_to_hex(sealed.sealed_data, sealed.sealed_size);
+    if (!hex) {
+        return seen_cstr_to_str("");
+    }
+    return seen_cstr_to_str(hex);
 }
 
-char* __seen_unseal_string(const char* sealed_hex, const char* additional_data) {
-    if (!sealed_hex) return NULL;
+SeenString __seen_unseal_string_ex(SeenString sealed_hex, SeenString additional_data, int64_t tee_type, int64_t policy) {
+    if (!sealed_hex.data || sealed_hex.len == 0) {
+        return seen_cstr_to_str("");
+    }
+
+    char* sealed_hex_cstr = seen_str_to_cstr(sealed_hex);
+    if (!sealed_hex_cstr) {
+        return seen_cstr_to_str("");
+    }
 
     SeenSealedData sealed;
     memset(&sealed, 0, sizeof(sealed));
-    sealed.sealed_size = hex_to_bytes(sealed_hex, sealed.sealed_data, SEEN_TEE_MAX_SEALED_SIZE);
+    sealed.sealed_size = hex_to_bytes(sealed_hex_cstr, sealed.sealed_data, SEEN_TEE_MAX_SEALED_SIZE);
+    free(sealed_hex_cstr);
     sealed.valid = 1;
-    sealed.tee_type = g_tee_type;
+    sealed.tee_type = (SeenTEEType)tee_type;
+    sealed.policy = (SeenSealPolicy)policy;
 
-    if (additional_data) {
-        size_t aad_len = strlen(additional_data);
+    if (additional_data.data && additional_data.len > 0) {
+        size_t aad_len = (size_t)additional_data.len;
         if (aad_len > 256) aad_len = 256;
-        memcpy(sealed.additional_data, additional_data, aad_len);
+        memcpy(sealed.additional_data, additional_data.data, aad_len);
         sealed.additional_size = aad_len;
     }
 
@@ -467,33 +669,41 @@ char* __seen_unseal_string(const char* sealed_hex, const char* additional_data) 
 
     SeenTEEStatus status = __seen_unseal_data(&sealed, plaintext, &plain_len);
     if (status != SEEN_TEE_SUCCESS) {
-        return NULL;
+        return seen_cstr_to_str("");
     }
 
     char* result = (char*)malloc(plain_len + 1);
-    if (!result) return NULL;
+    if (!result) {
+        return seen_cstr_to_str("");
+    }
 
     memcpy(result, plaintext, plain_len);
     result[plain_len] = '\0';
-    return result;
+    return seen_cstr_to_str(result);
 }
 
-char* __seen_get_attestation_json(const char* report_data, int attest_type) {
+SeenString __seen_unseal_string(SeenString sealed_hex, SeenString additional_data) {
+    return __seen_unseal_string_ex(sealed_hex, additional_data, g_tee_type, SEEN_SEAL_MRENCLAVE);
+}
+
+SeenString __seen_get_attestation_json(SeenString report_data, int64_t attest_type) {
     SeenAttestationReport report;
     SeenTEEStatus status = __seen_get_attestation_report(
-        report_data ? (const uint8_t*)report_data : NULL,
-        report_data ? strlen(report_data) : 0,
+        report_data.data ? (const uint8_t*)report_data.data : NULL,
+        report_data.data ? (size_t)report_data.len : 0,
         (SeenAttestationType)attest_type,
         &report
     );
 
     if (status != SEEN_TEE_SUCCESS) {
-        return NULL;
+        return seen_cstr_to_str("");
     }
 
     // Build JSON manually (no JSON library dependency)
     char* json = (char*)malloc(4096);
-    if (!json) return NULL;
+    if (!json) {
+        return seen_cstr_to_str("");
+    }
 
     char* measurement_hex = bytes_to_hex(report.measurement, report.measurement_size);
 
@@ -513,21 +723,72 @@ char* __seen_get_attestation_json(const char* report_data, int attest_type) {
     );
 
     free(measurement_hex);
-    return json;
+    return seen_cstr_to_str(json);
 }
 
-int __seen_verify_attestation_json(const char* report_json, const char* expected_measurement) {
-    // This is a simplified implementation
-    // In production, would properly parse JSON
-    (void)report_json;
-    (void)expected_measurement;
-
-    // For now, trust stub mode
-    if (g_stub_mode) {
-        return 1;
+SeenString __seen_attestation_measurement_json(SeenString report_json) {
+    if (!report_json.data) {
+        return seen_cstr_to_str("");
     }
 
-    return 0;
+    char* report_json_cstr = seen_str_to_cstr(report_json);
+    if (!report_json_cstr) {
+        return seen_cstr_to_str("");
+    }
+
+    char measurement_hex[SEEN_TEE_MAX_REPORT_SIZE * 2 + 1];
+    int found = extract_json_string_field(report_json_cstr, "measurement", measurement_hex, sizeof(measurement_hex));
+    free(report_json_cstr);
+    if (!found) {
+        return seen_cstr_to_str("");
+    }
+
+    return seen_str_copy(measurement_hex);
+}
+
+int64_t __seen_verify_attestation_json(SeenString report_json, SeenString expected_measurement) {
+    if (!report_json.data) {
+        return 0;
+    }
+
+    char* report_json_cstr = seen_str_to_cstr(report_json);
+    if (!report_json_cstr) {
+        return 0;
+    }
+
+    char* expected_measurement_cstr = NULL;
+    if (expected_measurement.data) {
+        expected_measurement_cstr = seen_str_to_cstr(expected_measurement);
+        if (!expected_measurement_cstr) {
+            free(report_json_cstr);
+            return 0;
+        }
+    }
+
+    int report_valid = 0;
+    if (!extract_json_bool_field(report_json_cstr, "valid", &report_valid) || !report_valid) {
+        free(report_json_cstr);
+        free(expected_measurement_cstr);
+        return 0;
+    }
+
+    if (expected_measurement_cstr && expected_measurement_cstr[0] != '\0') {
+        char measurement_hex[SEEN_TEE_MAX_REPORT_SIZE * 2 + 1];
+        if (!extract_json_string_field(report_json_cstr, "measurement", measurement_hex, sizeof(measurement_hex))) {
+            free(report_json_cstr);
+            free(expected_measurement_cstr);
+            return 0;
+        }
+        if (strcmp(measurement_hex, expected_measurement_cstr) != 0) {
+            free(report_json_cstr);
+            free(expected_measurement_cstr);
+            return 0;
+        }
+    }
+
+    free(report_json_cstr);
+    free(expected_measurement_cstr);
+    return 1;
 }
 
 // ============================================================================
@@ -535,15 +796,22 @@ int __seen_verify_attestation_json(const char* report_json, const char* expected
 // ============================================================================
 
 uint64_t __seen_tee_get_capabilities(void) {
+    if (!g_tee_initialized) {
+        __seen_tee_init();
+    }
+
     uint64_t caps = 0;
 
     if (g_stub_mode) {
         // Stub mode supports everything (for testing)
         caps = SEEN_TEE_CAP_SEAL | SEEN_TEE_CAP_ATTEST_LOCAL |
                SEEN_TEE_CAP_DERIVE_KEY | SEEN_TEE_CAP_ENCLAVE;
+    } else if (g_tee_type == SEEN_TEE_SGX) {
+        caps = SEEN_TEE_CAP_ENCLAVE;
+    } else if (g_tee_type == SEEN_TEE_SEV) {
+        caps = SEEN_TEE_CAP_SEAL | SEEN_TEE_CAP_ATTEST_LOCAL | SEEN_TEE_CAP_DERIVE_KEY;
     }
 
-    // Real TEE capabilities would be queried from hardware
     return caps;
 }
 
@@ -567,17 +835,3 @@ void __seen_tee_print_info(void) {
     fprintf(stderr, "  - Enclave Execution: %s\n", (caps & SEEN_TEE_CAP_ENCLAVE) ? "Yes" : "No");
     fprintf(stderr, "=====================\n\n");
 }
-
-// ============================================================================
-// Stub implementations for platform-specific functions when not available
-// ============================================================================
-
-#ifndef SEEN_TEE_ENABLE_SGX
-int __seen_sgx_available(void) { return 0; }
-SeenTEEStatus __seen_sgx_init(void) { return SEEN_TEE_ERR_NOT_SUPPORTED; }
-#endif
-
-#ifndef SEEN_TEE_ENABLE_SEV
-int __seen_sev_available(void) { return 0; }
-SeenTEEStatus __seen_sev_init(void) { return SEEN_TEE_ERR_NOT_SUPPORTED; }
-#endif

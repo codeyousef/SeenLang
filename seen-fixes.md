@@ -14,7 +14,7 @@ Status as of 2026-04-08 after re-verifying the absolute-path direct-entry projec
 
 - The compiler was resolving `Seen.toml`, `project.modules`, and `[build].entry` relative to the process working directory instead of the input file's project root.
 - Absolute-path direct-entry builds could therefore drop sibling project modules, mis-shape type/layout information, and eventually emit the invalid pointer-versus-integer LLVM IR described in the original report.
-- The fix now resolves the nearest `Seen.toml` from the input path, applies `project.modules` only to declared project members, keeps `[build].entry` import seeding for non-member project files, and updates the stale `seen_std` manifest entry from `src/async/task.seen` to `src/async/runtime.seen`.
+- The fix resolves the nearest `Seen.toml` from the input path, applies `project.modules` to declared members only, keeps `[build].entry` seeding for non-members, and updates the `seen_std` manifest entry to `src/async/runtime.seen`.
 
 **Compiler/test coverage delivered**:
 
@@ -26,9 +26,9 @@ Status as of 2026-04-08 after re-verifying the absolute-path direct-entry projec
 
 **Observed local result**:
 
-- The exact absolute-path repro now succeeds both from the project root and from an external working directory, and both runs log `Reading Seen.toml...` plus `Found 2 modules`.
+- The absolute-path repro succeeds both from the project root and from an external working directory, and both runs log `Reading Seen.toml...` plus `Found 2 modules`.
 - A new non-member absolute-path regression proves standalone files under a project tree no longer incorrectly absorb unrelated `project.modules`.
-- The current tree also passes the focused Seen-fixes regression harness, the 66-case multilingual E2E suite, native smoke validation, and the broader platform matrix.
+- The tree also passes the focused Seen-fixes regression harness, the 66-case multilingual E2E suite, native smoke validation, and the broader platform matrix.
 
 ---
 

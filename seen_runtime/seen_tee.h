@@ -9,6 +9,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifndef SEEN_RUNTIME_H
+typedef struct {
+    int64_t len;
+    char* data;
+} SeenString;
+#endif
+
 // ============================================================================
 // TEE Type Enumeration
 // ============================================================================
@@ -194,16 +201,18 @@ SeenTEEStatus __seen_derive_key(
 // ============================================================================
 
 // Seal data from Seen String, returns sealed data as hex string
-char* __seen_seal_string(const char* plaintext, const char* additional_data, int policy);
+SeenString __seen_seal_string(SeenString plaintext, SeenString additional_data, int64_t policy);
 
 // Unseal data from hex string, returns plaintext
-char* __seen_unseal_string(const char* sealed_hex, const char* additional_data);
+SeenString __seen_unseal_string(SeenString sealed_hex, SeenString additional_data);
+SeenString __seen_unseal_string_ex(SeenString sealed_hex, SeenString additional_data, int64_t tee_type, int64_t policy);
 
 // Get attestation report as JSON string
-char* __seen_get_attestation_json(const char* report_data, int attest_type);
+SeenString __seen_get_attestation_json(SeenString report_data, int64_t attest_type);
+SeenString __seen_attestation_measurement_json(SeenString report_json);
 
 // Verify attestation report from JSON, returns 1 if valid
-int __seen_verify_attestation_json(const char* report_json, const char* expected_measurement);
+int64_t __seen_verify_attestation_json(SeenString report_json, SeenString expected_measurement);
 
 // ============================================================================
 // Diagnostics

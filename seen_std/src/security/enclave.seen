@@ -3,6 +3,8 @@
 // Supports Intel SGX and AMD SEV transparently
 // Part of UWW Infrastructure (Task 5.3)
 
+import str.string.{indexOf}
+
 // ============================================================================
 // TEE Type Enumeration
 // ============================================================================
@@ -227,8 +229,47 @@ extern fun __seen_enclave_destroy(enclaveId: Int) r: Int
 // String-based API
 extern fun __seen_seal_string(plaintext: String, additionalData: String, policy: Int) r: String
 extern fun __seen_unseal_string(sealedHex: String, additionalData: String) r: String
+extern fun __seen_unseal_string_ex(sealedHex: String, additionalData: String, teeType: Int, policy: Int) r: String
 extern fun __seen_get_attestation_json(reportData: String, attestType: Int) r: String
+extern fun __seen_attestation_measurement_json(reportJson: String) r: String
 extern fun __seen_verify_attestation_json(reportJson: String, expectedMeasurement: String) r: Int
+
+fun extractJsonStringField(json: String, key: String) r: String {
+    let keyStart = indexOf(json, key)
+    if keyStart < 0 {
+        return ""
+    }
+    var cursor = keyStart + key.length()
+    while cursor < json.length() and json.byteAt(cursor) != 58 {
+        cursor = cursor + 1
+    }
+    if cursor >= json.length() {
+        return ""
+    }
+    cursor = cursor + 1
+    while cursor < json.length() {
+        let byte = json.byteAt(cursor)
+        if byte != 32 and byte != 10 and byte != 13 and byte != 9 {
+            break
+        }
+        cursor = cursor + 1
+    }
+    while cursor < json.length() and json.byteAt(cursor) != 34 {
+        cursor = cursor + 1
+    }
+    if cursor >= json.length() {
+        return ""
+    }
+    let valueStart = cursor + 1
+    var valueEnd = valueStart
+    while valueEnd < json.length() and json.byteAt(valueEnd) != 34 {
+        valueEnd = valueEnd + 1
+    }
+    if valueEnd >= json.length() {
+        return ""
+    }
+    return json.substring(valueStart, valueEnd)
+}
 
 // ============================================================================
 // TEE Class - Main Interface
@@ -238,20 +279,15 @@ class TEE {
     var teeType: TEEType
     var initialized: Bool
 
-    // Singleton instance
-    static var instance: TEE = TEE{teeType: TEEType.new(0), initialized: false}
-
-    // Initialize and get TEE instance
     static fun init() r: TEE {
-        if not TEE.instance.initialized {
-            let status = __seen_tee_init()
-            let ttype = __seen_tee_get_type()
-            TEE.instance.teeType = TEEType.new(ttype)
-            if status == 0 or status == TEEStatus.ERR_NOT_SUPPORTED {
-                TEE.instance.initialized = true
-            }
+        let result = TEE{teeType: TEEType.new(TEEType.NONE), initialized: false}
+        let status = __seen_tee_init()
+        let ttype = __seen_tee_get_type()
+        result.teeType = TEEType.new(ttype)
+        if status == 0 or status == TEEStatus.ERR_NOT_SUPPORTED {
+            result.initialized = true
         }
-        return TEE.instance
+        return result
     }
 
     // Check if TEE is available
@@ -336,7 +372,12 @@ class TEE {
         if not sealed.valid {
             return ""
         }
-        return __seen_unseal_string(sealed.sealedHex, sealed.additionalData)
+        return __seen_unseal_string_ex(
+            sealed.sealedHex,
+            sealed.additionalData,
+            sealed.teeType.value,
+            sealed.policy.value
+        )
     }
 
     // Get attestation report
@@ -345,11 +386,11 @@ class TEE {
         let json = __seen_get_attestation_json(reportData, attestType.value)
 
         if json.length() > 0 {
-            // Parse JSON (simplified - just mark as valid)
             result.teeType = TEE.getType()
             result.attestType = attestType
             result.reportData = json
-            result.valid = true
+            result.measurement = __seen_attestation_measurement_json(json)
+            result.valid = __seen_verify_attestation_json(json, "") != 0
         }
 
         return result

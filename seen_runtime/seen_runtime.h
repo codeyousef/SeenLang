@@ -66,6 +66,9 @@ typedef struct CGenerator CGenerator;
 // Create SeenString from C string (does not copy)
 SeenString seen_cstr_to_str(const char* s);
 
+// Convert SeenString to null-terminated C string (malloc'd copy)
+char* seen_str_to_cstr(SeenString s);
+
 // Create SeenString with copy
 static inline SeenString seen_str_copy(const char* s) {
     size_t len = strlen(s);

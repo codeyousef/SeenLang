@@ -187,25 +187,25 @@ fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
         return resultReg
     }
 
-    // 1-arg libc math: __Asin, __Acos, __Atan, __Sinh, __Cosh, __Tanh
+    // 1-arg runtime math wrappers: __Asin, __Acos, __Atan, __Sinh, __Cosh, __Tanh
     if funcName == "__Asin" or funcName == "__Acos" or funcName == "__Atan" or funcName == "__Sinh" or funcName == "__Cosh" or funcName == "__Tanh" or funcName == "__Tan" {
         let resultReg = getNextRegFn(regBox)
-        var libcName = ""
-        if funcName == "__Asin" { libcName = "@asin" }
-        if funcName == "__Acos" { libcName = "@acos" }
-        if funcName == "__Atan" { libcName = "@atan" }
-        if funcName == "__Sinh" { libcName = "@sinh" }
-        if funcName == "__Cosh" { libcName = "@cosh" }
-        if funcName == "__Tanh" { libcName = "@tanh" }
-        if funcName == "__Tan" { libcName = "@tan" }
-        output.append("  " + resultReg + " = call fast double " + libcName + "(double " + arg0 + ")\n")
+        var runtimeName = ""
+        if funcName == "__Asin" { runtimeName = "@__Asin" }
+        if funcName == "__Acos" { runtimeName = "@__Acos" }
+        if funcName == "__Atan" { runtimeName = "@__Atan" }
+        if funcName == "__Sinh" { runtimeName = "@__Sinh" }
+        if funcName == "__Cosh" { runtimeName = "@__Cosh" }
+        if funcName == "__Tanh" { runtimeName = "@__Tanh" }
+        if funcName == "__Tan" { runtimeName = "@__Tan" }
+        output.append("  " + resultReg + " = call fast double " + runtimeName + "(double " + arg0 + ")\n")
         return resultReg
     }
 
-    // __Atan2 → atan2 (2-arg libc)
+    // __Atan2 → runtime wrapper (2-arg)
     if funcName == "__Atan2" {
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = call fast double @atan2(double " + arg0 + ", double " + arg1 + ")\n")
+        output.append("  " + resultReg + " = call fast double @__Atan2(double " + arg0 + ", double " + arg1 + ")\n")
         return resultReg
     }
 

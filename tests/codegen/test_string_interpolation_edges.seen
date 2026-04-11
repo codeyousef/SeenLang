@@ -1,0 +1,58 @@
+class Clock {
+    static fun new() r: Clock {
+        return Clock {}
+    }
+
+    fun hour() r: Int {
+        return 7
+    }
+}
+
+fun main() {
+    var passed = 0
+    var failed = 0
+
+    let clock = Clock.new()
+
+    let pureExpr = "{clock.hour()}"
+    if pureExpr == "7" {
+        passed = passed + 1
+        println("PASS: pure expression interpolation")
+    } else {
+        failed = failed + 1
+        println("FAIL: pure expression interpolation")
+    }
+
+    let leadingExpr = "{clock.hour()}!"
+    if leadingExpr == "7!" {
+        passed = passed + 1
+        println("PASS: leading expression interpolation")
+    } else {
+        failed = failed + 1
+        println("FAIL: leading expression interpolation")
+    }
+
+    let trailingExpr = "Hour {clock.hour()}"
+    if trailingExpr == "Hour 7" {
+        passed = passed + 1
+        println("PASS: trailing expression interpolation")
+    } else {
+        failed = failed + 1
+        println("FAIL: trailing expression interpolation")
+    }
+
+    let adjacentExprs = "{clock.hour()}{clock.hour()}"
+    if adjacentExprs == "77" {
+        passed = passed + 1
+        println("PASS: adjacent expression interpolation")
+    } else {
+        failed = failed + 1
+        println("FAIL: adjacent expression interpolation")
+    }
+
+    if passed == 4 and failed == 0 {
+        println("Interpolation edge tests passed")
+    } else {
+        println("Interpolation edge tests failed")
+    }
+}

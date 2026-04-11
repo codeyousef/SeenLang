@@ -67,11 +67,9 @@ bash scripts/bundle_android.sh \
   artifacts/android/seen_vulkan_min.aab
 ```
 
-The sample now carries Android manifest and resource metadata in the project root, and `scripts/bundle_android.sh`
-resolves `examples/seen-vulkan-min/Seen.toml` as the project root automatically. The packager also reuses the shared
-Android dex loader scaffold from `examples/android/hello_ndk/` when a project does not carry its own dex payload, so
-the resulting bundle includes the sample shader asset at `assets/shaders/triangle.spv` together with the generated
-`arm64-v8a/libapp.so`.
+The sample carries Android manifest and resource metadata in the project root. When a project does not provide its own
+dex payload, `scripts/bundle_android.sh` reuses the scaffold from `examples/android/hello_ndk/`, which includes the
+sample shader asset at `assets/shaders/triangle.spv` and generates `arm64-v8a/libapp.so`.
 
 The CLI emits a per-frame validation report. CI can grep for `validation_errors=0` to ensure the simulated validation
 layers stayed happy. Because the sample avoids host-specific syscalls it can be exercised on any platform that supports

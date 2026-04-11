@@ -2452,6 +2452,7 @@ double __Atan2(double y, double x) { return atan2(y, x); }
 double __Sinh(double x) { return sinh(x); }
 double __Cosh(double x) { return cosh(x); }
 double __Tanh(double x) { return tanh(x); }
+double __Tan(double x) { return tan(x); }
 double __Log10(double x) { return log10(x); }
 
 SeenString __FloatToString(double f) {
@@ -7982,8 +7983,8 @@ int64_t seen_chunk_brick_load(int64_t p) { (void)p; return 0; }
 void seen_chunk_brick_free(int64_t p) { (void)p; }
 void seen_quality_log(int64_t level, int64_t msg_ptr, int64_t msg_len) { (void)level; (void)msg_ptr; (void)msg_len; }
 int64_t seen_vk_get_physical_device_timestamp_period(void) { return 0; }
-int64_t seen_vk_create_query_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-void seen_vk_cmd_write_timestamp(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) int64_t seen_vk_create_query_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+__attribute__((weak)) void seen_vk_cmd_write_timestamp(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 
 // Hearton engine string helpers (SeenString already typedef'd above)
 SeenString hearton_int_to_str(int64_t val) {
@@ -8040,32 +8041,35 @@ void seen_prop_warn(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_console_print(int64_t a, int64_t b) { (void)a; (void)b; }
 double seen_string_to_float(int64_t len, char* data) { (void)len; (void)data; return 0.0; }
 int64_t seen_string_to_int(int64_t len, char* data) { (void)len; (void)data; return 0; }
+double seen_math_positive_infinity(void) { return INFINITY; }
+double seen_math_negative_infinity(void) { return -INFINITY; }
+double seen_math_nan(void) { return NAN; }
 int64_t seen_string_starts_with(int64_t s_len, char* s_data, int64_t p_len, char* p_data) {
     (void)s_len; (void)s_data; (void)p_len; (void)p_data; return 0;
 }
 
 // SDL stubs
-int64_t seen_sdl_init(int64_t a) { (void)a; return 0; }
+__attribute__((weak)) int64_t seen_sdl_init(int64_t a) { (void)a; return 0; }
 int64_t seen_sdl_create_window_vulkan(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
 int64_t seen_sdl_alloc_event_buffer(void) { return 0; }
-void seen_sdl_set_relative_mouse(int64_t a) { (void)a; }
+__attribute__((weak)) void seen_sdl_set_relative_mouse(int64_t a) { (void)a; }
 
 // Vulkan stubs
-int64_t seen_vk_create_instance(int64_t a) { (void)a; return 0; }
+__attribute__((weak)) int64_t seen_vk_create_instance(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_create_surface(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 int64_t seen_vk_pick_physical_device(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 int64_t seen_vk_create_logical_device(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_get_graphics_queue(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_get_present_queue(int64_t a) { (void)a; return 0; }
-int64_t seen_vk_create_swapchain(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+__attribute__((weak)) int64_t seen_vk_create_swapchain(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 int64_t seen_vk_get_swapchain_image_count(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_create_swapchain_image_views(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 int64_t seen_vk_create_render_pass(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_create_framebuffers(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
-int64_t seen_vk_create_command_pool(int64_t a) { (void)a; return 0; }
-int64_t seen_vk_allocate_command_buffers(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-int64_t seen_vk_create_semaphore(int64_t a) { (void)a; return 0; }
-int64_t seen_vk_create_fence(int64_t a) { (void)a; return 0; }
+__attribute__((weak)) int64_t seen_vk_create_command_pool(int64_t a) { (void)a; return 0; }
+__attribute__((weak)) int64_t seen_vk_allocate_command_buffers(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+__attribute__((weak)) int64_t seen_vk_create_semaphore(int64_t a) { (void)a; return 0; }
+__attribute__((weak)) int64_t seen_vk_create_fence(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_create_depth_resources(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 int64_t seen_vk_create_depth_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 int64_t seen_vk_create_depth_image_view(int64_t a) { (void)a; return 0; }
@@ -8097,18 +8101,18 @@ void seen_console_poll_line(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_audio_write_samples(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 void seen_audio_destroy(int64_t a) { (void)a; }
 int64_t seen_sdl_get_ticks_ns(void) { return 0; }
-void seen_sdl_show_window(int64_t a) { (void)a; }
+__attribute__((weak)) void seen_sdl_show_window(int64_t a) { (void)a; }
 int64_t seen_vk_create_depth_only_render_pass(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_create_offscreen_render_pass(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_create_depth_resources_sampled(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 int64_t seen_vk_create_depth_framebuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 int64_t seen_vk_depth_pack_get_view(int64_t a) { (void)a; return 0; }
-int64_t seen_vk_create_descriptor_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-int64_t seen_vk_create_descriptor_set_layout(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+__attribute__((weak)) int64_t seen_vk_create_descriptor_pool(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+__attribute__((weak)) int64_t seen_vk_create_descriptor_set_layout(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 int64_t seen_vk_create_pipeline_layout_ext(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-int64_t seen_vk_allocate_descriptor_set(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
-void seen_vk_update_descriptor_set_buffer(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
-void seen_vk_update_descriptor_set_image(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+__attribute__((weak)) int64_t seen_vk_allocate_descriptor_set(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
+__attribute__((weak)) void seen_vk_update_descriptor_set_buffer(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
+__attribute__((weak)) void seen_vk_update_descriptor_set_image(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
 
 // ==========================================================================
 // Comprehensive stubs for bootstrap builds — Vulkan, SDL, voxel, audio, etc.
@@ -8143,26 +8147,26 @@ __attribute__((weak)) void vkFreeMemory(int64_t a, int64_t b, int64_t c) { (void
 __attribute__((weak)) void vkUnmapMemory(int64_t a, int64_t b) { (void)a; (void)b; }
 
 // --- Vulkan wrapper stubs ---
-int64_t seen_vk_acquire_next_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
-void seen_vk_begin_command_buffer(int64_t a) { (void)a; }
+__attribute__((weak)) int64_t seen_vk_acquire_next_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
+__attribute__((weak)) void seen_vk_begin_command_buffer(int64_t a) { (void)a; }
 void seen_vk_begin_render_pass(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
 void seen_vk_begin_render_pass_depth(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
 void seen_vk_cmd_bind_compute_descriptor_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 void seen_vk_cmd_bind_descriptor_set(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 void seen_vk_cmd_bind_index_buffer(int64_t a, int64_t b) { (void)a; (void)b; }
-void seen_vk_cmd_bind_pipeline(int64_t a, int64_t b) { (void)a; (void)b; }
+__attribute__((weak)) void seen_vk_cmd_bind_pipeline(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_vk_cmd_bind_vertex_buffer(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_vk_cmd_depth_image_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_vk_cmd_dispatch_compute(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
-void seen_vk_cmd_draw(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void seen_vk_cmd_draw(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 void seen_vk_cmd_draw_indexed(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 void seen_vk_cmd_draw_indexed_indirect(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
 void seen_vk_cmd_image_barrier(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
 void seen_vk_cmd_pipeline_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_vk_cmd_push_constants_frag(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; }
-void seen_vk_cmd_reset_query_pool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
-void seen_vk_cmd_set_scissor(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
-void seen_vk_cmd_set_viewport(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+__attribute__((weak)) void seen_vk_cmd_reset_query_pool(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
+__attribute__((weak)) void seen_vk_cmd_set_scissor(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+__attribute__((weak)) void seen_vk_cmd_set_viewport(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
 void seen_vk_cmd_storage_buffer_to_indirect_barrier(int64_t a, int64_t b) { (void)a; (void)b; }
 int64_t seen_vk_create_blend_pipeline(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
 int64_t seen_vk_create_compute_pipeline_with_layout(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
@@ -8183,7 +8187,7 @@ void seen_vk_destroy_depth_resources(int64_t a) { (void)a; }
 void seen_vk_destroy_framebuffers(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_vk_destroy_image_views(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_vk_destroy_offscreen_target(int64_t a) { (void)a; }
-void seen_vk_destroy_query_pool(int64_t a) { (void)a; }
+__attribute__((weak)) void seen_vk_destroy_query_pool(int64_t a) { (void)a; }
 void seen_vk_destroy_texture_atlas(int64_t a) { (void)a; }
 int64_t seen_vk_get_command_buffer(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 int64_t seen_vk_get_framebuffer(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
@@ -8195,15 +8199,15 @@ int64_t seen_vk_map_memory(int64_t a, int64_t b) { (void)a; (void)b; return 0; }
 int64_t seen_vk_offscreen_get_image(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_offscreen_get_sampler(int64_t a) { (void)a; return 0; }
 int64_t seen_vk_offscreen_get_view(int64_t a) { (void)a; return 0; }
-int64_t seen_vk_queue_present(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
-int64_t seen_vk_queue_submit(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+__attribute__((weak)) int64_t seen_vk_queue_present(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
+__attribute__((weak)) int64_t seen_vk_queue_submit(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
 int64_t seen_vk_recreate_swapchain(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }
 void seen_vk_reset_fence(int64_t a, int64_t b) { (void)a; (void)b; }
 void seen_vk_wait_for_fence(int64_t a, int64_t b) { (void)a; (void)b; }
 
 // --- SDL stubs ---
-void SDL_Quit(void) {}
-void seen_sdl_destroy_window(int64_t a) { (void)a; }
+__attribute__((weak)) void SDL_Quit(void) {}
+__attribute__((weak)) void seen_sdl_destroy_window(int64_t a) { (void)a; }
 int64_t seen_sdl_event_key_scancode(int64_t a) { (void)a; return 0; }
 int64_t seen_sdl_event_mouse_button(int64_t a) { (void)a; return 0; }
 int64_t seen_sdl_event_mouse_dx(int64_t a) { (void)a; return 0; }
@@ -8212,7 +8216,7 @@ int64_t seen_sdl_event_type(int64_t a) { (void)a; return 0; }
 int64_t seen_sdl_event_window_h(int64_t a) { (void)a; return 0; }
 int64_t seen_sdl_event_window_w(int64_t a) { (void)a; return 0; }
 void seen_sdl_free_event_buffer(int64_t a) { (void)a; }
-int64_t seen_sdl_poll_event(int64_t a) { (void)a; return 0; }
+__attribute__((weak)) int64_t seen_sdl_poll_event(int64_t a) { (void)a; return 0; }
 
 // --- Audio stubs ---
 int64_t seen_audio_init(int64_t a, int64_t b) { (void)a; (void)b; return 0; }

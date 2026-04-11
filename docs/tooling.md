@@ -204,7 +204,7 @@ On pacman-compatible Linux hosts, you can create a local AArch64 cross sysroot f
 source artifacts/toolchains/linux-arm64/env.sh
 ```
 
-The helper resolves the Arch/CachyOS cross-package URLs with `pacman -Sp`, downloads them locally, and extracts them under `artifacts/toolchains/linux-arm64/`. The generated `env.sh` exports both `SEEN_LINUX_ARM64_SYSROOT` and `SEEN_LINUX_ARM64_GCC_TOOLCHAIN`, which is enough for `compiler_seen/target/seen` and the native smoke harness to produce Linux ARM64 binaries on an x86_64 Linux host.
+The helper downloads and extracts the Arch/CachyOS cross-packages under `artifacts/toolchains/linux-arm64/`. The generated `env.sh` sets `SEEN_LINUX_ARM64_SYSROOT` and `SEEN_LINUX_ARM64_GCC_TOOLCHAIN`, allowing `compiler_seen/target/seen` and the native smoke harness to produce Linux ARM64 binaries on x86_64 Linux hosts.
 
 Validate the local setup with either command:
 
@@ -223,7 +223,7 @@ The same command also exposes a capability-gated `ios-arm64` physical-device lan
 `--ios-device <udid>` to target a specific iPhone, `--ios-provisioning-profile <path>` to
 embed a development profile, and optionally `--ios-sign-identity`, `--ios-entitlements`, and
 `--ios-bundle-prefix` if your local signing setup needs them. When no provisioned device is
-available, the report stays explicit `unavailable` instead of silently pretending the lane ran.
+available, the report shows `unavailable` instead of reporting a successful lane.
 
 If you want the helper to replace an existing extracted toolchain directory, rerun it with `--force`.
 

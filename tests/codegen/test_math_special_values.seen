@@ -1,0 +1,18 @@
+import math.math.{INFINITY, NEG_INFINITY, NAN, isinf, isnan, isfinite}
+
+fun expect(condition: Bool, message: String) r: Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() r: Int {
+    expect(isinf(INFINITY), "INFINITY should classify as infinite")
+    expect(isinf(NEG_INFINITY), "NEG_INFINITY should classify as infinite")
+    expect(not isinf(1.0), "finite values should not classify as infinite")
+    expect(isnan(NAN), "NAN should classify as NaN")
+    expect(not isfinite(INFINITY), "INFINITY should not classify as finite")
+    expect(not isfinite(NAN), "NAN should not classify as finite")
+    expect(isfinite(1.5), "finite values should classify as finite")
+    return 0
+}

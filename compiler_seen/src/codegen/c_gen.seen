@@ -1,6 +1,13 @@
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, ParamNode, TypeNode, ClassNode}
 import str.string.{StringBuilder}
 
+fun cGenIsMainFunctionName(name: String) r: Bool {
+    if name.length() != 4 {
+        return false
+    }
+    return name.byteAt(0) == 109 and name.byteAt(1) == 97 and name.byteAt(2) == 105 and name.byteAt(3) == 110
+}
+
 class CGenerator {
     var sb: StringBuilder
     var currentClassName: String
@@ -56,7 +63,7 @@ class CGenerator {
         while fwdIdx < currentProgram.items.length() {
             if currentProgram.items[fwdIdx].itemType == "Function" {
                 let funcName = currentProgram.items[fwdIdx].function.name
-                if funcName != "main" {
+                if not cGenIsMainFunctionName(funcName) {
                     let retType = mapType(currentProgram.items[fwdIdx].function.returnType.typeName)
                     sb.append(retType + " " + funcName + "(")
                     var pi = 0
@@ -82,13 +89,13 @@ class CGenerator {
             if itemType == "Function" {
                 let func = item.function
                 let funcName = func.name
-                if funcName == "main" {
+                if cGenIsMainFunctionName(funcName) {
                     sb.append("int main(int _argc, char** _argv")
                 } else {
                     let retType = mapType(func.returnType.typeName)
                     sb.append(retType + " " + funcName + "(")
                 }
-                if funcName != "main" {
+                if not cGenIsMainFunctionName(funcName) {
                     var pi = 0
                     while pi < func.params.length() {
                         let param = func.params[pi]
@@ -98,7 +105,7 @@ class CGenerator {
                     }
                 }
                 sb.appendLine(") {")
-                if funcName == "main" {
+                if cGenIsMainFunctionName(funcName) {
                     sb.appendLine("    seen_runtime_init(_argc, _argv);")
                 }
                 generateBlockDirect(func.body)
@@ -136,7 +143,7 @@ class CGenerator {
         let funcName = currentProgram.items[idx].function.name
         // trace removed
         // C main() must return int and take argc/argv
-        if funcName == "main" {
+        if cGenIsMainFunctionName(funcName) {
             sb.append("int main(int _argc, char** _argv")
         } else {
             let retType = mapType(currentProgram.items[idx].function.returnType.typeName)
@@ -144,7 +151,7 @@ class CGenerator {
         }
 
         // For main(), skip params since we already added argc/argv
-        if funcName != "main" {
+        if not cGenIsMainFunctionName(funcName) {
             var i = 0
             while i < currentProgram.items[idx].function.params.length() {
                 let param = currentProgram.items[idx].function.params[i]
@@ -156,7 +163,7 @@ class CGenerator {
 
         sb.appendLine(") {")
         // For main(), initialize the runtime with argc/argv
-        if funcName == "main" {
+        if cGenIsMainFunctionName(funcName) {
             sb.appendLine("    seen_runtime_init(_argc, _argv);")
         }
         generateBlockByIdx(idx)
@@ -358,7 +365,7 @@ class CGenerator {
     fun generateFunction(func: FunctionNode) r: Void {
         // trace removed
         // C main() must return int and take argc/argv (use _argc/_argv to avoid conflicts)
-        if func.name == "main" {
+        if cGenIsMainFunctionName(func.name) {
             sb.append("int main(int _argc, char** _argv")
         } else {
             let retType = mapType(func.returnType.typeName)
@@ -366,7 +373,7 @@ class CGenerator {
         }
 
         // For main(), skip params since we already added argc/argv
-        if func.name != "main" {
+        if not cGenIsMainFunctionName(func.name) {
             var i = 0
             while i < func.params.length() {
                 let param = func.params[i]
@@ -378,7 +385,7 @@ class CGenerator {
 
         sb.appendLine(") {")
         // For main(), initialize the runtime with argc/argv
-        if func.name == "main" {
+        if cGenIsMainFunctionName(func.name) {
             sb.appendLine("    seen_runtime_init(_argc, _argv);")
         }
         generateBlock(func.body)

@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Safety and validation
 - Added capability-token enforcement for `@using(...)` / `@effect(...)` checks and expanded validation coverage for `@send`, `@sync`, and `sealed` restrictions.
-- Added broad regression coverage for multi-module compiler fixes, `Seen.toml` project resolution, recovery-opt failure handling, and current limitation fixtures.
+- Added regression coverage for multi-module compiler fixes, `Seen.toml` project resolution, recovery-opt failure handling, and current limitation fixtures.
 
 ### Changed
 
@@ -27,11 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 #### Bootstrap and build system
-- Linux Stage2→Stage3 bootstrap, self-host rebuild, and recovery-opt handling are more robust: `safe_rebuild.sh`, `fix_ir.py`, and related recovery scripts now handle staged failures, stale artifacts, and bootstrap crashes more cleanly.
+- Linux Stage2→Stage3 bootstrap, self-host rebuild, and recovery-opt handling now recover from staged failures, stale artifacts, and bootstrap crashes without the previous manual cleanup paths.
 - Fixed Android bundle/release path handling, emulator APK validation, and widened Windows/Android native smoke coverage.
 - `Seen.toml` project discovery now handles absolute-path project members, standalone non-members, build-entry seeding, and root-level scratch `main()` files correctly. This removes the HeartOn standalone IR-generation crash path while preserving nested project fallback behavior.
 - `Seen.toml` system dependencies can now declare a local `path`, so project-local native shims link with resolved `-L` flags and native Linux/macOS runtime search paths without extra library-path wrappers.
 - Fixed stripped bootstrap workspace lexing by teaching `KeywordManager` to recover `languages/` through the real compiler source checkout when the temporary workspace omits language TOMLs; Stage2→Stage3 self-hosting now reaches the full module graph and links successfully from that layout again.
+- Removed unsupported `-align-loops=32` flags from the merged `llc` release path and ThinLTO link flags, so release builds no longer depend on LLVM options rejected by some toolchain installs.
 
 #### Frontend, parser, and codegen
 - Fixed keyword lookup, parser type handoff, parser data/function-body regressions, and frontend/class-detection issues that were blocking self-host and multi-module builds.
@@ -41,10 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed positional class-constructor initialization so `ClassName(arg1, arg2)` writes those arguments into the allocated object fields instead of returning a zero-initialized instance; `@derive(Json)` serialize round-trips now observe the constructed values.
 - Fixed unicode string lowering, `Vec` dispatch, `HashMap` `Option` lowering, `StringHashMap` dispatch, module-constant type inference, void method calls, extern Float parameter registration/promotion, and `for`-loop SSA ordering regressions.
 - Fixed documented multi-module and recovery regressions, including the HeartOn module-handling failures that previously crashed during IR generation and now progress to ordinary diagnostics or linker failures instead.
+- Fixed interpolated-string parsing for empty leading, trailing, and adjacent literal segments, eliminating malformed LLVM in cases like `\"{expr}\"`, `\"{expr}!\"`, and `\"{a}{b}\"`; added focused regression coverage for interpolation edge cases.
 
 #### Runtime, standard library, and validation
 - Updated runtime and stdlib support used by the new native-target lanes, including string helpers, file I/O paths, `Option`, and hash collection behavior.
 - Hardened TEE/enclave support so stub mode is no longer enabled implicitly when no hardware TEE is present, added import-safe availability helpers in `security.enclave`, and linked the TEE runtime object into host/cross-target builds.
+- Fixed math wrapper/runtime declaration mismatches around `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, and `tan`, and added regression coverage for float special values like `INFINITY`, `NEG_INFINITY`, and `NAN`.
 - Expanded regression fixtures and root-level smoke checks for compiler crash repros, native-target rollout, and safety-rule enforcement.
 
 ## [0.3.7] - 2026-03-16

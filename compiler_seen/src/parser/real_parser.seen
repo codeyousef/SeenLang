@@ -5029,18 +5029,18 @@ class RealParser {
     }
 
     // Parse an interpolated string like `"Hello {name}!"`.
-    // The lexer has already split this into a sequence of tokens:
-    //   InterpolatedStringStart, InterpolatedStringMiddle*, expression*, InterpolatedStringEnd
-    // Returns a StringInterpolation node where arguments[] holds string-literal
-    // parts and operands[] holds the embedded expressions, interleaved.
+    // The lexer emits only non-empty InterpolatedStringMiddle tokens, so the
+    // parser must synthesize empty leading/trailing parts to preserve ordering.
+    // arguments[] always stores string-literal parts with length = exprs + 1,
+    // while operands[] stores the embedded expressions between those parts.
     fun parseInterpolatedString() r: ParserExpressionNode {
         // Consume InterpolatedStringStart
         advance()
 
         let result = ParserExpressionNode.new()
         result.kind = "StringInterpolation"
-        // arguments holds the string literal parts
-        // operands holds the expressions to interpolate
+        // arguments holds the string literal parts, including empty separators.
+        // operands holds the expressions to interpolate.
 
         while not checkToken(SeenTokenType.InterpolatedStringEnd) {
             if isAtEnd() {
@@ -5048,21 +5048,25 @@ class RealParser {
                 break
             }
 
-            // Expect string part (InterpolatedStringMiddle)
+            // The lexer omits empty middle tokens, so preserve missing separators
+            // explicitly to keep parts ordered around each expression.
             if checkToken(SeenTokenType.InterpolatedStringMiddle) {
                 let token = advance()
                 let strPart = token.getValue()
-                // Create a literal node for the string part and add to arguments
                 let strLiteral = makeLiteral(strPart, "String")
                 result.arguments.push(strLiteral)
+            } else {
+                result.arguments.push(makeLiteral("", "String"))
             }
 
-            // Check for expression (anything other than Middle or End tokens)
-            if not checkToken(SeenTokenType.InterpolatedStringMiddle) and not checkToken(SeenTokenType.InterpolatedStringEnd) {
-                // Parse the expression inside the braces
+            if not checkToken(SeenTokenType.InterpolatedStringEnd) {
                 let expr = parseExpression()
                 result.operands.push(expr)
             }
+        }
+
+        if result.arguments.length() == result.operands.length() {
+            result.arguments.push(makeLiteral("", "String"))
         }
 
         // Consume InterpolatedStringEnd

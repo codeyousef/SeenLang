@@ -14,6 +14,9 @@
 !ifndef SOURCE_DIR
   !define SOURCE_DIR "../../target-windows/seen-${VERSION}-windows-x64"
 !endif
+!ifndef PRODUCT_VERSION
+  !define PRODUCT_VERSION "1.0.0.0"
+!endif
 
 !define PRODUCT_NAME "Seen Language"
 !define PRODUCT_PUBLISHER "Seen Language Team"
@@ -35,8 +38,7 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 BrandingText "${PRODUCT_NAME} ${VERSION}"
 
-!searchparse "${VERSION}" "" VI_MAJOR "." VI_MINOR "." VI_PATCH "-" VI_EXTRA
-VIProductVersion "${VI_MAJOR}.${VI_MINOR}.${VI_PATCH}.0"
+VIProductVersion "${PRODUCT_VERSION}"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"

@@ -59,6 +59,13 @@ import codegen.type_registry.{TypeRegistry, CodegenState}
 import codegen.ir_function_gen.{generateLiteralFree}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
+fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
+    if name.length() != 4 {
+        return false
+    }
+    return name.byteAt(0) == 109 and name.byteAt(1) == 97 and name.byteAt(2) == 105 and name.byteAt(3) == 110
+}
+
 fun getIrgenTraceTimeSeconds() r: Int {
     let result: CommandResult = runCommand("date +%s")
     if commandWasSuccessful(result) {
@@ -5819,7 +5826,7 @@ class LLVMIRGenerator {
         println("[irgen function] return-type map done: " + fnName)
 
         // Special handling for main function - needs to accept argc/argv from OS
-        if fnName == "main" {
+        if llvmIrGenIsMainFunctionName(fnName) {
             g_isMainFunc = 1
             // Force i32 return for C ABI compatibility (lli requires i32 @main)
             if returnType == "void" {

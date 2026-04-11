@@ -5,10 +5,13 @@ import math.math.{
     FRAC_1_SQRT2,
     FRAC_2_PI,
     HALF_PI,
+    INFINITY,
     LN2,
     LN10,
     LOG2_E,
     LOG10_E,
+    NAN,
+    NEG_INFINITY,
     PI,
     SQRT2,
     TAU,
@@ -150,6 +153,12 @@ fun main() -> Int {
     expect(approxEqual(sqrt2, sqrt(2.0), 0.001), "SQRT2 should equal sqrt(2)")
     expect(approxEqual(frac1pi, 1.0 / pi), "FRAC_1_PI mismatch")
     expect(approxEqual(frac1sqrt2, 1.0 / sqrt2), "FRAC_1_SQRT2 mismatch")
+    expect(isinf(INFINITY), "INFINITY should classify as infinite")
+    expect(isinf(NEG_INFINITY), "NEG_INFINITY should classify as infinite")
+    expect(not isinf(1.0), "finite values should not classify as infinite")
+    expect(isnan(NAN), "NAN should classify as NaN")
+    expect(not isfinite(INFINITY), "INFINITY should not classify as finite")
+    expect(not isfinite(NAN), "NAN should not classify as finite")
 
     // --- Inverse trig ---
     expect(approxEqual(atan(0.0), 0.0), "atan(0) should be 0")

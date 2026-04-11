@@ -1,9 +1,8 @@
 #!/bin/bash
 # Safe rebuild: Only updates compiler if bootstrap verifies
 #
-# This script builds a new compiler from the frozen bootstrap and verifies
-# that it achieves bootstrap (stage2 == stage3 or stage3 == stage4).
-# Only if verification passes does it update the production compiler.
+# This script builds a new compiler from the frozen bootstrap and only
+# installs compiler artifacts that pass smoke tests.
 
 set -e
 
@@ -21,6 +20,8 @@ NC='\033[0m' # No Color
 
 STAGE2="/tmp/stage2_safe_rebuild"
 STAGE3="/tmp/stage3_safe_rebuild"
+STAGE3_RECOVERY="/tmp/stage3_safe_rebuild_recovery"
+PRESERVED_PROD_BUILDER="/tmp/seen_preserved_prod_builder"
 COMPILER_SOURCE="compiler_seen/src/main_compiler.seen"
 
 # --- Progress monitoring helpers ---
@@ -330,6 +331,21 @@ cleanup_smoke_build_state() {
     rm -f /tmp/seen_module_*.relink.o /tmp/safe_rebuild_smoke_bin
 }
 
+preserve_existing_production_compiler() {
+    rm -f "$PRESERVED_PROD_BUILDER"
+    if [ -x compiler_seen/target/seen ]; then
+        cp compiler_seen/target/seen "$PRESERVED_PROD_BUILDER"
+        chmod +x "$PRESERVED_PROD_BUILDER"
+        return 0
+    fi
+    if [ -x target/release/seen ]; then
+        cp target/release/seen "$PRESERVED_PROD_BUILDER"
+        chmod +x "$PRESERVED_PROD_BUILDER"
+        return 0
+    fi
+    return 1
+}
+
 smoke_test_compiler() {
     local compiler_path=$1
     local stage_label=$2
@@ -376,6 +392,41 @@ smoke_test_compiler() {
     return 0
 }
 
+recover_with_preserved_production_compiler() {
+    if [ ! -x "$PRESERVED_PROD_BUILDER" ]; then
+        return 1
+    fi
+
+    echo ""
+    echo "Recovery: trying preserved production compiler..."
+    if ! smoke_test_compiler "$PRESERVED_PROD_BUILDER" "Preserved production compiler" "preserved_prod"; then
+        echo -e "${YELLOW}Preserved production compiler failed smoke; skipping recovery rebuild.${NC}"
+        return 1
+    fi
+
+    cleanup_smoke_build_state
+    rm -f "$STAGE3_RECOVERY"
+
+    if timeout 1800 bash -c "$(printf '%q' "$PRESERVED_PROD_BUILDER") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3_RECOVERY") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3_recovery.log 2>&1; then
+        echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
+        echo ""
+        echo "Recovery smoke: checking hello-world..."
+        if smoke_test_compiler "$STAGE3_RECOVERY" "Recovered stage3" "stage3_recovery"; then
+            VERIFIED="$STAGE3_RECOVERY"
+            return 0
+        fi
+        echo -e "${YELLOW}Recovery rebuild produced a compiler that failed smoke.${NC}"
+        return 1
+    fi
+
+    local recovery_exit=$?
+    echo -e "${YELLOW}Recovery rebuild failed or timed out (exit=$recovery_exit).${NC}"
+    if [ "$recovery_exit" != "124" ]; then
+        tail -10 /tmp/safe_rebuild_stage3_recovery.log 2>/dev/null || true
+    fi
+    return 1
+}
+
 if verify_hash "$HASH_FILE"; then
     echo -e "${GREEN}Frozen compiler verified.${NC}"
 else
@@ -383,6 +434,8 @@ else
     echo "The bootstrap compiler may be corrupted."
     exit 1
 fi
+
+preserve_existing_production_compiler >/dev/null 2>&1 || true
 
 # Kill any leftover compilation processes that might write to /tmp/seen_module_*
 # and interfere with this build (race condition causes duplicate symbols)
@@ -613,7 +666,9 @@ else
             echo -e "${YELLOW}Using $LIVE_COUNT live .ll files from /tmp.${NC}"
         fi
 
-        if [ "$LL_COUNT" -eq "$EXPECTED_STAGE2_MODULES" ]; then
+        if recover_with_preserved_production_compiler; then
+            echo -e "${YELLOW}Frozen Stage2 bootstrap failed; skipping slow .ll replay recovery and using the preserved-compiler recovery build.${NC}"
+        elif [ "$LL_COUNT" -eq "$EXPECTED_STAGE2_MODULES" ]; then
             echo -e "${YELLOW}Recovering with the full $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll set ($LL_SOURCE)...${NC}"
 
             # Clean stale .o and .opt.ll from the compiler's failed internal opt/link —
@@ -935,7 +990,6 @@ else
             echo -e "${RED}ERROR: Stage2 build failed after generating only $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll files from $LL_SOURCE.${NC}"
             echo "Check /tmp/safe_rebuild_stage2.log for details."
             tail -30 /tmp/safe_rebuild_stage2.log
-            rm -rf "$SNAPSHOT_DIR"
             exit 1
         fi
         rm -rf "$SNAPSHOT_DIR"
@@ -1062,6 +1116,7 @@ POSTOPT_FIX
     fi
 fi
 
+if [ -z "${VERIFIED:-}" ]; then
 echo ""
 echo "Stage2 smoke: checking hello-world..."
 if ! smoke_test_compiler "$STAGE2" "Stage2" "stage2"; then
@@ -1181,8 +1236,12 @@ else
             VERIFIED="$STAGE3"
         else
             echo -e "${YELLOW}Stage3 build completed but failed hello-world smoke; falling back to Stage2.${NC}"
-            echo -e "${GREEN}Using Stage2 as production compiler (it passed smoke).${NC}"
-            VERIFIED="$STAGE2"
+            if recover_with_preserved_production_compiler; then
+                echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"
+            else
+                echo -e "${GREEN}Using Stage2 as production compiler (it passed smoke).${NC}"
+                VERIFIED="$STAGE2"
+            fi
         fi
     else
         S3_EXIT=$?
@@ -1193,11 +1252,16 @@ else
             echo "Check /tmp/safe_rebuild_stage3.log for details."
             tail -10 /tmp/safe_rebuild_stage3.log 2>/dev/null
         fi
-        echo -e "${GREEN}Using Stage2 as production compiler (verified via frozen bootstrap).${NC}"
-        VERIFIED="$STAGE2"
+        if recover_with_preserved_production_compiler; then
+            echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"
+        else
+            echo -e "${GREEN}Using Stage2 as production compiler (verified via frozen bootstrap).${NC}"
+            VERIFIED="$STAGE2"
+        fi
     fi
 
     rm -rf "$OPT_WRAPPER_DIR"
+fi
 fi
 
 # Install production compiler
@@ -1210,6 +1274,8 @@ cp "$VERIFIED" compiler_seen/target/seen
 chmod +x compiler_seen/target/seen
 cp "$STAGE2" stage2_head 2>/dev/null || true
 [ -f "$STAGE3" ] && cp "$STAGE3" stage3_head 2>/dev/null || true
+rm -f stage3_recovery_head 2>/dev/null || true
+[ -f "$STAGE3_RECOVERY" ] && cp "$STAGE3_RECOVERY" stage3_recovery_head 2>/dev/null || true
 
 # Also install to target/release/seen (README install path)
 mkdir -p target/release
@@ -1217,7 +1283,7 @@ cp compiler_seen/target/seen target/release/seen
 chmod +x target/release/seen
 
 # Clean up
-rm -f "$STAGE2" "$STAGE3"
+rm -f "$STAGE2" "$STAGE3" "$STAGE3_RECOVERY" "$PRESERVED_PROD_BUILDER"
 rm -rf .seen_cache/
 [ -n "$OPT_WRAPPER_DIR" ] && rm -rf "$OPT_WRAPPER_DIR"
 
@@ -1226,4 +1292,5 @@ echo -e "${GREEN}=== Safe Rebuild Complete ===${NC}"
 echo ""
 echo "Production compiler updated: compiler_seen/target/seen"
 echo "Also installed to: target/release/seen"
+[ -f stage3_recovery_head ] && echo "Recovery backup: stage3_recovery_head"
 echo "Safe to commit your changes."
