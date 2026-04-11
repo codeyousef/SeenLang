@@ -279,6 +279,38 @@ class ClassNode {
 data ImportPathInfo { text: String; segments: Array<String> }
 // Use the canonical Token from lexer.interfaces for type consistency
 
+fun tokenStartsEffectModifier(rawTokens: Array<Token>, index: Int) r: Bool {
+    if index < 0 or index >= rawTokens.length() {
+        return false
+    }
+    let tok = rawTokens[index]
+    if tok.getValue() != "effect" {
+        return false
+    }
+    if index + 1 >= rawTokens.length() {
+        return false
+    }
+    return rawTokens[index + 1].getValue() == "("
+}
+
+fun rewriteEffectTokens(rawTokens: Array<Token>) r: Array<Token> {
+    let rewritten = Array<Token>()
+    var i = 0
+    while i < rawTokens.length() {
+        let tok = rawTokens[i]
+        // Do not inspect token enum values here: bootstrap can miscompile
+        // cross-module SeenTokenType reads from Token objects.
+        if tokenStartsEffectModifier(rawTokens, i) {
+            rewritten.push(Token.new(getAtType(), "@", tok.getLine(), tok.getColumn(), 1, tok.getFileId()))
+            rewritten.push(Token.new(SeenTokenType.Identifier, "using", tok.getLine(), tok.getColumn(), 5, tok.getFileId()))
+        } else {
+            rewritten.push(tok)
+        }
+        i = i + 1
+    }
+    return rewritten
+}
+
 // Recursive-descent parser that converts a flat token stream into a ProgramNode AST.
 //
 // Key fields:
@@ -311,41 +343,9 @@ class RealParser {
     var pendingFunctionParamTypeNames: Array<String>
     var pendingFunctionParamTypeNullables: Array<Int>
 
-    static fun tokenStartsEffectModifier(rawTokens: Array<Token>, index: Int) r: Bool {
-        if index < 0 or index >= rawTokens.length() {
-            return false
-        }
-        let tok = rawTokens[index]
-        if tok.getValue() != "effect" {
-            return false
-        }
-        if index + 1 >= rawTokens.length() {
-            return false
-        }
-        return rawTokens[index + 1].getValue() == "("
-    }
-
-    static fun rewriteEffectTokens(rawTokens: Array<Token>) r: Array<Token> {
-        let rewritten = Array<Token>()
-        var i = 0
-        while i < rawTokens.length() {
-            let tok = rawTokens[i]
-            // Do not inspect token enum values here: bootstrap can miscompile
-            // cross-module SeenTokenType reads from Token objects.
-            if RealParser.tokenStartsEffectModifier(rawTokens, i) {
-                rewritten.push(Token.new(getAtType(), "@", tok.getLine(), tok.getColumn(), 1, tok.getFileId()))
-                rewritten.push(Token.new(SeenTokenType.Identifier, "using", tok.getLine(), tok.getColumn(), 5, tok.getFileId()))
-            } else {
-                rewritten.push(tok)
-            }
-            i = i + 1
-        }
-        return rewritten
-    }
-
     static fun new(rawTokens: Array<Token>) r: RealParser {
         return RealParser{
-            tokens: RealParser.rewriteEffectTokens(rawTokens),
+            tokens: rewriteEffectTokens(rawTokens),
             current: 0,
             currentProgram: ProgramNode.new(),
             currentBlock: BlockNode.new(),

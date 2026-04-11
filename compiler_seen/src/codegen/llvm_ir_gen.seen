@@ -13195,12 +13195,10 @@ class LLVMIRGenerator {
                     return emitStringFromCharCodeCallImpl(output, g_regBox, staticArgRegs, staticArgTypeStrs)
                 }
 
-                var staticReturnType = inferExpressionType(expr)
+                let registeredStaticReturnType = getMethodReturnType(potentialClassName, methodName)
+                var staticReturnType = registeredStaticReturnType
                 if staticReturnType == "" or staticReturnType == "Unknown" {
-                    let registeredStaticReturnType = getMethodReturnType(potentialClassName, methodName)
-                    if registeredStaticReturnType != "" {
-                        staticReturnType = registeredStaticReturnType
-                    }
+                    staticReturnType = inferExpressionType(expr)
                 }
                 let staticLlvmReturnType = mapType(staticReturnType)
 
@@ -13903,12 +13901,10 @@ class LLVMIRGenerator {
                 argIdx = argIdx + 1
             }
 
-            var staticReturnType = inferExpressionType(expr)
+            let registeredStaticReturnType = getMethodReturnType(className, methodName)
+            var staticReturnType = registeredStaticReturnType
             if staticReturnType == "" or staticReturnType == "Unknown" {
-                let registeredStaticReturnType = getMethodReturnType(className, methodName)
-                if registeredStaticReturnType != "" {
-                    staticReturnType = registeredStaticReturnType
-                }
+                staticReturnType = inferExpressionType(expr)
             }
             let staticLlvmReturnType = mapType(staticReturnType)
 
