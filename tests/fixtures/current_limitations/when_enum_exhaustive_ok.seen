@@ -1,0 +1,13 @@
+enum Voxel { Air, Grass, Dirt }
+
+fun voxelId(v: Voxel) r: Int {
+    return match v {
+        is Air -> 1
+        is Grass -> 2
+        is Dirt -> 3
+    }
+}
+
+fun main() r: Int {
+    return voxelId(Voxel.Grass) - 2
+}

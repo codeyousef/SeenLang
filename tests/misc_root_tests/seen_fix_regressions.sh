@@ -20,6 +20,9 @@ C14_SHADOWED_BRANCH_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/c14_shadowed_branch
 EFFECT_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/effect_capability_ok.seen"
 CAPABILITY_WRONG_EFFECT_SRC="$ROOT_DIR/tests/fixtures/current_limitations/capability_missing_effect.seen"
 METHOD_WRONG_EFFECT_SRC="$ROOT_DIR/tests/fixtures/current_limitations/effect_method_wrong.seen"
+IMPORTED_CAPABILITY_MISSING_SRC="$ROOT_DIR/tests/fixtures/current_limitations/capability_imported_effect_missing_entry.seen"
+IMPORTED_CAPABILITY_ALIAS_SRC="$ROOT_DIR/tests/fixtures/current_limitations/capability_imported_effect_alias_entry.seen"
+IMPORTED_CAPABILITY_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/capability_imported_effect_ok_entry.seen"
 SEND_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/send_annotation_invalid_field.seen"
 SYNC_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sync_annotation_invalid_field.seen"
 SEND_IMPORTED_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/send_annotation_imported_invalid_entry.seen"
@@ -27,6 +30,9 @@ SYNC_IMPORTED_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sync_ann
 SEALED_CROSS_MODULE_ENTRY_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_cross_module_entry.seen"
 SEALED_ALIAS_ENTRY_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_alias_entry.seen"
 SEALED_SAME_MODULE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_same_module_ok.seen"
+WHEN_ENUM_NON_EXHAUSTIVE_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_non_exhaustive.seen"
+WHEN_ENUM_EXHAUSTIVE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_exhaustive_ok.seen"
+WHEN_ENUM_ELSE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/when_enum_else_ok.seen"
 
 cleanup_seen_artifacts() {
     rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache "$TMP_ROOT"
@@ -920,6 +926,9 @@ run_real_compiler_failure_case "C13 real compiler object failure stops before li
 run_check_success_case "effect(FileToken) allows restricted call" "$EFFECT_OK_SRC" "$TMP_ROOT/effect_capability_ok.log"
 run_check_failure_case "effect(NetToken) rejects file capability use" "$CAPABILITY_WRONG_EFFECT_SRC" "$TMP_ROOT/capability_wrong_effect.log" 'Missing capability token for restricted operation|requires @using\(FileToken\)'
 run_check_failure_case "method effect(NetToken) rejects file capability use" "$METHOD_WRONG_EFFECT_SRC" "$TMP_ROOT/method_wrong_effect.log" 'Missing capability token for restricted operation|requires @using\(FileToken\)'
+run_check_failure_case "imported effect(FileToken) propagates to caller" "$IMPORTED_CAPABILITY_MISSING_SRC" "$TMP_ROOT/imported_capability_missing.log" 'Calling imported function that requires capability token|requires @using\(FileToken\)'
+run_check_failure_case "aliased imported effect(FileToken) propagates to caller" "$IMPORTED_CAPABILITY_ALIAS_SRC" "$TMP_ROOT/imported_capability_alias.log" 'Calling imported function that requires capability token|requires @using\(FileToken\)'
+run_check_success_case "imported effect(FileToken) stays allowed with caller capability" "$IMPORTED_CAPABILITY_OK_SRC" "$TMP_ROOT/imported_capability_ok.log"
 run_check_failure_case "@send rejects non-send field" "$SEND_INVALID_SRC" "$TMP_ROOT/send_invalid.log" '@send class .* cannot contain field .* without @send'
 run_check_failure_case "@sync rejects non-sync field" "$SYNC_INVALID_SRC" "$TMP_ROOT/sync_invalid.log" '@sync class .* cannot contain field .* without @sync'
 run_check_failure_case "@send rejects imported non-send field" "$SEND_IMPORTED_INVALID_SRC" "$TMP_ROOT/send_imported_invalid.log" '@send class .* cannot contain field .* without @send'
@@ -927,6 +936,9 @@ run_check_failure_case "@sync rejects imported non-sync field" "$SYNC_IMPORTED_I
 run_check_failure_case "sealed cross-module inheritance is rejected" "$SEALED_CROSS_MODULE_ENTRY_SRC" "$TMP_ROOT/sealed_cross_module.log" 'sealed class .* cannot be extended outside'
 run_check_failure_case "sealed alias-import inheritance is rejected" "$SEALED_ALIAS_ENTRY_SRC" "$TMP_ROOT/sealed_alias.log" 'sealed class .* cannot be extended outside'
 run_success_case "sealed same-module inheritance stays allowed" "$SEALED_SAME_MODULE_OK_SRC" "$TMP_ROOT/sealed_same_module_ok" "$TMP_ROOT/sealed_same_module_ok.log"
+run_check_failure_case "enum matches must be exhaustive without else" "$WHEN_ENUM_NON_EXHAUSTIVE_SRC" "$TMP_ROOT/when_enum_non_exhaustive.log" 'non-exhaustive match on enum'
+run_check_success_case "enum matches stay allowed when all variants are covered" "$WHEN_ENUM_EXHAUSTIVE_OK_SRC" "$TMP_ROOT/when_enum_exhaustive_ok.log"
+run_check_success_case "enum matches stay allowed with else arm" "$WHEN_ENUM_ELSE_OK_SRC" "$TMP_ROOT/when_enum_else_ok.log"
 run_c12_case
 run_recovery_partial_failure_case
 run_toml_project_modules_case

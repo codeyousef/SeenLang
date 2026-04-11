@@ -8,6 +8,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Colors for output
 RED='\033[0;31m'
@@ -321,6 +322,60 @@ verify_hash() {
         return 0
     fi
 }
+
+cleanup_smoke_build_state() {
+    rm -rf .seen_cache/ /tmp/seen_ir_cache/ /tmp/seen_thinlto_cache/
+    rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+    rm -f /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
+    rm -f /tmp/seen_module_*.relink.o /tmp/safe_rebuild_smoke_bin
+}
+
+smoke_test_compiler() {
+    local compiler_path=$1
+    local stage_label=$2
+    local stage_slug=$3
+    local smoke_source="$REPO_ROOT/examples/hello_world/hello_english.seen"
+    local smoke_bin="/tmp/safe_rebuild_smoke_bin"
+    local check_log="/tmp/safe_rebuild_${stage_slug}_hello_check.log"
+    local compile_log="/tmp/safe_rebuild_${stage_slug}_hello_compile.log"
+    local run_log="/tmp/safe_rebuild_${stage_slug}_hello_run.log"
+
+    cleanup_smoke_build_state
+
+    if ! (cd "$REPO_ROOT" && "$compiler_path" check "$smoke_source" > "$check_log" 2>&1); then
+        echo -e "${YELLOW}${stage_label} failed hello-world check smoke test.${NC}"
+        tail -20 "$check_log" 2>/dev/null || true
+        cleanup_smoke_build_state
+        return 1
+    fi
+
+    cleanup_smoke_build_state
+
+    if ! (cd "$REPO_ROOT" && "$compiler_path" compile "$smoke_source" "$smoke_bin" --fast --no-cache > "$compile_log" 2>&1); then
+        echo -e "${YELLOW}${stage_label} failed hello-world compile smoke test.${NC}"
+        tail -20 "$compile_log" 2>/dev/null || true
+        cleanup_smoke_build_state
+        return 1
+    fi
+
+    if [ ! -x "$smoke_bin" ]; then
+        echo -e "${YELLOW}${stage_label} compile smoke test did not produce $smoke_bin.${NC}"
+        cleanup_smoke_build_state
+        return 1
+    fi
+
+    if ! "$smoke_bin" > "$run_log" 2>&1; then
+        echo -e "${YELLOW}${stage_label} failed hello-world run smoke test.${NC}"
+        tail -20 "$run_log" 2>/dev/null || true
+        cleanup_smoke_build_state
+        return 1
+    fi
+
+    echo -e "${GREEN}${stage_label} passed hello-world smoke test.${NC}"
+    cleanup_smoke_build_state
+    return 0
+}
+
 if verify_hash "$HASH_FILE"; then
     echo -e "${GREEN}Frozen compiler verified.${NC}"
 else
@@ -1007,6 +1062,14 @@ POSTOPT_FIX
     fi
 fi
 
+echo ""
+echo "Stage2 smoke: checking hello-world..."
+if ! smoke_test_compiler "$STAGE2" "Stage2" "stage2"; then
+    echo -e "${RED}ERROR: Fresh Stage2 cannot compile a normal user program.${NC}"
+    echo -e "${RED}Refusing to continue with an unusable bootstrap compiler.${NC}"
+    exit 1
+fi
+
 if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: full S2→S3 bootstrap verification works
     rm -rf .seen_cache/ /tmp/seen_ir_cache/
@@ -1074,14 +1137,22 @@ if [ "$HOST_OS" = "Darwin" ]; then
     fi
 
     echo ""
-    echo "Step 3: Verifying bootstrap..."
-    if diff "$STAGE2" "$STAGE3" > /dev/null 2>&1; then
-        echo -e "${GREEN}Bootstrap verified: Stage2 == Stage3 (identical binaries)!${NC}"
+    echo "Stage3 smoke: checking hello-world..."
+    if smoke_test_compiler "$STAGE3" "Stage3" "stage3"; then
+        echo ""
+        echo "Step 3: Verifying bootstrap..."
+        if diff "$STAGE2" "$STAGE3" > /dev/null 2>&1; then
+            echo -e "${GREEN}Bootstrap verified: Stage2 == Stage3 (identical binaries)!${NC}"
+        else
+            echo -e "${YELLOW}Note: Stage2 != Stage3 (expected if stage1_frozen is older than source).${NC}"
+            echo -e "${GREEN}Stage3 build succeeded — using Stage3 as production compiler.${NC}"
+        fi
+        VERIFIED="$STAGE3"
     else
-        echo -e "${YELLOW}Note: Stage2 != Stage3 (expected if stage1_frozen is older than source).${NC}"
-        echo -e "${GREEN}Stage3 build succeeded — using Stage3 as production compiler.${NC}"
+        echo -e "${YELLOW}Stage3 build completed but failed hello-world smoke; falling back to Stage2.${NC}"
+        echo -e "${GREEN}Using Stage2 as production compiler (it passed smoke).${NC}"
+        VERIFIED="$STAGE2"
     fi
-    VERIFIED="$STAGE3"
 else
     # Linux: Attempt S2→S3 bootstrap verification with a timeout.
     # If Bug A (SeenString field corruption) is fixed, S2 should be able to
@@ -1097,14 +1168,22 @@ else
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
 
         echo ""
-        echo "Step 3: Verifying bootstrap..."
-        if diff "$STAGE2" "$STAGE3" > /dev/null 2>&1; then
-            echo -e "${GREEN}Bootstrap verified: Stage2 == Stage3 (identical binaries)!${NC}"
+        echo "Stage3 smoke: checking hello-world..."
+        if smoke_test_compiler "$STAGE3" "Stage3" "stage3"; then
+            echo ""
+            echo "Step 3: Verifying bootstrap..."
+            if diff "$STAGE2" "$STAGE3" > /dev/null 2>&1; then
+                echo -e "${GREEN}Bootstrap verified: Stage2 == Stage3 (identical binaries)!${NC}"
+            else
+                echo -e "${YELLOW}Note: Stage2 != Stage3 (expected if stage1_frozen is older than source).${NC}"
+                echo -e "${GREEN}Stage3 build succeeded — using Stage3 as production compiler.${NC}"
+            fi
+            VERIFIED="$STAGE3"
         else
-            echo -e "${YELLOW}Note: Stage2 != Stage3 (expected if stage1_frozen is older than source).${NC}"
-            echo -e "${GREEN}Stage3 build succeeded — using Stage3 as production compiler.${NC}"
+            echo -e "${YELLOW}Stage3 build completed but failed hello-world smoke; falling back to Stage2.${NC}"
+            echo -e "${GREEN}Using Stage2 as production compiler (it passed smoke).${NC}"
+            VERIFIED="$STAGE2"
         fi
-        VERIFIED="$STAGE3"
     else
         S3_EXIT=$?
         echo -e "${YELLOW}S2→S3 build failed or timed out (exit=$S3_EXIT).${NC}"

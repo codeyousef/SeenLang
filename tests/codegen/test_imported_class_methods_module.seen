@@ -1,0 +1,11 @@
+class BigState {
+    var value: Int
+
+    static fun new() r: BigState {
+        return BigState { value: 0 }
+    }
+
+    fun seed() {
+        this.value = 7
+    }
+}

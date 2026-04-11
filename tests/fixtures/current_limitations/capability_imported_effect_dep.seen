@@ -1,0 +1,6 @@
+import io.file.{readText}
+
+effect(FileToken)
+fun readConfig() r: String {
+    return readText("Seen.toml")
+}

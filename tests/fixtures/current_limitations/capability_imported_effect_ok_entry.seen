@@ -1,0 +1,10 @@
+import capability_imported_effect_dep.{readConfig}
+
+effect(FileToken)
+fun main() r: Int {
+    let config = readConfig()
+    if config.length() >= 0 {
+        return 0
+    }
+    return 0
+}

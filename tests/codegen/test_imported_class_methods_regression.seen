@@ -1,0 +1,12 @@
+import test_imported_class_methods_module.{BigState}
+
+fun main() r: Int {
+    let state = BigState.new()
+    state.seed()
+    if state.value == 7 {
+        println("PASS: imported class methods")
+        return 0
+    }
+    println("FAIL: imported class methods = " + state.value.toString())
+    return 1
+}

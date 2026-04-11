@@ -1,0 +1,9 @@
+import capability_imported_effect_dep.{readConfig as loadConfig}
+
+fun main() r: Int {
+    let config = loadConfig()
+    if config.length() >= 0 {
+        return 0
+    }
+    return 0
+}

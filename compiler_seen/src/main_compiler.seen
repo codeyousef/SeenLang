@@ -26,7 +26,7 @@ import io.file.{readText, writeText, exists}
 import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, commandOutput, processFork, waitPid, processExit}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, overrideTargetTriple}
-import parser.real_parser.{ProgramNode, ItemNode, ClassNode}
+import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode}
 import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
@@ -1088,6 +1088,191 @@ fun findParsedModuleClass(modulePaths: Array<String>, frontends: Array<FrontendR
     return ClassNode.new()
 }
 
+fun capabilityDecoratorNameMatches(name: String) r: Bool {
+    return name == "using" or name == "effect"
+}
+
+fun moduleFunctionHasCapabilityToken(func: FunctionNode, token: String) r: Bool {
+    var di = 0
+    while di < func.decorators.length() {
+        let decorator = func.decorators[di]
+        if capabilityDecoratorNameMatches(decorator.name) {
+            var ai = 0
+            while ai < decorator.arguments.length() {
+                let arg = decorator.arguments[ai]
+                if arg == token or arg == "AllToken" {
+                    return true
+                }
+                ai = ai + 1
+            }
+        }
+        di = di + 1
+    }
+    return false
+}
+
+fun moduleCollectFunctionCapabilities(func: FunctionNode) r: Array<String> {
+    let caps = Array<String>()
+    var di = 0
+    while di < func.decorators.length() {
+        let decorator = func.decorators[di]
+        if capabilityDecoratorNameMatches(decorator.name) {
+            var ai = 0
+            while ai < decorator.arguments.length() {
+                caps.push(decorator.arguments[ai])
+                ai = ai + 1
+            }
+        }
+        di = di + 1
+    }
+    return caps
+}
+
+fun findProgramFunction(program: ProgramNode, functionName: String) r: FunctionNode {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" {
+            if item.function.name == functionName {
+                return item.function
+            }
+        }
+        i = i + 1
+    }
+    return FunctionNode.new()
+}
+
+fun findParsedModuleFunction(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, functionName: String) r: FunctionNode {
+    var i = 0
+    while i < modulePaths.length() {
+        if modulePaths[i] == targetPath {
+            return findProgramFunction(frontends[i].program, functionName)
+        }
+        i = i + 1
+    }
+    return FunctionNode.new()
+}
+
+fun findImportedFunctionInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, functionName: String) r: FunctionNode {
+    let sourceDir = getSourceDir(modulePath)
+    var i = 0
+    while i < moduleProgram.items.length() {
+        let item = moduleProgram.items[i]
+        let importedSymbolName = resolveImportedSymbolName(item, functionName)
+        if importedSymbolName != "" {
+            let importedPath = resolveImportPath(item.importPath, sourceDir)
+            if importedPath != "" {
+                let importedFunc = findParsedModuleFunction(modulePaths, frontends, importedPath, importedSymbolName)
+                if importedFunc.name != "" {
+                    return importedFunc
+                }
+            }
+        }
+        i = i + 1
+    }
+    return FunctionNode.new()
+}
+
+fun addImportedCapabilityViolation(result: FrontendResult, modulePath: String, line: Int, functionName: String, calledFunction: String, requiredToken: String) r: Void {
+    var message = "Calling imported function that requires capability token"
+    if functionName != "" {
+        message = message + " in function '" + functionName + "'"
+    }
+    if calledFunction != "" {
+        message = message + " when calling '" + calledFunction + "'"
+    }
+    if requiredToken != "" {
+        message = message + " (requires @using(" + requiredToken + "))"
+    }
+
+    var suggestion = ""
+    if requiredToken != "" and functionName != "" {
+        suggestion = "Add effect(" + requiredToken + ") or @using(" + requiredToken + ") to '" + functionName + "'."
+    }
+
+    let encoded = encodeDiagMessage(message, "E005", suggestion, "", 0)
+    result.addDiagnostic(FrontendDiagnostic.new(modulePath, line, 0, "error", encoded))
+}
+
+fun checkImportedCapabilityCalledFunction(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, callerFunc: FunctionNode, callerName: String, calledName: String, funcLine: Int) r: Void {
+    let importedFunc = findImportedFunctionInModules(modulePath, moduleProgram, modulePaths, frontends, calledName)
+    if importedFunc.name == "" {
+        return
+    }
+
+    let importedCaps = moduleCollectFunctionCapabilities(importedFunc)
+    var i = 0
+    while i < importedCaps.length() {
+        let cap = importedCaps[i]
+        if not moduleFunctionHasCapabilityToken(callerFunc, cap) {
+            addImportedCapabilityViolation(result, modulePath, funcLine, callerName, calledName, cap)
+        }
+        i = i + 1
+    }
+}
+
+fun checkImportedCapabilityExpression(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, func: FunctionNode, funcName: String, expr: ParserExpressionNode, funcLine: Int) r: Void {
+    if expr.kind == "None" or expr.kind == "" {
+        return
+    }
+
+    if expr.kind == "Call" {
+        checkImportedCapabilityCalledFunction(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, expr.callee, funcLine)
+
+        var argIdx = 0
+        while argIdx < expr.arguments.length() {
+            checkImportedCapabilityExpression(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, expr.arguments[argIdx], funcLine)
+            argIdx = argIdx + 1
+        }
+    }
+
+    if expr.kind == "MethodCall" or expr.kind == "MemberAccess" {
+        var methodArgIdx = 0
+        while methodArgIdx < expr.arguments.length() {
+            checkImportedCapabilityExpression(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, expr.arguments[methodArgIdx], funcLine)
+            methodArgIdx = methodArgIdx + 1
+        }
+    }
+
+    if expr.kind == "Binary" {
+        var operandIdx = 0
+        while operandIdx < expr.operands.length() {
+            checkImportedCapabilityExpression(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, expr.operands[operandIdx], funcLine)
+            operandIdx = operandIdx + 1
+        }
+    }
+}
+
+fun checkImportedCapabilityStatement(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, func: FunctionNode, funcName: String, stmt: StatementNode, funcLine: Int) r: Void {
+    if stmt.kind == "Expression" or stmt.kind == "Return" {
+        checkImportedCapabilityExpression(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, stmt.expression, funcLine)
+        checkImportedCapabilityExpression(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, stmt.returnValue, funcLine)
+    }
+
+    if stmt.kind == "Let" or stmt.kind == "Var" {
+        checkImportedCapabilityExpression(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, stmt.initializer, funcLine)
+    }
+
+    if stmt.kind == "If" {
+        checkImportedCapabilityExpression(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, stmt.condition, funcLine)
+        checkImportedCapabilityBlock(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, stmt.thenBranch, funcLine)
+        checkImportedCapabilityBlock(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, stmt.elseBranch, funcLine)
+    }
+
+    if stmt.kind == "While" {
+        checkImportedCapabilityExpression(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, stmt.loopCondition, funcLine)
+        checkImportedCapabilityBlock(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, stmt.loopBody, funcLine)
+    }
+}
+
+fun checkImportedCapabilityBlock(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, func: FunctionNode, funcName: String, block: BlockNode, funcLine: Int) r: Void {
+    var i = 0
+    while i < block.statements.length() {
+        checkImportedCapabilityStatement(result, modulePath, moduleProgram, modulePaths, frontends, func, funcName, block.statements[i], funcLine)
+        i = i + 1
+    }
+}
+
 fun findReferencedClassInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, className: String) r: ClassNode {
     let localClass = findProgramClass(moduleProgram, className)
     if localClass.name != "" {
@@ -1208,6 +1393,396 @@ fun findImportedSealedParentModule(modulePath: String, moduleProgram: ProgramNod
     return ""
 }
 
+fun findProgramEnum(program: ProgramNode, enumName: String) r: EnumNode {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Enum" {
+            if item.enumNode.name == enumName {
+                return item.enumNode
+            }
+        }
+        i = i + 1
+    }
+    return EnumNode.new()
+}
+
+fun findParsedModuleEnum(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, enumName: String) r: EnumNode {
+    var i = 0
+    while i < modulePaths.length() {
+        if modulePaths[i] == targetPath {
+            return findProgramEnum(frontends[i].program, enumName)
+        }
+        i = i + 1
+    }
+    return EnumNode.new()
+}
+
+fun findReferencedEnumInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, enumName: String) r: EnumNode {
+    let localEnum = findProgramEnum(moduleProgram, enumName)
+    if localEnum.name != "" {
+        return localEnum
+    }
+
+    let sourceDir = getSourceDir(modulePath)
+    var i = 0
+    while i < moduleProgram.items.length() {
+        let item = moduleProgram.items[i]
+        let importedSymbolName = resolveImportedSymbolName(item, enumName)
+        if importedSymbolName != "" {
+            let importedPath = resolveImportPath(item.importPath, sourceDir)
+            if importedPath != "" {
+                let importedEnum = findParsedModuleEnum(modulePaths, frontends, importedPath, importedSymbolName)
+                if importedEnum.name != "" {
+                    return importedEnum
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return EnumNode.new()
+}
+
+fun enumHasVariant(enumNode: EnumNode, variantName: String) r: Bool {
+    var i = 0
+    while i < enumNode.variants.length() {
+        if enumNode.variants[i] == variantName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun copyStringArray(values: Array<String>) r: Array<String> {
+    let copied = Array<String>()
+    var i = 0
+    while i < values.length() {
+        copied.push(values[i])
+        i = i + 1
+    }
+    return copied
+}
+
+fun lookupBoundType(boundNames: Array<String>, boundTypes: Array<String>, name: String) r: String {
+    var i = boundNames.length() - 1
+    while i >= 0 {
+        if boundNames[i] == name {
+            return boundTypes[i]
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+fun addBoundType(boundNames: Array<String>, boundTypes: Array<String>, name: String, typeName: String) r: Void {
+    if name == "" {
+        return
+    }
+    if typeName == "" or typeName == "Unknown" {
+        return
+    }
+    boundNames.push(name)
+    boundTypes.push(typeName)
+}
+
+fun getExpressionVariableName(expr: ParserExpressionNode) r: String {
+    if expr.variableName != "" {
+        return expr.variableName
+    }
+    return expr.literalValue
+}
+
+fun findClassFieldType(classNode: ClassNode, fieldName: String) r: String {
+    var i = 0
+    while i < classNode.fields.length() {
+        let field = classNode.fields[i]
+        if field.name == fieldName {
+            return field.paramType.typeName
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fun findReferencedClassFieldTypeInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, className: String, fieldName: String) r: String {
+    let referencedClass = findReferencedClassInModules(modulePath, moduleProgram, modulePaths, frontends, className)
+    if referencedClass.name == "" {
+        return ""
+    }
+    return findClassFieldType(referencedClass, fieldName)
+}
+
+fun findClassMethodReturnType(classNode: ClassNode, methodName: String) r: String {
+    var i = 0
+    while i < classNode.methods.length() {
+        let method = classNode.methods[i]
+        if method.name == methodName {
+            return method.returnType.typeName
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fun findReferencedClassMethodReturnTypeInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, className: String, methodName: String) r: String {
+    let referencedClass = findReferencedClassInModules(modulePath, moduleProgram, modulePaths, frontends, className)
+    if referencedClass.name == "" {
+        return ""
+    }
+    return findClassMethodReturnType(referencedClass, methodName)
+}
+
+fun findReferencedFunctionInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, functionName: String) r: FunctionNode {
+    let localFunc = findProgramFunction(moduleProgram, functionName)
+    if localFunc.name != "" {
+        return localFunc
+    }
+    return findImportedFunctionInModules(modulePath, moduleProgram, modulePaths, frontends, functionName)
+}
+
+fun inferExpressionTypeNameInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, expr: ParserExpressionNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String) r: String {
+    if expr.kind == "None" or expr.kind == "" {
+        return ""
+    }
+
+    if expr.kind == "Literal" {
+        return expr.literalType
+    }
+
+    if expr.kind == "StructLiteral" {
+        return expr.literalType
+    }
+
+    if expr.kind == "VarExpr" {
+        let varName = getExpressionVariableName(expr)
+        let boundType = lookupBoundType(boundNames, boundTypes, varName)
+        if boundType != "" {
+            return boundType
+        }
+        if ownerClassName != "" {
+            let fieldType = findReferencedClassFieldTypeInModules(modulePath, moduleProgram, modulePaths, frontends, ownerClassName, varName)
+            if fieldType != "" {
+                return fieldType
+            }
+        }
+        return ""
+    }
+
+    if expr.kind == "Call" {
+        let referencedFunc = findReferencedFunctionInModules(modulePath, moduleProgram, modulePaths, frontends, expr.callee)
+        if referencedFunc.name != "" {
+            return referencedFunc.returnType.typeName
+        }
+        return ""
+    }
+
+    if expr.kind == "MemberAccess" or expr.kind == "MethodCall" {
+        var receiverType = ""
+        if expr.literalValue != "" {
+            let receiverName = expr.literalValue
+            if receiverName == "this" and ownerClassName != "" {
+                receiverType = ownerClassName
+            }
+            if receiverType == "" {
+                receiverType = lookupBoundType(boundNames, boundTypes, receiverName)
+            }
+            if receiverType == "" and ownerClassName != "" {
+                receiverType = findReferencedClassFieldTypeInModules(modulePath, moduleProgram, modulePaths, frontends, ownerClassName, receiverName)
+            }
+            if receiverType == "" {
+                let receiverEnum = findReferencedEnumInModules(modulePath, moduleProgram, modulePaths, frontends, receiverName)
+                if receiverEnum.name != "" and enumHasVariant(receiverEnum, expr.variableName) {
+                    return receiverName
+                }
+            }
+        }
+        if receiverType == "" and expr.operands.length() > 0 {
+            receiverType = inferExpressionTypeNameInModules(modulePath, moduleProgram, modulePaths, frontends, expr.operands[0], boundNames, boundTypes, ownerClassName)
+        }
+        if receiverType != "" {
+            let receiverEnum = findReferencedEnumInModules(modulePath, moduleProgram, modulePaths, frontends, receiverType)
+            if receiverEnum.name != "" and enumHasVariant(receiverEnum, expr.variableName) {
+                return receiverType
+            }
+            if expr.kind == "MethodCall" {
+                let methodReturnType = findReferencedClassMethodReturnTypeInModules(modulePath, moduleProgram, modulePaths, frontends, receiverType, expr.callee)
+                if methodReturnType != "" {
+                    return methodReturnType
+                }
+            }
+            let fieldType = findReferencedClassFieldTypeInModules(modulePath, moduleProgram, modulePaths, frontends, receiverType, expr.variableName)
+            if fieldType != "" {
+                return fieldType
+            }
+        }
+        return ""
+    }
+
+    return ""
+}
+
+fun inferStatementBindingTypeInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, stmt: StatementNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String) r: String {
+    if stmt.variableType.typeName != "" and stmt.variableType.typeName != "Unknown" {
+        return stmt.variableType.typeName
+    }
+    return inferExpressionTypeNameInModules(modulePath, moduleProgram, modulePaths, frontends, stmt.initializer, boundNames, boundTypes, ownerClassName)
+}
+
+fun whenArmHasGuard(arm: ParserExpressionNode) r: Bool {
+    return arm.operands.length() > 2
+}
+
+fun whenExpressionHasCatchAll(expr: ParserExpressionNode) r: Bool {
+    var i = 0
+    while i < expr.arguments.length() {
+        let arm = expr.arguments[i]
+        if not whenArmHasGuard(arm) and arm.operands.length() > 0 {
+            let pattern = arm.operands[0]
+            if pattern.variableName == "Wildcard" or pattern.variableName == "Variable" {
+                return true
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun whenExpressionCoversEnumVariant(expr: ParserExpressionNode, variantName: String) r: Bool {
+    var i = 0
+    while i < expr.arguments.length() {
+        let arm = expr.arguments[i]
+        if not whenArmHasGuard(arm) and arm.operands.length() > 0 {
+            let pattern = arm.operands[0]
+            if pattern.variableName == "Is" and pattern.literalValue == variantName {
+                return true
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun collectMissingEnumVariants(expr: ParserExpressionNode, enumNode: EnumNode) r: Array<String> {
+    let missing = Array<String>()
+    if whenExpressionHasCatchAll(expr) {
+        return missing
+    }
+
+    var i = 0
+    while i < enumNode.variants.length() {
+        let variant = enumNode.variants[i]
+        if not whenExpressionCoversEnumVariant(expr, variant) {
+            missing.push(variant)
+        }
+        i = i + 1
+    }
+    return missing
+}
+
+fun joinStringArray(values: Array<String>) r: String {
+    var result = ""
+    var i = 0
+    while i < values.length() {
+        if i > 0 {
+            result = result + ", "
+        }
+        result = result + values[i]
+        i = i + 1
+    }
+    return result
+}
+
+fun addNonExhaustiveEnumDiagnostic(result: FrontendResult, modulePath: String, line: Int, enumName: String, missingVariants: Array<String>) r: Void {
+    let missingText = joinStringArray(missingVariants)
+    let message = "non-exhaustive match on enum `" + enumName + "`"
+    var suggestion = "Add an else arm."
+    if missingText != "" {
+        suggestion = "Add arms for " + missingText + " or add an else arm."
+    }
+    let note = "missing cases: " + missingText
+    let encoded = encodeDiagMessage(message, "E008", suggestion, note, 0)
+    result.addDiagnostic(FrontendDiagnostic.new(modulePath, line, 0, "error", encoded))
+}
+
+fun checkEnumExhaustivenessExpression(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, expr: ParserExpressionNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String, funcLine: Int) r: Void {
+    if expr.kind == "None" or expr.kind == "" {
+        return
+    }
+
+    if expr.kind == "WhenExpression" and expr.operands.length() > 0 {
+        let subjectType = inferExpressionTypeNameInModules(modulePath, moduleProgram, modulePaths, frontends, expr.operands[0], boundNames, boundTypes, ownerClassName)
+        if subjectType != "" {
+            let subjectEnum = findReferencedEnumInModules(modulePath, moduleProgram, modulePaths, frontends, subjectType)
+            if subjectEnum.name != "" {
+                let missingVariants = collectMissingEnumVariants(expr, subjectEnum)
+                if missingVariants.length() > 0 {
+                    addNonExhaustiveEnumDiagnostic(result, modulePath, funcLine, subjectEnum.name, missingVariants)
+                }
+            }
+        }
+    }
+
+    var operandIdx = 0
+    while operandIdx < expr.operands.length() {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.operands[operandIdx], boundNames, boundTypes, ownerClassName, funcLine)
+        operandIdx = operandIdx + 1
+    }
+
+    var argIdx = 0
+    while argIdx < expr.arguments.length() {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, expr.arguments[argIdx], boundNames, boundTypes, ownerClassName, funcLine)
+        argIdx = argIdx + 1
+    }
+}
+
+fun checkEnumExhaustivenessStatement(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, stmt: StatementNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String, funcLine: Int) r: Void {
+    if stmt.kind == "Let" or stmt.kind == "Var" {
+        checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.initializer, boundNames, boundTypes, ownerClassName, funcLine)
+        let boundType = inferStatementBindingTypeInModules(modulePath, moduleProgram, modulePaths, frontends, stmt, boundNames, boundTypes, ownerClassName)
+        addBoundType(boundNames, boundTypes, stmt.variableName, boundType)
+        return
+    }
+
+    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.expression, boundNames, boundTypes, ownerClassName, funcLine)
+    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.returnValue, boundNames, boundTypes, ownerClassName, funcLine)
+    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.condition, boundNames, boundTypes, ownerClassName, funcLine)
+    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.loopCondition, boundNames, boundTypes, ownerClassName, funcLine)
+    checkEnumExhaustivenessExpression(result, modulePath, moduleProgram, modulePaths, frontends, stmt.initializer, boundNames, boundTypes, ownerClassName, funcLine)
+
+    checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, stmt.thenBranch, boundNames, boundTypes, ownerClassName, funcLine)
+    checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, stmt.elseBranch, boundNames, boundTypes, ownerClassName, funcLine)
+    checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, stmt.loopBody, boundNames, boundTypes, ownerClassName, funcLine)
+}
+
+fun checkEnumExhaustivenessBlock(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, block: BlockNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String, funcLine: Int) r: Void {
+    let localNames = copyStringArray(boundNames)
+    let localTypes = copyStringArray(boundTypes)
+    var i = 0
+    while i < block.statements.length() {
+        checkEnumExhaustivenessStatement(result, modulePath, moduleProgram, modulePaths, frontends, block.statements[i], localNames, localTypes, ownerClassName, funcLine)
+        i = i + 1
+    }
+}
+
+fun checkEnumExhaustivenessInFunction(result: FrontendResult, modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, func: FunctionNode, ownerClassName: String) r: Void {
+    let boundNames = Array<String>()
+    let boundTypes = Array<String>()
+    if ownerClassName != "" {
+        addBoundType(boundNames, boundTypes, "this", ownerClassName)
+    }
+
+    var paramIdx = 0
+    while paramIdx < func.params.length() {
+        let param = func.params[paramIdx]
+        addBoundType(boundNames, boundTypes, param.name, param.paramType.typeName)
+        paramIdx = paramIdx + 1
+    }
+
+    checkEnumExhaustivenessBlock(result, modulePath, moduleProgram, modulePaths, frontends, func.body, boundNames, boundTypes, ownerClassName, func.line)
+}
+
 fun validateSealedModules(modulePaths: Array<String>, language: String) r: FrontendResult {
     let result = FrontendResult.new()
     let frontends = Array<FrontendResult>()
@@ -1281,6 +1856,21 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                         syncFieldIdx = syncFieldIdx + 1
                     }
                 }
+
+                var methodIdx = 0
+                while methodIdx < cls.methods.length() {
+                    let method = cls.methods[methodIdx]
+                    let methodName = cls.name + "." + method.name
+                    checkImportedCapabilityBlock(result, modulePath, program, modulePaths, frontends, method, methodName, method.body, method.line)
+                    checkEnumExhaustivenessInFunction(result, modulePath, program, modulePaths, frontends, method, cls.name)
+                    methodIdx = methodIdx + 1
+                }
+            }
+
+            if item.itemType == "Function" {
+                let func = item.function
+                checkImportedCapabilityBlock(result, modulePath, program, modulePaths, frontends, func, func.name, func.body, func.line)
+                checkEnumExhaustivenessInFunction(result, modulePath, program, modulePaths, frontends, func, "")
             }
             itemIdx = itemIdx + 1
         }
