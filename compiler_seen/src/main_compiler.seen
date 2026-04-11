@@ -346,7 +346,7 @@ fun resolveModulePath(modulePath: String) r: String {
     // Determine base path: stdlib modules go to seen_std/src/, compiler modules to compiler_seen/src/
     let root = getCompilerRoot()
     var basePath = "compiler_seen/src/"
-    if modulePath.startsWith("str.") or modulePath.startsWith("ffi.") or modulePath.startsWith("core.") or modulePath.startsWith("collections.") or modulePath.startsWith("io.") or modulePath.startsWith("process.") or modulePath.startsWith("env.") or modulePath.startsWith("json.") or modulePath.startsWith("framework.") or modulePath.startsWith("sync.") or modulePath.startsWith("thread.") {
+    if modulePath.startsWith("str.") or modulePath.startsWith("ffi.") or modulePath.startsWith("core.") or modulePath.startsWith("collections.") or modulePath.startsWith("io.") or modulePath.startsWith("process.") or modulePath.startsWith("env.") or modulePath.startsWith("json.") or modulePath.startsWith("framework.") or modulePath.startsWith("security.") or modulePath.startsWith("sync.") or modulePath.startsWith("thread.") {
         basePath = "seen_std/src/"
     }
     if root != "" {
@@ -465,7 +465,7 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
             }
             return compilerDirectPath
         }
-        if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "json" or firstSegment == "framework" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
+        if firstSegment == "str" or firstSegment == "io" or firstSegment == "env" or firstSegment == "process" or firstSegment == "collections" or firstSegment == "core" or firstSegment == "json" or firstSegment == "framework" or firstSegment == "security" or firstSegment == "async" or firstSegment == "sync" or firstSegment == "thread" {
             // This is a stdlib import — resolve from compiler root
             var stdlibBase = "seen_std/src/"
             let compRoot = getCompilerRoot()
@@ -2921,6 +2921,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     let runtimeObj = rtPrefix + "/seen_runtime.o"
     let runtimeSrc = rtPrefix + "/seen_runtime.c"
+    let teeRuntimeObj = rtPrefix + "/seen_tee_common.o"
+    let teeRuntimeSrc = rtPrefix + "/seen_tee_common.c"
+    let teeRuntimeExists: CommandResult = runCommand("test -f " + teeRuntimeSrc)
+    let hasTeeRuntime = commandWasSuccessful(teeRuntimeExists)
     var sanitizerClangFlags = ""
     if sanitizePolicy != "" {
         sanitizerClangFlags = " -fsanitize=" + sanitizePolicy + " -fno-omit-frame-pointer -g"
@@ -2957,6 +2961,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("    Warning: Runtime pre-compilation failed, will compile inline")
             }
         }
+        if hasTeeRuntime {
+            let checkTeeRtResult: CommandResult = runCommand("test " + teeRuntimeObj + " -nt " + teeRuntimeSrc)
+            if not commandWasSuccessful(checkTeeRtResult) {
+                let teeRtCompile: CommandResult = runCommand("clang -O3 -flto=thin -march=native -ffunction-sections -fdata-sections -pthread -c -I " + rtPrefix + " " + teeRuntimeSrc + " -o " + teeRuntimeObj)
+                if not commandWasSuccessful(teeRtCompile) {
+                    println("    Warning: TEE runtime pre-compilation failed, will compile inline")
+                }
+            }
+        }
     } else {
         // With sanitizer, recompile runtime with sanitizer flags
         println("  [3a] Compiling runtime with sanitizer...")
@@ -2964,24 +2977,51 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if not commandWasSuccessful(rtCompile) {
             println("    Warning: Sanitized runtime compilation failed")
         }
+        if hasTeeRuntime {
+            let teeRtCompile: CommandResult = runCommand("clang -O3 -march=native -ffunction-sections -fdata-sections -pthread" + sanitizerClangFlags + " -c -I " + rtPrefix + " " + teeRuntimeSrc + " -o /tmp/seen_tee_common_sanitized.o")
+            if not commandWasSuccessful(teeRtCompile) {
+                println("    Warning: Sanitized TEE runtime compilation failed")
+            }
+        }
     }
 
     // Check if pre-compiled runtime exists
     var runtimeArg = ""
+    var teeRuntimeSourceArg = ""
+    var teeRuntimeObjectArg = ""
+    if hasTeeRuntime {
+        teeRuntimeSourceArg = " " + teeRuntimeSrc
+    }
     if sanitizePolicy != "" {
         // Use sanitized runtime object
         let useSanitizedRt: CommandResult = runCommand("test -f /tmp/seen_runtime_sanitized.o")
-        if commandWasSuccessful(useSanitizedRt) {
-            runtimeArg = "/tmp/seen_runtime_sanitized.o"
+        var haveSanitizedTeeRt = true
+        if hasTeeRuntime {
+            let useSanitizedTeeRt: CommandResult = runCommand("test -f /tmp/seen_tee_common_sanitized.o")
+            haveSanitizedTeeRt = commandWasSuccessful(useSanitizedTeeRt)
+            if haveSanitizedTeeRt {
+                teeRuntimeObjectArg = " /tmp/seen_tee_common_sanitized.o"
+            }
+        }
+        if commandWasSuccessful(useSanitizedRt) and haveSanitizedTeeRt {
+            runtimeArg = "/tmp/seen_runtime_sanitized.o" + teeRuntimeObjectArg
         } else {
-            runtimeArg = "-I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c" + sanitizerClangFlags
+            runtimeArg = "-I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c" + teeRuntimeSourceArg + sanitizerClangFlags
         }
     } else {
         let usePrecompiledRt: CommandResult = runCommand("test -f " + rtPrefix + "/seen_runtime.o")
-        if commandWasSuccessful(usePrecompiledRt) {
-            runtimeArg = rtPrefix + "/seen_runtime.o"
+        var haveHostTeeRt = true
+        if hasTeeRuntime {
+            let useHostTeeRt: CommandResult = runCommand("test -f " + teeRuntimeObj)
+            haveHostTeeRt = commandWasSuccessful(useHostTeeRt)
+            if haveHostTeeRt {
+                teeRuntimeObjectArg = " " + teeRuntimeObj
+            }
+        }
+        if commandWasSuccessful(usePrecompiledRt) and haveHostTeeRt {
+            runtimeArg = rtPrefix + "/seen_runtime.o" + teeRuntimeObjectArg
         } else {
-            runtimeArg = "-I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c"
+            runtimeArg = "-I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c" + teeRuntimeSourceArg
         }
     }
 
@@ -2992,6 +3032,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let rtTargetCmd: CommandResult = runCommand(targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + rtPrefix + "/seen_runtime.c -o " + rtTargetOut)
             if commandWasSuccessful(rtTargetCmd) {
                 runtimeArg = rtTargetOut
+                if hasTeeRuntime {
+                    let teeTargetOut = "/tmp/seen_tee_common_" + effectiveTarget + ".o"
+                    let teeTargetCmd: CommandResult = runCommand(targetClangDriver + " -O3 -flto=thin -ffunction-sections -fdata-sections" + targetRuntimeFlags + " -c " + targetClangArgs + " -I " + rtPrefix + " " + teeRuntimeSrc + " -o " + teeTargetOut)
+                    if commandWasSuccessful(teeTargetCmd) {
+                        runtimeArg = runtimeArg + " " + teeTargetOut
+                    } else {
+                        println("    Error: target TEE runtime compilation failed for " + effectiveTarget)
+                        println(teeTargetCmd.output)
+                        return 1
+                    }
+                }
             } else {
                 println("    Error: target runtime compilation failed for " + effectiveTarget)
                 println(rtTargetCmd.output)

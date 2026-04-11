@@ -15,7 +15,7 @@ class TEEType {
     static let SGX: Int = 1      // Intel SGX
     static let SEV: Int = 2      // AMD SEV
     static let TDX: Int = 3      // Intel TDX (future)
-    static let STUB: Int = 99    // Stub mode for development
+    static let STUB: Int = 99    // Stub mode when explicitly enabled for development
 
     static fun new(v: Int) r: TEEType {
         return TEEType{value: v}
@@ -31,7 +31,7 @@ class TEEType {
         if value == 1 { return "Intel SGX" }
         if value == 2 { return "AMD SEV" }
         if value == 3 { return "Intel TDX" }
-        if value == 99 { return "Stub (Development)" }
+        if value == 99 { return "Stub (Development Opt-In)" }
         return "Unknown"
     }
 }
@@ -245,9 +245,9 @@ class TEE {
     static fun init() r: TEE {
         if not TEE.instance.initialized {
             let status = __seen_tee_init()
-            if status == 0 {
-                let ttype = __seen_tee_get_type()
-                TEE.instance.teeType = TEEType.new(ttype)
+            let ttype = __seen_tee_get_type()
+            TEE.instance.teeType = TEEType.new(ttype)
+            if status == 0 or status == TEEStatus.ERR_NOT_SUPPORTED {
                 TEE.instance.initialized = true
             }
         }
@@ -258,6 +258,11 @@ class TEE {
     static fun isAvailable() r: Bool {
         let tee = TEE.init()
         return tee.initialized and not tee.teeType.isNone()
+    }
+
+    static fun isHardwareBacked() r: Bool {
+        let tee = TEE.init()
+        return tee.initialized and not tee.teeType.isNone() and not tee.teeType.isStub()
     }
 
     // Get TEE type
@@ -363,6 +368,24 @@ class TEE {
 // ============================================================================
 // Convenience Functions
 // ============================================================================
+
+fun getTEEType() r: TEEType {
+    let status = __seen_tee_init()
+    if status == 0 or status == TEEStatus.ERR_NOT_SUPPORTED {
+        return TEEType.new(__seen_tee_get_type())
+    }
+    return TEEType.new(TEEType.NONE)
+}
+
+fun isTEEAvailable() r: Bool {
+    let teeType = getTEEType()
+    return not teeType.isNone()
+}
+
+fun isTEEHardwareBacked() r: Bool {
+    let teeType = getTEEType()
+    return not teeType.isNone() and not teeType.isStub()
+}
 
 // Seal data using default policy (MRENCLAVE)
 fun sealData(plaintext: String) r: SealedData {

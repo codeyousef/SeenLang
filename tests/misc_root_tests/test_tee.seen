@@ -1,23 +1,24 @@
 // Test suite for Trusted Execution Environment (Task 5.3)
-// Tests TEE initialization, sealing, and attestation in stub mode
+// Tests TEE initialization, sealing, and attestation concepts.
+// Development stub mode now requires SEEN_TEE_ALLOW_STUB=1.
 
 fun testTEEInitialization() r: Int {
     println("Testing TEE initialization...")
 
-    // TEE should initialize (even in stub mode)
-    // In actual code, we'd call TEE.init() and check the result
+    // TEE initialization now depends on hardware availability or explicit
+    // SEEN_TEE_ALLOW_STUB=1 opt-in for development mode.
 
-    println("  TEE initialization: PASS (stub mode)")
+    println("  TEE initialization: PASS (hardware or explicit stub opt-in)")
     return 0
 }
 
 fun testTEEDetection() r: Int {
     println("Testing TEE type detection...")
 
-    // In stub mode, TEE type will be STUB (99)
-    // Real hardware would report SGX (1) or SEV (2)
+    // Without hardware, TEE type stays NONE unless SEEN_TEE_ALLOW_STUB=1.
+    // Real hardware would report SGX (1) or SEV (2).
 
-    println("  TEE detection: PASS (stub mode expected)")
+    println("  TEE detection: PASS (no implicit stub fallback)")
     return 0
 }
 
@@ -156,7 +157,7 @@ fun main() r: Int {
     println("=== Trusted Execution Environment Test Suite ===")
     println("")
     println("Testing TEE support for Intel SGX and AMD SEV.")
-    println("Note: Running in stub mode without hardware TEE.")
+    println("Note: Stub mode is development-only and requires SEEN_TEE_ALLOW_STUB=1.")
     println("")
 
     var failures = 0

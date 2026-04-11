@@ -18,7 +18,7 @@ typedef enum SeenTEEType {
     SEEN_TEE_SGX = 1,       // Intel SGX
     SEEN_TEE_SEV = 2,       // AMD SEV (including SEV-ES, SEV-SNP)
     SEEN_TEE_TDX = 3,       // Intel TDX (future)
-    SEEN_TEE_STUB = 99      // Stub mode for testing/development
+    SEEN_TEE_STUB = 99      // Stub mode when explicitly enabled for development
 } SeenTEEType;
 
 // ============================================================================

@@ -1,0 +1,27 @@
+import security.enclave.{getTEEType, isTEEAvailable, isTEEHardwareBacked}
+
+fun main() r: Int {
+    let teeType = getTEEType()
+
+    if teeType.isStub() {
+        println("FAIL: stub TEE enabled without explicit opt-in")
+        return 1
+    }
+
+    if isTEEAvailable() {
+        if isTEEHardwareBacked() {
+            println("PASS: hardware TEE available")
+            return 0
+        }
+        println("FAIL: non-hardware TEE reported as available")
+        return 1
+    }
+
+    if teeType.isNone() {
+        println("PASS: no TEE without explicit opt-in")
+        return 0
+    }
+
+    println("FAIL: unexpected TEE type = " + teeType.toString())
+    return 1
+}

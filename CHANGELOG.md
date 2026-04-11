@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Runtime, standard library, and validation
 - Updated runtime and stdlib support used by the new native-target lanes, including string helpers, file I/O paths, `Option`, and hash collection behavior.
+- Hardened TEE/enclave support so stub mode is no longer enabled implicitly when no hardware TEE is present, added import-safe availability helpers in `security.enclave`, and linked the TEE runtime object into host/cross-target builds.
 - Expanded regression fixtures and root-level smoke checks for compiler crash repros, native-target rollout, and safety-rule enforcement.
 
 ## [0.3.7] - 2026-03-16

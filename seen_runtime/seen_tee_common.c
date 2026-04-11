@@ -27,17 +27,30 @@ static int64_t g_current_enclave_id = -1;
 static int g_stub_mode = 0;
 static uint8_t g_stub_key[SEEN_TEE_KEY_SIZE] = {0};
 
+static int seen_tee_stub_requested(void) {
+    const char* env = getenv("SEEN_TEE_ALLOW_STUB");
+    if (!env) {
+        return 0;
+    }
+    if (strcmp(env, "1") == 0 || strcmp(env, "true") == 0 ||
+        strcmp(env, "yes") == 0 || strcmp(env, "on") == 0) {
+        return 1;
+    }
+    return 0;
+}
+
 // ============================================================================
 // Initialization
 // ============================================================================
 
 SeenTEEStatus __seen_tee_init(void) {
     if (g_tee_initialized) {
-        return SEEN_TEE_SUCCESS;
+        return g_tee_type == SEEN_TEE_NONE ? SEEN_TEE_ERR_NOT_SUPPORTED : SEEN_TEE_SUCCESS;
     }
 
     // Try to detect available TEE
     g_tee_type = SEEN_TEE_NONE;
+    g_stub_mode = 0;
 
 #ifdef SEEN_TEE_ENABLE_SGX
     if (__seen_sgx_available()) {
@@ -61,18 +74,21 @@ SeenTEEStatus __seen_tee_init(void) {
     }
 #endif
 
-    // No hardware TEE available - use stub mode
-    g_tee_type = SEEN_TEE_STUB;
-    g_stub_mode = 1;
     g_tee_initialized = 1;
+    if (seen_tee_stub_requested()) {
+        g_tee_type = SEEN_TEE_STUB;
+        g_stub_mode = 1;
 
-    // Initialize stub key with random-ish data
-    srand((unsigned int)time(NULL));
-    for (int i = 0; i < SEEN_TEE_KEY_SIZE; i++) {
-        g_stub_key[i] = (uint8_t)(rand() & 0xFF);
+        // Initialize stub key with random-ish data
+        srand((unsigned int)time(NULL));
+        for (int i = 0; i < SEEN_TEE_KEY_SIZE; i++) {
+            g_stub_key[i] = (uint8_t)(rand() & 0xFF);
+        }
+
+        return SEEN_TEE_SUCCESS;
     }
 
-    return SEEN_TEE_SUCCESS;
+    return SEEN_TEE_ERR_NOT_SUPPORTED;
 }
 
 SeenTEEType __seen_tee_get_type(void) {
@@ -92,7 +108,7 @@ const char* __seen_tee_type_name(SeenTEEType type) {
         case SEEN_TEE_SGX:  return "Intel SGX";
         case SEEN_TEE_SEV:  return "AMD SEV";
         case SEEN_TEE_TDX:  return "Intel TDX";
-        case SEEN_TEE_STUB: return "Stub (Development)";
+        case SEEN_TEE_STUB: return "Stub (Development Opt-In)";
         default:            return "Unknown";
     }
 }
@@ -540,7 +556,7 @@ void __seen_tee_print_info(void) {
     fprintf(stderr, "TEE Type: %s\n", __seen_tee_type_name(g_tee_type));
     fprintf(stderr, "Initialized: %s\n", g_tee_initialized ? "Yes" : "No");
     fprintf(stderr, "In Enclave: %s\n", g_in_enclave ? "Yes" : "No");
-    fprintf(stderr, "Stub Mode: %s\n", g_stub_mode ? "Yes (No hardware TEE)" : "No");
+    fprintf(stderr, "Stub Mode: %s\n", g_stub_mode ? "Yes (SEEN_TEE_ALLOW_STUB=1)" : "No");
 
     uint64_t caps = __seen_tee_get_capabilities();
     fprintf(stderr, "Capabilities:\n");
