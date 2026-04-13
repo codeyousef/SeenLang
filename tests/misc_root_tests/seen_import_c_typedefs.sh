@@ -16,7 +16,11 @@ trap cleanup EXIT
 cat >"$HEADER" <<'EOF'
 typedef unsigned int MyFlags;
 typedef struct MyHandle_T* MyHandle;
-typedef struct MyInfo MyInfo;
+typedef struct MyInfo {
+    MyFlags flags;
+    MyHandle handle;
+    const char* name;
+} MyInfo;
 typedef void (*MyCallback)(MyHandle h, const MyInfo* info);
 
 MyFlags do_thing(MyHandle handle, MyFlags flags, MyCallback callback, const MyInfo* info, MyHandle* out_handle);
@@ -24,7 +28,7 @@ EOF
 
 "$COMPILER" import-c "$HEADER" | sed -n '/^\/\/ Auto-generated/,$p' >"$OUT"
 
-if [ "$(grep -c '^type MyFlags = Int$' "$OUT")" -ne 1 ]; then
+if [ "$(grep -c '^type MyFlags = UInt32$' "$OUT")" -ne 1 ]; then
     echo "FAIL: import-c should emit MyFlags typedef alias"
     exit 1
 fi
@@ -34,8 +38,8 @@ if [ "$(grep -c '^type MyHandle = Ptr$' "$OUT")" -ne 1 ]; then
     exit 1
 fi
 
-if [ "$(grep -c '^type MyInfo = Ptr$' "$OUT")" -ne 1 ]; then
-    echo "FAIL: import-c should emit MyInfo opaque record alias"
+if [ "$(grep -Fxc 'class MyInfo {' "$OUT")" -ne 1 ]; then
+    echo "FAIL: import-c should emit a repr(C) class for MyInfo"
     exit 1
 fi
 
@@ -44,8 +48,23 @@ if [ "$(grep -c '^type MyCallback = Ptr$' "$OUT")" -ne 1 ]; then
     exit 1
 fi
 
-if [ "$(grep -c '^extern fun do_thing(arg0: MyHandle, arg1: MyFlags, arg2: MyCallback, arg3: MyInfo, arg4: \*MyHandle) r: MyFlags$' "$OUT")" -ne 1 ]; then
-    echo "FAIL: import-c should reuse typedef aliases in generated function signatures"
+if [ "$(grep -c '^    var flags: MyFlags$' "$OUT")" -ne 1 ]; then
+    echo "FAIL: import-c should preserve typedef aliases in generated struct fields"
+    exit 1
+fi
+
+if [ "$(grep -c '^    var handle: MyHandle$' "$OUT")" -ne 1 ]; then
+    echo "FAIL: import-c should preserve opaque handle aliases in generated struct fields"
+    exit 1
+fi
+
+if [ "$(grep -c '^    var name: \*Char$' "$OUT")" -ne 1 ]; then
+    echo "FAIL: import-c should emit raw pointer fields for C string members"
+    exit 1
+fi
+
+if [ "$(grep -c '^extern fun do_thing(arg0: MyHandle, arg1: MyFlags, arg2: MyCallback, arg3: \*MyInfo, arg4: \*MyHandle) r: MyFlags$' "$OUT")" -ne 1 ]; then
+    echo "FAIL: import-c should reuse typedefs and record pointers in generated function signatures"
     exit 1
 fi
 
@@ -57,4 +76,4 @@ EOF
 
 "$COMPILER" check "$OUT" >/dev/null
 
-echo "PASS: import-c emits typedef aliases and reuses them in signatures"
+echo "PASS: import-c emits typedef aliases, repr(C) records, and reused signature types"

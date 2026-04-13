@@ -87,20 +87,37 @@ if [ -n "$VULKAN_HEADER" ]; then
         exit 1
     fi
 
+    if [ "$(grep -Fxc 'class VkInstanceCreateInfo {' "$VULKAN_OUT")" -ne 1 ]; then
+        echo "FAIL: import-c should emit a repr(C) class for VkInstanceCreateInfo"
+        exit 1
+    fi
+
+    VK_INSTANCE_CREATE_INFO_BLOCK="$(sed -n '/^class VkInstanceCreateInfo {$/,/^}$/p' "$VULKAN_OUT")"
+
+    if ! printf '%s\n' "$VK_INSTANCE_CREATE_INFO_BLOCK" | grep -Fqx '    var sType: VkStructureType'; then
+        echo "FAIL: import-c should preserve VkStructureType in VkInstanceCreateInfo"
+        exit 1
+    fi
+
+    if ! printf '%s\n' "$VK_INSTANCE_CREATE_INFO_BLOCK" | grep -Fqx '    var pNext: *Void'; then
+        echo "FAIL: import-c should emit raw void pointers for VkInstanceCreateInfo.pNext"
+        exit 1
+    fi
+
     if [ "$(grep -c '^let VK_ERROR_VALIDATION_FAILED_EXT:' "$VULKAN_OUT")" -ne 1 ]; then
         echo "FAIL: import-c should emit VK_ERROR_VALIDATION_FAILED_EXT exactly once for vulkan.h"
         exit 1
     fi
 
-    if [ "$(grep -c '^extern fun vkCreateInstance(arg0: VkInstanceCreateInfo, arg1: VkAllocationCallbacks, arg2: \*VkInstance) r: VkResult$' "$VULKAN_OUT")" -ne 1 ]; then
-        echo "FAIL: import-c should reuse Vulkan typedef aliases in vkCreateInstance"
+    if [ "$(grep -c '^extern fun vkCreateInstance(arg0: \*VkInstanceCreateInfo, arg1: \*VkAllocationCallbacks, arg2: \*VkInstance) r: VkResult$' "$VULKAN_OUT")" -ne 1 ]; then
+        echo "FAIL: import-c should reuse Vulkan record pointers in vkCreateInstance"
         exit 1
     fi
 
-    if [ "$(grep -c '^extern fun vkDestroyInstance(arg0: VkInstance, arg1: VkAllocationCallbacks) r: Void$' "$VULKAN_OUT")" -ne 1 ]; then
-        echo "FAIL: import-c should reuse Vulkan typedef aliases in vkDestroyInstance"
+    if [ "$(grep -c '^extern fun vkDestroyInstance(arg0: VkInstance, arg1: \*VkAllocationCallbacks) r: Void$' "$VULKAN_OUT")" -ne 1 ]; then
+        echo "FAIL: import-c should reuse Vulkan record pointers in vkDestroyInstance"
         exit 1
     fi
 fi
 
-echo "PASS: import-c handles real system headers without bogus prev/referenced bindings and preserves Vulkan typedef aliases"
+echo "PASS: import-c handles real system headers without bogus prev/referenced bindings and preserves Vulkan typedefs/records"

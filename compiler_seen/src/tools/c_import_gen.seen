@@ -83,6 +83,30 @@ class CImportedTypedef {
     }
 }
 
+class CImportedRecordField {
+    var name: String
+    var cType: String
+
+    static fun new() r: CImportedRecordField {
+        return CImportedRecordField{
+            name: "",
+            cType: ""
+        }
+    }
+}
+
+class CImportedRecord {
+    var name: String
+    var fields: Array<CImportedRecordField>
+
+    static fun new() r: CImportedRecord {
+        return CImportedRecord{
+            name: "",
+            fields: Array<CImportedRecordField>()
+        }
+    }
+}
+
 // Represents an imported C enum constant
 class CImportedConstant {
     var name: String
@@ -122,6 +146,7 @@ class CImportedFunction {
 class CImportGenerator {
     var headerPath: String
     var includePaths: Array<String>
+    var outputRecords: Array<CImportedRecord>
     var outputTypedefs: Array<CImportedTypedef>
     var outputFunctions: Array<CImportedFunction>
     var outputConstants: Array<CImportedConstant>
@@ -131,6 +156,7 @@ class CImportGenerator {
         return CImportGenerator{
             headerPath: header,
             includePaths: Array<String>(),
+            outputRecords: Array<CImportedRecord>(),
             outputTypedefs: Array<CImportedTypedef>(),
             outputFunctions: Array<CImportedFunction>(),
             outputConstants: Array<CImportedConstant>(),
@@ -186,6 +212,13 @@ class CImportGenerator {
         var i = 0
         while i < lines.length() {
             let line = lines[i]
+
+            if line.contains("RecordDecl") and line.contains("definition") {
+                let importedRecord = parseRecordDecl(line, lines, i)
+                if importedRecord.name != "" and not hasImportedRecordNamed(importedRecord.name) {
+                    outputRecords.push(importedRecord)
+                }
+            }
 
             if line.contains("TypedefDecl") and not line.contains("invalid") {
                 let importedTypedef = parseTypedefDecl(line)
@@ -264,6 +297,83 @@ class CImportGenerator {
         return fn
     }
 
+    fun parseRecordDecl(declLine: String, lines: Array<String>, startIdx: Int) r: CImportedRecord {
+        var importedRecord = CImportedRecord.new()
+        let parts = declLine.split(" ")
+
+        var idx = 0
+        while idx < parts.length() {
+            let part = parts[idx]
+            if part == "struct" {
+                if idx + 1 < parts.length() {
+                    let recordName = parts[idx + 1]
+                    if isValidCIdentifier(recordName) and recordName != "definition" {
+                        importedRecord.name = recordName
+                    }
+                }
+                break
+            }
+            if part == "union" {
+                return importedRecord
+            }
+            idx = idx + 1
+        }
+
+        if importedRecord.name == "" {
+            return importedRecord
+        }
+
+        var scanIdx = startIdx + 1
+        while scanIdx < lines.length() and scanIdx < startIdx + 256 {
+            let line = lines[scanIdx]
+            if line.contains("FieldDecl") {
+                let field = parseRecordFieldDecl(line)
+                if field.name != "" {
+                    importedRecord.fields.push(field)
+                }
+            } else if line.contains("RecordDecl") or line.contains("TypedefDecl") or line.contains("FunctionDecl") or line.contains("EnumDecl") or line.contains("EnumConstantDecl") {
+                break
+            }
+            scanIdx = scanIdx + 1
+        }
+
+        return importedRecord
+    }
+
+    fun parseRecordFieldDecl(declLine: String) r: CImportedRecordField {
+        var field = CImportedRecordField.new()
+        let parts = declLine.split(" ")
+
+        var candidateName = ""
+        var idx = 0
+        while idx < parts.length() {
+            let part = parts[idx]
+
+            if part.startsWith("'") {
+                if candidateName != "" {
+                    field.name = candidateName
+                    let rawType = extractQuotedType(parts, idx)
+                    field.cType = choosePreferredClangType(rawType)
+                }
+                break
+            }
+
+            if part.length() > 0 {
+                if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
+                    if not part.contains("<") and not part.contains(">") and not part.contains(":") {
+                        if part != "FieldDecl" and part != "implicit" and isValidCIdentifier(part) {
+                            candidateName = part
+                        }
+                    }
+                }
+            }
+
+            idx = idx + 1
+        }
+
+        return field
+    }
+
     fun parseTypedefDecl(declLine: String) r: CImportedTypedef {
         var importedTypedef = CImportedTypedef.new()
         let parts = declLine.split(" ")
@@ -279,7 +389,7 @@ class CImportGenerator {
                     let rawType = extractQuotedType(parts, idx)
                     importedTypedef.cType = resolveClangTypedefType(rawType)
                     inferTypedefSeenType(importedTypedef)
-                    if importedTypedef.seenType == "" {
+                    if importedTypedef.seenType == "" or isRecordBackedTypedef(importedTypedef) {
                         importedTypedef.name = ""
                     }
                 }
@@ -302,6 +412,21 @@ class CImportGenerator {
         }
 
         return importedTypedef
+    }
+
+    fun hasImportedRecordNamed(name: String) r: Bool {
+        return findImportedRecordIndex(name) >= 0
+    }
+
+    fun findImportedRecordIndex(name: String) r: Int {
+        var idx = 0
+        while idx < outputRecords.length() {
+            if outputRecords[idx].name == name {
+                return idx
+            }
+            idx = idx + 1
+        }
+        return -1
     }
 
     fun hasImportedFunctionNamed(name: String) r: Bool {
@@ -513,8 +638,25 @@ class CImportGenerator {
             ti = ti + 1
         }
 
-        if outputTypedefs.length() > 0 and (outputConstants.length() > 0 or outputFunctions.length() > 0) {
+        if outputTypedefs.length() > 0 and (outputRecords.length() > 0 or outputConstants.length() > 0 or outputFunctions.length() > 0) {
             sb.append("\n")
+        }
+
+        var ri = 0
+        while ri < outputRecords.length() {
+            let importedRecord = outputRecords[ri]
+            sb.append("@repr(C)\n")
+            sb.append("class " + importedRecord.name + " {\n")
+
+            var fi = 0
+            while fi < importedRecord.fields.length() {
+                let field = importedRecord.fields[fi]
+                sb.append("    var " + field.name + ": " + cFieldTypeToSeenType(field.cType) + "\n")
+                fi = fi + 1
+            }
+
+            sb.append("}\n\n")
+            ri = ri + 1
         }
 
         var ci = 0
@@ -558,7 +700,12 @@ class CImportGenerator {
 
     // Map C type to Seen type
     fun cTypeToSeenType(cType: String) r: String {
-        let normalized = normalizeCType(cType)
+        let normalized = normalizeCType(choosePreferredClangType(cType))
+
+        let importedRecordType = mapImportedRecordType(normalized)
+        if importedRecordType != "" {
+            return importedRecordType
+        }
 
         let importedTypedefType = mapImportedTypedefType(normalized)
         if importedTypedefType != "" {
@@ -566,6 +713,22 @@ class CImportGenerator {
         }
 
         return mapBuiltinCTypeToSeenType(normalized)
+    }
+
+    fun cFieldTypeToSeenType(cType: String) r: String {
+        let normalized = normalizeCType(choosePreferredClangType(cType))
+
+        let importedRecordType = mapImportedRecordType(normalized)
+        if importedRecordType != "" {
+            return importedRecordType
+        }
+
+        let importedTypedefType = mapImportedTypedefType(normalized)
+        if importedTypedefType != "" {
+            return importedTypedefType
+        }
+
+        return mapBuiltinCFieldTypeToSeenType(normalized)
     }
 
     fun mapBuiltinCTypeToSeenType(normalized: String) r: String {
@@ -630,6 +793,61 @@ class CImportGenerator {
         return "Int"
     }
 
+    fun mapBuiltinCFieldTypeToSeenType(normalized: String) r: String {
+        if normalized == "int" or normalized == "signed int" or normalized == "int32_t" {
+            return "Int32"
+        }
+        if normalized == "unsigned int" or normalized == "uint32_t" {
+            return "UInt32"
+        }
+        if normalized == "short" or normalized == "signed short" or normalized == "int16_t" {
+            return "Int16"
+        }
+        if normalized == "unsigned short" or normalized == "uint16_t" {
+            return "UInt16"
+        }
+        if normalized == "long" or normalized == "signed long" or normalized == "long int" or normalized == "long long" or normalized == "signed long long" or normalized == "int64_t" {
+            return "Int64"
+        }
+        if normalized == "unsigned long" or normalized == "unsigned long int" or normalized == "unsigned long long" or normalized == "uint64_t" or normalized == "size_t" or normalized == "uintptr_t" {
+            return "UInt64"
+        }
+        if normalized == "unsigned char" or normalized == "uint8_t" {
+            return "UInt8"
+        }
+        if normalized == "signed char" or normalized == "int8_t" {
+            return "Int8"
+        }
+        if normalized == "char" {
+            return "Char"
+        }
+        if normalized == "bool" or normalized == "_Bool" {
+            return "Bool"
+        }
+        if normalized == "float" {
+            return "Float32"
+        }
+        if normalized == "double" or normalized == "long double" {
+            return "Float64"
+        }
+        if normalized == "void" {
+            return "Void"
+        }
+        if normalized == "char *" or normalized == "char*" {
+            return "*Char"
+        }
+        if normalized == "void *" or normalized == "void*" {
+            return "*Void"
+        }
+        if normalized.contains("(*") {
+            return "Ptr"
+        }
+        if normalized.endsWith("*") or normalized.contains("*") {
+            return "*Void"
+        }
+        return "Int"
+    }
+
     fun inferTypedefSeenType(importedTypedef: CImportedTypedef) r: Void {
         let normalized = normalizeCType(importedTypedef.cType)
         importedTypedef.cType = normalized
@@ -664,12 +882,47 @@ class CImportGenerator {
             return
         }
 
-        let seenType = mapBuiltinCTypeToSeenType(normalized)
+        let seenType = mapBuiltinCFieldTypeToSeenType(normalized)
         if seenType == "" {
             return
         }
         importedTypedef.seenType = seenType
         importedTypedef.category = "value"
+    }
+
+    fun isRecordBackedTypedef(importedTypedef: CImportedTypedef) r: Bool {
+        if not hasImportedRecordNamed(importedTypedef.name) {
+            return false
+        }
+        return importedTypedef.cType == "struct " + importedTypedef.name
+    }
+
+    fun mapImportedRecordType(normalized: String) r: String {
+        let exactIdx = findImportedRecordIndex(normalized)
+        if exactIdx >= 0 {
+            return outputRecords[exactIdx].name
+        }
+
+        var baseType = normalized
+        var pointerDepth = 0
+        while true {
+            let trimmed = baseType.trim()
+            if not trimmed.endsWith("*") {
+                break
+            }
+            pointerDepth = pointerDepth + 1
+            baseType = trimmed.substring(0, trimmed.length() - 1)
+        }
+
+        baseType = baseType.trim()
+        if pointerDepth > 0 {
+            let recordIdx = findImportedRecordIndex(baseType)
+            if recordIdx >= 0 {
+                return repeatPointerPrefix(pointerDepth, outputRecords[recordIdx].name)
+            }
+        }
+
+        return ""
     }
 
     fun mapImportedTypedefType(normalized: String) r: String {
@@ -709,6 +962,18 @@ class CImportGenerator {
         }
 
         return ""
+    }
+
+    fun choosePreferredClangType(rawType: String) r: String {
+        let aliasSepIdx = rawType.indexOf("':'", 0)
+        if aliasSepIdx >= 0 {
+            let aliasName = rawType.substring(0, aliasSepIdx).trim()
+            if hasImportedRecordNamed(aliasName) or hasImportedTypedefNamed(aliasName) {
+                return aliasName
+            }
+            return resolveClangTypedefType(rawType)
+        }
+        return rawType.trim()
     }
 
     fun normalizeCType(cType: String) r: String {
