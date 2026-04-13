@@ -343,29 +343,6 @@ class RealParser {
         return rewritten
     }
 
-    static fun new(rawTokens: Array<Token>) r: RealParser {
-        return RealParser{
-            tokens: RealParser.rewriteEffectTokens(rawTokens),
-            current: 0,
-            currentProgram: ProgramNode.new(),
-            currentBlock: BlockNode.new(),
-            lastStatement: StatementNode.new(),
-            lastParsedBlock: BlockNode.new(),
-            lastFunction: FunctionNode.new(),
-            pendingDecorators: Array<AnnotationNode>(),
-            pendingSealedModifier: 0,
-            blockStack: Array<BlockNode>(),
-            statementStack: Array<StatementNode>(),
-            blockStackDepth: 0,
-            lastParsedTypeName: "Unknown",
-            lastParsedTypeNullable: false,
-            pendingFunctionReturnTypeName: "Unknown",
-            pendingFunctionReturnTypeNullable: false,
-            pendingFunctionParamTypeNames: Array<String>(),
-            pendingFunctionParamTypeNullables: Array<Int>()
-        }
-    }
-
     // ========== UTILITY METHODS (moved to top to ensure Stage1 generates them) ==========
 
     fun matchTokenStr(tokenType: SeenTokenType) r: Bool {
@@ -5775,6 +5752,35 @@ class RealParser {
             }
         }
         return "private"
+    }
+
+    // BOOTSTRAP CONSTRAINT: keep new() at the end of the class. Older bootstrap
+    // compilers can silently drop later RealParser methods after parsing the
+    // generic Array<...>() initializers in this constructor.
+    static fun new(rawTokens: Array<Token>) r: RealParser {
+        return RealParser{
+            // parseEffectModifierInto() handles KeywordEffect directly, so avoid
+            // rebuilding Array<Token> here. Older bootstrap compilers can
+            // miscompile rewriteEffectTokens() and drop every token.
+            tokens: rawTokens,
+            current: 0,
+            currentProgram: ProgramNode.new(),
+            currentBlock: BlockNode.new(),
+            lastStatement: StatementNode.new(),
+            lastParsedBlock: BlockNode.new(),
+            lastFunction: FunctionNode.new(),
+            pendingDecorators: Array<AnnotationNode>(),
+            pendingSealedModifier: 0,
+            blockStack: Array<BlockNode>(),
+            statementStack: Array<StatementNode>(),
+            blockStackDepth: 0,
+            lastParsedTypeName: "Unknown",
+            lastParsedTypeNullable: false,
+            pendingFunctionReturnTypeName: "Unknown",
+            pendingFunctionReturnTypeNullable: false,
+            pendingFunctionParamTypeNames: Array<String>(),
+            pendingFunctionParamTypeNullables: Array<Int>()
+        }
     }
 
 }

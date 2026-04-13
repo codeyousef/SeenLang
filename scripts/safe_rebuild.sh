@@ -173,14 +173,26 @@ start_ll_snapshot_watcher() {
     done
 }
 
+kill_matching_processes() {
+    local pattern=$1
+    local matched_pids=()
+    while IFS= read -r pid; do
+        [ -n "$pid" ] || continue
+        matched_pids+=("$pid")
+    done < <(ps -eo pid=,args= | awk -v pat="$pattern" -v self="$$" '$0 ~ pat && $1 != self { print $1 }')
+    if [ "${#matched_pids[@]}" -gt 0 ]; then
+        kill -9 "${matched_pids[@]}" 2>/dev/null || true
+    fi
+}
+
 # Kill orphaned fork children from the frozen compiler.
 # Uses SIGKILL (not SIGTERM) because SIGTERM triggers cleanup handlers that delete files.
 kill_frozen_orphans() {
-    pkill -9 -f "$(basename "$FROZEN")" 2>/dev/null || true
-    pkill -9 -f "seen_parallel_opt" 2>/dev/null || true
-    pkill -9 -f "opt.*seen_module" 2>/dev/null || true
-    pkill -9 -f "clang.*seen_module" 2>/dev/null || true
-    pkill -9 -f "ld.lld.*seen_module" 2>/dev/null || true
+    kill_matching_processes "$(basename "$FROZEN")"
+    kill_matching_processes "seen_parallel_opt"
+    kill_matching_processes "opt.*seen_module"
+    kill_matching_processes "clang.*seen_module"
+    kill_matching_processes "ld.lld.*seen_module"
     sleep 2
 }
 
@@ -261,12 +273,54 @@ find_problem_empty_modules() {
     echo "$empty"
 }
 
+bootstrap_binary_usable() {
+    local bin=$1
+    local smoke_log="/tmp/seen_bootstrap_smoke_$$_$(basename "$bin").log"
+    [ -x "$bin" ] || return 1
+    timeout 5 "$bin" >"$smoke_log" 2>&1
+    local exit_code=$?
+    rm -f "$smoke_log"
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ]
+}
+
+stage2_failure_looks_oom() {
+    local exit_code=$1
+    local log_file=$2
+    if [ "$exit_code" -eq 137 ]; then
+        return 0
+    fi
+    if [ -f "$log_file" ] && grep -qiE 'killed|out of memory|oom' "$log_file"; then
+        return 0
+    fi
+    return 1
+}
+
 echo "=== Safe Rebuild Script ==="
 echo ""
 
 # Detect host platform
 HOST_OS=$(uname -s)
 HOST_ARCH=$(uname -m)
+LOW_MEMORY_MODE=0
+STAGE2_COMPILE_FLAGS="--fast --no-cache"
+PASS2_COMPILE_FLAGS="--fast --no-cache"
+MAIN_COMPILER_VMEM_KB=""
+OPT_VMEM_KB=""
+RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-1800}"
+
+if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
+    LOW_MEMORY_MODE=1
+    STAGE2_COMPILE_FLAGS="$STAGE2_COMPILE_FLAGS --no-fork"
+    PASS2_COMPILE_FLAGS="$PASS2_COMPILE_FLAGS --no-fork"
+    MAIN_COMPILER_VMEM_KB="${SEEN_MAIN_VMEM_KB:-4194304}"
+    OPT_VMEM_KB="${SEEN_OPT_VMEM_KB:-1572864}"
+    RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-7200}"
+    export SEEN_LOW_MEMORY=1
+    export SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB"
+    export SEEN_OPT_VMEM_KB="$OPT_VMEM_KB"
+    export SEEN_RECOVERY_TIMEOUT_SECS="$RECOVERY_TIMEOUT_SECS"
+    echo -e "${YELLOW}Low-memory mode enabled: serial bootstrap stages with ${MAIN_COMPILER_VMEM_KB}KB main-compiler cap and ${OPT_VMEM_KB}KB opt cap.${NC}"
+fi
 
 if [ "$HOST_OS" = "Darwin" ]; then
     # macOS
@@ -309,6 +363,17 @@ if [ ! -f "$FROZEN" ]; then
         echo "On macOS, run scripts/bootstrap_macos.sh first to create the macOS bootstrap."
     fi
     exit 1
+fi
+
+if ! bootstrap_binary_usable "$FROZEN"; then
+    if [ "$HOST_OS" != "Darwin" ] && [ "$FROZEN" = "bootstrap/stage1_frozen" ] && [ -x "bootstrap/stage1_frozen_v3" ] && bootstrap_binary_usable "bootstrap/stage1_frozen_v3"; then
+        echo -e "${YELLOW}bootstrap/stage1_frozen failed a startup smoke test; falling back to bootstrap/stage1_frozen_v3.${NC}"
+        FROZEN="bootstrap/stage1_frozen_v3"
+        HASH_FILE="bootstrap/stage1_frozen_v3.sha256"
+    else
+        echo -e "${RED}ERROR: Frozen compiler at $FROZEN failed a startup smoke test.${NC}"
+        exit 1
+    fi
 fi
 
 # Verify frozen compiler hash (cross-platform)
@@ -407,7 +472,7 @@ recover_with_preserved_production_compiler() {
     cleanup_smoke_build_state
     rm -f "$STAGE3_RECOVERY"
 
-    if timeout 1800 bash -c "$(printf '%q' "$PRESERVED_PROD_BUILDER") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3_RECOVERY") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3_recovery.log 2>&1; then
+    if timeout "$RECOVERY_TIMEOUT_SECS" bash -c "if [ -n $(printf '%q' "$MAIN_COMPILER_VMEM_KB") ]; then ulimit -v $(printf '%q' "$MAIN_COMPILER_VMEM_KB"); fi; env PATH=$(printf '%q' "$OPT_WRAPPER_DIR"):\$PATH SEEN_LOW_MEMORY=$(printf '%q' "${SEEN_LOW_MEMORY:-0}") SEEN_MAIN_VMEM_KB=$(printf '%q' "$MAIN_COMPILER_VMEM_KB") SEEN_OPT_VMEM_KB=$(printf '%q' "$OPT_VMEM_KB") $(printf '%q' "$PRESERVED_PROD_BUILDER") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3_RECOVERY") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3_recovery.log 2>&1; then
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
         echo ""
         echo "Recovery smoke: checking hello-world..."
@@ -439,8 +504,8 @@ preserve_existing_production_compiler >/dev/null 2>&1 || true
 
 # Kill any leftover compilation processes that might write to /tmp/seen_module_*
 # and interfere with this build (race condition causes duplicate symbols)
-pkill -9 -f "seen compile" 2>/dev/null || true
-pkill -9 -f "seen build" 2>/dev/null || true
+kill_matching_processes "seen compile"
+kill_matching_processes "seen build"
 sleep 1
 
 # Clean up any previous test files and cache
@@ -486,6 +551,10 @@ cat > "$OPT_WRAPPER_DIR/opt" << WRAPPER_EOF
 # approach: first collect all declared function names, then on second pass keep only the
 # LAST declaration for each function (which matches call site types).
 ARGS=("\$@")
+if [ "\${SEEN_LOW_MEMORY:-0}" = "1" ] && [ -n "\${SEEN_OPT_VMEM_KB:-}" ]; then
+    # Cap the whole wrapper so fix_ir.py and llvm-as stay within the low-memory budget too.
+    ulimit -v "\$SEEN_OPT_VMEM_KB" 2>/dev/null || true
+fi
 for arg in "\${ARGS[@]}"; do
     if [[ "\$arg" == *.ll && "\$arg" != *.opt.ll && -f "\$arg" ]]; then
         awk '
@@ -560,11 +629,34 @@ if count > 0:
         # like %SeenString { i64 7, ptr @.str }. llvm-as above catches real errors.
     fi
 done
+if [ "\${SEEN_LOW_MEMORY:-0}" = "1" ]; then
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>/tmp/seen_opt_low_memory.lock
+        flock 9
+    else
+        while ! mkdir /tmp/seen_opt_low_memory.lockdir 2>/dev/null; do
+            sleep 1
+        done
+        trap 'rmdir /tmp/seen_opt_low_memory.lockdir 2>/dev/null || true' EXIT
+    fi
+fi
 exec "$REAL_OPT" "\$@"
 WRAPPER_EOF
     chmod +x "$OPT_WRAPPER_DIR/opt"
 fi  # end platform-specific opt wrapper
 
+if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ]; then
+    echo ""
+    echo "Low-memory shortcut: trying preserved production compiler before frozen bootstrap..."
+    if recover_with_preserved_production_compiler; then
+        echo -e "${GREEN}Low-memory rebuild succeeded via preserved production compiler.${NC}"
+    else
+        echo -e "${RED}Low-memory shortcut did not complete. Refusing to fall back to frozen bootstrap because that path can exceed the low-memory budget.${NC}"
+        exit 1
+    fi
+fi
+
+if [ -z "${VERIFIED:-}" ]; then
 # Step 1: Build stage2 with frozen compiler (--fast)
 # NOTE: PATH override ensures our dedup opt wrapper runs instead of system opt.
 echo ""
@@ -575,6 +667,7 @@ echo ""
 
 # Clean stale .ll/.o from previous runs so counts are accurate
 rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
 
 if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: PATH already set via export above; use --no-cache
@@ -605,7 +698,7 @@ else
     rm -rf "$SNAPSHOT_DIR"
 
     # Start compiler in background
-    env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" --fast --no-cache > /tmp/safe_rebuild_stage2.log 2>&1 &
+    env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS > /tmp/safe_rebuild_stage2.log 2>&1 &
     COMPILE_PID=$!
 
     # Start progress monitor and snapshot watcher
@@ -645,6 +738,12 @@ else
         echo -e "${GREEN}Stage2 build succeeded.${NC}"
         rm -rf "$SNAPSHOT_DIR"
     else
+        STAGE2_OOM_LIKE=0
+        if stage2_failure_looks_oom "$COMPILE_EXIT" /tmp/safe_rebuild_stage2.log; then
+            STAGE2_OOM_LIKE=1
+            echo -e "${YELLOW}Stage2 appears to have been OOM-killed; skipping frozen --no-fork retry and using recovery paths instead.${NC}"
+        fi
+
         # Kill orphaned fork children before recovery (SIGKILL to avoid cleanup handlers)
         echo -e "${YELLOW}Stage2 compilation failed (exit=$COMPILE_EXIT), killing orphans...${NC}"
         kill_frozen_orphans
@@ -659,6 +758,7 @@ else
             echo -e "${YELLOW}Snapshot has $SNAP_COUNT .ll files (live: $LIVE_COUNT). Restoring from snapshot...${NC}"
             # Clean /tmp of any partial files, then restore from snapshot
             rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+            rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
             cp "$SNAPSHOT_DIR"/seen_module_*.ll /tmp/ 2>/dev/null || true
         else
             LL_COUNT=$LIVE_COUNT
@@ -666,7 +766,13 @@ else
             echo -e "${YELLOW}Using $LIVE_COUNT live .ll files from /tmp.${NC}"
         fi
 
-        if recover_with_preserved_production_compiler; then
+        SKIP_PRESERVED_RECOVERY=0
+        if [ "$STAGE2_OOM_LIKE" -eq 1 ] && [ "$LL_COUNT" -eq "$EXPECTED_STAGE2_MODULES" ]; then
+            SKIP_PRESERVED_RECOVERY=1
+            echo -e "${YELLOW}Captured a full $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll set; skipping preserved-compiler rebuild and recovering directly from IR.${NC}"
+        fi
+
+        if [ "$SKIP_PRESERVED_RECOVERY" -eq 0 ] && recover_with_preserved_production_compiler; then
             echo -e "${YELLOW}Frozen Stage2 bootstrap failed; skipping slow .ll replay recovery and using the preserved-compiler recovery build.${NC}"
         elif [ "$LL_COUNT" -eq "$EXPECTED_STAGE2_MODULES" ]; then
             echo -e "${YELLOW}Recovering with the full $LL_COUNT/$EXPECTED_STAGE2_MODULES .ll set ($LL_SOURCE)...${NC}"
@@ -674,6 +780,7 @@ else
             # Clean stale .o and .opt.ll from the compiler's failed internal opt/link —
             # we must regenerate them from the raw .ll files via our own opt wrapper.
             rm -f /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+            rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
 
             # Run recovery in subprocess (immune to set -e).
             # Recovery works in a private temp dir to avoid interference from
@@ -726,11 +833,12 @@ else
 
                     # Clean /tmp for retry run
                     rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+                    rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
 
                     RETRY_SNAPSHOT="/tmp/seen_retry_snapshot_${$}_${RETRY}"
                     rm -rf "$RETRY_SNAPSHOT"
 
-                    env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" /dev/null --fast --no-cache > /tmp/retry_${RETRY}.log 2>&1 &
+                    env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" /dev/null $STAGE2_COMPILE_FLAGS > /tmp/retry_${RETRY}.log 2>&1 &
                     RETRY_PID=$!
 
                     start_ll_snapshot_watcher "$RETRY_PID" "$RETRY_SNAPSHOT" &
@@ -825,12 +933,13 @@ else
 
                     # Clean /tmp for Pass 2
                     rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+                    rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
 
                     # Run production compiler with timeout + snapshot watcher
                     PASS2_SNAPSHOT="/tmp/seen_pass2_snapshot_$$"
                     rm -rf "$PASS2_SNAPSHOT"
 
-                    $PROD_COMPILER compile "$COMPILER_SOURCE" /dev/null --fast --no-cache > /tmp/pass2.log 2>&1 &
+                    $PROD_COMPILER compile "$COMPILER_SOURCE" /dev/null $PASS2_COMPILE_FLAGS > /tmp/pass2.log 2>&1 &
                     PASS2_PID=$!
 
                     start_ll_snapshot_watcher "$PASS2_PID" "$PASS2_SNAPSHOT" &
@@ -1115,6 +1224,7 @@ POSTOPT_FIX
         fi
     fi
 fi
+fi
 
 if [ -z "${VERIFIED:-}" ]; then
 echo ""
@@ -1129,6 +1239,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
     # macOS: full S2→S3 bootstrap verification works
     rm -rf .seen_cache/ /tmp/seen_ir_cache/
     rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+    rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
 
     echo ""
     echo "Step 2: Building stage3 with stage2 (--fast)..."
@@ -1214,6 +1325,7 @@ else
     # cold-compile. Fall back to S2 if S2→S3 times out or fails.
     rm -rf .seen_cache/ /tmp/seen_ir_cache/
     rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
+    rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
 
     echo ""
     echo "Step 2: Attempting S2→S3 bootstrap verification (Linux)..."

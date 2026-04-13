@@ -3146,7 +3146,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // writes a .ll file to /tmp and exits. The parent waits for all children, then
     // collects the .ll files for the optimization pass.
     //
-    // When --no-fork is set, modules compile serially in-process instead.
+    // When --no-fork is set, modules compile serially in-process and Pass 2b
+    // runs opt/object emission serially too, which lowers bootstrap memory use.
     var forkPids = Array<Int>()
     var forkModuleIdxStrs = Array<String>()
     var forkIrKeys = Array<String>()
@@ -3323,17 +3324,22 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     // ============================================================
-    // PASS 2B: Run opt + opt --thinlto-bc in parallel for all uncached modules
+    // PASS 2B: Run opt + opt --thinlto-bc for all uncached modules
     // ============================================================
     // Why a generated shell script? LLVM opt is an external process, and we need
-    // to run N instances in parallel. Generating a shell script with backgrounded
-    // commands + wait is simpler and more portable than managing N fork+exec pairs
-    // from Seen code. Each module goes through:
+    // to run N instances with either backgrounded jobs (default) or serially when
+    // --no-fork requests the lower-memory bootstrap path. Generating a shell script
+    // is simpler and more portable than managing N fork+exec pairs from Seen code.
+    // Each module goes through:
     //   1. opt -O3 (main optimization) -- hard-fail the module on any error
     //   2. Polly polyhedral optimization (best-effort, skipped in --fast mode)
     //   3. opt --thinlto-bc (emit bitcode with ThinLTO module summaries for LLD)
     if uncachedIdxStrs.length() > 0 {
-        println("  [Pass 2b] Optimizing " + uncachedIdxStrs.length().toString() + " modules in parallel...")
+        var optExecutionMode = "parallel"
+        if g_noFork == 1 {
+            optExecutionMode = "serial"
+        }
+        println("  [Pass 2b] Optimizing " + uncachedIdxStrs.length().toString() + " modules (" + optExecutionMode + ")...")
 
         // Build opt passes and threshold based on mode
         var optPasses = ""
@@ -3425,11 +3431,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             script = script + "  else\n"
             script = script + "    printf 'opt' > " + statusFile + "\n"
             script = script + "  fi\n"
-            script = script + ") &\n"
+            if g_noFork == 1 {
+                script = script + ")\n"
+            } else {
+                script = script + ") &\n"
+            }
 
             pi = pi + 1
         }
-        script = script + "wait\n"
+        if g_noFork == 0 {
+            script = script + "wait\n"
+        }
 
         if not writeText("/tmp/seen_parallel_opt.sh", script) {
             println("    Error: Failed to write parallel optimization script")
@@ -4505,7 +4517,7 @@ fun printUsage() r: Void {
     println("                           macos-x86_64, macos-arm64, ios-arm64,")
     println("                           ios-sim-arm64, android-arm64")
     println("  --fast                   Lightweight optimization (for bootstrap verification)")
-    println("  --no-fork                Disable fork-parallel IR generation (sequential)")
+    println("  --no-fork                Disable parallel IR/opt bootstrap steps (sequential)")
     println("")
     println("PGO Workflow:")
     println("  1. seen compile prog.seen prog --pgo-generate")

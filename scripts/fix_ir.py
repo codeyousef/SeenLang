@@ -237,10 +237,21 @@ def fix_undefined_symbols(content):
 
     if insert_lines:
         lines = content.split('\n')
-        insert_pos = 0
+        insert_pos = None
+
+        # Keep synthesized declarations at top level. Inserting after a line like
+        # `@llvm.global_ctors = ... [` can split a multiline global definition and
+        # produce invalid IR, so prefer the first function definition boundary.
         for i, line in enumerate(lines):
-            if line.startswith('declare ') or (line.startswith('@') and '=' in line):
-                insert_pos = i + 1
+            if line.startswith('define '):
+                insert_pos = i
+                break
+
+        if insert_pos is None:
+            insert_pos = len(lines)
+            for i, line in enumerate(lines):
+                if line.startswith('declare '):
+                    insert_pos = i + 1
         for j, stub in enumerate(insert_lines):
             lines.insert(insert_pos + j, stub)
         content = '\n'.join(lines)

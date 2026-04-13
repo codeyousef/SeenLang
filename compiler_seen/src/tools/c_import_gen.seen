@@ -6,94 +6,94 @@ import io.file.{readText, writeText, exists}
 import str.string.{StringBuilder}
 
 // Result of importing a C header
-data CImportResult {
-    success: Bool
-    functions: Array<CImportedFunction>
-    constants: Array<CImportedConstant>
-    errors: Array<String>
-    warnings: Array<String>
-}
+class CImportResult {
+    var success: Bool
+    var functions: Array<CImportedFunction>
+    var constants: Array<CImportedConstant>
+    var errors: Array<String>
+    var warnings: Array<String>
 
-fun CImportResult.new() r: CImportResult {
-    return CImportResult{
-        success: true,
-        functions: Array<CImportedFunction>(),
-        constants: Array<CImportedConstant>(),
-        errors: Array<String>(),
-        warnings: Array<String>()
+    static fun new() r: CImportResult {
+        return CImportResult{
+            success: true,
+            functions: Array<CImportedFunction>(),
+            constants: Array<CImportedConstant>(),
+            errors: Array<String>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(msg: String) r: Void {
+        errors.push(msg)
+        success = false
+    }
+
+    fun addWarning(msg: String) r: Void {
+        warnings.push(msg)
+    }
+
+    fun isSuccessful() r: Bool {
+        return success
+    }
+
+    fun errorCount() r: Int {
+        return errors.length()
+    }
+
+    fun errorAt(index: Int) r: String {
+        return errors[index]
+    }
+
+    fun warningCount() r: Int {
+        return warnings.length()
+    }
+
+    fun warningAt(index: Int) r: String {
+        return warnings[index]
+    }
+
+    fun functionCount() r: Int {
+        return functions.length()
+    }
+
+    fun constantCount() r: Int {
+        return constants.length()
     }
 }
 
-fun CImportResult.addError(self: CImportResult, msg: String) r: Void {
-    self.errors.push(msg)
-    self.success = false
-}
-
-fun CImportResult.addWarning(self: CImportResult, msg: String) r: Void {
-    self.warnings.push(msg)
-}
-
-fun CImportResult.isSuccessful(self: CImportResult) r: Bool {
-    return self.success
-}
-
-fun CImportResult.errorCount(self: CImportResult) r: Int {
-    return self.errors.length()
-}
-
-fun CImportResult.errorAt(self: CImportResult, index: Int) r: String {
-    return self.errors[index]
-}
-
-fun CImportResult.warningCount(self: CImportResult) r: Int {
-    return self.warnings.length()
-}
-
-fun CImportResult.warningAt(self: CImportResult, index: Int) r: String {
-    return self.warnings[index]
-}
-
-fun CImportResult.functionCount(self: CImportResult) r: Int {
-    return self.functions.length()
-}
-
-fun CImportResult.constantCount(self: CImportResult) r: Int {
-    return self.constants.length()
-}
-
 // Represents an imported C enum constant
-data CImportedConstant {
-    name: String
-    value: String
-    headerPath: String
-}
+class CImportedConstant {
+    var name: String
+    var value: String
+    var headerPath: String
 
-fun CImportedConstant.new() r: CImportedConstant {
-    return CImportedConstant{
-        name: "",
-        value: "0",
-        headerPath: ""
+    static fun new() r: CImportedConstant {
+        return CImportedConstant{
+            name: "",
+            value: "0",
+            headerPath: ""
+        }
     }
 }
 
 // Represents a C function to be imported
-data CImportedFunction {
-    name: String
-    returnType: String
-    paramNames: Array<String>
-    paramTypes: Array<String>
-    isVariadic: Bool
-    headerPath: String
-}
+class CImportedFunction {
+    var name: String
+    var returnType: String
+    var paramNames: Array<String>
+    var paramTypes: Array<String>
+    var isVariadic: Bool
+    var headerPath: String
 
-fun CImportedFunction.new() r: CImportedFunction {
-    return CImportedFunction{
-        name: "",
-        returnType: "void",
-        paramNames: Array<String>(),
-        paramTypes: Array<String>(),
-        isVariadic: false,
-        headerPath: ""
+    static fun new() r: CImportedFunction {
+        return CImportedFunction{
+            name: "",
+            returnType: "void",
+            paramNames: Array<String>(),
+            paramTypes: Array<String>(),
+            isVariadic: false,
+            headerPath: ""
+        }
     }
 }
 

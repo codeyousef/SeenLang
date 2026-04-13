@@ -5,35 +5,33 @@
 - Raw Vulkan bootstrap stubs are gated in `seen_runtime/seen_runtime.c`, so the default runtime object no longer exports raw `vk*` symbols by default.
 - The runtime regression for that change is in `tests/misc_root_tests/seen_runtime_vulkan_symbols.sh`.
 - `compiler_seen/src/tools/c_import_gen.seen` now parses enum constants and emits `let NAME: Int = value` bindings.
-- `compiler_seen/src/main_compiler.seen` was updated so the production `compiler_seen/target/seen` CLI is the place where `import-c` is being wired.
+- `compiler_seen/src/tools/c_import_gen.seen` also uses bootstrap-safe `class` carriers for imported functions/constants/results instead of the broken `data` lowering path.
+- `compiler_seen/src/parser/real_parser.seen` no longer rebuilds the lexer token array in `RealParser.new()`, which keeps bootstrap-built parsers from silently dropping all tokens before parse.
+- `compiler_seen/src/main_compiler.seen` now makes `--no-fork` serialize Pass 2b opt/object work as well as IR generation, which lowers rebuild memory pressure.
+- `scripts/fix_ir.py` now inserts synthesized declarations at a stable top-level point instead of splitting multiline globals like `@llvm.global_ctors`.
+- `scripts/safe_rebuild.sh` now hardens the low-memory rebuild path for this host: bootstrap smoke fallback, explicit compiler/opt caps, opt wrapper caps for `fix_ir.py`, and clean temp-state resets between retries.
 
-## Blocker
+## Bootstrap status
 
-The remaining blocker is **bootstrap-safe production `import-c` support**.
+The bootstrap-safe production `import-c` blocker is **resolved**.
 
-- `./scripts/safe_rebuild.sh` no longer fails on the earlier unresolved `lastIndexOf` / `errors` symbols.
-- The current failure is earlier in Stage2: module 26 (`compiler_seen/src/tools/c_import_gen.seen`) reaches parallel optimization and then reports `Error: optimization failed for module 26`.
-- An isolated Stage1 compile of `compiler_seen/src/main_compiler.seen` reproduces that failure.
-- The generated `/tmp/seen_parallel_opt.sh` is syntactically valid and succeeds when rerun manually against the emitted `/tmp/seen_module_*.ll` files, so the remaining issue appears to be in the compiler-run invocation/lifecycle of that script or stale shared `/tmp/seen_module_*` state.
+- `SEEN_LOW_MEMORY=1 ./scripts/safe_rebuild.sh` completes successfully on this host and updates `compiler_seen/target/seen`.
+- Recovery smoke now passes with the rebuilt stage3 compiler.
+- The new focused bootstrap regressions are:
+  - `tests/misc_root_tests/seen_fix_ir_global_ctors.sh`
+  - `tests/misc_root_tests/seen_import_c_bootstrap_module.sh`
 
-## Next debugging steps
-
-1. Ensure there are no stale compiler or optimizer processes left from interrupted runs.
-2. Clean `/tmp/seen_module_*`, `/tmp/seen_parallel_opt.sh`, and related `.opt.*` files.
-3. Re-run the isolated Stage1 compile:
-   `env PATH="/tmp/seen_opt_override:$PATH" bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/stage2_debug --fast --no-cache`
-4. Capture the first failing module-26 optimization attempt before anything rewrites `/tmp/seen_parallel_opt.sh`.
-5. Once the isolated compile is green, rerun full validation.
-
-## Validation still required
+## Validated
 
 - `./scripts/safe_rebuild.sh`
-- `bash tests/misc_root_tests/seen_runtime_vulkan_symbols.sh`
+- `bash tests/misc_root_tests/seen_fix_ir_global_ctors.sh`
+- `bash tests/misc_root_tests/seen_import_c_bootstrap_module.sh`
 - `bash tests/misc_root_tests/seen_import_c_enums.sh`
+- `bash tests/misc_root_tests/seen_runtime_vulkan_symbols.sh`
 - `compiler_seen/target/seen compile tests/e2e_multilang/en/test_stdlib_io_en.seen /tmp/seen_io_runtime_test --fast && /tmp/seen_io_runtime_test`
 
-## Follow-up after bootstrap is green
+## Remaining follow-up
 
-1. Confirm `compiler_seen/target/seen import-c <header.h>` works end to end.
+1. Confirm `compiler_seen/target/seen import-c <header.h>` works end to end on real headers beyond the enum/bootstrap smoke coverage.
 2. Extend `import-c` beyond functions + enum constants so first-party SDL/Vulkan packages can hide more native glue.
 3. Decide whether any tracked public summary should complement the ignored `docs/private/hearton-no-project-c-split.md`.
