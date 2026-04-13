@@ -8,6 +8,7 @@ import str.string.{StringBuilder}
 // Result of importing a C header
 class CImportResult {
     var success: Bool
+    var typedefs: Array<CImportedTypedef>
     var functions: Array<CImportedFunction>
     var constants: Array<CImportedConstant>
     var errors: Array<String>
@@ -16,6 +17,7 @@ class CImportResult {
     static fun new() r: CImportResult {
         return CImportResult{
             success: true,
+            typedefs: Array<CImportedTypedef>(),
             functions: Array<CImportedFunction>(),
             constants: Array<CImportedConstant>(),
             errors: Array<String>(),
@@ -56,8 +58,28 @@ class CImportResult {
         return functions.length()
     }
 
+    fun typedefCount() r: Int {
+        return typedefs.length()
+    }
+
     fun constantCount() r: Int {
         return constants.length()
+    }
+}
+
+class CImportedTypedef {
+    var name: String
+    var cType: String
+    var seenType: String
+    var category: String
+
+    static fun new() r: CImportedTypedef {
+        return CImportedTypedef{
+            name: "",
+            cType: "",
+            seenType: "",
+            category: "value"
+        }
     }
 }
 
@@ -100,6 +122,7 @@ class CImportedFunction {
 class CImportGenerator {
     var headerPath: String
     var includePaths: Array<String>
+    var outputTypedefs: Array<CImportedTypedef>
     var outputFunctions: Array<CImportedFunction>
     var outputConstants: Array<CImportedConstant>
     var parseErrors: Array<String>
@@ -108,6 +131,7 @@ class CImportGenerator {
         return CImportGenerator{
             headerPath: header,
             includePaths: Array<String>(),
+            outputTypedefs: Array<CImportedTypedef>(),
             outputFunctions: Array<CImportedFunction>(),
             outputConstants: Array<CImportedConstant>(),
             parseErrors: Array<String>()
@@ -163,11 +187,19 @@ class CImportGenerator {
         while i < lines.length() {
             let line = lines[i]
 
+            if line.contains("TypedefDecl") and not line.contains("invalid") {
+                let importedTypedef = parseTypedefDecl(line)
+                if importedTypedef.name != "" and not importedTypedef.name.startsWith("__") and not hasImportedTypedefNamed(importedTypedef.name) {
+                    outputTypedefs.push(importedTypedef)
+                    result.typedefs.push(importedTypedef)
+                }
+            }
+
             // Look for FunctionDecl
             if line.contains("FunctionDecl") and not line.contains("invalid") {
                 // Parse function declaration
                 let fn = parseFunctionDecl(line, lines, i)
-                if fn.name != "" and not fn.name.startsWith("__") {
+                if fn.name != "" and not fn.name.startsWith("__") and not hasImportedFunctionNamed(fn.name) {
                     outputFunctions.push(fn)
                     result.functions.push(fn)
                 }
@@ -175,7 +207,7 @@ class CImportGenerator {
 
             if line.contains("EnumConstantDecl") and not line.contains("invalid") {
                 let constant = parseEnumConstantDecl(line, lines, i)
-                if constant.name != "" {
+                if constant.name != "" and not hasImportedConstantNamed(constant.name) {
                     outputConstants.push(constant)
                     result.constants.push(constant)
                 }
@@ -192,37 +224,38 @@ class CImportGenerator {
 
         // Extract function name and return type from the declaration line
         // Format: `-FunctionDecl ... <name> '<return_type> (<params>)'
+        // Some real headers produce redeclaration lines like:
+        //   FunctionDecl ... prev 0x... memcpy 'void *(...)'
+        // In those cases the real function name is the LAST valid identifier
+        // before the quoted type signature, not the first one.
         let parts = declLine.split(" ")
 
-        var foundName = false
-        var nameIdx = 0
+        var candidateName = ""
         var idx = 0
         while idx < parts.length() {
             let part = parts[idx]
 
-            // Look for the function name (identifier before the type signature)
-            if not foundName and part.length() > 0 {
+            if part.startsWith("'") {
+                if candidateName != "" {
+                    fn.name = candidateName
+                    let typeStr = extractQuotedType(parts, idx)
+                    parseTypeSignature(typeStr, fn)
+                }
+                break
+            }
+
+            if part.length() > 0 {
                 // Skip clang AST metadata
                 if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
                     if not part.contains("<") and not part.contains(">") and not part.contains(":") {
                         if part != "FunctionDecl" and part != "used" and part != "extern" and part != "implicit" {
                             // Check if this looks like a C identifier
                             if isValidCIdentifier(part) {
-                                fn.name = part
-                                foundName = true
-                                nameIdx = idx
+                                candidateName = part
                             }
                         }
                     }
                 }
-            }
-
-            // Look for return type (in quotes after the name)
-            if foundName and part.startsWith("'") {
-                // Parse type signature like 'int (int, char *)'
-                let typeStr = extractQuotedType(parts, idx)
-                parseTypeSignature(typeStr, fn)
-                break
             }
 
             idx = idx + 1
@@ -231,20 +264,103 @@ class CImportGenerator {
         return fn
     }
 
+    fun parseTypedefDecl(declLine: String) r: CImportedTypedef {
+        var importedTypedef = CImportedTypedef.new()
+        let parts = declLine.split(" ")
+
+        var candidateName = ""
+        var idx = 0
+        while idx < parts.length() {
+            let part = parts[idx]
+
+            if part.startsWith("'") {
+                if candidateName != "" {
+                    importedTypedef.name = candidateName
+                    let rawType = extractQuotedType(parts, idx)
+                    importedTypedef.cType = resolveClangTypedefType(rawType)
+                    inferTypedefSeenType(importedTypedef)
+                    if importedTypedef.seenType == "" {
+                        importedTypedef.name = ""
+                    }
+                }
+                break
+            }
+
+            if part.length() > 0 {
+                if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
+                    if not part.contains("<") and not part.contains(">") and not part.contains(":") {
+                        if part != "TypedefDecl" and part != "referenced" and part != "implicit" and part != "used" {
+                            if isValidCIdentifier(part) {
+                                candidateName = part
+                            }
+                        }
+                    }
+                }
+            }
+
+            idx = idx + 1
+        }
+
+        return importedTypedef
+    }
+
+    fun hasImportedFunctionNamed(name: String) r: Bool {
+        var idx = 0
+        while idx < outputFunctions.length() {
+            if outputFunctions[idx].name == name {
+                return true
+            }
+            idx = idx + 1
+        }
+        return false
+    }
+
+    fun hasImportedTypedefNamed(name: String) r: Bool {
+        return findImportedTypedefIndex(name) >= 0
+    }
+
+    fun hasImportedConstantNamed(name: String) r: Bool {
+        var idx = 0
+        while idx < outputConstants.length() {
+            if outputConstants[idx].name == name {
+                return true
+            }
+            idx = idx + 1
+        }
+        return false
+    }
+
+    fun findImportedTypedefIndex(name: String) r: Int {
+        var idx = 0
+        while idx < outputTypedefs.length() {
+            if outputTypedefs[idx].name == name {
+                return idx
+            }
+            idx = idx + 1
+        }
+        return -1
+    }
+
     fun parseEnumConstantDecl(declLine: String, lines: Array<String>, startIdx: Int) r: CImportedConstant {
         var constant = CImportedConstant.new()
         constant.headerPath = headerPath
 
         let parts = declLine.split(" ")
+        var candidateName = ""
         var idx = 0
         while idx < parts.length() {
             let part = parts[idx]
+
+            if part.startsWith("'") {
+                constant.name = candidateName
+                break
+            }
+
             if part.length() > 0 {
                 if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
                     if not part.contains("<") and not part.contains(">") and not part.contains(":") {
                         if part != "EnumConstantDecl" and isValidCIdentifier(part) {
-                            constant.name = part
-                            break
+                            candidateName = part
                         }
                     }
                 }
@@ -390,6 +506,17 @@ class CImportGenerator {
         sb.append("// Auto-generated from: " + headerPath + "\n")
         sb.append("// Generated by @_c_import\n\n")
 
+        var ti = 0
+        while ti < outputTypedefs.length() {
+            let importedTypedef = outputTypedefs[ti]
+            sb.append("type " + importedTypedef.name + " = " + importedTypedef.seenType + "\n")
+            ti = ti + 1
+        }
+
+        if outputTypedefs.length() > 0 and (outputConstants.length() > 0 or outputFunctions.length() > 0) {
+            sb.append("\n")
+        }
+
         var ci = 0
         while ci < outputConstants.length() {
             let constant = outputConstants[ci]
@@ -431,22 +558,37 @@ class CImportGenerator {
 
     // Map C type to Seen type
     fun cTypeToSeenType(cType: String) r: String {
-        let normalized = cType.trim()
+        let normalized = normalizeCType(cType)
 
+        let importedTypedefType = mapImportedTypedefType(normalized)
+        if importedTypedefType != "" {
+            return importedTypedefType
+        }
+
+        return mapBuiltinCTypeToSeenType(normalized)
+    }
+
+    fun mapBuiltinCTypeToSeenType(normalized: String) r: String {
         // Integer types
-        if normalized == "int" or normalized == "int32_t" or normalized == "signed int" {
+        if normalized == "int" or normalized == "int32_t" or normalized == "signed int" or normalized == "long int" {
             return "Int"
         }
-        if normalized == "long" or normalized == "int64_t" or normalized == "long long" {
+        if normalized == "long" or normalized == "int64_t" or normalized == "long long" or normalized == "signed long" or normalized == "signed long long" {
             return "Int"
         }
-        if normalized == "short" or normalized == "int16_t" {
+        if normalized == "short" or normalized == "int16_t" or normalized == "signed short" {
             return "Int"
         }
-        if normalized == "unsigned int" or normalized == "uint32_t" {
+        if normalized == "unsigned int" or normalized == "uint32_t" or normalized == "unsigned long int" {
             return "Int"
         }
-        if normalized == "unsigned long" or normalized == "uint64_t" or normalized == "size_t" {
+        if normalized == "unsigned long" or normalized == "uint64_t" or normalized == "size_t" or normalized == "unsigned long long" {
+            return "Int"
+        }
+        if normalized == "unsigned short" or normalized == "uint16_t" {
+            return "Int"
+        }
+        if normalized == "unsigned char" or normalized == "uint8_t" or normalized == "signed char" or normalized == "int8_t" {
             return "Int"
         }
 
@@ -475,6 +617,10 @@ class CImportGenerator {
             return "Void"
         }
 
+        if normalized.contains("(*") {
+            return "Ptr"
+        }
+
         // Pointers
         if normalized.endsWith("*") or normalized.contains("*") {
             return "*Void"
@@ -482,6 +628,115 @@ class CImportGenerator {
 
         // Unknown - default to Int
         return "Int"
+    }
+
+    fun inferTypedefSeenType(importedTypedef: CImportedTypedef) r: Void {
+        let normalized = normalizeCType(importedTypedef.cType)
+        importedTypedef.cType = normalized
+
+        if normalized.contains("(*") {
+            importedTypedef.seenType = "Ptr"
+            importedTypedef.category = "pointer"
+            return
+        }
+
+        if normalized.endsWith("*") or normalized.contains("*") {
+            importedTypedef.seenType = "Ptr"
+            importedTypedef.category = "pointer"
+            return
+        }
+
+        if normalized.contains("[") {
+            importedTypedef.seenType = "Ptr"
+            importedTypedef.category = "opaque"
+            return
+        }
+
+        if normalized.startsWith("struct ") or normalized.startsWith("union ") {
+            importedTypedef.seenType = "Ptr"
+            importedTypedef.category = "opaque"
+            return
+        }
+
+        if normalized.startsWith("enum ") {
+            importedTypedef.seenType = "Int"
+            importedTypedef.category = "value"
+            return
+        }
+
+        let seenType = mapBuiltinCTypeToSeenType(normalized)
+        if seenType == "" {
+            return
+        }
+        importedTypedef.seenType = seenType
+        importedTypedef.category = "value"
+    }
+
+    fun mapImportedTypedefType(normalized: String) r: String {
+        if normalized.contains("(*") {
+            return "Ptr"
+        }
+
+        let exactIdx = findImportedTypedefIndex(normalized)
+        if exactIdx >= 0 {
+            return outputTypedefs[exactIdx].name
+        }
+
+        var baseType = normalized
+        var pointerDepth = 0
+        while true {
+            let trimmed = baseType.trim()
+            if not trimmed.endsWith("*") {
+                break
+            }
+            pointerDepth = pointerDepth + 1
+            baseType = trimmed.substring(0, trimmed.length() - 1)
+        }
+
+        baseType = baseType.trim()
+        if pointerDepth > 0 {
+            let typedefIdx = findImportedTypedefIndex(baseType)
+            if typedefIdx >= 0 {
+                let importedTypedef = outputTypedefs[typedefIdx]
+                if importedTypedef.category == "opaque" {
+                    if pointerDepth == 1 {
+                        return importedTypedef.name
+                    }
+                    return repeatPointerPrefix(pointerDepth - 1, importedTypedef.name)
+                }
+                return repeatPointerPrefix(pointerDepth, importedTypedef.name)
+            }
+        }
+
+        return ""
+    }
+
+    fun normalizeCType(cType: String) r: String {
+        let parts = cType.trim().split(" ")
+        var normalized = ""
+        var idx = 0
+        while idx < parts.length() {
+            let part = parts[idx].trim()
+            if part != "" and not isIgnoredCQualifier(part) {
+                if normalized != "" {
+                    normalized = normalized + " "
+                }
+                normalized = normalized + part
+            }
+            idx = idx + 1
+        }
+        return normalized.trim()
+    }
+
+    fun isIgnoredCQualifier(part: String) r: Bool {
+        return part == "const" or
+            part == "volatile" or
+            part == "restrict" or
+            part == "__restrict" or
+            part == "__restrict__" or
+            part == "_Nonnull" or
+            part == "_Nullable" or
+            part == "_Null_unspecified"
     }
 }
 
@@ -507,4 +762,22 @@ fun findLastIndexOf(haystack: String, needle: String) r: Int {
     }
 
     return lastIdx
+}
+
+fun resolveClangTypedefType(rawType: String) r: String {
+    let aliasSepIdx = findLastIndexOf(rawType, "':'")
+    if aliasSepIdx >= 0 {
+        return rawType.substring(aliasSepIdx + 3, rawType.length()).trim()
+    }
+    return rawType.trim()
+}
+
+fun repeatPointerPrefix(pointerDepth: Int, typeName: String) r: String {
+    var result = typeName
+    var depth = 0
+    while depth < pointerDepth {
+        result = "*" + result
+        depth = depth + 1
+    }
+    return result
 }

@@ -1197,6 +1197,7 @@ fun importCCommand(headerFile: String) r: Int {
     let declarations = gen.generateExternDeclarations()
     printLn(declarations)
 
+    printLn("// " + result.typedefCount().toString() + " typedef aliases imported")
     printLn("// " + result.functionCount().toString() + " functions imported")
     printLn("// " + result.constantCount().toString() + " enum constants imported")
     return 0
