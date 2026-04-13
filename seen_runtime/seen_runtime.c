@@ -8121,6 +8121,9 @@ __attribute__((weak)) void seen_vk_update_descriptor_set_image(int64_t a, int64_
 // ==========================================================================
 
 // --- Raw Vulkan API stubs (normally provided by -lvulkan) ---
+// Keep these opt-in for bootstrap-only builds. Exporting them from the default
+// runtime object can shadow the real Vulkan loader in user projects.
+#ifdef SEEN_ENABLE_BOOTSTRAP_RAW_VULKAN_STUBS
 __attribute__((weak)) int64_t vkBindBufferMemory(int64_t a, int64_t b, int64_t c, int64_t d) { (void)a; (void)b; (void)c; (void)d; return 0; }
 __attribute__((weak)) void vkCmdEndRenderPass(int64_t a) { (void)a; }
 __attribute__((weak)) void vkDestroyBuffer(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
@@ -8145,6 +8148,7 @@ __attribute__((weak)) int64_t vkDeviceWaitIdle(int64_t a) { (void)a; return 0; }
 __attribute__((weak)) int64_t vkEndCommandBuffer(int64_t a) { (void)a; return 0; }
 __attribute__((weak)) void vkFreeMemory(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; }
 __attribute__((weak)) void vkUnmapMemory(int64_t a, int64_t b) { (void)a; (void)b; }
+#endif
 
 // --- Vulkan wrapper stubs ---
 __attribute__((weak)) int64_t seen_vk_acquire_next_image(int64_t a, int64_t b, int64_t c) { (void)a; (void)b; (void)c; return 0; }

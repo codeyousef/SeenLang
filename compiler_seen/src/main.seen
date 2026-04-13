@@ -1169,18 +1169,18 @@ fun translateCommand(args: List<String>) r: Int {
     }
 }
 
-// FFI binding generator: parses a C header file and emits Seen `extern fun`
-// declarations for each function found. Uses CImportGenerator from tools/.
+// FFI binding generator: parses a C header file and emits Seen bindings for
+// imported functions and enum constants. Uses CImportGenerator from tools/.
 fun importCCommand(headerFile: String) r: Int {
     printLn("Generating Seen bindings for: " + headerFile)
 
     let gen = CImportGenerator.new(headerFile)
-    let result = gen.parseHeader()
+    let result: CImportResult = gen.parseHeader()
 
-    if not result.success {
+    if not result.isSuccessful() {
         var ei = 0
-        while ei < result.errors.length() {
-            printLn("Error: " + result.errors[ei])
+        while ei < result.errorCount() {
+            printLn("Error: " + result.errorAt(ei))
             ei = ei + 1
         }
         return 1
@@ -1188,16 +1188,17 @@ fun importCCommand(headerFile: String) r: Int {
 
     // Print warnings
     var wi = 0
-    while wi < result.warnings.length() {
-        printLn("Warning: " + result.warnings[wi])
+    while wi < result.warningCount() {
+        printLn("Warning: " + result.warningAt(wi))
         wi = wi + 1
     }
 
-    // Generate and print extern declarations
+    // Generate and print bindings
     let declarations = gen.generateExternDeclarations()
     printLn(declarations)
 
-    printLn("// " + result.functions.length().toString() + " functions imported")
+    printLn("// " + result.functionCount().toString() + " functions imported")
+    printLn("// " + result.constantCount().toString() + " enum constants imported")
     return 0
 }
 

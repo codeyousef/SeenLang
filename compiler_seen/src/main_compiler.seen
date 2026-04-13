@@ -46,6 +46,7 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl}
 import codegen.type_registry.{findStructReg}
 import tools.translator.{translateSource}
+import tools.c_import_gen.{CImportGenerator, CImportResult}
 
 // DJB2 hash of a string, returned as 8-char hex
 // Uses byteAt() to avoid per-char string allocation
@@ -4478,6 +4479,7 @@ fun printUsage() r: Void {
     println("       seen lipo --from-source <source.seen> [--output=<universal>]")
     println("       seen ipa <executable> <AppName> [--bundle-id=...] [--version=...] [--provisioning-profile=...]")
     println("       seen translate <file> --from <lang> --to <lang> [-o <output>]")
+    println("       seen import-c <header.h>")
     println("       seen lsp")
     println("")
     println("Options:")
@@ -4616,7 +4618,7 @@ fun parseLanguage(argv: Array<String>, startIndex: Int) r: String {
 }
 
 // CLI entry point. Dispatches to subcommands: compile, check, run, lsp,
-// bundle, sign, notarize, lipo, ipa. The compile subcommand does its own
+// bundle, sign, notarize, lipo, ipa, translate, import-c. The compile subcommand does its own
 // extensive flag parsing here before delegating to compileCommandWithFullTargeting.
 fun main() r: Int {
     let argv = args()
@@ -4918,6 +4920,10 @@ fun main() r: Int {
 
     if command == "translate" {
         return translateCommand(argv)
+    }
+
+    if command == "import-c" {
+        return importCCommand(argv)
     }
 
     println("Unknown command: " + command)
@@ -5526,5 +5532,41 @@ fun translateCommand(argv: Array<String>) r: Int {
     }
     // Print to stdout
     printRaw(translated)
+    return 0
+}
+
+// Usage: seen import-c <header.h>
+fun importCCommand(argv: Array<String>) r: Int {
+    if argv.length() < 3 {
+        println("Error: import-c command requires a header file path")
+        println("Usage: seen import-c <header.h>")
+        return 1
+    }
+
+    let headerFile = argv[2]
+    println("Generating Seen bindings for: " + headerFile)
+
+    let gen = CImportGenerator.new(headerFile)
+    let result: CImportResult = gen.parseHeader()
+
+    if not result.isSuccessful() {
+        var ei = 0
+        while ei < result.errorCount() {
+            println("Error: " + result.errorAt(ei))
+            ei = ei + 1
+        }
+        return 1
+    }
+
+    var wi = 0
+    while wi < result.warningCount() {
+        println("Warning: " + result.warningAt(wi))
+        wi = wi + 1
+    }
+
+    let declarations = gen.generateExternDeclarations()
+    println(declarations)
+    println("// " + result.functionCount().toString() + " functions imported")
+    println("// " + result.constantCount().toString() + " enum constants imported")
     return 0
 }

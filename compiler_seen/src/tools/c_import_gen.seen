@@ -9,6 +9,7 @@ import str.string.{StringBuilder}
 data CImportResult {
     success: Bool
     functions: Array<CImportedFunction>
+    constants: Array<CImportedConstant>
     errors: Array<String>
     warnings: Array<String>
 }
@@ -17,18 +18,62 @@ fun CImportResult.new() r: CImportResult {
     return CImportResult{
         success: true,
         functions: Array<CImportedFunction>(),
+        constants: Array<CImportedConstant>(),
         errors: Array<String>(),
         warnings: Array<String>()
     }
 }
 
-fun CImportResult.addError(msg: String) r: Void {
-    errors.push(msg)
-    success = false
+fun CImportResult.addError(self: CImportResult, msg: String) r: Void {
+    self.errors.push(msg)
+    self.success = false
 }
 
-fun CImportResult.addWarning(msg: String) r: Void {
-    warnings.push(msg)
+fun CImportResult.addWarning(self: CImportResult, msg: String) r: Void {
+    self.warnings.push(msg)
+}
+
+fun CImportResult.isSuccessful(self: CImportResult) r: Bool {
+    return self.success
+}
+
+fun CImportResult.errorCount(self: CImportResult) r: Int {
+    return self.errors.length()
+}
+
+fun CImportResult.errorAt(self: CImportResult, index: Int) r: String {
+    return self.errors[index]
+}
+
+fun CImportResult.warningCount(self: CImportResult) r: Int {
+    return self.warnings.length()
+}
+
+fun CImportResult.warningAt(self: CImportResult, index: Int) r: String {
+    return self.warnings[index]
+}
+
+fun CImportResult.functionCount(self: CImportResult) r: Int {
+    return self.functions.length()
+}
+
+fun CImportResult.constantCount(self: CImportResult) r: Int {
+    return self.constants.length()
+}
+
+// Represents an imported C enum constant
+data CImportedConstant {
+    name: String
+    value: String
+    headerPath: String
+}
+
+fun CImportedConstant.new() r: CImportedConstant {
+    return CImportedConstant{
+        name: "",
+        value: "0",
+        headerPath: ""
+    }
 }
 
 // Represents a C function to be imported
@@ -56,6 +101,7 @@ class CImportGenerator {
     var headerPath: String
     var includePaths: Array<String>
     var outputFunctions: Array<CImportedFunction>
+    var outputConstants: Array<CImportedConstant>
     var parseErrors: Array<String>
 
     static fun new(header: String) r: CImportGenerator {
@@ -63,6 +109,7 @@ class CImportGenerator {
             headerPath: header,
             includePaths: Array<String>(),
             outputFunctions: Array<CImportedFunction>(),
+            outputConstants: Array<CImportedConstant>(),
             parseErrors: Array<String>()
         }
     }
@@ -77,7 +124,8 @@ class CImportGenerator {
 
         // Check if header exists
         if not exists(headerPath) {
-            result.addError("Header file not found: " + headerPath)
+            result.errors.push("Header file not found: " + headerPath)
+            result.success = false
             return result
         }
 
@@ -96,7 +144,8 @@ class CImportGenerator {
         // Run clang
         let cmdResult: CommandResult = runCommand(cmd)
         if not cmdResult.success {
-            result.addError("clang failed: " + cmdResult.output)
+            result.errors.push("clang failed: " + cmdResult.output)
+            result.success = false
             return result
         }
 
@@ -121,6 +170,14 @@ class CImportGenerator {
                 if fn.name != "" and not fn.name.startsWith("__") {
                     outputFunctions.push(fn)
                     result.functions.push(fn)
+                }
+            }
+
+            if line.contains("EnumConstantDecl") and not line.contains("invalid") {
+                let constant = parseEnumConstantDecl(line, lines, i)
+                if constant.name != "" {
+                    outputConstants.push(constant)
+                    result.constants.push(constant)
                 }
             }
 
@@ -172,6 +229,45 @@ class CImportGenerator {
         }
 
         return fn
+    }
+
+    fun parseEnumConstantDecl(declLine: String, lines: Array<String>, startIdx: Int) r: CImportedConstant {
+        var constant = CImportedConstant.new()
+        constant.headerPath = headerPath
+
+        let parts = declLine.split(" ")
+        var idx = 0
+        while idx < parts.length() {
+            let part = parts[idx]
+            if part.length() > 0 {
+                if not part.startsWith("-") and not part.startsWith("|") and not part.startsWith("`") {
+                    if not part.contains("<") and not part.contains(">") and not part.contains(":") {
+                        if part != "EnumConstantDecl" and isValidCIdentifier(part) {
+                            constant.name = part
+                            break
+                        }
+                    }
+                }
+            }
+            idx = idx + 1
+        }
+
+        var scanIdx = startIdx + 1
+        while scanIdx < lines.length() and scanIdx < startIdx + 6 {
+            let line = lines[scanIdx]
+            let markerIdx = line.indexOf("value: ", 0)
+            if markerIdx >= 0 {
+                let valueMeta = line.substring(markerIdx + 7, line.length()).trim()
+                let valueParts = valueMeta.split(" ")
+                if valueParts.length() >= 2 {
+                    constant.value = valueParts[1]
+                    return constant
+                }
+            }
+            scanIdx = scanIdx + 1
+        }
+
+        return constant
     }
 
     // Check if a string is a valid C identifier
@@ -244,7 +340,7 @@ class CImportGenerator {
         fn.returnType = typeStr.substring(0, parenIdx).trim()
 
         // Parameters are inside parens
-        let closeIdx = typeStr.lastIndexOf(")")
+        let closeIdx = findLastIndexOf(typeStr, ")")
         if closeIdx > parenIdx {
             let paramsStr = typeStr.substring(parenIdx + 1, closeIdx)
             parseParams(paramsStr, fn)
@@ -293,6 +389,17 @@ class CImportGenerator {
 
         sb.append("// Auto-generated from: " + headerPath + "\n")
         sb.append("// Generated by @_c_import\n\n")
+
+        var ci = 0
+        while ci < outputConstants.length() {
+            let constant = outputConstants[ci]
+            sb.append("let " + constant.name + ": Int = " + constant.value + "\n")
+            ci = ci + 1
+        }
+
+        if outputConstants.length() > 0 and outputFunctions.length() > 0 {
+            sb.append("\n")
+        }
 
         var i = 0
         while i < outputFunctions.length() {
@@ -378,18 +485,20 @@ class CImportGenerator {
     }
 }
 
-// Helper function to find last index of substring
-fun String.lastIndexOf(needle: String) r: Int {
+// Helper function to find the last index of a substring without relying on
+// the runtime String.lastIndexOf overload that bootstrap builds treat
+// differently.
+fun findLastIndexOf(haystack: String, needle: String) r: Int {
     let needleLen = needle.length()
     if needleLen == 0 {
-        return length()
+        return haystack.length()
     }
 
     var lastIdx = -1
     var searchStart = 0
 
-    while searchStart <= length() - needleLen {
-        let idx = indexOf(needle, searchStart)
+    while searchStart <= haystack.length() - needleLen {
+        let idx = haystack.indexOf(needle, searchStart)
         if idx < 0 {
             break
         }
