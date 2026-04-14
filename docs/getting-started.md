@@ -94,8 +94,13 @@ name = "my_project"
 version = "0.1.0"
 language = "en"
 
+[registries]
+default = "https://seen.yousef.codes/packages"
+
 [dependencies]
-seen_std = "../seen_std"
+mathx = "0.1.0"
+
+[native.dependencies]
 ```
 
 The `language` field sets the keyword language. Options: `en`, `ar`, `es`, `ru`, `zh`, `fr`.

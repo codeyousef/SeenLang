@@ -60,22 +60,47 @@ modules = [
 ## [dependencies] Section
 
 ```toml
+[registries]
+default = "https://seen.yousef.codes/packages"
+
 [dependencies]
-seen_std = "../seen_std"
-hearton_shim = { system = true, path = "native/lib" }
+mathx = "0.1.0"
+gamekit = { path = "../gamekit" }
 ```
 
-Dependencies can be either:
+Package dependencies can be either:
 
-- relative paths to other Seen projects
-- system libraries declared with `system = true`
+- exact registry versions like `"0.1.0"`
+- local Seen package paths like `{ path = "../gamekit" }`
 
-For project-local native libraries, add `path = "..."` to point at the
-directory containing the library file. The path is resolved relative to the
-nearest `Seen.toml`. Seen adds `-L<resolved-path>` during linking, and on
-native Linux/macOS builds it also records that directory as a runtime search
-path so the output can run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH`
-wrappers.
+Dependencies are imported by the dependency key:
+
+```seen
+import mathx.value.{answer}
+import gamekit.player.{Player}
+```
+
+Registry packages are installed under `.seen/packages/`, and registry-backed
+projects get a `Seen.lock` recording the resolved package versions and install
+paths.
+
+## [native.dependencies] Section
+
+```toml
+[native.dependencies]
+sdl3 = { path = "native/lib" }
+vulkan = {}
+```
+
+`[native.dependencies]` controls linker-facing native libraries. For
+project-local native libraries, add `path = "..."` to point at the directory
+containing the library file. The path is resolved relative to the nearest
+`Seen.toml`. Seen adds `-L<resolved-path>` during linking, and on native
+Linux/macOS builds it also records that directory as a runtime search path so
+the output can run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH` wrappers.
+
+Legacy `system = true` entries inside `[dependencies]` are still accepted for
+backward compatibility, but new manifests should prefer `[native.dependencies]`.
 
 ## [build] Section
 
@@ -168,4 +193,5 @@ memory-overhead = "10%"
 ## Related
 
 - [Getting Started](getting-started.md) -- project setup
+- [Packaging](packaging.md) -- package registries and publishing
 - [CLI Reference](cli-reference.md) -- build commands

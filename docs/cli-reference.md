@@ -85,11 +85,26 @@ Generate Seen bindings from a C header file:
 seen import-c <header.h>
 ```
 
+### `seen pkg`
+
+```bash
+seen pkg fetch
+seen pkg pack
+seen pkg publish ./registry-root
+```
+
+- `seen pkg fetch` installs registry packages declared in `Seen.toml`
+- `seen pkg pack` creates a source archive for the current package
+- `seen pkg publish` writes a static-registry index entry and archive into a local registry directory
+- static registries are served from a base URL or directory with `index/<package>.toml`
+  and `archives/<package>/<package>-<version>.seenpkg.tgz`
+- registry dependencies currently use exact versions only
+
 ### `seen --version`
 
 ```bash
 seen --version
-# Seen 0.5.0 (100% self-hosted)
+# Seen 0.6.0 (100% self-hosted)
 ```
 
 ## Optimization Flags
