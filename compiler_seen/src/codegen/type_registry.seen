@@ -15,7 +15,7 @@ import str.string.{StringBuilder}
 import codegen.ir_type_info.{getSeenFieldTypeImpl, getMethodReturnTypeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl}
 import codegen.ir_type_tables.{registerKnownDataTypesImpl}
-import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parseDecimalIntImpl, getBaseTypeNameImpl}
+import codegen.ir_string_collect.{trimSpacesImpl, normalizeHeaderTypeImpl, parseDecimalIntImpl, getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 
 var g_findStructCacheNames: Array<String> = Array<String>()
 var g_findStructCacheIdxs: Array<Int> = Array<Int>()
@@ -195,6 +195,16 @@ class TypeRegistry {
     // =========================================================================
 
     fun getTypeSize(typeName: String) r: Int {
+        if isSeenStaticArrayTypeImpl(typeName) {
+            let arrayLen = parseSeenStaticArrayLengthImpl(typeName)
+            let elementSeenType = parseSeenStaticArrayElementTypeImpl(typeName)
+            if arrayLen > 0 and elementSeenType != "" {
+                let elementSize = getTypeSize(elementSeenType)
+                if elementSize > 0 {
+                    return arrayLen * elementSize
+                }
+            }
+        }
         if typeName == "Int" { return 8 }
         if typeName == "Bool" or typeName == "Boolean" { return 8 }
         if typeName == "Float" { return 8 }

@@ -180,6 +180,68 @@ fun getBaseTypeNameImpl(typeName: String) r: String {
     return trimmed.substring(0, end)
 }
 
+fun parseSeenStaticArrayLengthImpl(typeName: String) r: Int {
+    let trimmed = trimSpacesImpl(typeName)
+    if trimmed == "" or not trimmed.endsWith("]") {
+        return -1
+    }
+
+    let openIdx = findLastSeenCharImpl(trimmed, "[")
+    if openIdx < 1 or openIdx + 1 >= trimmed.length() - 1 {
+        return -1
+    }
+
+    let lenStr = trimSpacesImpl(trimmed.substring(openIdx + 1, trimmed.length() - 1))
+    if lenStr == "" {
+        return -1
+    }
+
+    return parseDecimalIntImpl(lenStr)
+}
+
+fun parseSeenStaticArrayElementTypeImpl(typeName: String) r: String {
+    let trimmed = trimSpacesImpl(typeName)
+    if trimmed == "" or not trimmed.endsWith("]") {
+        return ""
+    }
+
+    let openIdx = findLastSeenCharImpl(trimmed, "[")
+    if openIdx < 1 {
+        return ""
+    }
+
+    let lenVal = parseSeenStaticArrayLengthImpl(trimmed)
+    if lenVal <= 0 {
+        return ""
+    }
+
+    return trimSpacesImpl(trimmed.substring(0, openIdx))
+}
+
+fun isSeenStaticArrayTypeImpl(typeName: String) r: Bool {
+    let lenVal = parseSeenStaticArrayLengthImpl(typeName)
+    if lenVal <= 0 {
+        return false
+    }
+    return parseSeenStaticArrayElementTypeImpl(typeName) != ""
+}
+
+fun findLastSeenCharImpl(value: String, needle: String) r: Int {
+    if needle.length() != 1 {
+        return -1
+    }
+
+    let target = needle.charAt(0)
+    var idx = value.length() - 1
+    while idx >= 0 {
+        if value.charAt(idx) == target {
+            return idx
+        }
+        idx = idx - 1
+    }
+    return -1
+}
+
 // Extract field type strings from a struct layout like "{ i64, ptr }"
 fun extractStructFieldTypesImpl(layout: String) r: Array<String> {
     let result = Array<String>()

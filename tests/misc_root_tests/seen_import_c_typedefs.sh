@@ -16,10 +16,12 @@ trap cleanup EXIT
 cat >"$HEADER" <<'EOF'
 typedef unsigned int MyFlags;
 typedef struct MyHandle_T* MyHandle;
+typedef float MyRgba[4];
 typedef struct MyInfo {
     MyFlags flags;
     MyHandle handle;
     const char* name;
+    MyRgba rgba;
 } MyInfo;
 typedef void (*MyCallback)(MyHandle h, const MyInfo* info);
 
@@ -38,13 +40,18 @@ if [ "$(grep -c '^type MyHandle = Ptr$' "$OUT")" -ne 1 ]; then
     exit 1
 fi
 
+if [ "$(grep -c '^type MyRgba = Float32\[4\]$' "$OUT")" -ne 1 ]; then
+    echo "FAIL: import-c should emit fixed-array typedef aliases"
+    exit 1
+fi
+
 if [ "$(grep -Fxc 'class MyInfo {' "$OUT")" -ne 1 ]; then
     echo "FAIL: import-c should emit a repr(C) class for MyInfo"
     exit 1
 fi
 
-if [ "$(grep -c '^type MyCallback = Ptr$' "$OUT")" -ne 1 ]; then
-    echo "FAIL: import-c should emit MyCallback function-pointer alias"
+if [ "$(grep -Fxc 'type MyCallback = fn(MyHandle, *MyInfo) -> Void' "$OUT")" -ne 1 ]; then
+    echo "FAIL: import-c should emit a typed MyCallback function-pointer alias"
     exit 1
 fi
 
@@ -63,6 +70,11 @@ if [ "$(grep -c '^    var name: \*Char$' "$OUT")" -ne 1 ]; then
     exit 1
 fi
 
+if [ "$(grep -c '^    var rgba: MyRgba$' "$OUT")" -ne 1 ]; then
+    echo "FAIL: import-c should preserve fixed-array typedef aliases in generated struct fields"
+    exit 1
+fi
+
 if [ "$(grep -c '^extern fun do_thing(arg0: MyHandle, arg1: MyFlags, arg2: MyCallback, arg3: \*MyInfo, arg4: \*MyHandle) r: MyFlags$' "$OUT")" -ne 1 ]; then
     echo "FAIL: import-c should reuse typedefs and record pointers in generated function signatures"
     exit 1
@@ -74,6 +86,6 @@ fun main() r: Void {
 }
 EOF
 
-"$COMPILER" check "$OUT" >/dev/null
+"$COMPILER" compile "$OUT" "$TMP_DIR/typedefs_probe" --fast >/dev/null
 
 echo "PASS: import-c emits typedef aliases, repr(C) records, and reused signature types"

@@ -87,6 +87,11 @@ if [ -n "$VULKAN_HEADER" ]; then
         exit 1
     fi
 
+    if [ "$(grep -Fxc 'type PFN_vkCreateInstance = fn(*VkInstanceCreateInfo, *VkAllocationCallbacks, *VkInstance) -> VkResult' "$VULKAN_OUT")" -ne 1 ]; then
+        echo "FAIL: import-c should emit a typed PFN_vkCreateInstance callback alias"
+        exit 1
+    fi
+
     if [ "$(grep -Fxc 'class VkInstanceCreateInfo {' "$VULKAN_OUT")" -ne 1 ]; then
         echo "FAIL: import-c should emit a repr(C) class for VkInstanceCreateInfo"
         exit 1
@@ -101,6 +106,52 @@ if [ -n "$VULKAN_HEADER" ]; then
 
     if ! printf '%s\n' "$VK_INSTANCE_CREATE_INFO_BLOCK" | grep -Fqx '    var pNext: *Void'; then
         echo "FAIL: import-c should emit raw void pointers for VkInstanceCreateInfo.pNext"
+        exit 1
+    fi
+
+    VK_ALLOCATION_CALLBACKS_BLOCK="$(sed -n '/^class VkAllocationCallbacks {$/,/^}$/p' "$VULKAN_OUT")"
+
+    if ! printf '%s\n' "$VK_ALLOCATION_CALLBACKS_BLOCK" | grep -Fqx '    var pfnAllocation: PFN_vkAllocationFunction'; then
+        echo "FAIL: import-c should preserve typed callback aliases inside VkAllocationCallbacks"
+        exit 1
+    fi
+
+    if [ "$(grep -Fxc 'class VkDeviceOrHostAddressKHR {' "$VULKAN_OUT")" -ne 1 ]; then
+        echo "FAIL: import-c should emit a union class for VkDeviceOrHostAddressKHR"
+        exit 1
+    fi
+
+    VK_DEVICE_OR_HOST_ADDRESS_KHR_BLOCK="$(sed -n '/^class VkDeviceOrHostAddressKHR {$/,/^}$/p' "$VULKAN_OUT")"
+
+    if ! printf '%s\n' "$VK_DEVICE_OR_HOST_ADDRESS_KHR_BLOCK" | grep -Fqx '    var deviceAddress: VkDeviceAddress'; then
+        echo "FAIL: import-c should preserve VkDeviceAddress inside VkDeviceOrHostAddressKHR"
+        exit 1
+    fi
+
+    if ! printf '%s\n' "$VK_DEVICE_OR_HOST_ADDRESS_KHR_BLOCK" | grep -Fqx '    var hostAddress: *Void'; then
+        echo "FAIL: import-c should preserve hostAddress inside VkDeviceOrHostAddressKHR"
+        exit 1
+    fi
+
+    if [ "$(grep -Fxc 'class VkClearColorValue {' "$VULKAN_OUT")" -ne 1 ]; then
+        echo "FAIL: import-c should emit a union class for VkClearColorValue"
+        exit 1
+    fi
+
+    VK_CLEAR_COLOR_VALUE_BLOCK="$(sed -n '/^class VkClearColorValue {$/,/^}$/p' "$VULKAN_OUT")"
+
+    if ! printf '%s\n' "$VK_CLEAR_COLOR_VALUE_BLOCK" | grep -Fqx '    var float32: Float32[4]'; then
+        echo "FAIL: import-c should preserve VkClearColorValue.float32 as a fixed array"
+        exit 1
+    fi
+
+    if ! printf '%s\n' "$VK_CLEAR_COLOR_VALUE_BLOCK" | grep -Fqx '    var int32: Int32[4]'; then
+        echo "FAIL: import-c should preserve VkClearColorValue.int32 as a fixed array"
+        exit 1
+    fi
+
+    if ! printf '%s\n' "$VK_CLEAR_COLOR_VALUE_BLOCK" | grep -Fqx '    var uint32: UInt32[4]'; then
+        echo "FAIL: import-c should preserve VkClearColorValue.uint32 as a fixed array"
         exit 1
     fi
 
@@ -120,4 +171,4 @@ if [ -n "$VULKAN_HEADER" ]; then
     fi
 fi
 
-echo "PASS: import-c handles real system headers without bogus prev/referenced bindings and preserves Vulkan typedefs/records"
+echo "PASS: import-c handles real system headers without bogus prev/referenced bindings and preserves Vulkan typedefs, callbacks, records, unions, and inline arrays"

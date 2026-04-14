@@ -2833,6 +2833,21 @@ class RealParser {
                         advance()
                     }
                 }
+                // : T[N] — fixed-size inline array type
+                while checkToken(SeenTokenType.LeftBracket) {
+                    advance()
+                    var arrayLen = ""
+                    if checkToken(SeenTokenType.IntegerLiteral) {
+                        arrayLen = advance().getValue()
+                    }
+                    if arrayLen == "" {
+                        break
+                    }
+                    if checkToken(SeenTokenType.RightBracket) {
+                        advance()
+                    }
+                    name = name + "[" + arrayLen + "]"
+                }
                 typeName = name
                 typeIdentFound = true
             }
@@ -2872,8 +2887,8 @@ class RealParser {
     // Parse a type annotation and return a TypeNode.
     // Handles: simple names, qualified names (A.B), generic parameters (Map<K,V>),
     // raw pointers (*T, *const T), nullable (T?), Result sugar (T ! E),
-    // ErrorUnion (A | B), dyn Trait, const generics, and GPU types with
-    // square-bracket syntax (Buffer[T], SmallVec[T, N]).
+    // ErrorUnion (A | B), dyn Trait, const generics, fixed-size arrays
+    // (T[N]), and GPU types with square-bracket syntax (Buffer[T], SmallVec[T, N]).
     fun parseTypeNode() r: TypeNode {
         parseTypeNodeIntoScratch()
         return parsedScratchTypeNode()

@@ -3,6 +3,7 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_type_info.{g_resolvedFieldIndex, g_resolvedFieldTypeCode}
+import codegen.ir_string_collect.{trimSpacesImpl, getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 
 var g_comptimeTargetName: String = ""
@@ -635,6 +636,14 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
                 return mapTypeImpl(taTarget, structNames, typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
             }
             taIdx = taIdx + 1
+        }
+    }
+    if isSeenStaticArrayTypeImpl(trimmed) {
+        let arrayLen = parseSeenStaticArrayLengthImpl(trimmed)
+        let elementSeenType = parseSeenStaticArrayElementTypeImpl(trimmed)
+        if arrayLen > 0 and elementSeenType != "" {
+            let elementLlvmType = mapTypeImpl(elementSeenType, structNames, typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+            return "[" + arrayLen.toString() + " x " + elementLlvmType + "]"
         }
     }
     if trimmed == "SmallVec" or trimmed.startsWith("SmallVec<") or trimmed.startsWith("SmallVec[") {

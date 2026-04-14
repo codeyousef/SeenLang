@@ -3,6 +3,7 @@
 // Returns "" when no match found; callers fall through to dynamic logic.
 
 import str.string.{StringBuilder}
+import codegen.ir_string_collect.{parseSeenStaticArrayElementTypeImpl}
 // Note: getNextRegFn, getNextBlockFn, charToCodeStr, mapTypeImpl, SIMD helpers
 // moved to ir_type_dispatch.seen and ir_type_ops.seen
 
@@ -423,6 +424,10 @@ fun inferFieldTypeFallback(fieldName: String) r: String {
 
 // Array type -> element type for IndexAccess expressions
 fun inferIndexElementType(arrayType: String) r: String {
+    let staticArrayElementType = parseSeenStaticArrayElementTypeImpl(arrayType)
+    if staticArrayElementType != "" {
+        return staticArrayElementType
+    }
     if arrayType == "Array<FrontendDiagnostic>" {
         return "FrontendDiagnostic"
     }

@@ -45,7 +45,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
-import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl}
+import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl}
 import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
@@ -1613,6 +1613,9 @@ class LLVMIRGenerator {
     fun parseArrayLength(typeName: String) r: Int { return parseArrayLengthImpl(typeName) }
     fun parseArrayElementType(typeName: String) r: String { return parseArrayElementTypeImpl(typeName) }
     fun extractArrayLiteralElementType(arrayType: String) r: String { return extractArrayLiteralElementTypeImpl(arrayType) }
+    fun parseSeenStaticArrayLength(typeName: String) r: Int { return parseSeenStaticArrayLengthImpl(typeName) }
+    fun parseSeenStaticArrayElementType(typeName: String) r: String { return parseSeenStaticArrayElementTypeImpl(typeName) }
+    fun isSeenStaticArrayType(typeName: String) r: Bool { return isSeenStaticArrayTypeImpl(typeName) }
 
     fun getLlvmTypeAlign(typeName: String) r: Int {
         let trimmed = trimSpaces(typeName)
@@ -2477,6 +2480,16 @@ class LLVMIRGenerator {
     // - Classes: 8 bytes (i64 pointer-as-int)
     // - Data types: their full inline size
     fun getTypeSize(typeName: String) r: Int {
+        if isSeenStaticArrayType(typeName) {
+            let arrayLen = parseSeenStaticArrayLength(typeName)
+            let elementSeenType = parseSeenStaticArrayElementType(typeName)
+            if arrayLen > 0 and elementSeenType != "" {
+                let elementSize = getLlvmTypeSize(mapType(elementSeenType))
+                if elementSize > 0 {
+                    return arrayLen * elementSize
+                }
+            }
+        }
         if typeName == "Int" {
             return 8
         }
@@ -2642,7 +2655,7 @@ class LLVMIRGenerator {
                     layout = layout + llvmType
                     fieldNames = fieldNames + fieldNameStr
                     fieldTypes = fieldTypes + fieldType
-                    totalSize = totalSize + getTypeSize(fieldType)
+                    totalSize = totalSize + getLlvmTypeSize(llvmType)
 
                     realOwnIdx = realOwnIdx + 1
                     i = i + 1
@@ -4454,25 +4467,23 @@ class LLVMIRGenerator {
                 return
             }
             if classNode.decorators[reprCDecIdx].name == "union" {
-                // Union type: emit as byte array of max field size
+                // Union type: emit as storage for the largest field
                 var maxFieldSize = 0
+                var maxFieldType = "i8"
                 var ufi = 0
                 while ufi < classNode.fields.length() {
                     let uField = classNode.fields[ufi]
                     let uFieldType = mapType(normalizeDeclaredTypeNode(uField.paramType))
-                    var uFieldSize = 8  // default i64/ptr
-                    if uFieldType == "i1" { uFieldSize = 1 }
-                    if uFieldType == "i8" { uFieldSize = 1 }
-                    if uFieldType == "i16" { uFieldSize = 2 }
-                    if uFieldType == "i32" { uFieldSize = 4 }
-                    if uFieldType == "double" { uFieldSize = 8 }
-                    if uFieldType == "%SeenString" { uFieldSize = 16 }
-                    if uFieldSize > maxFieldSize { maxFieldSize = uFieldSize }
+                    let uFieldSize = getLlvmTypeSize(uFieldType)
+                    if uFieldSize > maxFieldSize {
+                        maxFieldSize = uFieldSize
+                        maxFieldType = uFieldType
+                    }
                     ufi = ufi + 1
                 }
                 if maxFieldSize == 0 { maxFieldSize = 1 }
                 output.append("; @union — overlapping fields, max size = " + maxFieldSize.toString() + " bytes\n")
-                output.append("%" + quoteIdentIfNeeded(classNode.name) + " = type { [" + maxFieldSize.toString() + " x i8] }\n")
+                output.append("%" + quoteIdentIfNeeded(classNode.name) + " = type { " + maxFieldType + " }\n")
                 g_unionTypes = g_unionTypes + classNode.name + "|"
                 return
             }
