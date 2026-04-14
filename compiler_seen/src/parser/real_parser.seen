@@ -1931,9 +1931,8 @@ class RealParser {
                                 lastParsedTypeNullable = resolvedReturnTypeNullable
                                 lastFunction.returnType = parsedScratchTypeNode()
                             }
-                            let method = lastFunction
-                            method.isStatic = true
-                            classNode.methods.push(method)
+                            lastFunction.isStatic = true
+                            classNode.methods.push(lastFunction)
                         }
                         classTokenHandled = true
                     }
@@ -2000,9 +1999,8 @@ class RealParser {
                             lastParsedTypeNullable = resolvedReturnTypeNullable2
                             lastFunction.returnType = parsedScratchTypeNode()
                         }
-                        let method = lastFunction
-                        method.isStatic = false
-                        classNode.methods.push(method)
+                        lastFunction.isStatic = false
+                        classNode.methods.push(lastFunction)
                         // trace
                         classTokenHandled = true
                     }
@@ -2199,9 +2197,8 @@ class RealParser {
                                 lastParsedTypeNullable = resolvedReturnTypeNullableInto
                                 lastFunction.returnType = parsedScratchTypeNode()
                             }
-                            let method = lastFunction
-                            method.isStatic = true
-                            classNode.methods.push(method)
+                            lastFunction.isStatic = true
+                            classNode.methods.push(lastFunction)
                         }
                         classIntoTokenHandled = true
                     }
@@ -2280,15 +2277,14 @@ class RealParser {
                             lastParsedTypeNullable = resolvedReturnTypeNullableInto2
                             lastFunction.returnType = parsedScratchTypeNode()
                         }
-                        let method = lastFunction
-                        method.isStatic = false
+                        lastFunction.isStatic = false
                         if sawOverrideInto == 1 {
-                            method.isOverride = true
+                            lastFunction.isOverride = true
                         }
                         if sawAsyncInto == 1 {
-                            method.isAsync = true
+                            lastFunction.isAsync = true
                         }
-                        classNode.methods.push(method)
+                        classNode.methods.push(lastFunction)
                         classIntoTokenHandled = true
                     }
                 }
