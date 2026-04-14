@@ -5,6 +5,23 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-14
+
+### Added
+
+#### Seen package registries and source packages
+- Added `seen pkg fetch`, `seen pkg pack`, and `seen pkg publish` for installing, archiving, and publishing Seen source packages.
+- Added package dependency support in `Seen.toml` via `[registries]` and `[dependencies]`, including exact-version registry dependencies and local path dependencies.
+- Added static-registry support with package indexes under `index/<package>.toml`, source archives under `archives/<package>/<package>-<version>.seenpkg.tgz`, local package installs under `.seen/packages/`, and generated `Seen.lock` files for registry-backed projects.
+- Added initial package-management docs covering project config, CLI usage, and static registry hosting, plus a local-registry smoke test for publish/fetch/compile flow.
+
+### Changed
+
+#### Project manifest and import resolution
+- Build and check flows now prepare package dependencies automatically before compilation, and import resolution can now load modules from declared package dependencies.
+- `seen init` now scaffolds package-aware manifests with a default Seen registry entry.
+- Native linker dependencies are now documented and preferred under `[native.dependencies]`, while legacy `[dependencies]` entries with `system = true` remain supported for compatibility.
+
 ## [0.5.0] - 2026-04-14
 
 ### Added

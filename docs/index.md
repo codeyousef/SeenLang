@@ -46,6 +46,7 @@ fun main() {
 ### Project & Build
 
 - [Project Configuration](project-config.md) -- Seen.toml format and project structure
+- [Packaging](packaging.md) -- static registry layout, publishing, and hosting
 - [Compiler Architecture](compiler-architecture.md) -- 5-stage pipeline internals
 - [Bootstrap System](bootstrap.md) -- self-hosting verification and safe rebuilds
 - [Known Limitations](known-limitations.md) -- current bugs and workarounds

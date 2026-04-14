@@ -23,7 +23,7 @@
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, writeText, exists}
-import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, commandOutput, processFork, waitPid, processExit}
+import process.process.{runCommand, runProgram, CommandResult, commandWasSuccessful, commandOutput, processFork, waitPid, processExit, shellQuote}
 import env.env.{args}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode}
@@ -247,6 +247,796 @@ fun stripTomlQuotedValue(value: String) r: String {
         result = result.substring(0, result.length() - 1)
     }
     return result
+}
+
+class PackageDependency {
+    var name: String
+    var source: String
+    var version: String
+    var path: String
+    var registry: String
+
+    static fun new() r: PackageDependency {
+        return PackageDependency{
+            name: "",
+            source: "",
+            version: "",
+            path: "",
+            registry: "default"
+        }
+    }
+}
+
+class PackageRelease {
+    var version: String
+    var archive: String
+    var sha256: String
+
+    static fun new() r: PackageRelease {
+        return PackageRelease{
+            version: "",
+            archive: "",
+            sha256: ""
+        }
+    }
+}
+
+fun currentWorkingDir() r: String {
+    let pwdResult = runCommand("pwd")
+    if commandWasSuccessful(pwdResult) {
+        return commandOutput(pwdResult).trim()
+    }
+    return ""
+}
+
+fun directoryExists(path: String) r: Bool {
+    if path == "" {
+        return false
+    }
+    let result = runCommand("test -d " + shellQuote(path))
+    return commandWasSuccessful(result)
+}
+
+fun ensureDirectory(path: String) r: Bool {
+    if path == "" {
+        return false
+    }
+    let result = runCommand("mkdir -p " + shellQuote(path))
+    return commandWasSuccessful(result)
+}
+
+fun removePathIfExists(path: String) r: Void {
+    if path == "" {
+        return
+    }
+    let _ = runCommand("rm -rf " + shellQuote(path))
+    return
+}
+
+fun isHttpRegistryLocation(location: String) r: Bool {
+    return location.startsWith("http://") or location.startsWith("https://")
+}
+
+fun defaultRegistryLocation() r: String {
+    return "https://seen.yousef.codes/packages"
+}
+
+fun extractTomlProjectVersion(content: String) r: String {
+    var inProject = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = content.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("[") {
+                if line.endsWith("]") {
+                    let section = line.substring(1, line.length() - 1)
+                    if section == "project" {
+                        inProject = 1
+                    } else {
+                        inProject = 0
+                    }
+                }
+            } else {
+                if inProject == 1 {
+                    if line != "" and not line.startsWith("#") {
+                        let eqPos = line.indexOf("=", 0)
+                        if eqPos > 0 {
+                            let key = stripTomlQuotedValue(line.substring(0, eqPos).trim())
+                            if key == "version" {
+                                let value = line.substring(eqPos + 1, line.length()).trim()
+                                return stripTomlQuotedValue(value)
+                            }
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun extractTomlRegistryLocation(content: String, registryName: String) r: String {
+    var inRegistries = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = content.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("[") {
+                if line.endsWith("]") {
+                    let section = line.substring(1, line.length() - 1)
+                    if section == "registries" {
+                        inRegistries = 1
+                    } else {
+                        inRegistries = 0
+                    }
+                }
+            } else {
+                if inRegistries == 1 and line != "" and not line.startsWith("#") {
+                    let eqPos = line.indexOf("=", 0)
+                    if eqPos > 0 {
+                        let key = stripTomlQuotedValue(line.substring(0, eqPos).trim())
+                        if key == registryName {
+                            return stripTomlQuotedValue(line.substring(eqPos + 1, line.length()).trim())
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun registryLocationForProject(projectRoot: String, content: String, registryName: String) r: String {
+    var location = extractTomlRegistryLocation(content, registryName)
+    if location == "" and registryName == "default" {
+        location = defaultRegistryLocation()
+    }
+    if location == "" {
+        return ""
+    }
+    if isHttpRegistryLocation(location) {
+        return location
+    }
+    return resolveProjectPath(projectRoot, location)
+}
+
+fun parsePackageDependencyEntry(depName: String, depValue: String) r: PackageDependency {
+    let dep = PackageDependency.new()
+    dep.name = stripTomlQuotedValue(depName)
+    let trimmedValue = depValue.trim()
+    if trimmedValue == "" {
+        return dep
+    }
+    if trimmedValue.contains("system = true") or trimmedValue.contains("system=true") {
+        dep.source = ""
+        return dep
+    }
+    if trimmedValue.startsWith("{") {
+        let depPath = extractTomlInlineQuotedField(trimmedValue, "path")
+        let depVersion = extractTomlInlineQuotedField(trimmedValue, "version")
+        let depRegistry = extractTomlInlineQuotedField(trimmedValue, "registry")
+        if depRegistry != "" {
+            dep.registry = depRegistry
+        }
+        if depPath != "" {
+            dep.source = "path"
+            dep.path = depPath
+            return dep
+        }
+        if depVersion != "" {
+            dep.source = "registry"
+            dep.version = depVersion
+            return dep
+        }
+        return dep
+    }
+
+    let simpleValue = stripTomlQuotedValue(trimmedValue)
+    if simpleValue.startsWith(".") or simpleValue.startsWith("/") {
+        dep.source = "path"
+        dep.path = simpleValue
+        return dep
+    }
+    if simpleValue.contains("/") and not isHttpRegistryLocation(simpleValue) and not simpleValue.contains("@") {
+        dep.source = "path"
+        dep.path = simpleValue
+        return dep
+    }
+    dep.source = "registry"
+    dep.version = simpleValue
+    return dep
+}
+
+fun extractTomlPackageDependencies(content: String) r: Array<PackageDependency> {
+    let deps = Array<PackageDependency>()
+    var inDependencies = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = content.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = content.substring(lineStart, pos).trim()
+            if line.startsWith("[") {
+                if line.endsWith("]") {
+                    let section = line.substring(1, line.length() - 1)
+                    if section == "dependencies" {
+                        inDependencies = 1
+                    } else {
+                        inDependencies = 0
+                    }
+                }
+            } else {
+                if inDependencies == 1 and line != "" and not line.startsWith("#") {
+                    let eqPos = line.indexOf("=", 0)
+                    if eqPos > 0 {
+                        let depName = line.substring(0, eqPos).trim()
+                        let depValue = line.substring(eqPos + 1, line.length()).trim()
+                        let dep = parsePackageDependencyEntry(depName, depValue)
+                        if dep.source != "" {
+                            deps.push(dep)
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return deps
+}
+
+fun countRegistryPackageDependencies(deps: Array<PackageDependency>) r: Int {
+    var count = 0
+    var idx = 0
+    while idx < deps.length() {
+        if deps[idx].source == "registry" {
+            count = count + 1
+        }
+        idx = idx + 1
+    }
+    return count
+}
+
+fun packageInstallRoot(projectRoot: String, depName: String, version: String) r: String {
+    return projectRoot + "/.seen/packages/" + depName + "/" + version
+}
+
+fun resolveProjectManifestPath(target: String) r: String {
+    var resolvedTarget = target
+    if resolvedTarget == "" {
+        resolvedTarget = currentWorkingDir()
+    }
+    resolvedTarget = resolveRealInputPath(resolvedTarget)
+    if resolvedTarget.endsWith("/Seen.toml") and loadFileContent(resolvedTarget) != "" {
+        return resolvedTarget
+    }
+    if loadFileContent(resolvedTarget + "/Seen.toml") != "" {
+        return resolvedTarget + "/Seen.toml"
+    }
+    if loadFileContent(resolvedTarget) != "" {
+        return findNearestSeenTomlForInput(resolvedTarget)
+    }
+    return findNearestSeenTomlFromDir(resolvedTarget)
+}
+
+fun readRegistryIndexContent(registryLocation: String, depName: String) r: String {
+    if registryLocation == "" or depName == "" {
+        return ""
+    }
+    if isHttpRegistryLocation(registryLocation) {
+        let fetchCmd = "curl -fsSL " + shellQuote(registryLocation + "/index/" + depName + ".toml")
+        let result = runCommand(fetchCmd)
+        if commandWasSuccessful(result) {
+            return commandOutput(result)
+        }
+        return ""
+    }
+    return loadFileContent(registryLocation + "/index/" + depName + ".toml")
+}
+
+fun extractRegistryRelease(indexContent: String, requestedVersion: String) r: PackageRelease {
+    let release = PackageRelease.new()
+    var inRelease = 0
+    var currentVersion = ""
+    var currentArchive = ""
+    var currentSha = ""
+    var lineStart = 0
+    var pos = 0
+    while pos <= indexContent.length() {
+        var atEnd = 0
+        if pos == indexContent.length() {
+            atEnd = 1
+        }
+        var isNewline = 0
+        if atEnd == 0 {
+            let b = indexContent.byteAt(pos)
+            if b == 10 {
+                isNewline = 1
+            }
+        }
+        if isNewline == 1 or atEnd == 1 {
+            let line = indexContent.substring(lineStart, pos).trim()
+            if line.startsWith("[[") {
+                if inRelease == 1 and currentVersion == requestedVersion {
+                    release.version = currentVersion
+                    release.archive = currentArchive
+                    release.sha256 = currentSha
+                    return release
+                }
+                currentVersion = ""
+                currentArchive = ""
+                currentSha = ""
+                if line == "[[releases]]" {
+                    inRelease = 1
+                } else {
+                    inRelease = 0
+                }
+            } else {
+                if inRelease == 1 and line != "" and not line.startsWith("#") {
+                    let eqPos = line.indexOf("=", 0)
+                    if eqPos > 0 {
+                        let key = stripTomlQuotedValue(line.substring(0, eqPos).trim())
+                        let value = stripTomlQuotedValue(line.substring(eqPos + 1, line.length()).trim())
+                        if key == "version" {
+                            currentVersion = value
+                        }
+                        if key == "archive" {
+                            currentArchive = value
+                        }
+                        if key == "sha256" {
+                            currentSha = value
+                        }
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    if inRelease == 1 and currentVersion == requestedVersion {
+        release.version = currentVersion
+        release.archive = currentArchive
+        release.sha256 = currentSha
+    }
+    return release
+}
+
+fun computeFileSha256(path: String) r: String {
+    let script = "if command -v sha256sum >/dev/null 2>&1; then sha256sum " + shellQuote(path) + " | cut -d' ' -f1; else shasum -a 256 " + shellQuote(path) + " | cut -d' ' -f1; fi"
+    let result = runCommand("sh -c " + shellQuote(script))
+    if commandWasSuccessful(result) {
+        return commandOutput(result).trim()
+    }
+    return ""
+}
+
+fun ensureRegistryPackageInstalled(projectRoot: String, projectTomlContent: String, dep: PackageDependency, quiet: Bool) r: String {
+    if dep.version == "" {
+        println("Error: dependency `" + dep.name + "` is missing a version")
+        return ""
+    }
+    if dep.version.contains("^") or dep.version.contains("~") or dep.version.contains("*") {
+        println("Error: dependency `" + dep.name + "` uses unsupported version requirement `" + dep.version + "`; use an exact version for now")
+        return ""
+    }
+
+    let installRoot = packageInstallRoot(projectRoot, dep.name, dep.version)
+    if loadFileContent(installRoot + "/Seen.toml") != "" {
+        return installRoot
+    }
+
+    let registryLocation = registryLocationForProject(projectRoot, projectTomlContent, dep.registry)
+    if registryLocation == "" {
+        println("Error: unknown registry `" + dep.registry + "` for dependency `" + dep.name + "`")
+        return ""
+    }
+
+    let indexContent = readRegistryIndexContent(registryLocation, dep.name)
+    if indexContent == "" {
+        println("Error: could not read package index for `" + dep.name + "` from " + registryLocation)
+        return ""
+    }
+
+    let release = extractRegistryRelease(indexContent, dep.version)
+    if release.version == "" or release.archive == "" {
+        println("Error: package `" + dep.name + "` version `" + dep.version + "` was not found in " + registryLocation)
+        return ""
+    }
+
+    let tempDir = projectRoot + "/.seen/tmp"
+    if not ensureDirectory(tempDir) {
+        println("Error: could not create package temp directory")
+        return ""
+    }
+    let archiveTemp = tempDir + "/" + dep.name + "-" + dep.version + ".seenpkg.tgz"
+    removePathIfExists(archiveTemp)
+
+    var fetchOk = false
+    if isHttpRegistryLocation(registryLocation) {
+        let fetchCmd = "curl -fsSL " + shellQuote(registryLocation + "/" + release.archive) + " -o " + shellQuote(archiveTemp)
+        let fetchResult = runCommand(fetchCmd)
+        fetchOk = commandWasSuccessful(fetchResult)
+    } else {
+        let sourceArchive = registryLocation + "/" + release.archive
+        let copyResult = runCommand("cp " + shellQuote(sourceArchive) + " " + shellQuote(archiveTemp))
+        fetchOk = commandWasSuccessful(copyResult)
+    }
+    if not fetchOk {
+        println("Error: failed to download package archive for `" + dep.name + "` " + dep.version)
+        return ""
+    }
+
+    if release.sha256 != "" {
+        let actualSha = computeFileSha256(archiveTemp)
+        if actualSha == "" or actualSha != release.sha256 {
+            println("Error: checksum mismatch for package `" + dep.name + "` " + dep.version)
+            removePathIfExists(archiveTemp)
+            return ""
+        }
+    }
+
+    removePathIfExists(installRoot)
+    if not ensureDirectory(installRoot) {
+        println("Error: could not create install directory for `" + dep.name + "`")
+        removePathIfExists(archiveTemp)
+        return ""
+    }
+    let extractResult = runCommand("tar -xzf " + shellQuote(archiveTemp) + " -C " + shellQuote(installRoot))
+    removePathIfExists(archiveTemp)
+    if not commandWasSuccessful(extractResult) {
+        println("Error: failed to extract package archive for `" + dep.name + "` " + dep.version)
+        removePathIfExists(installRoot)
+        return ""
+    }
+    if not quiet {
+        println("  package: fetched " + dep.name + " " + dep.version + " from " + registryLocation)
+    }
+    return installRoot
+}
+
+fun writePackageLockfile(projectRoot: String, deps: Array<PackageDependency>, projectTomlContent: String) r: Void {
+    if countRegistryPackageDependencies(deps) == 0 {
+        return
+    }
+    var lockContent = "version = 1\n"
+    var idx = 0
+    while idx < deps.length() {
+        let dep = deps[idx]
+        if dep.source == "registry" {
+            let installRoot = packageInstallRoot(projectRoot, dep.name, dep.version)
+            let relativeInstallRoot = ".seen/packages/" + dep.name + "/" + dep.version
+            let pkgToml = loadFileContent(installRoot + "/Seen.toml")
+            var actualVersion = dep.version
+            if pkgToml != "" {
+                let parsedVersion = extractTomlProjectVersion(pkgToml)
+                if parsedVersion != "" {
+                    actualVersion = parsedVersion
+                }
+            }
+            var archiveSha = ""
+            let registryLocation = registryLocationForProject(projectRoot, projectTomlContent, dep.registry)
+            let indexContent = readRegistryIndexContent(registryLocation, dep.name)
+            if indexContent != "" {
+                let release = extractRegistryRelease(indexContent, dep.version)
+                archiveSha = release.sha256
+            }
+            lockContent = lockContent + "\n[[packages]]\n"
+            lockContent = lockContent + "name = \"" + dep.name + "\"\n"
+            lockContent = lockContent + "version = \"" + actualVersion + "\"\n"
+            lockContent = lockContent + "source = \"registry\"\n"
+            lockContent = lockContent + "registry = \"" + dep.registry + "\"\n"
+            lockContent = lockContent + "path = \"" + relativeInstallRoot + "\"\n"
+            if archiveSha != "" {
+                lockContent = lockContent + "sha256 = \"" + archiveSha + "\"\n"
+            }
+        }
+        idx = idx + 1
+    }
+    writeText(projectRoot + "/Seen.lock", lockContent)
+}
+
+fun ensureProjectPackageDependenciesForManifest(manifestPath: String, quiet: Bool) r: Bool {
+    let tomlContent = loadFileContent(manifestPath)
+    if tomlContent == "" {
+        return true
+    }
+    let deps = extractTomlPackageDependencies(tomlContent)
+    if deps.length() == 0 {
+        return true
+    }
+
+    let projectRoot = getSourceDir(manifestPath)
+    if countRegistryPackageDependencies(deps) > 0 {
+        if not ensureDirectory(projectRoot + "/.seen/packages") {
+            println("Error: could not create package cache directory in " + projectRoot)
+            return false
+        }
+    }
+
+    var idx = 0
+    while idx < deps.length() {
+        let dep = deps[idx]
+        if dep.source == "path" {
+            let resolvedPath = resolveProjectPath(projectRoot, dep.path)
+            if loadFileContent(resolvedPath + "/Seen.toml") == "" {
+                println("Error: dependency `" + dep.name + "` path `" + resolvedPath + "` does not contain a Seen.toml package manifest")
+                return false
+            }
+        } else if dep.source == "registry" {
+            let installedRoot = ensureRegistryPackageInstalled(projectRoot, tomlContent, dep, quiet)
+            if installedRoot == "" {
+                return false
+            }
+        }
+        idx = idx + 1
+    }
+
+    writePackageLockfile(projectRoot, deps, tomlContent)
+    return true
+}
+
+fun ensureProjectPackageDependenciesForInput(inputFile: String, quiet: Bool) r: Bool {
+    let manifestPath = findNearestSeenTomlForInput(inputFile)
+    if manifestPath == "" {
+        return true
+    }
+    return ensureProjectPackageDependenciesForManifest(manifestPath, quiet)
+}
+
+fun resolvePackageDependencyProjectRoot(sourceDir: String, depName: String) r: String {
+    let tomlPath = findNearestSeenTomlFromDir(sourceDir)
+    let tomlContent = loadFileContent(tomlPath)
+    if tomlContent == "" {
+        return ""
+    }
+    let deps = extractTomlPackageDependencies(tomlContent)
+    let projectRoot = getSourceDir(tomlPath)
+    var idx = 0
+    while idx < deps.length() {
+        let dep = deps[idx]
+        if dep.name == depName {
+            if dep.source == "path" {
+                let resolvedPath = resolveProjectPath(projectRoot, dep.path)
+                if loadFileContent(resolvedPath + "/Seen.toml") != "" {
+                    return resolvedPath
+                }
+                return ""
+            }
+            if dep.source == "registry" {
+                return ensureRegistryPackageInstalled(projectRoot, tomlContent, dep, true)
+            }
+        }
+        idx = idx + 1
+    }
+    return ""
+}
+
+fun resolvePackageImportPath(importPath: Array<String>, sourceDir: String) r: String {
+    if importPath.length() == 0 {
+        return ""
+    }
+    let packageRoot = resolvePackageDependencyProjectRoot(sourceDir, importPath[0])
+    if packageRoot == "" {
+        return ""
+    }
+    var packageBase = packageRoot + "/src"
+    var idx = 1
+    while idx < importPath.length() {
+        packageBase = packageBase + "/" + importPath[idx]
+        idx = idx + 1
+    }
+    let modPath = packageBase + "/mod.seen"
+    let directPath = packageBase + ".seen"
+    if loadFileContent(modPath) != "" {
+        return modPath
+    }
+    if loadFileContent(directPath) != "" {
+        return directPath
+    }
+    return directPath
+}
+
+fun createPackageArchive(manifestPath: String, outputPath: String) r: Bool {
+    let projectRoot = getSourceDir(manifestPath)
+    let outputDir = getSourceDir(outputPath)
+    if outputDir != "" and not ensureDirectory(outputDir) {
+        return false
+    }
+    let tempArchive = "/tmp/" + hashString(projectRoot + "|" + outputPath) + ".seenpkg.tgz"
+    removePathIfExists(tempArchive)
+    let packCmd = "cd " + shellQuote(projectRoot) + " && tar -czf " + shellQuote(tempArchive) + " --exclude=.git --exclude=.seen --exclude=.seen_cache --exclude=target ."
+    let result = runCommand(packCmd)
+    if not commandWasSuccessful(result) {
+        removePathIfExists(tempArchive)
+        return false
+    }
+    let moveResult = runCommand("mv " + shellQuote(tempArchive) + " " + shellQuote(outputPath))
+    if not commandWasSuccessful(moveResult) {
+        removePathIfExists(tempArchive)
+        return false
+    }
+    return true
+}
+
+fun packageArchiveFileName(projectName: String, version: String) r: String {
+    return projectName + "-" + version + ".seenpkg.tgz"
+}
+
+fun printPkgUsage() r: Void {
+    println("Usage: seen pkg fetch [project-dir-or-manifest]")
+    println("       seen pkg pack [project-dir-or-manifest] [output]")
+    println("       seen pkg publish <registry-dir> [project-dir-or-manifest]")
+    println("")
+    println("Registry packages currently use exact versions and source archives.")
+    println("Published registry roots are static directories with index/*.toml and archives/*.")
+    return
+}
+
+fun pkgCommand(argv: Array<String>) r: Int {
+    if argv.length() < 3 {
+        printPkgUsage()
+        return 1
+    }
+    let subcommand = argv[2]
+
+    if subcommand == "fetch" {
+        var manifestPath = resolveProjectManifestPath("")
+        if argv.length() >= 4 {
+            manifestPath = resolveProjectManifestPath(argv[3])
+        }
+        if manifestPath == "" {
+            println("Error: could not find Seen.toml for pkg fetch")
+            return 1
+        }
+        if ensureProjectPackageDependenciesForManifest(manifestPath, false) {
+            println("Package dependencies are ready")
+            return 0
+        }
+        return 1
+    }
+
+    if subcommand == "pack" {
+        var manifestPath = resolveProjectManifestPath("")
+        var outputPath = ""
+        if argv.length() >= 4 {
+            manifestPath = resolveProjectManifestPath(argv[3])
+        }
+        if manifestPath == "" {
+            println("Error: could not find Seen.toml for pkg pack")
+            return 1
+        }
+        let tomlContent = loadFileContent(manifestPath)
+        let projectName = extractTomlProjectName(tomlContent)
+        let version = extractTomlProjectVersion(tomlContent)
+        if projectName == "" or version == "" {
+            println("Error: package project must define [project].name and [project].version")
+            return 1
+        }
+        if argv.length() >= 5 {
+            outputPath = resolveProjectPath(currentWorkingDir(), argv[4])
+        } else {
+            outputPath = getSourceDir(manifestPath) + "/" + packageArchiveFileName(projectName, version)
+        }
+        if not createPackageArchive(manifestPath, outputPath) {
+            println("Error: failed to create package archive")
+            return 1
+        }
+        println("Package archive created: " + outputPath)
+        return 0
+    }
+
+    if subcommand == "publish" {
+        if argv.length() < 4 {
+            println("Error: pkg publish requires a registry directory")
+            printPkgUsage()
+            return 1
+        }
+        let registryRoot = resolveProjectPath(currentWorkingDir(), argv[3])
+        if isHttpRegistryLocation(registryRoot) {
+            println("Error: pkg publish currently supports local registry directories only")
+            return 1
+        }
+        var manifestPath = resolveProjectManifestPath("")
+        if argv.length() >= 5 {
+            manifestPath = resolveProjectManifestPath(argv[4])
+        }
+        if manifestPath == "" {
+            println("Error: could not find Seen.toml for pkg publish")
+            return 1
+        }
+        let tomlContent = loadFileContent(manifestPath)
+        let projectName = extractTomlProjectName(tomlContent)
+        let version = extractTomlProjectVersion(tomlContent)
+        if projectName == "" or version == "" {
+            println("Error: package project must define [project].name and [project].version")
+            return 1
+        }
+        let indexDir = registryRoot + "/index"
+        let archiveDir = registryRoot + "/archives/" + projectName
+        if not ensureDirectory(indexDir) or not ensureDirectory(archiveDir) {
+            println("Error: failed to create registry directories under " + registryRoot)
+            return 1
+        }
+        let indexPath = indexDir + "/" + projectName + ".toml"
+        let existingIndex = loadFileContent(indexPath)
+        if existingIndex != "" {
+            let existingRelease = extractRegistryRelease(existingIndex, version)
+            if existingRelease.version != "" {
+                println("Error: package `" + projectName + "` version `" + version + "` is already published")
+                return 1
+            }
+        }
+
+        let archiveName = packageArchiveFileName(projectName, version)
+        let archivePath = archiveDir + "/" + archiveName
+        if not createPackageArchive(manifestPath, archivePath) {
+            println("Error: failed to create publish archive")
+            return 1
+        }
+        let archiveSha = computeFileSha256(archivePath)
+        if archiveSha == "" {
+            println("Error: failed to compute archive sha256")
+            return 1
+        }
+
+        var newIndex = existingIndex
+        if newIndex == "" {
+            newIndex = "version = 1\n"
+        }
+        if not newIndex.endsWith("\n") {
+            newIndex = newIndex + "\n"
+        }
+        newIndex = newIndex + "\n[[releases]]\n"
+        newIndex = newIndex + "version = \"" + version + "\"\n"
+        newIndex = newIndex + "archive = \"archives/" + projectName + "/" + archiveName + "\"\n"
+        newIndex = newIndex + "sha256 = \"" + archiveSha + "\"\n"
+        writeText(indexPath, newIndex)
+        println("Published " + projectName + " " + version + " to " + registryRoot)
+        println("Index:   " + indexPath)
+        println("Archive: " + archivePath)
+        return 0
+    }
+
+    printPkgUsage()
+    return 1
 }
 
 fun extractTomlInlineQuotedField(value: String, fieldName: String) r: String {
@@ -538,6 +1328,11 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
             if stdlibDirectContent != "" {
                 return stdlibDirectPath
             }
+        }
+
+        let packageImportPath = resolvePackageImportPath(importPath, sourceDir)
+        if packageImportPath != "" {
+            return packageImportPath
         }
     }
 
@@ -2672,6 +3467,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // Canonicalize the entry path so symlinked workspaces behave the same as
     // the real source tree during module discovery.
     let resolvedInput = resolveRealInputPath(inputFile)
+    if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
+        return 1
+    }
     println("Stage1 compiling (Two-Pass Memory Optimized)")
     let isDeterministicProfile = profile == "deterministic"
     if isDeterministicProfile {
@@ -2820,10 +3618,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // ============================================================
     // : Dependency management -- parse Seen.toml if present
     // ============================================================
-    // Reads [dependencies] for system library link flags (-lname) and
-    // project-local library search paths (-L plus native-host rpath),
-    // [features] for compile-time feature flags, and [assets] for
-    // shader files to compile with glslc before linking.
+    // Reads [native.dependencies] (and legacy system=true entries inside
+    // [dependencies]) for native library link flags, [features] for
+    // compile-time feature flags, and [assets] for shader files to compile
+    // with glslc before linking.
     var tomlExtraLinkFlags = ""
     var tomlAssetShaders = ""
     let tomlPath = findNearestSeenTomlForInput(resolvedInput)
@@ -2849,7 +3647,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if tomlIsNewline == 1 or tomlAtEnd == 1 {
                 let tomlLine = tomlContent.substring(tomlLineStart, tomlPos)
                 let tomlLineTrimmed = tomlLine.trim()
-                // Section headers: [dependencies], [features], [assets]
+                // Section headers: [dependencies], [native.dependencies], [features], [assets]
                 if tomlLineTrimmed.startsWith("[") and tomlLineTrimmed.endsWith("]") {
                     tomlSection = tomlLineTrimmed.substring(1, tomlLineTrimmed.length() - 1)
                 } else {
@@ -2859,10 +3657,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         if tomlEqPos > 0 {
                             let tomlKey = tomlLineTrimmed.substring(0, tomlEqPos).trim()
                             let tomlVal = tomlLineTrimmed.substring(tomlEqPos + 1, tomlLineTrimmed.length()).trim()
-                            // [dependencies] section: system libs → -lname link flags
-                            if tomlSection == "dependencies" {
+                            // [native.dependencies] (and legacy [dependencies] system=true) → native link flags
+                            if tomlSection == "native.dependencies" or tomlSection == "dependencies" {
                                 let tomlDepPath = extractTomlInlineQuotedField(tomlVal, "path")
-                                if tomlVal.contains("system = true") or tomlVal.contains("system=true") {
+                                let isLegacySystemDep = tomlSection == "dependencies" and (tomlVal.contains("system = true") or tomlVal.contains("system=true"))
+                                let isNativeDepSection = tomlSection == "native.dependencies"
+                                if isLegacySystemDep or isNativeDepSection {
                                     tomlExtraLinkFlags = tomlExtraLinkFlags + " -l" + tomlKey
                                     if tomlDepPath != "" {
                                         let resolvedDepPath = resolveProjectPath(projectRoot, tomlDepPath)
@@ -2871,8 +3671,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                                     } else {
                                         println("    dep: " + tomlKey + " (system)")
                                     }
-                                } else if tomlDepPath != "" {
-                                    println("    dep: " + tomlKey + " (local path)")
                                 }
                             }
                             // [features] section: feature flags
@@ -4156,6 +4954,9 @@ fun checkCommand(inputFile: String) r: Int {
 // Returns 0 if all checks pass, 1 on any error.
 fun checkCommandWithProfile(inputFile: String, profile: String, language: String) r: Int {
     let resolvedInput = resolveRealInputPath(inputFile)
+    if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
+        return 1
+    }
     let sourceCode = readText(resolvedInput)
     if sourceCode == "" {
         println("[ERROR] Failed to read source: " + resolvedInput)
@@ -4492,6 +5293,7 @@ fun printUsage() r: Void {
     println("       seen ipa <executable> <AppName> [--bundle-id=...] [--version=...] [--provisioning-profile=...]")
     println("       seen translate <file> --from <lang> --to <lang> [-o <output>]")
     println("       seen import-c <header.h>")
+    println("       seen pkg <fetch|pack|publish> ...")
     println("       seen lsp")
     println("")
     println("Options:")
@@ -4936,6 +5738,10 @@ fun main() r: Int {
 
     if command == "import-c" {
         return importCCommand(argv)
+    }
+
+    if command == "pkg" {
+        return pkgCommand(argv)
     }
 
     println("Unknown command: " + command)

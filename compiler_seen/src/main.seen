@@ -12,6 +12,7 @@
 //   - "fmt"    → Basic source formatter (indent normalization)
 //   - "init"   → Project scaffolding
 //   - "import-c" → Generate Seen extern bindings from C headers
+//   - "pkg"    → Package workflow for fetch/pack/publish
 //
 // The LLVM backend path delegates to StageCompileSeenProgram (main_compiler.seen),
 // which handles multi-module IR generation, optimization, and linking.
@@ -21,7 +22,7 @@
 // passed through to the lexer's KeywordManager.
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, run_frontend, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote}
-import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang, compileCommandWithFullTargeting as StageCompileWithFullTargeting, readNearestSeenTomlForInput}
+import main_compiler.{compileCommand as StageCompileSeenProgram, compileCommandWithLanguage as StageCompileWithLang, compileCommandWithFullTargeting as StageCompileWithFullTargeting, readNearestSeenTomlForInput, pkgCommand as StagePkgCommand}
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import io.file.{readText, writeText}
@@ -173,8 +174,10 @@ fun main() r: Int {
     } else if command == "import-c" {
         let headerFile = requireArg(args, 2, "Error: import-c command requires a header file path")
         exit = importCCommand(headerFile)
+    } else if command == "pkg" {
+        exit = StagePkgCommand(GetRawCommandLineArgs())
     } else if command == "--version" or command == "-v" {
-        printLn("Seen 0.5.0 (100% self-hosted)")
+        printLn("Seen 0.6.0 (100% self-hosted)")
         printLn("Language: Seen")
         printLn("Targets: native, wasm, uww, c, llvm-ir")
         exit = 0
@@ -316,7 +319,7 @@ fun getDefaultOutput(sourceFile: String, target: Target) r: String {
 }
 
 fun printUsage() r: Void {
-    printLn("Seen 0.5.0 - 100% Self-hosted Compiler")
+    printLn("Seen 0.6.0 - 100% Self-hosted Compiler")
     printLn("")
     printLn("Usage: seen <command> [options]")
     printLn("")
@@ -328,6 +331,7 @@ fun printUsage() r: Void {
     printLn("  format <source.seen>          Format source code")
     printLn("  translate <file> --from <lang> --to <lang> [-o <out>]  Translate source")
     printLn("  import-c <header.h>           Generate extern bindings from C header")
+    printLn("  pkg <fetch|pack|publish>      Manage Seen source packages")
     printLn("  clean                         Remove build artifacts")
     printLn("  test                          Run test suite")
     printLn("  lsp                           Start language server")
@@ -907,7 +911,7 @@ fun initCommand(projectName: String) r: Int {
     }
 
     // Write Seen.toml
-    let tomlContent = "[project]\nname = \"" + projectName + "\"\nversion = \"0.1.0\"\n\n[dependencies]\n"
+    let tomlContent = "[project]\nname = \"" + projectName + "\"\nversion = \"0.1.0\"\n\n[registries]\ndefault = \"https://seen.yousef.codes/packages\"\n\n[dependencies]\n\n[native.dependencies]\n"
     if not myWriteText(projectName + "/Seen.toml", tomlContent) {
         printLn("Error: Could not write Seen.toml")
         return 1
@@ -1201,6 +1205,11 @@ fun importCCommand(headerFile: String) r: Int {
     printLn("// " + result.functionCount().toString() + " functions imported")
     printLn("// " + result.constantCount().toString() + " enum constants imported")
     return 0
+}
+
+// Converts runtime's raw args array to a List<String> for index-based CLI parsing.
+fun GetRawCommandLineArgs() r: Array<String> {
+    return args()
 }
 
 // Converts runtime's raw args array to a List<String> for index-based CLI parsing.

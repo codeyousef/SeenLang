@@ -117,6 +117,7 @@ seen build source.seen --fast      # Fast build (skip Polly, O1)
 seen run source.seen               # JIT execution
 seen check source.seen             # Type check only
 seen fmt source.seen               # Format code
+seen pkg fetch                     # Install package dependencies from Seen.toml
 seen lsp                           # Start language server
 ```
 

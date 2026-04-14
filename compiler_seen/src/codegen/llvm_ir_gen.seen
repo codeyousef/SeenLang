@@ -37,7 +37,7 @@
 //     cache mapping expression keys to register names. Searched backwards
 //     for most-recent-scope-first semantics.
 
-import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode}
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode, AnnotationNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, mlShouldInline, mlShouldInlineWeighted, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitLoopMetadataImpl, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
@@ -3397,9 +3397,13 @@ class LLVMIRGenerator {
             let program = programs[pi]
             var i = 0
             while i < program.items.length() {
-                let item = program.items[i]
-                if item.itemType == "Class" {
-                    generateClass(item.classNode)
+                if program.items[i].itemType == "Class" {
+                    if canUseLargePlainClassPath(program.items[i].classNode.parentName, program.items[i].classNode.decorators, program.items[i].classNode.methods) {
+                        generatePlainLargeClass(program.items[i].classNode.name, program.items[i].classNode.parentName, program.items[i].classNode.methods)
+                    } else {
+                        let item = program.items[i]
+                        generateClass(item.classNode)
+                    }
                 }
                 i = i + 1
             }
@@ -3869,9 +3873,13 @@ class LLVMIRGenerator {
         let classesStartTime = getIrgenTraceTimeSeconds()
         i = 0
         while i < program.items.length() {
-            let item = program.items[i]
-            if item.itemType == "Class" {
-                generateClass(item.classNode)
+            if program.items[i].itemType == "Class" {
+                if canUseLargePlainClassPath(program.items[i].classNode.parentName, program.items[i].classNode.decorators, program.items[i].classNode.methods) {
+                    generatePlainLargeClass(program.items[i].classNode.name, program.items[i].classNode.parentName, program.items[i].classNode.methods)
+                } else {
+                    let item = program.items[i]
+                    generateClass(item.classNode)
+                }
             }
             i = i + 1
         }
@@ -4566,6 +4574,53 @@ class LLVMIRGenerator {
         generateHotReloadMethodsImpl(output, classNode)
     }
 
+    fun canUseLargePlainClassPath(parentName: String, decorators: Array<AnnotationNode>, methods: Array<FunctionNode>) r: Bool {
+        if parentName != "" {
+            return false
+        }
+        if decorators.length() > 0 {
+            return false
+        }
+        if methods.length() < 128 {
+            return false
+        }
+        var methodIdx = 0
+        while methodIdx < methods.length() {
+            if methods[methodIdx].name == "__seen_hot_reload_marker__" {
+                return false
+            }
+            methodIdx = methodIdx + 1
+        }
+        return true
+    }
+
+    fun generatePlainLargeClass(className: String, parentName: String, methods: Array<FunctionNode>) r: Void {
+        if className == "" {
+            return
+        }
+
+        let isStringBuilder = className == "StringBuilder"
+
+        var methodIdx = 0
+        while methodIdx < methods.length() {
+            let methodName = methods[methodIdx].name
+            if methodName == "__seen_hot_reload_marker__" {
+                methodIdx = methodIdx + 1
+                continue
+            }
+            if isStringBuilder {
+                if methodName == "new" or methodName == "append" or methodName == "appendChar" or methodName == "toString" or methodName == "clear" or methodName == "length" {
+                    methodIdx = methodIdx + 1
+                    continue
+                }
+            }
+            generateClassMethodFromList(className, parentName, methods, methodIdx)
+            methodIdx = methodIdx + 1
+        }
+
+        g_currentClassParentName = ""
+    }
+
     // Generate IR for all methods of a class, plus derived implementations
     // (@derive, @reflect, @binary, @packet decorators). Skips @trait
     // definitions (which only generate default method implementations).
@@ -4796,20 +4851,20 @@ class LLVMIRGenerator {
         // Generate all methods for this class
         var i = 0
         while i < classNode.methods.length() {
-            let method = classNode.methods[i]
+            let methodName = classNode.methods[i].name
             // Skip the @hot_reload sentinel marker
-            if method.name == "__seen_hot_reload_marker__" {
+            if methodName == "__seen_hot_reload_marker__" {
                 i = i + 1
                 continue
             }
             // For StringBuilder, skip methods provided by C runtime
             if isStringBuilder {
-                if method.name == "new" or method.name == "append" or method.name == "appendChar" or method.name == "toString" or method.name == "clear" or method.name == "length" {
+                if methodName == "new" or methodName == "append" or methodName == "appendChar" or methodName == "toString" or methodName == "clear" or methodName == "length" {
                     i = i + 1
                     continue
                 }
             }
-            generateClassMethod(classNode, method)
+            generateClassMethodByIndex(classNode, i)
             i = i + 1
         }
 
@@ -4976,13 +5031,28 @@ class LLVMIRGenerator {
     // could match the same register numbers in method B (since each method
     // resets nextReg to 1), producing self-referential IR that causes LLVM
     // verification failures.
-    fun generateClassMethod(classNode: ClassNode, method: FunctionNode) r: Void {
-        if classNode.name == "JsonParseResult" or classNode.name == "JsonParser" or classNode.name == "LLVMIRGenerator" {
-            println("[irgen class method start] " + classNode.name + "." + method.name)
+    fun methodHasDecoratorInList(methods: Array<FunctionNode>, methodIdx: Int, decoratorName: String) r: Bool {
+        var decoratorIdx = 0
+        while decoratorIdx < methods[methodIdx].decorators.length() {
+            if methods[methodIdx].decorators[decoratorIdx].name == decoratorName {
+                return true
+            }
+            decoratorIdx = decoratorIdx + 1
+        }
+        return false
+    }
+
+    fun methodHasDecoratorByIndex(classNode: ClassNode, methodIdx: Int, decoratorName: String) r: Bool {
+        return methodHasDecoratorInList(classNode.methods, methodIdx, decoratorName)
+    }
+
+    fun generateClassMethodFromList(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
+        let methodName = methods[methodIdx].name
+        if className == "JsonParseResult" or className == "JsonParser" or className == "LLVMIRGenerator" {
+            println("[irgen class method start] " + className + "." + methodName)
         }
         // Handle Option class methods specially.
-        if classNode.name == "Option" or classNode.name.startsWith("Option<") {
-            let methodName = method.name
+        if className == "Option" or className.startsWith("Option<") {
             // Generate isSome/IsSome - load the hasValue field directly.
             if methodName == "isSome" or methodName == "IsSome" {
                 output.append("define i1 @Option_" + methodName + "(ptr %this) {\n")
@@ -5020,9 +5090,9 @@ class LLVMIRGenerator {
         activeVarCount = 0
         declOrdinalNames = Array<String>()
         declOrdinalCounts = Array<Int>()
-        currentFunctionReturnType = resolveMethodReturnType(classNode.name, method)
-        currentClassName = classNode.name  // Track class for method type inference
-        g_currentClassParentName = classNode.parentName
+        currentFunctionReturnType = resolveMethodReturnTypeFromList(className, methods, methodIdx)
+        currentClassName = className  // Track class for method type inference
+        g_currentClassParentName = parentName
         blockTerminated = false
         indent = 0  // Reset decorator state for each class method
         cseClear()  // CSE cache must not carry over between class methods (cross-method register collision)
@@ -5030,19 +5100,19 @@ class LLVMIRGenerator {
         // Pre-register parameter types for use during variable collection
         // (needed so inferExpressionType can find parameter types)
         // Also pre-register 'this' for instance methods (non-static)
-        let isStaticMethod = method.isStatic
+        let isStaticMethod = methods[methodIdx].isStatic
         if not isStaticMethod {
-            storeVar("this", "", classNode.name)
+            storeVar("this", "", className)
         }
         var preParamIdx = 0
-        while preParamIdx < method.params.length() {
-            let param = method.params[preParamIdx]
+        while preParamIdx < methods[methodIdx].params.length() {
+            let param = methods[methodIdx].params[preParamIdx]
             storeVar(param.name, "", normalizeDeclaredTypeNode(param.paramType))
             preParamIdx = preParamIdx + 1
         }
 
         // Collect all variable declarations for hoisting allocas to entry block
-        collectVariableDeclarations(method.body)
+        collectVariableDeclarations(methods[methodIdx].body)
 
         // Clear pre-registered parameters (will be re-added with proper registers)
         varNames = Array<String>()
@@ -5051,30 +5121,28 @@ class LLVMIRGenerator {
         activeVarCount = 0
 
         let returnType = mapType(currentFunctionReturnType)
-        let className = classNode.name
-        let methodName = method.name
 
         // Determine if this is a static method (name is "new" or has isStatic flag)
-        let isStatic = method.isStatic or methodName == "new"
+        let isStatic = methods[methodIdx].isStatic or methodName == "new"
 
         // Build method attributes
         var methodAttrs = ""
-        if method.isInline {
+        if methods[methodIdx].isInline {
             methodAttrs = " alwaysinline"
         }
-        if hasDecorator(method, "noinline") {
+        if methodHasDecoratorInList(methods, methodIdx, "noinline") {
             methodAttrs = " noinline"
         }
-        if hasDecorator(method, "cold") {
+        if methodHasDecoratorInList(methods, methodIdx, "cold") {
             methodAttrs = methodAttrs + " cold"
         }
-        if hasDecorator(method, "always_inline") {
+        if methodHasDecoratorInList(methods, methodIdx, "always_inline") {
             methodAttrs = " alwaysinline"
         }
-        if hasDecorator(method, "hot") {
+        if methodHasDecoratorInList(methods, methodIdx, "hot") {
             methodAttrs = methodAttrs + " hot"
         }
-        if hasDecorator(method, "pure") {
+        if methodHasDecoratorInList(methods, methodIdx, "pure") {
             methodAttrs = methodAttrs + " readonly nounwind"
         }
 
@@ -5090,7 +5158,7 @@ class LLVMIRGenerator {
             methodAttrs = methodAttrs + " norecurse"
             // Add inlinehint for small non-recursive methods (≤15 statements)
             // This encourages LLVM to inline hot accessor/checker methods like .check()
-            let methodBodySize = method.body.statements.length()
+            let methodBodySize = methods[methodIdx].body.statements.length()
             if methodBodySize <= 15 and not methodAttrs.contains("noinline") and not methodAttrs.contains("alwaysinline") {
                 methodAttrs = methodAttrs + " inlinehint"
             }
@@ -5115,8 +5183,8 @@ class LLVMIRGenerator {
         // (Python/Rust-style explicit self parameter)
         var explicitReceiverName = ""
         if not isStatic {
-            if method.params.length() > 0 {
-                let firstParam = method.params[0]
+            if methods[methodIdx].params.length() > 0 {
+                let firstParam = methods[methodIdx].params[0]
                 if firstParam.paramType.typeName == className {
                     if firstParam.name == "self" {
                         explicitReceiverName = "self"
@@ -5130,8 +5198,8 @@ class LLVMIRGenerator {
 
         // Other parameters (skip explicit receiver param — handled by implicit ptr %this)
         var paramIdx = 0
-        while paramIdx < method.params.length() {
-            let param = method.params[paramIdx]
+        while paramIdx < methods[methodIdx].params.length() {
+            let param = methods[methodIdx].params[paramIdx]
             var isExplicitReceiver = 0
             if param.name == explicitReceiverName {
                 if explicitReceiverName != "" {
@@ -5169,8 +5237,8 @@ class LLVMIRGenerator {
 
         // Allocate space for parameters and store them (skip explicit receiver)
         paramIdx = 0
-        while paramIdx < method.params.length() {
-            let param = method.params[paramIdx]
+        while paramIdx < methods[methodIdx].params.length() {
+            let param = methods[methodIdx].params[paramIdx]
             var isExplicitReceiver2 = 0
             if param.name == explicitReceiverName {
                 if explicitReceiverName != "" {
@@ -5285,7 +5353,7 @@ class LLVMIRGenerator {
         }
 
         // Generate method body
-        generateBlock(method.body)
+        generateBlock(methods[methodIdx].body)
 
         // For 'new' constructor: return the allocated object as i64
         if not blockTerminated {
@@ -5336,6 +5404,10 @@ class LLVMIRGenerator {
         }
 
         output.append("}\n\n")
+    }
+
+    fun generateClassMethodByIndex(classNode: ClassNode, methodIdx: Int) r: Void {
+        generateClassMethodFromList(classNode.name, classNode.parentName, classNode.methods, methodIdx)
     }
 
     fun emitStringConstants() r: Void {
@@ -14689,6 +14761,25 @@ class LLVMIRGenerator {
             return inferredType
         }
         return declaredType
+    }
+
+    fun resolveMethodReturnTypeFromList(className: String, methods: Array<FunctionNode>, methodIdx: Int) r: String {
+        let declaredType = normalizeDeclaredTypeNode(methods[methodIdx].returnType)
+        if declaredType != "" and declaredType != "Unknown" {
+            return declaredType
+        }
+        if methods[methodIdx].name == "new" {
+            return className
+        }
+        let inferredType = inferBlockReturnType(className, methods[methodIdx].body)
+        if inferredType != "" and inferredType != "Unknown" {
+            return inferredType
+        }
+        return declaredType
+    }
+
+    fun resolveMethodReturnTypeByIndex(classNode: ClassNode, methodIdx: Int) r: String {
+        return resolveMethodReturnTypeFromList(classNode.name, classNode.methods, methodIdx)
     }
 
     fun resolveFunctionReturnType(fn: FunctionNode) r: String {
