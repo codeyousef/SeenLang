@@ -1297,6 +1297,25 @@ class CImportGenerator {
                 } else {
                     sb.append("    return rawSigned\n")
                 }
+            } else if bitfieldUsesBitwiseLayout(bitfield) {
+                let bitOffsetLiteral = bitfield.bitOffset.toString()
+                let bitWidthLiteral = bitfield.bitWidth.toString()
+                sb.append("    let raw = (" + bitfieldLoadExpr(bitfield.storageBits, "storageAddr") + ") as UInt64\n")
+                sb.append("    let shifted = raw >> " + bitOffsetLiteral + "\n")
+                sb.append("    let mask: UInt64 = ((1 as UInt64) << " + bitWidthLiteral + ") - (1 as UInt64)\n")
+                sb.append("    let fieldUnsigned = shifted & mask\n")
+                if bitfield.isBool {
+                    sb.append("    return fieldUnsigned != (0 as UInt64)\n")
+                } else if bitfield.isSigned {
+                    let signWidthLiteral = (bitfield.bitWidth - 1).toString()
+                    sb.append("    let signMask: UInt64 = (1 as UInt64) << " + signWidthLiteral + "\n")
+                    sb.append("    if (fieldUnsigned & signMask) != (0 as UInt64) {\n")
+                    sb.append("        return (fieldUnsigned as Int) - ((1 as Int) << " + bitWidthLiteral + ")\n")
+                    sb.append("    }\n")
+                    sb.append("    return fieldUnsigned as Int\n")
+                } else {
+                    sb.append("    return fieldUnsigned as Int\n")
+                }
             } else if not usesArithmeticLayout {
                 sb.append("    // WARNING: helper omitted for unsupported bitfield layout\n")
                 if bitfield.isBool {
@@ -1341,6 +1360,23 @@ class CImportGenerator {
                 } else {
                     sb.append("    " + bitfieldStoreStatement(bitfield.storageBits, "storageAddr", "value") + "\n")
                 }
+            } else if bitfieldUsesBitwiseLayout(bitfield) {
+                let bitOffsetLiteral = bitfield.bitOffset.toString()
+                let bitWidthLiteral = bitfield.bitWidth.toString()
+                sb.append("    let raw = (" + bitfieldLoadExpr(bitfield.storageBits, "storageAddr") + ") as UInt64\n")
+                sb.append("    let mask: UInt64 = ((1 as UInt64) << " + bitWidthLiteral + ") - (1 as UInt64)\n")
+                sb.append("    let shiftedMask = mask << " + bitOffsetLiteral + "\n")
+                if bitfield.isBool {
+                    sb.append("    var normalized: UInt64 = 0 as UInt64\n")
+                    sb.append("    if value {\n")
+                    sb.append("        normalized = 1 as UInt64\n")
+                    sb.append("    }\n")
+                } else {
+                    sb.append("    let normalized = (value as UInt64) & mask\n")
+                }
+                sb.append("    let cleared = raw & (~shiftedMask)\n")
+                sb.append("    let merged = cleared | ((normalized << " + bitOffsetLiteral + ") & shiftedMask)\n")
+                sb.append("    ptr_store(storageAddr, merged as Int)\n")
             } else if not usesArithmeticLayout {
                 sb.append("    // WARNING: helper omitted for unsupported bitfield layout\n")
             } else {
@@ -1413,6 +1449,28 @@ class CImportGenerator {
             return false
         }
         if bitfield.bitWidth >= 63 {
+            return false
+        }
+        return true
+    }
+
+    fun bitfieldUsesBitwiseLayout(bitfield: CImportedBitfield) r: Bool {
+        if bitfield.storageBits <= 32 {
+            return false
+        }
+        if bitfield.storageBits > 64 {
+            return false
+        }
+        if bitfield.bitWidth <= 0 {
+            return false
+        }
+        if bitfield.bitWidth >= 64 {
+            return false
+        }
+        if bitfield.bitOffset < 0 {
+            return false
+        }
+        if bitfield.bitOffset + bitfield.bitWidth > bitfield.storageBits {
             return false
         }
         return true
