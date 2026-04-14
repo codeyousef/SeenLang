@@ -89,7 +89,7 @@ seen import-c <header.h>
 
 ```bash
 seen --version
-# Seen 1.0.0-alpha (100% self-hosted)
+# Seen 0.5.0 (100% self-hosted)
 ```
 
 ## Optimization Flags

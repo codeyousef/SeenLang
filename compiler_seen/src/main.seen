@@ -174,7 +174,7 @@ fun main() r: Int {
         let headerFile = requireArg(args, 2, "Error: import-c command requires a header file path")
         exit = importCCommand(headerFile)
     } else if command == "--version" or command == "-v" {
-        printLn("Seen 1.0.0-alpha (100% self-hosted)")
+        printLn("Seen 0.5.0 (100% self-hosted)")
         printLn("Language: Seen")
         printLn("Targets: native, wasm, uww, c, llvm-ir")
         exit = 0
@@ -316,7 +316,7 @@ fun getDefaultOutput(sourceFile: String, target: Target) r: String {
 }
 
 fun printUsage() r: Void {
-    printLn("Seen 1.0.0-alpha - 100% Self-hosted Compiler")
+    printLn("Seen 0.5.0 - 100% Self-hosted Compiler")
     printLn("")
     printLn("Usage: seen <command> [options]")
     printLn("")

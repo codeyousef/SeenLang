@@ -5,6 +5,35 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-14
+
+### Added
+
+#### `import-c` bindings and FFI layout support
+- Added `seen import-c <header.h>` to generate Seen bindings directly from C headers.
+- `import-c` now imports enum constants, typedef aliases, opaque handle aliases, named `struct` records as `@repr(C)` classes, named `union` records as `@union` classes, and function-pointer typedefs as typed Seen callback aliases.
+- Added lowering for inline C arrays to Seen fixed-size array types like `T[N]`, synthesized carrier types for anonymous structs/unions, and ABI-correct bitfield storage with generated getter/setter helpers for validated 32-bit and 64-bit storage groups.
+- Added focused regression coverage for `import-c` bootstrap availability, typedefs, unions, anonymous records, inline arrays, bitfields, real system headers (`string.h`, `stdio.h`, `vulkan.h`), `@llvm.global_ctors` fixup safety, and runtime Vulkan symbol gating.
+
+### Changed
+
+#### Compiler and bootstrap behavior
+- Seen now parses fixed-size type syntax `T[N]` through the parser, type sizing, index inference, and LLVM lowering so imported FFI layouts preserve inline-array ABI end to end.
+- Imported unions now lower as storage for their largest field type instead of an opaque byte array, improving generated layouts for C union bindings.
+- `import-c` now deduplicates redeclaration-heavy real-header AST dumps, reuses imported aliases and record types in generated fields/signatures, and uses bootstrap-safe `class` carriers for importer result/value objects.
+- `--no-fork` now serializes Pass 2b opt/object work as well as IR generation, reducing peak memory pressure during bootstrap rebuilds.
+- Added project notes documenting the HeartOn no-project-C groundwork and the remaining import-c/bootstrap follow-up work, and removed the obsolete `seen-fixes.md` scratch note.
+
+### Fixed
+
+#### Parser, import-c, and rebuild reliability
+- Fixed bootstrap parser construction so `RealParser.new()` no longer rebuilds the token array in a way that could cause bootstrap-built parsers to drop the entire token stream before parsing.
+- Fixed parser method-state handling by mutating `lastFunction` directly before pushing class methods, avoiding stale copies when marking parsed methods static, async, or override.
+- Fixed `import-c` handling of redeclaration-style real-header AST lines so imports no longer emit bogus helper bindings like `prev` / `referenced` when run on system headers.
+- `fix_ir.py` now inserts synthesized declarations at a stable top-level boundary instead of splitting multiline globals like `@llvm.global_ctors`, keeping rewritten IR valid.
+- `safe_rebuild.sh` now hardens low-memory rebuilds with bootstrap smoke fallback, preserved-compiler recovery, opt-wrapper memory caps, serialized low-memory opt execution, and cleaner retry temp-state resets.
+- Default runtime builds no longer export raw weak Vulkan `vk*` stubs that can shadow the real Vulkan loader; those stubs are now opt-in for bootstrap-only builds.
+
 ## [0.4.0] - 2026-04-09
 
 ### Added
