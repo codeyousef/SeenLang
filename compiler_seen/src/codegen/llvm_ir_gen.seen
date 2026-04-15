@@ -50,7 +50,7 @@ import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodRetur
 
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
-import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl}
+import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
 import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
@@ -7404,37 +7404,9 @@ class LLVMIRGenerator {
         }
     }
 
-    fun getLiteralWhileLoopBound(stmt: StatementNode) r: Int {
-        if stmt.loopCondition.kind == "Binary" {
-            if stmt.loopCondition.operator == "<" or stmt.loopCondition.operator == "<=" {
-                if stmt.loopCondition.operands.length() >= 2 {
-                    let boundExpr = stmt.loopCondition.operands[1]
-                    if boundExpr.kind == "Literal" and boundExpr.literalType == "Int" {
-                        return parseIntManual(boundExpr.literalValue)
-                    }
-                }
-            }
-        }
-        return -1
-    }
-
-    fun loopBodyHasNestedLoop(block: BlockNode) r: Bool {
-        var idx = 0
-        while idx < block.statements.length() {
-            let stmt = block.statements[idx]
-            if stmt.kind == "While" or stmt.kind == "For" or stmt.kind == "ForIn" {
-                return true
-            }
-            idx = idx + 1
-        }
-        return false
-    }
-
     fun emitLiteralBoundWhileHints(stmt: StatementNode, loopMetaId: Int, loopBoundLiteral: Int) r: Void {
-        if loopBoundLiteral > 64 {
-            var tileSize = loopBoundLiteral / 8
-            if tileSize > 32 { tileSize = 32 }
-            if tileSize < g_mlUnrollThreshold { tileSize = g_mlUnrollThreshold }
+        let tileSize = computeLoopTileSizeImpl(loopBoundLiteral, g_mlUnrollThreshold)
+        if tileSize > 0 {
             output.append("  ; loop tiling: bound=" + loopBoundLiteral.toString() + " → unroll.count=" + tileSize.toString() + "\n")
             g_loopsOptimized = g_loopsOptimized + 1
             appendLoopTileHint(loopMetaId, tileSize)
@@ -7445,7 +7417,7 @@ class LLVMIRGenerator {
             appendLoopTileHint(loopMetaId, -1)
             mlLogDecision("ml-vec", "skip", "bound:" + loopBoundLiteral.toString() + "<threshold:" + g_mlVectorizeThreshold.toString())
         }
-        if loopBoundLiteral > 0 and loopBoundLiteral <= 32 and not loopBodyHasNestedLoop(stmt.loopBody) and stmt.loopBody.statements.length() <= 8 {
+        if loopBoundLiteral > 0 and loopBoundLiteral <= 32 and not detectNestedLoopImpl(stmt.loopBody) and stmt.loopBody.statements.length() <= 8 {
             appendLoopTileHint(loopMetaId, -2)
             output.append("  ; small loop (bound=" + loopBoundLiteral.toString() + ", " + stmt.loopBody.statements.length().toString() + " stmts) → full unroll hint\n")
         }
@@ -7481,146 +7453,19 @@ class LLVMIRGenerator {
             licmIdx = licmIdx + 1
         }
 
-        var nestedLoopIdx = 0
-        while nestedLoopIdx < stmt.loopBody.statements.length() {
-            let nlStmt = stmt.loopBody.statements[nestedLoopIdx]
-            if nlStmt.kind == "While" {
-                output.append("  ; nested loop detected - interchange candidate\n")
-                g_loopsOptimized = g_loopsOptimized + 1
-                mlLogDecision("loop-interchange", "candidate", "nested-while")
-                appendNestedLoopMetadataId(loopMetaId)
-            }
-            nestedLoopIdx = nestedLoopIdx + 1
+        if detectNestedLoopImpl(stmt.loopBody) {
+            output.append("  ; nested loop detected - interchange candidate\n")
+            g_loopsOptimized = g_loopsOptimized + 1
+            mlLogDecision("loop-interchange", "candidate", "nested-loop")
+            appendNestedLoopMetadataId(loopMetaId)
         }
     }
 
     fun emitGcdPatternWhileHint(stmt: StatementNode, loopMetaId: Int) r: Void {
-        if stmt.loopCondition.kind == "Binary" and stmt.loopCondition.operator == ">" {
-            if stmt.loopCondition.operands.length() >= 2 {
-                let gcdBound = stmt.loopCondition.operands[1]
-                if gcdBound.kind == "Literal" and gcdBound.literalValue == "0" {
-                    var hasModuloAssign = false
-                    var gcdIdx = 0
-                    while gcdIdx < stmt.loopBody.statements.length() {
-                        let gcdStmt = stmt.loopBody.statements[gcdIdx]
-                        if gcdStmt.kind == "Expression" and gcdStmt.expression.kind == "Assignment" {
-                            if gcdStmt.expression.operands.length() > 0 {
-                                let gcdRHS = gcdStmt.expression.operands[0]
-                                if gcdRHS.kind == "Binary" and gcdRHS.operator == "%" {
-                                    hasModuloAssign = true
-                                }
-                            }
-                        }
-                        gcdIdx = gcdIdx + 1
-                    }
-                    if hasModuloAssign and stmt.loopBody.statements.length() <= 5 {
-                        appendLoopTileHint(loopMetaId, 8)
-                        output.append("  ; GCD-pattern loop → unroll.count=8\n")
-                    }
-                }
-            }
+        if detectGcdPatternImpl(stmt.loopCondition, stmt.loopBody) {
+            appendLoopTileHint(loopMetaId, 8)
+            output.append("  ; GCD-pattern loop → unroll.count=8\n")
         }
-    }
-
-    fun detectReductionVariable(block: BlockNode) r: String {
-        var riIdx = 0
-        while riIdx < block.statements.length() {
-            let riStmt = block.statements[riIdx]
-            if riStmt.kind == "Expression" and riStmt.expression.kind == "Assignment" {
-                let riAssignName = riStmt.expression.variableName
-                if riStmt.expression.operands.length() > 0 {
-                    let riRHS = riStmt.expression.operands[0]
-                    if riRHS.kind == "Binary" and (riRHS.operator == "+" or riRHS.operator == "*") {
-                        if riRHS.operands.length() >= 2 {
-                            let riLeft = riRHS.operands[0]
-                            var riLeftName = riLeft.literalValue
-                            if riLeftName == "" { riLeftName = riLeft.variableName }
-                            if (riLeft.kind == "Variable" or riLeft.kind == "VarExpr") and riLeftName == riAssignName {
-                                return riAssignName
-                            }
-                        }
-                    }
-                }
-            }
-            riIdx = riIdx + 1
-        }
-        return ""
-    }
-
-    fun detectInductionVariableName(block: BlockNode) r: String {
-        var ivIdx = 0
-        while ivIdx < block.statements.length() {
-            let ivStmt = block.statements[ivIdx]
-            if ivStmt.kind == "Expression" and ivStmt.expression.kind == "Assignment" {
-                let ivAssignName = ivStmt.expression.variableName
-                if ivStmt.expression.operands.length() > 0 {
-                    let ivRHS = ivStmt.expression.operands[0]
-                    if ivRHS.kind == "Binary" and (ivRHS.operator == "+" or ivRHS.operator == "-") {
-                        if ivRHS.operands.length() >= 2 {
-                            let ivLeft = ivRHS.operands[0]
-                            let ivRight = ivRHS.operands[1]
-                            var ivLeftName = ivLeft.literalValue
-                            if ivLeftName == "" { ivLeftName = ivLeft.variableName }
-                            if (ivLeft.kind == "Variable" or ivLeft.kind == "VarExpr") and ivLeftName == ivAssignName {
-                                if ivRight.kind == "Literal" and ivRight.literalValue == "1" {
-                                    return ivAssignName
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            ivIdx = ivIdx + 1
-        }
-        return ""
-    }
-
-    fun detectBreakFlagVariable(block: BlockNode) r: String {
-        if block.statements.length() < 2 {
-            return ""
-        }
-        var bfIdx = 0
-        while bfIdx < block.statements.length() {
-            let bfStmt = block.statements[bfIdx]
-            if bfStmt.kind == "If" and bfStmt.elseBranch.statements.length() == 0 {
-                if bfStmt.condition.kind == "Binary" and bfStmt.condition.operator == "==" {
-                    if bfStmt.condition.operands.length() >= 2 {
-                        let bfRight = bfStmt.condition.operands[1]
-                        if bfRight.kind == "Literal" and bfRight.literalValue == "0" {
-                            let bfLeft = bfStmt.condition.operands[0]
-                            var bfLeftName = bfLeft.literalValue
-                            if bfLeftName == "" { bfLeftName = bfLeft.variableName }
-                            var bfSetsFlag = false
-                            var bfCheckIdx = 0
-                            while bfCheckIdx < bfStmt.thenBranch.statements.length() {
-                                let bfCheckSt = bfStmt.thenBranch.statements[bfCheckIdx]
-                                if bfCheckSt.kind == "Expression" and bfCheckSt.expression.kind == "Assignment" {
-                                    if bfCheckSt.expression.variableName == bfLeftName {
-                                        if bfCheckSt.expression.operands.length() > 0 {
-                                            let bfVal = bfCheckSt.expression.operands[0]
-                                            if bfVal.kind == "Literal" and bfVal.literalValue == "1" {
-                                                bfSetsFlag = true
-                                            }
-                                        }
-                                    }
-                                }
-                                if bfCheckSt.kind == "Assignment" and bfCheckSt.variableName == bfLeftName {
-                                    if bfCheckSt.initializer.kind == "Literal" and bfCheckSt.initializer.literalValue == "1" {
-                                        bfSetsFlag = true
-                                    }
-                                }
-                                bfCheckIdx = bfCheckIdx + 1
-                            }
-                            if bfSetsFlag and bfLeftName != "" {
-                                return bfLeftName
-                            }
-                        }
-                    }
-                }
-            }
-            bfIdx = bfIdx + 1
-        }
-        return ""
     }
 
     fun emitWhileConditionBranch(condReg: String, breakFlagVar: String, bodyLabel: String, endLabel: String) r: Void {
@@ -7641,152 +7486,72 @@ class LLVMIRGenerator {
     }
 
     fun tryEmitMemcpyOptimizedWhileLoop(stmt: StatementNode, condLabel: String, bodyLabel: String, endLabel: String, savedCondLabel: String, savedEndLabel: String) r: Bool {
-        var memcpyDetected = 0
-        var mcBoundIsLargeLiteral = 0
-        if stmt.loopCondition.kind == "Binary" and stmt.loopCondition.operator == "<" {
-            if stmt.loopCondition.operands.length() >= 2 {
-                let mcBoundCheck = stmt.loopCondition.operands[1]
-                if mcBoundCheck.kind == "Literal" and mcBoundCheck.literalType == "Int" {
-                    let mcBoundVal = parseIntManual(mcBoundCheck.literalValue)
-                    if mcBoundVal >= 64 {
-                        mcBoundIsLargeLiteral = 1
-                    }
-                }
-            }
-        }
-        if mcBoundIsLargeLiteral == 1 and stmt.loopCondition.kind == "Binary" and stmt.loopCondition.operator == "<" {
-            if stmt.loopBody.statements.length() == 2 {
-                let mcStmt0 = stmt.loopBody.statements[0]
-                let mcStmt1 = stmt.loopBody.statements[1]
-                var mcIsIdxAssign = 0
-                if mcStmt0.kind == "Expression" and mcStmt0.expression.kind == "IndexAssignment" {
-                    mcIsIdxAssign = 1
-                }
-                var mcIsIncrement = 0
-                var mcIncrVarName = ""
-                if mcStmt1.kind == "Expression" and mcStmt1.expression.kind == "Assignment" {
-                    mcIncrVarName = mcStmt1.expression.variableName
-                    if mcStmt1.expression.operands.length() > 0 {
-                        let mcIncrRHS = mcStmt1.expression.operands[0]
-                        if mcIncrRHS.kind == "Binary" and mcIncrRHS.operator == "+" {
-                            if mcIncrRHS.operands.length() >= 2 {
-                                let mcIncrLeft = mcIncrRHS.operands[0]
-                                let mcIncrRight = mcIncrRHS.operands[1]
-                                var mcIncrLeftName = mcIncrLeft.literalValue
-                                if mcIncrLeftName == "" { mcIncrLeftName = mcIncrLeft.variableName }
-                                if mcIncrLeftName == mcIncrVarName and mcIncrRight.kind == "Literal" and mcIncrRight.literalValue == "1" {
-                                    mcIsIncrement = 1
-                                }
-                            }
-                        }
-                    }
-                }
-                if mcIsIdxAssign == 1 and mcIsIncrement == 1 {
-                    let mcIdxAssign = mcStmt0.expression
-                    let mcLHSAccess = mcIdxAssign.operands[0]
-                    let mcRHSExpr = mcIdxAssign.operands[1]
-                    let mcLHSArr = mcLHSAccess.operands[0]
-                    let mcLHSIdx = mcLHSAccess.operands[1]
-                    var mcLHSArrName = mcLHSArr.literalValue
-                    if mcLHSArrName == "" { mcLHSArrName = mcLHSArr.variableName }
-                    var mcLHSIdxName = mcLHSIdx.literalValue
-                    if mcLHSIdxName == "" { mcLHSIdxName = mcLHSIdx.variableName }
-                    var mcCondVarName = ""
-                    if stmt.loopCondition.operands.length() >= 2 {
-                        let mcCondLeft = stmt.loopCondition.operands[0]
-                        mcCondVarName = mcCondLeft.literalValue
-                        if mcCondVarName == "" { mcCondVarName = mcCondLeft.variableName }
-                    }
-                    if mcLHSIdxName == mcIncrVarName and mcCondVarName == mcIncrVarName {
-                        if mcRHSExpr.kind == "IndexAccess" {
-                            let mcRHSArr = mcRHSExpr.operands[0]
-                            let mcRHSIdx = mcRHSExpr.operands[1]
-                            var mcRHSArrName = mcRHSArr.literalValue
-                            if mcRHSArrName == "" { mcRHSArrName = mcRHSArr.variableName }
-                            var mcRHSIdxName = ""
-                            if mcRHSIdx.kind == "Variable" or mcRHSIdx.kind == "VarExpr" {
-                                mcRHSIdxName = mcRHSIdx.literalValue
-                                if mcRHSIdxName == "" { mcRHSIdxName = mcRHSIdx.variableName }
-                            }
-                            if mcRHSIdxName == mcIncrVarName and mcLHSArrName != mcRHSArrName {
-                                let mcDstType = findVarType(mcLHSArrName)
-                                let mcSrcType = findVarType(mcRHSArrName)
-                                if mcDstType == "Array<Int>" and mcSrcType == "Array<Int>" {
-                                    let mcBoundExpr = stmt.loopCondition.operands[1]
-                                    let mcBoundReg = generateExpression(mcBoundExpr)
-                                    let mcDstIdx = findVar(mcLHSArrName)
-                                    let mcSrcIdx = findVar(mcRHSArrName)
-                                    if mcDstIdx >= 0 and mcSrcIdx >= 0 {
-                                        let mcDstPtr = getNextReg()
-                                        output.append("  " + mcDstPtr + " = load ptr, ptr " + varRegs[mcDstIdx] + "\n")
-                                        let mcSrcPtr = getNextReg()
-                                        output.append("  " + mcSrcPtr + " = load ptr, ptr " + varRegs[mcSrcIdx] + "\n")
-                                        let mcDstPP = getNextReg()
-                                        output.append("  " + mcDstPP + " = getelementptr inbounds %SeenArray, ptr " + mcDstPtr + ", i32 0, i32 3\n")
-                                        let mcDstData = getNextReg()
-                                        output.append("  " + mcDstData + " = load ptr, ptr " + mcDstPP + ", !tbaa !104\n")
-                                        let mcSrcPP = getNextReg()
-                                        output.append("  " + mcSrcPP + " = getelementptr inbounds %SeenArray, ptr " + mcSrcPtr + ", i32 0, i32 3\n")
-                                        let mcSrcData = getNextReg()
-                                        output.append("  " + mcSrcData + " = load ptr, ptr " + mcSrcPP + ", !tbaa !104\n")
-                                        let mcByteCount = getNextReg()
-                                        output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
-                                        output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + mcDstData + ", ptr " + mcSrcData + ", i64 " + mcByteCount + ", i1 false)\n")
-                                        let mcLoopVarIdx = findVar(mcIncrVarName)
-                                        if mcLoopVarIdx >= 0 {
-                                            output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
-                                        }
-                                        output.append("  ; memcpy optimization: " + mcLHSArrName + "[i] = " + mcRHSArrName + "[i] → llvm.memcpy\n")
-                                        mlLogDecision("memcpy", "applied", mcLHSArrName + "<-" + mcRHSArrName)
-                                        g_loopsOptimized = g_loopsOptimized + 1
-                                        memcpyDetected = 1
-                                    }
-                                }
-                            }
-                            if mcLHSArrName == mcRHSArrName and mcRHSIdx.kind == "Binary" {
-                                if mcRHSIdx.operator == "+" and mcRHSIdx.operands.length() >= 2 {
-                                    let mcShiftLeft = mcRHSIdx.operands[0]
-                                    let mcShiftRight = mcRHSIdx.operands[1]
-                                    var mcShiftLeftName = mcShiftLeft.literalValue
-                                    if mcShiftLeftName == "" { mcShiftLeftName = mcShiftLeft.variableName }
-                                    if mcShiftLeftName == mcIncrVarName and mcShiftRight.kind == "Literal" and mcShiftRight.literalValue == "1" {
-                                        let mcArrType = findVarType(mcLHSArrName)
-                                        if mcArrType == "Array<Int>" {
-                                            let mcBoundExpr2 = stmt.loopCondition.operands[1]
-                                            let mcBoundReg2 = generateExpression(mcBoundExpr2)
-                                            let mcArrIdx2 = findVar(mcLHSArrName)
-                                            if mcArrIdx2 >= 0 {
-                                                let mcArrPtr2 = getNextReg()
-                                                output.append("  " + mcArrPtr2 + " = load ptr, ptr " + varRegs[mcArrIdx2] + "\n")
-                                                let mcDP2 = getNextReg()
-                                                output.append("  " + mcDP2 + " = getelementptr inbounds %SeenArray, ptr " + mcArrPtr2 + ", i32 0, i32 3\n")
-                                                let mcData2 = getNextReg()
-                                                output.append("  " + mcData2 + " = load ptr, ptr " + mcDP2 + ", !tbaa !104\n")
-                                                let mcSrc2 = getNextReg()
-                                                output.append("  " + mcSrc2 + " = getelementptr i64, ptr " + mcData2 + ", i64 1\n")
-                                                let mcBytes2 = getNextReg()
-                                                output.append("  " + mcBytes2 + " = shl nsw i64 " + mcBoundReg2 + ", 3\n")
-                                                output.append("  call void @llvm.memmove.p0.p0.i64(ptr " + mcData2 + ", ptr " + mcSrc2 + ", i64 " + mcBytes2 + ", i1 false)\n")
-                                                let mcLoopVarIdx2 = findVar(mcIncrVarName)
-                                                if mcLoopVarIdx2 >= 0 {
-                                                    output.append("  store i64 " + mcBoundReg2 + ", ptr " + varRegs[mcLoopVarIdx2] + "\n")
-                                                }
-                                                output.append("  ; memmove optimization: " + mcLHSArrName + "[i] = " + mcLHSArrName + "[i+1] → llvm.memmove\n")
-                                                mlLogDecision("memmove", "applied", mcLHSArrName + "[i]<-[i+1]")
-                                                g_loopsOptimized = g_loopsOptimized + 1
-                                                memcpyDetected = 1
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if memcpyDetected == 0 {
+        let memcpyInfo = Array<String>()
+        let memcpyKind = detectMemcpyPatternImpl(stmt.loopCondition, stmt.loopBody, memcpyInfo)
+        if memcpyKind == 0 or memcpyInfo.length() < 3 {
             return false
+        }
+        let mcLHSArrName = memcpyInfo[0]
+        let mcRHSArrName = memcpyInfo[1]
+        let mcIncrVarName = memcpyInfo[2]
+        let mcBoundExpr = stmt.loopCondition.operands[1]
+        let mcBoundReg = generateExpression(mcBoundExpr)
+
+        if memcpyKind == 1 {
+            let mcDstType = findVarType(mcLHSArrName)
+            let mcSrcType = findVarType(mcRHSArrName)
+            let mcDstIdx = findVar(mcLHSArrName)
+            let mcSrcIdx = findVar(mcRHSArrName)
+            if mcDstType != "Array<Int>" or mcSrcType != "Array<Int>" or mcDstIdx < 0 or mcSrcIdx < 0 {
+                return false
+            }
+            let mcDstPtr = getNextReg()
+            output.append("  " + mcDstPtr + " = load ptr, ptr " + varRegs[mcDstIdx] + "\n")
+            let mcSrcPtr = getNextReg()
+            output.append("  " + mcSrcPtr + " = load ptr, ptr " + varRegs[mcSrcIdx] + "\n")
+            let mcDstPP = getNextReg()
+            output.append("  " + mcDstPP + " = getelementptr inbounds %SeenArray, ptr " + mcDstPtr + ", i32 0, i32 3\n")
+            let mcDstData = getNextReg()
+            output.append("  " + mcDstData + " = load ptr, ptr " + mcDstPP + ", !tbaa !104\n")
+            let mcSrcPP = getNextReg()
+            output.append("  " + mcSrcPP + " = getelementptr inbounds %SeenArray, ptr " + mcSrcPtr + ", i32 0, i32 3\n")
+            let mcSrcData = getNextReg()
+            output.append("  " + mcSrcData + " = load ptr, ptr " + mcSrcPP + ", !tbaa !104\n")
+            let mcByteCount = getNextReg()
+            output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
+            output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + mcDstData + ", ptr " + mcSrcData + ", i64 " + mcByteCount + ", i1 false)\n")
+            let mcLoopVarIdx = findVar(mcIncrVarName)
+            if mcLoopVarIdx >= 0 {
+                output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
+            }
+            output.append("  ; memcpy optimization: " + mcLHSArrName + "[i] = " + mcRHSArrName + "[i] → llvm.memcpy\n")
+            mlLogDecision("memcpy", "applied", mcLHSArrName + "<-" + mcRHSArrName)
+            g_loopsOptimized = g_loopsOptimized + 1
+        }
+        if memcpyKind == 2 {
+            let mcArrType = findVarType(mcLHSArrName)
+            let mcArrIdx = findVar(mcLHSArrName)
+            if mcArrType != "Array<Int>" or mcArrIdx < 0 {
+                return false
+            }
+            let mcArrPtr = getNextReg()
+            output.append("  " + mcArrPtr + " = load ptr, ptr " + varRegs[mcArrIdx] + "\n")
+            let mcDataPtrPtr = getNextReg()
+            output.append("  " + mcDataPtrPtr + " = getelementptr inbounds %SeenArray, ptr " + mcArrPtr + ", i32 0, i32 3\n")
+            let mcData = getNextReg()
+            output.append("  " + mcData + " = load ptr, ptr " + mcDataPtrPtr + ", !tbaa !104\n")
+            let mcSrc = getNextReg()
+            output.append("  " + mcSrc + " = getelementptr i64, ptr " + mcData + ", i64 1\n")
+            let mcByteCount = getNextReg()
+            output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
+            output.append("  call void @llvm.memmove.p0.p0.i64(ptr " + mcData + ", ptr " + mcSrc + ", i64 " + mcByteCount + ", i1 false)\n")
+            let mcLoopVarIdx = findVar(mcIncrVarName)
+            if mcLoopVarIdx >= 0 {
+                output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
+            }
+            output.append("  ; memmove optimization: " + mcLHSArrName + "[i] = " + mcLHSArrName + "[i+1] → llvm.memmove\n")
+            mlLogDecision("memmove", "applied", mcLHSArrName + "[i]<-[i+1]")
+            g_loopsOptimized = g_loopsOptimized + 1
         }
         output.append("  br label %" + endLabel + "\n")
         output.append(condLabel + ":\n")
@@ -7824,14 +7589,14 @@ class LLVMIRGenerator {
             return
         }
 
-        let loopBoundLiteral = getLiteralWhileLoopBound(stmt)
+        let loopBoundLiteral = detectLoopBoundImpl(stmt.loopCondition)
         if loopBoundLiteral >= 0 {
             emitLiteralBoundWhileHints(stmt, loopMetaId, loopBoundLiteral)
         }
         emitWhileLoopInvariantAnnotations(stmt, loopMetaId)
         emitGcdPatternWhileHint(stmt, loopMetaId)
 
-        let reductionVar = detectReductionVariable(stmt.loopBody)
+        let reductionVar = detectReductionPatternImpl(stmt.loopBody)
         if reductionVar != "" {
             let reductionType = "sum"
             output.append("  ; reduction chain detected: " + reductionType + " on " + reductionVar + " → 2x vectorize width\n")
@@ -7841,13 +7606,13 @@ class LLVMIRGenerator {
         }
 
         let savedInductionVarName = g_inductionVarName
-        let inductionVarName = detectInductionVariableName(stmt.loopBody)
+        let inductionVarName = detectInductionVarImpl(stmt.loopBody)
         if inductionVarName != "" {
             output.append("  ; induction variable: " + inductionVarName + " → nsw\n")
             g_inductionVarName = inductionVarName
         }
 
-        let breakFlagVar = detectBreakFlagVariable(stmt.loopBody)
+        let breakFlagVar = detectBreakOnFlagImpl(stmt.loopBody)
         if breakFlagVar != "" {
             output.append("  ; break-on-flag: " + breakFlagVar + " → early loop exit\n")
             mlLogDecision("break-flag", "early-exit", breakFlagVar)
