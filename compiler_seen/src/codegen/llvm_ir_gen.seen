@@ -13881,6 +13881,528 @@ class LLVMIRGenerator {
         return declaredType
     }
 
+    fun inferVariableExprTypeLocal(expr: ParserExpressionNode) r: String {
+        let varName = getExprVariableName(expr)
+        let varType = findVarType(varName)
+        if varType != "" {
+            return varType
+        }
+        let constIdx = findModuleConstant(varName)
+        if constIdx >= 0 {
+            let constType = moduleConstantTypes[constIdx]
+            let seenType = getModuleConstSeenType(constIdx)
+            if seenType != "" {
+                return seenType
+            }
+            if constType == "i64" {
+                return "Int"
+            }
+            if constType == "double" {
+                return "Float"
+            }
+            if constType == "i1" {
+                return "Bool"
+            }
+            if constType == "%SeenString" {
+                return "String"
+            }
+            return "Int"
+        }
+        let thisIdx = findVar("this")
+        if thisIdx >= 0 {
+            let thisType = varTypes[thisIdx]
+            if thisType == "LLVMIRGenerator" {
+                let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+                if idxCheck >= 0 {
+                    return getSeenFieldType(thisType, varName)
+                }
+            }
+            let structIdx = findStruct(thisType)
+            if structIdx >= 0 {
+                let fieldIdx = getFieldInfo(thisType, varName)
+                if fieldIdx >= 0 {
+                    return getSeenFieldType(thisType, varName)
+                }
+            }
+        }
+        let vn = varName
+        if vn == "Int8" or vn == "UInt8" or vn == "Int16" or vn == "UInt16" or vn == "Int32" or vn == "UInt32" or vn == "Int64" or vn == "UInt64" or vn == "Float32" {
+            return vn
+        }
+        return ""
+    }
+
+    fun inferBinaryExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.operands.length() >= 2 {
+            let binLeftType = inferExpressionType(expr.operands[0])
+            if isSimdVectorType(binLeftType) == 1 {
+                return binLeftType
+            }
+        }
+        if expr.operator == "==" or expr.operator == "!=" or expr.operator == "<" or expr.operator == ">" or expr.operator == "<=" or expr.operator == ">=" or expr.operator == "and" or expr.operator == "or" {
+            return "Bool"
+        }
+        if expr.operator == "+" {
+            if expr.operands.length() >= 2 {
+                let leftExpr = expr.operands[0]
+                let rightExpr = expr.operands[1]
+                if leftExpr.kind == "Literal" and leftExpr.literalType == "String" {
+                    return "String"
+                }
+                if rightExpr.kind == "Literal" and rightExpr.literalType == "String" {
+                    return "String"
+                }
+                let leftType = inferExpressionType(expr.operands[0])
+                if leftType == "String" {
+                    return "String"
+                }
+                let rightType = inferExpressionType(expr.operands[1])
+                if rightType == "String" {
+                    return "String"
+                }
+                if leftType == "Float" or rightType == "Float" {
+                    return "Float"
+                }
+            }
+        }
+        if expr.operator == "-" or expr.operator == "*" or expr.operator == "/" or expr.operator == "%" {
+            if expr.operands.length() >= 2 {
+                let leftType = inferExpressionType(expr.operands[0])
+                let rightType = inferExpressionType(expr.operands[1])
+                if leftType == "Float" or rightType == "Float" {
+                    return "Float"
+                }
+            }
+        }
+        var opSuffix = ""
+        if expr.operator == "+" { opSuffix = "operator_add" }
+        if opSuffix == "" and expr.operator == "-" { opSuffix = "operator_sub" }
+        if opSuffix == "" and expr.operator == "*" { opSuffix = "operator_mul" }
+        if opSuffix == "" and expr.operator == "/" { opSuffix = "operator_div" }
+        if opSuffix == "" and expr.operator == "%" { opSuffix = "operator_mod" }
+        if opSuffix == "" and expr.operator == "==" { opSuffix = "operator_eq" }
+        if opSuffix == "" and expr.operator == "!=" { opSuffix = "operator_neq" }
+        if opSuffix == "" and expr.operator == "<" { opSuffix = "operator_lt" }
+        if opSuffix == "" and expr.operator == ">" { opSuffix = "operator_gt" }
+        if opSuffix == "" and expr.operator == "<=" { opSuffix = "operator_lte" }
+        if opSuffix == "" and expr.operator == ">=" { opSuffix = "operator_gte" }
+        if opSuffix != "" {
+            if expr.operands.length() >= 1 {
+                let leftOpType = inferExpressionType(expr.operands[0])
+                let opFuncN = leftOpType + "_" + opSuffix
+                let opRetT = getFunctionReturnType(opFuncN)
+                if opRetT != "" {
+                    return opRetT
+                }
+            }
+        }
+        return "Int"
+    }
+
+    fun inferMethodCallExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if currentClassName != "" and expr.literalValue == "this" {
+            let registryRetType = getMethodReturnType(currentClassName, expr.callee)
+            if registryRetType != "" {
+                return registryRetType
+            }
+        }
+        if expr.literalValue == "" and expr.operands.length() == 0 {
+            if currentClassName != "" {
+                let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
+                if implicitMethodRetType != "" {
+                    return implicitMethodRetType
+                }
+            }
+            let freeFuncRetType = getFunctionReturnType(expr.callee)
+            if freeFuncRetType != "" {
+                if isAsyncFunction(expr.callee) {
+                    return "ptr"
+                }
+                return freeFuncRetType
+            }
+        }
+        if expr.literalValue != "" and expr.literalValue != "this" {
+            let recVarType = findVarType(expr.literalValue)
+            if recVarType != "" {
+                let registryRetType = getMethodReturnType(recVarType, expr.callee)
+                if registryRetType != "" {
+                    return registryRetType
+                }
+            }
+            if recVarType == "" {
+                let staticOwnerType = getBaseTypeName(expr.literalValue)
+                var staticRetType = getMethodReturnType(expr.literalValue, expr.callee)
+                if staticRetType == "" and staticOwnerType != expr.literalValue {
+                    staticRetType = getMethodReturnType(staticOwnerType, expr.callee)
+                }
+                if staticRetType != "" {
+                    return staticRetType
+                }
+            }
+        }
+        if expr.operands.length() > 0 {
+            let recExprType = inferExpressionType(expr.operands[0])
+            if expr.callee == "get" and (recExprType.startsWith("Vec<") or recExprType.startsWith("BTreeMap<")) {
+                let debugRetType = getMethodReturnType(recExprType, expr.callee)
+                traceGen("inferExpressionType: MethodCall get() receiver type=" + recExprType + " -> " + debugRetType)
+            }
+            if recExprType != "" {
+                let registryRetType = getMethodReturnType(recExprType, expr.callee)
+                if registryRetType != "" {
+                    return registryRetType
+                }
+            }
+        }
+        if expr.callee == "new" {
+            return expr.literalValue
+        }
+        if expr.callee == "withCapacity" {
+            let capacityOwnerType = getBaseTypeName(expr.literalValue)
+            if capacityOwnerType == "Vec" or capacityOwnerType == "HashMap" or capacityOwnerType == "BTreeMap" or capacityOwnerType == "LinkedList" or capacityOwnerType == "StringHashMap" {
+                return expr.literalValue
+            }
+        }
+        if (expr.callee == "withLength" or expr.callee == "withCapacity") and expr.literalValue.startsWith("Array") {
+            return expr.literalValue
+        }
+        if expr.callee == "toUpperCase" or expr.callee == "toLowerCase" or expr.callee == "abs" or expr.callee == "min" or expr.callee == "max" or expr.callee == "clamp" or expr.callee == "floor" or expr.callee == "ceil" or expr.callee == "round" or expr.callee == "sqrt" or expr.callee == "first" or expr.callee == "last" or expr.callee == "remove" {
+            var recTypeForImpl = ""
+            if expr.operands.length() > 0 {
+                recTypeForImpl = inferExpressionType(expr.operands[0])
+            }
+            if recTypeForImpl == "" and expr.literalValue != "" {
+                recTypeForImpl = findVarType(expr.literalValue)
+            }
+            let implResult = inferReceiverMethodTypeImpl(expr.callee, recTypeForImpl)
+            if implResult != "" {
+                return implResult
+            }
+        }
+        let mcTable = inferMethodCallTypeTable(expr.callee)
+        if mcTable != "" { return mcTable }
+        if expr.callee == "fromJson" {
+            if expr.literalValue != "" and expr.literalValue != "this" {
+                let staticRetType = getMethodReturnType(expr.literalValue, "fromJson")
+                if staticRetType != "" {
+                    return staticRetType
+                }
+            }
+            return "ptr"
+        }
+        if expr.callee == "get" {
+            var recType = ""
+            if expr.operands.length() > 0 {
+                recType = inferExpressionType(expr.operands[0])
+            }
+            if recType == "" and expr.literalValue != "" {
+                if expr.literalValue.contains(".") {
+                    recType = resolveChainedPathType(expr.literalValue)
+                }
+                if recType == "" {
+                    recType = findVarType(expr.literalValue)
+                }
+                if recType == "" {
+                    let thisIdx = findVar("this")
+                    if thisIdx >= 0 {
+                        let thisType = varTypes[thisIdx]
+                        recType = getSemanticFieldType(thisType, expr.literalValue)
+                        if recType == "" {
+                            recType = getSeenFieldType(thisType, expr.literalValue)
+                        }
+                    }
+                }
+            }
+            traceGen("inferExpressionType: get() recType=" + recType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
+            let isCollectionGet = recType.startsWith("Array<") or recType.startsWith("Vec<") or recType.startsWith("HashMap<") or recType.startsWith("StringHashMap<") or recType.startsWith("BTreeMap<") or recType.startsWith("Map<") or recType == ""
+            if isCollectionGet {
+                let collGetType = resolveCollectionGetTypeImpl(recType)
+                if collGetType != "" {
+                    return collGetType
+                }
+                return "Option<Int>"
+            }
+        }
+        if expr.callee == "pop" {
+            var popRecType = ""
+            if expr.operands.length() > 0 {
+                popRecType = inferExpressionType(expr.operands[0])
+            }
+            if popRecType == "" and expr.literalValue != "" {
+                popRecType = findVarType(expr.literalValue)
+            }
+            let popResult = resolvePopElementTypeImpl(popRecType)
+            if popResult != "" {
+                return popResult
+            }
+            return "Int"
+        }
+        if expr.callee == "unwrap" {
+            var recType = ""
+            if expr.operands.length() > 0 {
+                recType = inferExpressionType(expr.operands[0])
+            }
+            if recType == "" and expr.literalValue != "" {
+                recType = findVarType(expr.literalValue)
+                if recType == "" and expr.literalValue.contains(".") {
+                    recType = resolveChainedPathType(expr.literalValue)
+                }
+            }
+            var isClassInner = 0
+            if isClassType(recType) { isClassInner = 1 }
+            let unwrapResult = resolveUnwrapTypeImpl(recType, isClassInner)
+            if unwrapResult != "" {
+                return unwrapResult
+            }
+            return "ptr"
+        }
+        var receiverType = ""
+        var receiverTypeResolved = false
+        if expr.operands.length() > 0 {
+            receiverType = inferExpressionType(expr.operands[0])
+            receiverTypeResolved = true
+        }
+        if not receiverTypeResolved {
+            let varIdx = findVar(expr.literalValue)
+            var varIdxHandled = false
+            if varIdx >= 0 {
+                receiverType = varTypes[varIdx]
+                varIdxHandled = true
+            }
+            if not varIdxHandled {
+                let thisIdx = findVar("this")
+                if thisIdx >= 0 {
+                    let thisType = varTypes[thisIdx]
+                    var fieldType = getSemanticFieldType(thisType, expr.literalValue)
+                    if fieldType == "" {
+                        fieldType = getSeenFieldType(thisType, expr.literalValue)
+                    }
+                    if fieldType != "Int" or expr.literalValue == "length" {
+                        receiverType = fieldType
+                    }
+                }
+                if receiverType == "" and expr.literalValue.contains(".") {
+                    receiverType = resolveChainedPathType(expr.literalValue)
+                }
+            }
+        }
+        if receiverType != "" {
+            if isSimdVectorType(receiverType) == 1 {
+                if expr.callee == "reduce_add" or expr.callee == "reduce_min" or expr.callee == "reduce_max" {
+                    if receiverType.startsWith("f32") or receiverType.startsWith("f64") {
+                        return "Float"
+                    }
+                    return "Int"
+                }
+            }
+            let methodRetType = getMethodReturnType(receiverType, expr.callee)
+            if methodRetType != "" {
+                return methodRetType
+            }
+        }
+        if currentClassName != "" {
+            let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
+            if implicitMethodRetType != "" {
+                return implicitMethodRetType
+            }
+        }
+        let freeFuncRetType = getFunctionReturnType(expr.callee)
+        if freeFuncRetType != "" {
+            if isAsyncFunction(expr.callee) {
+                return "ptr"
+            }
+            return freeFuncRetType
+        }
+        let boolSuffix = "_" + expr.callee
+        var boolScanIdx = funcNames.length() - 1
+        while boolScanIdx >= 0 {
+            if funcNames[boolScanIdx].endsWith(boolSuffix) {
+                if funcRetTypes[boolScanIdx] == "Bool" {
+                    return "Bool"
+                }
+                boolScanIdx = 0 - 1
+            }
+            boolScanIdx = boolScanIdx - 1
+        }
+        return ""
+    }
+
+    fun inferCallExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if isSimdVectorType(expr.callee) == 1 {
+            return expr.callee
+        }
+        if expr.callee.endsWith("_new") {
+            let baseType = expr.callee.substring(0, expr.callee.length() - 4)
+            if isClassType(baseType) or isDataType(baseType) or findStruct(baseType) >= 0 {
+                return baseType
+            }
+        }
+        if expr.callee.endsWith("_fromJson") {
+            let baseType = expr.callee.substring(0, expr.callee.length() - 9)
+            let fromJsonRet = getMethodReturnType(baseType, "fromJson")
+            if fromJsonRet != "" {
+                return fromJsonRet
+            }
+            if isClassType(baseType) or isDataType(baseType) or findStruct(baseType) >= 0 {
+                return baseType + "?"
+            }
+        }
+        if expr.callee == "simd_select" or expr.callee == "simd_shuffle" {
+            if expr.arguments.length() >= 2 {
+                return inferExpressionType(expr.arguments[1])
+            }
+        }
+        let callExprType = inferCallExprTypeImpl(expr.callee)
+        if callExprType != "" {
+            return callExprType
+        }
+        if g_enumVariantCount > 0 {
+            if isEnumVariant(expr.callee) {
+                let enumParent = lookupEnumParent(expr.callee)
+                if enumParent != "" {
+                    return enumParent
+                }
+            }
+        }
+        let userRetType = getFunctionReturnType(expr.callee)
+        if userRetType != "" {
+            if isAsyncFunction(expr.callee) {
+                return "ptr"
+            }
+            return userRetType
+        }
+        let callTable = inferCallTypeTable(expr.callee)
+        if callTable != "" { return callTable }
+        if isClassType(expr.callee) {
+            return expr.callee
+        }
+        if currentClassName != "" {
+            let implicitRetType = getMethodReturnType(currentClassName, expr.callee)
+            if implicitRetType != "" {
+                return implicitRetType
+            }
+        }
+        return ""
+    }
+
+    fun inferMemberAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.literalValue != "" {
+            let swzRecType = findVarType(expr.literalValue)
+            if isSimdVectorType(swzRecType) == 1 {
+                let swzLanes = simdLaneCount(swzRecType)
+                if isSwizzlePattern(expr.variableName, swzLanes) == 1 {
+                    if expr.variableName.length() == 1 {
+                        if swzRecType.startsWith("f32") or swzRecType.startsWith("f64") { return "Float" }
+                        return "Int"
+                    }
+                    return swzRecType
+                }
+            }
+        }
+        if g_enumVariantCount > 0 {
+            if isEnumVariant(expr.variableName) {
+                let enumParent = lookupEnumParent(expr.variableName)
+                if enumParent != "" and enumParent == expr.literalValue {
+                    return enumParent
+                }
+            }
+        }
+        var fieldName = expr.variableName
+        if fieldName.contains(".") {
+            var lastDot = 0
+            var fi = 0
+            while fi < fieldName.length() {
+                if fieldName.byteAt(fi) == 46 {
+                    lastDot = fi
+                }
+                fi = fi + 1
+            }
+            fieldName = fieldName.substring(lastDot + 1, fieldName.length())
+        }
+        if fieldName == "kind" or fieldName == "boolValue" or fieldName == "numberValue" or fieldName == "stringValue" or fieldName == "arrayValue" or fieldName == "objectKeys" or fieldName == "objectValues" {
+            if expr.operands.length() > 0 {
+                let recvType = inferExpressionType(expr.operands[0])
+                if recvType == "JsonValue" {
+                    let fieldType = getSeenFieldType("JsonValue", fieldName)
+                    return fieldType
+                }
+            }
+            if expr.literalValue == "this" and currentClassName == "JsonValue" {
+                let fieldType = getSeenFieldType("JsonValue", fieldName)
+                return fieldType
+            }
+            if expr.literalValue != "" and expr.literalValue != "this" {
+                let recvVarType = findVarType(expr.literalValue)
+                if recvVarType == "JsonValue" {
+                    let fieldType = getSeenFieldType("JsonValue", fieldName)
+                    return fieldType
+                }
+            }
+        }
+        if expr.literalValue == "this" and currentClassName != "" {
+            let semanticFieldType = getSemanticFieldType(currentClassName, fieldName)
+            if semanticFieldType != "" {
+                return semanticFieldType
+            }
+            let contextFieldType = getSeenFieldType(currentClassName, fieldName)
+            if contextFieldType != "" {
+                return contextFieldType
+            }
+        }
+        if expr.operands.length() > 0 {
+            let recvType = inferExpressionType(expr.operands[0])
+            if recvType != "" {
+                let semanticFieldType = getSemanticFieldType(recvType, fieldName)
+                if semanticFieldType != "" {
+                    return semanticFieldType
+                }
+                let fieldType = getSeenFieldType(recvType, fieldName)
+                if fieldType != "" {
+                    return fieldType
+                }
+            }
+        }
+        if expr.literalValue != "" and expr.literalValue != "this" {
+            if expr.literalValue.contains(".") {
+                let chainedType = resolveChainedPathType(expr.literalValue)
+                if chainedType != "" {
+                    let semanticFieldType = getSemanticFieldType(chainedType, fieldName)
+                    if semanticFieldType != "" {
+                        return semanticFieldType
+                    }
+                    let fieldType = getSeenFieldType(chainedType, fieldName)
+                    if fieldType != "" {
+                        return fieldType
+                    }
+                }
+            }
+            let recvVarType = findVarType(expr.literalValue)
+            if recvVarType != "" {
+                let semanticFieldType = getSemanticFieldType(recvVarType, fieldName)
+                if semanticFieldType != "" {
+                    return semanticFieldType
+                }
+                let fieldType = getSeenFieldType(recvVarType, fieldName)
+                if fieldType != "" {
+                    return fieldType
+                }
+            }
+            let thisIdx = findVar("this")
+            if thisIdx >= 0 {
+                let thisType = varTypes[thisIdx]
+                let receiverFieldType = getSemanticFieldType(thisType, expr.literalValue)
+                if receiverFieldType != "" {
+                    let semanticFieldType = getSemanticFieldType(receiverFieldType, fieldName)
+                    if semanticFieldType != "" {
+                        return semanticFieldType
+                    }
+                }
+            }
+        }
+        let fieldFallback = inferFieldTypeFallback(fieldName)
+        if fieldFallback != "" { return fieldFallback }
+        return ""
+    }
+
     // Infer the Seen type of an expression for codegen decisions (operator
     // selection, ABI, field access type, etc.). This is NOT the typechecker —
     // it operates during codegen and uses the variable/function/struct registries
@@ -13923,601 +14445,31 @@ class LLVMIRGenerator {
             return "Int"  // Default for numeric literals
         }
         if expr.kind == "Variable" or expr.kind == "VarExpr" {
-            // Use findVarType to check both varTypes and preAllocatedTypes
-            let varName = getExprVariableName(expr)
-            let varType = findVarType(varName)
-            if varType != "" {
-                return varType
-            }
-            // Check if it's a module constant
-            let constIdx = findModuleConstant(varName)
-        if constIdx >= 0 {
-            let constType = moduleConstantTypes[constIdx]
-            let seenType = getModuleConstSeenType(constIdx)
-            if seenType != "" {
-                return seenType
-            }
-            // Map LLVM types to Seen types
-            if constType == "i64" {
-                return "Int"
-            }
-            if constType == "double" {
-                    return "Float"
-                }
-                if constType == "i1" {
-                    return "Bool"
-                }
-            if constType == "%SeenString" {
-                return "String"
-            }
-            return "Int"  // Default
-        }
-            // Variable not found - check if it's a field on 'this'
-            let thisIdx = findVar("this")
-            if thisIdx >= 0 {
-                let thisType = varTypes[thisIdx]
-                if thisType == "LLVMIRGenerator" {
-                    let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-                    if idxCheck >= 0 {
-                        return getSeenFieldType(thisType, varName)
-                    }
-                }
-                let structIdx = findStruct(thisType)
-                if structIdx >= 0 {
-                    let fieldIdx = getFieldInfo(thisType, varName)
-                    if fieldIdx >= 0 {
-                        return getSeenFieldType(thisType, varName)
-                    }
-                }
-            }
-            // Recognize bare type names (used in sizeof/alignof expressions)
-            let vn = varName
-            if vn == "Int8" or vn == "UInt8" or vn == "Int16" or vn == "UInt16" or vn == "Int32" or vn == "UInt32" or vn == "Int64" or vn == "UInt64" or vn == "Float32" {
-                return vn
+            let variableResult = inferVariableExprTypeLocal(expr)
+            if variableResult != "" {
+                return variableResult
             }
         }
         if expr.kind == "Binary" {
-            // SIMD vector type propagation
-            if expr.operands.length() >= 2 {
-                let binLeftType = inferExpressionType(expr.operands[0])
-                if isSimdVectorType(binLeftType) == 1 {
-                    return binLeftType
-                }
-            }
-            if expr.operator == "==" or expr.operator == "!=" or expr.operator == "<" or expr.operator == ">" or expr.operator == "<=" or expr.operator == ">=" or expr.operator == "and" or expr.operator == "or" {
-                return "Bool"
-            }
-            if expr.operator == "+" {
-                // Check if string concat - check both operands
-                if expr.operands.length() >= 2 {
-                    let leftExpr = expr.operands[0]
-                    let rightExpr = expr.operands[1]
-                    // Fast path for deep string-concat trees: avoid recursively
-                    // inferring the whole left spine when either direct operand
-                    // is already obviously string-like.
-                    if leftExpr.kind == "Literal" and leftExpr.literalType == "String" {
-                        return "String"
-                    }
-                    if rightExpr.kind == "Literal" and rightExpr.literalType == "String" {
-                        return "String"
-                    }
-                    let leftType = inferExpressionType(expr.operands[0])
-                    if leftType == "String" {
-                        return "String"
-                    }
-                    let rightType = inferExpressionType(expr.operands[1])
-                    if rightType == "String" {
-                        return "String"
-                    }
-                    if leftType == "Float" or rightType == "Float" {
-                        return "Float"
-                    }
-                }
-            }
-            // For arithmetic operators (-, *, /, %), check if either operand is Float
-            if expr.operator == "-" or expr.operator == "*" or expr.operator == "/" or expr.operator == "%" {
-                if expr.operands.length() >= 2 {
-                    let leftType = inferExpressionType(expr.operands[0])
-                    let rightType = inferExpressionType(expr.operands[1])
-                    if leftType == "Float" or rightType == "Float" {
-                        return "Float"
-                    }
-                }
-            }
-            // Check for operator overloading return type
-            var opSuffix = ""
-            if expr.operator == "+" { opSuffix = "operator_add" }
-            if opSuffix == "" and expr.operator == "-" { opSuffix = "operator_sub" }
-            if opSuffix == "" and expr.operator == "*" { opSuffix = "operator_mul" }
-            if opSuffix == "" and expr.operator == "/" { opSuffix = "operator_div" }
-            if opSuffix == "" and expr.operator == "%" { opSuffix = "operator_mod" }
-            if opSuffix == "" and expr.operator == "==" { opSuffix = "operator_eq" }
-            if opSuffix == "" and expr.operator == "!=" { opSuffix = "operator_neq" }
-            if opSuffix == "" and expr.operator == "<" { opSuffix = "operator_lt" }
-            if opSuffix == "" and expr.operator == ">" { opSuffix = "operator_gt" }
-            if opSuffix == "" and expr.operator == "<=" { opSuffix = "operator_lte" }
-            if opSuffix == "" and expr.operator == ">=" { opSuffix = "operator_gte" }
-            if opSuffix != "" {
-                if expr.operands.length() >= 1 {
-                    let leftOpType = inferExpressionType(expr.operands[0])
-                    let opFuncN = leftOpType + "_" + opSuffix
-                    let opRetT = getFunctionReturnType(opFuncN)
-                    if opRetT != "" {
-                        return opRetT
-                    }
-                }
-            }
-            return "Int"
+            return inferBinaryExprTypeLocal(expr)
         }
         if expr.kind == "MethodCall" {
-            // First, try to look up method return type from registry based on receiver type
-            // Handle "this" receiver
-            if currentClassName != "" and expr.literalValue == "this" {
-                let registryRetType = getMethodReturnType(currentClassName, expr.callee)
-                if registryRetType != "" {
-                    return registryRetType
-                }
-            }
-            // Some parser paths still produce a zero-receiver MethodCall for what is
-            // semantically either an implicit current-class call or a plain free
-            // function call. Mirror generateCall() so both paths infer the same type.
-            if expr.literalValue == "" and expr.operands.length() == 0 {
-                if currentClassName != "" {
-                    let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
-                    if implicitMethodRetType != "" {
-                        return implicitMethodRetType
-                    }
-                }
-                let freeFuncRetType = getFunctionReturnType(expr.callee)
-                if freeFuncRetType != "" {
-                    if isAsyncFunction(expr.callee) {
-                        return "ptr"
-                    }
-                    return freeFuncRetType
-                }
-            }
-            // Handle variable receiver (obj.method())
-            if expr.literalValue != "" and expr.literalValue != "this" {
-                let recVarType = findVarType(expr.literalValue)
-                if recVarType != "" {
-                    let registryRetType = getMethodReturnType(recVarType, expr.callee)
-                    if registryRetType != "" {
-                        return registryRetType
-                    }
-                }
-                // Check for static method calls - literalValue is the class name (e.g., LspResponse::success)
-                if recVarType == "" {
-                    let staticOwnerType = getBaseTypeName(expr.literalValue)
-                    var staticRetType = getMethodReturnType(expr.literalValue, expr.callee)
-                    if staticRetType == "" and staticOwnerType != expr.literalValue {
-                        staticRetType = getMethodReturnType(staticOwnerType, expr.callee)
-                    }
-                    if staticRetType != "" {
-                        return staticRetType
-                    }
-                }
-            }
-            // Handle expression receiver (chained calls like obj.method1().method2())
-            if expr.operands.length() > 0 {
-                let recExprType = inferExpressionType(expr.operands[0])
-                // Debug: Trace Vec/BTreeMap get() calls
-                if expr.callee == "get" and (recExprType.startsWith("Vec<") or recExprType.startsWith("BTreeMap<")) {
-                    let debugRetType = getMethodReturnType(recExprType, expr.callee)
-                    traceGen("inferExpressionType: MethodCall get() receiver type=" + recExprType + " -> " + debugRetType)
-                }
-                if recExprType != "" {
-                    let registryRetType = getMethodReturnType(recExprType, expr.callee)
-                    if registryRetType != "" {
-                        return registryRetType
-                    }
-                }
-            }
-            // Check for static method calls - literalValue is the class name
-            if expr.callee == "new" {
-                // Static constructor - returns the class type
-                return expr.literalValue
-            }
-            if expr.callee == "withCapacity" {
-                let capacityOwnerType = getBaseTypeName(expr.literalValue)
-                if capacityOwnerType == "Vec" or capacityOwnerType == "HashMap" or capacityOwnerType == "BTreeMap" or capacityOwnerType == "LinkedList" or capacityOwnerType == "StringHashMap" {
-                    return expr.literalValue
-                }
-            }
-            // Array<T>.withLength(n) / Array<T>.withCapacity(n) returns Array<T>
-            if (expr.callee == "withLength" or expr.callee == "withCapacity") and expr.literalValue.startsWith("Array") {
-                return expr.literalValue
-            }
-            // Receiver-sensitive method return types (toUpperCase, abs, floor, Vec first/last/remove)
-            // Resolve receiver type, then delegate to inferReceiverMethodTypeImpl
-            if expr.callee == "toUpperCase" or expr.callee == "toLowerCase" or expr.callee == "abs" or expr.callee == "min" or expr.callee == "max" or expr.callee == "clamp" or expr.callee == "floor" or expr.callee == "ceil" or expr.callee == "round" or expr.callee == "sqrt" or expr.callee == "first" or expr.callee == "last" or expr.callee == "remove" {
-                var recTypeForImpl = ""
-                if expr.operands.length() > 0 {
-                    recTypeForImpl = inferExpressionType(expr.operands[0])
-                }
-                if recTypeForImpl == "" and expr.literalValue != "" {
-                    recTypeForImpl = findVarType(expr.literalValue)
-                }
-                let implResult = inferReceiverMethodTypeImpl(expr.callee, recTypeForImpl)
-                if implResult != "" {
-                    return implResult
-                }
-            }
-            let mcTable = inferMethodCallTypeTable(expr.callee)
-            if mcTable != "" { return mcTable }
-            if expr.callee == "fromJson" {
-                // fromJson returns nullable types - try to infer from receiver/class
-                // Check if literalValue contains the class name (for static calls like LspPosition::fromJson)
-                if expr.literalValue != "" and expr.literalValue != "this" {
-                    let staticRetType = getMethodReturnType(expr.literalValue, "fromJson")
-                    if staticRetType != "" {
-                        return staticRetType
-                    }
-                }
-                // Fallback - return ptr for unknown nullable types
-                return "ptr"
-            }
-            // Map/Vec/BTreeMap.get() - resolve receiver type to determine return type
-            if expr.callee == "get" {
-                var recType = ""
-                if expr.operands.length() > 0 {
-                    recType = inferExpressionType(expr.operands[0])
-                }
-                if recType == "" and expr.literalValue != "" {
-                    // First check if it's a chained path like "div.children"
-                    if expr.literalValue.contains(".") {
-                        recType = resolveChainedPathType(expr.literalValue)
-                    }
-                    // Then check if it's a simple variable
-                    if recType == "" {
-                        recType = findVarType(expr.literalValue)
-                    }
-                    // Also check if it's a field on 'this'
-                    if recType == "" {
-                        let thisIdx = findVar("this")
-                        if thisIdx >= 0 {
-                            let thisType = varTypes[thisIdx]
-                            recType = getSemanticFieldType(thisType, expr.literalValue)
-                            if recType == "" {
-                                recType = getSeenFieldType(thisType, expr.literalValue)
-                            }
-                        }
-                    }
-                }
-                // Debug: Trace get() method type inference
-                traceGen("inferExpressionType: get() recType=" + recType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
-                // Only use hardcoded collection dispatch for known collection types
-                let isCollectionGet = recType.startsWith("Array<") or recType.startsWith("Vec<") or recType.startsWith("HashMap<") or recType.startsWith("StringHashMap<") or recType.startsWith("BTreeMap<") or recType.startsWith("Map<") or recType == ""
-                if isCollectionGet {
-                    let collGetType = resolveCollectionGetTypeImpl(recType)
-                    if collGetType != "" {
-                        return collGetType
-                    }
-                    return "Option<Int>"  // Fallback for unrecognized collection type
-                }
-                // Non-collection .get() — fall through to general method dispatch
-            }
-            // Array<T>.pop() returns T
-            if expr.callee == "pop" {
-                var popRecType = ""
-                if expr.operands.length() > 0 {
-                    popRecType = inferExpressionType(expr.operands[0])
-                }
-                if popRecType == "" and expr.literalValue != "" {
-                    popRecType = findVarType(expr.literalValue)
-                }
-                let popResult = resolvePopElementTypeImpl(popRecType)
-                if popResult != "" {
-                    return popResult
-                }
-                return "Int"
-            }
-            if expr.callee == "unwrap" {
-                // Check receiver type to determine return type
-                // Receiver can be in operands (for chained calls) or literalValue (for simple variable calls)
-                var recType = ""
-                if expr.operands.length() > 0 {
-                    recType = inferExpressionType(expr.operands[0])
-                }
-                if recType == "" and expr.literalValue != "" {
-                    recType = findVarType(expr.literalValue)
-                    if recType == "" and expr.literalValue.contains(".") {
-                        recType = resolveChainedPathType(expr.literalValue)
-                    }
-                }
-                var isClassInner = 0
-                if isClassType(recType) { isClassInner = 1 }
-                let unwrapResult = resolveUnwrapTypeImpl(recType, isClassInner)
-                if unwrapResult != "" {
-                    return unwrapResult
-                }
-                return "ptr"
-            }
-            // Try to look up method return type from receiver's class
-            var receiverType = ""
-            var receiverTypeResolved = false
-            if expr.operands.length() > 0 {
-                receiverType = inferExpressionType(expr.operands[0])
-                receiverTypeResolved = true
-            }
-            if not receiverTypeResolved {
-                // Check if literalValue is a known variable
-                let varIdx = findVar(expr.literalValue)
-                var varIdxHandled = false
-                if varIdx >= 0 {
-                    receiverType = varTypes[varIdx]
-                    varIdxHandled = true
-                }
-                if not varIdxHandled {
-                    // Check if literalValue is a field on 'this'
-                    let thisIdx = findVar("this")
-                    if thisIdx >= 0 {
-                        let thisType = varTypes[thisIdx]
-                            var fieldType = getSemanticFieldType(thisType, expr.literalValue)
-                            if fieldType == "" {
-                                fieldType = getSeenFieldType(thisType, expr.literalValue)
-                            }
-                        if fieldType != "Int" or expr.literalValue == "length" {
-                            receiverType = fieldType
-                        }
-                    }
-                    // Try resolving as a chained path (e.g., "this.differ" -> VDOMDiffer)
-                    if receiverType == "" and expr.literalValue.contains(".") {
-                        receiverType = resolveChainedPathType(expr.literalValue)
-                    }
-                }
-            }
-
-            if receiverType != "" {
-                // SIMD method return type inference
-                if isSimdVectorType(receiverType) == 1 {
-                    if expr.callee == "reduce_add" or expr.callee == "reduce_min" or expr.callee == "reduce_max" {
-                        if receiverType.startsWith("f32") or receiverType.startsWith("f64") {
-                            return "Float"
-                        }
-                        return "Int"
-                    }
-                }
-                let methodRetType = getMethodReturnType(receiverType, expr.callee)
-                if methodRetType != "" {
-                    return methodRetType
-                }
-            }
-            // Some parser paths leave unresolved MethodCall nodes even though the
-            // callee should lower exactly like a plain Call node. Only fall back
-            // here after receiver-based resolution has already failed.
-            if currentClassName != "" {
-                let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
-                if implicitMethodRetType != "" {
-                    return implicitMethodRetType
-                }
-            }
-            let freeFuncRetType = getFunctionReturnType(expr.callee)
-            if freeFuncRetType != "" {
-                if isAsyncFunction(expr.callee) {
-                    return "ptr"
-                }
-                return freeFuncRetType
-            }
-            // Last-resort Bool detection: scan funcRetTypes for any method with this name returning Bool
-            let boolSuffix = "_" + expr.callee
-            var boolScanIdx = funcNames.length() - 1
-            while boolScanIdx >= 0 {
-                if funcNames[boolScanIdx].endsWith(boolSuffix) {
-                    if funcRetTypes[boolScanIdx] == "Bool" {
-                        return "Bool"
-                    }
-                    boolScanIdx = 0 - 1
-                }
-                boolScanIdx = boolScanIdx - 1
+            let methodCallResult = inferMethodCallExprTypeLocal(expr)
+            if methodCallResult != "" {
+                return methodCallResult
             }
         }
         if expr.kind == "Call" {
-            // SIMD vector constructor type inference
-            if isSimdVectorType(expr.callee) == 1 {
-                return expr.callee
-            }
-            // Free-function forms of former static methods in lsp/types and
-            // similar modules: Foo_new(...) and Foo_fromJson(...).
-            if expr.callee.endsWith("_new") {
-                let baseType = expr.callee.substring(0, expr.callee.length() - 4)
-                if isClassType(baseType) or isDataType(baseType) or findStruct(baseType) >= 0 {
-                    return baseType
-                }
-            }
-            if expr.callee.endsWith("_fromJson") {
-                let baseType = expr.callee.substring(0, expr.callee.length() - 9)
-                let fromJsonRet = getMethodReturnType(baseType, "fromJson")
-                if fromJsonRet != "" {
-                    return fromJsonRet
-                }
-                if isClassType(baseType) or isDataType(baseType) or findStruct(baseType) >= 0 {
-                    return baseType + "?"
-                }
-            }
-            // SIMD select/shuffle return type = type of vector arg
-            if expr.callee == "simd_select" or expr.callee == "simd_shuffle" {
-                if expr.arguments.length() >= 2 {
-                    return inferExpressionType(expr.arguments[1])
-                }
-            }
-            // Pure callee-name lookups (SIMD gather, includeStr, ptr_deref, cstr, constructors)
-            let callExprType = inferCallExprTypeImpl(expr.callee)
-            if callExprType != "" {
-                return callExprType
-            }
-            // Enum variant constructors: Circle(3.14) -> parent enum type
-            if g_enumVariantCount > 0 {
-                if isEnumVariant(expr.callee) {
-                    let enumParent = lookupEnumParent(expr.callee)
-                    if enumParent != "" {
-                        return enumParent
-                    }
-                }
-            }
-            // First check user-defined functions
-            let userRetType = getFunctionReturnType(expr.callee)
-            if userRetType != "" {
-                // Async functions return ptr (coroutine handle) when called directly
-                // without await. The await handler uses getAsyncDeclaredRetType separately.
-                if isAsyncFunction(expr.callee) {
-                    return "ptr"
-                }
-                return userRetType
-            }
-            let callTable = inferCallTypeTable(expr.callee)
-            if callTable != "" { return callTable }
-            // Check if callee is a class constructor (e.g., Expr() -> "Expr")
-            if isClassType(expr.callee) {
-                return expr.callee
-            }
-            // Generic fallback: check if callee is a method on the current class (implicit this)
-            if currentClassName != "" {
-                let implicitRetType = getMethodReturnType(currentClassName, expr.callee)
-                if implicitRetType != "" {
-                    return implicitRetType
-                }
+            let callResult = inferCallExprTypeLocal(expr)
+            if callResult != "" {
+                return callResult
             }
         }
         if expr.kind == "MemberAccess" {
-            // SIMD swizzle type inference
-            if expr.literalValue != "" {
-                let swzRecType = findVarType(expr.literalValue)
-                if isSimdVectorType(swzRecType) == 1 {
-                    let swzLanes = simdLaneCount(swzRecType)
-                    if isSwizzlePattern(expr.variableName, swzLanes) == 1 {
-                        if expr.variableName.length() == 1 {
-                            if swzRecType.startsWith("f32") or swzRecType.startsWith("f64") { return "Float" }
-                            return "Int"
-                        }
-                        return swzRecType
-                    }
-                }
+            let memberAccessResult = inferMemberAccessExprTypeLocal(expr)
+            if memberAccessResult != "" {
+                return memberAccessResult
             }
-            // Enum variant access: Color.Red -> enum type
-            if g_enumVariantCount > 0 {
-                if isEnumVariant(expr.variableName) {
-                    let enumParent = lookupEnumParent(expr.variableName)
-                    if enumParent != "" and enumParent == expr.literalValue {
-                        return enumParent
-                    }
-                }
-            }
-
-            // Field access - infer type from known fields
-            var fieldName = expr.variableName
-
-            // Handle chained field names like "program.items" - use the last part
-            if fieldName.contains(".") {
-                var lastDot = 0
-                var fi = 0
-                while fi < fieldName.length() {
-                    if fieldName.byteAt(fi) == 46 {
-                        lastDot = fi
-                    }
-                    fi = fi + 1
-                }
-                fieldName = fieldName.substring(lastDot + 1, fieldName.length())
-            }
-
-            // For fields that are type-dependent (like 'kind'), do receiver-based lookup first
-            // This is important because 'kind' is Int in JsonValue but String in AST nodes
-            if fieldName == "kind" or fieldName == "boolValue" or fieldName == "numberValue" or fieldName == "stringValue" or fieldName == "arrayValue" or fieldName == "objectKeys" or fieldName == "objectValues" {
-                // Try receiver-based lookup first for these ambiguous fields
-                if expr.operands.length() > 0 {
-                    let recvType = inferExpressionType(expr.operands[0])
-                    if recvType == "JsonValue" {
-                        let fieldType = getSeenFieldType("JsonValue", fieldName)
-                        return fieldType
-                    }
-                }
-                if expr.literalValue == "this" and currentClassName == "JsonValue" {
-                    let fieldType = getSeenFieldType("JsonValue", fieldName)
-                    return fieldType
-                }
-                if expr.literalValue != "" and expr.literalValue != "this" {
-                    let recvVarType = findVarType(expr.literalValue)
-                    if recvVarType == "JsonValue" {
-                        let fieldType = getSeenFieldType("JsonValue", fieldName)
-                        return fieldType
-                    }
-                }
-            }
-
-            // CRITICAL: For this.field expressions, do context-aware lookup BEFORE generic fallbacks
-            // This fixes type inference for fields like "severity" which are Int in Diagnostic but
-            // would incorrectly return String from the generic fallback below
-            if expr.literalValue == "this" and currentClassName != "" {
-                let semanticFieldType = getSemanticFieldType(currentClassName, fieldName)
-                if semanticFieldType != "" {
-                    return semanticFieldType
-                }
-                let contextFieldType = getSeenFieldType(currentClassName, fieldName)
-                if contextFieldType != "" {
-                    return contextFieldType
-                }
-            }
-
-            // CRITICAL: Try receiver-based lookup BEFORE generic fallbacks
-            // This ensures msg.params returns JsonValue? (not Array<ParamNode> from generic fallback)
-            if expr.operands.length() > 0 {
-                let recvType = inferExpressionType(expr.operands[0])
-                if recvType != "" {
-                    let semanticFieldType = getSemanticFieldType(recvType, fieldName)
-                    if semanticFieldType != "" {
-                        return semanticFieldType
-                    }
-                    let fieldType = getSeenFieldType(recvType, fieldName)
-                    if fieldType != "" {
-                        return fieldType
-                    }
-                }
-            }
-            if expr.literalValue != "" and expr.literalValue != "this" {
-                // Receiver is a variable name in literalValue
-                // Handle chained paths like "item.function.returnType"
-                if expr.literalValue.contains(".") {
-                    // Recursively resolve the type of the chained path
-                    let chainedType = resolveChainedPathType(expr.literalValue)
-                    if chainedType != "" {
-                        let semanticFieldType = getSemanticFieldType(chainedType, fieldName)
-                        if semanticFieldType != "" {
-                            return semanticFieldType
-                        }
-                        let fieldType = getSeenFieldType(chainedType, fieldName)
-                        if fieldType != "" {
-                            return fieldType
-                        }
-                    }
-                }
-                let recvVarType = findVarType(expr.literalValue)
-                if recvVarType != "" {
-                    let semanticFieldType = getSemanticFieldType(recvVarType, fieldName)
-                    if semanticFieldType != "" {
-                        return semanticFieldType
-                    }
-                    let fieldType = getSeenFieldType(recvVarType, fieldName)
-                    if fieldType != "" {
-                        return fieldType
-                    }
-                }
-                let thisIdx = findVar("this")
-                if thisIdx >= 0 {
-                    let thisType = varTypes[thisIdx]
-                    let receiverFieldType = getSemanticFieldType(thisType, expr.literalValue)
-                    if receiverFieldType != "" {
-                        let semanticFieldType = getSemanticFieldType(receiverFieldType, fieldName)
-                        if semanticFieldType != "" {
-                            return semanticFieldType
-                        }
-                    }
-                }
-            }
-
-            // FALLBACK: Generic field name to type mappings (used when receiver type is unknown)
-            let fieldFallback = inferFieldTypeFallback(fieldName)
-            if fieldFallback != "" { return fieldFallback }
-            // NOTE: Receiver-based lookup is done earlier
-            // Generic fallbacks above are only used when receiver type is unknown
         }
         if expr.kind == "StructLiteral" {
             // Struct literal - return the struct type name
@@ -14564,12 +14516,6 @@ class LLVMIRGenerator {
                 i = i + 1
             }
             return "String"
-        }
-        if expr.kind == "StructLiteral" {
-            if expr.literalType != "" {
-                return expr.literalType
-            }
-            return "ptr"
         }
         if expr.kind == "Unary" {
             // Unary operators

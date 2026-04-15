@@ -10,7 +10,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,173` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,119` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -23,6 +23,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `generateFunction()` is down to about `766` lines.
   - `generateCall()` is down to about `66` lines.
   - `generateMethodCall()` is down to about `236` lines.
+  - `inferExpressionType()` is down to about `193` lines.
   - Receiver-preparation helpers inside `llvm_ir_gen.seen` are now split into:
     - `resolveRebuiltLiteralPathMethodReceiver()` at about `28` lines.
     - `tryPrepareExplicitMethodReceiver()` at about `106` lines.
@@ -36,6 +37,12 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `tryGenerateRuntimeBuiltinCall()` at about `92` lines.
     - `tryGenerateImplicitThisCall()` at about `62` lines.
     - `tryGenerateMathBuiltinCall()` at about `25` lines.
+  - Type-inference helpers inside `llvm_ir_gen.seen` are now split into:
+    - `inferVariableExprTypeLocal()` at about `50` lines.
+    - `inferBinaryExprTypeLocal()` at about `66` lines.
+    - `inferMethodCallExprTypeLocal()` at about `226` lines.
+    - `inferCallExprTypeLocal()` at about `57` lines.
+    - `inferMemberAccessExprTypeLocal()` at about `129` lines.
 
 ### Implemented Slices
 
@@ -74,6 +81,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Extracted array mutator lowering (`free`, `push`, `pop`, `swap`) behind `tryGenerateArrayMutatorMethodCall(...)` so those structural mutations no longer live inline in `generateMethodCall()`.
 - Split receiver preparation out of `generateMethodCall()` into focused helpers for rebuilt chained paths, explicit receiver fast paths, chained literal fallback, and simple literal receiver lookup. This makes `generateMethodCall()` read as a dispatcher pipeline instead of a mixed resolver/emitter blob.
 - Split `generateCall()` into focused helper phases for comptime specialization, meta builtins, low-level builtins, constructor-like calls, normalized runtime builtins, implicit `this` dispatch, and math builtins. This also removed the duplicated `print` / `println` formatting path behind a shared emitter helper.
+- Split `inferExpressionType()` into focused helpers for variable lookup, binary operator inference, method-call inference, free-call inference, and member-access inference. That turns the main inference entrypoint into a compact dispatcher and mirrors the same pipeline shape now used by `generateCall()` and `generateMethodCall()`.
+- Removed a dead duplicate `StructLiteral` branch from `inferExpressionType()` after the split so the fallback path stays unambiguous.
 
 ### Validation Status
 
@@ -91,8 +100,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Phase 2: core module-emission and call-argument dedup completed.
 - Phase 3: in progress; declaration scan, async registry extraction, late user declare registry extraction, and trait registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
 - Phase 4: started; function signature/default-return/coroutine/intrinsic wrapper helpers are extracted, but parameter lowering and body emission still live in `llvm_ir_gen.seen`.
-- Phase 5: well underway; final free-call emission, RealParser call fixups, final instance-method-call normalization, array mutator lowering, receiver-preparation helpers, and a full `generateCall()` phase split are in place. The next clean Phase 5 step is moving the new call and receiver helpers out of `llvm_ir_gen.seen` entirely or applying the same approach to `inferExpressionType()`.
-- Phases 6-7: not started yet.
+- Phase 5: well underway; final free-call emission, RealParser call fixups, final instance-method-call normalization, array mutator lowering, receiver-preparation helpers, and a full `generateCall()` phase split are in place.
+- Phase 6: started; `inferExpressionType()` has been decomposed into focused helper phases, but the helpers still live in `llvm_ir_gen.seen` rather than extracted modules.
+- Phase 7: not started yet.
 
 ## Baseline Snapshot
 
