@@ -135,6 +135,56 @@ void seen_pool_free(void *ptr, int64_t size) {
 static int g_argc = 0;
 static char** g_argv = NULL;
 
+static int64_t g_seen_error_code = 0;
+static int64_t g_seen_error_subsystem = 0;
+static char g_seen_error_message[256] = {0};
+static int64_t g_seen_error_message_len = 0;
+
+int64_t seen_error_code(void) {
+    return g_seen_error_code;
+}
+
+int64_t seen_error_subsystem(void) {
+    return g_seen_error_subsystem;
+}
+
+void seen_error_clear(void) {
+    g_seen_error_code = 0;
+    g_seen_error_subsystem = 0;
+    g_seen_error_message[0] = '\0';
+    g_seen_error_message_len = 0;
+}
+
+int64_t seen_error_message_ptr(void) {
+    return (int64_t)(intptr_t)g_seen_error_message;
+}
+
+int64_t seen_error_message_len(void) {
+    return g_seen_error_message_len;
+}
+
+void seen_error_set_cstr(int64_t subsystem, int64_t code, const char* message) {
+    if (!message) {
+        message = "";
+    }
+
+    g_seen_error_subsystem = subsystem;
+    g_seen_error_code = code;
+    g_seen_error_message_len = (int64_t)snprintf(
+        g_seen_error_message,
+        sizeof(g_seen_error_message),
+        "%s",
+        message
+    );
+
+    if (g_seen_error_message_len < 0) {
+        g_seen_error_message_len = 0;
+        g_seen_error_message[0] = '\0';
+    } else if (g_seen_error_message_len >= (int64_t)sizeof(g_seen_error_message)) {
+        g_seen_error_message_len = (int64_t)sizeof(g_seen_error_message) - 1;
+    }
+}
+
 // Debug counters (guarded behind SEEN_RUNTIME_DEBUG env var)
 #ifdef SEEN_RUNTIME_DEBUG_COUNTERS
 static long g_substring_count = 0;
@@ -8264,11 +8314,6 @@ SEEN_BOOTSTRAP_I64_STUB(seen_debug_collision_probe)
 SEEN_BOOTSTRAP_I64_STUB(seen_debug_ground_column)
 SEEN_BOOTSTRAP_I64_STUB(seen_debug_physics)
 SEEN_BOOTSTRAP_I64_STUB(seen_debug_stepup)
-SEEN_BOOTSTRAP_I64_STUB(seen_error_clear)
-SEEN_BOOTSTRAP_I64_STUB(seen_error_code)
-SEEN_BOOTSTRAP_I64_STUB(seen_error_message_len)
-SEEN_BOOTSTRAP_I64_STUB(seen_error_message_ptr)
-SEEN_BOOTSTRAP_I64_STUB(seen_error_subsystem)
 SEEN_BOOTSTRAP_I64_STUB(seen_rt_atlas_clear)
 SEEN_BOOTSTRAP_I64_STUB(seen_rt_atlas_upload_batch)
 SEEN_BOOTSTRAP_I64_STUB(seen_shader_reload_module)

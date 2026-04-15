@@ -31,19 +31,17 @@ fun emitConditionToI1Impl(output: StringBuilder, regBox: Array<Int>, condReg: St
     return cmpReg
 }
 
-// emitIfBranchingImpl — emit the if/then/else/end label structure
-// Returns: endLabel name (for the caller to continue after)
-// thenTerminated/elseTerminated: 1 if the branch ended with return/break
-fun emitIfBranchingImpl(output: StringBuilder, blockLabelBox: Array<Int>, condBoolReg: String) r: String {
+// emitIfBranchingImpl — emit the if/then/else/end label structure.
+// branchMetadata is appended directly to the `br i1` line (for example
+// `, !prof !197`) and may be "".
+// Returns: thenLabel|elseLabel|endLabel for the caller to continue.
+fun emitIfBranchingImpl(output: StringBuilder, blockLabelBox: Array<Int>, condBoolReg: String, branchMetadata: String) r: String {
     let thenLabel = getNextBlockFn(blockLabelBox)
     let elseLabel = getNextBlockFn(blockLabelBox)
     let endLabel = getNextBlockFn(blockLabelBox)
-    output.append("  br i1 " + condBoolReg + ", label %" + thenLabel + ", label %" + elseLabel + "\n")
+    output.append("  br i1 " + condBoolReg + ", label %" + thenLabel + ", label %" + elseLabel + branchMetadata + "\n")
     output.append(thenLabel + ":\n")
-    // Caller fills in then-block body, then calls emitIfThenEndImpl
-    // Store labels in a known format for the caller
-    // Return endLabel:thenLabel:elseLabel concatenated
-    return endLabel + ":" + thenLabel + ":" + elseLabel
+    return thenLabel + "|" + elseLabel + "|" + endLabel
 }
 
 // emitRangeForLoopImpl — emit range-based for-in loop scaffolding
