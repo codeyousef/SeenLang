@@ -1,0 +1,113 @@
+// ir_member_access.seen — Shared member-access helpers
+// Extracted from llvm_ir_gen.seen expression lowering.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_type_mapping.{swizzleLaneIndexImpl}
+
+// emitSimdSwizzleMemberAccessImpl — emit vec.x / vec.xy / vec.xzyw swizzles.
+// Returns "" when the caller should fall through.
+fun emitSimdSwizzleMemberAccessImpl(output: StringBuilder, regBox: Array<Int>,
+    fieldName: String, vectorLlvmType: String, vectorPtrReg: String) r: String {
+
+    let vecReg = getNextRegFn(regBox)
+    output.append("  " + vecReg + " = load " + vectorLlvmType + ", ptr " + vectorPtrReg + "\n")
+    if fieldName.length() == 1 {
+        let laneIdx = swizzleLaneIndexImpl(fieldName)
+        let extReg = getNextRegFn(regBox)
+        output.append("  " + extReg + " = extractelement " + vectorLlvmType + " " + vecReg + ", i32 " + laneIdx.toString() + "\n")
+        return extReg
+    }
+
+    var swizzleMask = "<"
+    var idx = 0
+    while idx < fieldName.length() {
+        if idx > 0 { swizzleMask = swizzleMask + ", " }
+        let swizzleChar = fieldName.substring(idx, idx + 1)
+        let swizzleIdx = swizzleLaneIndexImpl(swizzleChar)
+        swizzleMask = swizzleMask + "i32 " + swizzleIdx.toString()
+        idx = idx + 1
+    }
+    swizzleMask = swizzleMask + ">"
+
+    let resReg = getNextRegFn(regBox)
+    output.append("  " + resReg + " = shufflevector " + vectorLlvmType + " " + vecReg + ", " + vectorLlvmType + " undef, <" + fieldName.length().toString() + " x i32> " + swizzleMask + "\n")
+    return resReg
+}
+
+// prepareExpressionMemberReceiverImpl — normalize an expression-result receiver
+// into the register form expected by generateFieldAccess.
+fun prepareExpressionMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
+    receiverReg: String, receiverType: String, reprCClassNames: String,
+    isClassReceiver: Int, isDataReceiver: Int) r: String {
+
+    if reprCClassNames != "" {
+        if reprCClassNames.contains(receiverType + "|") {
+            return receiverReg
+        }
+    }
+    if isDataReceiver == 1 {
+        let tmpReg = getNextRegFn(regBox)
+        output.append("  " + tmpReg + " = alloca %" + receiverType + "\n")
+        output.append("  store %" + receiverType + " " + receiverReg + ", ptr " + tmpReg + "\n")
+        return tmpReg
+    }
+    if isClassReceiver == 1 {
+        let ptrReg = getNextRegFn(regBox)
+        output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        return ptrReg
+    }
+    return receiverReg
+}
+
+// prepareVariableMemberReceiverImpl — load a local variable into the register
+// form expected by generateFieldAccess.
+fun prepareVariableMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
+    varReg: String, varType: String, reprCClassNames: String,
+    isClassReceiver: Int, isDataReceiver: Int) r: String {
+
+    if reprCClassNames != "" {
+        if reprCClassNames.contains(varType + "|") {
+            let loadReg = getNextRegFn(regBox)
+            output.append("  " + loadReg + " = load %" + varType + ", ptr " + varReg + "\n")
+            return loadReg
+        }
+    }
+    if isClassReceiver == 1 {
+        let loadReg = getNextRegFn(regBox)
+        output.append("  " + loadReg + " = load i64, ptr " + varReg + "\n")
+        let ptrReg = getNextRegFn(regBox)
+        output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
+        return ptrReg
+    }
+    if isDataReceiver == 1 {
+        return varReg
+    }
+    let ptrReg = getNextRegFn(regBox)
+    output.append("  " + ptrReg + " = load ptr, ptr " + varReg + "\n")
+    return ptrReg
+}
+
+// prepareModuleConstMemberReceiverImpl — load a module constant into the
+// register form expected by generateFieldAccess.
+fun prepareModuleConstMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
+    quotedGlobalName: String, constType: String, constSeenType: String, invariantSuffix: String,
+    isClassReceiver: Int, isDataReceiver: Int) r: String {
+
+    if constSeenType != "" and isClassReceiver == 1 {
+        let loadReg = getNextRegFn(regBox)
+        output.append("  " + loadReg + " = load i64, ptr " + quotedGlobalName + invariantSuffix + "\n")
+        let ptrReg = getNextRegFn(regBox)
+        output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
+        return ptrReg
+    }
+    if constSeenType != "" and isDataReceiver == 1 {
+        return quotedGlobalName
+    }
+    if constType == "ptr" {
+        let ptrReg = getNextRegFn(regBox)
+        output.append("  " + ptrReg + " = load ptr, ptr " + quotedGlobalName + invariantSuffix + "\n")
+        return ptrReg
+    }
+    return ""
+}

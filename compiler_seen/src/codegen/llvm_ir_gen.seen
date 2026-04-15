@@ -62,6 +62,7 @@ import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFie
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
+import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
@@ -8984,32 +8985,9 @@ class LLVMIRGenerator {
                 let swzLanes = simdLaneCount(swzVarType)
                 if isSwizzlePattern(fieldName, swzLanes) == 1 {
                     let swzLT = mapType(swzVarType)
-                    let swzST = simdScalarType(swzVarType)
                     let swzIdx = findVar(receiverName)
                     if swzIdx >= 0 {
-                        let swzVecReg = getNextReg()
-                        output.append("  " + swzVecReg + " = load " + swzLT + ", ptr " + varRegs[swzIdx] + "\n")
-                        if fieldName.length() == 1 {
-                            // Single lane extract: vec.x -> extractelement
-                            let swzLaneIdx = swizzleLaneIndex(fieldName)
-                            let swzExtReg = getNextReg()
-                            output.append("  " + swzExtReg + " = extractelement " + swzLT + " " + swzVecReg + ", i32 " + swzLaneIdx.toString() + "\n")
-                            return swzExtReg
-                        }
-                        // Multi-lane swizzle: shufflevector with undef second operand
-                        var swzMask = "<"
-                        var swzMI = 0
-                        while swzMI < fieldName.length() {
-                            if swzMI > 0 { swzMask = swzMask + ", " }
-                            let swzCh = fieldName.substring(swzMI, swzMI + 1)
-                            let swzChIdx = swizzleLaneIndex(swzCh)
-                            swzMask = swzMask + "i32 " + swzChIdx.toString()
-                            swzMI = swzMI + 1
-                        }
-                        swzMask = swzMask + ">"
-                        let swzResReg = getNextReg()
-                        output.append("  " + swzResReg + " = shufflevector " + swzLT + " " + swzVecReg + ", " + swzLT + " undef, <" + fieldName.length().toString() + " x i32> " + swzMask + "\n")
-                        return swzResReg
+                        return emitSimdSwizzleMemberAccessImpl(output, g_regBox, fieldName, swzLT, varRegs[swzIdx])
                     }
                 }
             }
@@ -9020,25 +8998,12 @@ class LLVMIRGenerator {
             // Receiver is an expression result - get its type and generate field access
             let receiverReg = generateExpression(expr.operands[0])
             let receiverType = inferExpressionType(expr.operands[0])
-            // @repr(C) value-type: receiver is already a struct value, use extractvalue directly
-            var isReprCExprRec = false
-            if g_reprCClassNames != "" {
-                if g_reprCClassNames.contains(receiverType + "|") {
-                    isReprCExprRec = true
-                }
-            }
-            if isReprCExprRec {
-                return generateFieldAccess(receiverReg, receiverType, fieldName)
-            }
-            // If receiver type is a class type, it's stored as i64, so convert to ptr
-            let actualReceiverReg = convertReceiverToPtr(receiverReg, receiverType)
-            // If receiver type is a data type, store to temp memory and use that ptr
-            if isDataType(receiverType) {
-                let tmpReg = getNextReg()
-                output.append("  " + tmpReg + " = alloca %" + receiverType + "\n")
-                output.append("  store %" + receiverType + " " + receiverReg + ", ptr " + tmpReg + "\n")
-                actualReceiverReg = tmpReg
-            }
+            var exprIsClass = 0
+            if isClassType(receiverType) { exprIsClass = 1 }
+            var exprIsData = 0
+            if isDataType(receiverType) { exprIsData = 1 }
+            let actualReceiverReg = prepareExpressionMemberReceiverImpl(output, g_regBox,
+                receiverReg, receiverType, g_reprCClassNames, exprIsClass, exprIsData)
             return generateFieldAccess(actualReceiverReg, receiverType, fieldName)
         }
 
@@ -9047,38 +9012,13 @@ class LLVMIRGenerator {
         if idx >= 0 {
             let varReg = varRegs[idx]
             let varType = varTypes[idx]
-
-            // Load the variable value - class types are stored as i64, data types are inline
-            // @repr(C) value-type classes: load as struct value, use extractvalue
-            var isReprCVar = false
-            if g_reprCClassNames != "" {
-                if g_reprCClassNames.contains(varType + "|") {
-                    isReprCVar = true
-                }
-            }
-            if isReprCVar {
-                let loadReg = getNextReg()
-                output.append("  " + loadReg + " = load %" + varType + ", ptr " + varReg + "\n")
-                return generateFieldAccess(loadReg, varType, fieldName)
-            }
-            if isClassType(varType) {
-                let loadReg = getNextReg()
-                output.append("  " + loadReg + " = load i64, ptr " + varReg + "\n")
-                // Convert to ptr for field access
-                let ptrReg = getNextReg()
-                output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
-                return generateFieldAccess(ptrReg, varType, fieldName)
-            } else {
-                if isDataType(varType) {
-                    // Data types are stored inline - use the alloca pointer directly
-                    return generateFieldAccess(varReg, varType, fieldName)
-                } else {
-                    // Non-class types stored as ptr
-                    let ptrReg = getNextReg()
-                    output.append("  " + ptrReg + " = load ptr, ptr " + varReg + "\n")
-                    return generateFieldAccess(ptrReg, varType, fieldName)
-                }
-            }
+            var varIsClass = 0
+            if isClassType(varType) { varIsClass = 1 }
+            var varIsData = 0
+            if isDataType(varType) { varIsData = 1 }
+            let actualVarReg = prepareVariableMemberReceiverImpl(output, g_regBox,
+                varReg, varType, g_reprCClassNames, varIsClass, varIsData)
+            return generateFieldAccess(actualVarReg, varType, fieldName)
         }
 
         let constIdx = findModuleConstant(receiverName)
@@ -9089,20 +9029,15 @@ class LLVMIRGenerator {
             if not isModuleConstMutable(constIdx) {
                 invSuffix = ", !invariant.load !190"
             }
-            if constSeenType != "" and isClassType(constSeenType) {
-                let loadReg = getNextReg()
-                output.append("  " + loadReg + " = load i64, ptr @" + quoteIdentIfNeeded(receiverName) + invSuffix + "\n")
-                let ptrReg = getNextReg()
-                output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
-                return generateFieldAccess(ptrReg, constSeenType, fieldName)
-            }
-            if constSeenType != "" and isDataType(constSeenType) {
-                return generateFieldAccess("@" + quoteIdentIfNeeded(receiverName), constSeenType, fieldName)
-            }
-            if constType == "ptr" {
-                let ptrReg = getNextReg()
-                output.append("  " + ptrReg + " = load ptr, ptr @" + quoteIdentIfNeeded(receiverName) + invSuffix + "\n")
-                return generateFieldAccess(ptrReg, constSeenType, fieldName)
+            var constIsClass = 0
+            if constSeenType != "" and isClassType(constSeenType) { constIsClass = 1 }
+            var constIsData = 0
+            if constSeenType != "" and isDataType(constSeenType) { constIsData = 1 }
+            let quotedConstName = "@" + quoteIdentIfNeeded(receiverName)
+            let actualConstReg = prepareModuleConstMemberReceiverImpl(output, g_regBox,
+                quotedConstName, constType, constSeenType, invSuffix, constIsClass, constIsData)
+            if actualConstReg != "" {
+                return generateFieldAccess(actualConstReg, constSeenType, fieldName)
             }
         }
 
