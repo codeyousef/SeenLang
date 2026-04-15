@@ -10,11 +10,12 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,567` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,579` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
   - `ir_async_registry.seen`
+  - `ir_trait_registry.seen`
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
 
 ### Implemented Slices
@@ -37,6 +38,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Moved shared declare-string / declare-param builders and declaration predicates into `ir_decl_scan.seen`.
 - Extracted the async function name/return-type registry into `ir_async_registry.seen`, keeping `llvm_ir_gen.seen` as a thin wrapper around the registry state.
 - Moved late-discovered user declare lookup, declaration-string building, registry append, duplicate filtering, and emit helpers into `ir_decl_scan.seen`.
+- Extracted dyn-trait name registration plus explicit and auto-detected trait-impl registry append logic into `ir_trait_registry.seen`.
 
 ### Validation Status
 
@@ -48,7 +50,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 - Phase 1: partially complete; state sync and explicit function-lowering options are in place.
 - Phase 2: core module-emission and call-argument dedup completed.
-- Phase 3: in progress; declaration scan, async registry extraction, and late user declare registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
+- Phase 3: in progress; declaration scan, async registry extraction, late user declare registry extraction, and trait registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
 - Phases 4-7: not started yet.
 
 ## Baseline Snapshot

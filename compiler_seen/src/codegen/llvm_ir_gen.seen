@@ -45,6 +45,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 import codegen.ir_decl_scan.{recordCrossModuleDeclareImpl, registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildDeclareParamsImpl, buildDeclareStringImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, shouldSkipStringBuilderMethodDeclImpl, shouldRegisterCrossModuleFunctionImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
+import codegen.ir_trait_registry.{appendDynTraitNameImpl, appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
@@ -4491,7 +4492,7 @@ class LLVMIRGenerator {
                 traitMI = traitMI + 1
             }
             // : Emit vtable struct type for dyn Trait dispatch
-            g_dynTraitNames = g_dynTraitNames + className + "|"
+            registerDynTraitName(className)
             output.append("; dyn " + className + " vtable type\n")
             output.append("%" + quoteIdentIfNeeded(className + "_vtable") + " = type { ")
             var vtMI = 0
@@ -5232,6 +5233,33 @@ class LLVMIRGenerator {
         emitTraitVtableConstantsImpl(output, g_traitImplRegistry, g_traitImplCount, g_dynTraitNames)
     }
 
+    fun registerDynTraitName(name: String) r: Void {
+        let namesBox = Array<String>()
+        namesBox.push(g_dynTraitNames)
+        appendDynTraitNameImpl(name, namesBox)
+        g_dynTraitNames = namesBox[0]
+    }
+
+    fun appendTraitImplEntry(entry: String) r: Void {
+        let registryBox = Array<String>()
+        registryBox.push(g_traitImplRegistry)
+        let countBox = Array<Int>()
+        countBox.push(g_traitImplCount)
+        appendTraitImplEntryImpl(entry, registryBox, countBox)
+        g_traitImplRegistry = registryBox[0]
+        g_traitImplCount = countBox[0]
+    }
+
+    fun autoRegisterTraitImpls(methodName: String, receiverType: String, implFuncName: String) r: Void {
+        let registryBox = Array<String>()
+        registryBox.push(g_traitImplRegistry)
+        let countBox = Array<Int>()
+        countBox.push(g_traitImplCount)
+        autoRegisterTraitImplsImpl(methodName, receiverType, implFuncName, g_dynTraitNames, structNames, structMethodNames, structMethodRetTypes, registryBox, countBox)
+        g_traitImplRegistry = registryBox[0]
+        g_traitImplCount = countBox[0]
+    }
+
     fun emitGlobalConstructors() r: Void {
         emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
     }
@@ -5440,8 +5468,7 @@ class LLVMIRGenerator {
                     if fn.decorators[itDecIdx].arguments.length() > 0 {
                         let itInfo = fn.decorators[itDecIdx].arguments[0]
                         // itInfo is "TraitName:ClassName"
-                        g_traitImplRegistry = g_traitImplRegistry + itInfo + ":" + fn.name + "|"
-                        g_traitImplCount = g_traitImplCount + 1
+                        appendTraitImplEntry(itInfo + ":" + fn.name)
                     }
                 }
                 itDecIdx = itDecIdx + 1
@@ -5548,22 +5575,7 @@ class LLVMIRGenerator {
                         implFuncName = implExpectedPrefix + implFuncName
                     }
                     // Auto-detect trait impl: check if method name matches a trait method
-                    if g_dynTraitNames != "" {
-                        var traitScan = 0
-                        while traitScan < g_dynTraitNames.length() {
-                            var traitPipePos = g_dynTraitNames.indexOf("|", traitScan)
-                            if traitPipePos < 0 { traitPipePos = g_dynTraitNames.length() }
-                            let traitCandidate = g_dynTraitNames.substring(traitScan, traitPipePos)
-                            if traitCandidate != "" {
-                                let traitMethodCheck = getMethodReturnType(traitCandidate, fn.name)
-                                if traitMethodCheck != "" {
-                                    g_traitImplRegistry = g_traitImplRegistry + traitCandidate + ":" + implFirstPTN + ":" + implFuncName + "|"
-                                    g_traitImplCount = g_traitImplCount + 1
-                                }
-                            }
-                            traitScan = traitPipePos + 1
-                        }
-                    }
+                    autoRegisterTraitImpls(fn.name, implFirstPTN, implFuncName)
                 }
             }
         }
