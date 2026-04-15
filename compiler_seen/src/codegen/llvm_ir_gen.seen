@@ -43,7 +43,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{recordCrossModuleDeclareImpl, registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildDeclareParamsImpl, buildDeclareStringImpl, shouldSkipStringBuilderMethodDeclImpl, shouldRegisterCrossModuleFunctionImpl}
+import codegen.ir_decl_scan.{recordCrossModuleDeclareImpl, registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildDeclareParamsImpl, buildDeclareStringImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, shouldSkipStringBuilderMethodDeclImpl, shouldRegisterCrossModuleFunctionImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
@@ -1617,25 +1617,11 @@ class LLVMIRGenerator {
     }
 
     fun hasCrossModuleDeclare(name: String) r: Bool {
-        var i = 0
-        while i < g_xmDeclareCount {
-            if pipeGet(g_xmDeclareNames, i) == name {
-                return true
-            }
-            i = i + 1
-        }
-        return false
+        return pipeContainsValueImpl(name, g_xmDeclareNames, g_xmDeclareCount)
     }
 
     fun hasLateUserDeclare(name: String) r: Bool {
-        var i = 0
-        while i < g_lateXmDeclareCount {
-            if pipeGet(g_lateXmDeclareNames, i) == name {
-                return true
-            }
-            i = i + 1
-        }
-        return false
+        return pipeContainsValueImpl(name, g_lateXmDeclareNames, g_lateXmDeclareCount)
     }
 
     fun recordLateUserDeclare(name: String, llvmReturnType: String, argTypeStrs: Array<String>, hasImplicitThis: Int) r: Void {
@@ -1655,71 +1641,21 @@ class LLVMIRGenerator {
             return
         }
 
-        var declRetType = llvmReturnType
-        if declRetType == "" {
-            declRetType = "void"
-        }
-
-        var decl = "declare " + declRetType + " @" + quoteIdentIfNeeded(name) + "("
-        if hasImplicitThis == 1 {
-            decl = decl + "ptr"
-        }
-
-        var i = 0
-        while i < argTypeStrs.length() {
-            if i > 0 or hasImplicitThis == 1 {
-                decl = decl + ", "
-            }
-            decl = decl + argTypeStrs[i]
-            i = i + 1
-        }
-        decl = decl + ") nounwind\n"
-
-        if g_lateXmDeclareNames == "" {
-            g_lateXmDeclareNames = name + "|"
-            g_lateXmDeclareStrs = decl + "|"
-        } else {
-            g_lateXmDeclareNames = g_lateXmDeclareNames + name + "|"
-            g_lateXmDeclareStrs = g_lateXmDeclareStrs + decl + "|"
-        }
-        g_lateXmDeclareCount = g_lateXmDeclareCount + 1
-    }
-
-    fun moduleAlreadyDeclaresFunction(ir: String, name: String) r: Bool {
-        let symbolSig = "@" + quoteIdentIfNeeded(name) + "("
-        var lineStart = 0
-        while lineStart < ir.length() {
-            var lineEnd = ir.indexOf("\n", lineStart)
-            if lineEnd < 0 {
-                lineEnd = ir.length()
-            }
-            let line = ir.substring(lineStart, lineEnd)
-            if (line.startsWith("declare ") or line.startsWith("define ")) and line.contains(symbolSig) {
-                return true
-            }
-            lineStart = lineEnd + 1
-        }
-        return false
+        let decl = buildLateUserDeclareStringImpl(quoteIdentIfNeeded(name), llvmReturnType, argTypeStrs, hasImplicitThis)
+        let namesBox = Array<String>()
+        namesBox.push(g_lateXmDeclareNames)
+        let declsBox = Array<String>()
+        declsBox.push(g_lateXmDeclareStrs)
+        let countBox = Array<Int>()
+        countBox.push(g_lateXmDeclareCount)
+        recordLateUserDeclareImpl(name, decl, namesBox, declsBox, countBox)
+        g_lateXmDeclareNames = namesBox[0]
+        g_lateXmDeclareStrs = declsBox[0]
+        g_lateXmDeclareCount = countBox[0]
     }
 
     fun emitLateUserDeclares(definedFuncs: Array<String>) r: Void {
-        if g_lateXmDeclareCount == 0 {
-            return
-        }
-
-        var currentIr = output.toString()
-        output.append("\n; Late-discovered user external declarations\n")
-        var i = 0
-        while i < g_lateXmDeclareCount {
-            let declName = pipeGet(g_lateXmDeclareNames, i)
-            if not isFuncDefinedInModule(declName, definedFuncs) and not moduleAlreadyDeclaresFunction(currentIr, declName) {
-                let declStr = pipeGet(g_lateXmDeclareStrs, i)
-                output.append(declStr)
-                currentIr = currentIr + declStr
-                definedFuncs.push(declName)
-            }
-            i = i + 1
-        }
+        emitLateUserDeclaresImpl(output, definedFuncs, g_lateXmDeclareNames, g_lateXmDeclareStrs, g_lateXmDeclareCount)
     }
 
 
