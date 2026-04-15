@@ -10,7 +10,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `14,785` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `14,588` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -18,6 +18,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `ir_trait_registry.seen`
   - `ir_call_fixups.seen`
   - `ir_method_finalize.seen`
+  - `ir_field_layout.seen`
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
@@ -27,6 +28,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `generateWhileStatement()` is down to about `75` lines.
   - `generateForInStatement()` is down to about `203` lines.
   - `generateIfStatement()` is down to about `212` lines.
+  - `generateFieldAccess()` is down to about `181` lines.
+  - `generateFieldAccessPtr()` is down to about `41` lines.
   - Function-pipeline helpers inside `llvm_ir_gen.seen` are now split into:
     - `shouldSkipFunctionByCfg()` at about `50` lines.
     - `emitFunctionDecoratorMetadataComments()` at about `18` lines.
@@ -120,6 +123,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Removed the duplicated loop-analysis implementation from `llvm_ir_gen.seen` and rewired the while-loop pipeline to reuse the shared analyzers already living in `ir_control_flow.seen`. This is the first slice that converts a class-local refactor into an actual cross-file architectural consolidation.
 - Reused `ir_stmt_gen.seen` for shared indexed-loop header emission so the range and array/string branches inside `generateForInStatement()` no longer hand-roll their own cond/body/end scaffolding inline. This extends the same architectural consolidation pattern from `while` loops into `for-in` lowering.
 - Reused `ir_stmt_gen.seen` for shared condition normalization and branch skeleton emission inside `generateIfStatement()` and `generateIfLetStatement()`. That moves more of the statement pipeline toward shared emitters instead of keeping each statement form responsible for its own low-level block plumbing.
+- Extracted shared struct field layout/index resolution into `ir_field_layout.seen` so `generateFieldAccess()` and `generateFieldAccessPtr()` no longer carry duplicate hardcoded layout tables for registry-backed and known bootstrap structs.
 
 ### Validation Status
 
@@ -127,8 +131,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_call_fixups.seen` reaches the expected `missing main` diagnostic, which at least confirms the new helper module parses cleanly.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_method_finalize.seen` also reaches the expected `missing main` diagnostic.
+- `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_field_layout.seen` also reaches the expected `missing main` diagnostic.
 - Direct compiler self-checks still hit the pre-existing early allocator failure: `free(): invalid size` while checking `compiler_seen/src/main_compiler.seen`.
-- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
+- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest shared field-layout extraction on top of the earlier `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
 - The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 
 ### Phase Status
@@ -138,7 +143,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Phase 3: in progress; declaration scan, async registry extraction, late user declare registry extraction, and trait registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
 - Phase 4: well underway; function signature/default-return/coroutine helpers plus entry/setup, parameter pre-registration, `main` dispatch, and parameter alloca emission are split out, but body emission still largely lives in `llvm_ir_gen.seen`.
 - Phase 5: well underway; final free-call emission, RealParser call fixups, final instance-method-call normalization, array mutator lowering, receiver-preparation helpers, and a full `generateCall()` phase split are in place.
-- Phase 6: in progress; `inferExpressionType()`, `generateWhileStatement()`, `generateForInStatement()`, `generateIfStatement()`, and `generateIfLetStatement()` now rely on focused helper phases, and the loop/statement pipeline reuses both `ir_control_flow.seen` and `ir_stmt_gen.seen`, but more statement/expression helpers still need to leave `llvm_ir_gen.seen`.
+- Phase 6: in progress; `inferExpressionType()`, `generateWhileStatement()`, `generateForInStatement()`, `generateIfStatement()`, `generateIfLetStatement()`, `generateFieldAccess()`, and `generateFieldAccessPtr()` now rely on focused helper phases or shared helper modules, and the loop/statement/expression pipeline reuses `ir_control_flow.seen`, `ir_stmt_gen.seen`, and `ir_field_layout.seen`, but more statement/expression helpers still need to leave `llvm_ir_gen.seen`.
 - Phase 7: not started yet.
 
 ## Baseline Snapshot

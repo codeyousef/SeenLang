@@ -1,0 +1,35 @@
+// ir_field_layout.seen — Shared struct field layout resolution helpers
+// Extracted from llvm_ir_gen.seen field access paths to reduce duplication.
+
+import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex}
+import codegen.ir_type_mapping.{resolveKnownStructFieldImpl}
+import codegen.type_registry.{getFieldInfoReg}
+
+// resolveFieldAccessLayoutImpl — resolve the LLVM layout string plus field index
+// for a struct field access. Returns "layout|fieldIndex".
+fun resolveFieldAccessLayoutImpl(structType: String, fieldName: String,
+    structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>) r: String {
+
+    let lb = "{"
+    let rb = "}"
+    let defaultLayout = lb + " i64 " + rb
+
+    let structIdx = findStructIdx(structNames, structType)
+    if structIdx >= 0 {
+        let registeredLayout = structLayouts[structIdx]
+        if registeredLayout.length() > 5 {
+            let regFieldIdx = getFieldInfoReg(structType, fieldName, structNames, structFieldNames)
+            if regFieldIdx >= 0 {
+                return registeredLayout + "|" + regFieldIdx.toString()
+            }
+            return registeredLayout + "|0"
+        }
+    }
+
+    let knownLayout = resolveKnownStructFieldImpl(structType, fieldName)
+    if knownLayout != "" {
+        return knownLayout + "|" + g_resolvedFieldIndex.toString()
+    }
+
+    return defaultLayout + "|0"
+}
