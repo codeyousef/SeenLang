@@ -154,6 +154,7 @@ void seen_error_clear(void);
 int64_t seen_error_message_ptr(void);
 int64_t seen_error_message_len(void);
 void seen_error_set_cstr(int64_t subsystem, int64_t code, const char* message);
+double seen_ptr_deref_f64(int64_t ptr);
 
 // Char (Unicode code point) to string
 SeenString seen_char_to_str(int64_t c);
