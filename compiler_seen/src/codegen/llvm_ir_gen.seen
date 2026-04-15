@@ -11124,55 +11124,42 @@ class LLVMIRGenerator {
         return resultReg
     }
 
-    // Generate IR for a function call expression. Handles a wide variety of
-    // call types in priority order:
-    //   1. Comptime parameter specialization (evaluate compile-time args)
-    //   2. Builtins: sizeof/alignof/offsetof (compile-time constants)
-    //   3. Print/println (variadic, type-dispatched formatting)
-    //   4. Type constructors: Array/Vec/HashMap/BTreeMap/LinkedList/Option/etc.
-    //   5. Enum variant constructors (checked via isEnumVariant)
-    //   6. Closure/indirect calls (varNames match before enum/array check)
-    //   7. Class constructors (malloc + memset + field init)
-    //   8. Async function calls (return coroutine handle ptr)
-    //   9. Regular function calls with ABI-correct parameter passing
-    // Data types are passed as pointers (ptr) for ABI compatibility.
-    // Collection constructors (HashMap_new_str_int, etc.) dispatch to
-    // type-specialized runtime functions.
-    fun generateCall(expr: ParserExpressionNode) r: String {
-        var funcName = expr.callee
+    fun applyComptimeParamSpecialization(funcName: String, expr: ParserExpressionNode) r: Void {
+        if g_comptimeParamCount <= 0 {
+            return
+        }
 
-        // comptime parameter specialization — evaluate and register comptime args
-        if g_comptimeParamCount > 0 {
-            // Check if this function has comptime params
-            var ctpSearchPos = 0
-            while ctpSearchPos < g_comptimeParamFuncNames.length() {
-                var ctpNextPipe = g_comptimeParamFuncNames.indexOf("|", ctpSearchPos)
-                if ctpNextPipe < 0 { ctpNextPipe = g_comptimeParamFuncNames.length() }
-                let ctpEntry = g_comptimeParamFuncNames.substring(ctpSearchPos, ctpNextPipe)
-                // Entry format: "funcName:paramIdx:paramName"
-                let ctpColon1 = ctpEntry.indexOf(":", 0)
-                if ctpColon1 > 0 {
-                    let ctpFuncName = ctpEntry.substring(0, ctpColon1)
-                    if ctpFuncName == funcName {
-                        let ctpColon2 = ctpEntry.indexOf(":", ctpColon1 + 1)
-                        if ctpColon2 > ctpColon1 {
-                            let ctpIdxStr = ctpEntry.substring(ctpColon1 + 1, ctpColon2)
-                            let ctpParamName = ctpEntry.substring(ctpColon2 + 1, ctpEntry.length())
-                            let ctpParamIdx = parseSimpleInt(ctpIdxStr)
-                            if ctpParamIdx >= 0 and ctpParamIdx < expr.arguments.length() {
-                                let ctpVal = evaluateConstExpr(expr.arguments[ctpParamIdx])
-                                if ctpVal != -9999999 {
-                                    registerComptimeVar(ctpParamName, ctpVal)
-                                    output.append("  ; comptime param " + ctpParamName + " = " + ctpVal.toString() + "\n")
-                                }
+        // Check if this function has comptime params
+        var ctpSearchPos = 0
+        while ctpSearchPos < g_comptimeParamFuncNames.length() {
+            var ctpNextPipe = g_comptimeParamFuncNames.indexOf("|", ctpSearchPos)
+            if ctpNextPipe < 0 { ctpNextPipe = g_comptimeParamFuncNames.length() }
+            let ctpEntry = g_comptimeParamFuncNames.substring(ctpSearchPos, ctpNextPipe)
+            // Entry format: "funcName:paramIdx:paramName"
+            let ctpColon1 = ctpEntry.indexOf(":", 0)
+            if ctpColon1 > 0 {
+                let ctpFuncName = ctpEntry.substring(0, ctpColon1)
+                if ctpFuncName == funcName {
+                    let ctpColon2 = ctpEntry.indexOf(":", ctpColon1 + 1)
+                    if ctpColon2 > ctpColon1 {
+                        let ctpIdxStr = ctpEntry.substring(ctpColon1 + 1, ctpColon2)
+                        let ctpParamName = ctpEntry.substring(ctpColon2 + 1, ctpEntry.length())
+                        let ctpParamIdx = parseSimpleInt(ctpIdxStr)
+                        if ctpParamIdx >= 0 and ctpParamIdx < expr.arguments.length() {
+                            let ctpVal = evaluateConstExpr(expr.arguments[ctpParamIdx])
+                            if ctpVal != -9999999 {
+                                registerComptimeVar(ctpParamName, ctpVal)
+                                output.append("  ; comptime param " + ctpParamName + " = " + ctpVal.toString() + "\n")
                             }
                         }
                     }
                 }
-                ctpSearchPos = ctpNextPipe + 1
             }
+            ctpSearchPos = ctpNextPipe + 1
         }
+    }
 
+    fun tryGenerateMetaBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         // sizeof(Type) — compile-time type size in bytes
         // NOTE: Use inferExpressionType instead of field access on arguments[0]
         // to avoid stage1_frozen cross-module GEP bug with ParserExpressionNode fields
@@ -11220,7 +11207,6 @@ class LLVMIRGenerator {
                     if sIdx >= 0 {
                         let fNamesCsv = structFieldNames[sIdx]
                         let fTypesCsv = structFieldTypes[sIdx]
-                        // Pre-compute field names, aligns, sizes into parallel arrays
                         var offFieldNamesArr = Array<String>()
                         var offFieldAlignsArr = Array<Int>()
                         var offFieldSizesArr = Array<Int>()
@@ -11249,7 +11235,7 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // : transmute<TargetType>(value) — delegated to ir_method_gen.seen
+        // transmute<TargetType>(value) — delegated to ir_method_gen.seen
         if funcName.startsWith("transmute<") {
             if g_insideUnsafe == 0 {
                 output.append("  ; ERROR: transmute requires unsafe block\n")
@@ -11282,7 +11268,6 @@ class LLVMIRGenerator {
                 }
                 output.append("  ; WARNING: includeStr file not found: " + inclPath + "\n")
             }
-            // Fallback: empty string
             let inclEmptyReg = getNextReg()
             output.append("  " + inclEmptyReg + " = insertvalue %SeenString undef, i64 0, 0\n")
             return inclEmptyReg
@@ -11303,9 +11288,12 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // : ptr operations — delegated to ir_method_gen.seen emitPtrOpsImpl
+        return ""
+    }
+
+    fun tryGenerateLowLevelBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
+        // ptr operations — delegated to ir_method_gen.seen emitPtrOpsImpl
         if funcName == "ptr_deref" or funcName == "ptr_deref_f64" or funcName == "ptr_store" or funcName == "ptr_store_f64" or funcName == "ptr_is_null" or funcName == "ptr_add" or funcName == "ptr_deref_i32" or funcName == "ptr_store_i32" or funcName == "ptr_deref_i16" or funcName == "ptr_store_i16" or funcName == "ptr_deref_i8" or funcName == "ptr_store_i8" or funcName == "ptr_deref_f32" or funcName == "ptr_store_f32" or funcName == "ptr_alloc_i32" or funcName == "ptr_alloc_i16" or funcName == "ptr_alloc_i8" {
-            // Unsafe enforcement: ptr_deref/ptr_store require unsafe block
             if g_insideUnsafe == 0 {
                 if funcName.startsWith("ptr_deref") or funcName.startsWith("ptr_store") {
                     output.append("  ; WARNING: " + funcName + " requires unsafe block\n")
@@ -11322,12 +11310,12 @@ class LLVMIRGenerator {
             if funcName == "ptr_is_null" { return "1" }
             return "0"
         }
-        // : barrier() — GPU workgroup synchronization (CPU: no-op)
+
         if funcName == "barrier" {
             output.append("  call void @seen_barrier()\n")
             return "0"
         }
-        // : stackAlloc — delegated to ir_method_gen.seen
+
         if funcName == "stackAlloc" or funcName.startsWith("stackAlloc<") {
             var allocCount = "1"
             if expr.arguments.length() > 0 {
@@ -11335,7 +11323,7 @@ class LLVMIRGenerator {
             }
             return emitStackAllocImpl(output, g_regBox, allocCount)
         }
-        // : constructAt — delegated to ir_method_gen.seen
+
         if funcName == "constructAt" {
             if expr.arguments.length() >= 1 {
                 let caPtr = generateExpression(expr.arguments[0])
@@ -11344,7 +11332,6 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // : debug_assert(condition) — delegated to ir_call_dispatch.seen
         if funcName == "debug_assert" {
             if g_boundsCheckEnabled == 1 {
                 if expr.arguments.length() > 0 {
@@ -11359,7 +11346,6 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // C string conversion builtins — delegated to ir_call_dispatch.seen
         if funcName == "str_to_cstr" {
             if expr.arguments.length() > 0 {
                 let strArg = generateExpression(expr.arguments[0])
@@ -11384,12 +11370,10 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // Inline __default<T>() as 0 - generic default is always null/zero
         if funcName == "__default" or funcName.startsWith("__default<") {
             return "0"
         }
 
-        // async_yield() — delegated to ir_call_dispatch.seen
         if funcName == "async_yield" {
             var isInsideAsync = 0
             if g_asyncFunctionCoroHdl != "" {
@@ -11404,16 +11388,12 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // SIMD builtins: constructors, load/store, select, shuffle, gather, scatter (/34/62/63/65)
-        // Delegated to ir_type_tables.seen emitSimdBuiltinImpl
         let isSimdBuiltin = isSimdVectorType(funcName) == 1 or funcName.startsWith("simd_load_") or funcName.startsWith("simd_store_") or funcName == "simd_select" or funcName == "simd_shuffle" or funcName.startsWith("simd_gather_") or funcName.startsWith("simd_scatter_")
         if isSimdBuiltin {
-            // Pre-generate all arguments
             var simdArgs = Array<String>()
             var simdArgTypes = Array<String>()
             var simdConstIndices = Array<Int>()
             var simdPreArgIdx = 0
-            // For shuffle: first 2 args are vectors, rest are compile-time indices
             let isShuf = funcName == "simd_shuffle"
             while simdPreArgIdx < expr.arguments.length() {
                 if isShuf and simdPreArgIdx >= 2 {
@@ -11433,7 +11413,6 @@ class LLVMIRGenerator {
             }
         }
 
-        // Indirect call: if callee is a local variable (closure/function pointer), do indirect call
         var icVarIdx = 0
         var icIsIndirect = false
         while icVarIdx < activeVarCount {
@@ -11461,8 +11440,6 @@ class LLVMIRGenerator {
             return icResultReg
         }
 
-        // Enum variant constructor: only for data enums (with fields)
-        // Simple enums (SeenTokenType etc.) are handled via normal call/member codegen
         if g_enumVariantCount > 0 {
             if isEnumVariant(funcName) {
                 let varFieldCount = lookupEnumFieldCount(funcName)
@@ -11472,28 +11449,25 @@ class LLVMIRGenerator {
             }
         }
 
-        // Debug output for all calls to understand structure
-        // Special case: Array<Type>() constructor - creates empty array
-        // NOTE: Must check BEFORE stripping generic parameters
+        return ""
+    }
+
+    fun tryGenerateConstructorLikeCall(expr: ParserExpressionNode, funcName: String) r: String {
         if funcName.startsWith("Array<") or funcName == "Array" {
-            // Extract element type from Array<ElementType>
             var elementType = ""
             if funcName.startsWith("Array<") and funcName.endsWith(">") {
                 elementType = funcName.substring(6, funcName.length() - 1)
             }
 
-            // Bulk initialization: Array<T>(count, value) — delegated to ir_call_dispatch.seen
             if expr.arguments.length() == 2 {
                 let countReg = generateExpression(expr.arguments[0])
                 let valueReg = generateExpression(expr.arguments[1])
-                // Detect zero-fill from AST
                 var isZeroFill = 0
                 let fillValNode = expr.arguments[1]
                 if fillValNode.kind == "Literal" and fillValNode.literalValue == "0" { isZeroFill = 1 }
                 return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg, elementType, isZeroFill, currentFunctionAlignTo())
             }
 
-            // Pre-allocation constructor: Array<T>(capacity) — delegated to ir_call_dispatch.seen
             if expr.arguments.length() == 1 {
                 let capReg = generateExpression(expr.arguments[0])
                 var elemSz = 8
@@ -11502,23 +11476,18 @@ class LLVMIRGenerator {
                 return emitArrayPreallocImpl(output, g_regBox, capReg, elemSz)
             }
 
-            // Inline zero-arg Array<T>() constructor — delegated to ir_call_dispatch.seen
             var elemSize = 8
             if funcName == "Array<String>" or funcName.startsWith("Array<String") { elemSize = 16 }
             if isDataType(elementType) { elemSize = getDataTypeSize(elementType) }
             return emitArrayInlineImpl(output, g_regBox, elemSize, currentFunctionAlignTo())
         }
 
-        // SmallVec constructor — delegated to ir_call_dispatch.seen
         if funcName.startsWith("SmallVec<") or funcName.startsWith("SmallVec[") or funcName == "SmallVec" {
             var svCapArgReg = ""
             if expr.arguments.length() > 0 { svCapArgReg = generateExpression(expr.arguments[0]) }
             return emitSmallVecConstructorImpl(output, g_regBox, funcName, svCapArgReg)
         }
 
-        // Vec<T>() creates a new empty Vec using C runtime
-        // Must be BEFORE isClassType check since Vec is a class type
-        // Collection constructors — delegated to ir_declarations.seen
         if funcName == "Vec" or funcName.startsWith("Vec<") or funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") or funcName == "HashMap" or funcName.startsWith("HashMap<") or funcName == "LinkedList" or funcName.startsWith("LinkedList<") {
             var colCapArg = ""
             if expr.arguments.length() > 0 { colCapArg = generateExpression(expr.arguments[0]) }
@@ -11526,9 +11495,7 @@ class LLVMIRGenerator {
             if colResult != "" { return colResult }
         }
 
-        // Check if this is a class constructor call (e.g., Expr() creates new Expr instance)
         if isClassType(funcName) {
-            // @repr(C) classes: stack-allocate value type instead of heap
             var isReprC = false
             if g_reprCClassNames != "" {
                 if g_reprCClassNames.contains(funcName + "|") {
@@ -11540,14 +11507,12 @@ class LLVMIRGenerator {
                 if expr.arguments.length() == 0 or structIdx < 0 {
                     return "zeroinitializer"
                 }
-                // Pre-evaluate args and resolve field LLVM types for emitReprCConstructorImpl
                 var reprCArgRegs = Array<String>()
                 var reprCFieldTypes = Array<String>()
                 var fieldTypesStr = structFieldTypes[structIdx]
                 var reprCArgIdx = 0
                 while reprCArgIdx < expr.arguments.length() {
                     reprCArgRegs.push(generateExpression(expr.arguments[reprCArgIdx]))
-                    // Extract pipe-delimited Seen type at position reprCArgIdx
                     var rcTypePos = 0
                     var rcFldI = 0
                     while rcFldI < reprCArgIdx {
@@ -11563,21 +11528,16 @@ class LLVMIRGenerator {
                 return emitReprCConstructorImpl(output, g_regBox, funcName, reprCArgRegs, reprCFieldTypes)
             }
 
-            // Generate inline constructor: malloc + initialize fields + return pointer-as-int
             let structIdx = findStruct(funcName)
             let ptrReg = getNextReg()
-
-            // Get struct size - use getDataTypeSize if we have field info, otherwise default
             var structSize = 8
             if structIdx >= 0 {
-                // Use the registered struct size
                 structSize = structSizes[structIdx]
                 if structSize == 0 {
-                    structSize = 16  // Default minimum for a class with at least one field
+                    structSize = 16
                 }
             }
 
-            // Allocate memory for the object (use pool allocator for small objects)
             if structSize <= 80 {
                 output.append("  " + ptrReg + " = call ptr @seen_pool_alloc(i64 " + structSize.toString() + ")\n")
             }
@@ -11585,14 +11545,8 @@ class LLVMIRGenerator {
                 output.append("  " + ptrReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
             }
 
-            // Zero-initialize all fields with memset.
-            // Avoids %ClassName GEP which requires the type definition in the current module -
-            // cross-module construction would fail with "base element of getelementptr must be sized".
-            // memset(ptr, 0, size) is correct for all field types:
-            //   Int/Char/Float/class-ptr -> i64 0, Bool -> i1 false, String -> {0, null}, Array -> null
             output.append("  call void @llvm.memset.p0.i64(ptr " + ptrReg + ", i8 0, i64 " + structSize.toString() + ", i1 false)\n")
 
-            // Initialize Array<T>/List<T> fields — memset leaves them as null ptrs (segfaults on .push())
             if structIdx >= 0 {
                 var fieldNamesStr = structFieldNames[structIdx]
                 var fieldTypesStr = structFieldTypes[structIdx]
@@ -11601,18 +11555,15 @@ class LLVMIRGenerator {
                 var typePos = 0
                 var iterDone = 0
                 while iterDone == 0 {
-                    // Extract next field name (comma-delimited) — only to advance cursor
                     var nameEnd = namePos
                     while nameEnd < fieldNamesStr.length() and fieldNamesStr.byteAt(nameEnd) != 44 {
                         nameEnd = nameEnd + 1
                     }
-                    // Extract next field type (pipe-delimited)
                     var typeEnd = typePos
                     while typeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(typeEnd) != 124 {
                         typeEnd = typeEnd + 1
                     }
                     var fieldSeenType = fieldTypesStr.substring(typePos, typeEnd)
-                    // Emit init for Array<T> or List<T> fields
                     var isArrayField = 0
                     if fieldSeenType.startsWith("Array<") {
                         isArrayField = 1
@@ -11623,7 +11574,6 @@ class LLVMIRGenerator {
                     if isArrayField == 1 {
                         let fieldPtrReg = getNextReg()
                         output.append("  " + fieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + byteOffset.toString() + "\n")
-                        // Extract element type from "Array<ElemType>" or "List<ElemType>"
                         var elemType = ""
                         if fieldSeenType.startsWith("Array<") {
                             elemType = fieldSeenType.substring(6, fieldSeenType.length() - 1)
@@ -11648,9 +11598,7 @@ class LLVMIRGenerator {
                         }
                         output.append("  store ptr " + arrInitReg + ", ptr " + fieldPtrReg + "\n")
                     }
-                    // Advance byte offset by this field's size
                     byteOffset = byteOffset + getTypeSize(fieldSeenType)
-                    // Advance to next field
                     if nameEnd < fieldNamesStr.length() {
                         namePos = nameEnd + 1
                         typePos = typeEnd + 1
@@ -11661,9 +11609,6 @@ class LLVMIRGenerator {
                 }
             }
 
-            // Initialize positional constructor arguments in field order.
-            // ClassName(a, b) should populate the first fields rather than
-            // returning a zeroed object.
             if structIdx >= 0 and expr.arguments.length() > 0 {
                 var ctorFieldTypesStr = structFieldTypes[structIdx]
                 var ctorByteOffset = 0
@@ -11704,13 +11649,15 @@ class LLVMIRGenerator {
                 }
             }
 
-            // Convert pointer to i64 (class types are stored as pointer-as-int)
             let intReg = getNextReg()
             output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
             return intReg
         }
 
-        // Strip generic parameters from function name (e.g., "Err<String, String>" -> "Err")
+        return ""
+    }
+
+    fun stripGenericCalleeName(funcName: String) r: String {
         if funcName.contains("<") {
             var ltIdx = 0
             var scanIdx = 0
@@ -11722,15 +11669,40 @@ class LLVMIRGenerator {
                 scanIdx = scanIdx + 1
             }
             if ltIdx > 0 {
-                funcName = funcName.substring(0, ltIdx)
+                return funcName.substring(0, ltIdx)
             }
         }
+        return funcName
+    }
 
-        // INLINE SOME/NONE GENERATION
-        // Generate LLVM IR inline for Some/None to avoid ABI mismatches between
-        // C runtime (pointer model) and Seen stdlib (struct model)
-        // Option layout: { i1 hasValue, i64 value } - 16 bytes total
-        // Some/None constructors — delegated to ir_declarations.seen
+    fun emitPrintLikeCall(printName: String, argExpr: ParserExpressionNode) r: String {
+        let argType = inferExpressionType(argExpr)
+        let argReg = generateExpression(argExpr)
+        var strReg = argReg
+        if argType == "Int" {
+            strReg = getNextReg()
+            output.append("  " + strReg + " = call %SeenString @seen_int_to_string(i64 " + argReg + ")\n")
+        } else {
+            if argType == "Float" {
+                strReg = getNextReg()
+                output.append("  " + strReg + " = call %SeenString @seen_float_to_string(double " + argReg + ")\n")
+            } else {
+                if argType == "Bool" {
+                    strReg = getNextReg()
+                    output.append("  " + strReg + " = call %SeenString @seen_bool_to_string(i1 " + argReg + ")\n")
+                } else {
+                    if argType == "Char" {
+                        strReg = getNextReg()
+                        output.append("  " + strReg + " = call %SeenString @seen_char_to_str(i64 " + argReg + ")\n")
+                    }
+                }
+            }
+        }
+        output.append("  call void @" + printName + "(%SeenString " + strReg + ")\n")
+        return "0"
+    }
+
+    fun tryGenerateRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         if funcName == "Some" {
             var argReg = "0"
             var argType = "Int"
@@ -11746,7 +11718,6 @@ class LLVMIRGenerator {
             return emitNoneConstructorImpl(output, g_regBox)
         }
 
-        // Special case: super() parent constructor call
         if funcName == "super" {
             if g_currentClassParentName != "" {
                 let thisIdx = findVar("this")
@@ -11760,7 +11731,6 @@ class LLVMIRGenerator {
             return "0"
         }
         if funcName == "" {
-            // Empty function name: evaluate arguments for side effects only
             var i = 0
             while i < expr.arguments.length() {
                 generateExpression(expr.arguments[i])
@@ -11769,67 +11739,19 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // Special case: println
         if funcName == "println" {
             if expr.arguments.length() > 0 {
-                let argType = inferExpressionType(expr.arguments[0])
-                let argReg = generateExpression(expr.arguments[0])
-                var strReg = argReg
-                if argType == "Int" {
-                    strReg = getNextReg()
-                    output.append("  " + strReg + " = call %SeenString @seen_int_to_string(i64 " + argReg + ")\n")
-                } else {
-                    if argType == "Float" {
-                        strReg = getNextReg()
-                        output.append("  " + strReg + " = call %SeenString @seen_float_to_string(double " + argReg + ")\n")
-                    } else {
-                        if argType == "Bool" {
-                            strReg = getNextReg()
-                            output.append("  " + strReg + " = call %SeenString @seen_bool_to_string(i1 " + argReg + ")\n")
-                        } else {
-                            if argType == "Char" {
-                                strReg = getNextReg()
-                                output.append("  " + strReg + " = call %SeenString @seen_char_to_str(i64 " + argReg + ")\n")
-                            }
-                        }
-                    }
-                }
-                output.append("  call void @println(%SeenString " + strReg + ")\n")
+                return emitPrintLikeCall("println", expr.arguments[0])
             }
             return "0"
         }
-
-        // Special case: print (no newline)
         if funcName == "print" {
             if expr.arguments.length() > 0 {
-                let argType = inferExpressionType(expr.arguments[0])
-                let argReg = generateExpression(expr.arguments[0])
-                var strReg = argReg
-                if argType == "Int" {
-                    strReg = getNextReg()
-                    output.append("  " + strReg + " = call %SeenString @seen_int_to_string(i64 " + argReg + ")\n")
-                } else {
-                    if argType == "Float" {
-                        strReg = getNextReg()
-                        output.append("  " + strReg + " = call %SeenString @seen_float_to_string(double " + argReg + ")\n")
-                    } else {
-                        if argType == "Bool" {
-                            strReg = getNextReg()
-                            output.append("  " + strReg + " = call %SeenString @seen_bool_to_string(i1 " + argReg + ")\n")
-                        } else {
-                            if argType == "Char" {
-                                strReg = getNextReg()
-                                output.append("  " + strReg + " = call %SeenString @seen_char_to_str(i64 " + argReg + ")\n")
-                            }
-                        }
-                    }
-                }
-                output.append("  call void @print(%SeenString " + strReg + ")\n")
+                return emitPrintLikeCall("print", expr.arguments[0])
             }
             return "0"
         }
 
-        // Special case: readText
         if funcName == "readText" {
             if expr.arguments.length() > 0 {
                 let argReg = generateExpression(expr.arguments[0])
@@ -11840,7 +11762,6 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // Special case: writeText
         if funcName == "writeText" {
             if expr.arguments.length() >= 2 {
                 let pathReg = generateExpression(expr.arguments[0])
@@ -11852,15 +11773,12 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // Special case: args() returns ptr to heap-allocated SeenArray
         if funcName == "args" {
             let resultReg = getNextReg()
             output.append("  " + resultReg + " = call ptr @args()\n")
-            // Return pointer to heap-allocated array (arrays are stored as ptr)
             return resultReg
         }
 
-        // Special case: panic(msg) — abort with message and stack trace
         if funcName == "panic" {
             if expr.arguments.length() > 0 {
                 let argReg = generateExpression(expr.arguments[0])
@@ -11874,74 +11792,73 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // Check if this is a method call on the current class (implicit this)
-        // This handles calls like foo(x) inside a class method when foo is a method of the same class
+        return ""
+    }
+
+    fun tryGenerateImplicitThisCall(expr: ParserExpressionNode, funcName: String) r: String {
         let thisIdx = findVar("this")
-        if thisIdx >= 0 {
-            let thisType = varTypes[thisIdx]
-
-            // Special handling for misplaced RealParser class methods
-            // These methods were incorrectly parsed as standalone functions but should be class methods
-            let misplacedRetType = resolveRealParserMisplacedMethodReturnTypeImpl(funcName)
-            if misplacedRetType != "" and thisType == "RealParser" {
-                // Generate call to the class method version
-                let thisReg = varRegs[thisIdx]
-                var argRegs = Array<String>()
-                var argTypeStrs = Array<String>()
-                prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, false, false, "")
-
-                let methodFuncName = thisType + "_" + funcName
-                fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
-                argRegs = g_defaultFillArgRegs
-                argTypeStrs = g_defaultFillArgTypeStrs
-
-                // Load this pointer
-                let thisPtrReg = getNextReg()
-                output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                var mpTailCall = 0
-                if takeTailCallPosition() {
-                    mpTailCall = 1
-                }
-                return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), misplacedRetType, "ptr", thisPtrReg, argRegs, argTypeStrs, mpTailCall)
-            }
-
-            // Check if the function is a method of the current class
-            let methodRetType = getMethodReturnType(thisType, funcName)
-            if methodRetType != "" {
-                // This is an implicit method() call
-                let thisReg = varRegs[thisIdx]
-                var argRegs = Array<String>()
-                var argTypeStrs = Array<String>()
-                prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
-
-                if thisType == "StringBuilder" and (funcName == "append" or funcName == "appendInt" or funcName == "appendFloat" or funcName == "appendChar" or funcName == "clear" or funcName == "length" or funcName == "toString") {
-                    let thisPtrReg = getNextReg()
-                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                    var sbArg0 = ""
-                    if argRegs.length() > 0 {
-                        sbArg0 = argRegs[0]
-                    }
-                    return emitStringBuilderMethodImpl(output, g_regBox, funcName, thisPtrReg, sbArg0, 0)
-                }
-
-                let methodFuncName = thisType + "_" + funcName
-                fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
-                argRegs = g_defaultFillArgRegs
-                argTypeStrs = g_defaultFillArgTypeStrs
-                let llvmReturnType = mapType(methodRetType)
-
-                // Load this pointer
-                let thisPtrReg = getNextReg()
-                output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                var selfTailCall = 0
-                if takeTailCallPosition() {
-                    selfTailCall = 1
-                }
-                return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), llvmReturnType, "ptr", thisPtrReg, argRegs, argTypeStrs, selfTailCall)
-            }
+        if thisIdx < 0 {
+            return ""
         }
 
-        // Math builtins + __ExecuteCommand — delegated to ir_declarations.seen
+        let thisType = varTypes[thisIdx]
+        let misplacedRetType = resolveRealParserMisplacedMethodReturnTypeImpl(funcName)
+        if misplacedRetType != "" and thisType == "RealParser" {
+            let thisReg = varRegs[thisIdx]
+            var argRegs = Array<String>()
+            var argTypeStrs = Array<String>()
+            prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, false, false, "")
+
+            let methodFuncName = thisType + "_" + funcName
+            fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
+            argRegs = g_defaultFillArgRegs
+            argTypeStrs = g_defaultFillArgTypeStrs
+
+            let thisPtrReg = getNextReg()
+            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+            var mpTailCall = 0
+            if takeTailCallPosition() {
+                mpTailCall = 1
+            }
+            return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), misplacedRetType, "ptr", thisPtrReg, argRegs, argTypeStrs, mpTailCall)
+        }
+
+        let methodRetType = getMethodReturnType(thisType, funcName)
+        if methodRetType == "" {
+            return ""
+        }
+
+        let thisReg = varRegs[thisIdx]
+        var argRegs = Array<String>()
+        var argTypeStrs = Array<String>()
+        prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
+
+        if thisType == "StringBuilder" and (funcName == "append" or funcName == "appendInt" or funcName == "appendFloat" or funcName == "appendChar" or funcName == "clear" or funcName == "length" or funcName == "toString") {
+            let thisPtrReg = getNextReg()
+            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+            var sbArg0 = ""
+            if argRegs.length() > 0 {
+                sbArg0 = argRegs[0]
+            }
+            return emitStringBuilderMethodImpl(output, g_regBox, funcName, thisPtrReg, sbArg0, 0)
+        }
+
+        let methodFuncName = thisType + "_" + funcName
+        fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
+        argRegs = g_defaultFillArgRegs
+        argTypeStrs = g_defaultFillArgTypeStrs
+        let llvmReturnType = mapType(methodRetType)
+
+        let thisPtrReg = getNextReg()
+        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+        var selfTailCall = 0
+        if takeTailCallPosition() {
+            selfTailCall = 1
+        }
+        return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), llvmReturnType, "ptr", thisPtrReg, argRegs, argTypeStrs, selfTailCall)
+    }
+
+    fun tryGenerateMathBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         if funcName == "__Sqrt" or funcName == "__Sin" or funcName == "__Cos" or funcName == "__Exp" or funcName == "__Log" or funcName == "__Log10" or funcName == "__Fabs" or funcName == "__Pow" or funcName == "__Asin" or funcName == "__Acos" or funcName == "__Atan" or funcName == "__Sinh" or funcName == "__Cosh" or funcName == "__Tanh" or funcName == "__Tan" or funcName == "__Atan2" or funcName == "__ExecuteCommand" or funcName == "absFloat" or funcName == "absInt" or funcName == "minInt" or funcName == "maxInt" {
             var mArg0 = ""
             var mArg1 = ""
@@ -11950,13 +11867,64 @@ class LLVMIRGenerator {
             let mResult = emitMathBuiltinImpl(output, g_regBox, funcName, mArg0, mArg1)
             if mResult != "" { return mResult }
         }
+        return ""
+    }
 
-        // Generic function call - generate args first, then result reg
+    // Generate IR for a function call expression. Handles a wide variety of
+    // call types in priority order:
+    //   1. Comptime parameter specialization (evaluate compile-time args)
+    //   2. Builtins: sizeof/alignof/offsetof (compile-time constants)
+    //   3. Print/println (variadic, type-dispatched formatting)
+    //   4. Type constructors: Array/Vec/HashMap/BTreeMap/LinkedList/Option/etc.
+    //   5. Enum variant constructors (checked via isEnumVariant)
+    //   6. Closure/indirect calls (varNames match before enum/array check)
+    //   7. Class constructors (malloc + memset + field init)
+    //   8. Async function calls (return coroutine handle ptr)
+    //   9. Regular function calls with ABI-correct parameter passing
+    // Data types are passed as pointers (ptr) for ABI compatibility.
+    // Collection constructors (HashMap_new_str_int, etc.) dispatch to
+    // type-specialized runtime functions.
+    fun generateCall(expr: ParserExpressionNode) r: String {
+        var funcName = expr.callee
+
+        applyComptimeParamSpecialization(funcName, expr)
+
+        let metaBuiltinResult = tryGenerateMetaBuiltinCall(expr, funcName)
+        if metaBuiltinResult != "" {
+            return metaBuiltinResult
+        }
+
+        let lowLevelBuiltinResult = tryGenerateLowLevelBuiltinCall(expr, funcName)
+        if lowLevelBuiltinResult != "" {
+            return lowLevelBuiltinResult
+        }
+
+        let constructorResult = tryGenerateConstructorLikeCall(expr, funcName)
+        if constructorResult != "" {
+            return constructorResult
+        }
+
+        funcName = stripGenericCalleeName(funcName)
+
+        let runtimeBuiltinResult = tryGenerateRuntimeBuiltinCall(expr, funcName)
+        if runtimeBuiltinResult != "" {
+            return runtimeBuiltinResult
+        }
+
+        let implicitThisResult = tryGenerateImplicitThisCall(expr, funcName)
+        if implicitThisResult != "" {
+            return implicitThisResult
+        }
+
+        let mathBuiltinResult = tryGenerateMathBuiltinCall(expr, funcName)
+        if mathBuiltinResult != "" {
+            return mathBuiltinResult
+        }
+
         var argRegs = Array<String>()
         var argTypeStrs = Array<String>()
         prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, true, false, true, "fn call")
 
-        // Default parameter injection — delegated to ir_call_dispatch.seen
         fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
         argRegs = g_defaultFillArgRegs
         argTypeStrs = g_defaultFillArgTypeStrs
@@ -11965,12 +11933,10 @@ class LLVMIRGenerator {
             println("[irgen call pre-promote] class=" + currentClassName + " func=" + funcName + " regs=" + argRegs.length().toString() + " types=" + argTypeStrs.length().toString())
         }
 
-        // Int→Float promotion — delegated to ir_call_dispatch.seen
         if argRegs.length() == argTypeStrs.length() and g_floatParamFuncNames.length() > 0 and g_floatParamParamIdxs.length() > 0 {
             promoteFloatArgsImpl(output, g_regBox, funcName, argRegs, argTypeStrs, g_floatParamFuncNames, g_floatParamParamIdxs)
         }
 
-        // Infer return type from function name
         let returnType = inferExpressionType(expr)
         var llvmReturnType = mapType(returnType)
         if isAsyncFunction(funcName) {
