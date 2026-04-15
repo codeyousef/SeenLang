@@ -4,13 +4,57 @@
 
 Refactor `compiler_seen/src/codegen/llvm_ir_gen.seen` and the surrounding LLVM codegen area so responsibilities are separated cleanly, duplication is reduced, and no source file is longer than 500 lines unless there is a strong, explicit reason.
 
-This is an investigation and proposed plan, not an implementation.
+This started as an investigation and proposed plan. It now also tracks which refactor slices have already been completed.
 
-## What I Found
+## Completed So Far (2026-04-15)
+
+### Current Snapshot
+
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,631` lines.
+- New extracted helper modules now in tree:
+  - `ir_module_emit.seen`
+  - `ir_decl_scan.seen`
+  - `ir_async_registry.seen`
+- `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
+
+### Implemented Slices
+
+1. Phase 1 state extraction
+- Introduced explicit `FunctionLoweringOptions` and shared `CodegenState`.
+- Wired `syncState()` / `writeBackState()` so extracted helpers can use shared lowering state.
+- Replaced the main loop-metadata `indent` encoding path with explicit function-lowering state.
+- Moved `generateLiteral()` onto the shared state-backed lowering path.
+
+2. Phase 2 orchestration dedup
+- Extracted shared module emission logic into `ir_module_emit.seen`.
+- `generateMultiple()` and `generateSingle()` now share helpers for global emission, cross-module constant declares, trait vtable constants, and `@llvm.global_ctors`.
+- Extracted shared call-argument preparation into `ir_call_dispatch.seen` / `prepareCallArguments(...)`.
+- Unified repeated argument adaptation for free calls, implicit `this` calls, static calls, parser workaround calls, and receiver method calls.
+
+3. Phase 3 declaration and registry work
+- Extracted cross-module declare recording, enum variant registration, and cross-module constant registration into `ir_decl_scan.seen`.
+- Split `registerDeclarations()` into smaller helpers for class pre-registration, class declaration items, data declaration items, and function declaration items.
+- Moved shared declare-string / declare-param builders and declaration predicates into `ir_decl_scan.seen`.
+- Extracted the async function name/return-type registry into `ir_async_registry.seen`, keeping `llvm_ir_gen.seen` as a thin wrapper around the registry state.
+
+### Validation Status
+
+- Every completed slice has been checked using memory-capped rebuilds derived from current system memory.
+- The current compiler still clears Pass 1 and serial IR generation for all `59` modules after these changes.
+- The recurring failure remains late in module optimization: `/usr/bin/opt: unknown pass name 'polly-canonicalize'`.
+
+### Phase Status
+
+- Phase 1: partially complete; state sync and explicit function-lowering options are in place.
+- Phase 2: core module-emission and call-argument dedup completed.
+- Phase 3: in progress; declaration scan and async registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
+- Phases 4-7: not started yet.
+
+## Baseline Snapshot
 
 ### 1. `llvm_ir_gen.seen` is still the monolith
 
-- Current size: `16,086` lines.
+- Plan baseline size: `16,086` lines.
 - There are `196` module-level globals before the class even starts (`compiler_seen/src/codegen/llvm_ir_gen.seen:81-498`).
 - The class still owns orchestration, type/registry lookups, declaration scanning, module emission, class emission, function lowering, statement lowering, expression lowering, type inference, and feature/decorator state.
 
@@ -53,7 +97,7 @@ Two especially important signs:
 
 But the migration is incomplete:
 
-- `LLVMIRGenerator.syncState()` is currently a no-op (`compiler_seen/src/codegen/llvm_ir_gen.seen:1112-1114`).
+- At the plan baseline, `LLVMIRGenerator.syncState()` was a no-op (`compiler_seen/src/codegen/llvm_ir_gen.seen:1112-1114`).
 - `CodegenState` is mostly unused outside literal lowering.
 - Several extracted modules still leave the monolith in charge of almost all orchestration and most branching logic.
 
@@ -494,7 +538,7 @@ Mitigation:
 
 ## Recommended First Refactor PR
 
-If we want the safest first implementation step, I would start with this PR sequence:
+This was the safest first implementation sequence, and it has now been completed:
 
 1. Introduce real state structs for function/module options and wire `syncState()`.
 2. Extract shared module emission helpers from `generateMultiple()` and `generateSingle()`.

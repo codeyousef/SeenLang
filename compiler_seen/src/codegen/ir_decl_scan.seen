@@ -4,6 +4,7 @@
 import parser.real_parser.{ProgramNode}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, isValidCrossModuleConstantEntryImpl}
+import codegen.ir_type_mapping.{isDataTypeImpl}
 
 fun ensureStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
@@ -35,6 +36,65 @@ fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility
     appendPipeValue(xmDeclareVisBox, visibility)
     ensureIntBoxValue(xmDeclareCountBox)
     xmDeclareCountBox[0] = xmDeclareCountBox[0] + 1
+}
+
+fun buildDeclareParamsImpl(paramSeenTypes: Array<String>, paramLlvmTypes: Array<String>,
+    prependImplicitThis: Bool) r: String {
+
+    var declParams = ""
+    if prependImplicitThis {
+        declParams = "ptr"
+    }
+
+    var paramIdx = 0
+    while paramIdx < paramSeenTypes.length() {
+        if declParams != "" {
+            declParams = declParams + ", "
+        }
+        if isDataTypeImpl(paramSeenTypes[paramIdx]) == 1 {
+            declParams = declParams + "ptr"
+        } else {
+            declParams = declParams + paramLlvmTypes[paramIdx]
+        }
+        paramIdx = paramIdx + 1
+    }
+    return declParams
+}
+
+fun buildDeclareStringImpl(quotedSymbolName: String, declRetLlvm: String,
+    declParams: String, useExternMemoryAttrs: Bool) r: String {
+
+    var declStr = "declare " + declRetLlvm + " @" + quotedSymbolName + "(" + declParams + ") nounwind"
+    if useExternMemoryAttrs {
+        declStr = declStr + " memory(inaccessiblemem: readwrite)"
+    }
+    return declStr + "\n"
+}
+
+fun shouldSkipStringBuilderMethodDeclImpl(methodName: String) r: Bool {
+    return methodName == "new" or methodName == "append" or methodName == "appendChar" or methodName == "toString" or methodName == "clear" or methodName == "length"
+}
+
+fun shouldRegisterCrossModuleFunctionImpl(funcName: String, isExtern: Bool,
+    bodyStmtCount: Int, isRuntimeStringCompat: Bool) r: Bool {
+
+    var doRegister = bodyStmtCount > 0
+    if isRuntimeStringCompat {
+        doRegister = false
+    }
+    if funcName == "__seen_internal_module_init__" {
+        doRegister = false
+    }
+    if isExtern and bodyStmtCount == 0 {
+        doRegister = true
+        if funcName.startsWith("__") {
+            doRegister = false
+        }
+    }
+    if funcName == "main" {
+        doRegister = false
+    }
+    return doRegister
 }
 
 fun registerEnumVariantsImpl(enumName: String, variants: Array<String>,

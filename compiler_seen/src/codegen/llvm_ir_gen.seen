@@ -43,7 +43,8 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{recordCrossModuleDeclareImpl, registerEnumVariantsImpl, registerCrossModuleConstantsImpl}
+import codegen.ir_decl_scan.{recordCrossModuleDeclareImpl, registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildDeclareParamsImpl, buildDeclareStringImpl, shouldSkipStringBuilderMethodDeclImpl, shouldRegisterCrossModuleFunctionImpl}
+import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
@@ -1423,31 +1424,16 @@ class LLVMIRGenerator {
         }
     }
 
-    fun buildMethodDeclareParams(method: FunctionNode) r: String {
-        var declParams = ""
-        var hasImplicitThis = 1
-        if method.isStatic { hasImplicitThis = 0 }
-        if hasImplicitThis == 1 {
-            declParams = "ptr"
-        }
+    fun collectDeclaredParamTypeInfo(params: Array<ParamNode>, paramSeenTypes: Array<String>,
+        paramLlvmTypes: Array<String>) r: Void {
+
         var paramIdx = 0
-        while paramIdx < method.params.length() {
-            if declParams != "" {
-                declParams = declParams + ", "
-            }
-            let paramTypeName = normalizeDeclaredTypeNode(method.params[paramIdx].paramType)
-            if isDataType(paramTypeName) {
-                declParams = declParams + "ptr"
-            } else {
-                declParams = declParams + mapType(paramTypeName)
-            }
+        while paramIdx < params.length() {
+            let paramTypeName = normalizeDeclaredTypeNode(params[paramIdx].paramType)
+            paramSeenTypes.push(paramTypeName)
+            paramLlvmTypes.push(mapType(paramTypeName))
             paramIdx = paramIdx + 1
         }
-        return declParams
-    }
-
-    fun shouldSkipStringBuilderMethodDecl(methodName: String) r: Bool {
-        return methodName == "new" or methodName == "append" or methodName == "appendChar" or methodName == "toString" or methodName == "clear" or methodName == "length"
     }
 
     fun registerClassDeclarationItem(item: ItemNode) r: Void {
@@ -1457,7 +1443,7 @@ class LLVMIRGenerator {
         var methodIdx = 0
         while methodIdx < item.classNode.methods.length() {
             let method = item.classNode.methods[methodIdx]
-            if isStringBuilder and shouldSkipStringBuilderMethodDecl(method.name) {
+            if isStringBuilder and shouldSkipStringBuilderMethodDeclImpl(method.name) {
                 methodIdx = methodIdx + 1
                 continue
             }
@@ -1474,8 +1460,11 @@ class LLVMIRGenerator {
             if method.isAsync {
                 methodRetLlvm = "ptr"
             }
-            let methodDeclParams = buildMethodDeclareParams(method)
-            let methodDecl = "declare " + methodRetLlvm + " @" + quoteIdentIfNeeded(mangledName) + "(" + methodDeclParams + ") nounwind\n"
+            let methodSeenParamTypes = Array<String>()
+            let methodLlvmParamTypes = Array<String>()
+            collectDeclaredParamTypeInfo(method.params, methodSeenParamTypes, methodLlvmParamTypes)
+            let methodDeclParams = buildDeclareParamsImpl(methodSeenParamTypes, methodLlvmParamTypes, not method.isStatic)
+            let methodDecl = buildDeclareStringImpl(quoteIdentIfNeeded(mangledName), methodRetLlvm, methodDeclParams, false)
             recordCrossModuleDeclareEntry(mangledName, methodDecl, item.visibility)
             methodIdx = methodIdx + 1
         }
@@ -1483,45 +1472,6 @@ class LLVMIRGenerator {
 
     fun registerDataDeclarationItem(item: ItemNode) r: Void {
         registerStructLayout(item.classNode)
-    }
-
-    fun shouldRegisterCrossModuleFunction(funcObj: FunctionNode, isRuntimeStringCompat: Bool) r: Bool {
-        let bodyStmtCount = funcObj.body.statements.length()
-        var doRegister = bodyStmtCount > 0
-        if isRuntimeStringCompat {
-            doRegister = false
-        }
-        if funcObj.name == "__seen_internal_module_init__" {
-            doRegister = false
-        }
-        if funcObj.isExtern and bodyStmtCount == 0 {
-            doRegister = true
-            if funcObj.name.startsWith("__") {
-                doRegister = false
-            }
-        }
-        if funcObj.name == "main" {
-            doRegister = false
-        }
-        return doRegister
-    }
-
-    fun buildFunctionDeclareParams(fn: FunctionNode) r: String {
-        var declParams = ""
-        var paramIdx = 0
-        while paramIdx < fn.params.length() {
-            if paramIdx > 0 {
-                declParams = declParams + ", "
-            }
-            let paramTypeName = fn.params[paramIdx].paramType.typeName
-            if isDataType(paramTypeName) {
-                declParams = declParams + "ptr"
-            } else {
-                declParams = declParams + mapType(paramTypeName)
-            }
-            paramIdx = paramIdx + 1
-        }
-        return declParams
     }
 
     fun registerFunctionDeclarationItem(item: ItemNode) r: Void {
@@ -1535,7 +1485,8 @@ class LLVMIRGenerator {
         }
         registerFloatParamMetadata(floatRegistryFuncName, funcObj.params)
 
-        if not shouldRegisterCrossModuleFunction(funcObj, isRuntimeStringCompat) {
+        let bodyStmtCount = funcObj.body.statements.length()
+        if not shouldRegisterCrossModuleFunctionImpl(funcObj.name, funcObj.isExtern, bodyStmtCount, isRuntimeStringCompat) {
             return
         }
 
@@ -1543,12 +1494,11 @@ class LLVMIRGenerator {
         if funcObj.isAsync {
             declRetLlvm = "ptr"
         }
-        var declStr = "declare " + declRetLlvm + " @" + quoteIdentIfNeeded(funcObj.name) + "(" + buildFunctionDeclareParams(funcObj)
-        if funcObj.isExtern and funcObj.body.statements.length() == 0 {
-            declStr = declStr + ") nounwind memory(inaccessiblemem: readwrite)\n"
-        } else {
-            declStr = declStr + ") nounwind\n"
-        }
+        let declSeenParamTypes = Array<String>()
+        let declLlvmParamTypes = Array<String>()
+        collectDeclaredParamTypeInfo(funcObj.params, declSeenParamTypes, declLlvmParamTypes)
+        let declParams = buildDeclareParamsImpl(declSeenParamTypes, declLlvmParamTypes, false)
+        let declStr = buildDeclareStringImpl(quoteIdentIfNeeded(funcObj.name), declRetLlvm, declParams, funcObj.isExtern and bodyStmtCount == 0)
         recordCrossModuleDeclareEntry(funcObj.name, declStr, item.visibility)
     }
 
@@ -1636,59 +1586,27 @@ class LLVMIRGenerator {
 
     // Register an async function and its declared return type (pipe-delimited globals)
     fun registerAsyncFunction(name: String, declaredRetType: String) r: Void {
-        if g_asyncFuncCount == 0 {
-            g_asyncFuncNames = name
-            g_asyncFuncRetTypes = declaredRetType
-        } else {
-            g_asyncFuncNames = g_asyncFuncNames + "|" + name
-            g_asyncFuncRetTypes = g_asyncFuncRetTypes + "|" + declaredRetType
-        }
-        g_asyncFuncCount = g_asyncFuncCount + 1
+        let namesBox = Array<String>()
+        namesBox.push(g_asyncFuncNames)
+        let retTypesBox = Array<String>()
+        retTypesBox.push(g_asyncFuncRetTypes)
+        let countBox = Array<Int>()
+        countBox.push(g_asyncFuncCount)
+        registerAsyncFunctionImpl(name, declaredRetType, namesBox, retTypesBox, countBox)
+        g_asyncFuncNames = namesBox[0]
+        g_asyncFuncRetTypes = retTypesBox[0]
+        g_asyncFuncCount = countBox[0]
     }
 
     // Check if a function is async (simple contains check with pipe delimiters)
     fun isAsyncFunction(name: String) r: Bool {
-        if g_asyncFuncCount == 0 { return false }
-        let search = "|" + g_asyncFuncNames + "|"
-        let target = "|" + name + "|"
-        return search.contains(target)
+        return isAsyncFunctionImpl(name, g_asyncFuncNames, g_asyncFuncCount)
     }
 
     // Get the declared return type of an async function
     // Uses byteAt() for scanning (124 = '|')
     fun getAsyncDeclaredRetType(name: String) r: String {
-        if g_asyncFuncCount == 0 { return "" }
-        // Use contains to check if the function is async first
-        let search = "|" + g_asyncFuncNames + "|"
-        let target = "|" + name + "|"
-        if not search.contains(target) { return "" }
-        // Find the index by counting pipes before the match
-        let prefixEnd = search.indexOf(target)
-        var idx = 0
-        var si = 0
-        while si < prefixEnd {
-            if search.byteAt(si) == 124 {
-                idx = idx + 1
-            }
-            si = si + 1
-        }
-        // idx is 1-based (because of leading pipe), adjust to 0-based
-        idx = idx - 1
-        // Extract the return type at the same index from retTypes
-        let retParts = "|" + g_asyncFuncRetTypes + "|"
-        var rStart = 1
-        var rIdx = 0
-        while rIdx < idx {
-            if retParts.byteAt(rStart) == 124 {
-                rIdx = rIdx + 1
-            }
-            rStart = rStart + 1
-        }
-        var rEnd = rStart
-        while rEnd < retParts.length() and retParts.byteAt(rEnd) != 124 {
-            rEnd = rEnd + 1
-        }
-        return retParts.substring(rStart, rEnd)
+        return getAsyncDeclaredRetTypeImpl(name, g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount)
     }
 
     // Look up a function's return type from the registry. Searches backwards
