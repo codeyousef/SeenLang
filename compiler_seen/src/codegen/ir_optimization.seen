@@ -3,6 +3,7 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
+import codegen.type_registry.{FunctionLoweringOptions}
 
 // Helper to check mutability prefix from "[L|V]Type:Value" encoding (86 = 'V')
 fun parseGlobalVarMutable(encoded: String) r: Bool {
@@ -811,20 +812,20 @@ fun getNextBlockFn(box: Array<Int>) r: String {
 
 // emitLoopMetadataImpl — Emit loop vectorization/unroll/distribute metadata nodes
 // Extracted from llvm_ir_gen.seen emitLoopMetadata() to follow SRP
-// indent: encoded decorator state (unroll + noVec*1000 + alignTo*10000 + regionKB*10000000 + tail*10000000000)
-// laneWidth: override SIMD lane width from @vectorize(N) (0 = use default)
-// highPressure: 1 if function has high register pressure (@high_pressure)
+// options: explicit per-function lowering options (replaces indent bit-packing)
 // blockBox: [0] = next block label counter (determines how many metadata nodes to emit)
-fun emitLoopMetadataImpl(output: StringBuilder, indent: Int, laneWidth: Int, highPressure: Int, blockBox: Array<Int>, reductionLoopIds: String, nestedLoopIds: String, loopTileHints: String) r: Void {
+fun emitLoopMetadataImpl(output: StringBuilder, options: FunctionLoweringOptions, blockBox: Array<Int>, reductionLoopIds: String, nestedLoopIds: String, loopTileHints: String) r: Void {
     output.append("\n; Loop vectorization metadata\n")
-    let indentClean = indent - (indent / 10000000000) * 10000000000
-    let noVecFlag = (indentClean / 1000) - (indentClean / 10000) * 10
-    var unrollCnt = indentClean - (indentClean / 1000) * 1000
-    var vecWidth = selectSimdWidth(false, false)
-    if laneWidth > 0 {
-        vecWidth = laneWidth
+    var noVecFlag = 0
+    if not options.vectorizeEnabled {
+        noVecFlag = 1
     }
-    if highPressure == 1 {
+    var unrollCnt = options.unrollCount
+    var vecWidth = selectSimdWidth(false, false)
+    if options.laneWidth > 0 {
+        vecWidth = options.laneWidth
+    }
+    if options.highPressure {
         if unrollCnt > 2 { unrollCnt = 2 }
         vecWidth = vecWidth / 2
         if vecWidth < 2 { vecWidth = 2 }

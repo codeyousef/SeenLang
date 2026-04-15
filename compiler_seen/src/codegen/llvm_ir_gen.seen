@@ -55,7 +55,7 @@ import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitT
 import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
-import codegen.type_registry.{TypeRegistry, CodegenState}
+import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
@@ -289,6 +289,8 @@ var g_insideUnsafe: Int = 0
 // Using Array<Int> so extracted free functions can mutate via reference-type params
 var g_regBox: Array<Int> = Array<Int>()
 var g_blockBox: Array<Int> = Array<Int>()
+var g_currentFunctionOptions: FunctionLoweringOptions
+var g_currentFunctionOptionsInitialized: Bool = false
 
 // Try/catch label for error branching within try blocks
 var g_tryCatchLabel: String = ""
@@ -719,6 +721,9 @@ fun resetOptCounters() r: Void {
     g_reductionLoopIds = ""
     g_nestedLoopIds = ""
     g_currentFunctionHighPressure = false
+    let fnOptions = getCurrentFunctionOptions()
+    fnOptions.highPressure = false
+    fnOptions.laneWidth = 0
 }
 
 // --- Section 9.6: E-Graph expression cost model ---
@@ -877,6 +882,14 @@ fun quoteIdentIfNeeded(name: String) r: String {
         i = i + 1
     }
     return name
+}
+
+fun getCurrentFunctionOptions() r: FunctionLoweringOptions {
+    if not g_currentFunctionOptionsInitialized {
+        g_currentFunctionOptions = FunctionLoweringOptions.new()
+        g_currentFunctionOptionsInitialized = true
+    }
+    return g_currentFunctionOptions
 }
 
 // The main code generator class. One instance is created in main_compiler.seen
@@ -1100,6 +1113,8 @@ class LLVMIRGenerator {
         moduleConstantTypes = Array<String>()
         g_moduleConstMutable = ""
         g_moduleConstSeenTypes = ""
+        resetFunctionLoweringOptions(getCurrentFunctionOptions())
+        indent = encodeFunctionLoweringOptions(getCurrentFunctionOptions())
         // Reset optimization counters (prevents stale data leaking between modules)
         resetOptCounters()
         // Reset class method tracking (prevents methods from module 0 affecting module 1)
@@ -1109,8 +1124,204 @@ class LLVMIRGenerator {
         // Keep struct/func registries for cross-module references
     }
 
+    fun syncIndentFromFunctionOptions() r: Void {
+        indent = encodeFunctionLoweringOptions(getCurrentFunctionOptions())
+    }
+
+    fun resetFunctionLoweringOptionsState() r: Void {
+        resetFunctionLoweringOptions(getCurrentFunctionOptions())
+        g_currentFunctionHighPressure = false
+        syncIndentFromFunctionOptions()
+    }
+
+    fun clearTransientFunctionLoweringState() r: Void {
+        clearTransientFunctionLoweringOptions(getCurrentFunctionOptions())
+        g_currentFunctionHighPressure = false
+        syncIndentFromFunctionOptions()
+    }
+
+    fun configureFunctionLoweringOptions(fn: FunctionNode) r: Void {
+        let opts = getCurrentFunctionOptions()
+        resetFunctionLoweringOptions(opts)
+        if hasDecorator(fn, "no_vectorize") {
+            opts.vectorizeEnabled = false
+        }
+
+        var decIdx = 0
+        while decIdx < fn.decorators.length() {
+            let dec = fn.decorators[decIdx]
+            let decName = dec.name
+            let decArgs = dec.arguments
+            let decArgCount = decArgs.length()
+            if decName == "prefetch" {
+                if decArgCount > 0 {
+                    let prefetchArg = decArgs[0]
+                    if prefetchArg == "write" {
+                        opts.prefetchMode = 2
+                    } else {
+                        opts.prefetchMode = 1
+                    }
+                } else {
+                    opts.prefetchMode = 1
+                }
+            }
+            if decName == "unroll" {
+                var unrollVal = 4
+                if decArgCount > 0 {
+                    let unrollStr = decArgs[0]
+                    if unrollStr == "2" { unrollVal = 2 }
+                    if unrollStr == "4" { unrollVal = 4 }
+                    if unrollStr == "8" { unrollVal = 8 }
+                    if unrollStr == "16" { unrollVal = 16 }
+                    if unrollStr == "32" { unrollVal = 32 }
+                }
+                opts.unrollCount = unrollVal
+            }
+            if decName == "align_to" {
+                if decArgCount > 0 {
+                    let alignStr = decArgs[0]
+                    var alignVal = 0
+                    if alignStr == "16" { alignVal = 16 }
+                    if alignStr == "32" { alignVal = 32 }
+                    if alignStr == "64" { alignVal = 64 }
+                    if alignStr == "128" { alignVal = 128 }
+                    if alignStr == "256" { alignVal = 256 }
+                    if alignVal > 0 {
+                        opts.alignTo = alignVal
+                    }
+                }
+            }
+            if decName == "preallocate" {
+                var regionSizeBytes = 65536
+                if decArgCount > 0 {
+                    let sizeArg = decArgs[0]
+                    if sizeArg == "1024" { regionSizeBytes = 1024 }
+                    if sizeArg == "2048" { regionSizeBytes = 2048 }
+                    if sizeArg == "4096" { regionSizeBytes = 4096 }
+                    if sizeArg == "8192" { regionSizeBytes = 8192 }
+                    if sizeArg == "16384" { regionSizeBytes = 16384 }
+                    if sizeArg == "32768" { regionSizeBytes = 32768 }
+                    if sizeArg == "65536" { regionSizeBytes = 65536 }
+                }
+                opts.regionSizeBytes = regionSizeBytes
+            }
+            decIdx = decIdx + 1
+        }
+
+        opts.isAsync = fn.isAsync
+        syncIndentFromFunctionOptions()
+    }
+
+    fun currentFunctionAlignTo() r: Int {
+        return getCurrentFunctionOptions().alignTo
+    }
+
+    fun currentFunctionRegionSizeBytes() r: Int {
+        return getCurrentFunctionOptions().regionSizeBytes
+    }
+
+    fun currentFunctionPrefetchMode() r: Int {
+        return getCurrentFunctionOptions().prefetchMode
+    }
+
+    fun isCurrentFunctionAsyncLowering() r: Bool {
+        return getCurrentFunctionOptions().isAsync
+    }
+
+    fun markTailCallPosition() r: Void {
+        let opts = getCurrentFunctionOptions()
+        opts.emitTailCall = true
+        syncIndentFromFunctionOptions()
+    }
+
+    fun takeTailCallPosition() r: Bool {
+        let opts = getCurrentFunctionOptions()
+        if opts.emitTailCall {
+            opts.emitTailCall = false
+            syncIndentFromFunctionOptions()
+            return true
+        }
+        return false
+    }
+
     fun syncState() r: Void {
-        return
+        let state = getSharedCodegenState()
+        syncIndentFromFunctionOptions()
+        state.output = output
+        state.stringConstants = stringConstants
+        state.regBox = g_regBox
+        state.blockBox = g_blockBox
+        state.varNames = varNames
+        state.varRegs = varRegs
+        state.varTypes = varTypes
+        state.indent = indent
+        state.functionOptions = getCurrentFunctionOptions()
+        state.registry.structNames = structNames
+        state.registry.structLayouts = structLayouts
+        state.registry.structFieldNames = structFieldNames
+        state.registry.structFieldTypes = structFieldTypes
+        state.registry.structLlvmFieldTypes = structLlvmFieldTypes
+        state.registry.structSizes = structSizes
+        state.registry.structMethodNames = structMethodNames
+        state.registry.structMethodRetTypes = structMethodRetTypes
+        state.registry.funcNames = funcNames
+        state.registry.funcRetTypes = funcRetTypes
+        state.registry.classMethodBaseNames = classMethodBaseNames
+        state.registry.typeHeaderPath = typeHeaderPath
+        state.currentFunctionReturnType = currentFunctionReturnType
+        state.currentClassName = currentClassName
+        if blockTerminated {
+            state.blockTerminated = 1
+        } else {
+            state.blockTerminated = 0
+        }
+        state.currentLoopCondLabel = currentLoopCondLabel
+        state.currentLoopEndLabel = currentLoopEndLabel
+        state.preAllocatedVars = preAllocatedVars
+        state.preAllocatedTypes = preAllocatedTypes
+        state.stringConstantPrefix = stringConstantPrefix
+        state.generatedFunctions = generatedFunctions
+        state.generatedClasses = generatedClasses
+        state.pendingArrayLiteralType = pendingArrayLiteralType
+        state.moduleConstantNames = moduleConstantNames
+        state.moduleConstantValues = moduleConstantValues
+        state.moduleConstantTypes = moduleConstantTypes
+    }
+
+    fun writeBackState() r: Void {
+        let state = getSharedCodegenState()
+        output = state.output
+        stringConstants = state.stringConstants
+        varNames = state.varNames
+        varRegs = state.varRegs
+        varTypes = state.varTypes
+        structNames = state.registry.structNames
+        structLayouts = state.registry.structLayouts
+        structFieldNames = state.registry.structFieldNames
+        structFieldTypes = state.registry.structFieldTypes
+        structLlvmFieldTypes = state.registry.structLlvmFieldTypes
+        structSizes = state.registry.structSizes
+        structMethodNames = state.registry.structMethodNames
+        structMethodRetTypes = state.registry.structMethodRetTypes
+        funcNames = state.registry.funcNames
+        funcRetTypes = state.registry.funcRetTypes
+        classMethodBaseNames = state.registry.classMethodBaseNames
+        typeHeaderPath = state.registry.typeHeaderPath
+        currentFunctionReturnType = state.currentFunctionReturnType
+        currentClassName = state.currentClassName
+        blockTerminated = state.blockTerminated > 0
+        currentLoopCondLabel = state.currentLoopCondLabel
+        currentLoopEndLabel = state.currentLoopEndLabel
+        preAllocatedVars = state.preAllocatedVars
+        preAllocatedTypes = state.preAllocatedTypes
+        stringConstantPrefix = state.stringConstantPrefix
+        generatedFunctions = state.generatedFunctions
+        generatedClasses = state.generatedClasses
+        pendingArrayLiteralType = state.pendingArrayLiteralType
+        moduleConstantNames = state.moduleConstantNames
+        moduleConstantValues = state.moduleConstantValues
+        moduleConstantTypes = state.moduleConstantTypes
+        syncIndentFromFunctionOptions()
     }
 
     fun getFloatParamRegistryName(fn: FunctionNode) r: String {
@@ -4216,9 +4427,7 @@ class LLVMIRGenerator {
     }
 
     fun emitLoopMetadata() r: Void {
-        var hp = 0
-        if g_currentFunctionHighPressure { hp = 1 }
-        emitLoopMetadataImpl(output, indent, g_currentFunctionLaneWidth, hp, g_blockBox, g_reductionLoopIds, g_nestedLoopIds, g_loopTileHints)
+        emitLoopMetadataImpl(output, getCurrentFunctionOptions(), g_blockBox, g_reductionLoopIds, g_nestedLoopIds, g_loopTileHints)
     }
 
     // Emit a named LLVM struct type definition (e.g., %MyClass = type { i64, ptr }).
@@ -5094,7 +5303,7 @@ class LLVMIRGenerator {
         currentClassName = className  // Track class for method type inference
         g_currentClassParentName = parentName
         blockTerminated = false
-        indent = 0  // Reset decorator state for each class method
+        resetFunctionLoweringOptionsState()
         cseClear()  // CSE cache must not carry over between class methods (cross-method register collision)
 
         // Pre-register parameter types for use during variable collection
@@ -5830,6 +6039,7 @@ class LLVMIRGenerator {
         currentClassName = ""
         g_currentClassParentName = ""
         blockTerminated = false
+        resetFunctionLoweringOptionsState()
         // : Reset move tracking per-function
         g_movedVarNames = ""
         g_movedVarCount = 0
@@ -6097,6 +6307,7 @@ class LLVMIRGenerator {
         if regPressureCount > 14 {
             output.append("; register pressure high: " + regPressureCount.toString() + " vars — capping unroll/vectorize\n")
             g_currentFunctionHighPressure = true
+            getCurrentFunctionOptions().highPressure = true
             mlLogDecision("reg-pressure", "high", fnName + ":" + regPressureCount.toString())
         }
         println("[irgen function] reg-pressure done: " + fnName)
@@ -6292,95 +6503,16 @@ class LLVMIRGenerator {
             output.append("  call void @__seen_profile_enter(ptr @.str." + strIdx.toString() + ")\n")
         }
 
-        // Decorator state encoded in 'indent' field (class member, survives bootstrap)
-        // Module-level vars don't work (writes are no-ops in bootstrapped compiler)
-        // Encoding: indent = unroll + noVec*1000 + alignTo*10000 + regionKB*10000000 + tail*10000000000
-        //   unroll: 0-999 (units)
-        //   noVec: 0 or 1 (thousands)
-        //   alignTo: 0-256 (ten-thousands)
-        //   regionKB: regionSize/1024 (ten-millions)
-        //   tail: 0 or 1 (ten-billions, transient)
-        indent = 0
-        if hasDecorator(fn, "no_vectorize") {
-            indent = indent + 1000
-        }
-
-        var localPrefetchMode = 0
-        var decIdx = 0
-        while decIdx < fn.decorators.length() {
-            let dec = fn.decorators[decIdx]
-            let decName = dec.name
-            let decArgs = dec.arguments
-            let decArgCount = decArgs.length()
-            if decName == "prefetch" {
-                if decArgCount > 0 {
-                    let prefetchArg = decArgs[0]
-                    if prefetchArg == "write" {
-                        localPrefetchMode = 2
-                    } else {
-                        localPrefetchMode = 1
-                    }
-                } else {
-                    localPrefetchMode = 1
-                }
-            }
-            if decName == "unroll" {
-                var unrollVal = 4
-                if decArgCount > 0 {
-                    let unrollStr = decArgs[0]
-                    // Manual string-to-int for common unroll values
-                    if unrollStr == "2" { unrollVal = 2 }
-                    if unrollStr == "4" { unrollVal = 4 }
-                    if unrollStr == "8" { unrollVal = 8 }
-                    if unrollStr == "16" { unrollVal = 16 }
-                    if unrollStr == "32" { unrollVal = 32 }
-                }
-                indent = indent + unrollVal
-            }
-            if decName == "align_to" {
-                if decArgCount > 0 {
-                    let alignStr = decArgs[0]
-                    var alignVal = 0
-                    if alignStr == "16" { alignVal = 16 }
-                    if alignStr == "32" { alignVal = 32 }
-                    if alignStr == "64" { alignVal = 64 }
-                    if alignStr == "128" { alignVal = 128 }
-                    if alignStr == "256" { alignVal = 256 }
-                    if alignVal > 0 {
-                        indent = indent + alignVal * 10000
-                    }
-                }
-            }
-            if decName == "preallocate" {
-                var regionKB = 64
-                if decArgCount > 0 {
-                    let sizeArg = decArgs[0]
-                    if sizeArg == "1024" { regionKB = 1 }
-                    if sizeArg == "2048" { regionKB = 2 }
-                    if sizeArg == "4096" { regionKB = 4 }
-                    if sizeArg == "8192" { regionKB = 8 }
-                    if sizeArg == "16384" { regionKB = 16 }
-                    if sizeArg == "32768" { regionKB = 32 }
-                    if sizeArg == "65536" { regionKB = 64 }
-                }
-                indent = indent + regionKB * 10000000
-            }
-            decIdx = decIdx + 1
-        }
-
-        // Encode isAsync flag into indent (position 100000000000 = hundred-billions)
-        if fn.isAsync {
-            indent = indent + 100000000000
-        }
+        configureFunctionLoweringOptions(fn)
 
         // Emit prefetch intrinsic calls for pointer parameters
-        if localPrefetchMode > 0 {
+        if currentFunctionPrefetchMode() > 0 {
             var prefetchRW = "0"
-            if localPrefetchMode == 2 {
+            if currentFunctionPrefetchMode() == 2 {
                 prefetchRW = "1"
             }
             var prefetchModeStr = "read"
-            if localPrefetchMode == 2 {
+            if currentFunctionPrefetchMode() == 2 {
                 prefetchModeStr = "write"
             }
             output.append("  ; @prefetch(" + prefetchModeStr + ") instrumentation\n")
@@ -6398,14 +6530,10 @@ class LLVMIRGenerator {
             }
         }
 
-        // @preallocate: create region at function entry (decode from indent)
-        let indentNoTail1 = indent - (indent / 10000000000) * 10000000000
-        let regionKBDecoded = indentNoTail1 / 10000000
-        if regionKBDecoded > 0 {
-            let regionSizeBytes = regionKBDecoded * 1024
+        if currentFunctionRegionSizeBytes() > 0 {
             output.append("  ; @preallocate region allocator - create\n")
             let regionReg = getNextReg()
-            output.append("  " + regionReg + " = call ptr @__seen_region_create(i64 " + regionSizeBytes.toString() + ", i32 1)\n")
+            output.append("  " + regionReg + " = call ptr @__seen_region_create(i64 " + currentFunctionRegionSizeBytes().toString() + ", i32 1)\n")
             output.append("  %__region_ptr = alloca ptr\n")
             output.append("  store ptr " + regionReg + ", ptr %__region_ptr\n")
         }
@@ -6416,9 +6544,7 @@ class LLVMIRGenerator {
         // If no terminator was generated, add a default return
         if not blockTerminated {
             // Emit region destroy before default return if using @preallocate
-            let indentNoTail2 = indent - (indent / 10000000000) * 10000000000
-            let regionKBCleanup = indentNoTail2 / 10000000
-            if regionKBCleanup > 0 {
+            if currentFunctionRegionSizeBytes() > 0 {
                 let regionDefReg = getNextReg()
                 output.append("  " + regionDefReg + " = load ptr, ptr %__region_ptr\n")
                 output.append("  call void @__seen_region_destroy(ptr " + regionDefReg + ") ; @preallocate cleanup\n")
@@ -6431,7 +6557,7 @@ class LLVMIRGenerator {
             }
 
             // For async functions, store default return value in promise and branch to final suspend
-            if fn.isAsync {
+            if isCurrentFunctionAsyncLowering() {
                 let promiseType = mapType(currentFunctionReturnType)
                 if promiseType != "void" {
                     output.append("  store " + promiseType + " zeroinitializer, ptr " + g_asyncFunctionPromise + "\n")
@@ -6511,11 +6637,7 @@ class LLVMIRGenerator {
         g_asyncFunctionPromise = ""
         g_asyncFinalLabel = ""
         g_asyncCleanupLabel = ""
-        // Reset per-function decorator state but keep unroll+noVec for module-level loop metadata
-        // Clear: alignTo (*10000), regionKB (*10000000), tailCall (*10000000000)
-        // Keep: unroll (0-999), noVec (*1000)
-        let keepBits = indent - (indent / 10000) * 10000
-        indent = keepBits
+        clearTransientFunctionLoweringState()
 
         output.append("}\n\n")
     }
@@ -7339,10 +7461,7 @@ class LLVMIRGenerator {
                 edRetIdx = edRetIdx - 1
             }
         }
-        // Emit region destroy before return if using @preallocate (decode from indent)
-        let indentNoTail3 = indent - (indent / 10000000000) * 10000000000
-        let regionKBRet = indentNoTail3 / 10000000
-        if regionKBRet > 0 {
+        if currentFunctionRegionSizeBytes() > 0 {
             let regionLoadReg = getNextReg()
             output.append("  " + regionLoadReg + " = load ptr, ptr %__region_ptr\n")
             output.append("  call void @__seen_region_destroy(ptr " + regionLoadReg + ") ; @preallocate cleanup\n")
@@ -7355,8 +7474,7 @@ class LLVMIRGenerator {
         }
 
         // For async functions, store return value in promise and branch to final suspend
-        let isAsyncCheck = indent / 100000000000
-        if isAsyncCheck > 0 {
+        if isCurrentFunctionAsyncLowering() {
             if stmt.returnValue.kind != "None" {
                 // Evaluate the return expression
                 let savedPendingType = pendingArrayLiteralType
@@ -7365,7 +7483,7 @@ class LLVMIRGenerator {
                 }
                 // Tail call optimization for async: still mark call position
                 if stmt.returnValue.kind == "Call" {
-                    indent = indent + 10000000000
+                    markTailCallPosition()
                 }
                 let valueReg = generateExpression(stmt.returnValue)
                 pendingArrayLiteralType = savedPendingType
@@ -7416,9 +7534,8 @@ class LLVMIRGenerator {
         }
         if stmt.returnValue.kind != "None" {
             // Tail call optimization: if returning a direct function call, mark for tail call
-            // Adds 10000000000 to indent (class member encoding) - checked and subtracted in generateCall
             if stmt.returnValue.kind == "Call" {
-                indent = indent + 10000000000
+                markTailCallPosition()
             }
             // Special handling for Char return type with string literals
             if currentFunctionReturnType == "Char" and stmt.returnValue.kind == "Literal" and stmt.returnValue.literalType == "String" {
@@ -10877,12 +10994,10 @@ class LLVMIRGenerator {
     // Thin wrapper: delegates to generateLiteralFree in ir_function_gen.seen,
     // then updates stats counters that aren't accessible from satellite modules.
     fun generateLiteral(expr: ParserExpressionNode) r: String {
-        let litState = CodegenState.new()
-        litState.output = output
-        litState.stringConstants = stringConstants
-        litState.regBox = g_regBox
-        litState.stringConstantPrefix = stringConstantPrefix
+        syncState()
+        let litState = getSharedCodegenState()
         let litResult = generateLiteralFree(litState, expr)
+        writeBackState()
         // Update stats counter (module-level, not accessible from satellite)
         if expr.literalType == "String" {
             if expr.literalValue.length() <= 15 {
@@ -11919,10 +12034,7 @@ class LLVMIRGenerator {
                 var isZeroFill = 0
                 let fillValNode = expr.arguments[1]
                 if fillValNode.kind == "Literal" and fillValNode.literalValue == "0" { isZeroFill = 1 }
-                // Decode @align_to from indent field
-                let alignClean1 = indent - (indent / 10000000000) * 10000000000
-                let alignToVal1 = (alignClean1 / 10000) - (alignClean1 / 10000000) * 1000
-                return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg, elementType, isZeroFill, alignToVal1)
+                return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg, elementType, isZeroFill, currentFunctionAlignTo())
             }
 
             // Pre-allocation constructor: Array<T>(capacity) — delegated to ir_call_dispatch.seen
@@ -11938,10 +12050,7 @@ class LLVMIRGenerator {
             var elemSize = 8
             if funcName == "Array<String>" or funcName.startsWith("Array<String") { elemSize = 16 }
             if isDataType(elementType) { elemSize = getDataTypeSize(elementType) }
-            // Decode @align_to from indent field
-            let alignClean2 = indent - (indent / 10000000000) * 10000000000
-            let alignToVal2 = (alignClean2 / 10000) - (alignClean2 / 10000000) * 1000
-            return emitArrayInlineImpl(output, g_regBox, elemSize, alignToVal2)
+            return emitArrayInlineImpl(output, g_regBox, elemSize, currentFunctionAlignTo())
         }
 
         // SmallVec constructor — delegated to ir_call_dispatch.seen
@@ -12413,10 +12522,8 @@ class LLVMIRGenerator {
 
                 // Tail call optimization for misplaced method calls
                 var mpCallPrefix = "call"
-                let mpTailCheck = indent - (indent / 100000000000) * 100000000000
-                if mpTailCheck >= 10000000000 {
+                if takeTailCallPosition() {
                     mpCallPrefix = "tail call"
-                    indent = indent - 10000000000
                 }
 
                 // Load this pointer
@@ -12506,10 +12613,8 @@ class LLVMIRGenerator {
 
                 // Tail call optimization for implicit self-method calls
                 var selfCallPrefix = "call"
-                let scTailCheck = indent - (indent / 100000000000) * 100000000000
-                if scTailCheck >= 10000000000 {
+                if takeTailCallPosition() {
                     selfCallPrefix = "tail call"
-                    indent = indent - 10000000000
                 }
 
                 // Load this pointer
@@ -12655,10 +12760,8 @@ class LLVMIRGenerator {
         // For void functions, don't assign result
         if llvmReturnType == "void" {
             recordLateUserDeclare(funcName, llvmReturnType, argTypeStrs, 0)
-            // Clear tail call flag if set (prevent indent leak for void returns)
-            let voidTailCheck = indent - (indent / 100000000000) * 100000000000
-            if voidTailCheck >= 10000000000 {
-                indent = indent - 10000000000
+            if takeTailCallPosition() {
+                // Tail-position bookkeeping is transient even for void calls.
             }
             output.append("  call void @" + quoteIdentIfNeeded(funcName) + "(")
 
@@ -12677,14 +12780,10 @@ class LLVMIRGenerator {
 
         let resultReg = getNextReg()
         // Tail call optimization: emit 'tail call' for calls in return position
-        // Uses indent field: if >= 10000000000, tail call flag is set
-        // Strip async flag (100000000000) before checking tail call flag
         var callPrefix = "call"
         recordLateUserDeclare(funcName, llvmReturnType, argTypeStrs, 0)
-        let tailCheck = indent - (indent / 100000000000) * 100000000000
-        if tailCheck >= 10000000000 {
+        if takeTailCallPosition() {
             callPrefix = "tail call"
-            indent = indent - 10000000000
         }
         output.append("  " + resultReg + " = " + callPrefix + " " + llvmReturnType + " @" + quoteIdentIfNeeded(funcName) + "(")
 
