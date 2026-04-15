@@ -38,14 +38,14 @@ fun seen_runtime_load_i32(ptr: Int, offset: Int) r: Int {
 
 fun seen_runtime_memcpy_floats(dst: Int, src: Int, count: Int) {
     for i in 0..count {
-        let value = *((src + i * 8) as *Float)
+        let value = ptr_deref_f64(src + i * 8) as Float
         seen_runtime_store_f32(dst, i * 4, value)
     }
 }
 
 fun seen_runtime_memcpy_ints(dst: Int, src: Int, count: Int) {
     for i in 0..count {
-        let value = *((src + i * 8) as *Int)
+        let value = ptr_deref(src + i * 8)
         seen_runtime_store_i32(dst, i * 4, value)
     }
 }
