@@ -61,6 +61,7 @@ import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitHotR
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
+import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
@@ -3160,148 +3161,31 @@ class LLVMIRGenerator {
         }
         return ""
     }
-
-
-    fun splitChainedPath(path: String) r: Array<String> {
-        let segments = Array<String>()
-        var segmentStart = 0
-        var idx = 0
-        while idx <= path.length() {
-            if idx == path.length() or path.byteAt(idx) == 46 {
-                if idx > segmentStart {
-                    segments.push(path.substring(segmentStart, idx))
-                }
-                segmentStart = idx + 1
-            }
-            idx = idx + 1
-        }
-        return segments
-    }
-
-    fun buildChainedPathExpr(path: String) r: ParserExpressionNode {
-        let segments = splitChainedPath(path)
-        if segments.length() == 0 {
-            return ParserExpressionNode.new()
-        }
-
-        let baseExpr = ParserExpressionNode.new()
-        baseExpr.kind = "Variable"
-        baseExpr.variableName = segments[0]
-
-        var currentExpr = baseExpr
-        var idx = 1
-        while idx < segments.length() {
-            let segment = segments[idx]
-            let nextExpr = ParserExpressionNode.new()
-            if segment.endsWith("()") {
-                nextExpr.kind = "MethodCall"
-                nextExpr.callee = segment.substring(0, segment.length() - 2)
-                nextExpr.operands.push(currentExpr)
-            } else {
-                nextExpr.kind = "MemberAccess"
-                nextExpr.variableName = segment
-                nextExpr.operands.push(currentExpr)
-            }
-            currentExpr = nextExpr
-            idx = idx + 1
-        }
-
-        return currentExpr
-    }
-
     // Resolve the type of a chained path like "item.function.returnType"
     // Returns the type of the final field in the chain
     fun resolveChainedPathType(path: String) r: String {
         if path.contains("()") {
-            let chainExpr = buildChainedPathExpr(path)
+            let chainExpr = buildChainedPathExprImpl(path)
             if chainExpr.kind != "None" {
                 return inferExpressionType(chainExpr)
             }
         }
-        // Split the path at the first dot (46 = '.')
-        var firstDot = -1
-        var idx = 0
-        while idx < path.length() {
-            if path.byteAt(idx) == 46 {
-                firstDot = idx
-                idx = path.length()
-            }
-            idx = idx + 1
-        }
-
-        if firstDot < 0 {
+        let pathParts = splitFirstPathDotImpl(path)
+        let baseName = pathParts[0]
+        let restPath = pathParts[1]
+        if restPath == "" {
             // No dot - simple variable name
             return findVarType(path)
         }
-
-        // Get base variable and rest of path
-        let baseName = path.substring(0, firstDot)
-        let restPath = path.substring(firstDot + 1, path.length())
 
         // Get base type
         var currentType = findVarType(baseName)
         if currentType == "" {
             return ""
         }
-
-        // Walk through the rest of the path
-        var remainingPath = restPath
-        while remainingPath.length() > 0 {
-            // Find next dot
-            var nextDot = -1
-            var searchIdx = 0
-            while searchIdx < remainingPath.length() {
-                if remainingPath.byteAt(searchIdx) == 46 {
-                    nextDot = searchIdx
-                    searchIdx = remainingPath.length()  // break
-                }
-                searchIdx = searchIdx + 1
-            }
-
-            var fieldName = ""
-            if nextDot < 0 {
-                // Last field in the chain
-                fieldName = remainingPath
-                remainingPath = ""
-            }
-            if nextDot >= 0 {
-                fieldName = remainingPath.substring(0, nextDot)
-                remainingPath = remainingPath.substring(nextDot + 1, remainingPath.length())
-            }
-
-            var segmentName = fieldName
-            var segmentIsMethod = false
-            if segmentName.endsWith("()") {
-                segmentName = segmentName.substring(0, segmentName.length() - 2)
-                segmentIsMethod = true
-            }
-
-            var nextType = ""
-            if not segmentIsMethod {
-                nextType = getSeenFieldType(currentType, segmentName)
-            }
-            if nextType == "" {
-                if segmentName == "unwrap" {
-                    var isClassInner = 0
-                    if isClassType(currentType) { isClassInner = 1 }
-                    nextType = resolveUnwrapTypeImpl(currentType, isClassInner)
-                }
-                if nextType == "" and segmentName == "tryPropagate" {
-                    nextType = resolveTryPropagateTypeImpl(currentType)
-                }
-                if nextType == "" {
-                    nextType = getMethodReturnType(currentType, segmentName)
-                }
-            }
-
-            currentType = nextType
-            if currentType == "" or currentType == "Int" {
-                // Can't resolve further
-                return currentType
-            }
-        }
-
-        return currentType
+        return resolveChainedPathSuffixTypeImpl(currentType, restPath,
+            structNames, structFieldNames, structFieldTypes,
+            structMethodNames, structMethodRetTypes)
     }
 
     // Delegates to free function in ir_type_info.seen
@@ -9050,7 +8934,7 @@ class LLVMIRGenerator {
                 shouldRebuildReceiver = true
             }
             if not shouldRebuildReceiver and receiverName.contains(".") {
-                let receiverSegments = splitChainedPath(receiverName)
+                let receiverSegments = splitChainedPathImpl(receiverName)
                 if receiverSegments.length() > 0 {
                     if findVarType(receiverSegments[0]) != "" {
                         shouldRebuildReceiver = true
@@ -9058,7 +8942,7 @@ class LLVMIRGenerator {
                 }
             }
             if shouldRebuildReceiver {
-                let rebuiltReceiverExpr = buildChainedPathExpr(receiverName)
+                let rebuiltReceiverExpr = buildChainedPathExprImpl(receiverName)
                 if rebuiltReceiverExpr.kind != "None" {
                     let rebuiltExpr = ParserExpressionNode.new()
                     rebuiltExpr.kind = "MemberAccess"
@@ -9225,79 +9109,54 @@ class LLVMIRGenerator {
         // Handle path with array indexing like "expr.operands[0]" for ".kind"
         if receiverName.contains("[") {
             output.append("; DEBUG generateMemberAccess: handling array path=" + receiverName + " fieldName=" + fieldName + "\n")
-            // Find the bracket position (91='[', 93=']')
-            var bracketIdx = 0
-            var bi = 0
-            while bi < receiverName.length() {
-                if receiverName.byteAt(bi) == 91 {
-                    bracketIdx = bi
-                    bi = receiverName.length()
-                }
-                bi = bi + 1
-            }
+            let bracketParts = splitBracketPathImpl(receiverName)
+            if bracketParts.length() >= 2 {
+                let pathBeforeBracket = bracketParts[0]
+                let indexStr = bracketParts[1]
+                output.append("; DEBUG array path: pathBeforeBracket=" + pathBeforeBracket + " indexStr=" + indexStr + "\n")
 
-            // Parse the path before the bracket
-            let pathBeforeBracket = receiverName.substring(0, bracketIdx)
+                // Generate the array access
+                // First, generate the path before bracket (e.g., "expr.operands")
+                if pathBeforeBracket.contains(".") {
+                    let pathParts = splitFirstPathDotImpl(pathBeforeBracket)
+                    let baseVar = pathParts[0]
+                    let arrayField = pathParts[1]
 
-            // Find the close bracket
-            var actualClose = bracketIdx + 1
-            while actualClose < receiverName.length() and receiverName.byteAt(actualClose) != 93 {
-                actualClose = actualClose + 1
-            }
-            let indexStr = receiverName.substring(bracketIdx + 1, actualClose)
+                    output.append("; DEBUG array path split: baseVar=" + baseVar + " arrayField=" + arrayField + "\n")
 
-            output.append("; DEBUG array path: pathBeforeBracket=" + pathBeforeBracket + " indexStr=" + indexStr + "\n")
+                    let baseIdx = findVar(baseVar)
+                    if baseIdx >= 0 {
+                        let baseReg = varRegs[baseIdx]
+                        let baseType = varTypes[baseIdx]
 
-            // Generate the array access
-            // First, generate the path before bracket (e.g., "expr.operands")
-            if pathBeforeBracket.contains(".") {
-                // Split into base variable and field (46 = '.')
-                var dotIdx = 0
-                var di = 0
-                while di < pathBeforeBracket.length() {
-                    if pathBeforeBracket.byteAt(di) == 46 {
-                        dotIdx = di
-                        di = pathBeforeBracket.length()
+                        // Load the base pointer
+                        let ptrReg = getNextReg()
+                        output.append("  " + ptrReg + " = load ptr, ptr " + baseReg + "\n")
+
+                        // Access the array field
+                        let arrayReg = generateFieldAccess(ptrReg, baseType, arrayField)
+                        let arrayType = getSeenFieldType(baseType, arrayField)
+
+                        output.append("; DEBUG array access: arrayReg=" + arrayReg + " arrayType=" + arrayType + "\n")
+
+                        // Infer the element type BEFORE making the array access call
+                        var elementType = "ptr"
+                        if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
+                            elementType = arrayType.substring(6, arrayType.length() - 1)
+                        }
+
+                        // Now perform index access - use pointer-based accessors to avoid ABI issues
+                        // arrayReg is ptr to SeenArray, pass pointer directly (no load needed)
+                        let elementPtrReg = getNextReg()
+                        // Use seen_arr_get_element_ptr for ALL types - it uses stored element_size for correct offset
+                        // seen_arr_get_ptr_ptr only works for 8-byte elements, but element_ptr works for any size
+                        output.append("  " + elementPtrReg + " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg + ", i64 " + indexStr + ")\n")
+
+                        output.append("; DEBUG element access: elementPtrReg=" + elementPtrReg + " elementType=" + elementType + "\n")
+
+                        // Finally, access the field on the element
+                        return generateFieldAccess(elementPtrReg, elementType, fieldName)
                     }
-                    di = di + 1
-                }
-                let baseVar = pathBeforeBracket.substring(0, dotIdx)
-                let arrayField = pathBeforeBracket.substring(dotIdx + 1, pathBeforeBracket.length())
-
-                output.append("; DEBUG array path split: baseVar=" + baseVar + " arrayField=" + arrayField + "\n")
-
-                let baseIdx = findVar(baseVar)
-                if baseIdx >= 0 {
-                    let baseReg = varRegs[baseIdx]
-                    let baseType = varTypes[baseIdx]
-
-                    // Load the base pointer
-                    let ptrReg = getNextReg()
-                    output.append("  " + ptrReg + " = load ptr, ptr " + baseReg + "\n")
-
-                    // Access the array field
-                    let arrayReg = generateFieldAccess(ptrReg, baseType, arrayField)
-                    let arrayType = getSeenFieldType(baseType, arrayField)
-
-                    output.append("; DEBUG array access: arrayReg=" + arrayReg + " arrayType=" + arrayType + "\n")
-
-                    // Infer the element type BEFORE making the array access call
-                    var elementType = "ptr"
-                    if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
-                        elementType = arrayType.substring(6, arrayType.length() - 1)
-                    }
-
-                    // Now perform index access - use pointer-based accessors to avoid ABI issues
-                    // arrayReg is ptr to SeenArray, pass pointer directly (no load needed)
-                    let elementPtrReg = getNextReg()
-                    // Use seen_arr_get_element_ptr for ALL types - it uses stored element_size for correct offset
-                    // seen_arr_get_ptr_ptr only works for 8-byte elements, but element_ptr works for any size
-                    output.append("  " + elementPtrReg + " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg + ", i64 " + indexStr + ")\n")
-
-                    output.append("; DEBUG element access: elementPtrReg=" + elementPtrReg + " elementType=" + elementType + "\n")
-
-                    // Finally, access the field on the element
-                    return generateFieldAccess(elementPtrReg, elementType, fieldName)
                 }
             }
         }
@@ -9305,20 +9164,10 @@ class LLVMIRGenerator {
         // Handle chained receiver like "frontend.program" with fieldName "items"
         // Need to find base variable and chain through fields
         if receiverName.contains(".") {
-            // Parse the chain: split by first dot to get base variable and remaining path (46='.')
-            var dotIdx = 0
-            var i = 0
-            while i < receiverName.length() {
-                if receiverName.byteAt(i) == 46 {
-                    dotIdx = i
-                    i = receiverName.length()
-                }
-                i = i + 1
-            }
-
-            if dotIdx > 0 {
-                let baseVarName = receiverName.substring(0, dotIdx)
-                let restPath = receiverName.substring(dotIdx + 1, receiverName.length())
+            let receiverParts = splitFirstPathDotImpl(receiverName)
+            let baseVarName = receiverParts[0]
+            let restPath = receiverParts[1]
+            if restPath != "" {
 
                 let baseIdx = findVar(baseVarName)
                 if baseIdx >= 0 {
@@ -9341,40 +9190,11 @@ class LLVMIRGenerator {
                         }
                     }
                     // First, determine the intermediate type so we know how to access it
-                    // Handle chained restPath (e.g., "function.returnType") by walking through types
-                    var intermediateType = ""
                     output.append("; DEBUG generateMemberAccess: baseType=" + baseType + " restPath=" + restPath + " fieldName=" + fieldName + "\n")
-                    if restPath.contains(".") {
-                        // Walk through the chained path to find final type
-                        // Parse the path into segments first
-                        var pathSegments = Array<String>()
-                        var segStart = 0
-                        var segIdx = 0
-                        while segIdx <= restPath.length() {
-                            if segIdx == restPath.length() or restPath.byteAt(segIdx) == 46 {
-                                if segIdx > segStart {
-                                    pathSegments.push(restPath.substring(segStart, segIdx))
-                                }
-                                segStart = segIdx + 1
-                            }
-                            segIdx = segIdx + 1
-                        }
-
-                        var currentType = baseType
-                        var pi = 0
-                        while pi < pathSegments.length() and currentType != "" and currentType != "Int" {
-                            let currField = pathSegments[pi]
-                            output.append("; DEBUG chained type walk: currentType=" + currentType + " currField=" + currField + "\n")
-                            currentType = getSeenFieldType(currentType, currField)
-                            output.append("; DEBUG chained type walk: newType=" + currentType + "\n")
-                            pi = pi + 1
-                        }
-                        intermediateType = currentType
-                        output.append("; DEBUG chained type final: intermediateType=" + intermediateType + "\n")
-                    }
-                    if not restPath.contains(".") {
-                        intermediateType = getSeenFieldType(baseType, restPath)
-                    }
+                    var intermediateType = resolveChainedPathSuffixTypeImpl(baseType, restPath,
+                        structNames, structFieldNames, structFieldTypes,
+                        structMethodNames, structMethodRetTypes)
+                    output.append("; DEBUG chained type final: intermediateType=" + intermediateType + "\n")
                     if intermediateType == "" {
                         intermediateType = "ProgramNode"  // Default for .program access
                     }
@@ -9395,34 +9215,24 @@ class LLVMIRGenerator {
                             // Walk through the chain, accessing each field in turn
                             var chainPtr = ptrReg
                             var chainType = baseType
-                            var chainSegStart = 0
-                            var chainSegIdx = 0
-                            while chainSegIdx <= restPath.length() {
-                                if chainSegIdx == restPath.length() or restPath.byteAt(chainSegIdx) == 46 {
-                                    if chainSegIdx > chainSegStart {
-                                        let chainField = restPath.substring(chainSegStart, chainSegIdx)
-                                        let chainFieldType = getSeenFieldType(chainType, chainField)
-                                        output.append("; DEBUG chained ptr access: chainType=" + chainType + " chainField=" + chainField + " chainFieldType=" + chainFieldType + "\n")
-                                        if isClassType(chainFieldType) {
-                                            // Class field: load i64 and convert to ptr
-                                            let loadedVal = generateFieldAccess(chainPtr, chainType, chainField)
-                                            let convPtr = getNextReg()
-                                            output.append("  " + convPtr + " = inttoptr i64 " + loadedVal + " to ptr\n")
-                                            chainPtr = convPtr
-                                        } else {
-                                            if isDataType(chainFieldType) {
-                                                // Data type field: get pointer to inline struct
-                                                chainPtr = generateFieldAccessPtr(chainPtr, chainType, chainField)
-                                            } else {
-                                                // Primitive or other: load value for intermediate, get ptr for final
-                                                chainPtr = generateFieldAccessPtr(chainPtr, chainType, chainField)
-                                            }
-                                        }
-                                        chainType = chainFieldType
-                                    }
-                                    chainSegStart = chainSegIdx + 1
+                            let pathSegments = splitChainedPathImpl(restPath)
+                            var chainIdx = 0
+                            while chainIdx < pathSegments.length() {
+                                let chainField = pathSegments[chainIdx]
+                                let chainFieldType = getSeenFieldType(chainType, chainField)
+                                output.append("; DEBUG chained ptr access: chainType=" + chainType + " chainField=" + chainField + " chainFieldType=" + chainFieldType + "\n")
+                                if isClassType(chainFieldType) {
+                                    // Class field: load i64 and convert to ptr
+                                    let loadedVal = generateFieldAccess(chainPtr, chainType, chainField)
+                                    let convPtr = getNextReg()
+                                    output.append("  " + convPtr + " = inttoptr i64 " + loadedVal + " to ptr\n")
+                                    chainPtr = convPtr
+                                } else {
+                                    // Data and primitive fields both advance via field pointer access.
+                                    chainPtr = generateFieldAccessPtr(chainPtr, chainType, chainField)
                                 }
-                                chainSegIdx = chainSegIdx + 1
+                                chainType = chainFieldType
+                                chainIdx = chainIdx + 1
                             }
                             actualIntermediateReg = chainPtr
                         } else {
@@ -12047,7 +11857,7 @@ class LLVMIRGenerator {
             return
         }
 
-        let receiverSegments = splitChainedPath(expr.literalValue)
+        let receiverSegments = splitChainedPathImpl(expr.literalValue)
         if receiverSegments.length() == 0 {
             return
         }
@@ -12057,7 +11867,7 @@ class LLVMIRGenerator {
             return
         }
 
-        let rebuiltReceiverExpr = buildChainedPathExpr(expr.literalValue)
+        let rebuiltReceiverExpr = buildChainedPathExprImpl(expr.literalValue)
         if rebuiltReceiverExpr.kind == "None" {
             return
         }
