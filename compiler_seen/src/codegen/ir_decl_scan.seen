@@ -1,0 +1,93 @@
+// ir_decl_scan.seen — Pass 1 declaration-scan helpers
+// Shared registry mutation helpers extracted from llvm_ir_gen.seen registerDeclarations().
+
+import parser.real_parser.{ProgramNode}
+import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, isValidCrossModuleConstantEntryImpl}
+
+fun ensureStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun appendPipeValue(box: Array<String>, value: String) r: Void {
+    ensureStringBoxValue(box)
+    if box[0] == "" {
+        box[0] = value
+    } else {
+        box[0] = box[0] + "|" + value
+    }
+}
+
+fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility: String,
+    xmDeclareNamesBox: Array<String>, xmDeclareStrsBox: Array<String>,
+    xmDeclareVisBox: Array<String>, xmDeclareCountBox: Array<Int>) r: Void {
+
+    appendPipeValue(xmDeclareNamesBox, symbolName)
+    appendPipeValue(xmDeclareStrsBox, declStr)
+    appendPipeValue(xmDeclareVisBox, visibility)
+    ensureIntBoxValue(xmDeclareCountBox)
+    xmDeclareCountBox[0] = xmDeclareCountBox[0] + 1
+}
+
+fun registerEnumVariantsImpl(enumName: String, variants: Array<String>,
+    enumTypeNamesBox: Array<String>, enumVariantNamesBox: Array<String>,
+    enumVariantTagsBox: Array<String>, enumVariantFieldTypesBox: Array<String>,
+    enumVariantFieldCountsBox: Array<String>, enumVariantParentBox: Array<String>,
+    enumTypeCountBox: Array<Int>, enumVariantCountBox: Array<Int>) r: Void {
+
+    appendPipeValue(enumTypeNamesBox, enumName)
+    ensureIntBoxValue(enumTypeCountBox)
+    enumTypeCountBox[0] = enumTypeCountBox[0] + 1
+
+    var variantIdx = 0
+    while variantIdx < variants.length() {
+        appendPipeValue(enumVariantNamesBox, variants[variantIdx])
+        appendPipeValue(enumVariantTagsBox, variantIdx.toString())
+        ensureStringBoxValue(enumVariantFieldTypesBox)
+        ensureIntBoxValue(enumVariantCountBox)
+        if enumVariantCountBox[0] > 0 {
+            enumVariantFieldTypesBox[0] = enumVariantFieldTypesBox[0] + "|"
+        }
+        appendPipeValue(enumVariantFieldCountsBox, "0")
+        appendPipeValue(enumVariantParentBox, enumName)
+        enumVariantCountBox[0] = enumVariantCountBox[0] + 1
+        variantIdx = variantIdx + 1
+    }
+}
+
+fun registerCrossModuleConstantsImpl(program: ProgramNode,
+    xmConstNamesBox: Array<String>, xmConstTypesBox: Array<String>,
+    xmConstMutableBox: Array<String>, xmConstSeenTypesBox: Array<String>,
+    xmConstCountBox: Array<Int>) r: Void {
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "GlobalVar" {
+            let encoded = item.visibility
+            let seenType = parseGlobalVarType(encoded)
+            let llvmType = mapGlobalVarLlvmTypeImpl(seenType)
+            if isValidCrossModuleConstantEntryImpl(item.name, llvmType) {
+                var mutFlag = "0"
+                if parseGlobalVarMutable(encoded) {
+                    mutFlag = "1"
+                }
+                appendPipeValue(xmConstNamesBox, item.name)
+                appendPipeValue(xmConstTypesBox, llvmType)
+                appendPipeValue(xmConstMutableBox, mutFlag)
+                appendPipeValue(xmConstSeenTypesBox, seenType)
+                ensureIntBoxValue(xmConstCountBox)
+                xmConstCountBox[0] = xmConstCountBox[0] + 1
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+}

@@ -1826,6 +1826,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_decl_runtime")
         modules.push("codegen.ir_decl_parser")
         modules.push("codegen.ir_decl_features")
+        modules.push("codegen.ir_decl_scan")
         modules.push("codegen.ir_module_emit")
         modules.push("codegen.ir_method_gen")
         modules.push("codegen.ir_string_collect")

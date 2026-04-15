@@ -43,6 +43,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
+import codegen.ir_decl_scan.{recordCrossModuleDeclareImpl, registerEnumVariantsImpl, registerCrossModuleConstantsImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
@@ -1443,16 +1444,7 @@ class LLVMIRGenerator {
                     mDeclStr = mDeclStr + ") nounwind\n"
                     // Class methods inherit class visibility
                     let mVis = item.visibility
-                    if g_xmDeclareNames == "" {
-                        g_xmDeclareNames = mangledName + "|"
-                        g_xmDeclareStrs = mDeclStr + "|"
-                        g_xmDeclareVis = mVis + "|"
-                    } else {
-                        g_xmDeclareNames = g_xmDeclareNames + mangledName + "|"
-                        g_xmDeclareStrs = g_xmDeclareStrs + mDeclStr + "|"
-                        g_xmDeclareVis = g_xmDeclareVis + mVis + "|"
-                    }
-                    g_xmDeclareCount = g_xmDeclareCount + 1
+                    recordCrossModuleDeclareEntry(mangledName, mDeclStr, mVis)
                     mi = mi + 1
                 }
             }
@@ -1468,34 +1460,7 @@ class LLVMIRGenerator {
             if item.itemType == "Enum" {
                 let enumNode = item.enumNode
                 let enumName = enumNode.name
-                // Add to enum type list
-                if g_enumTypeNames == "" {
-                    g_enumTypeNames = enumName
-                } else {
-                    g_enumTypeNames = g_enumTypeNames + "|" + enumName
-                }
-                g_enumTypeCount = g_enumTypeCount + 1
-                // Register each variant (simple enums: tag only, no fields)
-                var vi = 0
-                while vi < enumNode.variants.length() {
-                    let variantName = enumNode.variants[vi]
-                    // Append to pipe-delimited arrays
-                    if g_enumVariantNames == "" {
-                        g_enumVariantNames = variantName
-                        g_enumVariantTags = vi.toString()
-                        g_enumVariantFieldTypes = ""
-                        g_enumVariantFieldCounts = "0"
-                        g_enumVariantParent = enumName
-                    } else {
-                        g_enumVariantNames = g_enumVariantNames + "|" + variantName
-                        g_enumVariantTags = g_enumVariantTags + "|" + vi.toString()
-                        g_enumVariantFieldTypes = g_enumVariantFieldTypes + "|"
-                        g_enumVariantFieldCounts = g_enumVariantFieldCounts + "|0"
-                        g_enumVariantParent = g_enumVariantParent + "|" + enumName
-                    }
-                    g_enumVariantCount = g_enumVariantCount + 1
-                    vi = vi + 1
-                }
+                registerEnumVariants(enumName, enumNode.variants)
             }
 
             if item.itemType == "Function" {
@@ -1555,49 +1520,77 @@ class LLVMIRGenerator {
                     }
                     // Track visibility for cross-module access enforcement
                     let fVis = item.visibility
-                    if g_xmDeclareNames == "" {
-                        g_xmDeclareNames = funcObj.name + "|"
-                        g_xmDeclareStrs = fDeclStr + "|"
-                        g_xmDeclareVis = fVis + "|"
-                    } else {
-                        g_xmDeclareNames = g_xmDeclareNames + funcObj.name + "|"
-                        g_xmDeclareStrs = g_xmDeclareStrs + fDeclStr + "|"
-                        g_xmDeclareVis = g_xmDeclareVis + fVis + "|"
-                    }
-                    g_xmDeclareCount = g_xmDeclareCount + 1
+                    recordCrossModuleDeclareEntry(funcObj.name, fDeclStr, fVis)
                 }
             }
 
             i = i + 1
         }
 
-        // Register module-level constants for cross-module access
-        var gri = 0
-        while gri < program.items.length() {
-            let grItem = program.items[gri]
-            if grItem.itemType == "GlobalVar" {
-                let grEncoded = grItem.visibility
-                let grSeenType = parseGlobalVarType(grEncoded)
-                let grLlvmType = mapGlobalVarLlvmTypeImpl(grSeenType)
-                var grMut = "0"
-                if parseGlobalVarMutable(grEncoded) { grMut = "1" }
-                if isValidCrossModuleConstantEntryImpl(grItem.name, grLlvmType) {
-                    if g_xmConstNames == "" {
-                        g_xmConstNames = grItem.name
-                        g_xmConstTypes = grLlvmType
-                        g_xmConstMutable = grMut
-                        g_xmConstSeenTypes = grSeenType
-                    } else {
-                        g_xmConstNames = g_xmConstNames + "|" + grItem.name
-                        g_xmConstTypes = g_xmConstTypes + "|" + grLlvmType
-                        g_xmConstMutable = g_xmConstMutable + "|" + grMut
-                        g_xmConstSeenTypes = g_xmConstSeenTypes + "|" + grSeenType
-                    }
-                    g_xmConstCount = g_xmConstCount + 1
-                }
-            }
-            gri = gri + 1
-        }
+        registerCrossModuleConstants(program)
+    }
+
+    fun recordCrossModuleDeclareEntry(symbolName: String, declStr: String, visibility: String) r: Void {
+        let namesBox = Array<String>()
+        namesBox.push(g_xmDeclareNames)
+        let declsBox = Array<String>()
+        declsBox.push(g_xmDeclareStrs)
+        let visBox = Array<String>()
+        visBox.push(g_xmDeclareVis)
+        let countBox = Array<Int>()
+        countBox.push(g_xmDeclareCount)
+        recordCrossModuleDeclareImpl(symbolName, declStr, visibility, namesBox, declsBox, visBox, countBox)
+        g_xmDeclareNames = namesBox[0]
+        g_xmDeclareStrs = declsBox[0]
+        g_xmDeclareVis = visBox[0]
+        g_xmDeclareCount = countBox[0]
+    }
+
+    fun registerEnumVariants(enumName: String, variants: Array<String>) r: Void {
+        let enumTypeNamesBox = Array<String>()
+        enumTypeNamesBox.push(g_enumTypeNames)
+        let enumVariantNamesBox = Array<String>()
+        enumVariantNamesBox.push(g_enumVariantNames)
+        let enumVariantTagsBox = Array<String>()
+        enumVariantTagsBox.push(g_enumVariantTags)
+        let enumVariantFieldTypesBox = Array<String>()
+        enumVariantFieldTypesBox.push(g_enumVariantFieldTypes)
+        let enumVariantFieldCountsBox = Array<String>()
+        enumVariantFieldCountsBox.push(g_enumVariantFieldCounts)
+        let enumVariantParentBox = Array<String>()
+        enumVariantParentBox.push(g_enumVariantParent)
+        let enumTypeCountBox = Array<Int>()
+        enumTypeCountBox.push(g_enumTypeCount)
+        let enumVariantCountBox = Array<Int>()
+        enumVariantCountBox.push(g_enumVariantCount)
+        registerEnumVariantsImpl(enumName, variants, enumTypeNamesBox, enumVariantNamesBox, enumVariantTagsBox, enumVariantFieldTypesBox, enumVariantFieldCountsBox, enumVariantParentBox, enumTypeCountBox, enumVariantCountBox)
+        g_enumTypeNames = enumTypeNamesBox[0]
+        g_enumVariantNames = enumVariantNamesBox[0]
+        g_enumVariantTags = enumVariantTagsBox[0]
+        g_enumVariantFieldTypes = enumVariantFieldTypesBox[0]
+        g_enumVariantFieldCounts = enumVariantFieldCountsBox[0]
+        g_enumVariantParent = enumVariantParentBox[0]
+        g_enumTypeCount = enumTypeCountBox[0]
+        g_enumVariantCount = enumVariantCountBox[0]
+    }
+
+    fun registerCrossModuleConstants(program: ProgramNode) r: Void {
+        let namesBox = Array<String>()
+        namesBox.push(g_xmConstNames)
+        let typesBox = Array<String>()
+        typesBox.push(g_xmConstTypes)
+        let mutableBox = Array<String>()
+        mutableBox.push(g_xmConstMutable)
+        let seenTypesBox = Array<String>()
+        seenTypesBox.push(g_xmConstSeenTypes)
+        let countBox = Array<Int>()
+        countBox.push(g_xmConstCount)
+        registerCrossModuleConstantsImpl(program, namesBox, typesBox, mutableBox, seenTypesBox, countBox)
+        g_xmConstNames = namesBox[0]
+        g_xmConstTypes = typesBox[0]
+        g_xmConstMutable = mutableBox[0]
+        g_xmConstSeenTypes = seenTypesBox[0]
+        g_xmConstCount = countBox[0]
     }
 
     // Register a function's return type in the function registry.
