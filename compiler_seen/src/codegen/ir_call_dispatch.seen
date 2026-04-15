@@ -801,6 +801,84 @@ fun hasFloatParamFuncImpl(funcName: String, paramIdx: Int, floatParamFuncNames: 
     return false
 }
 
+fun trimGenericTypeNameImpl(typeName: String) r: String {
+    let ltPos = typeName.indexOf("<", 0)
+    if ltPos > 0 {
+        return typeName.substring(0, ltPos)
+    }
+    return typeName
+}
+
+fun lookupDynParamTraitImpl(funcName: String, paramIdx: Int, dynParamFuncs: String) r: String {
+    if dynParamFuncs == "" {
+        return ""
+    }
+    let dynLookup = funcName + ":" + paramIdx.toString() + ":"
+    let dynLookupPos = dynParamFuncs.indexOf(dynLookup, 0)
+    if dynLookupPos < 0 {
+        return ""
+    }
+    let dynTraitStart = dynLookupPos + dynLookup.length()
+    var dynTraitEnd = dynParamFuncs.indexOf("|", dynTraitStart)
+    if dynTraitEnd < 0 {
+        dynTraitEnd = dynParamFuncs.length()
+    }
+    return dynParamFuncs.substring(dynTraitStart, dynTraitEnd)
+}
+
+// appendPreparedCallArgImpl — Shared argument lowering for call sites
+// Handles by-pointer data-type passing, dyn-trait boxing, and optional
+// Int-to-Float promotion. Appends the lowered argument directly to the
+// output argRegs/argTypeStrs arrays.
+fun appendPreparedCallArgImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, argReg: String, argType: String, argLlvmType: String, argIdx: Int,
+    argRegs: Array<String>, argTypeStrs: Array<String>, dynParamFuncs: String,
+    enableDynBoxing: Bool, enableFloatPromotion: Bool,
+    floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Void {
+
+    if isDataTypeImpl(argType) == 1 {
+        let allocaReg = getNextRegFn(regBox)
+        output.append("  " + allocaReg + " = alloca " + argLlvmType + "\n")
+        output.append("  store " + argLlvmType + " " + argReg + ", ptr " + allocaReg + "\n")
+        argRegs.push(allocaReg)
+        argTypeStrs.push("ptr")
+        return
+    }
+
+    if enableDynBoxing {
+        let dynTraitName = lookupDynParamTraitImpl(funcName, argIdx, dynParamFuncs)
+        if dynTraitName != "" {
+            let dataPtrReg = getNextRegFn(regBox)
+            output.append("  " + dataPtrReg + " = inttoptr i64 " + argReg + " to ptr ; dyn box data\n")
+            let fatPtrReg = getNextRegFn(regBox)
+            output.append("  " + fatPtrReg + " = call ptr @seen_pool_alloc(i64 16) ; dyn fat ptr\n")
+            output.append("  store ptr " + dataPtrReg + ", ptr " + fatPtrReg + "\n")
+            let baseTypeName = trimGenericTypeNameImpl(argType)
+            let vtablePtrReg = getNextRegFn(regBox)
+            output.append("  " + vtablePtrReg + " = getelementptr { ptr, ptr }, ptr " + fatPtrReg + ", i32 0, i32 1\n")
+            output.append("  store ptr @" + baseTypeName + "_for_" + dynTraitName + "_vtable, ptr " + vtablePtrReg + "\n")
+            let boxedReg = getNextRegFn(regBox)
+            output.append("  " + boxedReg + " = ptrtoint ptr " + fatPtrReg + " to i64 ; dyn boxed\n")
+            argRegs.push(boxedReg)
+            argTypeStrs.push("i64")
+            return
+        }
+    }
+
+    if enableFloatPromotion and argType == "Int" {
+        if hasFloatParamFuncImpl(funcName, argIdx, floatParamFuncNames, floatParamParamIdxs) {
+            let promotedReg = getNextRegFn(regBox)
+            output.append("  " + promotedReg + " = sitofp i64 " + argReg + " to double\n")
+            argRegs.push(promotedReg)
+            argTypeStrs.push("double")
+            return
+        }
+    }
+
+    argRegs.push(argReg)
+    argTypeStrs.push(argLlvmType)
+}
+
 // promoteFloatArgsImpl — Int-to-Float promotion for function call arguments
 // Converts matching i64 args to double using the float parameter registry.
 // Mutates argRegs/argTypeStrs in-place to replace promoted args.

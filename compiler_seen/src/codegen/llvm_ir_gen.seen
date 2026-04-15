@@ -52,8 +52,9 @@ import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitLengthSizeMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree}
@@ -240,16 +241,6 @@ var g_xmConstTypes: String = ""
 var g_xmConstMutable: String = ""
 var g_xmConstSeenTypes: String = ""
 var g_xmConstCount: Int = 0
-
-fun isValidCrossModuleConstantEntry(name: String, llvmType: String) r: Bool {
-    if name == "" {
-        return false
-    }
-    if llvmType == "" or llvmType == "0" {
-        return false
-    }
-    return true
-}
 
 // Defer statement tracking: array of deferred statement expressions per block scope
 var g_deferCount: Int = 0
@@ -1587,14 +1578,10 @@ class LLVMIRGenerator {
             if grItem.itemType == "GlobalVar" {
                 let grEncoded = grItem.visibility
                 let grSeenType = parseGlobalVarType(grEncoded)
-                var grLlvmType = "i64"
-                if grSeenType == "Float" { grLlvmType = "double" }
-                if grSeenType == "Bool" { grLlvmType = "i1" }
-                if grSeenType == "String" { grLlvmType = "%SeenString" }
-                if grSeenType.startsWith("Array<") { grLlvmType = "ptr" }
+                let grLlvmType = mapGlobalVarLlvmTypeImpl(grSeenType)
                 var grMut = "0"
                 if parseGlobalVarMutable(grEncoded) { grMut = "1" }
-                if isValidCrossModuleConstantEntry(grItem.name, grLlvmType) {
+                if isValidCrossModuleConstantEntryImpl(grItem.name, grLlvmType) {
                     if g_xmConstNames == "" {
                         g_xmConstNames = grItem.name
                         g_xmConstTypes = grLlvmType
@@ -2333,7 +2320,7 @@ class LLVMIRGenerator {
             while xi < g_xmConstCount {
                 let xcName = pipeGet(g_xmConstNames, xi)
                 let xcType = pipeGet(g_xmConstTypes, xi)
-                if isValidCrossModuleConstantEntry(xcName, xcType) and xcName == name {
+                if isValidCrossModuleConstantEntryImpl(xcName, xcType) and xcName == name {
                     // Promote into per-module arrays so subsequent lookups
                     // and type/mutability access work at the returned index
                     let xcMut = pipeGet(g_xmConstMutable, xi)
@@ -3509,81 +3496,7 @@ class LLVMIRGenerator {
         // Emit global variable declarations from all programs
         pi = 0
         while pi < programs.length() {
-            let gvProgram = programs[pi]
-            var gvi = 0
-            while gvi < gvProgram.items.length() {
-                let gvItem = gvProgram.items[gvi]
-                if gvItem.itemType == "GlobalVar" {
-                    let gvEncoded = gvItem.visibility
-                    let gvSeenType = parseGlobalVarType(gvEncoded)
-                    let gvInitVal = parseGlobalVarValue(gvEncoded)
-                    var gvLlvmType = "i64"
-                    var gvDefault = "0"
-                    if gvSeenType == "Float" {
-                        gvLlvmType = "double"
-                        gvDefault = "0.0"
-                    }
-                    if gvSeenType == "Bool" {
-                        gvLlvmType = "i1"
-                        gvDefault = "0"
-                    }
-                    if gvSeenType == "String" {
-                        gvLlvmType = "%SeenString"
-                        gvDefault = "zeroinitializer"
-                    }
-                    if gvSeenType.startsWith("Array<") {
-                        gvLlvmType = "ptr"
-                        gvDefault = "null"
-                    }
-                    var gvActualInit = gvDefault
-                    if gvInitVal != "" {
-                        if gvSeenType == "Bool" {
-                            if gvInitVal == "true" {
-                                gvActualInit = "1"
-                            } else {
-                                gvActualInit = "0"
-                            }
-                        } else {
-                            if gvSeenType != "String" {
-                                // Only use initVal if it's a numeric literal (not a function call or identifier)
-                                var gvFCCode = 0
-                                if gvInitVal.length() > 0 {
-                                    gvFCCode = gvInitVal.charAt(0).toInt()
-                                }
-                                var gvIsNumLit = 0
-                                if gvFCCode >= 48 {
-                                    if gvFCCode <= 57 {
-                                        gvIsNumLit = 1
-                                    }
-                                }
-                                if gvFCCode == 45 {
-                                    gvIsNumLit = 1
-                                }
-                                if gvIsNumLit == 1 {
-                                    gvActualInit = gvInitVal
-                                }
-                            }
-                        }
-                    }
-                    output.append("@" + quoteIdentIfNeeded(gvItem.name) + " = global " + gvLlvmType + " " + gvActualInit + "\n")
-                    moduleConstantNames.push(gvItem.name)
-                    moduleConstantTypes.push(gvLlvmType)
-                    moduleConstantValues.push(gvActualInit)
-                    var gvMutStr = "0"
-                    if parseGlobalVarMutable(gvEncoded) { gvMutStr = "1" }
-                    if g_moduleConstMutable == "" {
-                        g_moduleConstMutable = gvMutStr
-                    } else {
-                        g_moduleConstMutable = g_moduleConstMutable + "|" + gvMutStr
-                    }
-                    if g_moduleConstSeenTypes == "" {
-                        g_moduleConstSeenTypes = gvSeenType
-                    } else {
-                        g_moduleConstSeenTypes = g_moduleConstSeenTypes + "|" + gvSeenType
-                    }
-                }
-                gvi = gvi + 1
-            }
+            emitProgramGlobalVariables(programs[pi])
             pi = pi + 1
         }
 
@@ -3732,55 +3645,7 @@ class LLVMIRGenerator {
         }
 
         // Emit vtable constants for trait implementations
-        if g_traitImplCount > 0 and g_dynTraitNames != "" {
-            var vtSearchPos = 0
-            var vtEmittedPairs = ""
-            while vtSearchPos < g_traitImplRegistry.length() {
-                var vtNextPipe = g_traitImplRegistry.indexOf("|", vtSearchPos)
-                if vtNextPipe < 0 { vtNextPipe = g_traitImplRegistry.length() }
-                let vtEntry = g_traitImplRegistry.substring(vtSearchPos, vtNextPipe)
-                let vtColon1 = vtEntry.indexOf(":", 0)
-                if vtColon1 > 0 {
-                    let vtColon2 = vtEntry.indexOf(":", vtColon1 + 1)
-                    if vtColon2 > vtColon1 {
-                        let vtTrait = vtEntry.substring(0, vtColon1)
-                        let vtClass = vtEntry.substring(vtColon1 + 1, vtColon2)
-                        let vtPair = vtClass + "_for_" + vtTrait
-                        if not vtEmittedPairs.contains(vtPair + "|") {
-                            vtEmittedPairs = vtEmittedPairs + vtPair + "|"
-                            var vtMethods = ""
-                            var vtMCount = 0
-                            var vtScan2 = 0
-                            while vtScan2 < g_traitImplRegistry.length() {
-                                var vtNP2 = g_traitImplRegistry.indexOf("|", vtScan2)
-                                if vtNP2 < 0 { vtNP2 = g_traitImplRegistry.length() }
-                                let vtE2 = g_traitImplRegistry.substring(vtScan2, vtNP2)
-                                if vtE2.startsWith(vtTrait + ":" + vtClass + ":") {
-                                    let vtC2 = vtE2.indexOf(":", vtColon1 + 1)
-                                    if vtC2 > 0 {
-                                        let vtC3 = vtE2.indexOf(":", vtC2 + 1)
-                                        if vtC3 < 0 { vtC3 = vtE2.length() }
-                                        let vtFn = vtE2.substring(vtC2 + 1, vtC3)
-                                        if vtMCount > 0 {
-                                            vtMethods = vtMethods + ", "
-                                        }
-                                        vtMethods = vtMethods + "ptr @" + quoteIdentIfNeeded(vtFn)
-                                        vtMCount = vtMCount + 1
-                                    }
-                                }
-                                vtScan2 = vtNP2 + 1
-                            }
-                            if vtMCount > 0 {
-                                let lb = "{"
-                                let rb = "}"
-                                output.append("@" + vtPair + "_vtable = constant %" + quoteIdentIfNeeded(vtTrait + "_vtable") + " " + lb + " " + vtMethods + " " + rb + "\n")
-                            }
-                        }
-                    }
-                }
-                vtSearchPos = vtNextPipe + 1
-            }
-        }
+        emitTraitVtableConstants()
 
         // Emit closure definitions generated during compilation
         if g_closureDefs.length() > 0 {
@@ -3805,28 +3670,7 @@ class LLVMIRGenerator {
         }
 
         // Emit @llvm.global_ctors for @init functions
-        if g_initFuncCount > 0 {
-            output.append("\n; Module initializers (@init)\n")
-            output.append("@llvm.global_ctors = appending global [" + g_initFuncCount.toString() + " x { i32, ptr, ptr }] [\n")
-            var initIdx = 0
-            var initSearchPos = 0
-            while initIdx < g_initFuncCount {
-                let nextPipe = g_initFuncNames.indexOf("|", initSearchPos)
-                var initName = ""
-                if nextPipe >= 0 {
-                    initName = g_initFuncNames.substring(initSearchPos, nextPipe)
-                    initSearchPos = nextPipe + 1
-                } else {
-                    initName = g_initFuncNames.substring(initSearchPos, g_initFuncNames.length())
-                }
-                if initIdx > 0 {
-                    output.append(",\n")
-                }
-                output.append("  { i32, ptr, ptr } { i32 65535, ptr @" + quoteIdentIfNeeded(initName) + ", ptr null }")
-                initIdx = initIdx + 1
-            }
-            output.append("\n]\n")
-        }
+        emitGlobalConstructors()
 
         // Emit TBAA metadata at end of module
         emitTBAAMetadata()
@@ -3915,102 +3759,12 @@ class LLVMIRGenerator {
         // Emit global variable declarations for THIS module
         println("[irgen module " + moduleIndex.toString() + "] globals start")
         let globalsStartTime = getIrgenTraceTimeSeconds()
-        i = 0
-        while i < program.items.length() {
-            let gvItem2 = program.items[i]
-            if gvItem2.itemType == "GlobalVar" {
-                let gvEncoded2 = gvItem2.visibility
-                let gvSeenType2 = parseGlobalVarType(gvEncoded2)
-                let gvInitVal2 = parseGlobalVarValue(gvEncoded2)
-                var gvLlvmType2 = "i64"
-                var gvDefault2 = "0"
-                if gvSeenType2 == "Float" {
-                    gvLlvmType2 = "double"
-                    gvDefault2 = "0.0"
-                }
-                if gvSeenType2 == "Bool" {
-                    gvLlvmType2 = "i1"
-                    gvDefault2 = "0"
-                }
-                if gvSeenType2 == "String" {
-                    gvLlvmType2 = "%SeenString"
-                    gvDefault2 = "zeroinitializer"
-                }
-                if gvSeenType2.startsWith("Array<") {
-                    gvLlvmType2 = "ptr"
-                    gvDefault2 = "null"
-                }
-                var gvActualInit2 = gvDefault2
-                if gvInitVal2 != "" {
-                    if gvSeenType2 == "Bool" {
-                        if gvInitVal2 == "true" {
-                            gvActualInit2 = "1"
-                        } else {
-                            gvActualInit2 = "0"
-                        }
-                    } else {
-                        if gvSeenType2 != "String" {
-                            // Only use initVal if it's a numeric literal (not a function call or identifier)
-                            var gvFCCode2 = 0
-                            if gvInitVal2.length() > 0 {
-                                gvFCCode2 = gvInitVal2.charAt(0).toInt()
-                            }
-                            var gvIsNumLit2 = 0
-                            if gvFCCode2 >= 48 {
-                                if gvFCCode2 <= 57 {
-                                    gvIsNumLit2 = 1
-                                }
-                            }
-                            if gvFCCode2 == 45 {
-                                gvIsNumLit2 = 1
-                            }
-                            if gvIsNumLit2 == 1 {
-                                gvActualInit2 = gvInitVal2
-                            }
-                        }
-                    }
-                }
-                output.append("@" + quoteIdentIfNeeded(gvItem2.name) + " = global " + gvLlvmType2 + " " + gvActualInit2 + "\n")
-                moduleConstantNames.push(gvItem2.name)
-                moduleConstantTypes.push(gvLlvmType2)
-                moduleConstantValues.push(gvActualInit2)
-                var gvMutStr2 = "0"
-                if parseGlobalVarMutable(gvEncoded2) { gvMutStr2 = "1" }
-                if g_moduleConstMutable == "" {
-                    g_moduleConstMutable = gvMutStr2
-                } else {
-                    g_moduleConstMutable = g_moduleConstMutable + "|" + gvMutStr2
-                }
-                if g_moduleConstSeenTypes == "" {
-                    g_moduleConstSeenTypes = gvSeenType2
-                } else {
-                    g_moduleConstSeenTypes = g_moduleConstSeenTypes + "|" + gvSeenType2
-                }
-            }
-            i = i + 1
-        }
+        emitProgramGlobalVariables(program)
         let globalsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] globals done in " + (globalsEndTime - globalsStartTime).toString() + "s")
 
         // Emit external declarations for cross-module constants not defined in this module
-        var xci = 0
-        while xci < g_xmConstCount {
-            let xcName = pipeGet(g_xmConstNames, xci)
-            let xcType = pipeGet(g_xmConstTypes, xci)
-            // Skip if already defined in this module
-            var xcAlreadyDefined = 0
-            var xcj = 0
-            while xcj < moduleConstantNames.length() {
-                if moduleConstantNames[xcj] == xcName {
-                    xcAlreadyDefined = 1
-                }
-                xcj = xcj + 1
-            }
-            if isValidCrossModuleConstantEntry(xcName, xcType) and xcAlreadyDefined == 0 {
-                output.append("@" + quoteIdentIfNeeded(xcName) + " = external global " + xcType + "\n")
-            }
-            xci = xci + 1
-        }
+        emitCrossModuleConstantDeclares()
 
         // Emit string constants with module prefix
         println("[irgen module " + moduleIndex.toString() + "] string constants start")
@@ -4130,59 +3884,7 @@ class LLVMIRGenerator {
 
         // Emit vtable constants for trait implementations found in this module
         // Must be AFTER generateFunction so g_traitImplRegistry is populated
-        if g_traitImplCount > 0 and g_dynTraitNames != "" {
-            // Parse g_traitImplRegistry: entries are "TraitName:ClassName:funcName|"
-            // Group by trait:class pairs and emit vtable constants
-            var vtSearchPos = 0
-            var vtEmittedPairs = ""
-            while vtSearchPos < g_traitImplRegistry.length() {
-                var vtNextPipe = g_traitImplRegistry.indexOf("|", vtSearchPos)
-                if vtNextPipe < 0 { vtNextPipe = g_traitImplRegistry.length() }
-                let vtEntry = g_traitImplRegistry.substring(vtSearchPos, vtNextPipe)
-                // vtEntry is "TraitName:ClassName:funcName"
-                let vtColon1 = vtEntry.indexOf(":", 0)
-                if vtColon1 > 0 {
-                    let vtColon2 = vtEntry.indexOf(":", vtColon1 + 1)
-                    if vtColon2 > vtColon1 {
-                        let vtTrait = vtEntry.substring(0, vtColon1)
-                        let vtClass = vtEntry.substring(vtColon1 + 1, vtColon2)
-                        let vtPair = vtClass + "_for_" + vtTrait
-                        if not vtEmittedPairs.contains(vtPair + "|") {
-                            vtEmittedPairs = vtEmittedPairs + vtPair + "|"
-                            // Collect all methods for this trait:class pair
-                            var vtMethods = ""
-                            var vtMCount = 0
-                            var vtScan2 = 0
-                            while vtScan2 < g_traitImplRegistry.length() {
-                                var vtNP2 = g_traitImplRegistry.indexOf("|", vtScan2)
-                                if vtNP2 < 0 { vtNP2 = g_traitImplRegistry.length() }
-                                let vtE2 = g_traitImplRegistry.substring(vtScan2, vtNP2)
-                                if vtE2.startsWith(vtTrait + ":" + vtClass + ":") {
-                                    let vtC2 = vtE2.indexOf(":", vtColon1 + 1)
-                                    if vtC2 > 0 {
-                                        let vtC3 = vtE2.indexOf(":", vtC2 + 1)
-                                        if vtC3 < 0 { vtC3 = vtE2.length() }
-                                        let vtFn = vtE2.substring(vtC2 + 1, vtC3)
-                                        if vtMCount > 0 {
-                                            vtMethods = vtMethods + ", "
-                                        }
-                                        vtMethods = vtMethods + "ptr @" + quoteIdentIfNeeded(vtFn)
-                                        vtMCount = vtMCount + 1
-                                    }
-                                }
-                                vtScan2 = vtNP2 + 1
-                            }
-                            if vtMCount > 0 {
-                                let lb = "{"
-                                let rb = "}"
-                                output.append("@" + vtPair + "_vtable = constant %" + quoteIdentIfNeeded(vtTrait + "_vtable") + " " + lb + " " + vtMethods + " " + rb + "\n")
-                            }
-                        }
-                    }
-                }
-                vtSearchPos = vtNextPipe + 1
-            }
-        }
+        emitTraitVtableConstants()
 
         // Emit any new string constants added during class/function generation
         // (e.g., by @derive(Debug), @reflect, @derive(Json) codegen)
@@ -4311,28 +4013,7 @@ class LLVMIRGenerator {
         }
 
         // Emit @llvm.global_ctors for @init functions (multi-module path)
-        if g_initFuncCount > 0 {
-            output.append("\n; Module initializers (@init)\n")
-            output.append("@llvm.global_ctors = appending global [" + g_initFuncCount.toString() + " x { i32, ptr, ptr }] [\n")
-            var initIdx2 = 0
-            var initSearchPos2 = 0
-            while initIdx2 < g_initFuncCount {
-                let nextPipe2 = g_initFuncNames.indexOf("|", initSearchPos2)
-                var initName2 = ""
-                if nextPipe2 >= 0 {
-                    initName2 = g_initFuncNames.substring(initSearchPos2, nextPipe2)
-                    initSearchPos2 = nextPipe2 + 1
-                } else {
-                    initName2 = g_initFuncNames.substring(initSearchPos2, g_initFuncNames.length())
-                }
-                if initIdx2 > 0 {
-                    output.append(",\n")
-                }
-                output.append("  { i32, ptr, ptr } { i32 65535, ptr @" + quoteIdentIfNeeded(initName2) + ", ptr null }")
-                initIdx2 = initIdx2 + 1
-            }
-            output.append("\n]\n")
-        }
+        emitGlobalConstructors()
 
         // Emit TBAA metadata at end of module
         emitTBAAMetadata()
@@ -5662,6 +5343,28 @@ class LLVMIRGenerator {
         emitTypecheckerDecls(output, runtimeDeclsLoaded, definedFuncs)
         emitMacroAndLspDecls(output, definedFuncs)
         emitFeatureDecls(output, definedFuncs)
+    }
+
+    fun emitProgramGlobalVariables(program: ProgramNode) r: Void {
+        let moduleConstMutableBox = Array<String>()
+        moduleConstMutableBox.push(g_moduleConstMutable)
+        let moduleConstSeenTypesBox = Array<String>()
+        moduleConstSeenTypesBox.push(g_moduleConstSeenTypes)
+        emitGlobalVariablesImpl(output, program, moduleConstantNames, moduleConstantTypes, moduleConstantValues, moduleConstMutableBox, moduleConstSeenTypesBox)
+        g_moduleConstMutable = moduleConstMutableBox[0]
+        g_moduleConstSeenTypes = moduleConstSeenTypesBox[0]
+    }
+
+    fun emitCrossModuleConstantDeclares() r: Void {
+        emitCrossModuleConstantDeclaresImpl(output, moduleConstantNames, g_xmConstNames, g_xmConstTypes, g_xmConstCount)
+    }
+
+    fun emitTraitVtableConstants() r: Void {
+        emitTraitVtableConstantsImpl(output, g_traitImplRegistry, g_traitImplCount, g_dynTraitNames)
+    }
+
+    fun emitGlobalConstructors() r: Void {
+        emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
     }
 
     // Helper to check if a function has a specific decorator
@@ -12433,23 +12136,7 @@ class LLVMIRGenerator {
                 var argRegs = Array<String>()
                 var argTypeStrs = Array<String>()
                 var argIdx = 0
-                while argIdx < expr.arguments.length() {
-                    let argReg = generateExpression(expr.arguments[argIdx])
-                    let argType = inferExpressionType(expr.arguments[argIdx])
-                    // Data type arguments: store to alloca and pass pointer (ABI compat)
-                    if isDataType(argType) {
-                        let llvmType = mapType(argType)
-                        let allocaReg = getNextReg()
-                        output.append("  " + allocaReg + " = alloca " + llvmType + "\n")
-                        output.append("  store " + llvmType + " " + argReg + ", ptr " + allocaReg + "\n")
-                        argRegs.push(allocaReg)
-                        argTypeStrs.push("ptr")
-                    } else {
-                        argRegs.push(argReg)
-                        argTypeStrs.push(mapType(argType))
-                    }
-                    argIdx = argIdx + 1
-                }
+                prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, false, false, "")
 
                 // Determine return type for misplaced methods
                 var misplacedRetType = "ptr"
@@ -12561,39 +12248,7 @@ class LLVMIRGenerator {
                 var argRegs = Array<String>()
                 var argTypeStrs = Array<String>()
                 var argIdx = 0
-                while argIdx < expr.arguments.length() {
-                    let argReg = generateExpression(expr.arguments[argIdx])
-                    let argType = inferExpressionType(expr.arguments[argIdx])
-                    // Data type arguments: store to alloca and pass pointer (ABI compat)
-                    if isDataType(argType) {
-                        let llvmType = mapType(argType)
-                        let allocaReg = getNextReg()
-                        output.append("  " + allocaReg + " = alloca " + llvmType + "\n")
-                        output.append("  store " + llvmType + " " + argReg + ", ptr " + allocaReg + "\n")
-                        argRegs.push(allocaReg)
-                        argTypeStrs.push("ptr")
-                    } else {
-                        // Int→Float promotion for implicit this.method() calls
-                        var floatPromoted2 = false
-                        if argType == "Int" {
-                            if currentClassName == "LLVMIRGenerator" {
-                                println("[irgen float lookup] class=" + currentClassName + " target=" + (thisType + "_" + funcName) + " arg=" + argIdx.toString())
-                            }
-                            if g_floatParamFuncNames.length() > 0 and g_floatParamParamIdxs.length() > 0 and hasFloatParamFuncImpl(thisType + "_" + funcName, argIdx, g_floatParamFuncNames, g_floatParamParamIdxs) {
-                                let sitofpReg2 = getNextReg()
-                                output.append("  " + sitofpReg2 + " = sitofp i64 " + argReg + " to double\n")
-                                argRegs.push(sitofpReg2)
-                                argTypeStrs.push("double")
-                                floatPromoted2 = true
-                            }
-                        }
-                        if not floatPromoted2 {
-                            argRegs.push(argReg)
-                            argTypeStrs.push(mapType(argType))
-                        }
-                    }
-                    argIdx = argIdx + 1
-                }
+                prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
 
                 if thisType == "StringBuilder" and (funcName == "append" or funcName == "appendInt" or funcName == "appendFloat" or funcName == "appendChar" or funcName == "clear" or funcName == "length" or funcName == "toString") {
                     let thisPtrReg = getNextReg()
@@ -12658,83 +12313,7 @@ class LLVMIRGenerator {
         var argRegs = Array<String>()
         var argTypeStrs = Array<String>()
         var argIdx = 0
-        while argIdx < expr.arguments.length() {
-            let argReg = generateExpression(expr.arguments[argIdx])
-            let argType = inferExpressionType(expr.arguments[argIdx])
-            // Data type arguments: store to alloca and pass pointer (ABI compat)
-            if isDataType(argType) {
-                let llvmType = mapType(argType)
-                let allocaReg = getNextReg()
-                output.append("  " + allocaReg + " = alloca " + llvmType + "\n")
-                output.append("  store " + llvmType + " " + argReg + ", ptr " + allocaReg + "\n")
-                argRegs.push(allocaReg)
-                argTypeStrs.push("ptr")
-            } else {
-                // Check if this arg needs dyn Trait fat pointer boxing
-                var dynBoxed = false
-                if g_dynParamFuncs != "" {
-                    let dynLookup = funcName + ":" + argIdx.toString() + ":"
-                    let dynLookupPos = g_dynParamFuncs.indexOf(dynLookup, 0)
-                    if dynLookupPos >= 0 {
-                        // Extract trait name from "funcName:argIdx:TraitName|"
-                        let dynTraitStart = dynLookupPos + dynLookup.length()
-                        var dynTraitEnd = g_dynParamFuncs.indexOf("|", dynTraitStart)
-                        if dynTraitEnd < 0 { dynTraitEnd = g_dynParamFuncs.length() }
-                        let dynBoxTraitName = g_dynParamFuncs.substring(dynTraitStart, dynTraitEnd)
-                        if dynBoxTraitName != "" {
-                            // Box: concrete class value (i64) → fat pointer { ptr data, ptr vtable }
-                            // 1. Convert concrete i64 handle to ptr (data pointer)
-                            let dynBoxDataPtr = getNextReg()
-                            output.append("  " + dynBoxDataPtr + " = inttoptr i64 " + argReg + " to ptr ; dyn box data\n")
-                            // 2. Allocate 16 bytes for fat pointer struct (2 pointers)
-                            let dynBoxFatPtr = getNextReg()
-                            output.append("  " + dynBoxFatPtr + " = call ptr @seen_pool_alloc(i64 16) ; dyn fat ptr\n")
-                            // 3. Store data ptr at offset 0
-                            output.append("  store ptr " + dynBoxDataPtr + ", ptr " + dynBoxFatPtr + "\n")
-                            // 4. Store vtable ptr at offset 1
-                            let dynBoxLb = "{"
-                            let dynBoxRb = "}"
-                            // Determine concrete class name from argType for vtable lookup
-                            var dynBoxClassName = argType
-                            // Strip generic params if present
-                            let dynBoxLtPos = dynBoxClassName.indexOf("<", 0)
-                            if dynBoxLtPos > 0 { dynBoxClassName = dynBoxClassName.substring(0, dynBoxLtPos) }
-                            let dynBoxVtGep = getNextReg()
-                            output.append("  " + dynBoxVtGep + " = getelementptr " + dynBoxLb + " ptr, ptr " + dynBoxRb + ", ptr " + dynBoxFatPtr + ", i32 0, i32 1\n")
-                            output.append("  store ptr @" + dynBoxClassName + "_for_" + dynBoxTraitName + "_vtable, ptr " + dynBoxVtGep + "\n")
-                            // 5. Convert fat ptr to i64
-                            let dynBoxResult = getNextReg()
-                            output.append("  " + dynBoxResult + " = ptrtoint ptr " + dynBoxFatPtr + " to i64 ; dyn boxed\n")
-                            argRegs.push(dynBoxResult)
-                            argTypeStrs.push("i64")
-                            dynBoxed = true
-                        }
-                    }
-                }
-                if not dynBoxed {
-                    argRegs.push(argReg)
-                    argTypeStrs.push(mapType(argType))
-                }
-            }
-            // @move enforcement in function calls: nullify source after passing
-            if g_moveOnlyClasses != "" and g_moveOnlyClasses.contains(argType + "|") {
-                let moveArgExpr = expr.arguments[argIdx]
-                if moveArgExpr.kind == "Variable" or moveArgExpr.kind == "VarExpr" {
-                    var moveArgVarName = moveArgExpr.variableName
-                    if moveArgVarName == "" { moveArgVarName = moveArgExpr.literalValue }
-                    if moveArgVarName != "" {
-                        let moveArgIdx = findVar(moveArgVarName)
-                        if moveArgIdx >= 0 {
-                            let moveArgSrcReg = varRegs[moveArgIdx]
-                            output.append("  store i64 0, ptr " + moveArgSrcReg + " ; @move: nullify source (fn call)\n")
-                            g_movedVarNames = g_movedVarNames + moveArgVarName + "|"
-                            g_movedVarCount = g_movedVarCount + 1
-                        }
-                    }
-                }
-            }
-            argIdx = argIdx + 1
-        }
+        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, true, false, true, "fn call")
 
         // Default parameter injection — delegated to ir_call_dispatch.seen
         fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
@@ -13348,24 +12927,7 @@ class LLVMIRGenerator {
                 // Generate arguments
                 var staticArgRegs = Array<String>()
                 var staticArgTypeStrs = Array<String>()
-                var staticArgIdx = 0
-                while staticArgIdx < expr.arguments.length() {
-                    let argReg = generateExpression(expr.arguments[staticArgIdx])
-                    let argType = inferExpressionType(expr.arguments[staticArgIdx])
-                    // Data type arguments: store to alloca and pass pointer (ABI compat)
-                    if isDataType(argType) {
-                        let llvmType = mapType(argType)
-                        let allocaReg = getNextReg()
-                        output.append("  " + allocaReg + " = alloca " + llvmType + "\n")
-                        output.append("  store " + llvmType + " " + argReg + ", ptr " + allocaReg + "\n")
-                        staticArgRegs.push(allocaReg)
-                        staticArgTypeStrs.push("ptr")
-                    } else {
-                        staticArgRegs.push(argReg)
-                        staticArgTypeStrs.push(mapType(argType))
-                    }
-                    staticArgIdx = staticArgIdx + 1
-                }
+                prepareCallArguments(funcName, expr.arguments, staticArgRegs, staticArgTypeStrs, false, false, false, "")
 
                 // StringBuilder.new — delegated to ir_call_dispatch.seen
                 if potentialClassName == "StringBuilder" and methodName == "new" {
@@ -13430,24 +12992,7 @@ class LLVMIRGenerator {
                 // Generate arguments
                 var standaloneArgRegs = Array<String>()
                 var standaloneArgTypes = Array<String>()
-                var argIdx = 0
-                while argIdx < expr.arguments.length() {
-                    let argReg = generateExpression(expr.arguments[argIdx])
-                    let argType = inferExpressionType(expr.arguments[argIdx])
-                    // Data type arguments: store to alloca and pass pointer (ABI compat)
-                    if isDataType(argType) {
-                        let llvmType = mapType(argType)
-                        let allocaReg = getNextReg()
-                        output.append("  " + allocaReg + " = alloca " + llvmType + "\n")
-                        output.append("  store " + llvmType + " " + argReg + ", ptr " + allocaReg + "\n")
-                        standaloneArgRegs.push(allocaReg)
-                        standaloneArgTypes.push("ptr")
-                    } else {
-                        standaloneArgRegs.push(argReg)
-                        standaloneArgTypes.push(mapType(argType))
-                    }
-                    argIdx = argIdx + 1
-                }
+                prepareCallArguments(methodName, expr.arguments, standaloneArgRegs, standaloneArgTypes, false, false, false, "")
 
                 // Infer return type from method name
                 var standaloneRetType = "ptr"  // Default
@@ -14048,40 +13593,7 @@ class LLVMIRGenerator {
             // Generate arguments
             var argRegs = Array<String>()
             var argTypeStrs = Array<String>()
-            var argIdx = 0
-            while argIdx < expr.arguments.length() {
-                let argReg = generateExpression(expr.arguments[argIdx])
-                let argType = inferExpressionType(expr.arguments[argIdx])
-                // Data type arguments: store to alloca and pass pointer (ABI compat)
-                if isDataType(argType) {
-                    let llvmType = mapType(argType)
-                    let allocaReg = getNextReg()
-                    output.append("  " + allocaReg + " = alloca " + llvmType + "\n")
-                    output.append("  store " + llvmType + " " + argReg + ", ptr " + allocaReg + "\n")
-                    argRegs.push(allocaReg)
-                    argTypeStrs.push("ptr")
-                } else {
-                    // Int→Float promotion for static method calls
-                    var floatPromoted3 = false
-                    if argType == "Int" {
-                        if currentClassName == "LLVMIRGenerator" {
-                            println("[irgen float lookup] class=" + currentClassName + " target=" + funcName + " arg=" + argIdx.toString())
-                        }
-                        if g_floatParamFuncNames.length() > 0 and g_floatParamParamIdxs.length() > 0 and hasFloatParamFuncImpl(funcName, argIdx, g_floatParamFuncNames, g_floatParamParamIdxs) {
-                            let sitofpReg3 = getNextReg()
-                            output.append("  " + sitofpReg3 + " = sitofp i64 " + argReg + " to double\n")
-                            argRegs.push(sitofpReg3)
-                            argTypeStrs.push("double")
-                            floatPromoted3 = true
-                        }
-                    }
-                    if not floatPromoted3 {
-                        argRegs.push(argReg)
-                        argTypeStrs.push(mapType(argType))
-                    }
-                }
-                argIdx = argIdx + 1
-            }
+            prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
 
             let registeredStaticReturnType = getMethodReturnType(className, methodName)
             var staticReturnType = registeredStaticReturnType
@@ -14186,40 +13698,7 @@ class LLVMIRGenerator {
         // Generate arguments
         var argRegs = Array<String>()
         var argTypeStrs = Array<String>()
-        var argIdx = 0
-        while argIdx < expr.arguments.length() {
-            let argReg = generateExpression(expr.arguments[argIdx])
-            let argType = inferExpressionType(expr.arguments[argIdx])
-            // Data type arguments: store to alloca and pass pointer (ABI compat)
-            if isDataType(argType) {
-                let llvmType = mapType(argType)
-                let allocaReg = getNextReg()
-                output.append("  " + allocaReg + " = alloca " + llvmType + "\n")
-                output.append("  store " + llvmType + " " + argReg + ", ptr " + allocaReg + "\n")
-                argRegs.push(allocaReg)
-                argTypeStrs.push("ptr")
-            } else {
-                // Int→Float promotion for receiver method calls
-                var floatPromoted4 = false
-                if argType == "Int" {
-                    if currentClassName == "LLVMIRGenerator" {
-                        println("[irgen float lookup] class=" + currentClassName + " target=" + funcName + " arg=" + argIdx.toString())
-                    }
-                    if g_floatParamFuncNames.length() > 0 and g_floatParamParamIdxs.length() > 0 and hasFloatParamFuncImpl(funcName, argIdx, g_floatParamFuncNames, g_floatParamParamIdxs) {
-                        let sitofpReg4 = getNextReg()
-                        output.append("  " + sitofpReg4 + " = sitofp i64 " + argReg + " to double\n")
-                        argRegs.push(sitofpReg4)
-                        argTypeStrs.push("double")
-                        floatPromoted4 = true
-                    }
-                }
-                if not floatPromoted4 {
-                    argRegs.push(argReg)
-                    argTypeStrs.push(mapType(argType))
-                }
-            }
-            argIdx = argIdx + 1
-        }
+        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
 
         // Infer return type from method name
         var returnTypeStr = inferExpressionType(expr)
@@ -14679,6 +14158,40 @@ class LLVMIRGenerator {
             }
         }
         return normalized
+    }
+
+    fun prepareCallArguments(funcName: String, arguments: Array<ParserExpressionNode>,
+        argRegs: Array<String>, argTypeStrs: Array<String>, enableDynBoxing: Bool,
+        enableFloatPromotion: Bool, nullifyMovedSources: Bool, moveContext: String) r: Void {
+
+        var argIdx = 0
+        while argIdx < arguments.length() {
+            let argExpr = arguments[argIdx]
+            let argReg = generateExpression(argExpr)
+            let argType = inferExpressionType(argExpr)
+            if enableFloatPromotion and argType == "Int" and currentClassName == "LLVMIRGenerator" {
+                println("[irgen float lookup] class=" + currentClassName + " target=" + funcName + " arg=" + argIdx.toString())
+            }
+            let argLlvmType = mapType(argType)
+            appendPreparedCallArgImpl(output, g_regBox, funcName, argReg, argType, argLlvmType, argIdx, argRegs, argTypeStrs, g_dynParamFuncs, enableDynBoxing, enableFloatPromotion, g_floatParamFuncNames, g_floatParamParamIdxs)
+
+            if nullifyMovedSources and g_moveOnlyClasses != "" and g_moveOnlyClasses.contains(argType + "|") {
+                if argExpr.kind == "Variable" or argExpr.kind == "VarExpr" {
+                    var moveVarName = argExpr.variableName
+                    if moveVarName == "" { moveVarName = argExpr.literalValue }
+                    if moveVarName != "" {
+                        let moveVarIdx = findVar(moveVarName)
+                        if moveVarIdx >= 0 {
+                            let moveSrcReg = varRegs[moveVarIdx]
+                            output.append("  store i64 0, ptr " + moveSrcReg + " ; @move: nullify source (" + moveContext + ")\n")
+                            g_movedVarNames = g_movedVarNames + moveVarName + "|"
+                            g_movedVarCount = g_movedVarCount + 1
+                        }
+                    }
+                }
+            }
+            argIdx = argIdx + 1
+        }
     }
 
     fun fillDefaultParamsLocal(funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: Void {

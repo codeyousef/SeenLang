@@ -1,0 +1,252 @@
+// Shared LLVM IR module-emission helpers.
+// Extracted from llvm_ir_gen.seen to deduplicate single- and multi-module paths.
+
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, pipeGet}
+
+fun quoteModuleEmitIdentIfNeeded(name: String) r: String {
+    var i = 0
+    while i < name.length() {
+        if name.charAt(i).toInt() >= 128 {
+            return "\"" + name + "\""
+        }
+        i = i + 1
+    }
+    return name
+}
+
+fun mapGlobalVarLlvmTypeImpl(seenType: String) r: String {
+    if seenType == "Float" {
+        return "double"
+    }
+    if seenType == "Bool" {
+        return "i1"
+    }
+    if seenType == "String" {
+        return "%SeenString"
+    }
+    if seenType.startsWith("Array<") {
+        return "ptr"
+    }
+    return "i64"
+}
+
+fun defaultGlobalVarInitializerImpl(seenType: String) r: String {
+    if seenType == "Float" {
+        return "0.0"
+    }
+    if seenType == "Bool" {
+        return "0"
+    }
+    if seenType == "String" {
+        return "zeroinitializer"
+    }
+    if seenType.startsWith("Array<") {
+        return "null"
+    }
+    return "0"
+}
+
+fun isNumericGlobalLiteralImpl(initVal: String) r: Bool {
+    if initVal.length() == 0 {
+        return false
+    }
+    let firstCode = initVal.byteAt(0)
+    if firstCode >= 48 and firstCode <= 57 {
+        return true
+    }
+    if firstCode == 45 {
+        return true
+    }
+    return false
+}
+
+fun computeGlobalVarInitializerImpl(seenType: String, initVal: String) r: String {
+    let defaultInit = defaultGlobalVarInitializerImpl(seenType)
+    if initVal == "" {
+        return defaultInit
+    }
+    if seenType == "Bool" {
+        if initVal == "true" {
+            return "1"
+        }
+        return "0"
+    }
+    if seenType == "String" {
+        return defaultInit
+    }
+    if isNumericGlobalLiteralImpl(initVal) {
+        return initVal
+    }
+    return defaultInit
+}
+
+fun ensureStringBoxInitialized(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun appendPipeValueBox(box: Array<String>, value: String) r: Void {
+    ensureStringBoxInitialized(box)
+    if box[0] == "" {
+        box[0] = value
+    } else {
+        box[0] = box[0] + "|" + value
+    }
+}
+
+fun isValidCrossModuleConstantEntryImpl(name: String, llvmType: String) r: Bool {
+    if name == "" {
+        return false
+    }
+    if llvmType == "" or llvmType == "0" {
+        return false
+    }
+    return true
+}
+
+fun emitGlobalVariablesImpl(output: StringBuilder, program: ProgramNode,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, moduleConstMutableBox: Array<String>,
+    moduleConstSeenTypesBox: Array<String>) r: Void {
+
+    ensureStringBoxInitialized(moduleConstMutableBox)
+    ensureStringBoxInitialized(moduleConstSeenTypesBox)
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "GlobalVar" {
+            let encoded = item.visibility
+            let seenType = parseGlobalVarType(encoded)
+            let initVal = parseGlobalVarValue(encoded)
+            let llvmType = mapGlobalVarLlvmTypeImpl(seenType)
+            let actualInit = computeGlobalVarInitializerImpl(seenType, initVal)
+            output.append("@" + quoteModuleEmitIdentIfNeeded(item.name) + " = global " + llvmType + " " + actualInit + "\n")
+            moduleConstantNames.push(item.name)
+            moduleConstantTypes.push(llvmType)
+            moduleConstantValues.push(actualInit)
+            var mutStr = "0"
+            if parseGlobalVarMutable(encoded) {
+                mutStr = "1"
+            }
+            appendPipeValueBox(moduleConstMutableBox, mutStr)
+            appendPipeValueBox(moduleConstSeenTypesBox, seenType)
+        }
+        i = i + 1
+    }
+}
+
+fun arrayContainsString(values: Array<String>, target: String) r: Bool {
+    var i = 0
+    while i < values.length() {
+        if values[i] == target {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun emitCrossModuleConstantDeclaresImpl(output: StringBuilder, moduleConstantNames: Array<String>,
+    xmConstNames: String, xmConstTypes: String, xmConstCount: Int) r: Void {
+
+    var i = 0
+    while i < xmConstCount {
+        let name = pipeGet(xmConstNames, i)
+        let llvmType = pipeGet(xmConstTypes, i)
+        if isValidCrossModuleConstantEntryImpl(name, llvmType) and not arrayContainsString(moduleConstantNames, name) {
+            output.append("@" + quoteModuleEmitIdentIfNeeded(name) + " = external global " + llvmType + "\n")
+        }
+        i = i + 1
+    }
+}
+
+fun emitTraitVtableConstantsImpl(output: StringBuilder, traitImplRegistry: String,
+    traitImplCount: Int, dynTraitNames: String) r: Void {
+
+    if traitImplCount <= 0 or dynTraitNames == "" {
+        return
+    }
+
+    var searchPos = 0
+    var emittedPairs = ""
+    while searchPos < traitImplRegistry.length() {
+        var nextPipe = traitImplRegistry.indexOf("|", searchPos)
+        if nextPipe < 0 {
+            nextPipe = traitImplRegistry.length()
+        }
+        let entry = traitImplRegistry.substring(searchPos, nextPipe)
+        let colon1 = entry.indexOf(":", 0)
+        if colon1 > 0 {
+            let colon2 = entry.indexOf(":", colon1 + 1)
+            if colon2 > colon1 {
+                let traitName = entry.substring(0, colon1)
+                let className = entry.substring(colon1 + 1, colon2)
+                let pairName = className + "_for_" + traitName
+                if not emittedPairs.contains(pairName + "|") {
+                    emittedPairs = emittedPairs + pairName + "|"
+                    var methods = ""
+                    var methodCount = 0
+                    var scanPos = 0
+                    while scanPos < traitImplRegistry.length() {
+                        var innerNextPipe = traitImplRegistry.indexOf("|", scanPos)
+                        if innerNextPipe < 0 {
+                            innerNextPipe = traitImplRegistry.length()
+                        }
+                        let innerEntry = traitImplRegistry.substring(scanPos, innerNextPipe)
+                        if innerEntry.startsWith(traitName + ":" + className + ":") {
+                            let innerColon2 = innerEntry.indexOf(":", colon1 + 1)
+                            if innerColon2 > 0 {
+                                var innerColon3 = innerEntry.indexOf(":", innerColon2 + 1)
+                                if innerColon3 < 0 {
+                                    innerColon3 = innerEntry.length()
+                                }
+                                let fnName = innerEntry.substring(innerColon2 + 1, innerColon3)
+                                if methodCount > 0 {
+                                    methods = methods + ", "
+                                }
+                                methods = methods + "ptr @" + quoteModuleEmitIdentIfNeeded(fnName)
+                                methodCount = methodCount + 1
+                            }
+                        }
+                        scanPos = innerNextPipe + 1
+                    }
+                    if methodCount > 0 {
+                        output.append("@" + pairName + "_vtable = constant %" + quoteModuleEmitIdentIfNeeded(traitName + "_vtable") + " { " + methods + " }\n")
+                    }
+                }
+            }
+        }
+        searchPos = nextPipe + 1
+    }
+}
+
+fun emitGlobalConstructorsImpl(output: StringBuilder, initFuncCount: Int, initFuncNames: String) r: Void {
+    if initFuncCount <= 0 {
+        return
+    }
+
+    output.append("\n; Module initializers (@init)\n")
+    output.append("@llvm.global_ctors = appending global [" + initFuncCount.toString() + " x { i32, ptr, ptr }] [\n")
+    var initIdx = 0
+    var searchPos = 0
+    while initIdx < initFuncCount {
+        let nextPipe = initFuncNames.indexOf("|", searchPos)
+        var initName = ""
+        if nextPipe >= 0 {
+            initName = initFuncNames.substring(searchPos, nextPipe)
+            searchPos = nextPipe + 1
+        } else {
+            initName = initFuncNames.substring(searchPos, initFuncNames.length())
+        }
+        if initIdx > 0 {
+            output.append(",\n")
+        }
+        output.append("  { i32, ptr, ptr } { i32 65535, ptr @" + quoteModuleEmitIdentIfNeeded(initName) + ", ptr null }")
+        initIdx = initIdx + 1
+    }
+    output.append("\n]\n")
+}
