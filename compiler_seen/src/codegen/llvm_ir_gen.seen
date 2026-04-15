@@ -5336,57 +5336,57 @@ class LLVMIRGenerator {
     // Function bodies are wrapped in: entry block -> alloca hoisting ->
     // parameter stores -> body generation -> implicit void return.
     // ML-guided inlining decisions are logged when g_mlLogEnabled is set.
-    fun generateFunction(fn: FunctionNode) r: Void {
-        // @cfg conditional compilation: skip function if predicate doesn't match
-        if hasDecorator(fn, "cfg") {
-            var cfgMatch = false
-            var cfgIdx = 0
-            while cfgIdx < fn.decorators.length() {
-                if fn.decorators[cfgIdx].name == "cfg" {
-                    if fn.decorators[cfgIdx].arguments.length() > 0 {
-                        let cfgPred = fn.decorators[cfgIdx].arguments[0]
-                        if cfgPred == "linux" or cfgPred == "target_os_linux" {
+    fun shouldSkipFunctionByCfg(fn: FunctionNode) r: Bool {
+        if not hasDecorator(fn, "cfg") {
+            return false
+        }
+        var cfgMatch = false
+        var cfgIdx = 0
+        while cfgIdx < fn.decorators.length() {
+            if fn.decorators[cfgIdx].name == "cfg" {
+                if fn.decorators[cfgIdx].arguments.length() > 0 {
+                    let cfgPred = fn.decorators[cfgIdx].arguments[0]
+                    if cfgPred == "linux" or cfgPred == "target_os_linux" {
+                        cfgMatch = true
+                    }
+                    if cfgPred == "unix" {
+                        cfgMatch = true
+                    }
+                    if cfgPred == "x86_64" or cfgPred == "target_arch_x86_64" {
+                        cfgMatch = true
+                    }
+                    if cfgPred == "debug" {
+                        cfgMatch = false
+                    }
+                    if cfgPred == "release" {
+                        cfgMatch = true
+                    }
+                    if cfgPred.startsWith("feature:") {
+                        let featureName = cfgPred.substring(8, cfgPred.length())
+                        let featureNameTrimmed = trimSpaces(featureName)
+                        var featureClean = featureNameTrimmed
+                        if featureClean.startsWith("\"") {
+                            featureClean = featureClean.substring(1, featureClean.length())
+                        }
+                        if featureClean.endsWith("\"") {
+                            featureClean = featureClean.substring(0, featureClean.length() - 1)
+                        }
+                        if g_enabledFeatures.contains(featureClean + "|") {
                             cfgMatch = true
-                        }
-                        if cfgPred == "unix" {
-                            cfgMatch = true
-                        }
-                        if cfgPred == "x86_64" or cfgPred == "target_arch_x86_64" {
-                            cfgMatch = true
-                        }
-                        if cfgPred == "debug" {
-                            cfgMatch = false
-                        }
-                        if cfgPred == "release" {
-                            cfgMatch = true
-                        }
-                        // : Feature flag predicates — @cfg(feature: "vulkan")
-                        if cfgPred.startsWith("feature:") {
-                            let featureName = cfgPred.substring(8, cfgPred.length())
-                            let featureNameTrimmed = trimSpaces(featureName)
-                            // Strip quotes if present
-                            var featureClean = featureNameTrimmed
-                            if featureClean.startsWith("\"") {
-                                featureClean = featureClean.substring(1, featureClean.length())
-                            }
-                            if featureClean.endsWith("\"") {
-                                featureClean = featureClean.substring(0, featureClean.length() - 1)
-                            }
-                            if g_enabledFeatures.contains(featureClean + "|") {
-                                cfgMatch = true
-                            }
                         }
                     }
                 }
-                cfgIdx = cfgIdx + 1
             }
-            if not cfgMatch {
-                output.append("; SKIPPED: " + fn.name + " (@cfg predicate not met)\n")
-                return
-            }
+            cfgIdx = cfgIdx + 1
         }
+        if not cfgMatch {
+            output.append("; SKIPPED: " + fn.name + " (@cfg predicate not met)\n")
+            return true
+        }
+        return false
+    }
 
-        // Where clause validation: check trait constraints against impl registry
+    fun emitFunctionDecoratorMetadataComments(fn: FunctionNode) r: Void {
         if hasDecorator(fn, "where_constraint") and g_traitImplCount > 0 {
             var wcIdx = 0
             while wcIdx < fn.decorators.length() {
@@ -5394,168 +5394,156 @@ class LLVMIRGenerator {
                     if fn.decorators[wcIdx].arguments.length() > 0 {
                         let wcText = fn.decorators[wcIdx].arguments[0]
                         output.append("; where clause: " + wcText + "\n")
-                        // Parse "T:Trait" patterns and validate against g_traitImplRegistry
-                        // Simple v1: emit comment with constraint text for documentation
-                        // Full validation happens at call site when T is resolved
                     }
                 }
                 wcIdx = wcIdx + 1
             }
         }
-
-        // : @region_bound annotation on function — emit as comment (zero runtime cost)
         if hasDecorator(fn, "region_bound") {
             output.append("; @region_bound function: " + fn.name + "\n")
         }
+    }
 
-        // @intrinsic("llvm.xxx") decorator: emit thin wrapper calling LLVM intrinsic
-        if hasDecorator(fn, "intrinsic") {
-            var intrLlvmName = ""
-            var intrDecIdx = 0
-            while intrDecIdx < fn.decorators.length() {
-                if fn.decorators[intrDecIdx].name == "intrinsic" {
-                    if fn.decorators[intrDecIdx].arguments.length() > 0 {
-                        intrLlvmName = fn.decorators[intrDecIdx].arguments[0]
-                    }
+    fun tryHandleIntrinsicFunctionGeneration(fn: FunctionNode) r: Bool {
+        if not hasDecorator(fn, "intrinsic") {
+            return false
+        }
+        var intrLlvmName = ""
+        var intrDecIdx = 0
+        while intrDecIdx < fn.decorators.length() {
+            if fn.decorators[intrDecIdx].name == "intrinsic" {
+                if fn.decorators[intrDecIdx].arguments.length() > 0 {
+                    intrLlvmName = fn.decorators[intrDecIdx].arguments[0]
                 }
-                intrDecIdx = intrDecIdx + 1
             }
-            if intrLlvmName != "" {
-                let intrParamTypes = Array<String>()
-                var intrPIdx = 0
-                while intrPIdx < fn.params.length() {
-                    let intrParam = fn.params[intrPIdx]
-                    let intrPType = intrParam.paramType
-                    let intrPTName = intrPType.typeName
-                    intrParamTypes.push(mapType(intrPTName))
-                    intrPIdx = intrPIdx + 1
-                }
-                let intrRetTN = fn.returnType
-                let intrRetTName = intrRetTN.typeName
-                let intrRetType = mapType(intrRetTName)
-                let intrLines = Array<String>()
-                if emitIntrinsicWrapperImpl(intrLines, g_regBox, fn.name, intrLlvmName, intrParamTypes, intrParamTypes.length(), intrRetType, quoteIdentIfNeeded(fn.name)) {
-                    var intrOutIdx = 0
-                    while intrOutIdx < intrLines.length() {
-                        output.append(intrLines[intrOutIdx])
-                        intrOutIdx = intrOutIdx + 1
-                    }
-                }
-                // Register for lookup
-                if g_intrinsicCount > 0 {
-                    g_intrinsicFuncNames = g_intrinsicFuncNames + "|"
-                    g_intrinsicLlvmNames = g_intrinsicLlvmNames + "|"
-                }
-                g_intrinsicFuncNames = g_intrinsicFuncNames + fn.name
-                g_intrinsicLlvmNames = g_intrinsicLlvmNames + intrLlvmName
-                g_intrinsicCount = g_intrinsicCount + 1
-                return
+            intrDecIdx = intrDecIdx + 1
+        }
+        if intrLlvmName == "" {
+            return false
+        }
+        let intrParamTypes = Array<String>()
+        var intrPIdx = 0
+        while intrPIdx < fn.params.length() {
+            let intrParam = fn.params[intrPIdx]
+            let intrPType = intrParam.paramType
+            let intrPTName = intrPType.typeName
+            intrParamTypes.push(mapType(intrPTName))
+            intrPIdx = intrPIdx + 1
+        }
+        let intrRetTN = fn.returnType
+        let intrRetTName = intrRetTN.typeName
+        let intrRetType = mapType(intrRetTName)
+        let intrLines = Array<String>()
+        if emitIntrinsicWrapperImpl(intrLines, g_regBox, fn.name, intrLlvmName, intrParamTypes, intrParamTypes.length(), intrRetType, quoteIdentIfNeeded(fn.name)) {
+            var intrOutIdx = 0
+            while intrOutIdx < intrLines.length() {
+                output.append(intrLines[intrOutIdx])
+                intrOutIdx = intrOutIdx + 1
             }
         }
-
-        // @impl_trait — register trait implementation for vtable dispatch
-        if hasDecorator(fn, "impl_trait") {
-            var itDecIdx = 0
-            while itDecIdx < fn.decorators.length() {
-                if fn.decorators[itDecIdx].name == "impl_trait" {
-                    if fn.decorators[itDecIdx].arguments.length() > 0 {
-                        let itInfo = fn.decorators[itDecIdx].arguments[0]
-                        // itInfo is "TraitName:ClassName"
-                        appendTraitImplEntry(itInfo + ":" + fn.name)
-                    }
-                }
-                itDecIdx = itDecIdx + 1
-            }
+        if g_intrinsicCount > 0 {
+            g_intrinsicFuncNames = g_intrinsicFuncNames + "|"
+            g_intrinsicLlvmNames = g_intrinsicLlvmNames + "|"
         }
+        g_intrinsicFuncNames = g_intrinsicFuncNames + fn.name
+        g_intrinsicLlvmNames = g_intrinsicLlvmNames + intrLlvmName
+        g_intrinsicCount = g_intrinsicCount + 1
+        return true
+    }
 
-        // : @compute/@vertex/@fragment — register GPU shader function and generate CPU dispatch wrapper
-        if hasDecorator(fn, "compute") or hasDecorator(fn, "vertex") or hasDecorator(fn, "fragment") {
-            var gpuStage = 0
-            if hasDecorator(fn, "vertex") {
-                gpuStage = 1
-            }
-            if hasDecorator(fn, "fragment") {
-                gpuStage = 2
-            }
-            // Extract workgroup size for compute shaders
-            // NOTE: simplified to avoid stage1_frozen "store %SeenString 0" bug with string let in while
-            var gpuWgX = 64
-            var gpuWgY = 1
-            var gpuWgZ = 1
-            // Count bindings from parameters
-            // NOTE: avoid "let str = ..." inside while loop — triggers stage1_frozen "store %SeenString 0" bug
-            var gpuBindCount = fn.params.length()
-            // Register in GPU shader registry
-            if g_gpuShaderCount > 0 {
-                g_gpuShaderNames = g_gpuShaderNames + "|"
-                g_gpuShaderStages = g_gpuShaderStages + "|"
-                g_gpuShaderWorkgroups = g_gpuShaderWorkgroups + "|"
-                g_gpuShaderBindings = g_gpuShaderBindings + "|"
-            }
-            g_gpuShaderNames = g_gpuShaderNames + fn.name
-            g_gpuShaderStages = g_gpuShaderStages + gpuStage.toString()
-            g_gpuShaderWorkgroups = g_gpuShaderWorkgroups + gpuWgX.toString() + "," + gpuWgY.toString() + "," + gpuWgZ.toString()
-            g_gpuShaderBindings = g_gpuShaderBindings + gpuBindCount.toString()
-            g_gpuShaderCount = g_gpuShaderCount + 1
-            // Generate CPU dispatch wrapper for the shader function
-            output.append("; GPU shader function: " + fn.name + " (stage=" + gpuStage.toString() + ", bindings=" + gpuBindCount.toString() + ")\n")
-            generateGpuDispatchWrapper(fn, gpuStage, gpuBindCount, gpuWgX, gpuWgY, gpuWgZ)
+    fun registerFunctionTraitImplDecorators(fn: FunctionNode) r: Void {
+        if not hasDecorator(fn, "impl_trait") {
             return
         }
+        var itDecIdx = 0
+        while itDecIdx < fn.decorators.length() {
+            if fn.decorators[itDecIdx].name == "impl_trait" {
+                if fn.decorators[itDecIdx].arguments.length() > 0 {
+                    let itInfo = fn.decorators[itDecIdx].arguments[0]
+                    appendTraitImplEntry(itInfo + ":" + fn.name)
+                }
+            }
+            itDecIdx = itDecIdx + 1
+        }
+    }
 
-        // Skip 'new' - always a class method
+    fun tryHandleGpuShaderFunctionGeneration(fn: FunctionNode) r: Bool {
+        if not (hasDecorator(fn, "compute") or hasDecorator(fn, "vertex") or hasDecorator(fn, "fragment")) {
+            return false
+        }
+        var gpuStage = 0
+        if hasDecorator(fn, "vertex") {
+            gpuStage = 1
+        }
+        if hasDecorator(fn, "fragment") {
+            gpuStage = 2
+        }
+        var gpuWgX = 64
+        var gpuWgY = 1
+        var gpuWgZ = 1
+        var gpuBindCount = fn.params.length()
+        if g_gpuShaderCount > 0 {
+            g_gpuShaderNames = g_gpuShaderNames + "|"
+            g_gpuShaderStages = g_gpuShaderStages + "|"
+            g_gpuShaderWorkgroups = g_gpuShaderWorkgroups + "|"
+            g_gpuShaderBindings = g_gpuShaderBindings + "|"
+        }
+        g_gpuShaderNames = g_gpuShaderNames + fn.name
+        g_gpuShaderStages = g_gpuShaderStages + gpuStage.toString()
+        g_gpuShaderWorkgroups = g_gpuShaderWorkgroups + gpuWgX.toString() + "," + gpuWgY.toString() + "," + gpuWgZ.toString()
+        g_gpuShaderBindings = g_gpuShaderBindings + gpuBindCount.toString()
+        g_gpuShaderCount = g_gpuShaderCount + 1
+        output.append("; GPU shader function: " + fn.name + " (stage=" + gpuStage.toString() + ", bindings=" + gpuBindCount.toString() + ")\n")
+        generateGpuDispatchWrapper(fn, gpuStage, gpuBindCount, gpuWgX, gpuWgY, gpuWgZ)
+        return true
+    }
+
+    fun shouldSkipSpecialFunctionBody(fn: FunctionNode) r: Bool {
         if fn.name == "new" {
             output.append("; SKIPPED: new (class constructor)\n")
-            return
+            return true
         }
-
-        // Extern functions (C runtime primitives) - empty bodies with __ prefix
-        // If isExtern is set, fall through to the @extern handler for proper declare generation
-        // Otherwise skip — they'll be declared by emitAllRuntimeDeclarations
         if fn.name.startsWith("__") and fn.body.statements.length() == 0 and not fn.isExtern {
             output.append("; SKIPPED: " + fn.name + " (extern C function - declared by runtime)\n")
-            return
+            return true
         }
+        return false
+    }
 
-        // Handle @extern functions — declaration + optional wrapper delegated to ir_declarations.seen
-        if fn.isExtern {
-            // Skip __-prefixed extern functions — already declared by ir_declarations.seen with nounwind
-            if fn.name.startsWith("__") {
-                output.append("; SKIPPED: " + fn.name + " (extern runtime function - declared by ir_declarations)\n")
-                registerFunction(fn.name, normalizeDeclaredTypeNode(fn.returnType))
-                return
-            }
-            // Compute extern symbol name (map llvm_coro_* → llvm.coro.*)
-            var externSymbol = fn.name
-            if externSymbol.startsWith("llvm_coro_") {
-                let suffix = externSymbol.substring(10, externSymbol.length())
-                externSymbol = "llvm.coro." + suffix
-            }
-            // Pre-compute mapped types for all params
-            var mappedPTypes = Array<String>()
-            var mpIdx = 0
-            while mpIdx < fn.params.length() {
-                let param = fn.params[mpIdx]
-                let ptn = param.paramType
-                let ptName = normalizeDeclaredTypeNode(ptn)
-                mappedPTypes.push(mapTypeForParameter(ptName))
-                mpIdx = mpIdx + 1
-            }
-            let externRetType = mapType(normalizeDeclaredTypeNode(fn.returnType))
-            var isVariadic = 0
-            if hasDecorator(fn, "variadic") { isVariadic = 1 }
-            emitExternDeclImpl(output, fn.name, externSymbol, mappedPTypes, fn.params.length(), externRetType, isVariadic)
+    fun tryHandleExternFunctionGeneration(fn: FunctionNode) r: Bool {
+        if not fn.isExtern {
+            return false
+        }
+        if fn.name.startsWith("__") {
+            output.append("; SKIPPED: " + fn.name + " (extern runtime function - declared by ir_declarations)\n")
             registerFunction(fn.name, normalizeDeclaredTypeNode(fn.returnType))
-            return
+            return true
         }
+        var externSymbol = fn.name
+        if externSymbol.startsWith("llvm_coro_") {
+            let suffix = externSymbol.substring(10, externSymbol.length())
+            externSymbol = "llvm.coro." + suffix
+        }
+        var mappedPTypes = Array<String>()
+        var mpIdx = 0
+        while mpIdx < fn.params.length() {
+            let param = fn.params[mpIdx]
+            let ptn = param.paramType
+            let ptName = normalizeDeclaredTypeNode(ptn)
+            mappedPTypes.push(mapTypeForParameter(ptName))
+            mpIdx = mpIdx + 1
+        }
+        let externRetType = mapType(normalizeDeclaredTypeNode(fn.returnType))
+        var isVariadic = 0
+        if hasDecorator(fn, "variadic") { isVariadic = 1 }
+        emitExternDeclImpl(output, fn.name, externSymbol, mappedPTypes, fn.params.length(), externRetType, isVariadic)
+        registerFunction(fn.name, normalizeDeclaredTypeNode(fn.returnType))
+        return true
+    }
 
-        // Detect impl methods: if first param is 'this' with a class type
-        // and name doesn't already include the class prefix, add it.
-        // This handles `impl ClassName { fun method(this: ClassName) ... }` blocks
-        // where the parser pushes items with the raw method name.
-        // Break chained field access into intermediate let bindings (stage1_frozen GEP bug).
+    fun resolveImplementationFunctionName(fn: FunctionNode) r: String {
         var implFuncName = fn.name
-        var implFnParams = fn.params
+        let implFnParams = fn.params
         if implFnParams.length() > 0 {
             let implFirstP = implFnParams[0]
             let implFirstPName = implFirstP.name
@@ -5563,15 +5551,178 @@ class LLVMIRGenerator {
                 let implFirstPType = implFirstP.paramType
                 let implFirstPTN = implFirstPType.typeName
                 if isClassType(implFirstPTN) {
-                    var implExpectedPrefix = implFirstPTN + "_"
+                    let implExpectedPrefix = implFirstPTN + "_"
                     if not implFuncName.startsWith(implExpectedPrefix) {
                         implFuncName = implExpectedPrefix + implFuncName
                     }
-                    // Auto-detect trait impl: check if method name matches a trait method
                     autoRegisterTraitImpls(fn.name, implFirstPTN, implFuncName)
                 }
             }
         }
+        return implFuncName
+    }
+
+    fun resetFunctionGenerationState(resolvedFunctionReturnType: String) r: Void {
+        g_regBox[0] = 1
+        varNames = Array<String>()
+        varRegs = Array<String>()
+        varTypes = Array<String>()
+        preAllocatedVars = Array<String>()
+        preAllocatedTypes = Array<String>()
+        preAllocatedRegs = Array<String>()
+        activeVarCount = 0
+        declOrdinalNames = Array<String>()
+        declOrdinalCounts = Array<Int>()
+        currentFunctionReturnType = resolvedFunctionReturnType
+        currentClassName = ""
+        g_currentClassParentName = ""
+        blockTerminated = false
+        resetFunctionLoweringOptionsState()
+        g_movedVarNames = ""
+        g_movedVarCount = 0
+    }
+
+    fun preRegisterFunctionParameters(fn: FunctionNode, implFuncName: String) r: Void {
+        var preParamIdx = 0
+        while preParamIdx < fn.params.length() {
+            let param = fn.params[preParamIdx]
+            let rawPreTypeName = param.paramType.typeName
+            var preTypeName = normalizeDeclaredTypeNode(param.paramType)
+            if preTypeName.startsWith("move:") {
+                preTypeName = preTypeName.substring(5, preTypeName.length())
+            }
+            if preTypeName.startsWith("borrow:") {
+                preTypeName = preTypeName.substring(7, preTypeName.length())
+            }
+            if preTypeName.startsWith("comptime:") {
+                preTypeName = preTypeName.substring(9, preTypeName.length())
+                if g_comptimeParamCount == 0 or not g_comptimeParamFuncNames.contains(fn.name + "|") {
+                    g_comptimeParamFuncNames = g_comptimeParamFuncNames + fn.name + ":" + preParamIdx.toString() + ":" + param.name + "|"
+                    g_comptimeParamCount = g_comptimeParamCount + 1
+                }
+            }
+            var defaultTypeName = rawPreTypeName
+            if defaultTypeName.startsWith("move:") {
+                defaultTypeName = defaultTypeName.substring(5, defaultTypeName.length())
+            }
+            if defaultTypeName.startsWith("borrow:") {
+                defaultTypeName = defaultTypeName.substring(7, defaultTypeName.length())
+            }
+            if defaultTypeName.startsWith("comptime:") {
+                defaultTypeName = defaultTypeName.substring(9, defaultTypeName.length())
+            }
+            if defaultTypeName.contains("~default~") {
+                let defSepPos = defaultTypeName.indexOf("~default~", 0)
+                let defValue = defaultTypeName.substring(defSepPos + 9, defaultTypeName.length())
+                let defTypeName = normalizeSeenTypeName(defaultTypeName.substring(0, defSepPos))
+                g_funcDefaultsArr = g_funcDefaultsArr + implFuncName + ":" + preParamIdx.toString() + ":" + defValue + ":" + defTypeName + "|"
+            }
+            if preTypeName.startsWith("dyn ") {
+                let dynTraitParam = preTypeName.substring(4, preTypeName.length())
+                g_dynParamFuncs = g_dynParamFuncs + implFuncName + ":" + preParamIdx.toString() + ":" + dynTraitParam + "|"
+            }
+            storeVar(param.name, "", normalizeSeenTypeName(preTypeName))
+            preParamIdx = preParamIdx + 1
+        }
+
+        if fn.params.length() > 0 {
+            g_funcParamCountArr = g_funcParamCountArr + implFuncName + ":" + fn.params.length().toString() + "|"
+        }
+    }
+
+    fun tryEmitMainFunction(fn: FunctionNode, fnName: String, returnType: String) r: Bool {
+        if not llvmIrGenIsMainFunctionName(fnName) {
+            return false
+        }
+        g_isMainFunc = 1
+        var mainReturnType = returnType
+        if mainReturnType == "void" {
+            mainReturnType = "i32"
+        }
+        var mainRetPrefix = "define "
+        if mainReturnType == "i64" or mainReturnType == "double" or mainReturnType == "i1" {
+            mainRetPrefix = "define noundef "
+        }
+        output.append(mainRetPrefix + mainReturnType + " @main(i32 %argc, ptr %argv) #0 {\n")
+        output.append("entry:\n")
+        output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
+        emitPreAllocatedAllocas()
+        println("[irgen function] block start: " + fnName)
+        generateBlock(fn.body)
+        println("[irgen function] block done: " + fnName)
+        if not blockTerminated {
+            emitDefaultReturnValueImpl(output, mainReturnType)
+        }
+        output.append("}\n\n")
+        g_isMainFunc = 0
+        return true
+    }
+
+    fun emitFunctionParameterAllocas(fn: FunctionNode) r: Void {
+        var paramIdx = 0
+        while paramIdx < fn.params.length() {
+            let param = fn.params[paramIdx]
+            var seenTypeName = normalizeDeclaredTypeNode(param.paramType)
+            var paramOwnership = ""
+            if seenTypeName.startsWith("move:") {
+                paramOwnership = "move"
+                seenTypeName = seenTypeName.substring(5, seenTypeName.length())
+            }
+            if seenTypeName.startsWith("borrow:") {
+                paramOwnership = "borrow"
+                seenTypeName = seenTypeName.substring(7, seenTypeName.length())
+            }
+            if seenTypeName.contains("~default~") {
+                let allocDefPos = seenTypeName.indexOf("~default~", 0)
+                seenTypeName = seenTypeName.substring(0, allocDefPos)
+            }
+            let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
+            if isDataType(semanticSeenTypeName) {
+                storeVar(param.name, "%" + quoteIdentIfNeeded(param.name + ".arg"), semanticSeenTypeName)
+            } else {
+                let paramType = mapStorageTypeForParameter(seenTypeName)
+                let reg = getNextReg()
+                output.append("  " + reg + " = alloca " + paramType + "\n")
+                output.append("  store " + paramType + " %" + quoteIdentIfNeeded(param.name + ".arg") + ", ptr " + reg + "\n")
+                storeVar(param.name, reg, semanticSeenTypeName)
+            }
+            if paramOwnership == "borrow" {
+                let currentRegion = getNextReg()
+                output.append("  " + currentRegion + " = call ptr @__seen_region_current()\n")
+                let handleReg = getNextReg()
+                output.append("  " + handleReg + " = call i64 @__seen_region_alloc_handle(ptr " + currentRegion + ", ptr %" + quoteIdentIfNeeded(param.name + ".arg") + ")\n")
+                output.append("  ; borrow handle for " + param.name + " = " + handleReg + "\n")
+            }
+            paramIdx = paramIdx + 1
+        }
+    }
+
+    fun generateFunction(fn: FunctionNode) r: Void {
+        if shouldSkipFunctionByCfg(fn) {
+            return
+        }
+
+        emitFunctionDecoratorMetadataComments(fn)
+
+        if tryHandleIntrinsicFunctionGeneration(fn) {
+            return
+        }
+
+        registerFunctionTraitImplDecorators(fn)
+
+        if tryHandleGpuShaderFunctionGeneration(fn) {
+            return
+        }
+
+        if shouldSkipSpecialFunctionBody(fn) {
+            return
+        }
+
+        if tryHandleExternFunctionGeneration(fn) {
+            return
+        }
+
+        let implFuncName = resolveImplementationFunctionName(fn)
 
         // Check if this function was already emitted in this module (duplicate detection)
         var alreadyGenerated = false
@@ -5601,79 +5752,8 @@ class LLVMIRGenerator {
         let resolvedFunctionReturnType = resolveFunctionReturnType(fn)
         registerFunction(implFuncName, resolvedFunctionReturnType)
 
-        // Reset per-function state (nextBlock NOT reset - accumulates for per-loop metadata)
-        g_regBox[0] = 1
-        varNames = Array<String>()
-        varRegs = Array<String>()
-        varTypes = Array<String>()
-        preAllocatedVars = Array<String>()
-        preAllocatedTypes = Array<String>()
-        preAllocatedRegs = Array<String>()
-        activeVarCount = 0
-        declOrdinalNames = Array<String>()
-        declOrdinalCounts = Array<Int>()
-        currentFunctionReturnType = resolvedFunctionReturnType
-        currentClassName = ""
-        g_currentClassParentName = ""
-        blockTerminated = false
-        resetFunctionLoweringOptionsState()
-        // : Reset move tracking per-function
-        g_movedVarNames = ""
-        g_movedVarCount = 0
-
-        // Pre-register parameter types for use during variable collection
-        // (needed so inferExpressionType can find parameter types)
-        var preParamIdx = 0
-        while preParamIdx < fn.params.length() {
-            let param = fn.params[preParamIdx]
-            let rawPreTypeName = param.paramType.typeName
-            var preTypeName = normalizeDeclaredTypeNode(param.paramType)
-            // Strip ownership/comptime qualifiers for type inference
-            if preTypeName.startsWith("move:") {
-                preTypeName = preTypeName.substring(5, preTypeName.length())
-            }
-            if preTypeName.startsWith("borrow:") {
-                preTypeName = preTypeName.substring(7, preTypeName.length())
-            }
-            // Strip comptime qualifier and register param
-            if preTypeName.startsWith("comptime:") {
-                preTypeName = preTypeName.substring(9, preTypeName.length())
-                // Register this function as having comptime params
-                if g_comptimeParamCount == 0 or not g_comptimeParamFuncNames.contains(fn.name + "|") {
-                    g_comptimeParamFuncNames = g_comptimeParamFuncNames + fn.name + ":" + preParamIdx.toString() + ":" + param.name + "|"
-                    g_comptimeParamCount = g_comptimeParamCount + 1
-                }
-            }
-            // Extract and register default parameter values
-            var defaultTypeName = rawPreTypeName
-            if defaultTypeName.startsWith("move:") {
-                defaultTypeName = defaultTypeName.substring(5, defaultTypeName.length())
-            }
-            if defaultTypeName.startsWith("borrow:") {
-                defaultTypeName = defaultTypeName.substring(7, defaultTypeName.length())
-            }
-            if defaultTypeName.startsWith("comptime:") {
-                defaultTypeName = defaultTypeName.substring(9, defaultTypeName.length())
-            }
-            if defaultTypeName.contains("~default~") {
-                let defSepPos = defaultTypeName.indexOf("~default~", 0)
-                let defValue = defaultTypeName.substring(defSepPos + 9, defaultTypeName.length())
-                let defTypeName = normalizeSeenTypeName(defaultTypeName.substring(0, defSepPos))
-                g_funcDefaultsArr = g_funcDefaultsArr + implFuncName + ":" + preParamIdx.toString() + ":" + defValue + ":" + defTypeName + "|"
-            }
-            // Register dyn Trait parameters for fat pointer boxing at call sites
-            if preTypeName.startsWith("dyn ") {
-                let dynTraitParam = preTypeName.substring(4, preTypeName.length())
-                g_dynParamFuncs = g_dynParamFuncs + implFuncName + ":" + preParamIdx.toString() + ":" + dynTraitParam + "|"
-            }
-            storeVar(param.name, "", normalizeSeenTypeName(preTypeName))
-            preParamIdx = preParamIdx + 1
-        }
-
-        // Register expected param count for default param injection
-        if fn.params.length() > 0 {
-            g_funcParamCountArr = g_funcParamCountArr + implFuncName + ":" + fn.params.length().toString() + "|"
-        }
+        resetFunctionGenerationState(resolvedFunctionReturnType)
+        preRegisterFunctionParameters(fn, implFuncName)
 
         // Clear CSE cache at function boundaries
         cseClear()
@@ -5695,32 +5775,7 @@ class LLVMIRGenerator {
         let fnName = implFuncName
         println("[irgen function] return-type map done: " + fnName)
 
-        // Special handling for main function - needs to accept argc/argv from OS
-        if llvmIrGenIsMainFunctionName(fnName) {
-            g_isMainFunc = 1
-            // Force i32 return for C ABI compatibility (lli requires i32 @main)
-            if returnType == "void" {
-                returnType = "i32"
-            }
-            // Only use noundef for primitive non-void return types
-            var mainRetPrefix = "define "
-            if returnType == "i64" or returnType == "double" or returnType == "i1" {
-                mainRetPrefix = "define noundef "
-            }
-            output.append(mainRetPrefix + returnType + " @main(i32 %argc, ptr %argv) #0 {\n")
-            output.append("entry:\n")
-            output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
-            // Emit allocas for all local variables at entry (avoids domination errors)
-            emitPreAllocatedAllocas()
-            println("[irgen function] block start: " + fnName)
-            generateBlock(fn.body)
-            println("[irgen function] block done: " + fnName)
-            // Add default return if no terminator generated
-            if not blockTerminated {
-                emitDefaultReturnValueImpl(output, returnType)
-            }
-            output.append("}\n\n")
-            g_isMainFunc = 0
+        if tryEmitMainFunction(fn, fnName, returnType) {
             return
         }
 
@@ -5939,48 +5994,7 @@ class LLVMIRGenerator {
             g_asyncCleanupLabel = cleanupLabelBox[0]
         }
 
-        // Allocate space for parameters and store them
-        paramIdx = 0
-        while paramIdx < fn.params.length() {
-            let param = fn.params[paramIdx]
-            var seenTypeName = normalizeDeclaredTypeNode(param.paramType)
-            // Strip ownership qualifiers (move:/borrow:) for codegen
-            var paramOwnership = ""
-            if seenTypeName.startsWith("move:") {
-                paramOwnership = "move"
-                seenTypeName = seenTypeName.substring(5, seenTypeName.length())
-            }
-            if seenTypeName.startsWith("borrow:") {
-                paramOwnership = "borrow"
-                seenTypeName = seenTypeName.substring(7, seenTypeName.length())
-            }
-            // Strip default value suffix
-            if seenTypeName.contains("~default~") {
-                let allocDefPos = seenTypeName.indexOf("~default~", 0)
-                seenTypeName = seenTypeName.substring(0, allocDefPos)
-            }
-            let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
-            // Data type params come in as ptr (ABI compat with Rust backend)
-            // Use the incoming ptr directly as the variable location
-            if isDataType(semanticSeenTypeName) {
-                storeVar(param.name, "%" + quoteIdentIfNeeded(param.name + ".arg"), semanticSeenTypeName)
-            } else {
-                let paramType = mapStorageTypeForParameter(seenTypeName)
-                let reg = getNextReg()
-                output.append("  " + reg + " = alloca " + paramType + "\n")
-                output.append("  store " + paramType + " %" + quoteIdentIfNeeded(param.name + ".arg") + ", ptr " + reg + "\n")
-                storeVar(param.name, reg, semanticSeenTypeName)
-            }
-            // Borrow parameter: register generational handle for safety
-            if paramOwnership == "borrow" {
-                let currentRegion = getNextReg()
-                output.append("  " + currentRegion + " = call ptr @__seen_region_current()\n")
-                let handleReg = getNextReg()
-                output.append("  " + handleReg + " = call i64 @__seen_region_alloc_handle(ptr " + currentRegion + ", ptr %" + quoteIdentIfNeeded(param.name + ".arg") + ")\n")
-                output.append("  ; borrow handle for " + param.name + " = " + handleReg + "\n")
-            }
-            paramIdx = paramIdx + 1
-        }
+        emitFunctionParameterAllocas(fn)
         println("[irgen function] params done: " + fnName)
 
         // Emit allocas for all local variables at entry (avoids domination errors)
@@ -7362,37 +7376,271 @@ class LLVMIRGenerator {
         return lastStmt.kind == "Return"
     }
 
-    // Generate IR for a while loop. Emits cond/body/end blocks with
-    // back-edge from body to cond. Attaches LLVM loop metadata for:
-    //   - !llvm.loop.vectorize.enable/width (from @vectorize decorator)
-    //   - !llvm.loop.unroll.count (from @unroll decorator or tile hints)
-    //   - !llvm.loop.distribute.enable (for nested loops)
-    // Performs pattern detection for memcpy/memmove idioms and replaces
-    // them with llvm.memcpy/memmove intrinsics.
-    // Saves/restores outer loop context (currentLoopCondLabel/EndLabel)
-    // for nested loop support. Break jumps to endLabel, continue to condLabel.
-    fun generateWhileStatement(stmt: StatementNode) r: Void {
-        // Capture block counter before allocating labels - unique per loop
-        // Metadata ID = g_blockBox[0] + 202 (to avoid collision with TBAA nodes 100-106)
-        let loopMetaId = g_blockBox[0] + 202
-        let loopMetaIdStr = loopMetaId.toString()
-        let condLabel = getNextBlockLabel()
-        let bodyLabel = getNextBlockLabel()
-        let endLabel = getNextBlockLabel()
+    fun appendLoopTileHint(loopMetaId: Int, hintValue: Int) r: Void {
+        let metaIdx = loopMetaId - 202
+        let entry = metaIdx.toString() + ":" + hintValue.toString()
+        if g_loopTileHints == "" {
+            g_loopTileHints = entry
+        } else {
+            g_loopTileHints = g_loopTileHints + "|" + entry
+        }
+    }
 
-        // Save outer loop context (for nested loops)
-        let savedCondLabel = currentLoopCondLabel
-        let savedEndLabel = currentLoopEndLabel
-        // Set current loop context for break/continue
-        // Encode metadata ID into condLabel with "|" separator for continue to use
-        currentLoopCondLabel = condLabel + "|" + loopMetaIdStr
-        currentLoopEndLabel = endLabel
+    fun appendNestedLoopMetadataId(loopMetaId: Int) r: Void {
+        let nestedMetaIdx = loopMetaId - 202
+        if g_nestedLoopIds == "" {
+            g_nestedLoopIds = nestedMetaIdx.toString()
+        } else {
+            g_nestedLoopIds = g_nestedLoopIds + "|" + nestedMetaIdx.toString()
+        }
+    }
 
-        // --- Memcpy/Memmove Pattern Detection ---
-        // Pattern 1 (memcpy): while i < n { dest[i] = src[i]; i = i + 1 }
-        // Pattern 2 (memmove-shift): while i < n { arr[i] = arr[i + 1]; i = i + 1 }
-        // Only apply for large literal bounds (>= 64 elements) where function call overhead is amortized.
-        // For small/variable bounds, LLVM's loop optimizations produce better code (register promotion, unrolling).
+    fun appendReductionLoopMetadataId(loopMetaId: Int) r: Void {
+        let reductionMetaIdx = loopMetaId - 202
+        if g_reductionLoopIds == "" {
+            g_reductionLoopIds = reductionMetaIdx.toString()
+        } else {
+            g_reductionLoopIds = g_reductionLoopIds + "|" + reductionMetaIdx.toString()
+        }
+    }
+
+    fun getLiteralWhileLoopBound(stmt: StatementNode) r: Int {
+        if stmt.loopCondition.kind == "Binary" {
+            if stmt.loopCondition.operator == "<" or stmt.loopCondition.operator == "<=" {
+                if stmt.loopCondition.operands.length() >= 2 {
+                    let boundExpr = stmt.loopCondition.operands[1]
+                    if boundExpr.kind == "Literal" and boundExpr.literalType == "Int" {
+                        return parseIntManual(boundExpr.literalValue)
+                    }
+                }
+            }
+        }
+        return -1
+    }
+
+    fun loopBodyHasNestedLoop(block: BlockNode) r: Bool {
+        var idx = 0
+        while idx < block.statements.length() {
+            let stmt = block.statements[idx]
+            if stmt.kind == "While" or stmt.kind == "For" or stmt.kind == "ForIn" {
+                return true
+            }
+            idx = idx + 1
+        }
+        return false
+    }
+
+    fun emitLiteralBoundWhileHints(stmt: StatementNode, loopMetaId: Int, loopBoundLiteral: Int) r: Void {
+        if loopBoundLiteral > 64 {
+            var tileSize = loopBoundLiteral / 8
+            if tileSize > 32 { tileSize = 32 }
+            if tileSize < g_mlUnrollThreshold { tileSize = g_mlUnrollThreshold }
+            output.append("  ; loop tiling: bound=" + loopBoundLiteral.toString() + " → unroll.count=" + tileSize.toString() + "\n")
+            g_loopsOptimized = g_loopsOptimized + 1
+            appendLoopTileHint(loopMetaId, tileSize)
+            mlLogDecision("loop-tile", "unroll", "bound:" + loopBoundLiteral.toString() + ",tile:" + tileSize.toString())
+        }
+        if loopBoundLiteral < g_mlVectorizeThreshold and loopBoundLiteral > 0 {
+            output.append("  ; ML: loop bound " + loopBoundLiteral.toString() + " < vectorize threshold " + g_mlVectorizeThreshold.toString() + " → skip vectorize\n")
+            appendLoopTileHint(loopMetaId, -1)
+            mlLogDecision("ml-vec", "skip", "bound:" + loopBoundLiteral.toString() + "<threshold:" + g_mlVectorizeThreshold.toString())
+        }
+        if loopBoundLiteral > 0 and loopBoundLiteral <= 32 and not loopBodyHasNestedLoop(stmt.loopBody) and stmt.loopBody.statements.length() <= 8 {
+            appendLoopTileHint(loopMetaId, -2)
+            output.append("  ; small loop (bound=" + loopBoundLiteral.toString() + ", " + stmt.loopBody.statements.length().toString() + " stmts) → full unroll hint\n")
+        }
+    }
+
+    fun emitWhileLoopInvariantAnnotations(stmt: StatementNode, loopMetaId: Int) r: Void {
+        var licmIdx = 0
+        while licmIdx < stmt.loopBody.statements.length() {
+            let licmStmt = stmt.loopBody.statements[licmIdx]
+            if licmStmt.kind == "Let" or licmStmt.kind == "Var" {
+                if licmStmt.expression.kind == "Variable" or licmStmt.expression.kind == "VarExpr" {
+                    var licmVarName = licmStmt.expression.literalValue
+                    if licmVarName == "" { licmVarName = licmStmt.expression.variableName }
+                    var mcIdx = 0
+                    while mcIdx < moduleConstantNames.length() {
+                        if moduleConstantNames[mcIdx] == licmVarName {
+                            var licmImmutable = true
+                            if isModuleConstMutable(mcIdx) { licmImmutable = false }
+                            if licmImmutable {
+                                output.append("  ; LICM: " + licmVarName + " is immutable module constant (!invariant.load applied)\n")
+                                mlLogDecision("licm", "applied", licmVarName)
+                            } else {
+                                output.append("  ; LICM candidate: " + licmVarName + " is mutable (var), skipped\n")
+                                mlLogDecision("licm", "skipped-mutable", licmVarName)
+                            }
+                            g_loopsOptimized = g_loopsOptimized + 1
+                            mcIdx = moduleConstantNames.length()
+                        }
+                        mcIdx = mcIdx + 1
+                    }
+                }
+            }
+            licmIdx = licmIdx + 1
+        }
+
+        var nestedLoopIdx = 0
+        while nestedLoopIdx < stmt.loopBody.statements.length() {
+            let nlStmt = stmt.loopBody.statements[nestedLoopIdx]
+            if nlStmt.kind == "While" {
+                output.append("  ; nested loop detected - interchange candidate\n")
+                g_loopsOptimized = g_loopsOptimized + 1
+                mlLogDecision("loop-interchange", "candidate", "nested-while")
+                appendNestedLoopMetadataId(loopMetaId)
+            }
+            nestedLoopIdx = nestedLoopIdx + 1
+        }
+    }
+
+    fun emitGcdPatternWhileHint(stmt: StatementNode, loopMetaId: Int) r: Void {
+        if stmt.loopCondition.kind == "Binary" and stmt.loopCondition.operator == ">" {
+            if stmt.loopCondition.operands.length() >= 2 {
+                let gcdBound = stmt.loopCondition.operands[1]
+                if gcdBound.kind == "Literal" and gcdBound.literalValue == "0" {
+                    var hasModuloAssign = false
+                    var gcdIdx = 0
+                    while gcdIdx < stmt.loopBody.statements.length() {
+                        let gcdStmt = stmt.loopBody.statements[gcdIdx]
+                        if gcdStmt.kind == "Expression" and gcdStmt.expression.kind == "Assignment" {
+                            if gcdStmt.expression.operands.length() > 0 {
+                                let gcdRHS = gcdStmt.expression.operands[0]
+                                if gcdRHS.kind == "Binary" and gcdRHS.operator == "%" {
+                                    hasModuloAssign = true
+                                }
+                            }
+                        }
+                        gcdIdx = gcdIdx + 1
+                    }
+                    if hasModuloAssign and stmt.loopBody.statements.length() <= 5 {
+                        appendLoopTileHint(loopMetaId, 8)
+                        output.append("  ; GCD-pattern loop → unroll.count=8\n")
+                    }
+                }
+            }
+        }
+    }
+
+    fun detectReductionVariable(block: BlockNode) r: String {
+        var riIdx = 0
+        while riIdx < block.statements.length() {
+            let riStmt = block.statements[riIdx]
+            if riStmt.kind == "Expression" and riStmt.expression.kind == "Assignment" {
+                let riAssignName = riStmt.expression.variableName
+                if riStmt.expression.operands.length() > 0 {
+                    let riRHS = riStmt.expression.operands[0]
+                    if riRHS.kind == "Binary" and (riRHS.operator == "+" or riRHS.operator == "*") {
+                        if riRHS.operands.length() >= 2 {
+                            let riLeft = riRHS.operands[0]
+                            var riLeftName = riLeft.literalValue
+                            if riLeftName == "" { riLeftName = riLeft.variableName }
+                            if (riLeft.kind == "Variable" or riLeft.kind == "VarExpr") and riLeftName == riAssignName {
+                                return riAssignName
+                            }
+                        }
+                    }
+                }
+            }
+            riIdx = riIdx + 1
+        }
+        return ""
+    }
+
+    fun detectInductionVariableName(block: BlockNode) r: String {
+        var ivIdx = 0
+        while ivIdx < block.statements.length() {
+            let ivStmt = block.statements[ivIdx]
+            if ivStmt.kind == "Expression" and ivStmt.expression.kind == "Assignment" {
+                let ivAssignName = ivStmt.expression.variableName
+                if ivStmt.expression.operands.length() > 0 {
+                    let ivRHS = ivStmt.expression.operands[0]
+                    if ivRHS.kind == "Binary" and (ivRHS.operator == "+" or ivRHS.operator == "-") {
+                        if ivRHS.operands.length() >= 2 {
+                            let ivLeft = ivRHS.operands[0]
+                            let ivRight = ivRHS.operands[1]
+                            var ivLeftName = ivLeft.literalValue
+                            if ivLeftName == "" { ivLeftName = ivLeft.variableName }
+                            if (ivLeft.kind == "Variable" or ivLeft.kind == "VarExpr") and ivLeftName == ivAssignName {
+                                if ivRight.kind == "Literal" and ivRight.literalValue == "1" {
+                                    return ivAssignName
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ivIdx = ivIdx + 1
+        }
+        return ""
+    }
+
+    fun detectBreakFlagVariable(block: BlockNode) r: String {
+        if block.statements.length() < 2 {
+            return ""
+        }
+        var bfIdx = 0
+        while bfIdx < block.statements.length() {
+            let bfStmt = block.statements[bfIdx]
+            if bfStmt.kind == "If" and bfStmt.elseBranch.statements.length() == 0 {
+                if bfStmt.condition.kind == "Binary" and bfStmt.condition.operator == "==" {
+                    if bfStmt.condition.operands.length() >= 2 {
+                        let bfRight = bfStmt.condition.operands[1]
+                        if bfRight.kind == "Literal" and bfRight.literalValue == "0" {
+                            let bfLeft = bfStmt.condition.operands[0]
+                            var bfLeftName = bfLeft.literalValue
+                            if bfLeftName == "" { bfLeftName = bfLeft.variableName }
+                            var bfSetsFlag = false
+                            var bfCheckIdx = 0
+                            while bfCheckIdx < bfStmt.thenBranch.statements.length() {
+                                let bfCheckSt = bfStmt.thenBranch.statements[bfCheckIdx]
+                                if bfCheckSt.kind == "Expression" and bfCheckSt.expression.kind == "Assignment" {
+                                    if bfCheckSt.expression.variableName == bfLeftName {
+                                        if bfCheckSt.expression.operands.length() > 0 {
+                                            let bfVal = bfCheckSt.expression.operands[0]
+                                            if bfVal.kind == "Literal" and bfVal.literalValue == "1" {
+                                                bfSetsFlag = true
+                                            }
+                                        }
+                                    }
+                                }
+                                if bfCheckSt.kind == "Assignment" and bfCheckSt.variableName == bfLeftName {
+                                    if bfCheckSt.initializer.kind == "Literal" and bfCheckSt.initializer.literalValue == "1" {
+                                        bfSetsFlag = true
+                                    }
+                                }
+                                bfCheckIdx = bfCheckIdx + 1
+                            }
+                            if bfSetsFlag and bfLeftName != "" {
+                                return bfLeftName
+                            }
+                        }
+                    }
+                }
+            }
+            bfIdx = bfIdx + 1
+        }
+        return ""
+    }
+
+    fun emitWhileConditionBranch(condReg: String, breakFlagVar: String, bodyLabel: String, endLabel: String) r: Void {
+        if breakFlagVar != "" {
+            let bfVarIdx = findVar(breakFlagVar)
+            if bfVarIdx >= 0 {
+                let bfFlagReg = getNextReg()
+                output.append("  " + bfFlagReg + " = load i64, ptr " + varRegs[bfVarIdx] + "\n")
+                let bfNotFoundReg = getNextReg()
+                output.append("  " + bfNotFoundReg + " = icmp eq i64 " + bfFlagReg + ", 0\n")
+                let bfCombinedReg = getNextReg()
+                output.append("  " + bfCombinedReg + " = and i1 " + condReg + ", " + bfNotFoundReg + " ; early exit when flag set\n")
+                output.append("  br i1 " + bfCombinedReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
+                return
+            }
+        }
+        output.append("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
+    }
+
+    fun tryEmitMemcpyOptimizedWhileLoop(stmt: StatementNode, condLabel: String, bodyLabel: String, endLabel: String, savedCondLabel: String, savedEndLabel: String) r: Bool {
         var memcpyDetected = 0
         var mcBoundIsLargeLiteral = 0
         if stmt.loopCondition.kind == "Binary" and stmt.loopCondition.operator == "<" {
@@ -7410,82 +7658,65 @@ class LLVMIRGenerator {
             if stmt.loopBody.statements.length() == 2 {
                 let mcStmt0 = stmt.loopBody.statements[0]
                 let mcStmt1 = stmt.loopBody.statements[1]
-                // Check stmt[0] is IndexAssignment: arr[i] = expr
                 var mcIsIdxAssign = 0
-                if mcStmt0.kind == "Expression" {
-                    if mcStmt0.expression.kind == "IndexAssignment" {
-                        mcIsIdxAssign = 1
-                    }
+                if mcStmt0.kind == "Expression" and mcStmt0.expression.kind == "IndexAssignment" {
+                    mcIsIdxAssign = 1
                 }
-                // Check stmt[1] is i = i + 1
                 var mcIsIncrement = 0
                 var mcIncrVarName = ""
-                if mcStmt1.kind == "Expression" {
-                    if mcStmt1.expression.kind == "Assignment" {
-                        mcIncrVarName = mcStmt1.expression.variableName
-                        if mcStmt1.expression.operands.length() > 0 {
-                            let mcIncrRHS = mcStmt1.expression.operands[0]
-                            if mcIncrRHS.kind == "Binary" and mcIncrRHS.operator == "+" {
-                                if mcIncrRHS.operands.length() >= 2 {
-                                    let mcIncrLeft = mcIncrRHS.operands[0]
-                                    let mcIncrRight = mcIncrRHS.operands[1]
-                                    var mcIncrLeftName = mcIncrLeft.literalValue
-                                    if mcIncrLeftName == "" { mcIncrLeftName = mcIncrLeft.variableName }
-                                    if mcIncrLeftName == mcIncrVarName and mcIncrRight.kind == "Literal" and mcIncrRight.literalValue == "1" {
-                                        mcIsIncrement = 1
-                                    }
+                if mcStmt1.kind == "Expression" and mcStmt1.expression.kind == "Assignment" {
+                    mcIncrVarName = mcStmt1.expression.variableName
+                    if mcStmt1.expression.operands.length() > 0 {
+                        let mcIncrRHS = mcStmt1.expression.operands[0]
+                        if mcIncrRHS.kind == "Binary" and mcIncrRHS.operator == "+" {
+                            if mcIncrRHS.operands.length() >= 2 {
+                                let mcIncrLeft = mcIncrRHS.operands[0]
+                                let mcIncrRight = mcIncrRHS.operands[1]
+                                var mcIncrLeftName = mcIncrLeft.literalValue
+                                if mcIncrLeftName == "" { mcIncrLeftName = mcIncrLeft.variableName }
+                                if mcIncrLeftName == mcIncrVarName and mcIncrRight.kind == "Literal" and mcIncrRight.literalValue == "1" {
+                                    mcIsIncrement = 1
                                 }
                             }
                         }
                     }
                 }
                 if mcIsIdxAssign == 1 and mcIsIncrement == 1 {
-                    // Extract LHS array/index and RHS
                     let mcIdxAssign = mcStmt0.expression
                     let mcLHSAccess = mcIdxAssign.operands[0]
                     let mcRHSExpr = mcIdxAssign.operands[1]
                     let mcLHSArr = mcLHSAccess.operands[0]
                     let mcLHSIdx = mcLHSAccess.operands[1]
-                    // Get LHS array variable name
                     var mcLHSArrName = mcLHSArr.literalValue
                     if mcLHSArrName == "" { mcLHSArrName = mcLHSArr.variableName }
-                    // Get LHS index variable name
                     var mcLHSIdxName = mcLHSIdx.literalValue
                     if mcLHSIdxName == "" { mcLHSIdxName = mcLHSIdx.variableName }
-                    // Get condition variable name (loop var)
                     var mcCondVarName = ""
                     if stmt.loopCondition.operands.length() >= 2 {
                         let mcCondLeft = stmt.loopCondition.operands[0]
                         mcCondVarName = mcCondLeft.literalValue
                         if mcCondVarName == "" { mcCondVarName = mcCondLeft.variableName }
                     }
-                    // Verify index var matches loop induction var
                     if mcLHSIdxName == mcIncrVarName and mcCondVarName == mcIncrVarName {
-                        // Check if RHS is IndexAccess with same index (memcpy) or index+1 (memmove)
                         if mcRHSExpr.kind == "IndexAccess" {
                             let mcRHSArr = mcRHSExpr.operands[0]
                             let mcRHSIdx = mcRHSExpr.operands[1]
                             var mcRHSArrName = mcRHSArr.literalValue
                             if mcRHSArrName == "" { mcRHSArrName = mcRHSArr.variableName }
-                            // Check: is RHS index just the same variable? (memcpy pattern)
                             var mcRHSIdxName = ""
                             if mcRHSIdx.kind == "Variable" or mcRHSIdx.kind == "VarExpr" {
                                 mcRHSIdxName = mcRHSIdx.literalValue
                                 if mcRHSIdxName == "" { mcRHSIdxName = mcRHSIdx.variableName }
                             }
-                            // Pattern 1: dest[i] = src[i] where dest != src
                             if mcRHSIdxName == mcIncrVarName and mcLHSArrName != mcRHSArrName {
-                                // Verify both are Array<Int> (8-byte elements)
                                 let mcDstType = findVarType(mcLHSArrName)
                                 let mcSrcType = findVarType(mcRHSArrName)
                                 if mcDstType == "Array<Int>" and mcSrcType == "Array<Int>" {
-                                    // Generate memcpy: get data pointers, compute byte count, call intrinsic
                                     let mcBoundExpr = stmt.loopCondition.operands[1]
                                     let mcBoundReg = generateExpression(mcBoundExpr)
                                     let mcDstIdx = findVar(mcLHSArrName)
                                     let mcSrcIdx = findVar(mcRHSArrName)
                                     if mcDstIdx >= 0 and mcSrcIdx >= 0 {
-                                        // Load array struct pointers from allocas first
                                         let mcDstPtr = getNextReg()
                                         output.append("  " + mcDstPtr + " = load ptr, ptr " + varRegs[mcDstIdx] + "\n")
                                         let mcSrcPtr = getNextReg()
@@ -7501,7 +7732,6 @@ class LLVMIRGenerator {
                                         let mcByteCount = getNextReg()
                                         output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
                                         output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + mcDstData + ", ptr " + mcSrcData + ", i64 " + mcByteCount + ", i1 false)\n")
-                                        // Update loop var to bound value (skip loop)
                                         let mcLoopVarIdx = findVar(mcIncrVarName)
                                         if mcLoopVarIdx >= 0 {
                                             output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
@@ -7513,7 +7743,6 @@ class LLVMIRGenerator {
                                     }
                                 }
                             }
-                            // Pattern 2: arr[i] = arr[i + 1] (shift-left by one) → memmove
                             if mcLHSArrName == mcRHSArrName and mcRHSIdx.kind == "Binary" {
                                 if mcRHSIdx.operator == "+" and mcRHSIdx.operands.length() >= 2 {
                                     let mcShiftLeft = mcRHSIdx.operands[0]
@@ -7527,7 +7756,6 @@ class LLVMIRGenerator {
                                             let mcBoundReg2 = generateExpression(mcBoundExpr2)
                                             let mcArrIdx2 = findVar(mcLHSArrName)
                                             if mcArrIdx2 >= 0 {
-                                                // Load array struct pointer from alloca
                                                 let mcArrPtr2 = getNextReg()
                                                 output.append("  " + mcArrPtr2 + " = load ptr, ptr " + varRegs[mcArrIdx2] + "\n")
                                                 let mcDP2 = getNextReg()
@@ -7557,354 +7785,95 @@ class LLVMIRGenerator {
                 }
             }
         }
-        // If memcpy/memmove was applied, skip normal loop generation entirely
-        if memcpyDetected == 1 {
-            // Jump past the loop — no cond/body/end blocks needed
-            // But we still need to emit the allocated labels as empty blocks for SSA validity
-            output.append("  br label %" + endLabel + "\n")
-            output.append(condLabel + ":\n")
-            output.append("  br label %" + endLabel + "\n")
-            output.append(bodyLabel + ":\n")
-            output.append("  br label %" + endLabel + "\n")
-            output.append(endLabel + ":\n")
-            currentLoopCondLabel = savedCondLabel
-            currentLoopEndLabel = savedEndLabel
+        if memcpyDetected == 0 {
+            return false
+        }
+        output.append("  br label %" + endLabel + "\n")
+        output.append(condLabel + ":\n")
+        output.append("  br label %" + endLabel + "\n")
+        output.append(bodyLabel + ":\n")
+        output.append("  br label %" + endLabel + "\n")
+        output.append(endLabel + ":\n")
+        currentLoopCondLabel = savedCondLabel
+        currentLoopEndLabel = savedEndLabel
+        return true
+    }
+
+    // Generate IR for a while loop. Emits cond/body/end blocks with
+    // back-edge from body to cond. Attaches LLVM loop metadata for:
+    //   - !llvm.loop.vectorize.enable/width (from @vectorize decorator)
+    //   - !llvm.loop.unroll.count (from @unroll decorator or tile hints)
+    //   - !llvm.loop.distribute.enable (for nested loops)
+    // Performs pattern detection for memcpy/memmove idioms and replaces
+    // them with llvm.memcpy/memmove intrinsics.
+    // Saves/restores outer loop context (currentLoopCondLabel/EndLabel)
+    // for nested loop support. Break jumps to endLabel, continue to condLabel.
+    fun generateWhileStatement(stmt: StatementNode) r: Void {
+        let loopMetaId = g_blockBox[0] + 202
+        let loopMetaIdStr = loopMetaId.toString()
+        let condLabel = getNextBlockLabel()
+        let bodyLabel = getNextBlockLabel()
+        let endLabel = getNextBlockLabel()
+
+        let savedCondLabel = currentLoopCondLabel
+        let savedEndLabel = currentLoopEndLabel
+        currentLoopCondLabel = condLabel + "|" + loopMetaIdStr
+        currentLoopEndLabel = endLabel
+
+        if tryEmitMemcpyOptimizedWhileLoop(stmt, condLabel, bodyLabel, endLabel, savedCondLabel, savedEndLabel) {
             return
         }
 
-        // --- Section 9.8: Advanced Loop Optimizations ---
-        // Detect loop bound from condition: i < N where N is literal
-        var loopBoundLiteral = 0
-        var hasLiteralBound = false
-        if stmt.loopCondition.kind == "Binary" {
-            if stmt.loopCondition.operator == "<" or stmt.loopCondition.operator == "<=" {
-                if stmt.loopCondition.operands.length() >= 2 {
-                    let boundExpr = stmt.loopCondition.operands[1]
-                    if boundExpr.kind == "Literal" and boundExpr.literalType == "Int" {
-                        loopBoundLiteral = parseIntManual(boundExpr.literalValue)
-                        hasLiteralBound = true
-                    }
-                }
-            }
+        let loopBoundLiteral = getLiteralWhileLoopBound(stmt)
+        if loopBoundLiteral >= 0 {
+            emitLiteralBoundWhileHints(stmt, loopMetaId, loopBoundLiteral)
         }
+        emitWhileLoopInvariantAnnotations(stmt, loopMetaId)
+        emitGcdPatternWhileHint(stmt, loopMetaId)
 
-        // Loop tiling (9.8): for large literal bounds, emit per-loop unroll.count metadata
-        if hasLiteralBound and loopBoundLiteral > 64 {
-            var tileSize = loopBoundLiteral / 8
-            if tileSize > 32 { tileSize = 32 }
-            // ML threshold: use g_mlUnrollThreshold as minimum tile size
-            if tileSize < g_mlUnrollThreshold { tileSize = g_mlUnrollThreshold }
-            output.append("  ; loop tiling: bound=" + loopBoundLiteral.toString() + " → unroll.count=" + tileSize.toString() + "\n")
-            g_loopsOptimized = g_loopsOptimized + 1
-            // Record tile hint for emitLoopMetadata to emit per-loop unroll.count
-            let tileMetaIdx = loopMetaId - 202
-            let tileEntry = tileMetaIdx.toString() + ":" + tileSize.toString()
-            if g_loopTileHints == "" {
-                g_loopTileHints = tileEntry
-            } else {
-                g_loopTileHints = g_loopTileHints + "|" + tileEntry
-            }
-            mlLogDecision("loop-tile", "unroll", "bound:" + loopBoundLiteral.toString() + ",tile:" + tileSize.toString())
-        }
-        // ML vectorize threshold: disable vectorization for very small loops
-        if hasLiteralBound and loopBoundLiteral < g_mlVectorizeThreshold and loopBoundLiteral > 0 {
-            output.append("  ; ML: loop bound " + loopBoundLiteral.toString() + " < vectorize threshold " + g_mlVectorizeThreshold.toString() + " → skip vectorize\n")
-            // Record this loop for no-vectorize in emitLoopMetadata
-            let noVecMetaIdx = loopMetaId - 202
-            // Use tileSize=-1 as a per-loop no-vectorize marker
-            let noVecEntry = noVecMetaIdx.toString() + ":-1"
-            if g_loopTileHints == "" {
-                g_loopTileHints = noVecEntry
-            } else {
-                g_loopTileHints = g_loopTileHints + "|" + noVecEntry
-            }
-            mlLogDecision("ml-vec", "skip", "bound:" + loopBoundLiteral.toString() + "<threshold:" + g_mlVectorizeThreshold.toString())
-        }
-
-        // LICM annotation (9.8): check for module-level constant loads in loop body
-        var licmIdx = 0
-        while licmIdx < stmt.loopBody.statements.length() {
-            let licmStmt = stmt.loopBody.statements[licmIdx]
-            if licmStmt.kind == "Let" or licmStmt.kind == "Var" {
-                // Check if RHS is a module-level constant variable
-                if licmStmt.expression.kind == "Variable" or licmStmt.expression.kind == "VarExpr" {
-                    var licmVarName = licmStmt.expression.literalValue
-                    if licmVarName == "" { licmVarName = licmStmt.expression.variableName }
-                    var mcIdx = 0
-                    while mcIdx < moduleConstantNames.length() {
-                        if moduleConstantNames[mcIdx] == licmVarName {
-                            var licmImmutable = true
-                            if isModuleConstMutable(mcIdx) { licmImmutable = false }
-                            if licmImmutable {
-                                output.append("  ; LICM: " + licmVarName + " is immutable module constant (!invariant.load applied)\n")
-                                mlLogDecision("licm", "applied", licmVarName)
-                            } else {
-                                output.append("  ; LICM candidate: " + licmVarName + " is mutable (var), skipped\n")
-                                mlLogDecision("licm", "skipped-mutable", licmVarName)
-                            }
-                            g_loopsOptimized = g_loopsOptimized + 1
-                            mcIdx = moduleConstantNames.length()
-                        }
-                        mcIdx = mcIdx + 1
-                    }
-                }
-            }
-            licmIdx = licmIdx + 1
-        }
-
-        // Detect nested loop for interchange hint (9.8)
-        var nestedLoopIdx = 0
-        while nestedLoopIdx < stmt.loopBody.statements.length() {
-            let nlStmt = stmt.loopBody.statements[nestedLoopIdx]
-            if nlStmt.kind == "While" {
-                output.append("  ; nested loop detected - interchange candidate\n")
-                g_loopsOptimized = g_loopsOptimized + 1
-                mlLogDecision("loop-interchange", "candidate", "nested-while")
-                // Record this loop for distribute.enable metadata
-                let nestedMetaIdx = loopMetaId - 202
-                if g_nestedLoopIds == "" {
-                    g_nestedLoopIds = nestedMetaIdx.toString()
-                } else {
-                    g_nestedLoopIds = g_nestedLoopIds + "|" + nestedMetaIdx.toString()
-                }
-            }
-            nestedLoopIdx = nestedLoopIdx + 1
-        }
-
-        // Small-loop full-unroll hint: ≤ 8 statements and no nested loops → unroll.full
-        var hasNestedWhile = false
-        var snlIdx = 0
-        while snlIdx < stmt.loopBody.statements.length() {
-            let snlStmt = stmt.loopBody.statements[snlIdx]
-            if snlStmt.kind == "While" { hasNestedWhile = true }
-            if snlStmt.kind == "For" { hasNestedWhile = true }
-            if snlStmt.kind == "ForIn" { hasNestedWhile = true }
-            snlIdx = snlIdx + 1
-        }
-        if hasLiteralBound and loopBoundLiteral > 0 and loopBoundLiteral <= 32 and not hasNestedWhile and stmt.loopBody.statements.length() <= 8 {
-            let fullUnrollMetaIdx = loopMetaId - 202
-            let fullUnrollEntry = fullUnrollMetaIdx.toString() + ":-2"
-            if g_loopTileHints == "" {
-                g_loopTileHints = fullUnrollEntry
-            } else {
-                g_loopTileHints = g_loopTileHints + "|" + fullUnrollEntry
-            }
-            output.append("  ; small loop (bound=" + loopBoundLiteral.toString() + ", " + stmt.loopBody.statements.length().toString() + " stmts) → full unroll hint\n")
-        }
-
-        // GCD-pattern aggressive unroll: while Y > 0 with modulo in body → unroll 8
-        if stmt.loopCondition.kind == "Binary" and stmt.loopCondition.operator == ">" {
-            if stmt.loopCondition.operands.length() >= 2 {
-                let gcdBound = stmt.loopCondition.operands[1]
-                if gcdBound.kind == "Literal" and gcdBound.literalValue == "0" {
-                    // Check body for modulo assignment
-                    var hasModuloAssign = false
-                    var gcdIdx = 0
-                    while gcdIdx < stmt.loopBody.statements.length() {
-                        let gcdStmt = stmt.loopBody.statements[gcdIdx]
-                        if gcdStmt.kind == "Expression" and gcdStmt.expression.kind == "Assignment" {
-                            if gcdStmt.expression.operands.length() > 0 {
-                                let gcdRHS = gcdStmt.expression.operands[0]
-                                if gcdRHS.kind == "Binary" and gcdRHS.operator == "%" {
-                                    hasModuloAssign = true
-                                }
-                            }
-                        }
-                        gcdIdx = gcdIdx + 1
-                    }
-                    if hasModuloAssign and stmt.loopBody.statements.length() <= 5 {
-                        let gcdMetaIdx = loopMetaId - 202
-                        let gcdEntry = gcdMetaIdx.toString() + ":8"
-                        if g_loopTileHints == "" {
-                            g_loopTileHints = gcdEntry
-                        } else {
-                            g_loopTileHints = g_loopTileHints + "|" + gcdEntry
-                        }
-                        output.append("  ; GCD-pattern loop → unroll.count=8\n")
-                    }
-                }
-            }
-        }
-
-        // Detect reduction pattern in loop body (9.9)
-        var reductionVar = ""
-        var isReduction = false
-        var riIdx = 0
-        while riIdx < stmt.loopBody.statements.length() {
-            let riStmt = stmt.loopBody.statements[riIdx]
-            if riStmt.kind == "Expression" and riStmt.expression.kind == "Assignment" {
-                let riAssignName = riStmt.expression.variableName
-                if riStmt.expression.operands.length() > 0 {
-                    let riRHS = riStmt.expression.operands[0]
-                    if riRHS.kind == "Binary" {
-                        if riRHS.operator == "+" or riRHS.operator == "*" {
-                            if riRHS.operands.length() >= 2 {
-                                let riLeft = riRHS.operands[0]
-                                // Parser uses VarExpr with variableName (not Variable/literalValue)
-                                var riLeftName = riLeft.literalValue
-                                if riLeftName == "" { riLeftName = riLeft.variableName }
-                                if (riLeft.kind == "Variable" or riLeft.kind == "VarExpr") and riLeftName == riAssignName {
-                                    reductionVar = riAssignName
-                                    isReduction = true
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            riIdx = riIdx + 1
-        }
-        if isReduction {
-            var reductionType = "sum"
+        let reductionVar = detectReductionVariable(stmt.loopBody)
+        if reductionVar != "" {
+            let reductionType = "sum"
             output.append("  ; reduction chain detected: " + reductionType + " on " + reductionVar + " → 2x vectorize width\n")
             g_reductionChainsDetected = g_reductionChainsDetected + 1
-            // Record this loop's metadata index for wider vectorize width in emitLoopMetadata
-            let reductionMetaIdx = loopMetaId - 202
-            if g_reductionLoopIds == "" {
-                g_reductionLoopIds = reductionMetaIdx.toString()
-            } else {
-                g_reductionLoopIds = g_reductionLoopIds + "|" + reductionMetaIdx.toString()
-            }
+            appendReductionLoopMetadataId(loopMetaId)
             mlLogDecision("reduction", reductionType, reductionVar)
         }
 
-        // Save outer loop's induction var for nested loop support
         let savedInductionVarName = g_inductionVarName
-
-        // Detect induction variable pattern: i = i + 1 or i = i - 1 (9.8)
-        var hasInductionVar = false
-        var inductionVarName = ""
-        var ivIdx = 0
-        while ivIdx < stmt.loopBody.statements.length() {
-            let ivStmt = stmt.loopBody.statements[ivIdx]
-            if ivStmt.kind == "Expression" and ivStmt.expression.kind == "Assignment" {
-                let ivAssignName = ivStmt.expression.variableName
-                if ivStmt.expression.operands.length() > 0 {
-                    let ivRHS = ivStmt.expression.operands[0]
-                    if ivRHS.kind == "Binary" and (ivRHS.operator == "+" or ivRHS.operator == "-") {
-                        if ivRHS.operands.length() >= 2 {
-                            let ivLeft = ivRHS.operands[0]
-                            let ivRight = ivRHS.operands[1]
-                            // Parser uses VarExpr with variableName (not Variable/literalValue)
-                            var ivLeftName = ivLeft.literalValue
-                            if ivLeftName == "" { ivLeftName = ivLeft.variableName }
-                            if (ivLeft.kind == "Variable" or ivLeft.kind == "VarExpr") and ivLeftName == ivAssignName {
-                                if ivRight.kind == "Literal" and ivRight.literalValue == "1" {
-                                    hasInductionVar = true
-                                    inductionVarName = ivAssignName
-                                    output.append("  ; induction variable: " + ivAssignName + " → nsw\n")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            ivIdx = ivIdx + 1
-        }
-        // Set induction var name for generateBinary to emit nuw flag
-        if hasInductionVar {
+        let inductionVarName = detectInductionVariableName(stmt.loopBody)
+        if inductionVarName != "" {
+            output.append("  ; induction variable: " + inductionVarName + " → nsw\n")
             g_inductionVarName = inductionVarName
         }
 
-        // --- Break-on-flag optimization ---
-        // Pattern: while i < n { if found == 0 { ... found = 1 } i = i + 1 }
-        // Merge flag check into loop condition for early exit
-        var breakFlagVar = ""
-        if stmt.loopBody.statements.length() >= 2 {
-            var bfIdx = 0
-            while bfIdx < stmt.loopBody.statements.length() {
-                let bfStmt = stmt.loopBody.statements[bfIdx]
-                if bfStmt.kind == "If" and bfStmt.elseBranch.statements.length() == 0 {
-                    // Check condition: flag == 0
-                    if bfStmt.condition.kind == "Binary" and bfStmt.condition.operator == "==" {
-                        if bfStmt.condition.operands.length() >= 2 {
-                            let bfRight = bfStmt.condition.operands[1]
-                            if bfRight.kind == "Literal" and bfRight.literalValue == "0" {
-                                let bfLeft = bfStmt.condition.operands[0]
-                                var bfLeftName = bfLeft.literalValue
-                                if bfLeftName == "" { bfLeftName = bfLeft.variableName }
-                                // Check body sets flag = 1
-                                var bfSetsFlag = false
-                                var bfCheckIdx = 0
-                                while bfCheckIdx < bfStmt.thenBranch.statements.length() {
-                                    let bfCheckSt = bfStmt.thenBranch.statements[bfCheckIdx]
-                                    if bfCheckSt.kind == "Expression" and bfCheckSt.expression.kind == "Assignment" {
-                                        if bfCheckSt.expression.variableName == bfLeftName {
-                                            if bfCheckSt.expression.operands.length() > 0 {
-                                                let bfVal = bfCheckSt.expression.operands[0]
-                                                if bfVal.kind == "Literal" and bfVal.literalValue == "1" {
-                                                    bfSetsFlag = true
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if bfCheckSt.kind == "Assignment" and bfCheckSt.variableName == bfLeftName {
-                                        if bfCheckSt.initializer.kind == "Literal" and bfCheckSt.initializer.literalValue == "1" {
-                                            bfSetsFlag = true
-                                        }
-                                    }
-                                    bfCheckIdx = bfCheckIdx + 1
-                                }
-                                if bfSetsFlag and bfLeftName != "" {
-                                    breakFlagVar = bfLeftName
-                                    output.append("  ; break-on-flag: " + bfLeftName + " → early loop exit\n")
-                                    mlLogDecision("break-flag", "early-exit", bfLeftName)
-                                }
-                            }
-                        }
-                    }
-                }
-                bfIdx = bfIdx + 1
-            }
+        let breakFlagVar = detectBreakFlagVariable(stmt.loopBody)
+        if breakFlagVar != "" {
+            output.append("  ; break-on-flag: " + breakFlagVar + " → early loop exit\n")
+            mlLogDecision("break-flag", "early-exit", breakFlagVar)
         }
 
-        // Jump to condition check
         output.append("  br label %" + condLabel + "\n")
 
-        // Condition block
         output.append(condLabel + ":\n")
-        cseClear()  // CSE cache invalid across basic block boundaries
+        cseClear()
         let condReg = generateExpression(stmt.loopCondition)
-        // If break-on-flag detected, add flag check to loop condition
-        if breakFlagVar != "" {
-            let bfVarIdx = findVar(breakFlagVar)
-            if bfVarIdx >= 0 {
-                let bfFlagReg = getNextReg()
-                output.append("  " + bfFlagReg + " = load i64, ptr " + varRegs[bfVarIdx] + "\n")
-                let bfNotFoundReg = getNextReg()
-                output.append("  " + bfNotFoundReg + " = icmp eq i64 " + bfFlagReg + ", 0\n")
-                let bfCombinedReg = getNextReg()
-                output.append("  " + bfCombinedReg + " = and i1 " + condReg + ", " + bfNotFoundReg + " ; early exit when flag set\n")
-                output.append("  br i1 " + bfCombinedReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
-            }
-            if bfVarIdx < 0 {
-                output.append("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
-            }
-        }
-        if breakFlagVar == "" {
-            output.append("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
-        }
+        emitWhileConditionBranch(condReg, breakFlagVar, bodyLabel, endLabel)
 
-        // Body block
         output.append(bodyLabel + ":\n")
-        cseClear()  // CSE cache invalid across basic block boundaries
-        blockTerminated = false  // Reset for body
+        cseClear()
+        blockTerminated = false
         generateBlock(stmt.loopBody)
         let bodyTerminated = blockTerminated
-        // Only add loop branch if body didn't terminate (return/break/continue)
         if not bodyTerminated {
             output.append("  br label %" + condLabel + ", !llvm.loop !" + loopMetaIdStr + "\n")
         }
 
-        // End block - reached when condition is false
         output.append(endLabel + ":\n")
-        cseClear()  // CSE cache invalid across basic block boundaries
-        // While loop end is always reachable (condition can be false)
+        cseClear()
         blockTerminated = false
 
-        // Restore outer loop's induction variable
         g_inductionVarName = savedInductionVarName
-        // Restore outer loop context
         currentLoopCondLabel = savedCondLabel
         currentLoopEndLabel = savedEndLabel
     }

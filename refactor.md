@@ -10,7 +10,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,119` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,088` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -20,10 +20,24 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `ir_method_finalize.seen`
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
 - Current large-method snapshot:
-  - `generateFunction()` is down to about `766` lines.
+  - `generateFunction()` is down to about `420` lines.
   - `generateCall()` is down to about `66` lines.
   - `generateMethodCall()` is down to about `236` lines.
   - `inferExpressionType()` is down to about `193` lines.
+  - `generateWhileStatement()` is down to about `75` lines.
+  - Function-pipeline helpers inside `llvm_ir_gen.seen` are now split into:
+    - `shouldSkipFunctionByCfg()` at about `50` lines.
+    - `emitFunctionDecoratorMetadataComments()` at about `18` lines.
+    - `tryHandleIntrinsicFunctionGeneration()` at about `47` lines.
+    - `registerFunctionTraitImplDecorators()` at about `16` lines.
+    - `tryHandleGpuShaderFunctionGeneration()` at about `31` lines.
+    - `shouldSkipSpecialFunctionBody()` at about `12` lines.
+    - `tryHandleExternFunctionGeneration()` at about `31` lines.
+    - `resolveImplementationFunctionName()` at about `21` lines.
+    - `resetFunctionGenerationState()` at about `20` lines.
+    - `preRegisterFunctionParameters()` at about `48` lines.
+    - `tryEmitMainFunction()` at about `28` lines.
+    - `emitFunctionParameterAllocas()` at about `39` lines.
   - Receiver-preparation helpers inside `llvm_ir_gen.seen` are now split into:
     - `resolveRebuiltLiteralPathMethodReceiver()` at about `28` lines.
     - `tryPrepareExplicitMethodReceiver()` at about `106` lines.
@@ -43,6 +57,15 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `inferMethodCallExprTypeLocal()` at about `226` lines.
     - `inferCallExprTypeLocal()` at about `57` lines.
     - `inferMemberAccessExprTypeLocal()` at about `129` lines.
+  - While-loop helpers inside `llvm_ir_gen.seen` are now split into:
+    - `emitLiteralBoundWhileHints()` at about `21` lines.
+    - `emitWhileLoopInvariantAnnotations()` at about `43` lines.
+    - `emitGcdPatternWhileHint()` at about `28` lines.
+    - `detectReductionVariable()` at about `25` lines.
+    - `detectInductionVariableName()` at about `28` lines.
+    - `detectBreakFlagVariable()` at about `48` lines.
+    - `emitWhileConditionBranch()` at about `17` lines.
+    - `tryEmitMemcpyOptimizedWhileLoop()` at about `168` lines.
 
 ### Implemented Slices
 
@@ -69,6 +92,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 4. Phase 4 function pipeline
 - Extracted shared function signature emission, default-return emission, async coroutine preamble/epilogue emission, intrinsic-wrapper emission, and unused-parameter scanning into `ir_function_gen.seen`.
 - Reduced `generateFunction()` by moving setup and epilogue details behind small focused helpers while preserving the `LLVMIRGenerator` facade.
+- Split `generateFunction()` further into focused entry/setup helpers for cfg guards, decorator metadata comments, intrinsic and GPU-special handling, extern dispatch, implementation-name resolution, transient-state reset, parameter pre-registration, `main` emission, and parameter alloca materialization.
 
 5. Phase 5 call pipeline kickoff
 - `generateCall()` now uses the shared `emitUserFunctionCallImpl(...)` path for final free-function emission instead of hand-rolling void/non-void argument loops inline.
@@ -83,6 +107,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Split `generateCall()` into focused helper phases for comptime specialization, meta builtins, low-level builtins, constructor-like calls, normalized runtime builtins, implicit `this` dispatch, and math builtins. This also removed the duplicated `print` / `println` formatting path behind a shared emitter helper.
 - Split `inferExpressionType()` into focused helpers for variable lookup, binary operator inference, method-call inference, free-call inference, and member-access inference. That turns the main inference entrypoint into a compact dispatcher and mirrors the same pipeline shape now used by `generateCall()` and `generateMethodCall()`.
 - Removed a dead duplicate `StructLiteral` branch from `inferExpressionType()` after the split so the fallback path stays unambiguous.
+- Split `generateWhileStatement()` into focused helpers for literal-bound loop hints, LICM/nested-loop annotations, GCD-pattern unroll hints, reduction detection, induction-variable detection, break-flag early-exit lowering, and memcpy/memmove fast-path detection. This turns the while emitter into a compact control-flow orchestrator instead of a mixed optimizer/emitter monolith.
 
 ### Validation Status
 
@@ -91,7 +116,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_call_fixups.seen` reaches the expected `missing main` diagnostic, which at least confirms the new helper module parses cleanly.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_method_finalize.seen` also reaches the expected `missing main` diagnostic.
 - Direct compiler self-checks still hit the pre-existing early allocator failure: `free(): invalid size` while checking `compiler_seen/src/main_compiler.seen`.
-- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap.
+- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest `generateFunction()` and `generateWhileStatement()` splits.
 - The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 
 ### Phase Status
@@ -99,9 +124,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Phase 1: partially complete; state sync and explicit function-lowering options are in place.
 - Phase 2: core module-emission and call-argument dedup completed.
 - Phase 3: in progress; declaration scan, async registry extraction, late user declare registry extraction, and trait registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
-- Phase 4: started; function signature/default-return/coroutine/intrinsic wrapper helpers are extracted, but parameter lowering and body emission still live in `llvm_ir_gen.seen`.
+- Phase 4: well underway; function signature/default-return/coroutine helpers plus entry/setup, parameter pre-registration, `main` dispatch, and parameter alloca emission are split out, but body emission still largely lives in `llvm_ir_gen.seen`.
 - Phase 5: well underway; final free-call emission, RealParser call fixups, final instance-method-call normalization, array mutator lowering, receiver-preparation helpers, and a full `generateCall()` phase split are in place.
-- Phase 6: started; `inferExpressionType()` has been decomposed into focused helper phases, but the helpers still live in `llvm_ir_gen.seen` rather than extracted modules.
+- Phase 6: in progress; `inferExpressionType()` and `generateWhileStatement()` have been decomposed into focused helper phases, but those helpers still live in `llvm_ir_gen.seen` rather than extracted modules.
 - Phase 7: not started yet.
 
 ## Baseline Snapshot
