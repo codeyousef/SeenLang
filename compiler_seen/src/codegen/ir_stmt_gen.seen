@@ -80,6 +80,30 @@ fun emitLoopIncrementImpl(output: StringBuilder, regBox: Array<Int>, indexAlloca
     output.append("  br label %" + condLabel + "\n")
 }
 
+// emitIndexedForLoopHeaderImpl — emit shared header scaffolding for loops that
+// advance an i64 index from an initial value up to an exclusive bound.
+// Returns the register holding the loaded index value in the body block.
+// loopValueAlloca can be "" for array iteration where the loop variable holds
+// the fetched element rather than the numeric index.
+fun emitIndexedForLoopHeaderImpl(output: StringBuilder, regBox: Array<Int>,
+    initialIndexReg: String, boundReg: String, loopValueAlloca: String, indexAlloca: String,
+    condLabel: String, bodyLabel: String, endLabel: String) r: String {
+
+    output.append("  store i64 " + initialIndexReg + ", ptr " + indexAlloca + "\n")
+    output.append("  br label %" + condLabel + "\n")
+    output.append(condLabel + ":\n")
+    let idxReg = getNextRegFn(regBox)
+    output.append("  " + idxReg + " = load i64, ptr " + indexAlloca + ", align 8\n")
+    let cmpReg = getNextRegFn(regBox)
+    output.append("  " + cmpReg + " = icmp slt i64 " + idxReg + ", " + boundReg + "\n")
+    output.append("  br i1 " + cmpReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
+    output.append(bodyLabel + ":\n")
+    if loopValueAlloca != "" {
+        output.append("  store i64 " + idxReg + ", ptr " + loopValueAlloca + ", align 8\n")
+    }
+    return idxReg
+}
+
 // emitArrayForLoopHeaderImpl — emit array-based for-in loop header
 // arrPtrReg: pointer to the SeenArray struct
 // Returns: condLabel:bodyLabel:endLabel:idxAlloca:lenReg concatenated
