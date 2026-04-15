@@ -1379,80 +1379,19 @@ class LLVMIRGenerator {
         // First, register known data types
         registerKnownDataTypes()
 
-        // Pre-register class names so field types resolve during layout
-        var preIdx = 0
-        while preIdx < program.items.length() {
-            let preItem = program.items[preIdx]
-            if preItem.itemType == "Class" {
-                ensureStructEntry(preItem.classNode.name)
-            }
-            preIdx = preIdx + 1
-        }
+        preRegisterClassTypes(program)
 
         var i = 0
         while i < program.items.length() {
             let item = program.items[i]
 
             if item.itemType == "Class" {
-                // Register struct layout (fields)
-                registerStructLayout(item.classNode)
-
-                // Also register class methods as functions
-                let declIsStringBuilder = item.classNode.name == "StringBuilder"
-                var mi = 0
-                while mi < item.classNode.methods.length() {
-                    let method = item.classNode.methods[mi]
-                    if declIsStringBuilder {
-                        if method.name == "new" or method.name == "append" or method.name == "appendChar" or method.name == "toString" or method.name == "clear" or method.name == "length" {
-                            mi = mi + 1
-                            continue
-                        }
-                    }
-                    let mangledName = item.classNode.name + "_" + method.name
-                    let methodRetTypeName = resolveMethodReturnType(item.classNode.name, method)
-                    registerFunction(mangledName, methodRetTypeName)
-                    if method.isAsync {
-                        registerAsyncFunction(mangledName, methodRetTypeName)
-                    }
-                    registerFloatParamMetadata(mangledName, method.params)
-                    // Build cross-module declare for class method (ptr self as first param for non-static)
-                    let mRetTypeName = methodRetTypeName
-                    var mRetLlvm = mapType(mRetTypeName)
-                    if method.isAsync {
-                        mRetLlvm = "ptr"
-                    }
-                    // Static methods have no implicit 'this' param
-                    var mDeclParams = ""
-                    var mDeclHasThis = 1
-                    if method.isStatic { mDeclHasThis = 0 }
-                    if mDeclHasThis == 1 { mDeclParams = "ptr" }
-                    let mParams = method.params
-                    var mdpi = 0
-                    while mdpi < mParams.length() {
-                        if mDeclParams != "" { mDeclParams = mDeclParams + ", " }
-                        let mdparam = mParams[mdpi]
-                        let mdpType = mdparam.paramType
-                        let mdpTypeName = normalizeDeclaredTypeNode(mdpType)
-                        if isDataType(mdpTypeName) {
-                            mDeclParams = mDeclParams + "ptr"
-                        } else {
-                            mDeclParams = mDeclParams + mapType(mdpTypeName)
-                        }
-                        mdpi = mdpi + 1
-                    }
-                    var mDeclStr = "declare " + mRetLlvm + " @" + quoteIdentIfNeeded(mangledName) + "(" + mDeclParams
-                    mDeclStr = mDeclStr + ") nounwind\n"
-                    // Class methods inherit class visibility
-                    let mVis = item.visibility
-                    recordCrossModuleDeclareEntry(mangledName, mDeclStr, mVis)
-                    mi = mi + 1
-                }
+                registerClassDeclarationItem(item)
             }
 
             // Data types use the same ClassNode structure for their fields
             if item.itemType == "Data" {
-                // Register data type layout (fields)
-                registerStructLayout(item.classNode)
+                registerDataDeclarationItem(item)
             }
 
             // Register enum variants for codegen
@@ -1464,70 +1403,153 @@ class LLVMIRGenerator {
             }
 
             if item.itemType == "Function" {
-                // Register function signature
-                let funcObj = item.function
-                let isRuntimeStringCompat = isRuntimeBackedStringCompatFunction(funcObj.name)
-                let floatRegistryFuncName = getFloatParamRegistryName(funcObj)
-                let funcRetTypeName = resolveFunctionReturnType(funcObj)
-                registerFunction(funcObj.name, funcRetTypeName)
-                if funcObj.isAsync {
-                    registerAsyncFunction(funcObj.name, funcRetTypeName)
-                }
-                registerFloatParamMetadata(floatRegistryFuncName, funcObj.params)
-                // Build cross-module declare for free function (skip main)
-                // Include extern functions for cross-module visibility
-                let funcBody = funcObj.body
-                let bodyStmts = funcBody.statements
-                let bodyStmtCount = bodyStmts.length()
-                // Determine if this function should be registered cross-module
-                var doRegXM = 0
-                if bodyStmtCount > 0 { doRegXM = 1 }
-                if isRuntimeStringCompat { doRegXM = 0 }
-                if funcObj.name == "__seen_internal_module_init__" { doRegXM = 0 }
-                // Register non-__ extern functions for cross-module visibility
-                if funcObj.isExtern and bodyStmtCount == 0 {
-                    doRegXM = 1
-                    // Skip __-prefixed extern fns — already declared by ir_declarations.seen
-                    if funcObj.name.startsWith("__") { doRegXM = 0 }
-                }
-                if funcObj.name != "main" and doRegXM == 1 {
-                    let fRetTypeName = resolveFunctionReturnType(funcObj)
-                    var fRetLlvm = mapType(fRetTypeName)
-                    if funcObj.isAsync {
-                        fRetLlvm = "ptr"
-                    }
-                    var fDeclStr = "declare " + fRetLlvm + " @" + quoteIdentIfNeeded(funcObj.name) + "("
-                    let fParams = funcObj.params
-                    var fdpi = 0
-                    while fdpi < fParams.length() {
-                        if fdpi > 0 {
-                            fDeclStr = fDeclStr + ", "
-                        }
-                        let fdparam = fParams[fdpi]
-                        let fdpType = fdparam.paramType
-                        let fdpTypeName = fdpType.typeName
-                        if isDataType(fdpTypeName) {
-                            fDeclStr = fDeclStr + "ptr"
-                        } else {
-                            fDeclStr = fDeclStr + mapType(fdpTypeName)
-                        }
-                        fdpi = fdpi + 1
-                    }
-                    if funcObj.isExtern and bodyStmtCount == 0 {
-                        fDeclStr = fDeclStr + ") nounwind memory(inaccessiblemem: readwrite)\n"
-                    } else {
-                        fDeclStr = fDeclStr + ") nounwind\n"
-                    }
-                    // Track visibility for cross-module access enforcement
-                    let fVis = item.visibility
-                    recordCrossModuleDeclareEntry(funcObj.name, fDeclStr, fVis)
-                }
+                registerFunctionDeclarationItem(item)
             }
 
             i = i + 1
         }
 
         registerCrossModuleConstants(program)
+    }
+
+    fun preRegisterClassTypes(program: ProgramNode) r: Void {
+        var itemIdx = 0
+        while itemIdx < program.items.length() {
+            let item = program.items[itemIdx]
+            if item.itemType == "Class" {
+                ensureStructEntry(item.classNode.name)
+            }
+            itemIdx = itemIdx + 1
+        }
+    }
+
+    fun buildMethodDeclareParams(method: FunctionNode) r: String {
+        var declParams = ""
+        var hasImplicitThis = 1
+        if method.isStatic { hasImplicitThis = 0 }
+        if hasImplicitThis == 1 {
+            declParams = "ptr"
+        }
+        var paramIdx = 0
+        while paramIdx < method.params.length() {
+            if declParams != "" {
+                declParams = declParams + ", "
+            }
+            let paramTypeName = normalizeDeclaredTypeNode(method.params[paramIdx].paramType)
+            if isDataType(paramTypeName) {
+                declParams = declParams + "ptr"
+            } else {
+                declParams = declParams + mapType(paramTypeName)
+            }
+            paramIdx = paramIdx + 1
+        }
+        return declParams
+    }
+
+    fun shouldSkipStringBuilderMethodDecl(methodName: String) r: Bool {
+        return methodName == "new" or methodName == "append" or methodName == "appendChar" or methodName == "toString" or methodName == "clear" or methodName == "length"
+    }
+
+    fun registerClassDeclarationItem(item: ItemNode) r: Void {
+        registerStructLayout(item.classNode)
+
+        let isStringBuilder = item.classNode.name == "StringBuilder"
+        var methodIdx = 0
+        while methodIdx < item.classNode.methods.length() {
+            let method = item.classNode.methods[methodIdx]
+            if isStringBuilder and shouldSkipStringBuilderMethodDecl(method.name) {
+                methodIdx = methodIdx + 1
+                continue
+            }
+
+            let mangledName = item.classNode.name + "_" + method.name
+            let methodRetTypeName = resolveMethodReturnType(item.classNode.name, method)
+            registerFunction(mangledName, methodRetTypeName)
+            if method.isAsync {
+                registerAsyncFunction(mangledName, methodRetTypeName)
+            }
+            registerFloatParamMetadata(mangledName, method.params)
+
+            var methodRetLlvm = mapType(methodRetTypeName)
+            if method.isAsync {
+                methodRetLlvm = "ptr"
+            }
+            let methodDeclParams = buildMethodDeclareParams(method)
+            let methodDecl = "declare " + methodRetLlvm + " @" + quoteIdentIfNeeded(mangledName) + "(" + methodDeclParams + ") nounwind\n"
+            recordCrossModuleDeclareEntry(mangledName, methodDecl, item.visibility)
+            methodIdx = methodIdx + 1
+        }
+    }
+
+    fun registerDataDeclarationItem(item: ItemNode) r: Void {
+        registerStructLayout(item.classNode)
+    }
+
+    fun shouldRegisterCrossModuleFunction(funcObj: FunctionNode, isRuntimeStringCompat: Bool) r: Bool {
+        let bodyStmtCount = funcObj.body.statements.length()
+        var doRegister = bodyStmtCount > 0
+        if isRuntimeStringCompat {
+            doRegister = false
+        }
+        if funcObj.name == "__seen_internal_module_init__" {
+            doRegister = false
+        }
+        if funcObj.isExtern and bodyStmtCount == 0 {
+            doRegister = true
+            if funcObj.name.startsWith("__") {
+                doRegister = false
+            }
+        }
+        if funcObj.name == "main" {
+            doRegister = false
+        }
+        return doRegister
+    }
+
+    fun buildFunctionDeclareParams(fn: FunctionNode) r: String {
+        var declParams = ""
+        var paramIdx = 0
+        while paramIdx < fn.params.length() {
+            if paramIdx > 0 {
+                declParams = declParams + ", "
+            }
+            let paramTypeName = fn.params[paramIdx].paramType.typeName
+            if isDataType(paramTypeName) {
+                declParams = declParams + "ptr"
+            } else {
+                declParams = declParams + mapType(paramTypeName)
+            }
+            paramIdx = paramIdx + 1
+        }
+        return declParams
+    }
+
+    fun registerFunctionDeclarationItem(item: ItemNode) r: Void {
+        let funcObj = item.function
+        let isRuntimeStringCompat = isRuntimeBackedStringCompatFunction(funcObj.name)
+        let floatRegistryFuncName = getFloatParamRegistryName(funcObj)
+        let funcRetTypeName = resolveFunctionReturnType(funcObj)
+        registerFunction(funcObj.name, funcRetTypeName)
+        if funcObj.isAsync {
+            registerAsyncFunction(funcObj.name, funcRetTypeName)
+        }
+        registerFloatParamMetadata(floatRegistryFuncName, funcObj.params)
+
+        if not shouldRegisterCrossModuleFunction(funcObj, isRuntimeStringCompat) {
+            return
+        }
+
+        var declRetLlvm = mapType(funcRetTypeName)
+        if funcObj.isAsync {
+            declRetLlvm = "ptr"
+        }
+        var declStr = "declare " + declRetLlvm + " @" + quoteIdentIfNeeded(funcObj.name) + "(" + buildFunctionDeclareParams(funcObj)
+        if funcObj.isExtern and funcObj.body.statements.length() == 0 {
+            declStr = declStr + ") nounwind memory(inaccessiblemem: readwrite)\n"
+        } else {
+            declStr = declStr + ") nounwind\n"
+        }
+        recordCrossModuleDeclareEntry(funcObj.name, declStr, item.visibility)
     }
 
     fun recordCrossModuleDeclareEntry(symbolName: String, declStr: String, visibility: String) r: Void {
