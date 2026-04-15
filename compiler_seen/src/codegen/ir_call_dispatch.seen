@@ -540,7 +540,8 @@ fun emitUserFunctionCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFu
 }
 
 // emitUserMethodCallImpl — final instance method call emission (void and non-void)
-fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, receiverLlvmType: String, receiverReg: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: String {
+// isTailCall: 1 if the non-void call is in tail position
+fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFuncName: String, llvmReturnType: String, receiverLlvmType: String, receiverReg: String, argRegs: Array<String>, argTypeStrs: Array<String>, isTailCall: Int) r: String {
     if llvmReturnType == "void" {
         output.append("  call void @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
         var i = 0
@@ -553,7 +554,9 @@ fun emitUserMethodCallImpl(output: StringBuilder, regBox: Array<Int>, quotedFunc
         return "0"
     }
     let resultReg = getNextRegFn(regBox)
-    output.append("  " + resultReg + " = call " + llvmReturnType + " @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
+    var callPrefix = "call"
+    if isTailCall == 1 { callPrefix = "tail call" }
+    output.append("  " + resultReg + " = " + callPrefix + " " + llvmReturnType + " @" + quotedFuncName + "(" + receiverLlvmType + " " + receiverReg)
     var i = 0
     while i < argRegs.length() {
         output.append(", ")

@@ -1,0 +1,140 @@
+// ir_method_finalize.seen — final instance-method call helpers
+// Extracted from llvm_ir_gen.seen to keep generateMethodCall() focused on
+// receiver discovery and dispatch rather than ABI normalization details.
+
+import codegen.ir_optimization.{getNextRegFn}
+import str.string.{StringBuilder}
+
+fun stripMethodGenericSuffixImpl(typeName: String) r: String {
+    var ltIdx = -1
+    var scanIdx = 0
+    while scanIdx < typeName.length() {
+        if typeName.charAt(scanIdx) == '<' {
+            ltIdx = scanIdx
+            scanIdx = typeName.length()
+        }
+        scanIdx = scanIdx + 1
+    }
+    if ltIdx <= 0 {
+        return typeName
+    }
+    var prefix = ""
+    var i = 0
+    while i < ltIdx {
+        prefix = prefix + typeName.charAt(i).toString()
+        i = i + 1
+    }
+    return prefix
+}
+
+// normalizeInstanceMethodTypeNameImpl — clean receiver type for user-method dispatch.
+// tracedUnwrapType is only used for ptr.toJson() on unwrap() results.
+fun normalizeInstanceMethodTypeNameImpl(receiverType: String, methodName: String, tracedUnwrapType: String) r: String {
+    var instanceTypeName = receiverType
+    if instanceTypeName == "ptr" and methodName == "toJson" and tracedUnwrapType != "" {
+        instanceTypeName = tracedUnwrapType
+    }
+    if instanceTypeName.length() > 0 and instanceTypeName.charAt(instanceTypeName.length() - 1) == '?' {
+        instanceTypeName = instanceTypeName.substring(0, instanceTypeName.length() - 1)
+    }
+    return stripMethodGenericSuffixImpl(instanceTypeName)
+}
+
+fun isHotReloadGetterMethodImpl(methodName: String) r: Bool {
+    return methodName == "__seen_hot_get_size" or methodName == "__seen_hot_get_version" or methodName == "__seen_hot_get_state"
+}
+
+// emitHotReloadMethodCallImpl — emit synthesized @hot_reload method call if applicable.
+// Returns "" when the method is not a hot-reload helper.
+fun emitHotReloadMethodCallImpl(output: StringBuilder, regBox: Array<Int>, methodName: String,
+    quotedFuncName: String, receiverReg: String, receiverNeedsPtrLift: Int, stateArg: String) r: String {
+
+    if not isHotReloadGetterMethodImpl(methodName) and methodName != "__seen_hot_set_state" {
+        return ""
+    }
+
+    var actualReceiver = receiverReg
+    if receiverNeedsPtrLift == 1 {
+        let ptrReceiverReg = getNextRegFn(regBox)
+        output.append("  " + ptrReceiverReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
+        actualReceiver = ptrReceiverReg
+    }
+
+    if isHotReloadGetterMethodImpl(methodName) {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = call i64 @" + quotedFuncName + "(ptr " + actualReceiver + ")\n")
+        return resultReg
+    }
+
+    var actualStateArg = stateArg
+    if actualStateArg == "" {
+        actualStateArg = "0"
+    }
+    output.append("  call void @" + quotedFuncName + "(ptr " + actualReceiver + ", i64 " + actualStateArg + ")\n")
+    return "0"
+}
+
+// resolveMethodReceiverAbiImpl — lower receiver storage to the ABI expected by
+// the final instance-method call.
+fun resolveMethodReceiverAbiImpl(output: StringBuilder, regBox: Array<Int>,
+    instanceTypeName: String, receiverStorageLlvmType: String,
+    receiverRegBox: Array<String>, receiverLlvmTypeBox: Array<String>,
+    receiverNeedsPtrLift: Int, receiverIsDataType: Int) r: Void {
+
+    var receiverLlvmType = "ptr"
+    var receiverLlvmResolved = false
+    if instanceTypeName == "Char" or instanceTypeName == "Int" or instanceTypeName == "Integer" or instanceTypeName == "SeenTokenType" {
+        receiverLlvmType = "i64"
+        receiverLlvmResolved = true
+    }
+    if not receiverLlvmResolved and (instanceTypeName == "Bool" or instanceTypeName == "Boolean") {
+        receiverLlvmType = "i1"
+        receiverLlvmResolved = true
+    }
+    if not receiverLlvmResolved and instanceTypeName == "Float" {
+        receiverLlvmType = "double"
+        receiverLlvmResolved = true
+    }
+    if not receiverLlvmResolved and instanceTypeName == "String" {
+        receiverLlvmType = "%SeenString"
+        receiverLlvmResolved = true
+    }
+
+    if not receiverLlvmResolved and receiverNeedsPtrLift == 1 {
+        let ptrReceiverReg = getNextRegFn(regBox)
+        output.append("  " + ptrReceiverReg + " = inttoptr i64 " + receiverRegBox[0] + " to ptr\n")
+        receiverRegBox[0] = ptrReceiverReg
+    }
+    if not receiverLlvmResolved and receiverIsDataType == 1 {
+        let allocaReg = getNextRegFn(regBox)
+        output.append("  " + allocaReg + " = alloca " + receiverStorageLlvmType + "\n")
+        output.append("  store " + receiverStorageLlvmType + " " + receiverRegBox[0] + ", ptr " + allocaReg + "\n")
+        receiverRegBox[0] = allocaReg
+    }
+
+    if receiverLlvmTypeBox.length() == 0 {
+        receiverLlvmTypeBox.push(receiverLlvmType)
+        return
+    }
+    receiverLlvmTypeBox[0] = receiverLlvmType
+}
+
+// extractOptionInnerTypeImpl — parse Option<T> payload type for unwrap lowering.
+fun extractOptionInnerTypeImpl(receiverType: String, fallbackType: String) r: String {
+    var ltPos = -1
+    var gtPos = -1
+    var scanPos = 0
+    while scanPos < receiverType.length() {
+        if receiverType.charAt(scanPos) == '<' and ltPos < 0 {
+            ltPos = scanPos
+        }
+        if receiverType.charAt(scanPos) == '>' {
+            gtPos = scanPos
+        }
+        scanPos = scanPos + 1
+    }
+    if ltPos >= 0 and gtPos > ltPos {
+        return receiverType.substring(ltPos + 1, gtPos)
+    }
+    return fallbackType
+}

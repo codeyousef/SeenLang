@@ -1837,6 +1837,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_ops")
         modules.push("codegen.ir_control_flow")
         modules.push("codegen.ir_call_dispatch")
+        modules.push("codegen.ir_call_fixups")
+        modules.push("codegen.ir_method_finalize")
         modules.push("codegen.ir_infer_type")
         modules.push("codegen.ir_function_gen")
         modules.push("codegen.ir_struct_gen")

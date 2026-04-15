@@ -56,11 +56,13 @@ import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emit
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitLengthSizeMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
 import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, resolveStandaloneParserWorkaroundRetTypeImpl}
+import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitHotReloadMethodCallImpl, resolveMethodReceiverAbiImpl, extractOptionInnerTypeImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree}
+import codegen.ir_function_gen.{generateLiteralFree, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -5419,35 +5421,26 @@ class LLVMIRGenerator {
                 intrDecIdx = intrDecIdx + 1
             }
             if intrLlvmName != "" {
-                // Build parameter types
-                var intrParamTypes = ""
-                var intrParamArgs = ""
+                let intrParamTypes = Array<String>()
                 var intrPIdx = 0
                 while intrPIdx < fn.params.length() {
                     let intrParam = fn.params[intrPIdx]
                     let intrPType = intrParam.paramType
                     let intrPTName = intrPType.typeName
-                    let intrPT = mapType(intrPTName)
-                    if intrPIdx > 0 {
-                        intrParamTypes = intrParamTypes + ", "
-                        intrParamArgs = intrParamArgs + ", "
-                    }
-                    intrParamTypes = intrParamTypes + intrPT
-                    intrParamArgs = intrParamArgs + intrPT + " %" + intrPIdx.toString()
+                    intrParamTypes.push(mapType(intrPTName))
                     intrPIdx = intrPIdx + 1
                 }
                 let intrRetTN = fn.returnType
                 let intrRetTName = intrRetTN.typeName
                 let intrRetType = mapType(intrRetTName)
-                // Emit declare for the LLVM intrinsic
-                output.append("declare " + intrRetType + " @" + intrLlvmName + "(" + intrParamTypes + ") nounwind readnone\n")
-                // Emit thin wrapper function
-                output.append("define " + intrRetType + " @" + quoteIdentIfNeeded(fn.name) + "(" + intrParamArgs + ") nounwind {\n")
-                output.append("entry:\n")
-                let intrCallReg = getNextReg()
-                output.append("  " + intrCallReg + " = call " + intrRetType + " @" + intrLlvmName + "(" + intrParamArgs + ")\n")
-                output.append("  ret " + intrRetType + " " + intrCallReg + "\n")
-                output.append("}\n\n")
+                let intrLines = Array<String>()
+                if emitIntrinsicWrapperImpl(intrLines, g_regBox, fn.name, intrLlvmName, intrParamTypes, intrParamTypes.length(), intrRetType, quoteIdentIfNeeded(fn.name)) {
+                    var intrOutIdx = 0
+                    while intrOutIdx < intrLines.length() {
+                        output.append(intrLines[intrOutIdx])
+                        intrOutIdx = intrOutIdx + 1
+                    }
+                }
                 // Register for lookup
                 if g_intrinsicCount > 0 {
                     g_intrinsicFuncNames = g_intrinsicFuncNames + "|"
@@ -5724,27 +5717,7 @@ class LLVMIRGenerator {
             println("[irgen function] block done: " + fnName)
             // Add default return if no terminator generated
             if not blockTerminated {
-                var emittedMainRet = false
-                if returnType == "void" {
-                    output.append("  ret void\n")
-                    emittedMainRet = true
-                }
-                if not emittedMainRet and returnType == "i64" {
-                    output.append("  ret i64 0\n")
-                    emittedMainRet = true
-                }
-                if not emittedMainRet and returnType == "ptr" {
-                    output.append("  ret ptr null\n")
-                    emittedMainRet = true
-                }
-                if not emittedMainRet and returnType == "i32" {
-                    output.append("  ret i32 0\n")
-                    emittedMainRet = true
-                }
-                if not emittedMainRet {
-                    // Default for other types (e.g., structs)
-                    output.append("  ret " + returnType + " zeroinitializer\n")
-                }
+                emitDefaultReturnValueImpl(output, returnType)
             }
             output.append("}\n\n")
             g_isMainFunc = 0
@@ -5916,14 +5889,13 @@ class LLVMIRGenerator {
             fnRetPrefix = fnRetPrefix + "dso_local "
         }
         println("[irgen function] signature start: " + fnName)
-        output.append(fnRetPrefix + actualLlvmReturnType + " @" + quoteIdentIfNeeded(fnName) + "(")
+        let quotedFnName = quoteIdentIfNeeded(fnName)
+        let signaturePrefix = fnRetPrefix + actualLlvmReturnType + " @" + quotedFnName + "("
 
         // Parameters
+        var paramDecls = Array<String>()
         var paramIdx = 0
         while paramIdx < fn.params.length() {
-            if paramIdx > 0 {
-                output.append(", ")
-            }
             let param = fn.params[paramIdx]
             var sigTypeName = normalizeDeclaredTypeNode(param.paramType)
             // Strip ownership qualifiers for IR type
@@ -5944,42 +5916,27 @@ class LLVMIRGenerator {
             if paramType == "ptr" and hasDecorator(fn, "no_alias") {
                 paramAttr = "noalias "
             }
-            output.append(paramAttr + paramType + " %" + quoteIdentIfNeeded(param.name + ".arg"))
+            paramDecls.push(paramAttr + paramType + " %" + quoteIdentIfNeeded(param.name + ".arg"))
             paramIdx = paramIdx + 1
         }
 
-        output.append(")" + funcAttrs + " #0 {\n")
-        output.append("entry:\n")
-    println("[irgen function] signature done: " + fnName)
+        emitFunctionSignatureImpl(output, signaturePrefix, paramDecls, funcAttrs)
+        println("[irgen function] signature done: " + fnName)
 
         // Coroutine preamble for async functions
         if fn.isAsync {
-            // Promise allocation (stores return value for coro.promise extraction)
             let promiseType = mapType(currentFunctionReturnType)
-            if promiseType != "void" {
-                let promiseReg = getNextReg()
-                output.append("  " + promiseReg + " = alloca " + promiseType + ", align 8\n")
-                g_asyncFunctionPromise = promiseReg
-            } else {
-                let promiseReg = getNextReg()
-                output.append("  " + promiseReg + " = alloca i8, align 1\n")
-                g_asyncFunctionPromise = promiseReg
-            }
-
-            let coroIdReg = getNextReg()
-            let coroSizeReg = getNextReg()
-            let coroAllocReg = getNextReg()
-            let coroBeginReg = getNextReg()
-            output.append("  " + coroIdReg + " = call token @llvm.coro.id(i32 0, ptr " + g_asyncFunctionPromise + ", ptr null, ptr null)\n")
-            output.append("  " + coroSizeReg + " = call i32 @llvm.coro.size.i32()\n")
-            output.append("  " + coroAllocReg + " = call noalias ptr @malloc(i32 " + coroSizeReg + ")\n")
-            output.append("  " + coroBeginReg + " = call ptr @llvm.coro.begin(token " + coroIdReg + ", ptr " + coroAllocReg + ")\n")
-            g_asyncFunctionCoroId = coroIdReg
-            g_asyncFunctionCoroHdl = coroBeginReg
-
-            // Pre-generate the final suspend label for return statements
-            g_asyncFinalLabel = getNextBlockLabel()
-            g_asyncCleanupLabel = getNextBlockLabel()   // pre-generate so yield sites can forward-ref it
+            let promiseBox = Array<String>()
+            let coroIdBox = Array<String>()
+            let coroHdlBox = Array<String>()
+            let finalLabelBox = Array<String>()
+            let cleanupLabelBox = Array<String>()
+            emitAsyncCoroutinePreambleImpl(output, g_regBox, g_blockBox, promiseType, promiseBox, coroIdBox, coroHdlBox, finalLabelBox, cleanupLabelBox)
+            g_asyncFunctionPromise = promiseBox[0]
+            g_asyncFunctionCoroId = coroIdBox[0]
+            g_asyncFunctionCoroHdl = coroHdlBox[0]
+            g_asyncFinalLabel = finalLabelBox[0]
+            g_asyncCleanupLabel = cleanupLabelBox[0]
         }
 
         // Allocate space for parameters and store them
@@ -6035,45 +5992,12 @@ class LLVMIRGenerator {
 
         // Dead argument detection (9.10e): warn about unused parameters
         println("[irgen function] dead-arg scan start: " + fnName)
-        var daIdx = 0
-        while daIdx < fn.params.length() {
-            let daParam = fn.params[daIdx]
-            var daFound = false
-            // Scan function body statements for variable references matching param name
-            var daScan = 0
-            while daScan < fn.body.statements.length() {
-                let daScanStmt = fn.body.statements[daScan]
-                // Simple check: if the param name appears in an expression of any kind
-                if daScanStmt.expression.kind == "Variable" and daScanStmt.expression.literalValue == daParam.name {
-                    daFound = true
-                }
-                // Check return expressions
-                if daScanStmt.kind == "Return" and daScanStmt.expression.kind == "Variable" {
-                    if daScanStmt.expression.literalValue == daParam.name { daFound = true }
-                }
-                // Check assignment RHS
-                if daScanStmt.kind == "Expression" and daScanStmt.expression.kind == "Assignment" {
-                    if daScanStmt.expression.operands.length() > 0 {
-                        if daScanStmt.expression.operands[0].kind == "Variable" and daScanStmt.expression.operands[0].literalValue == daParam.name {
-                            daFound = true
-                        }
-                    }
-                }
-                // Check let/var initializer
-                if daScanStmt.kind == "Let" or daScanStmt.kind == "Var" {
-                    if daScanStmt.expression.kind == "Variable" and daScanStmt.expression.literalValue == daParam.name {
-                        daFound = true
-                    }
-                }
-                // Conservative: any body at all means probably used (deep scan is expensive)
-                if fn.body.statements.length() > 5 { daFound = true }
-                daScan = daScan + 1
-            }
-            if not daFound and fn.body.statements.length() > 0 {
-                output.append("  ; WARNING: unused parameter: " + daParam.name + " in " + fnName + "\n")
-                mlLogDecision("dead-arg", "unused", daParam.name + ":" + fnName)
-            }
-            daIdx = daIdx + 1
+        let unusedParams = scanUnusedParametersImpl(fn)
+        var unusedIdx = 0
+        while unusedIdx < unusedParams.length() {
+            output.append("  ; WARNING: unused parameter: " + unusedParams[unusedIdx] + " in " + fnName + "\n")
+            mlLogDecision("dead-arg", "unused", unusedParams[unusedIdx] + ":" + fnName)
+            unusedIdx = unusedIdx + 1
         }
         println("[irgen function] dead-arg scan done: " + fnName)
 
@@ -6150,65 +6074,13 @@ class LLVMIRGenerator {
             }
 
             if not fn.isAsync {
-                var emittedRet = false
-                if returnType == "void" {
-                    output.append("  ret void\n")
-                    emittedRet = true
-                }
-                if not emittedRet and returnType == "i1" {
-                    output.append("  ret i1 false\n")
-                    emittedRet = true
-                }
-                if not emittedRet and returnType == "i64" {
-                    output.append("  ret i64 0\n")
-                    emittedRet = true
-                }
-                if not emittedRet and returnType == "ptr" {
-                    output.append("  ret ptr null\n")
-                    emittedRet = true
-                }
-                if not emittedRet and returnType == "%SeenString" {
-                    output.append("  ret %SeenString zeroinitializer\n")
-                    emittedRet = true
-                }
-                if not emittedRet and returnType == "%SeenArray" {
-                    output.append("  ret %SeenArray zeroinitializer\n")
-                    emittedRet = true
-                }
-                if not emittedRet {
-                    // Default for other types
-                    output.append("  ret " + returnType + " zeroinitializer\n")
-                }
+                emitDefaultReturnValueImpl(output, returnType)
             }
         }
 
         // Emit coroutine final suspend and cleanup blocks for async functions
         if fn.isAsync {
-            // Final suspend block
-            output.append("\n" + g_asyncFinalLabel + ":\n")
-            let finalSuspendReg = getNextReg()
-            output.append("  " + finalSuspendReg + " = call i8 @llvm.coro.suspend(token none, i1 true)\n")
-
-            let coroCleanupLabel = g_asyncCleanupLabel     // use the pre-generated label (yield sites forward-ref it)
-            let coroSuspendLabel = getNextBlockLabel()
-
-            output.append("  switch i8 " + finalSuspendReg + ", label %" + coroSuspendLabel + " [\n")
-            output.append("    i8 0, label %" + coroSuspendLabel + "\n")
-            output.append("    i8 1, label %" + coroCleanupLabel + "\n")
-            output.append("  ]\n")
-
-            // Cleanup: free coroutine frame
-            output.append("\n" + coroCleanupLabel + ":\n")
-            let coroMemReg = getNextReg()
-            output.append("  " + coroMemReg + " = call ptr @llvm.coro.free(token " + g_asyncFunctionCoroId + ", ptr " + g_asyncFunctionCoroHdl + ")\n")
-            output.append("  call void @free(ptr " + coroMemReg + ")\n")
-            output.append("  br label %" + coroSuspendLabel + "\n")
-
-            // Suspend: end coroutine, return handle
-            output.append("\n" + coroSuspendLabel + ":\n")
-            let coroEndReg = getNextReg()
-            output.append("  " + coroEndReg + " = call i1 @llvm.coro.end(ptr " + g_asyncFunctionCoroHdl + ", i1 false, token none)\n")
-            output.append("  ret ptr " + g_asyncFunctionCoroHdl + "\n")
+            emitAsyncCoroutineEpilogueImpl(output, g_regBox, g_blockBox, g_asyncFunctionCoroId, g_asyncFunctionCoroHdl, g_asyncFinalLabel, g_asyncCleanupLabel)
         }
 
         // Reset profiling state (module-level vars - writes are no-ops but kept for clarity)
@@ -12010,115 +11882,27 @@ class LLVMIRGenerator {
 
             // Special handling for misplaced RealParser class methods
             // These methods were incorrectly parsed as standalone functions but should be class methods
-            let isMisplacedMethod = funcName == "isAtEnd" or funcName == "peek" or funcName == "peekTokenType" or funcName == "peekTokenTypeStr" or funcName == "previous" or funcName == "advance" or funcName == "consume" or funcName == "checkToken" or funcName == "matchTokenStr" or funcName == "skipExpression" or funcName == "toArray" or funcName == "parseExpressionStatement" or funcName == "parseReturnStatement" or funcName == "parseIfStatement" or funcName == "parseWhileStatement" or funcName == "parseLetStatement" or funcName == "parseVarStatement" or funcName == "parseStatement" or funcName == "parseExpression" or funcName == "parseAssignment" or funcName == "parseOr" or funcName == "parseAnd" or funcName == "parseEquality" or funcName == "parseComparison" or funcName == "parseTerm" or funcName == "parseFactor" or funcName == "parseUnary" or funcName == "parseCall" or funcName == "parsePrimary" or funcName == "parseBlock" or funcName == "parseParam" or funcName == "parseTypeNode" or funcName == "parseOptionalTypeAnnotation" or funcName == "parseOptionalReturnType" or funcName == "parseImportPath" or funcName == "parseImportSymbols" or funcName == "parseParameterList" or funcName == "parseFunctionItem" or funcName == "parseClassItem" or funcName == "parseEnumItem" or funcName == "parseImportItem" or funcName == "makeImportSymbol" or funcName == "inferVisibility" or funcName == "joinSegments" or funcName == "parseExpressionStatementByIdx" or funcName == "parseReturnStatementByIdx" or funcName == "parseIfStatementByIdx" or funcName == "parseWhileStatementByIdx" or funcName == "parseLetStatementByIdx" or funcName == "parseVarStatementByIdx" or funcName == "parseStatementInto" or funcName == "parseExpressionStatementInto" or funcName == "parseReturnStatementInto" or funcName == "parseIfStatementInto" or funcName == "parseWhileStatementInto" or funcName == "parseLetStatementInto" or funcName == "parseVarStatementInto" or funcName == "parseExpressionInto" or funcName == "parseExpressionIntoField" or funcName == "parseLetStatementField" or funcName == "parseVarStatementField" or funcName == "parseReturnStatementField" or funcName == "parseIfStatementField" or funcName == "parseWhileStatementField" or funcName == "parseExpressionStatementField" or funcName == "parseParameterListField" or funcName == "parseFunctionItemInto" or funcName == "parseClassItemInto" or funcName == "parseEnumItemInto" or funcName == "parseImportItemInto"
-            if isMisplacedMethod and thisType == "RealParser" {
+            let misplacedRetType = resolveRealParserMisplacedMethodReturnTypeImpl(funcName)
+            if misplacedRetType != "" and thisType == "RealParser" {
                 // Generate call to the class method version
                 let thisReg = varRegs[thisIdx]
                 var argRegs = Array<String>()
                 var argTypeStrs = Array<String>()
-                var argIdx = 0
                 prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, false, false, "")
-
-                // Determine return type for misplaced methods
-                var misplacedRetType = "ptr"
-                var misplacedResolved = false
-                if funcName == "isAtEnd" or funcName == "checkToken" or funcName == "matchTokenStr" {
-                    misplacedRetType = "i1"
-                    misplacedResolved = true
-                }
-                // Token-returning methods: consume, advance, peek, previous return Token (class type stored as i64)
-                if not misplacedResolved and (funcName == "consume" or funcName == "advance" or funcName == "peek" or funcName == "previous") {
-                    misplacedRetType = "i64"
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and funcName == "peekTokenType" {
-                    misplacedRetType = "i64"
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and (funcName == "peekTokenTypeStr" or funcName == "inferVisibility" or funcName == "joinSegments") {
-                    misplacedRetType = "%SeenString"
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and funcName == "parseParameterList" {
-                    // parseParameterList returns Void (use i64 for void-like)
-                    misplacedRetType = "i64"
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and funcName == "parseImportSymbols" {
-                    misplacedRetType = "ptr"  // Array returned as pointer
-                    misplacedResolved = true
-                }
-                // Parse methods returning class types (stored as i64)
-                if not misplacedResolved and funcName == "parseBlock" {
-                    misplacedRetType = "i64"  // BlockNode is a class type
-                    misplacedResolved = true
-                }
-                // Parse methods returning data types (inline structs)
-                if not misplacedResolved and (funcName == "parseOptionalReturnType" or funcName == "parseOptionalTypeAnnotation" or funcName == "parseTypeNode") {
-                    misplacedRetType = "%TypeNode"  // TypeNode is a data type
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and funcName == "parseParam" {
-                    misplacedRetType = "i64"  // ParamNode is a class type (heap-allocated i64 handle)
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and (funcName == "parsePrimary" or funcName == "parseCall" or funcName == "parseUnary" or funcName == "parseFactor" or funcName == "parseTerm" or funcName == "parseComparison" or funcName == "parseEquality" or funcName == "parseAnd" or funcName == "parseOr" or funcName == "parseAssignment" or funcName == "parseExpression") {
-                    misplacedRetType = "i64"  // ParserExpressionNode
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and (funcName == "parseStatement" or funcName == "parseIfStatement" or funcName == "parseWhileStatement" or funcName == "parseLetStatement" or funcName == "parseVarStatement" or funcName == "parseExpressionStatement" or funcName == "parseReturnStatement") {
-                    misplacedRetType = "i64"  // StatementNode
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and (funcName == "parseFunctionItem" or funcName == "parseClassItem" or funcName == "parseEnumItem" or funcName == "parseImportItem") {
-                    misplacedRetType = "i64"  // ItemNode is a class type (heap-allocated i64 handle)
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and funcName == "makeImportSymbol" {
-                    misplacedRetType = "i64"  // ImportSymbolNode is a class type (heap-allocated, stored as i64)
-                    misplacedResolved = true
-                }
-                if not misplacedResolved and funcName == "parseImportPath" {
-                    misplacedRetType = "%ImportPathInfo"  // ImportPathInfo is a data type
-                    misplacedResolved = true
-                }
 
                 let methodFuncName = thisType + "_" + funcName
                 fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
                 argRegs = g_defaultFillArgRegs
                 argTypeStrs = g_defaultFillArgTypeStrs
 
-                // Tail call optimization for misplaced method calls
-                var mpCallPrefix = "call"
-                if takeTailCallPosition() {
-                    mpCallPrefix = "tail call"
-                }
-
                 // Load this pointer
                 let thisPtrReg = getNextReg()
                 output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                if misplacedRetType == "void" {
-                    output.append("  call void @" + quoteIdentIfNeeded(methodFuncName) + "(ptr " + thisPtrReg)
-                    argIdx = 0
-                    while argIdx < argRegs.length() {
-                        output.append(", " + argTypeStrs[argIdx] + " " + argRegs[argIdx])
-                        argIdx = argIdx + 1
-                    }
-                    output.append(")\n")
-                    return "0"
+                var mpTailCall = 0
+                if takeTailCallPosition() {
+                    mpTailCall = 1
                 }
-                if misplacedRetType != "void" {
-                    let resultReg = getNextReg()
-                    output.append("  " + resultReg + " = " + mpCallPrefix + " " + misplacedRetType + " @" + quoteIdentIfNeeded(methodFuncName) + "(ptr " + thisPtrReg)
-                    argIdx = 0
-                    while argIdx < argRegs.length() {
-                        output.append(", " + argTypeStrs[argIdx] + " " + argRegs[argIdx])
-                        argIdx = argIdx + 1
-                    }
-                    output.append(")\n")
-                    return resultReg
-                }
+                return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), misplacedRetType, "ptr", thisPtrReg, argRegs, argTypeStrs, mpTailCall)
             }
 
             // Check if the function is a method of the current class
@@ -12128,7 +11912,6 @@ class LLVMIRGenerator {
                 let thisReg = varRegs[thisIdx]
                 var argRegs = Array<String>()
                 var argTypeStrs = Array<String>()
-                var argIdx = 0
                 prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
 
                 if thisType == "StringBuilder" and (funcName == "append" or funcName == "appendInt" or funcName == "appendFloat" or funcName == "appendChar" or funcName == "clear" or funcName == "length" or funcName == "toString") {
@@ -12147,36 +11930,14 @@ class LLVMIRGenerator {
                 argTypeStrs = g_defaultFillArgTypeStrs
                 let llvmReturnType = mapType(methodRetType)
 
-                // Tail call optimization for implicit self-method calls
-                var selfCallPrefix = "call"
-                if takeTailCallPosition() {
-                    selfCallPrefix = "tail call"
-                }
-
                 // Load this pointer
                 let thisPtrReg = getNextReg()
                 output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                if llvmReturnType == "void" {
-                    output.append("  call void @" + quoteIdentIfNeeded(methodFuncName) + "(ptr " + thisPtrReg)
-                    argIdx = 0
-                    while argIdx < argRegs.length() {
-                        output.append(", " + argTypeStrs[argIdx] + " " + argRegs[argIdx])
-                        argIdx = argIdx + 1
-                    }
-                    output.append(")\n")
-                    return "0"
+                var selfTailCall = 0
+                if takeTailCallPosition() {
+                    selfTailCall = 1
                 }
-
-                let resultReg = getNextReg()
-                output.append("  " + resultReg + " = " + selfCallPrefix + " " + llvmReturnType + " @" + quoteIdentIfNeeded(methodFuncName) + "(ptr " + thisPtrReg)
-                argIdx = 0
-                while argIdx < argRegs.length() {
-                    output.append(", " + argTypeStrs[argIdx] + " " + argRegs[argIdx])
-                    argIdx = argIdx + 1
-                }
-                output.append(")\n")
-                return resultReg
+                return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), llvmReturnType, "ptr", thisPtrReg, argRegs, argTypeStrs, selfTailCall)
             }
         }
 
@@ -12193,7 +11954,6 @@ class LLVMIRGenerator {
         // Generic function call - generate args first, then result reg
         var argRegs = Array<String>()
         var argTypeStrs = Array<String>()
-        var argIdx = 0
         prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, true, false, true, "fn call")
 
         // Default parameter injection — delegated to ir_call_dispatch.seen
@@ -12217,476 +11977,17 @@ class LLVMIRGenerator {
             llvmReturnType = "ptr"
         }
 
-        // For void functions, don't assign result
-        if llvmReturnType == "void" {
-            recordLateUserDeclare(funcName, llvmReturnType, argTypeStrs, 0)
-            if takeTailCallPosition() {
-                // Tail-position bookkeeping is transient even for void calls.
-            }
-            output.append("  call void @" + quoteIdentIfNeeded(funcName) + "(")
-
-            argIdx = 0
-            while argIdx < argRegs.length() {
-                if argIdx > 0 {
-                    output.append(", ")
-                }
-                output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
-                argIdx = argIdx + 1
-            }
-
-            output.append(")\n")
-            return "0"  // No result for void functions
-        }
-
-        let resultReg = getNextReg()
-        // Tail call optimization: emit 'tail call' for calls in return position
-        var callPrefix = "call"
         recordLateUserDeclare(funcName, llvmReturnType, argTypeStrs, 0)
+        var freeCallTail = 0
         if takeTailCallPosition() {
-            callPrefix = "tail call"
+            freeCallTail = 1
         }
-        output.append("  " + resultReg + " = " + callPrefix + " " + llvmReturnType + " @" + quoteIdentIfNeeded(funcName) + "(")
-
-        argIdx = 0
-        while argIdx < argRegs.length() {
-            if argIdx > 0 {
-                output.append(", ")
-            }
-            output.append(argTypeStrs[argIdx] + " " + argRegs[argIdx])
-            argIdx = argIdx + 1
-        }
-
-        output.append(")\n")
-        return resultReg
+        return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, argRegs, argTypeStrs, freeCallTail)
     }
 
-    // Generate IR for a method call (receiver.method(args)). The largest and
-    // most complex dispatch in the codegen — handles:
-    //   - SIMD horizontal reductions (reduce_add/min/max)
-    //   - Option methods (isSome/isNone/unwrap — inlined as null checks)
-    //   - Hot-reload synthesized methods (__seen_hot_get_size etc.)
-    //   - Collection methods: Vec, HashMap, BTreeMap, LinkedList (dispatched
-    //     to type-specialized runtime functions via dispatchCollectionMethodImpl)
-    //   - String methods (length, contains, indexOf, split, trim, etc.)
-    //   - StringBuilder methods (append, toString)
-    //   - Array methods (push, get, set, length, pop, etc. with type dispatch
-    //     for Int/String/Float/Bool/data-type element types)
-    //   - SmallVec/JsonValue methods
-    //   - Numeric methods (toString, toFloat, abs, etc.)
-    //   - User-defined class methods (ClassName_methodName mangling)
-    //   - Simple variable receivers (separate handling path when operands is
-    //     empty but callee contains the receiver)
-    // NOTE: HashMap/BTreeMap methods must be handled in TWO locations — inside
-    // the "operands.length() > 0" path AND the "simple variable receivers"
-    // fallback section.
-    fun generateMethodCall(expr: ParserExpressionNode) r: String {
-        let methodName = expr.callee
-        // Get receiver
-        var receiverReg = ""
-        var receiverType = "String"  // Default assumption for method calls
+    fun tryGenerateResolvedReceiverFastPathMethodCall(expr: ParserExpressionNode,
+        methodName: String, receiverReg: String, receiverType: String) r: String {
 
-        if expr.operands.length() == 0 and expr.literalValue.contains(".") {
-            let receiverSegments = splitChainedPath(expr.literalValue)
-            if receiverSegments.length() > 0 {
-                let baseReceiverName = receiverSegments[0]
-                if findVarType(baseReceiverName) != "" {
-                    let rebuiltReceiverExpr = buildChainedPathExpr(expr.literalValue)
-                    if rebuiltReceiverExpr.kind != "None" {
-                        receiverReg = generateExpression(rebuiltReceiverExpr)
-                        receiverType = inferExpressionType(rebuiltReceiverExpr)
-                    }
-                }
-            }
-        }
-
-        if expr.operands.length() > 0 {
-            // Complex receiver (e.g., chained method call or expression)
-            receiverReg = generateExpression(expr.operands[0])
-            receiverType = inferExpressionType(expr.operands[0])
-
-            // SIMD horizontal reduction ops — delegated to ir_type_tables.seen
-            let simdRedResult = emitSimdReductionImpl(output, g_regBox, methodName, receiverReg, receiverType)
-            if simdRedResult != "" { return simdRedResult }
-
-            // dyn Trait vtable dispatch: receiver is fat pointer { ptr data, ptr vtable }
-            if receiverType.startsWith("dyn ") {
-                let dynTraitName = receiverType.substring(4, receiverType.length())
-                // Look up trait method names and return types from registry
-                let dynTraitIdx = findStruct(dynTraitName)
-                var dynMethodNames = ""
-                var dynRetTypes = ""
-                if dynTraitIdx >= 0 {
-                    dynMethodNames = structMethodNames[dynTraitIdx]
-                    dynRetTypes = structMethodRetTypes[dynTraitIdx]
-                }
-                // Generate argument registers and types
-                var dynArgRegs = Array<String>()
-                var dynArgTypes = Array<String>()
-                var dynAIdx = 0
-                while dynAIdx < expr.arguments.length() {
-                    let dynArgReg = generateExpression(expr.arguments[dynAIdx])
-                    let dynArgType = inferExpressionType(expr.arguments[dynAIdx])
-                    dynArgRegs.push(dynArgReg)
-                    dynArgTypes.push(mapType(dynArgType))
-                    dynAIdx = dynAIdx + 1
-                }
-                // Complex receivers pass data as ptr (useI64DataArg=0)
-                return emitDynTraitVtableCallImpl(output, g_regBox, receiverReg, dynTraitName, methodName, dynMethodNames, dynRetTypes, dynArgRegs, dynArgTypes, 0)
-            }
-
-            // Fallback: Option methods should never use String as receiver
-            // This handles cases where type inference fails for generic types
-            if receiverType == "String" or receiverType == "" or receiverType == "Unknown" {
-                if methodName == "isSome" or methodName == "isNone" or methodName == "unwrap" {
-                    receiverType = "Option"
-                }
-            }
-
-            // INLINE OPTION METHOD HANDLING (delegated to ir_type_tables.seen)
-            let isOptionType = receiverType == "Option" or receiverType.startsWith("Option<")
-            if isOptionType {
-                var optDefaultReg = "0"
-                if (methodName == "unwrapOr" or methodName == "UnwrapOr") and expr.arguments.length() > 0 {
-                    optDefaultReg = generateExpression(expr.arguments[0])
-                }
-                let optResult = emitOptionMethodImpl(output, g_regBox, g_blockLabelBox, methodName, receiverReg, optDefaultReg)
-                if optResult != "" {
-                    return optResult
-                }
-            }
-
-            // @hot_reload synthesized method intercept
-            // These methods are generated by generateHotReloadMethods and return i64.
-            // inferExpressionType won't find them in the registry, so we intercept here.
-            // Note: methodName includes "__" prefix, so use "_" separator (not "___").
-            // e.g. receiverType="GameState", methodName="__seen_hot_get_size"
-            //   → @GameState___seen_hot_get_size (1 sep "_" + 2 from method = 3 total)
-            if methodName == "__seen_hot_get_size" or methodName == "__seen_hot_get_version" or methodName == "__seen_hot_get_state" {
-                let hotRecvPtr = convertReceiverToPtr(receiverReg, receiverType)
-                let hotResultReg = getNextReg()
-                output.append("  " + hotResultReg + " = call i64 @" + quoteIdentIfNeeded(receiverType + "_" + methodName) + "(ptr " + hotRecvPtr + ")\n")
-                return hotResultReg
-            }
-            if methodName == "__seen_hot_set_state" {
-                let hotRecvPtr2 = convertReceiverToPtr(receiverReg, receiverType)
-                var hotStateArg = "0"
-                if expr.arguments.length() > 0 {
-                    hotStateArg = generateExpression(expr.arguments[0])
-                }
-                output.append("  call void @" + quoteIdentIfNeeded(receiverType + "_" + methodName) + "(ptr " + hotRecvPtr2 + ", i64 " + hotStateArg + ")\n")
-                return "0"
-            }
-
-            // INLINE COLLECTION METHOD HANDLING (delegated to ir_type_tables.seen dispatchCollectionMethodImpl)
-            let isCollectionTypeC = receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or receiverType == "HashMap" or receiverType.startsWith("StringHashMap<") or receiverType == "StringHashMap" or receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
-            if isCollectionTypeC {
-                var collArg0c = "0"
-                var collArg1c = "0"
-                if expr.arguments.length() > 0 {
-                    collArg0c = generateExpression(expr.arguments[0])
-                }
-                if expr.arguments.length() > 1 {
-                    collArg1c = generateExpression(expr.arguments[1])
-                }
-                let collResultC = dispatchCollectionMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, collArg0c, collArg1c)
-                if collResultC != "" {
-                    return collResultC
-                }
-            }
-        }
-        if receiverReg == "" and expr.operands.length() == 0 and expr.literalValue.contains(".") {
-            // Check for enum method calls like SeenTokenType.RightBrace.toString()
-            let path = expr.literalValue
-
-            // Find the dot index manually
-            var dotIdx = 0
-            var searchIdx = 0
-            while searchIdx < path.length() {
-                if path.byteAt(searchIdx) == 46 {
-                    dotIdx = searchIdx
-                    searchIdx = path.length()  // Exit loop
-                }
-                searchIdx = searchIdx + 1
-            }
-
-            let varName = path.substring(0, dotIdx)
-            let fieldName = path.substring(dotIdx + 1, path.length())
-
-            // Handle enum method calls: SeenTokenType.RightBrace.toString()
-            var handledEnumMethod = false
-            if varName == "SeenTokenType" {
-                // Get the enum value as an integer
-                let enumValue = getSeenTokenTypeValue(fieldName)
-                receiverReg = enumValue.toString()
-                receiverType = "Int"  // Enum values are integers
-                // Continue to method call generation below (skip field access code)
-                handledEnumMethod = true
-            }
-            if not handledEnumMethod {
-                // Chained field access like diag.line.toString()
-                // literalValue = "diag.line", callee = "toString"
-                // Need to parse and load the field
-                let idx = findVar(varName)
-                var varFoundInLocalScope = false
-                if idx >= 0 {
-                varFoundInLocalScope = true
-                let varReg = varRegs[idx]
-                let varType = varTypes[idx]
-
-                // Load the struct - class types are stored as i64, data types are inline
-                // @repr(C): load as value type and use extractvalue
-                var ptrReg = ""
-                var reprCHandled = false
-                if g_reprCClassNames != "" {
-                    if g_reprCClassNames.contains(varType + "|") {
-                        let rcLoadReg = getNextReg()
-                        output.append("  " + rcLoadReg + " = load %" + varType + ", ptr " + varReg + "\n")
-                        receiverReg = generateFieldAccess(rcLoadReg, varType, fieldName)
-                        reprCHandled = true
-                    }
-                }
-                if not reprCHandled {
-                if isClassType(varType) {
-                    let loadReg = getNextReg()
-                    output.append("  " + loadReg + " = load i64, ptr " + varReg + "\n")
-                    ptrReg = getNextReg()
-                    output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
-                } else if isDataType(varType) {
-                    // Data types are stored inline - use the alloca pointer directly
-                    ptrReg = varReg
-                } else {
-                    ptrReg = getNextReg()
-                    output.append("  " + ptrReg + " = load ptr, ptr " + varReg + "\n")
-                }
-
-                // Generate field access
-                receiverReg = generateFieldAccess(ptrReg, varType, fieldName)
-                }
-
-                // Infer receiver type from field - handle chained field names
-                // FIRST: Try receiver-based lookup using getSeenFieldType
-                // Only for simple field names (not chained paths like "program.items")
-                var fieldTypeResolved = false
-                if not fieldName.contains(".") {
-                    let lookupFieldType = getSeenFieldType(varType, fieldName)
-                    if lookupFieldType != "" and lookupFieldType != "Int" {
-                        receiverType = lookupFieldType
-                        fieldTypeResolved = true
-                    }
-                }
-                // FALLBACK: Generic field name mappings (for backwards compatibility)
-                if not fieldTypeResolved {
-                    let mappedType = mapFieldNameToReceiverType(fieldName)
-                    if mappedType != "" {
-                        receiverType = mappedType
-                        fieldTypeResolved = true
-                    }
-                }
-                if not fieldTypeResolved and fieldName.contains(".") {
-                    // Handle chained field names by walking through types
-                    var currentType = varType
-                    var remainingPath = fieldName
-                    while remainingPath.length() > 0 and currentType != "" and currentType != "Int" {
-                        var nextDot = -1
-                        var searchIdx = 0
-                        while searchIdx < remainingPath.length() {
-                            if remainingPath.byteAt(searchIdx) == 46 {
-                                nextDot = searchIdx
-                                searchIdx = remainingPath.length()
-                            }
-                            searchIdx = searchIdx + 1
-                        }
-                        var currField = ""
-                        if nextDot < 0 {
-                            currField = remainingPath
-                            remainingPath = ""
-                        }
-                        if nextDot >= 0 {
-                            currField = remainingPath.substring(0, nextDot)
-                            remainingPath = remainingPath.substring(nextDot + 1, remainingPath.length())
-                        }
-                        currentType = getSeenFieldType(currentType, currField)
-                    }
-                    receiverType = currentType
-                    fieldTypeResolved = true
-                }
-                if not fieldTypeResolved {
-                    receiverType = getSeenFieldType(varType, fieldName)
-                }
-            }
-            if not varFoundInLocalScope {
-                // varName is not a local variable - check if it's a field on 'this'
-                let thisIdx = findVar("this")
-                if thisIdx >= 0 {
-                    let thisReg = varRegs[thisIdx]
-                    let thisType = varTypes[thisIdx]
-
-                    // Check if this type has the field
-                    let structIdx = findStruct(thisType)
-                    output.append("; DEBUG chainedFieldAccess: varName=" + varName + " fieldName=" + fieldName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n")
-                    if structIdx >= 0 {
-                        let fieldIdx = getFieldInfo(thisType, varName)
-                        output.append("; DEBUG chainedFieldAccess: fieldIdx=" + fieldIdx.toString() + "\n")
-                        if fieldIdx >= 0 {
-                            // Load 'this' pointer
-                            let thisPtrReg = getNextReg()
-                            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                            // Get the type of the first field (varName)
-                            let firstFieldType = getSeenFieldType(thisType, varName)
-                            output.append("; DEBUG chainedFieldAccess: firstFieldType=" + firstFieldType + "\n")
-
-                            // Resolve pointer to the first field (class -> i64 to ptr, data -> field pointer)
-                            var accessFieldReg = ""
-                            if isClassType(firstFieldType) {
-                                let firstFieldReg = generateFieldAccess(thisPtrReg, thisType, varName)
-                                let ptrConvReg = getNextReg()
-                                output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldReg + " to ptr\n")
-                                accessFieldReg = ptrConvReg
-                            } else {
-                                accessFieldReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
-                            }
-
-                            // Now access the chained field(s) from this first field (e.g., items from currentProgram)
-                            receiverReg = generateFieldAccess(accessFieldReg, firstFieldType, fieldName)
-
-                            // Infer receiver type from fieldName
-                            let chainedMappedType = mapFieldNameToReceiverType(fieldName)
-                            if chainedMappedType != "" {
-                                receiverType = chainedMappedType
-                            } else {
-                                receiverType = getSeenFieldType(firstFieldType, fieldName)
-                            }
-                            output.append("; DEBUG chainedFieldAccess: receiverType=" + receiverType + " receiverReg=" + receiverReg + "\n")
-                        }
-                    }
-                }
-                }
-            }
-        }
-        if not (expr.operands.length() == 0 and expr.literalValue.contains(".")) and expr.literalValue != "" {
-            // Simple variable receiver stored in literalValue
-            let varName = expr.literalValue
-            let idx = findVar(varName)
-            var varFoundInMethodCall = false
-            if idx >= 0 {
-                varFoundInMethodCall = true
-                let varReg = varRegs[idx]
-                let varType = varTypes[idx]
-                let llvmType = mapType(varType)
-                receiverReg = getNextReg()
-                receiverType = varType
-                output.append("  " + receiverReg + " = load " + llvmType + ", ptr " + varReg + "\n")
-                // dyn Trait vtable dispatch for simple variable receivers — delegated to ir_call_dispatch.seen
-                if varType.startsWith("dyn ") {
-                    let svDynTraitName = varType.substring(4, varType.length())
-                    let svDynTraitIdx = findStruct(svDynTraitName)
-                    var svDynMethodNames = ""
-                    var svDynRetTypes = ""
-                    if svDynTraitIdx >= 0 {
-                        svDynMethodNames = structMethodNames[svDynTraitIdx]
-                        svDynRetTypes = structMethodRetTypes[svDynTraitIdx]
-                    }
-                    var svDynArgRegs = Array<String>()
-                    var svDynArgTypes = Array<String>()
-                    var svDynAIdx = 0
-                    while svDynAIdx < expr.arguments.length() {
-                        let svDynArgReg = generateExpression(expr.arguments[svDynAIdx])
-                        let svDynArgType = inferExpressionType(expr.arguments[svDynAIdx])
-                        svDynArgRegs.push(svDynArgReg)
-                        svDynArgTypes.push(mapType(svDynArgType))
-                        svDynAIdx = svDynAIdx + 1
-                    }
-                    // Simple receivers pass data as i64 (useI64DataArg=1)
-                    return emitDynTraitVtableCallImpl(output, g_regBox, receiverReg, svDynTraitName, methodName, svDynMethodNames, svDynRetTypes, svDynArgRegs, svDynArgTypes, 1)
-                }
-                // SIMD horizontal reduction ops for simple variable receivers — delegated to ir_call_dispatch.seen
-                if isSimdVectorType(varType) == 1 {
-                    let svSimdResult = emitSimdReductionVarImpl(output, g_regBox, methodName, receiverReg, varType)
-                    if svSimdResult != "" { return svSimdResult }
-                }
-            }
-            if not varFoundInMethodCall {
-                // Check if it's a global variable (module constant)
-                let gvMcIdx = findModuleConstant(varName)
-                if gvMcIdx >= 0 {
-                    let gvMcType = moduleConstantTypes[gvMcIdx]
-                    receiverReg = getNextReg()
-                    var gvMcInvSuffix = ""
-                    if not isModuleConstMutable(gvMcIdx) {
-                        gvMcInvSuffix = ", !invariant.load !190"
-                    }
-                    output.append("  " + receiverReg + " = load " + gvMcType + ", ptr @" + varName + gvMcInvSuffix + "\n")
-                    let gvMcSeenType = getModuleConstSeenType(gvMcIdx)
-                    if gvMcSeenType != "" {
-                        receiverType = gvMcSeenType
-                    } else {
-                        if gvMcType == "i64" { receiverType = "Int" }
-                        if gvMcType == "double" { receiverType = "Float" }
-                        if gvMcType == "i1" { receiverType = "Bool" }
-                        if gvMcType == "%SeenString" { receiverType = "String" }
-                        if gvMcType == "ptr" { receiverType = "ptr" }
-                    }
-                    varFoundInMethodCall = true
-                }
-            }
-            if not varFoundInMethodCall {
-                // Variable not found - check if 'this' exists and varName is a field
-                let thisIdx = findVar("this")
-                if thisIdx >= 0 {
-                    let thisReg = varRegs[thisIdx]
-                    let thisType = varTypes[thisIdx]
-
-                    if thisType == "LLVMIRGenerator" {
-                        let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-                        if idxCheck >= 0 {
-                            let thisPtrReg = getNextReg()
-                            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                            receiverReg = generateFieldAccess(thisPtrReg, thisType, varName)
-                            receiverType = getSeenFieldType(thisType, varName)
-                        }
-                    }
-
-                    // Check if this type has the field
-                    let structIdx = findStruct(thisType)
-                    output.append("; DEBUG methodCall: varName=" + varName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n")
-                    if structIdx >= 0 {
-                        let fieldIdx = getFieldInfo(thisType, varName)
-                        output.append("; DEBUG fieldIdx=" + fieldIdx.toString() + "\n")
-                        if fieldIdx >= 0 {
-                            // Load 'this' pointer
-                            let thisPtrReg = getNextReg()
-                            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                            // Access the field
-                            receiverReg = generateFieldAccess(thisPtrReg, thisType, varName)
-                            output.append("; DEBUG after generateFieldAccess: receiverReg=" + receiverReg + "\n")
-                            // Infer receiver type from field
-                            receiverType = getSeenFieldType(thisType, varName)
-                            output.append("; DEBUG receiverType=" + receiverType + "\n")
-                        }
-                    }
-                    if structIdx < 0 {
-                        // Fallback: hardcoded field access for well-known fields
-                        // SeenLexer.keywordManager is at index 4
-                        output.append("; DEBUG: thisType=" + thisType + " varName=" + varName + "\n")
-                        if thisType == "SeenLexer" and varName == "keywordManager" {
-                            output.append("; DEBUG: Matched SeenLexer.keywordManager!\n")
-                            let thisPtrReg = getNextReg()
-                            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                            let gepReg = getNextReg()
-                            output.append("  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n")
-                            receiverReg = getNextReg()
-                            output.append("  " + receiverReg + " = load ptr, ptr " + gepReg + "\n")
-                            receiverType = "KeywordManager"
-                            output.append("; DEBUG: receiverReg=" + receiverReg + " receiverType=" + receiverType + "\n")
-                        }
-                    }
-                }
-            }
-        }
-
-        // INLINE OPTION METHOD HANDLING (for simple variable receivers like opt.isSome())
-        // INLINE OPTION METHOD HANDLING for simple receivers (delegated to ir_type_tables.seen)
         let isOptionTypeSimple = receiverType == "Option" or receiverType.startsWith("Option<")
         if isOptionTypeSimple and receiverReg != "" {
             var optDefaultRegS = "0"
@@ -12699,7 +12000,6 @@ class LLVMIRGenerator {
             }
         }
 
-        // : SmallVec methods — delegated to ir_method_gen.seen
         var isSmallVecSimple = 0
         if receiverType == "SmallVec" or receiverType.startsWith("SmallVec<") or receiverType.startsWith("SmallVec[") {
             isSmallVecSimple = 1
@@ -12710,10 +12010,11 @@ class LLVMIRGenerator {
                 svArgReg = generateExpression(expr.arguments[0])
             }
             let svResult = emitSmallVecMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, svArgReg)
-            if svResult != "" { return svResult }
+            if svResult != "" {
+                return svResult
+            }
         }
 
-        // INLINE COLLECTION METHOD HANDLING for simple variable receivers (delegated)
         let isCollectionTypeSimple = receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or receiverType == "HashMap" or receiverType.startsWith("StringHashMap<") or receiverType == "StringHashMap" or receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
         if isCollectionTypeSimple and receiverReg != "" {
             var collArg0s = "0"
@@ -12730,7 +12031,6 @@ class LLVMIRGenerator {
             }
         }
 
-        // Array<T> simple variable receiver methods — delegated to ir_method_gen.seen
         let isArrayTypeSimple = receiverType.startsWith("Array<")
         if isArrayTypeSimple and receiverReg != "" {
             var arrArg0 = ""
@@ -12738,230 +12038,219 @@ class LLVMIRGenerator {
             if expr.arguments.length() > 0 { arrArg0 = generateExpression(expr.arguments[0]) }
             if expr.arguments.length() > 1 { arrArg1 = generateExpression(expr.arguments[1]) }
             let arrResult = emitArrayBasicMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, arrArg0, arrArg1)
-            if arrResult != "" { return arrResult }
+            if arrResult != "" {
+                return arrResult
+            }
         }
 
-        // Check if this is a static method call BEFORE setting receiver fallback
-        // Static method call: ClassName.method() where ClassName is not a variable
-        // Class names use PascalCase (start with uppercase letter)
-        if receiverReg == "" and expr.literalValue != "" {
-            var potentialClassName = expr.literalValue
-            // Strip generic type parameters: Map<K, V> -> Map
-            var ltIdx = 0
-            var i = 0
-            while i < potentialClassName.length() {
-                if potentialClassName.byteAt(i) == 60 {
-                    ltIdx = i
-                    i = potentialClassName.length()
-                }
-                i = i + 1
-            }
-            let fullClassName = expr.literalValue  // Keep full name for type detection
-            if ltIdx > 0 {
-                potentialClassName = potentialClassName.substring(0, ltIdx)
-            }
-            let firstChar = potentialClassName.substring(0, 1)
-            // Check if it starts with uppercase (A-Z) and is not a known variable
-            let isUppercase = firstChar >= "A" and firstChar <= "Z"
-            if isUppercase and findVar(potentialClassName) < 0 {
-                // Static collection .new() — delegated to ir_call_dispatch.seen
-                if methodName == "new" {
-                    let collNewResult = emitStaticCollectionNewImpl(output, g_regBox, potentialClassName, fullClassName)
-                    if collNewResult != "" { return collNewResult }
-                }
+        return ""
+    }
 
-                if methodName == "withCapacity" and (potentialClassName == "HashMap" or potentialClassName == "StringHashMap") and expr.arguments.length() > 0 {
-                    let capArg = generateExpression(expr.arguments[0])
-                    var hasStringKey = fullClassName.contains("<String")
-                    let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>") or fullClassName.contains("<String>")
-                    if potentialClassName == "StringHashMap" {
-                        hasStringKey = true
-                    }
-                    let rawReg = getNextReg()
-                    if hasStringKey {
-                        if hasStringValue {
-                            output.append("  " + rawReg + " = call ptr @HashMap_new_str_str_with_capacity(i64 " + capArg + ")\n")
-                        } else {
-                            output.append("  " + rawReg + " = call ptr @HashMap_new_str_with_capacity(i64 " + capArg + ")\n")
-                        }
+    fun tryGenerateStaticMethodCall(expr: ParserExpressionNode, methodName: String,
+        receiverReg: String) r: String {
+
+        if receiverReg != "" or expr.literalValue == "" {
+            return ""
+        }
+
+        var potentialClassName = expr.literalValue
+        var ltIdx = 0
+        var i = 0
+        while i < potentialClassName.length() {
+            if potentialClassName.byteAt(i) == 60 {
+                ltIdx = i
+                i = potentialClassName.length()
+            }
+            i = i + 1
+        }
+        let fullClassName = expr.literalValue
+        if ltIdx > 0 {
+            potentialClassName = potentialClassName.substring(0, ltIdx)
+        }
+
+        let isNotVariable = findVar(expr.literalValue) < 0 and findVar(potentialClassName) < 0
+        if not isNotVariable {
+            return ""
+        }
+
+        let firstChar = potentialClassName.substring(0, 1)
+        let isUppercase = firstChar >= "A" and firstChar <= "Z"
+        if isUppercase {
+            if methodName == "new" {
+                let collNewResult = emitStaticCollectionNewImpl(output, g_regBox, potentialClassName, fullClassName)
+                if collNewResult != "" { return collNewResult }
+            }
+
+            if methodName == "withCapacity" and (potentialClassName == "HashMap" or potentialClassName == "StringHashMap") and expr.arguments.length() > 0 {
+                let capArg = generateExpression(expr.arguments[0])
+                var hasStringKey = fullClassName.contains("<String")
+                let hasStringValue = fullClassName.contains(", String>") or fullClassName.contains(",String>") or fullClassName.contains("<String>")
+                if potentialClassName == "StringHashMap" {
+                    hasStringKey = true
+                }
+                let rawReg = getNextReg()
+                if hasStringKey {
+                    if hasStringValue {
+                        output.append("  " + rawReg + " = call ptr @HashMap_new_str_str_with_capacity(i64 " + capArg + ")\n")
                     } else {
-                        if hasStringValue {
-                            output.append("  " + rawReg + " = call ptr @HashMap_new_int_str_with_capacity(i64 " + capArg + ")\n")
-                        } else {
-                            output.append("  " + rawReg + " = call ptr @HashMap_new_with_capacity(i64 " + capArg + ")\n")
-                        }
+                        output.append("  " + rawReg + " = call ptr @HashMap_new_str_with_capacity(i64 " + capArg + ")\n")
                     }
-                    let resultReg = getNextReg()
-                    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-                    return resultReg
+                } else {
+                    if hasStringValue {
+                        output.append("  " + rawReg + " = call ptr @HashMap_new_int_str_with_capacity(i64 " + capArg + ")\n")
+                    } else {
+                        output.append("  " + rawReg + " = call ptr @HashMap_new_with_capacity(i64 " + capArg + ")\n")
+                    }
                 }
-
-                // Array<T>.withLength(n) — delegated to ir_call_dispatch.seen
-                if potentialClassName == "Array" and methodName == "withLength" {
-                    let countReg = generateExpression(expr.arguments[0])
-                    return emitArrayWithLengthImpl(output, g_regBox, fullClassName, countReg)
-                }
-
-                // This is a static method call
-                let funcName = potentialClassName + "_" + methodName
-
-                // Generate arguments
-                var staticArgRegs = Array<String>()
-                var staticArgTypeStrs = Array<String>()
-                prepareCallArguments(funcName, expr.arguments, staticArgRegs, staticArgTypeStrs, false, false, false, "")
-
-                // StringBuilder.new — delegated to ir_call_dispatch.seen
-                if potentialClassName == "StringBuilder" and methodName == "new" {
-                    return emitStringBuilderNewCallImpl(output, g_regBox, funcName, staticArgRegs, staticArgTypeStrs)
-                }
-
-                // String.fromCharCode — delegated to ir_call_dispatch.seen
-                if potentialClassName == "String" and methodName == "fromCharCode" {
-                    return emitStringFromCharCodeCallImpl(output, g_regBox, staticArgRegs, staticArgTypeStrs)
-                }
-
-                let registeredStaticReturnType = getMethodReturnType(potentialClassName, methodName)
-                var staticReturnType = registeredStaticReturnType
-                if staticReturnType == "" or staticReturnType == "Unknown" {
-                    staticReturnType = inferExpressionType(expr)
-                }
-                let staticLlvmReturnType = mapType(staticReturnType)
-
-                // Generic static call — delegated to ir_call_dispatch.seen
-                var isClassRecv1 = 0
-                if isClassType(potentialClassName) { isClassRecv1 = 1 }
-                var isDataRecv1 = 0
-                if isDataType(potentialClassName) { isDataRecv1 = 1 }
-                // Static methods lower receiver-free. Do not synthesize a dummy
-                // ptr argument here or the call ABI no longer matches the emitted
-                // ClassName_methodName signature.
-                let hasImplicitThis = 0
-                fillDefaultParamsLocal(funcName, staticArgRegs, staticArgTypeStrs)
-                staticArgRegs = g_defaultFillArgRegs
-                staticArgTypeStrs = g_defaultFillArgTypeStrs
-                recordLateUserDeclare(funcName, staticLlvmReturnType, staticArgTypeStrs, hasImplicitThis)
-                return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), staticLlvmReturnType, potentialClassName, staticArgRegs, staticArgTypeStrs, isClassRecv1, isDataRecv1, hasImplicitThis)
+                let resultReg = getNextReg()
+                output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+                return resultReg
             }
+
+            if potentialClassName == "Array" and methodName == "withLength" and expr.arguments.length() > 0 {
+                let countReg = generateExpression(expr.arguments[0])
+                return emitArrayWithLengthImpl(output, g_regBox, fullClassName, countReg)
+            }
+
+            let funcName = potentialClassName + "_" + methodName
+            var staticArgRegs = Array<String>()
+            var staticArgTypeStrs = Array<String>()
+            prepareCallArguments(funcName, expr.arguments, staticArgRegs, staticArgTypeStrs, false, false, false, "")
+
+            if potentialClassName == "StringBuilder" and methodName == "new" {
+                return emitStringBuilderNewCallImpl(output, g_regBox, funcName, staticArgRegs, staticArgTypeStrs)
+            }
+            if potentialClassName == "String" and methodName == "fromCharCode" {
+                return emitStringFromCharCodeCallImpl(output, g_regBox, staticArgRegs, staticArgTypeStrs)
+            }
+
+            let registeredStaticReturnType = getMethodReturnType(potentialClassName, methodName)
+            var staticReturnType = registeredStaticReturnType
+            if staticReturnType == "" or staticReturnType == "Unknown" {
+                staticReturnType = inferExpressionType(expr)
+            }
+            let staticLlvmReturnType = mapType(staticReturnType)
+            var isClassRecv1 = 0
+            if isClassType(potentialClassName) { isClassRecv1 = 1 }
+            var isDataRecv1 = 0
+            if isDataType(potentialClassName) { isDataRecv1 = 1 }
+            let hasImplicitThis = 0
+            fillDefaultParamsLocal(funcName, staticArgRegs, staticArgTypeStrs)
+            staticArgRegs = g_defaultFillArgRegs
+            staticArgTypeStrs = g_defaultFillArgTypeStrs
+            recordLateUserDeclare(funcName, staticLlvmReturnType, staticArgTypeStrs, hasImplicitThis)
+            return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), staticLlvmReturnType, potentialClassName, staticArgRegs, staticArgTypeStrs, isClassRecv1, isDataRecv1, hasImplicitThis)
         }
 
-        // If receiver couldn't be resolved, check if this is a standalone function call
-        // This handles cases where class methods were incorrectly parsed as standalone functions
-        if receiverReg == "" {
-            // If receiver resolution failed entirely but the callee still exists as
-            // an implicit current-class method or a plain free function, lower it
-            // through generateCall() instead of defaulting to String_* helpers.
-            var lowerAsCall = false
-            if currentClassName != "" {
-                let implicitMethodRetType = getMethodReturnType(currentClassName, methodName)
-                if implicitMethodRetType != "" {
-                    lowerAsCall = true
-                }
-            }
-            if not lowerAsCall and getFunctionReturnType(methodName) != "" {
+        let className = expr.literalValue
+        let funcName = className + "_" + methodName
+        var argRegs = Array<String>()
+        var argTypeStrs = Array<String>()
+        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
+        let registeredStaticReturnType = getMethodReturnType(className, methodName)
+        var staticReturnType = registeredStaticReturnType
+        if staticReturnType == "" or staticReturnType == "Unknown" {
+            staticReturnType = inferExpressionType(expr)
+        }
+        let staticLlvmReturnType = mapType(staticReturnType)
+        var isClassRecvFB = 0
+        if isClassType(className) { isClassRecvFB = 1 }
+        var isDataRecvFB = 0
+        if isDataType(className) { isDataRecvFB = 1 }
+        let hasImplicitThisFB = 0
+        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
+        argRegs = g_defaultFillArgRegs
+        argTypeStrs = g_defaultFillArgTypeStrs
+        recordLateUserDeclare(funcName, staticLlvmReturnType, argTypeStrs, hasImplicitThisFB)
+        return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), staticLlvmReturnType, className, argRegs, argTypeStrs, isClassRecvFB, isDataRecvFB, hasImplicitThisFB)
+    }
+
+    fun tryHandleUnresolvedMethodReceiver(expr: ParserExpressionNode, methodName: String,
+        receiverRegBox: Array<String>, receiverType: String) r: String {
+
+        if receiverRegBox[0] != "" {
+            return ""
+        }
+
+        var lowerAsCall = false
+        if currentClassName != "" {
+            let implicitMethodRetType = getMethodReturnType(currentClassName, methodName)
+            if implicitMethodRetType != "" {
                 lowerAsCall = true
             }
-            if lowerAsCall {
-                return generateCall(expr)
-            }
-            // Check if this method name matches a known standalone function
-            // These are methods that should be on RealParser class but are parsed as standalone
-            let isStandaloneFunc = methodName == "checkToken" or methodName == "advance" or methodName == "isAtEnd" or methodName == "peek" or methodName == "peekTokenType" or methodName == "peekTokenTypeStr" or methodName == "previous" or methodName == "consume" or methodName == "matchTokenStr" or methodName == "joinSegments" or methodName == "skipExpression" or methodName == "toArray"
-
-            if isStandaloneFunc {
-                output.append("; INFO: calling standalone function " + methodName + " (parser workaround)\n")
-
-                // Generate arguments
-                var standaloneArgRegs = Array<String>()
-                var standaloneArgTypes = Array<String>()
-                prepareCallArguments(methodName, expr.arguments, standaloneArgRegs, standaloneArgTypes, false, false, false, "")
-
-                // Infer return type from method name
-                var standaloneRetType = "ptr"  // Default
-                var standaloneRetTypeResolved = false
-                if methodName == "checkToken" or methodName == "matchTokenStr" or methodName == "isAtEnd" {
-                    standaloneRetType = "i1"
-                    standaloneRetTypeResolved = true
-                }
-                if not standaloneRetTypeResolved and methodName == "peekTokenType" {
-                    standaloneRetType = "i64"
-                    standaloneRetTypeResolved = true
-                }
-                if not standaloneRetTypeResolved and (methodName == "peekTokenTypeStr" or methodName == "joinSegments") {
-                    standaloneRetType = "%SeenString"
-                    standaloneRetTypeResolved = true
-                }
-                if not standaloneRetTypeResolved and methodName == "toArray" {
-                    standaloneRetType = "%SeenArray"
-                    standaloneRetTypeResolved = true
-                }
-                if not standaloneRetTypeResolved and methodName == "skipExpression" {
-                    standaloneRetType = "void"
-                }
-
-                // Generate the call — delegated to ir_call_dispatch.seen
-                fillDefaultParamsLocal(methodName, standaloneArgRegs, standaloneArgTypes)
-                standaloneArgRegs = g_defaultFillArgRegs
-                standaloneArgTypes = g_defaultFillArgTypeStrs
-                return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(methodName), standaloneRetType, standaloneArgRegs, standaloneArgTypes, 0)
-            }
-
-            // Fallback: use default value based on inferred type
-            output.append("; WARNING: receiver not resolved for " + methodName + ", receiverType='" + receiverType + "', currentClass='" + currentClassName + "', literal='" + expr.literalValue + "', operands=" + expr.operands.length().toString() + ", using default\n")
-
-            // Special case: toString on unknown receiver type - return proper string
-            if methodName == "toString" {
-                // Always handle toString specially since we need a string result
-                let toStrReg = getNextReg()
-                if receiverType == "Float" {
-                    output.append("  " + toStrReg + " = call %SeenString @seen_float_to_string(double " + receiverReg + ")\n")
-                } else if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
-                    output.append("  " + toStrReg + " = call %SeenString @seen_int_to_string(i64 " + receiverReg + ")\n")
-                } else if receiverType == "Bool" {
-                    output.append("  " + toStrReg + " = call %SeenString @seen_bool_to_string(i1 " + receiverReg + ")\n")
-                } else {
-                    output.append("  " + toStrReg + " = call %SeenString @seen_int_to_string(i64 0)\n")
-                }
-                return toStrReg
-            }
-
-            // Special case: toInt on Float - use LLVM fptosi instruction
-            if methodName == "toInt" and receiverType == "Float" {
-                let toIntReg = getNextReg()
-                output.append("  " + toIntReg + " = fptosi double " + receiverReg + " to i64\n")
-                return toIntReg
-            }
-
-            // Special case: toFloat on Int - use LLVM sitofp instruction
-            if methodName == "toFloat" and receiverType == "Int" {
-                let toFloatReg = getNextReg()
-                output.append("  " + toFloatReg + " = sitofp i64 " + receiverReg + " to double\n")
-                return toFloatReg
-            }
-
-            // Original fallback - only for non-toString methods
-            if methodName == "toString_disabled" and receiverType == "" {
-                let emptyStrReg = getNextReg()
-                output.append("  " + emptyStrReg + " = call %SeenString @seen_int_to_string(i64 0)\n")
-                return emptyStrReg
-            }
-
-            var receiverFallbackResolved = false
-            if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
-                receiverReg = "0"
-                receiverFallbackResolved = true
-            }
-            if not receiverFallbackResolved and receiverType == "Bool" {
-                receiverReg = "false"
-                receiverFallbackResolved = true
-            }
-            if not receiverFallbackResolved {
-                receiverReg = "0"  // Generic fallback for i64 operations
-            }
+        }
+        if not lowerAsCall and getFunctionReturnType(methodName) != "" {
+            lowerAsCall = true
+        }
+        if lowerAsCall {
+            return generateCall(expr)
         }
 
-        // Generate arguments BEFORE allocating result register to keep numbers in order
+        if isStandaloneParserWorkaroundImpl(methodName) {
+            output.append("; INFO: calling standalone function " + methodName + " (parser workaround)\n")
+            var standaloneArgRegs = Array<String>()
+            var standaloneArgTypes = Array<String>()
+            prepareCallArguments(methodName, expr.arguments, standaloneArgRegs, standaloneArgTypes, false, false, false, "")
+            let standaloneRetType = resolveStandaloneParserWorkaroundRetTypeImpl(methodName)
+            fillDefaultParamsLocal(methodName, standaloneArgRegs, standaloneArgTypes)
+            standaloneArgRegs = g_defaultFillArgRegs
+            standaloneArgTypes = g_defaultFillArgTypeStrs
+            return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(methodName), standaloneRetType, standaloneArgRegs, standaloneArgTypes, 0)
+        }
+
+        output.append("; WARNING: receiver not resolved for " + methodName + ", receiverType='" + receiverType + "', currentClass='" + currentClassName + "', literal='" + expr.literalValue + "', operands=" + expr.operands.length().toString() + ", using default\n")
+
+        if methodName == "toString" {
+            let toStrReg = getNextReg()
+            if receiverType == "Float" {
+                output.append("  " + toStrReg + " = call %SeenString @seen_float_to_string(double " + receiverRegBox[0] + ")\n")
+            } else if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
+                output.append("  " + toStrReg + " = call %SeenString @seen_int_to_string(i64 " + receiverRegBox[0] + ")\n")
+            } else if receiverType == "Bool" {
+                output.append("  " + toStrReg + " = call %SeenString @seen_bool_to_string(i1 " + receiverRegBox[0] + ")\n")
+            } else {
+                output.append("  " + toStrReg + " = call %SeenString @seen_int_to_string(i64 0)\n")
+            }
+            return toStrReg
+        }
+
+        if methodName == "toInt" and receiverType == "Float" {
+            let toIntReg = getNextReg()
+            output.append("  " + toIntReg + " = fptosi double " + receiverRegBox[0] + " to i64\n")
+            return toIntReg
+        }
+
+        if methodName == "toFloat" and receiverType == "Int" {
+            let toFloatReg = getNextReg()
+            output.append("  " + toFloatReg + " = sitofp i64 " + receiverRegBox[0] + " to double\n")
+            return toFloatReg
+        }
+
+        if methodName == "toString_disabled" and receiverType == "" {
+            let emptyStrReg = getNextReg()
+            output.append("  " + emptyStrReg + " = call %SeenString @seen_int_to_string(i64 0)\n")
+            return emptyStrReg
+        }
+
+        var receiverFallbackResolved = false
+        if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
+            receiverRegBox[0] = "0"
+            receiverFallbackResolved = true
+        }
+        if not receiverFallbackResolved and receiverType == "Bool" {
+            receiverRegBox[0] = "false"
+            receiverFallbackResolved = true
+        }
+        if not receiverFallbackResolved {
+            receiverRegBox[0] = "0"
+        }
+        return ""
+    }
+
+    fun tryGenerateArrayMutatorMethodCall(expr: ParserExpressionNode, methodName: String,
+        receiverReg: String, receiverType: String) r: String {
+
         if methodName == "free" {
-            // Resolve receiver type from literalValue if not already set
             var freeReceiverType = receiverType
             if (freeReceiverType == "String" or freeReceiverType == "") and expr.literalValue != "" {
                 let freeTypeIdx = findVar(expr.literalValue)
@@ -12971,7 +12260,6 @@ class LLVMIRGenerator {
             }
             let isArrayType = freeReceiverType.startsWith("Array<") or freeReceiverType == "Array"
             if isArrayType {
-                // Resolve receiver pointer from literalValue (variable name) or receiverReg
                 var freePtrReg = receiverReg
                 if freePtrReg == "" and expr.literalValue != "" {
                     let freeVarIdx = findVar(expr.literalValue)
@@ -12981,18 +12269,15 @@ class LLVMIRGenerator {
                     }
                 }
                 if freePtrReg != "" {
-                    // Free data buffer (field 3 of SeenArray struct)
                     let dataPtrPtrReg = getNextReg()
                     output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + freePtrReg + ", i32 0, i32 3\n")
                     let dataPtrReg = getNextReg()
                     output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + "\n")
                     output.append("  call void @free(ptr " + dataPtrReg + ")\n")
-                    // Free struct header
                     output.append("  call void @free(ptr " + freePtrReg + ")\n")
                     return "0"
                 }
             }
-            // Class type .free() - return to pool allocator
             if not isArrayType and isClassType(freeReceiverType) {
                 var freeVarName = expr.literalValue
                 if freeVarName == "" {
@@ -13019,6 +12304,824 @@ class LLVMIRGenerator {
                     return "0"
                 }
             }
+        }
+
+        if methodName == "push" and (receiverType.startsWith("Array<") or receiverType == "Array") {
+            let argExpr = expr.arguments[0]
+            let argReg = generateExpression(argExpr)
+            let argType = inferExpressionType(argExpr)
+            let argIsStructLiteral = argExpr.kind == "StructLiteral"
+            var elemType = ""
+            if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
+                elemType = receiverType.substring(6, receiverType.length() - 1)
+            }
+            var pushElemType = argType
+            if pushElemType == "" {
+                pushElemType = elemType
+            }
+
+            var arrayPtrReg = ""
+            let varName = expr.literalValue
+            if varName != "" {
+                if varName.contains(".") {
+                    var dotIdx = 0
+                    var searchIdx = 0
+                    while searchIdx < varName.length() {
+                        if varName.byteAt(searchIdx) == 46 {
+                            dotIdx = searchIdx
+                            searchIdx = varName.length()
+                        }
+                        searchIdx = searchIdx + 1
+                    }
+                    let firstPart = varName.substring(0, dotIdx)
+                    let restPart = varName.substring(dotIdx + 1, varName.length())
+
+                    output.append("; DEBUG push chained: firstPart=" + firstPart + " restPart=" + restPart + "\n")
+
+                    let firstVarIdx = findVar(firstPart)
+                    var firstPartHandled = false
+                    if firstVarIdx >= 0 {
+                        let firstVarReg = varRegs[firstVarIdx]
+                        let firstVarType = varTypes[firstVarIdx]
+                        let firstPtrReg = getNextReg()
+                        output.append("  " + firstPtrReg + " = load ptr, ptr " + firstVarReg + "\n")
+                        let fieldPtrReg = generateFieldAccessPtr(firstPtrReg, firstVarType, restPart)
+                        let loadedArrPtr = getNextReg()
+                        output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
+                        arrayPtrReg = loadedArrPtr
+                        firstPartHandled = true
+                    }
+                    if not firstPartHandled {
+                        let thisIdx = findVar("this")
+                        if thisIdx >= 0 {
+                            let thisReg = varRegs[thisIdx]
+                            let thisType = varTypes[thisIdx]
+                            let structIdx = findStruct(thisType)
+                            if structIdx >= 0 {
+                                let fieldIdx = getFieldInfo(thisType, firstPart)
+                                output.append("; DEBUG push chained from this: thisType=" + thisType + " firstPart=" + firstPart + " fieldIdx=" + fieldIdx.toString() + "\n")
+                                if fieldIdx >= 0 {
+                                    let thisPtrReg = getNextReg()
+                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+
+                                    let firstFieldType = getSeenFieldType(thisType, firstPart)
+                                    let firstFieldReg = generateFieldAccess(thisPtrReg, thisType, firstPart)
+                                    output.append("; DEBUG push chained: firstFieldType=" + firstFieldType + " firstFieldReg=" + firstFieldReg + "\n")
+
+                                    var accessFieldReg = firstFieldReg
+                                    if isClassType(firstFieldType) {
+                                        let ptrConvReg = getNextReg()
+                                        output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldReg + " to ptr\n")
+                                        accessFieldReg = ptrConvReg
+                                    }
+
+                                    let fieldPtrReg = generateFieldAccessPtr(accessFieldReg, firstFieldType, restPart)
+                                    let loadedArrPtr = getNextReg()
+                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
+                                    arrayPtrReg = loadedArrPtr
+                                    output.append("; DEBUG push chained: arrayPtrReg=" + arrayPtrReg + "\n")
+                                }
+                            }
+                        }
+                    }
+                }
+                if not varName.contains(".") {
+                    let varIdx = findVar(varName)
+                    var pushVarHandled = false
+                    if varIdx >= 0 {
+                        let loadReg = getNextReg()
+                        output.append("  " + loadReg + " = load ptr, ptr " + varRegs[varIdx] + "\n")
+                        arrayPtrReg = loadReg
+                        pushVarHandled = true
+                    }
+                    if not pushVarHandled {
+                        let thisIdx = findVar("this")
+                        if thisIdx >= 0 {
+                            let thisReg = varRegs[thisIdx]
+                            let thisType = varTypes[thisIdx]
+                            if thisType == "LLVMIRGenerator" {
+                                let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+                                if idxCheck >= 0 {
+                                    let thisPtrReg = getNextReg()
+                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+                                    let fieldPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
+                                    let loadedArrPtr = getNextReg()
+                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
+                                    arrayPtrReg = loadedArrPtr
+                                }
+                            }
+                            let structIdx = findStruct(thisType)
+                            if structIdx >= 0 {
+                                let fieldIdx = getFieldInfo(thisType, varName)
+                                if fieldIdx >= 0 {
+                                    let thisPtrReg = getNextReg()
+                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+                                    let fieldPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
+                                    let loadedArrPtr = getNextReg()
+                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
+                                    arrayPtrReg = loadedArrPtr
+                                }
+                            }
+                        }
+                        if arrayPtrReg == "" {
+                            let loadReg = getNextReg()
+                            output.append("  " + loadReg + " = load ptr, ptr @" + varName + "\n")
+                            arrayPtrReg = loadReg
+                        }
+                    }
+                }
+            }
+
+            if arrayPtrReg == "" and (receiverType.startsWith("Array<") or receiverType == "Array") {
+                arrayPtrReg = receiverReg
+            }
+
+            if arrayPtrReg != "" {
+                if pushElemType == "String" {
+                    output.append("  call void @seen_arr_push_str(ptr " + arrayPtrReg + ", %SeenString " + argReg + ")\n")
+                    return "0"
+                }
+                if pushElemType == "Int" or pushElemType == "Char" or receiverType == "Array<Int>" {
+                    let lenPtrReg = getNextReg()
+                    let lenReg = getNextReg()
+                    let capPtrReg = getNextReg()
+                    let capReg = getNextReg()
+                    let needsGrowReg = getNextReg()
+                    let slowLabel = getNextBlockLabel()
+                    let fastLabel = getNextBlockLabel()
+                    let doneLabel = getNextBlockLabel()
+
+                    output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 0\n")
+                    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
+                    output.append("  " + capPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 1\n")
+                    output.append("  " + capReg + " = load i64, ptr " + capPtrReg + ", !tbaa !108, !range !188\n")
+                    output.append("  " + needsGrowReg + " = icmp sge i64 " + lenReg + ", " + capReg + "\n")
+                    output.append("  br i1 " + needsGrowReg + ", label %" + slowLabel + ", label %" + fastLabel + ", !prof !197\n")
+
+                    output.append(slowLabel + ":\n")
+                    let newCapReg = getNextReg()
+                    output.append("  " + newCapReg + " = shl i64 " + capReg + ", 1\n")
+                    output.append("  store i64 " + newCapReg + ", ptr " + capPtrReg + ", !tbaa !108\n")
+                    let newByteSizeReg = getNextReg()
+                    output.append("  " + newByteSizeReg + " = shl i64 " + newCapReg + ", 3\n")
+                    let slowDataPtrPtrReg = getNextReg()
+                    output.append("  " + slowDataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
+                    let slowOldDataReg = getNextReg()
+                    output.append("  " + slowOldDataReg + " = load ptr, ptr " + slowDataPtrPtrReg + ", !tbaa !104\n")
+                    let slowNewDataReg = getNextReg()
+                    output.append("  " + slowNewDataReg + " = call ptr @realloc(ptr " + slowOldDataReg + ", i64 " + newByteSizeReg + ")\n")
+                    output.append("  store ptr " + slowNewDataReg + ", ptr " + slowDataPtrPtrReg + ", !tbaa !104\n")
+                    let slowElemPtrReg = getNextReg()
+                    output.append("  " + slowElemPtrReg + " = getelementptr inbounds i64, ptr " + slowNewDataReg + ", i64 " + lenReg + "\n")
+                    output.append("  store i64 " + argReg + ", ptr " + slowElemPtrReg + ", !tbaa !105\n")
+                    let slowNewLenReg = getNextReg()
+                    output.append("  " + slowNewLenReg + " = add nsw i64 " + lenReg + ", 1\n")
+                    output.append("  store i64 " + slowNewLenReg + ", ptr " + lenPtrReg + ", !tbaa !108\n")
+                    output.append("  br label %" + doneLabel + "\n")
+
+                    output.append(fastLabel + ":\n")
+                    let dataPtrPtrReg = getNextReg()
+                    let dataPtrReg = getNextReg()
+                    let elemPtrReg = getNextReg()
+                    let newLenReg = getNextReg()
+                    output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
+                    output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
+                    output.append("  " + elemPtrReg + " = getelementptr inbounds i64, ptr " + dataPtrReg + ", i64 " + lenReg + "\n")
+                    output.append("  store i64 " + argReg + ", ptr " + elemPtrReg + ", !tbaa !105\n")
+                    output.append("  " + newLenReg + " = add nsw i64 " + lenReg + ", 1\n")
+                    output.append("  store i64 " + newLenReg + ", ptr " + lenPtrReg + ", !tbaa !108\n")
+                    output.append("  br label %" + doneLabel + "\n")
+
+                    output.append(doneLabel + ":\n")
+                    return "0"
+                }
+                if pushElemType == "Float" or receiverType == "Array<Float>" {
+                    let castReg = getNextReg()
+                    output.append("  " + castReg + " = bitcast double " + argReg + " to i64\n")
+                    output.append("  call void @seen_arr_push_i64(ptr " + arrayPtrReg + ", i64 " + castReg + ")\n")
+                    return "0"
+                }
+                if pushElemType != "String" and pushElemType != "Int" and pushElemType != "Float" and receiverType != "Array<Int>" and receiverType != "Array<Float>" {
+                    if isDataType(pushElemType) {
+                        var ptrArgReg = argReg
+                        if isClassType(pushElemType) {
+                            let tmpReg = getNextReg()
+                            output.append("  " + tmpReg + " = alloca i64\n")
+                            output.append("  store i64 " + argReg + ", ptr " + tmpReg + "\n")
+                            ptrArgReg = tmpReg
+                        }
+                        if not argIsStructLiteral {
+                            let tmpReg = getNextReg()
+                            output.append("  " + tmpReg + " = alloca %" + pushElemType + "\n")
+                            output.append("  store %" + pushElemType + " " + argReg + ", ptr " + tmpReg + "\n")
+                            ptrArgReg = tmpReg
+                        }
+                        let resultReg = getNextReg()
+                        output.append("  " + resultReg + " = call i64 @Array_push(ptr " + arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
+                        return resultReg
+                    }
+                    var ptrArgReg = argReg
+                    if isClassType(pushElemType) {
+                        let ptrReg = getNextReg()
+                        output.append("  " + ptrReg + " = inttoptr i64 " + argReg + " to ptr\n")
+                        ptrArgReg = ptrReg
+                    }
+                    if ptrArgReg == "0" {
+                        ptrArgReg = "null"
+                    }
+                    output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
+                    return "0"
+                }
+            }
+        }
+
+        if methodName == "pop" {
+            var arrayPtrReg = ""
+            let popVarName = expr.literalValue
+            if popVarName != "" {
+                let popVarIdx = findVar(popVarName)
+                if popVarIdx >= 0 {
+                    let loadReg = getNextReg()
+                    output.append("  " + loadReg + " = load ptr, ptr " + varRegs[popVarIdx] + "\n")
+                    arrayPtrReg = loadReg
+                }
+            }
+            if arrayPtrReg == "" { arrayPtrReg = receiverReg }
+            if arrayPtrReg != "" {
+                var elemType = ""
+                if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
+                    elemType = receiverType.substring(6, receiverType.length() - 1)
+                }
+                let popResultReg = getNextReg()
+                if elemType == "Float" {
+                    output.append("  " + popResultReg + " = call double @seen_arr_pop_f64(ptr " + arrayPtrReg + ")\n")
+                    return popResultReg
+                }
+                if elemType == "String" {
+                    output.append("  " + popResultReg + " = call %SeenString @seen_arr_pop_str(ptr " + arrayPtrReg + ")\n")
+                    return popResultReg
+                }
+                output.append("  " + popResultReg + " = call i64 @seen_arr_pop_i64(ptr " + arrayPtrReg + ")\n")
+                return popResultReg
+            }
+        }
+
+        if methodName == "swap" {
+            let isArraySwap = receiverType.startsWith("Array<") or receiverType == "Array"
+            if isArraySwap and expr.arguments.length() == 2 {
+                let idxAReg = generateExpression(expr.arguments[0])
+                let idxBReg = generateExpression(expr.arguments[1])
+                var arrayPtrReg = receiverReg
+                if arrayPtrReg == "" and expr.literalValue != "" {
+                    let swapVarIdx = findVar(expr.literalValue)
+                    if swapVarIdx >= 0 {
+                        arrayPtrReg = getNextReg()
+                        output.append("  " + arrayPtrReg + " = load ptr, ptr " + varRegs[swapVarIdx] + "\n")
+                    }
+                }
+                if arrayPtrReg != "" {
+                    let dataPPReg = getNextReg()
+                    output.append("  " + dataPPReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
+                    let dataPReg = getNextReg()
+                    output.append("  " + dataPReg + " = load ptr, ptr " + dataPPReg + ", !tbaa !104\n")
+                    let elemAPtrReg = getNextReg()
+                    output.append("  " + elemAPtrReg + " = getelementptr inbounds i64, ptr " + dataPReg + ", i64 " + idxAReg + "\n")
+                    let elemBPtrReg = getNextReg()
+                    output.append("  " + elemBPtrReg + " = getelementptr inbounds i64, ptr " + dataPReg + ", i64 " + idxBReg + "\n")
+                    let valAReg = getNextReg()
+                    output.append("  " + valAReg + " = load i64, ptr " + elemAPtrReg + ", align 8, !tbaa !105\n")
+                    let valBReg = getNextReg()
+                    output.append("  " + valBReg + " = load i64, ptr " + elemBPtrReg + ", align 8, !tbaa !105\n")
+                    output.append("  store i64 " + valBReg + ", ptr " + elemAPtrReg + ", align 8, !tbaa !105\n")
+                    output.append("  store i64 " + valAReg + ", ptr " + elemBPtrReg + ", align 8, !tbaa !105\n")
+                    return "0"
+                }
+            }
+        }
+
+        return ""
+    }
+
+    fun resolveRebuiltLiteralPathMethodReceiver(expr: ParserExpressionNode,
+        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
+
+        if expr.operands.length() != 0 or not expr.literalValue.contains(".") {
+            return
+        }
+        if receiverRegBox[0] != "" {
+            return
+        }
+
+        let receiverSegments = splitChainedPath(expr.literalValue)
+        if receiverSegments.length() == 0 {
+            return
+        }
+
+        let baseReceiverName = receiverSegments[0]
+        if findVarType(baseReceiverName) == "" {
+            return
+        }
+
+        let rebuiltReceiverExpr = buildChainedPathExpr(expr.literalValue)
+        if rebuiltReceiverExpr.kind == "None" {
+            return
+        }
+
+        receiverRegBox[0] = generateExpression(rebuiltReceiverExpr)
+        receiverTypeBox[0] = inferExpressionType(rebuiltReceiverExpr)
+    }
+
+    fun tryPrepareExplicitMethodReceiver(expr: ParserExpressionNode, methodName: String,
+        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
+
+        if expr.operands.length() == 0 {
+            return ""
+        }
+
+        let receiverReg = generateExpression(expr.operands[0])
+        var receiverType = inferExpressionType(expr.operands[0])
+        receiverRegBox[0] = receiverReg
+        receiverTypeBox[0] = receiverType
+
+        // SIMD horizontal reduction ops — delegated to ir_type_tables.seen
+        let simdRedResult = emitSimdReductionImpl(output, g_regBox, methodName, receiverReg, receiverType)
+        if simdRedResult != "" { return simdRedResult }
+
+        // dyn Trait vtable dispatch: receiver is fat pointer { ptr data, ptr vtable }
+        if receiverType.startsWith("dyn ") {
+            let dynTraitName = receiverType.substring(4, receiverType.length())
+            // Look up trait method names and return types from registry
+            let dynTraitIdx = findStruct(dynTraitName)
+            var dynMethodNames = ""
+            var dynRetTypes = ""
+            if dynTraitIdx >= 0 {
+                dynMethodNames = structMethodNames[dynTraitIdx]
+                dynRetTypes = structMethodRetTypes[dynTraitIdx]
+            }
+            // Generate argument registers and types
+            var dynArgRegs = Array<String>()
+            var dynArgTypes = Array<String>()
+            var dynAIdx = 0
+            while dynAIdx < expr.arguments.length() {
+                let dynArgReg = generateExpression(expr.arguments[dynAIdx])
+                let dynArgType = inferExpressionType(expr.arguments[dynAIdx])
+                dynArgRegs.push(dynArgReg)
+                dynArgTypes.push(mapType(dynArgType))
+                dynAIdx = dynAIdx + 1
+            }
+            // Complex receivers pass data as ptr (useI64DataArg=0)
+            return emitDynTraitVtableCallImpl(output, g_regBox, receiverReg, dynTraitName, methodName, dynMethodNames, dynRetTypes, dynArgRegs, dynArgTypes, 0)
+        }
+
+        // Fallback: Option methods should never use String as receiver
+        // This handles cases where type inference fails for generic types
+        if receiverType == "String" or receiverType == "" or receiverType == "Unknown" {
+            if methodName == "isSome" or methodName == "isNone" or methodName == "unwrap" {
+                receiverType = "Option"
+                receiverTypeBox[0] = receiverType
+            }
+        }
+
+        // INLINE OPTION METHOD HANDLING (delegated to ir_type_tables.seen)
+        let isOptionType = receiverType == "Option" or receiverType.startsWith("Option<")
+        if isOptionType {
+            var optDefaultReg = "0"
+            if (methodName == "unwrapOr" or methodName == "UnwrapOr") and expr.arguments.length() > 0 {
+                optDefaultReg = generateExpression(expr.arguments[0])
+            }
+            let optResult = emitOptionMethodImpl(output, g_regBox, g_blockLabelBox, methodName, receiverReg, optDefaultReg)
+            if optResult != "" {
+                return optResult
+            }
+        }
+
+        // @hot_reload synthesized method intercept
+        // These methods are generated by generateHotReloadMethods and return i64.
+        // inferExpressionType won't find them in the registry, so we intercept here.
+        // Note: methodName includes "__" prefix, so use "_" separator (not "___").
+        // e.g. receiverType="GameState", methodName="__seen_hot_get_size"
+        //   → @GameState___seen_hot_get_size (1 sep "_" + 2 from method = 3 total)
+        if methodName == "__seen_hot_get_size" or methodName == "__seen_hot_get_version" or methodName == "__seen_hot_get_state" {
+            let hotRecvPtr = convertReceiverToPtr(receiverReg, receiverType)
+            let hotResultReg = getNextReg()
+            output.append("  " + hotResultReg + " = call i64 @" + quoteIdentIfNeeded(receiverType + "_" + methodName) + "(ptr " + hotRecvPtr + ")\n")
+            return hotResultReg
+        }
+        if methodName == "__seen_hot_set_state" {
+            let hotRecvPtr2 = convertReceiverToPtr(receiverReg, receiverType)
+            var hotStateArg = "0"
+            if expr.arguments.length() > 0 {
+                hotStateArg = generateExpression(expr.arguments[0])
+            }
+            output.append("  call void @" + quoteIdentIfNeeded(receiverType + "_" + methodName) + "(ptr " + hotRecvPtr2 + ", i64 " + hotStateArg + ")\n")
+            return "0"
+        }
+
+        // INLINE COLLECTION METHOD HANDLING (delegated to ir_type_tables.seen dispatchCollectionMethodImpl)
+        let isCollectionTypeC = receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or receiverType == "HashMap" or receiverType.startsWith("StringHashMap<") or receiverType == "StringHashMap" or receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
+        if isCollectionTypeC {
+            var collArg0c = "0"
+            var collArg1c = "0"
+            if expr.arguments.length() > 0 {
+                collArg0c = generateExpression(expr.arguments[0])
+            }
+            if expr.arguments.length() > 1 {
+                collArg1c = generateExpression(expr.arguments[1])
+            }
+            let collResultC = dispatchCollectionMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, collArg0c, collArg1c)
+            if collResultC != "" {
+                return collResultC
+            }
+        }
+
+        receiverTypeBox[0] = receiverType
+        return ""
+    }
+
+    fun resolveChainedLiteralMethodReceiver(expr: ParserExpressionNode,
+        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
+
+        if receiverRegBox[0] != "" {
+            return
+        }
+        if expr.operands.length() != 0 or not expr.literalValue.contains(".") {
+            return
+        }
+
+        // Check for enum method calls like SeenTokenType.RightBrace.toString()
+        let path = expr.literalValue
+
+        // Find the dot index manually
+        var dotIdx = 0
+        var searchIdx = 0
+        while searchIdx < path.length() {
+            if path.byteAt(searchIdx) == 46 {
+                dotIdx = searchIdx
+                searchIdx = path.length()  // Exit loop
+            }
+            searchIdx = searchIdx + 1
+        }
+
+        let varName = path.substring(0, dotIdx)
+        let fieldName = path.substring(dotIdx + 1, path.length())
+
+        // Handle enum method calls: SeenTokenType.RightBrace.toString()
+        var handledEnumMethod = false
+        if varName == "SeenTokenType" {
+            // Get the enum value as an integer
+            let enumValue = getSeenTokenTypeValue(fieldName)
+            receiverRegBox[0] = enumValue.toString()
+            receiverTypeBox[0] = "Int"  // Enum values are integers
+            // Continue to method call generation below (skip field access code)
+            handledEnumMethod = true
+        }
+        if handledEnumMethod {
+            return
+        }
+
+        // Chained field access like diag.line.toString()
+        // literalValue = "diag.line", callee = "toString"
+        // Need to parse and load the field
+        let idx = findVar(varName)
+        var varFoundInLocalScope = false
+        if idx >= 0 {
+            varFoundInLocalScope = true
+            let varReg = varRegs[idx]
+            let varType = varTypes[idx]
+
+            // Load the struct - class types are stored as i64, data types are inline
+            // @repr(C): load as value type and use extractvalue
+            var ptrReg = ""
+            var reprCHandled = false
+            if g_reprCClassNames != "" {
+                if g_reprCClassNames.contains(varType + "|") {
+                    let rcLoadReg = getNextReg()
+                    output.append("  " + rcLoadReg + " = load %" + varType + ", ptr " + varReg + "\n")
+                    receiverRegBox[0] = generateFieldAccess(rcLoadReg, varType, fieldName)
+                    reprCHandled = true
+                }
+            }
+            if not reprCHandled {
+                if isClassType(varType) {
+                    let loadReg = getNextReg()
+                    output.append("  " + loadReg + " = load i64, ptr " + varReg + "\n")
+                    ptrReg = getNextReg()
+                    output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
+                } else if isDataType(varType) {
+                    // Data types are stored inline - use the alloca pointer directly
+                    ptrReg = varReg
+                } else {
+                    ptrReg = getNextReg()
+                    output.append("  " + ptrReg + " = load ptr, ptr " + varReg + "\n")
+                }
+
+                // Generate field access
+                receiverRegBox[0] = generateFieldAccess(ptrReg, varType, fieldName)
+            }
+
+            // Infer receiver type from field - handle chained field names
+            // FIRST: Try receiver-based lookup using getSeenFieldType
+            // Only for simple field names (not chained paths like "program.items")
+            var fieldTypeResolved = false
+            if not fieldName.contains(".") {
+                let lookupFieldType = getSeenFieldType(varType, fieldName)
+                if lookupFieldType != "" and lookupFieldType != "Int" {
+                    receiverTypeBox[0] = lookupFieldType
+                    fieldTypeResolved = true
+                }
+            }
+            // FALLBACK: Generic field name mappings (for backwards compatibility)
+            if not fieldTypeResolved {
+                let mappedType = mapFieldNameToReceiverType(fieldName)
+                if mappedType != "" {
+                    receiverTypeBox[0] = mappedType
+                    fieldTypeResolved = true
+                }
+            }
+            if not fieldTypeResolved and fieldName.contains(".") {
+                // Handle chained field names by walking through types
+                var currentType = varType
+                var remainingPath = fieldName
+                while remainingPath.length() > 0 and currentType != "" and currentType != "Int" {
+                    var nextDot = -1
+                    var chainedSearchIdx = 0
+                    while chainedSearchIdx < remainingPath.length() {
+                        if remainingPath.byteAt(chainedSearchIdx) == 46 {
+                            nextDot = chainedSearchIdx
+                            chainedSearchIdx = remainingPath.length()
+                        }
+                        chainedSearchIdx = chainedSearchIdx + 1
+                    }
+                    var currField = ""
+                    if nextDot < 0 {
+                        currField = remainingPath
+                        remainingPath = ""
+                    }
+                    if nextDot >= 0 {
+                        currField = remainingPath.substring(0, nextDot)
+                        remainingPath = remainingPath.substring(nextDot + 1, remainingPath.length())
+                    }
+                    currentType = getSeenFieldType(currentType, currField)
+                }
+                receiverTypeBox[0] = currentType
+                fieldTypeResolved = true
+            }
+            if not fieldTypeResolved {
+                receiverTypeBox[0] = getSeenFieldType(varType, fieldName)
+            }
+        }
+        if not varFoundInLocalScope {
+            // varName is not a local variable - check if it's a field on 'this'
+            let thisIdx = findVar("this")
+            if thisIdx >= 0 {
+                let thisReg = varRegs[thisIdx]
+                let thisType = varTypes[thisIdx]
+
+                // Check if this type has the field
+                let structIdx = findStruct(thisType)
+                output.append("; DEBUG chainedFieldAccess: varName=" + varName + " fieldName=" + fieldName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n")
+                if structIdx >= 0 {
+                    let fieldIdx = getFieldInfo(thisType, varName)
+                    output.append("; DEBUG chainedFieldAccess: fieldIdx=" + fieldIdx.toString() + "\n")
+                    if fieldIdx >= 0 {
+                        // Load 'this' pointer
+                        let thisPtrReg = getNextReg()
+                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+
+                        // Get the type of the first field (varName)
+                        let firstFieldType = getSeenFieldType(thisType, varName)
+                        output.append("; DEBUG chainedFieldAccess: firstFieldType=" + firstFieldType + "\n")
+
+                        // Resolve pointer to the first field (class -> i64 to ptr, data -> field pointer)
+                        var accessFieldReg = ""
+                        if isClassType(firstFieldType) {
+                            let firstFieldReg = generateFieldAccess(thisPtrReg, thisType, varName)
+                            let ptrConvReg = getNextReg()
+                            output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldReg + " to ptr\n")
+                            accessFieldReg = ptrConvReg
+                        } else {
+                            accessFieldReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
+                        }
+
+                        // Now access the chained field(s) from this first field (e.g., items from currentProgram)
+                        receiverRegBox[0] = generateFieldAccess(accessFieldReg, firstFieldType, fieldName)
+
+                        // Infer receiver type from fieldName
+                        let chainedMappedType = mapFieldNameToReceiverType(fieldName)
+                        if chainedMappedType != "" {
+                            receiverTypeBox[0] = chainedMappedType
+                        } else {
+                            receiverTypeBox[0] = getSeenFieldType(firstFieldType, fieldName)
+                        }
+                        output.append("; DEBUG chainedFieldAccess: receiverType=" + receiverTypeBox[0] + " receiverReg=" + receiverRegBox[0] + "\n")
+                    }
+                }
+            }
+        }
+    }
+
+    fun tryResolveSimpleLiteralMethodReceiver(expr: ParserExpressionNode, methodName: String,
+        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
+
+        if expr.literalValue == "" {
+            return ""
+        }
+        if expr.operands.length() == 0 and expr.literalValue.contains(".") {
+            return ""
+        }
+
+        // Simple variable receiver stored in literalValue
+        let varName = expr.literalValue
+        let idx = findVar(varName)
+        var varFoundInMethodCall = false
+        if idx >= 0 {
+            varFoundInMethodCall = true
+            let varReg = varRegs[idx]
+            let varType = varTypes[idx]
+            let llvmType = mapType(varType)
+            receiverRegBox[0] = getNextReg()
+            receiverTypeBox[0] = varType
+            output.append("  " + receiverRegBox[0] + " = load " + llvmType + ", ptr " + varReg + "\n")
+            // dyn Trait vtable dispatch for simple variable receivers — delegated to ir_call_dispatch.seen
+            if varType.startsWith("dyn ") {
+                let svDynTraitName = varType.substring(4, varType.length())
+                let svDynTraitIdx = findStruct(svDynTraitName)
+                var svDynMethodNames = ""
+                var svDynRetTypes = ""
+                if svDynTraitIdx >= 0 {
+                    svDynMethodNames = structMethodNames[svDynTraitIdx]
+                    svDynRetTypes = structMethodRetTypes[svDynTraitIdx]
+                }
+                var svDynArgRegs = Array<String>()
+                var svDynArgTypes = Array<String>()
+                var svDynAIdx = 0
+                while svDynAIdx < expr.arguments.length() {
+                    let svDynArgReg = generateExpression(expr.arguments[svDynAIdx])
+                    let svDynArgType = inferExpressionType(expr.arguments[svDynAIdx])
+                    svDynArgRegs.push(svDynArgReg)
+                    svDynArgTypes.push(mapType(svDynArgType))
+                    svDynAIdx = svDynAIdx + 1
+                }
+                // Simple receivers pass data as i64 (useI64DataArg=1)
+                return emitDynTraitVtableCallImpl(output, g_regBox, receiverRegBox[0], svDynTraitName, methodName, svDynMethodNames, svDynRetTypes, svDynArgRegs, svDynArgTypes, 1)
+            }
+            // SIMD horizontal reduction ops for simple variable receivers — delegated to ir_call_dispatch.seen
+            if isSimdVectorType(varType) == 1 {
+                let svSimdResult = emitSimdReductionVarImpl(output, g_regBox, methodName, receiverRegBox[0], varType)
+                if svSimdResult != "" { return svSimdResult }
+            }
+        }
+        if not varFoundInMethodCall {
+            // Check if it's a global variable (module constant)
+            let gvMcIdx = findModuleConstant(varName)
+            if gvMcIdx >= 0 {
+                let gvMcType = moduleConstantTypes[gvMcIdx]
+                receiverRegBox[0] = getNextReg()
+                var gvMcInvSuffix = ""
+                if not isModuleConstMutable(gvMcIdx) {
+                    gvMcInvSuffix = ", !invariant.load !190"
+                }
+                output.append("  " + receiverRegBox[0] + " = load " + gvMcType + ", ptr @" + varName + gvMcInvSuffix + "\n")
+                let gvMcSeenType = getModuleConstSeenType(gvMcIdx)
+                if gvMcSeenType != "" {
+                    receiverTypeBox[0] = gvMcSeenType
+                } else {
+                    if gvMcType == "i64" { receiverTypeBox[0] = "Int" }
+                    if gvMcType == "double" { receiverTypeBox[0] = "Float" }
+                    if gvMcType == "i1" { receiverTypeBox[0] = "Bool" }
+                    if gvMcType == "%SeenString" { receiverTypeBox[0] = "String" }
+                    if gvMcType == "ptr" { receiverTypeBox[0] = "ptr" }
+                }
+                varFoundInMethodCall = true
+            }
+        }
+        if not varFoundInMethodCall {
+            // Variable not found - check if 'this' exists and varName is a field
+            let thisIdx = findVar("this")
+            if thisIdx >= 0 {
+                let thisReg = varRegs[thisIdx]
+                let thisType = varTypes[thisIdx]
+
+                if thisType == "LLVMIRGenerator" {
+                    let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+                    if idxCheck >= 0 {
+                        let thisPtrReg = getNextReg()
+                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+                        receiverRegBox[0] = generateFieldAccess(thisPtrReg, thisType, varName)
+                        receiverTypeBox[0] = getSeenFieldType(thisType, varName)
+                    }
+                }
+
+                // Check if this type has the field
+                let structIdx = findStruct(thisType)
+                output.append("; DEBUG methodCall: varName=" + varName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n")
+                if structIdx >= 0 {
+                    let fieldIdx = getFieldInfo(thisType, varName)
+                    output.append("; DEBUG fieldIdx=" + fieldIdx.toString() + "\n")
+                    if fieldIdx >= 0 {
+                        // Load 'this' pointer
+                        let thisPtrReg = getNextReg()
+                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+                        // Access the field
+                        receiverRegBox[0] = generateFieldAccess(thisPtrReg, thisType, varName)
+                        output.append("; DEBUG after generateFieldAccess: receiverReg=" + receiverRegBox[0] + "\n")
+                        // Infer receiver type from field
+                        receiverTypeBox[0] = getSeenFieldType(thisType, varName)
+                        output.append("; DEBUG receiverType=" + receiverTypeBox[0] + "\n")
+                    }
+                }
+                if structIdx < 0 {
+                    // Fallback: hardcoded field access for well-known fields
+                    // SeenLexer.keywordManager is at index 4
+                    output.append("; DEBUG: thisType=" + thisType + " varName=" + varName + "\n")
+                    if thisType == "SeenLexer" and varName == "keywordManager" {
+                        output.append("; DEBUG: Matched SeenLexer.keywordManager!\n")
+                        let thisPtrReg = getNextReg()
+                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+                        let gepReg = getNextReg()
+                        output.append("  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n")
+                        receiverRegBox[0] = getNextReg()
+                        output.append("  " + receiverRegBox[0] + " = load ptr, ptr " + gepReg + "\n")
+                        receiverTypeBox[0] = "KeywordManager"
+                        output.append("; DEBUG: receiverReg=" + receiverRegBox[0] + " receiverType=" + receiverTypeBox[0] + "\n")
+                    }
+                }
+            }
+        }
+
+        return ""
+    }
+
+    // Generate IR for a method call (receiver.method(args)). The largest and
+    // most complex dispatch in the codegen — handles:
+    //   - SIMD horizontal reductions (reduce_add/min/max)
+    //   - Option methods (isSome/isNone/unwrap — inlined as null checks)
+    //   - Hot-reload synthesized methods (__seen_hot_get_size etc.)
+    //   - Collection methods: Vec, HashMap, BTreeMap, LinkedList (dispatched
+    //     to type-specialized runtime functions via dispatchCollectionMethodImpl)
+    //   - String methods (length, contains, indexOf, split, trim, etc.)
+    //   - StringBuilder methods (append, toString)
+    //   - Array methods (push, get, set, length, pop, etc. with type dispatch
+    //     for Int/String/Float/Bool/data-type element types)
+    //   - SmallVec/JsonValue methods
+    //   - Numeric methods (toString, toFloat, abs, etc.)
+    //   - User-defined class methods (ClassName_methodName mangling)
+    //   - Simple variable receivers (separate handling path when operands is
+    //     empty but callee contains the receiver)
+    // NOTE: HashMap/BTreeMap methods must be handled in TWO locations — inside
+    // the "operands.length() > 0" path AND the "simple variable receivers"
+    // fallback section.
+    fun generateMethodCall(expr: ParserExpressionNode) r: String {
+        let methodName = expr.callee
+        let receiverPrepRegBox = Array<String>()
+        receiverPrepRegBox.push("")
+        let receiverPrepTypeBox = Array<String>()
+        receiverPrepTypeBox.push("String")
+
+        resolveRebuiltLiteralPathMethodReceiver(expr, receiverPrepRegBox, receiverPrepTypeBox)
+
+        let explicitReceiverResult = tryPrepareExplicitMethodReceiver(expr, methodName, receiverPrepRegBox, receiverPrepTypeBox)
+        if explicitReceiverResult != "" {
+            return explicitReceiverResult
+        }
+
+        resolveChainedLiteralMethodReceiver(expr, receiverPrepRegBox, receiverPrepTypeBox)
+
+        let simpleReceiverResult = tryResolveSimpleLiteralMethodReceiver(expr, methodName, receiverPrepRegBox, receiverPrepTypeBox)
+        if simpleReceiverResult != "" {
+            return simpleReceiverResult
+        }
+
+        var receiverReg = receiverPrepRegBox[0]
+        var receiverType = receiverPrepTypeBox[0]
+
+        let resolvedReceiverFastPath = tryGenerateResolvedReceiverFastPathMethodCall(expr, methodName, receiverReg, receiverType)
+        if resolvedReceiverFastPath != "" {
+            return resolvedReceiverFastPath
+        }
+
+        // Check if this is a static method call BEFORE setting receiver fallback
+        // Static method call: ClassName.method() where ClassName is not a variable
+        // Class names use PascalCase (start with uppercase letter)
+        let staticCallResult = tryGenerateStaticMethodCall(expr, methodName, receiverReg)
+        if staticCallResult != "" {
+            return staticCallResult
+        }
+
+        // If receiver couldn't be resolved, check if this is a standalone function call
+        // This handles cases where class methods were incorrectly parsed as standalone functions
+        let unresolvedReceiverRegBox = Array<String>()
+        unresolvedReceiverRegBox.push(receiverReg)
+        let unresolvedResult = tryHandleUnresolvedMethodReceiver(expr, methodName, unresolvedReceiverRegBox, receiverType)
+        receiverReg = unresolvedReceiverRegBox[0]
+        if unresolvedResult != "" {
+            return unresolvedResult
+        }
+
+        // Generate arguments BEFORE allocating result register to keep numbers in order
+        let arrayMutatorResult = tryGenerateArrayMutatorMethodCall(expr, methodName, receiverReg, receiverType)
+        if arrayMutatorResult != "" {
+            return arrayMutatorResult
         }
 
         if methodName == "length" or methodName == "len" or methodName == "size" {
@@ -13110,402 +13213,10 @@ class LLVMIRGenerator {
                 return resultReg
             }
         }
-        if methodName == "push" and (receiverType.startsWith("Array<") or receiverType == "Array") {
-            // push needs pointer to array to modify in place
-            // Generate argument first
-            let argExpr = expr.arguments[0]
-            let argReg = generateExpression(argExpr)
-            let argType = inferExpressionType(argExpr)
-            // Track if arg is from a struct literal (returns ptr) vs method call (may return inline struct)
-            let argIsStructLiteral = argExpr.kind == "StructLiteral"
-            var elemType = ""
-            if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
-                elemType = receiverType.substring(6, receiverType.length() - 1)
-            }
-            var pushElemType = argType
-            if pushElemType == "" {
-                pushElemType = elemType
-            }
-
-            // We need the field pointer, not the loaded value
-            var arrayPtrReg = ""
-
-            // First, check if receiver is a local variable - use its alloca directly
-            let varName = expr.literalValue
-            if varName != "" {
-                // Check if this is a chained field access (contains .)
-                if varName.contains(".") {
-                    // Chained field access like currentProgram.items
-                    // Parse the path and navigate through fields
-                    var dotIdx = 0
-                    var searchIdx = 0
-                    while searchIdx < varName.length() {
-                        if varName.byteAt(searchIdx) == 46 {
-                            dotIdx = searchIdx
-                            searchIdx = varName.length()  // Exit loop at first dot
-                        }
-                        searchIdx = searchIdx + 1
-                    }
-                    let firstPart = varName.substring(0, dotIdx)
-                    let restPart = varName.substring(dotIdx + 1, varName.length())
-
-                    output.append("; DEBUG push chained: firstPart=" + firstPart + " restPart=" + restPart + "\n")
-
-                    // Check if first part is a local variable
-                    let firstVarIdx = findVar(firstPart)
-                    var firstPartHandled = false
-                    if firstVarIdx >= 0 {
-                        // First part is a local variable
-                        let firstVarReg = varRegs[firstVarIdx]
-                        let firstVarType = varTypes[firstVarIdx]
-                        let firstPtrReg = getNextReg()
-                        output.append("  " + firstPtrReg + " = load ptr, ptr " + firstVarReg + "\n")
-                        // Get pointer to rest of the path (the array field)
-                        let fieldPtrReg = generateFieldAccessPtr(firstPtrReg, firstVarType, restPart)
-                        // Load the actual array pointer from the field (arrays are stored as ptr to heap SeenArray)
-                        let loadedArrPtr = getNextReg()
-                        output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
-                        arrayPtrReg = loadedArrPtr
-                        firstPartHandled = true
-                    }
-                    if not firstPartHandled {
-                        // First part might be a field on 'this'
-                        let thisIdx = findVar("this")
-                        if thisIdx >= 0 {
-                            let thisReg = varRegs[thisIdx]
-                            let thisType = varTypes[thisIdx]
-                            let structIdx = findStruct(thisType)
-                            if structIdx >= 0 {
-                                let fieldIdx = getFieldInfo(thisType, firstPart)
-                                output.append("; DEBUG push chained from this: thisType=" + thisType + " firstPart=" + firstPart + " fieldIdx=" + fieldIdx.toString() + "\n")
-                                if fieldIdx >= 0 {
-                                    // Load 'this' pointer
-                                    let thisPtrReg = getNextReg()
-                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                                    // Get the type and pointer of the first field
-                                    let firstFieldType = getSeenFieldType(thisType, firstPart)
-                                    let firstFieldReg = generateFieldAccess(thisPtrReg, thisType, firstPart)
-                                    output.append("; DEBUG push chained: firstFieldType=" + firstFieldType + " firstFieldReg=" + firstFieldReg + "\n")
-
-                                    // If firstFieldType is a class type, convert i64 to ptr
-                                    var accessFieldReg = firstFieldReg
-                                    if isClassType(firstFieldType) {
-                                        let ptrConvReg = getNextReg()
-                                        output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldReg + " to ptr\n")
-                                        accessFieldReg = ptrConvReg
-                                    }
-
-                                    // Now get pointer to the rest of the path (the array field)
-                                    let fieldPtrReg = generateFieldAccessPtr(accessFieldReg, firstFieldType, restPart)
-                                    // Load the actual array pointer from the field (arrays are stored as ptr to heap SeenArray)
-                                    let loadedArrPtr = getNextReg()
-                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
-                                    arrayPtrReg = loadedArrPtr
-                                    output.append("; DEBUG push chained: arrayPtrReg=" + arrayPtrReg + "\n")
-                                }
-                            }
-                        }
-                    }
-                }
-                if not varName.contains(".") {
-                    // Simple variable name (no dots)
-                    let varIdx = findVar(varName)
-                    var pushVarHandled = false
-                    if varIdx >= 0 {
-                        // Local variable - load the array pointer from the alloca
-                        // Arrays are stored as ptr to heap SeenArray
-                        let loadReg = getNextReg()
-                        output.append("  " + loadReg + " = load ptr, ptr " + varRegs[varIdx] + "\n")
-                        arrayPtrReg = loadReg
-                        pushVarHandled = true
-                    }
-                    if not pushVarHandled {
-                        // Not a local variable - might be a field on 'this'
-                        let thisIdx = findVar("this")
-                        if thisIdx >= 0 {
-                            let thisReg = varRegs[thisIdx]
-                            let thisType = varTypes[thisIdx]
-                            if thisType == "LLVMIRGenerator" {
-                                let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-                                if idxCheck >= 0 {
-                                    let thisPtrReg = getNextReg()
-                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                                    let fieldPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
-                                    let loadedArrPtr = getNextReg()
-                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
-                                    arrayPtrReg = loadedArrPtr
-                                }
-                            }
-                            let structIdx = findStruct(thisType)
-                            if structIdx >= 0 {
-                                let fieldIdx = getFieldInfo(thisType, varName)
-                                if fieldIdx >= 0 {
-                                    // Load 'this' pointer and get field pointer
-                                    let thisPtrReg = getNextReg()
-                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                                    let fieldPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
-                                    // Load the actual array pointer from the field (arrays are stored as ptr to heap SeenArray)
-                                    let loadedArrPtr = getNextReg()
-                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
-                                    arrayPtrReg = loadedArrPtr
-                                }
-                            }
-                        }
-                        // Cross-module global fallback: try loading ptr from @varName
-                        if arrayPtrReg == "" {
-                            let loadReg = getNextReg()
-                            output.append("  " + loadReg + " = load ptr, ptr @" + varName + "\n")
-                            arrayPtrReg = loadReg
-                        }
-                    }
-                }
-            }
-
-            // Fall back: receiverReg is already a ptr to SeenArray on heap
-            // (arrays are heap-allocated, so receiverReg from generateExpression is a ptr)
-            if arrayPtrReg == "" and (receiverType.startsWith("Array<") or receiverType == "Array") {
-                arrayPtrReg = receiverReg
-            }
-
-            if arrayPtrReg != "" {
-                // Use type-specific push function for correct ABI
-                var pushTypeHandled = false
-                if pushElemType == "String" {
-                    // For strings, use seen_arr_push_str which takes SeenString by value
-                    output.append("  call void @seen_arr_push_str(ptr " + arrayPtrReg + ", %SeenString " + argReg + ")\n")
-                    return "0"  // void return
-                }
-                if pushElemType == "Int" or pushElemType == "Char" or receiverType == "Array<Int>" {
-                    // Inline fast-path push: check len < cap, store directly
-                    // Slow path falls back to runtime for capacity growth
-                    let lenPtrReg = getNextReg()
-                    let lenReg = getNextReg()
-                    let capPtrReg = getNextReg()
-                    let capReg = getNextReg()
-                    let needsGrowReg = getNextReg()
-                    let slowLabel = getNextBlockLabel()
-                    let fastLabel = getNextBlockLabel()
-                    let doneLabel = getNextBlockLabel()
-
-                    // Load len (field 0) and cap (field 1)
-                    output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 0\n")
-                    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
-                    output.append("  " + capPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 1\n")
-                    output.append("  " + capReg + " = load i64, ptr " + capPtrReg + ", !tbaa !108, !range !188\n")
-
-                    // Branch: len >= cap -> slow path (grow), else -> fast path (direct store)
-                    // Branch weights: fast path (no grow) is much more likely
-                    output.append("  " + needsGrowReg + " = icmp sge i64 " + lenReg + ", " + capReg + "\n")
-                    output.append("  br i1 " + needsGrowReg + ", label %" + slowLabel + ", label %" + fastLabel + ", !prof !197\n")
-
-                    // Slow path: fully inlined grow + push (enables SROA when struct is on stack)
-                    output.append(slowLabel + ":\n")
-                    // new_cap = cap * 2
-                    let newCapReg = getNextReg()
-                    output.append("  " + newCapReg + " = shl i64 " + capReg + ", 1\n")
-                    // Store new cap
-                    output.append("  store i64 " + newCapReg + ", ptr " + capPtrReg + ", !tbaa !108\n")
-                    // new byte size = new_cap * 8
-                    let newByteSizeReg = getNextReg()
-                    output.append("  " + newByteSizeReg + " = shl i64 " + newCapReg + ", 3\n")
-                    // Load data ptr
-                    let slowDataPtrPtrReg = getNextReg()
-                    output.append("  " + slowDataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
-                    let slowOldDataReg = getNextReg()
-                    output.append("  " + slowOldDataReg + " = load ptr, ptr " + slowDataPtrPtrReg + ", !tbaa !104\n")
-                    // Realloc
-                    let slowNewDataReg = getNextReg()
-                    output.append("  " + slowNewDataReg + " = call ptr @realloc(ptr " + slowOldDataReg + ", i64 " + newByteSizeReg + ")\n")
-                    // Store new data ptr
-                    output.append("  store ptr " + slowNewDataReg + ", ptr " + slowDataPtrPtrReg + ", !tbaa !104\n")
-                    // Store element at data[len]
-                    let slowElemPtrReg = getNextReg()
-                    output.append("  " + slowElemPtrReg + " = getelementptr inbounds i64, ptr " + slowNewDataReg + ", i64 " + lenReg + "\n")
-                    output.append("  store i64 " + argReg + ", ptr " + slowElemPtrReg + ", !tbaa !105\n")
-                    // Increment len
-                    let slowNewLenReg = getNextReg()
-                    output.append("  " + slowNewLenReg + " = add nsw i64 " + lenReg + ", 1\n")
-                    output.append("  store i64 " + slowNewLenReg + ", ptr " + lenPtrReg + ", !tbaa !108\n")
-                    output.append("  br label %" + doneLabel + "\n")
-
-                    // Fast path: direct store at data[len], then increment len
-                    output.append(fastLabel + ":\n")
-                    let dataPtrPtrReg = getNextReg()
-                    let dataPtrReg = getNextReg()
-                    let elemPtrReg = getNextReg()
-                    let newLenReg = getNextReg()
-                    output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
-                    output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
-                    output.append("  " + elemPtrReg + " = getelementptr inbounds i64, ptr " + dataPtrReg + ", i64 " + lenReg + "\n")
-                    output.append("  store i64 " + argReg + ", ptr " + elemPtrReg + ", !tbaa !105\n")
-                    output.append("  " + newLenReg + " = add nsw i64 " + lenReg + ", 1\n")
-                    output.append("  store i64 " + newLenReg + ", ptr " + lenPtrReg + ", !tbaa !108\n")
-                    output.append("  br label %" + doneLabel + "\n")
-
-                    // Done
-                    output.append(doneLabel + ":\n")
-                    return "0"  // void return
-                }
-                if pushElemType == "Float" or receiverType == "Array<Float>" {
-                    // For Float arrays, bitcast double to i64 and use seen_arr_push_i64
-                    // Both are 8 bytes so this is safe
-                    let castReg = getNextReg()
-                    output.append("  " + castReg + " = bitcast double " + argReg + " to i64\n")
-                    output.append("  call void @seen_arr_push_i64(ptr " + arrayPtrReg + ", i64 " + castReg + ")\n")
-                    return "0"  // void return
-                }
-                if pushElemType != "String" and pushElemType != "Int" and pushElemType != "Float" and receiverType != "Array<Int>" and receiverType != "Array<Float>" {
-                    // Inline data types use Array_push (copies element_size bytes).
-                    if isDataType(pushElemType) {
-                        var ptrArgReg = argReg
-                        if isClassType(pushElemType) {
-                            let tmpReg = getNextReg()
-                            output.append("  " + tmpReg + " = alloca i64\n")
-                            output.append("  store i64 " + argReg + ", ptr " + tmpReg + "\n")
-                            ptrArgReg = tmpReg
-                        }
-                        if not argIsStructLiteral {
-                            let tmpReg = getNextReg()
-                            output.append("  " + tmpReg + " = alloca %" + pushElemType + "\n")
-                            output.append("  store %" + pushElemType + " " + argReg + ", ptr " + tmpReg + "\n")
-                            ptrArgReg = tmpReg
-                        }
-                        let resultReg = getNextReg()
-                        output.append("  " + resultReg + " = call i64 @Array_push(ptr " + arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
-                        return resultReg
-                    }
-                    // Pointer arrays (class types and raw pointers) use seen_arr_push_ptr.
-                    var ptrArgReg = argReg
-                    if isClassType(pushElemType) {
-                        let ptrReg = getNextReg()
-                        output.append("  " + ptrReg + " = inttoptr i64 " + argReg + " to ptr\n")
-                        ptrArgReg = ptrReg
-                    }
-                    if ptrArgReg == "0" {
-                        ptrArgReg = "null"
-                    }
-                    output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
-                    return "0"
-                }
-            }
-        }
-
-        // Array.pop() — remove and return the last element
-        if methodName == "pop" {
-            var arrayPtrReg = ""
-            let popVarName = expr.literalValue
-            if popVarName != "" {
-                let popVarIdx = findVar(popVarName)
-                if popVarIdx >= 0 {
-                    let loadReg = getNextReg()
-                    output.append("  " + loadReg + " = load ptr, ptr " + varRegs[popVarIdx] + "\n")
-                    arrayPtrReg = loadReg
-                }
-            }
-            if arrayPtrReg == "" { arrayPtrReg = receiverReg }
-            if arrayPtrReg != "" {
-                var elemType = ""
-                if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
-                    elemType = receiverType.substring(6, receiverType.length() - 1)
-                }
-                let popResultReg = getNextReg()
-                if elemType == "Float" {
-                    output.append("  " + popResultReg + " = call double @seen_arr_pop_f64(ptr " + arrayPtrReg + ")\n")
-                    return popResultReg
-                }
-                if elemType == "String" {
-                    output.append("  " + popResultReg + " = call %SeenString @seen_arr_pop_str(ptr " + arrayPtrReg + ")\n")
-                    return popResultReg
-                }
-                output.append("  " + popResultReg + " = call i64 @seen_arr_pop_i64(ptr " + arrayPtrReg + ")\n")
-                return popResultReg
-            }
-        }
-
-        // Inline Array.swap(i, j): swap two elements in an Array<Int> or Array<Float>
-        if methodName == "swap" {
-            let isArraySwap = receiverType.startsWith("Array<") or receiverType == "Array"
-            if isArraySwap and expr.arguments.length() == 2 {
-                let idxAReg = generateExpression(expr.arguments[0])
-                let idxBReg = generateExpression(expr.arguments[1])
-                // Resolve array pointer from variable
-                var arrayPtrReg = receiverReg
-                if arrayPtrReg == "" and expr.literalValue != "" {
-                    let swapVarIdx = findVar(expr.literalValue)
-                    if swapVarIdx >= 0 {
-                        arrayPtrReg = getNextReg()
-                        output.append("  " + arrayPtrReg + " = load ptr, ptr " + varRegs[swapVarIdx] + "\n")
-                    }
-                }
-                if arrayPtrReg != "" {
-                    // GEP to data pointer (field 3 of SeenArray)
-                    let dataPPReg = getNextReg()
-                    output.append("  " + dataPPReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
-                    let dataPReg = getNextReg()
-                    output.append("  " + dataPReg + " = load ptr, ptr " + dataPPReg + ", !tbaa !104\n")
-                    // GEP to element[i] and element[j]
-                    let elemAPtrReg = getNextReg()
-                    output.append("  " + elemAPtrReg + " = getelementptr inbounds i64, ptr " + dataPReg + ", i64 " + idxAReg + "\n")
-                    let elemBPtrReg = getNextReg()
-                    output.append("  " + elemBPtrReg + " = getelementptr inbounds i64, ptr " + dataPReg + ", i64 " + idxBReg + "\n")
-                    // Load both elements
-                    let valAReg = getNextReg()
-                    output.append("  " + valAReg + " = load i64, ptr " + elemAPtrReg + ", align 8, !tbaa !105\n")
-                    let valBReg = getNextReg()
-                    output.append("  " + valBReg + " = load i64, ptr " + elemBPtrReg + ", align 8, !tbaa !105\n")
-                    // Store crosswise
-                    output.append("  store i64 " + valBReg + ", ptr " + elemAPtrReg + ", align 8, !tbaa !105\n")
-                    output.append("  store i64 " + valAReg + ", ptr " + elemBPtrReg + ", align 8, !tbaa !105\n")
-                    return "0"
-                }
-            }
-        }
-
-        // Check if this is a static method call (receiver is a class name, not a variable)
-        // BUT if we already set receiverReg from field access, this is NOT a static call
-        let isStatic = findVar(expr.literalValue) < 0 and receiverReg == ""
-
-        if isStatic {
-            // Static method call: LLVMIRGenerator.new() -> @LLVMIRGenerator_new()
-            let className = expr.literalValue
-            let funcName = className + "_" + methodName
-
-            // Generate arguments
-            var argRegs = Array<String>()
-            var argTypeStrs = Array<String>()
-            prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
-
-            let registeredStaticReturnType = getMethodReturnType(className, methodName)
-            var staticReturnType = registeredStaticReturnType
-            if staticReturnType == "" or staticReturnType == "Unknown" {
-                staticReturnType = inferExpressionType(expr)
-            }
-            let staticLlvmReturnType = mapType(staticReturnType)
-
-            // Fallback generic static call — delegated to ir_call_dispatch.seen
-            var isClassRecvFB = 0
-            if isClassType(className) { isClassRecvFB = 1 }
-            var isDataRecvFB = 0
-            if isDataType(className) { isDataRecvFB = 1 }
-            // Fallback static calls share the same receiver-free ABI as the main
-            // static-call path.
-            let hasImplicitThisFB = 0
-            fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
-            argRegs = g_defaultFillArgRegs
-            argTypeStrs = g_defaultFillArgTypeStrs
-            recordLateUserDeclare(funcName, staticLlvmReturnType, argTypeStrs, hasImplicitThisFB)
-            return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), staticLlvmReturnType, className, argRegs, argTypeStrs, isClassRecvFB, isDataRecvFB, hasImplicitThisFB)
-        }
-
         // Instance method call: generator.generate(arg) -> @LLVMIRGenerator_generate(receiver, arg)
         // Get the receiver's type to construct the function name
-        var instanceTypeName = receiverType
-
-        // Special handling for toJson on unwrapped types
-        // When calling .toJson() on the result of .unwrap(), we need to trace back to the actual type
-        // because inferExpressionType may return "ptr" for unwrap results
-        if instanceTypeName == "ptr" and methodName == "toJson" and expr.operands.length() > 0 {
+        var tracedUnwrapType = ""
+        if receiverType == "ptr" and methodName == "toJson" and expr.operands.length() > 0 {
             let receiverExpr = expr.operands[0]
             if receiverExpr.kind == "MethodCall" and receiverExpr.callee == "unwrap" {
                 // Trace back to find the type being unwrapped
@@ -13513,67 +13224,26 @@ class LLVMIRGenerator {
                     let unwrapReceiverType = inferExpressionType(receiverExpr.operands[0])
                     // If it's a nullable type (T?), the unwrap returns T
                     if unwrapReceiverType.endsWith("?") {
-                        instanceTypeName = unwrapReceiverType.substring(0, unwrapReceiverType.length() - 1)
+                        tracedUnwrapType = unwrapReceiverType.substring(0, unwrapReceiverType.length() - 1)
                     }
                 }
             }
         }
-        // Clean up type name - remove optional ? suffix if present
-        // This handles cases like IRFunction? -> IRFunction
-        if instanceTypeName.length() > 0 and instanceTypeName.charAt(instanceTypeName.length() - 1) == '?' {
-            instanceTypeName = instanceTypeName.substring(0, instanceTypeName.length() - 1)
-        }
-        // NOTE: Do NOT strip Optional<T> or Option<T> wrapper here!
-        // Option is a class with methods like unwrap(), isSome(), etc.
-        // Stripping would cause Option<Bool>.unwrap() to call Bool_unwrap instead of Option_unwrap.
-        // Clean up type name - remove generic parameters if present
-        // Avoid String.contains/substring here to reduce heap churn during codegen.
-        var ltIdx = -1
-        var scanIdx = 0
-        while scanIdx < instanceTypeName.length() {
-            if instanceTypeName.charAt(scanIdx) == '<' {
-                ltIdx = scanIdx
-                scanIdx = instanceTypeName.length()
-            }
-            scanIdx = scanIdx + 1
-        }
-        if ltIdx > 0 {
-            var prefix = ""
-            var i = 0
-            while i < ltIdx {
-                prefix = prefix + instanceTypeName.charAt(i).toString()
-                i = i + 1
-            }
-            instanceTypeName = prefix
-        }
+        let instanceTypeName = normalizeInstanceMethodTypeNameImpl(receiverType, methodName, tracedUnwrapType)
 
         var funcName = instanceTypeName + "_" + methodName
 
-        // Intercept @hot_reload synthesized methods (not in class definition, need explicit dispatch)
-        if methodName == "__seen_hot_get_size" or methodName == "__seen_hot_get_version" or methodName == "__seen_hot_get_state" {
-            var hrRecvReg = receiverReg
-            if isClassType(receiverType) {
-                let hrPtrReg = getNextReg()
-                output.append("  " + hrPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
-                hrRecvReg = hrPtrReg
-            }
-            let hrRes = getNextReg()
-            output.append("  " + hrRes + " = call i64 @" + quoteIdentIfNeeded(funcName) + "(ptr " + hrRecvReg + ")\n")
-            return hrRes
+        var hotClassReceiver = 0
+        if isClassType(receiverType) {
+            hotClassReceiver = 1
         }
-        if methodName == "__seen_hot_set_state" {
-            var hrRecvReg2 = receiverReg
-            if isClassType(receiverType) {
-                let hrPtrReg2 = getNextReg()
-                output.append("  " + hrPtrReg2 + " = inttoptr i64 " + receiverReg + " to ptr\n")
-                hrRecvReg2 = hrPtrReg2
-            }
-            var hrStateArg = "0"
-            if expr.arguments.length() > 0 {
-                hrStateArg = generateExpression(expr.arguments[0])
-            }
-            output.append("  call void @" + quoteIdentIfNeeded(funcName) + "(ptr " + hrRecvReg2 + ", i64 " + hrStateArg + ")\n")
-            return "0"
+        var hotStateArg = ""
+        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
+            hotStateArg = generateExpression(expr.arguments[0])
+        }
+        let hotReloadResult = emitHotReloadMethodCallImpl(output, g_regBox, methodName, quoteIdentIfNeeded(funcName), receiverReg, hotClassReceiver, hotStateArg)
+        if hotReloadResult != "" {
+            return hotReloadResult
         }
 
         // Generate arguments
@@ -13590,46 +13260,23 @@ class LLVMIRGenerator {
         if returnTypeStr == "" or returnTypeStr == "Unknown" { returnTypeStr = "Int" }
         let llvmReturnType = mapType(returnTypeStr)
 
-        // Determine the receiver type for the call
-        // For primitive types (Int, Char, Bool), use their LLVM type directly
-        // For class/struct types, use ptr
-        var receiverLlvmType = "ptr"
-        var receiverLlvmResolved = false
-        if instanceTypeName == "Char" or instanceTypeName == "Int" or instanceTypeName == "Integer" or instanceTypeName == "SeenTokenType" {
-            receiverLlvmType = "i64"
-            receiverLlvmResolved = true
+        let receiverStorageLlvmType = mapType(receiverType)
+        let receiverRegBox = Array<String>()
+        receiverRegBox.push(receiverReg)
+        let receiverLlvmTypeBox = Array<String>()
+        receiverLlvmTypeBox.push("ptr")
+        var receiverIsClass = 0
+        if isClassType(receiverType) {
+            receiverIsClass = 1
         }
-        if not receiverLlvmResolved and (instanceTypeName == "Bool" or instanceTypeName == "Boolean") {
-            receiverLlvmType = "i1"
-            receiverLlvmResolved = true
+        var receiverIsData = 0
+        if isDataType(receiverType) {
+            receiverIsData = 1
         }
-        if not receiverLlvmResolved and instanceTypeName == "Float" {
-            receiverLlvmType = "double"
-            receiverLlvmResolved = true
-        }
-        if not receiverLlvmResolved and instanceTypeName == "String" {
-            receiverLlvmType = "%SeenString"
-            receiverLlvmResolved = true
-        }
-        // For class types (not primitives or String), receiver is stored as i64
-        // Convert from i64 to ptr before calling the method
-        // But non-class struct types (like StringBuilder) are stored as ptr, no conversion needed
-        if not receiverLlvmResolved and isClassType(receiverType) {
-            // receiverLlvmType is "ptr" by default (set above)
-            // But receiverReg holds an i64 value, so convert it
-            let ptrReceiverReg = getNextReg()
-            output.append("  " + ptrReceiverReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
-            receiverReg = ptrReceiverReg
-        }
-        // For data types (inline structs like AnnotationNode), receiver is a struct value
-        // Store to temp alloca and pass pointer - same pattern as data type arguments
-        if not receiverLlvmResolved and isDataType(receiverType) {
-            let llvmType = mapType(receiverType)
-            let allocaReg = getNextReg()
-            output.append("  " + allocaReg + " = alloca " + llvmType + "\n")
-            output.append("  store " + llvmType + " " + receiverReg + ", ptr " + allocaReg + "\n")
-            receiverReg = allocaReg
-        }
+        resolveMethodReceiverAbiImpl(output, g_regBox, instanceTypeName, receiverStorageLlvmType, receiverRegBox, receiverLlvmTypeBox, receiverIsClass, receiverIsData)
+        receiverReg = receiverRegBox[0]
+        let receiverLlvmType = receiverLlvmTypeBox[0]
+
         // String?.unwrap() - identity operation
         // String? maps to %SeenString (same as String); unwrap is a no-op
         if methodName == "unwrap" and instanceTypeName == "String" {
@@ -13638,26 +13285,7 @@ class LLVMIRGenerator {
 
         // Option<T>.unwrap() type-specialized — delegated to ir_call_dispatch.seen
         if methodName == "unwrap" and instanceTypeName == "Option" {
-            // Extract the inner type from Option<T> using receiverType (before generic stripping)
-            var innerType = ""
-            var ltPos = -1
-            var gtPos = -1
-            var scanPos = 0
-            while scanPos < receiverType.length() {
-                if receiverType.charAt(scanPos) == '<' and ltPos < 0 {
-                    ltPos = scanPos
-                }
-                if receiverType.charAt(scanPos) == '>' {
-                    gtPos = scanPos
-                }
-                scanPos = scanPos + 1
-            }
-            if ltPos >= 0 and gtPos > ltPos {
-                innerType = receiverType.substring(ltPos + 1, gtPos)
-            }
-            if innerType == "" {
-                innerType = returnTypeStr
-            }
+            let innerType = extractOptionInnerTypeImpl(receiverType, returnTypeStr)
             var isClassInner = 0
             let baseInnerType = getBaseTypeName(innerType)
             if isClassType(baseInnerType) or baseInnerType == "Vec" or baseInnerType == "Map" or baseInnerType == "HashMap" or baseInnerType == "Result" {
@@ -13672,7 +13300,7 @@ class LLVMIRGenerator {
         fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
         argRegs = g_defaultFillArgRegs
         argTypeStrs = g_defaultFillArgTypeStrs
-        return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType, receiverReg, argRegs, argTypeStrs)
+        return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType, receiverReg, argRegs, argTypeStrs, 0)
     }
 
     // Generate IR for an await expression. Calls the async function to get

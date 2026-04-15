@@ -1,0 +1,63 @@
+// ir_call_fixups.seen — bootstrap and parser-specific call fixups
+// Extracted from llvm_ir_gen.seen to keep generateCall() focused on lowering
+// instead of carrying special-case bootstrap tables inline.
+
+fun pipeContainsCallFixupImpl(entries: String, name: String) r: Bool {
+    if entries == "" or name == "" {
+        return false
+    }
+    let wrappedEntries = "|" + entries + "|"
+    let wrappedName = "|" + name + "|"
+    return wrappedEntries.indexOf(wrappedName, 0) >= 0
+}
+
+// resolveRealParserMisplacedMethodReturnTypeImpl — bootstrap workaround for
+// RealParser methods that were parsed as standalone functions in older stages.
+// Returns the lowered LLVM return type string, or "" if no fixup applies.
+fun resolveRealParserMisplacedMethodReturnTypeImpl(funcName: String) r: String {
+    if pipeContainsCallFixupImpl("isAtEnd|checkToken|matchTokenStr", funcName) {
+        return "i1"
+    }
+    if pipeContainsCallFixupImpl("consume|advance|peek|previous|peekTokenType|parseParameterList|parseBlock|parseParam|parsePrimary|parseCall|parseUnary|parseFactor|parseTerm|parseComparison|parseEquality|parseAnd|parseOr|parseAssignment|parseExpression|parseStatement|parseIfStatement|parseWhileStatement|parseLetStatement|parseVarStatement|parseExpressionStatement|parseReturnStatement|parseFunctionItem|parseClassItem|parseEnumItem|parseImportItem|makeImportSymbol", funcName) {
+        return "i64"
+    }
+    if pipeContainsCallFixupImpl("peekTokenTypeStr|inferVisibility|joinSegments", funcName) {
+        return "%SeenString"
+    }
+    if pipeContainsCallFixupImpl("parseOptionalReturnType|parseOptionalTypeAnnotation|parseTypeNode", funcName) {
+        return "%TypeNode"
+    }
+    if funcName == "parseImportPath" {
+        return "%ImportPathInfo"
+    }
+    if funcName == "parseImportSymbols" {
+        return "ptr"
+    }
+    if pipeContainsCallFixupImpl("skipExpression|toArray|parseExpressionStatementByIdx|parseReturnStatementByIdx|parseIfStatementByIdx|parseWhileStatementByIdx|parseLetStatementByIdx|parseVarStatementByIdx|parseStatementInto|parseExpressionStatementInto|parseReturnStatementInto|parseIfStatementInto|parseWhileStatementInto|parseLetStatementInto|parseVarStatementInto|parseExpressionInto|parseExpressionIntoField|parseLetStatementField|parseVarStatementField|parseReturnStatementField|parseIfStatementField|parseWhileStatementField|parseExpressionStatementField|parseParameterListField|parseFunctionItemInto|parseClassItemInto|parseEnumItemInto|parseImportItemInto", funcName) {
+        return "ptr"
+    }
+    return ""
+}
+
+fun isStandaloneParserWorkaroundImpl(methodName: String) r: Bool {
+    return pipeContainsCallFixupImpl("checkToken|advance|isAtEnd|peek|peekTokenType|peekTokenTypeStr|previous|consume|matchTokenStr|joinSegments|skipExpression|toArray", methodName)
+}
+
+fun resolveStandaloneParserWorkaroundRetTypeImpl(methodName: String) r: String {
+    if methodName == "checkToken" or methodName == "matchTokenStr" or methodName == "isAtEnd" {
+        return "i1"
+    }
+    if methodName == "peekTokenType" {
+        return "i64"
+    }
+    if methodName == "peekTokenTypeStr" or methodName == "joinSegments" {
+        return "%SeenString"
+    }
+    if methodName == "toArray" {
+        return "%SeenArray"
+    }
+    if methodName == "skipExpression" {
+        return "void"
+    }
+    return "ptr"
+}

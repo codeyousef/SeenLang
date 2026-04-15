@@ -10,13 +10,24 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,579` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `15,207` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
   - `ir_async_registry.seen`
   - `ir_trait_registry.seen`
+  - `ir_call_fixups.seen`
+  - `ir_method_finalize.seen`
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
+- Current large-method snapshot:
+  - `generateFunction()` is down to about `766` lines.
+  - `generateCall()` is down to about `846` lines.
+  - `generateMethodCall()` is down to about `236` lines.
+  - Receiver-preparation helpers inside `llvm_ir_gen.seen` are now split into:
+    - `resolveRebuiltLiteralPathMethodReceiver()` at about `28` lines.
+    - `tryPrepareExplicitMethodReceiver()` at about `106` lines.
+    - `resolveChainedLiteralMethodReceiver()` at about `181` lines.
+    - `tryResolveSimpleLiteralMethodReceiver()` at about `150` lines.
 
 ### Implemented Slices
 
@@ -40,18 +51,39 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Moved late-discovered user declare lookup, declaration-string building, registry append, duplicate filtering, and emit helpers into `ir_decl_scan.seen`.
 - Extracted dyn-trait name registration plus explicit and auto-detected trait-impl registry append logic into `ir_trait_registry.seen`.
 
+4. Phase 4 function pipeline
+- Extracted shared function signature emission, default-return emission, async coroutine preamble/epilogue emission, intrinsic-wrapper emission, and unused-parameter scanning into `ir_function_gen.seen`.
+- Reduced `generateFunction()` by moving setup and epilogue details behind small focused helpers while preserving the `LLVMIRGenerator` facade.
+
+5. Phase 5 call pipeline kickoff
+- `generateCall()` now uses the shared `emitUserFunctionCallImpl(...)` path for final free-function emission instead of hand-rolling void/non-void argument loops inline.
+- Implicit `this` calls and the RealParser misplaced-method bootstrap workaround now share `emitUserMethodCallImpl(...)` for final call emission, including tail-position handling for non-void returns.
+- Extracted the RealParser bootstrap workaround table into `ir_call_fixups.seen` so parser-specific call fixups no longer live inline inside `generateCall()`.
+- Extracted the final instance-method-call normalization path into `ir_method_finalize.seen`, including receiver type cleanup, hot-reload synthesized method interception, receiver ABI adaptation, and `Option<T>.unwrap()` inner-type parsing.
+- `generateMethodCall()` now delegates its final user-method lowering path to those helpers instead of carrying that ABI/detail logic inline.
+- Split `generateMethodCall()` further into class-local sub-pipeline helpers for resolved-receiver fast paths, static method lowering, and unresolved-receiver fallback handling.
+- Moved the standalone parser workaround classification/return-type table behind shared helpers in `ir_call_fixups.seen` so the method dispatcher no longer owns those lists directly.
+- Extracted array mutator lowering (`free`, `push`, `pop`, `swap`) behind `tryGenerateArrayMutatorMethodCall(...)` so those structural mutations no longer live inline in `generateMethodCall()`.
+- Split receiver preparation out of `generateMethodCall()` into focused helpers for rebuilt chained paths, explicit receiver fast paths, chained literal fallback, and simple literal receiver lookup. This makes `generateMethodCall()` read as a dispatcher pipeline instead of a mixed resolver/emitter blob.
+
 ### Validation Status
 
-- Every completed slice has been checked using memory-capped rebuilds derived from current system memory.
-- The current compiler still clears Pass 1 and serial IR generation for all `59` modules after these changes.
-- The recurring failure remains late in module optimization: `/usr/bin/opt: unknown pass name 'polly-canonicalize'`.
+- Spot checks continue to use explicit RAM caps derived from current system memory.
+- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap.
+- `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_call_fixups.seen` reaches the expected `missing main` diagnostic, which at least confirms the new helper module parses cleanly.
+- `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_method_finalize.seen` also reaches the expected `missing main` diagnostic.
+- Direct compiler self-checks still hit the pre-existing early allocator failure: `free(): invalid size` while checking `compiler_seen/src/main_compiler.seen`.
+- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap.
+- The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 
 ### Phase Status
 
 - Phase 1: partially complete; state sync and explicit function-lowering options are in place.
 - Phase 2: core module-emission and call-argument dedup completed.
 - Phase 3: in progress; declaration scan, async registry extraction, late user declare registry extraction, and trait registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
-- Phases 4-7: not started yet.
+- Phase 4: started; function signature/default-return/coroutine/intrinsic wrapper helpers are extracted, but parameter lowering and body emission still live in `llvm_ir_gen.seen`.
+- Phase 5: started; final free-call emission, RealParser call fixups, final instance-method-call normalization, array mutator lowering, and receiver-preparation sub-pipeline helpers are extracted. The next clean Phase 5 step is moving those receiver helpers out of `llvm_ir_gen.seen` entirely or using the same pattern on the remaining post-resolution method dispatch.
+- Phases 6-7: not started yet.
 
 ## Baseline Snapshot
 
