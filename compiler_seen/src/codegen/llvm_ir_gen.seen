@@ -11175,6 +11175,114 @@ class LLVMIRGenerator {
         receiverTypeBox[0] = inferExpressionType(rebuiltReceiverExpr)
     }
 
+    fun resolveMethodFieldPathType(baseType: String, fieldPath: String) r: String {
+        if baseType == "" or fieldPath == "" {
+            return ""
+        }
+        if fieldPath.contains(".") {
+            let chainedType = resolveChainedPathSuffixTypeImpl(baseType, fieldPath,
+                structNames, structFieldNames, structFieldTypes,
+                structMethodNames, structMethodRetTypes)
+            if chainedType != "" {
+                return chainedType
+            }
+        }
+        let semanticFieldType = getSemanticFieldType(baseType, fieldPath)
+        if semanticFieldType != "" and semanticFieldType != "Int" {
+            return semanticFieldType
+        }
+        let seenFieldType = getSeenFieldType(baseType, fieldPath)
+        if seenFieldType != "" and seenFieldType != "Int" {
+            return seenFieldType
+        }
+        let mappedType = mapFieldNameToReceiverType(fieldPath)
+        if mappedType != "" {
+            return mappedType
+        }
+        return seenFieldType
+    }
+
+    fun resolveLiteralMethodReceiverType(literalValue: String) r: String {
+        if literalValue == "" {
+            return ""
+        }
+        if literalValue.startsWith("SeenTokenType.") {
+            return "Int"
+        }
+
+        if literalValue.contains(".") {
+            let chainedType = resolveChainedPathType(literalValue)
+            if chainedType != "" {
+                return chainedType
+            }
+        }
+
+        let directVarType = findVarType(literalValue)
+        if directVarType != "" {
+            return directVarType
+        }
+
+        let thisIdx = findVar("this")
+        if thisIdx < 0 {
+            return ""
+        }
+        let thisType = varTypes[thisIdx]
+        if literalValue.contains(".") {
+            let pathParts = splitFirstPathDotImpl(literalValue)
+            let firstFieldType = resolveMethodFieldPathType(thisType, pathParts[0])
+            return resolveMethodFieldPathType(firstFieldType, pathParts[1])
+        }
+        return resolveMethodFieldPathType(thisType, literalValue)
+    }
+
+    fun tryResolveEnumLiteralMethodReceiver(expr: ParserExpressionNode,
+        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Int {
+
+        if expr.literalValue == "" or not expr.literalValue.contains(".") {
+            return 0
+        }
+        let pathParts = splitFirstPathDotImpl(expr.literalValue)
+        if pathParts[0] != "SeenTokenType" {
+            return 0
+        }
+        receiverRegBox[0] = getSeenTokenTypeValue(pathParts[1]).toString()
+        receiverTypeBox[0] = "Int"
+        return 1
+    }
+
+    fun tryResolveImplicitThisChainedLiteralMethodReceiver(expr: ParserExpressionNode,
+        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Int {
+
+        if expr.literalValue == "" or not expr.literalValue.contains(".") {
+            return 0
+        }
+        let pathParts = splitFirstPathDotImpl(expr.literalValue)
+        let thisIdx = findVar("this")
+        if thisIdx < 0 {
+            return 0
+        }
+        let thisType = varTypes[thisIdx]
+        let firstFieldType = resolveMethodFieldPathType(thisType, pathParts[0])
+        if firstFieldType == "" {
+            return 0
+        }
+
+        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, varRegs[thisIdx])
+        var accessFieldReg = ""
+        if isClassType(firstFieldType) {
+            let firstFieldReg = generateFieldAccess(thisPtrReg, thisType, pathParts[0])
+            let ptrConvReg = getNextReg()
+            output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldReg + " to ptr\n")
+            accessFieldReg = ptrConvReg
+        } else {
+            accessFieldReg = generateFieldAccessPtr(thisPtrReg, thisType, pathParts[0])
+        }
+
+        receiverRegBox[0] = generateFieldAccess(accessFieldReg, firstFieldType, pathParts[1])
+        receiverTypeBox[0] = resolveMethodFieldPathType(firstFieldType, pathParts[1])
+        return 1
+    }
+
     fun tryPrepareExplicitMethodReceiver(expr: ParserExpressionNode, methodName: String,
         receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
 
@@ -11292,176 +11400,10 @@ class LLVMIRGenerator {
             return
         }
 
-        // Check for enum method calls like SeenTokenType.RightBrace.toString()
-        let path = expr.literalValue
-
-        // Find the dot index manually
-        var dotIdx = 0
-        var searchIdx = 0
-        while searchIdx < path.length() {
-            if path.byteAt(searchIdx) == 46 {
-                dotIdx = searchIdx
-                searchIdx = path.length()  // Exit loop
-            }
-            searchIdx = searchIdx + 1
-        }
-
-        let varName = path.substring(0, dotIdx)
-        let fieldName = path.substring(dotIdx + 1, path.length())
-
-        // Handle enum method calls: SeenTokenType.RightBrace.toString()
-        var handledEnumMethod = false
-        if varName == "SeenTokenType" {
-            // Get the enum value as an integer
-            let enumValue = getSeenTokenTypeValue(fieldName)
-            receiverRegBox[0] = enumValue.toString()
-            receiverTypeBox[0] = "Int"  // Enum values are integers
-            // Continue to method call generation below (skip field access code)
-            handledEnumMethod = true
-        }
-        if handledEnumMethod {
+        if tryResolveEnumLiteralMethodReceiver(expr, receiverRegBox, receiverTypeBox) == 1 {
             return
         }
-
-        // Chained field access like diag.line.toString()
-        // literalValue = "diag.line", callee = "toString"
-        // Need to parse and load the field
-        let idx = findVar(varName)
-        var varFoundInLocalScope = false
-        if idx >= 0 {
-            varFoundInLocalScope = true
-            let varReg = varRegs[idx]
-            let varType = varTypes[idx]
-
-            // Load the struct - class types are stored as i64, data types are inline
-            // @repr(C): load as value type and use extractvalue
-            var ptrReg = ""
-            var reprCHandled = false
-            if g_reprCClassNames != "" {
-                if g_reprCClassNames.contains(varType + "|") {
-                    let rcLoadReg = getNextReg()
-                    output.append("  " + rcLoadReg + " = load %" + varType + ", ptr " + varReg + "\n")
-                    receiverRegBox[0] = generateFieldAccess(rcLoadReg, varType, fieldName)
-                    reprCHandled = true
-                }
-            }
-            if not reprCHandled {
-                if isClassType(varType) {
-                    let loadReg = getNextReg()
-                    output.append("  " + loadReg + " = load i64, ptr " + varReg + "\n")
-                    ptrReg = getNextReg()
-                    output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
-                } else if isDataType(varType) {
-                    // Data types are stored inline - use the alloca pointer directly
-                    ptrReg = varReg
-                } else {
-                    ptrReg = getNextReg()
-                    output.append("  " + ptrReg + " = load ptr, ptr " + varReg + "\n")
-                }
-
-                // Generate field access
-                receiverRegBox[0] = generateFieldAccess(ptrReg, varType, fieldName)
-            }
-
-            // Infer receiver type from field - handle chained field names
-            // FIRST: Try receiver-based lookup using getSeenFieldType
-            // Only for simple field names (not chained paths like "program.items")
-            var fieldTypeResolved = false
-            if not fieldName.contains(".") {
-                let lookupFieldType = getSeenFieldType(varType, fieldName)
-                if lookupFieldType != "" and lookupFieldType != "Int" {
-                    receiverTypeBox[0] = lookupFieldType
-                    fieldTypeResolved = true
-                }
-            }
-            // FALLBACK: Generic field name mappings (for backwards compatibility)
-            if not fieldTypeResolved {
-                let mappedType = mapFieldNameToReceiverType(fieldName)
-                if mappedType != "" {
-                    receiverTypeBox[0] = mappedType
-                    fieldTypeResolved = true
-                }
-            }
-            if not fieldTypeResolved and fieldName.contains(".") {
-                // Handle chained field names by walking through types
-                var currentType = varType
-                var remainingPath = fieldName
-                while remainingPath.length() > 0 and currentType != "" and currentType != "Int" {
-                    var nextDot = -1
-                    var chainedSearchIdx = 0
-                    while chainedSearchIdx < remainingPath.length() {
-                        if remainingPath.byteAt(chainedSearchIdx) == 46 {
-                            nextDot = chainedSearchIdx
-                            chainedSearchIdx = remainingPath.length()
-                        }
-                        chainedSearchIdx = chainedSearchIdx + 1
-                    }
-                    var currField = ""
-                    if nextDot < 0 {
-                        currField = remainingPath
-                        remainingPath = ""
-                    }
-                    if nextDot >= 0 {
-                        currField = remainingPath.substring(0, nextDot)
-                        remainingPath = remainingPath.substring(nextDot + 1, remainingPath.length())
-                    }
-                    currentType = getSeenFieldType(currentType, currField)
-                }
-                receiverTypeBox[0] = currentType
-                fieldTypeResolved = true
-            }
-            if not fieldTypeResolved {
-                receiverTypeBox[0] = getSeenFieldType(varType, fieldName)
-            }
-        }
-        if not varFoundInLocalScope {
-            // varName is not a local variable - check if it's a field on 'this'
-            let thisIdx = findVar("this")
-            if thisIdx >= 0 {
-                let thisReg = varRegs[thisIdx]
-                let thisType = varTypes[thisIdx]
-
-                // Check if this type has the field
-                let structIdx = findStruct(thisType)
-                output.append("; DEBUG chainedFieldAccess: varName=" + varName + " fieldName=" + fieldName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n")
-                if structIdx >= 0 {
-                    let fieldIdx = getFieldInfo(thisType, varName)
-                    output.append("; DEBUG chainedFieldAccess: fieldIdx=" + fieldIdx.toString() + "\n")
-                    if fieldIdx >= 0 {
-                        // Load 'this' pointer
-                        let thisPtrReg = getNextReg()
-                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                        // Get the type of the first field (varName)
-                        let firstFieldType = getSeenFieldType(thisType, varName)
-                        output.append("; DEBUG chainedFieldAccess: firstFieldType=" + firstFieldType + "\n")
-
-                        // Resolve pointer to the first field (class -> i64 to ptr, data -> field pointer)
-                        var accessFieldReg = ""
-                        if isClassType(firstFieldType) {
-                            let firstFieldReg = generateFieldAccess(thisPtrReg, thisType, varName)
-                            let ptrConvReg = getNextReg()
-                            output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldReg + " to ptr\n")
-                            accessFieldReg = ptrConvReg
-                        } else {
-                            accessFieldReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
-                        }
-
-                        // Now access the chained field(s) from this first field (e.g., items from currentProgram)
-                        receiverRegBox[0] = generateFieldAccess(accessFieldReg, firstFieldType, fieldName)
-
-                        // Infer receiver type from fieldName
-                        let chainedMappedType = mapFieldNameToReceiverType(fieldName)
-                        if chainedMappedType != "" {
-                            receiverTypeBox[0] = chainedMappedType
-                        } else {
-                            receiverTypeBox[0] = getSeenFieldType(firstFieldType, fieldName)
-                        }
-                        output.append("; DEBUG chainedFieldAccess: receiverType=" + receiverTypeBox[0] + " receiverReg=" + receiverRegBox[0] + "\n")
-                    }
-                }
-            }
-        }
+        tryResolveImplicitThisChainedLiteralMethodReceiver(expr, receiverRegBox, receiverTypeBox)
     }
 
     fun tryResolveSimpleLiteralMethodReceiver(expr: ParserExpressionNode, methodName: String,
@@ -11526,10 +11468,8 @@ class LLVMIRGenerator {
                     gvMcInvSuffix = ", !invariant.load !190"
                 }
                 output.append("  " + receiverRegBox[0] + " = load " + gvMcType + ", ptr @" + varName + gvMcInvSuffix + "\n")
-                let gvMcSeenType = getModuleConstSeenType(gvMcIdx)
-                if gvMcSeenType != "" {
-                    receiverTypeBox[0] = gvMcSeenType
-                } else {
+                receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
+                if receiverTypeBox[0] == "" {
                     if gvMcType == "i64" { receiverTypeBox[0] = "Int" }
                     if gvMcType == "double" { receiverTypeBox[0] = "Float" }
                     if gvMcType == "i1" { receiverTypeBox[0] = "Bool" }
@@ -11552,7 +11492,7 @@ class LLVMIRGenerator {
                         let thisPtrReg = getNextReg()
                         output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
                         receiverRegBox[0] = generateFieldAccess(thisPtrReg, thisType, varName)
-                        receiverTypeBox[0] = getSeenFieldType(thisType, varName)
+                        receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
                     }
                 }
 
@@ -11570,7 +11510,7 @@ class LLVMIRGenerator {
                         receiverRegBox[0] = generateFieldAccess(thisPtrReg, thisType, varName)
                         output.append("; DEBUG after generateFieldAccess: receiverReg=" + receiverRegBox[0] + "\n")
                         // Infer receiver type from field
-                        receiverTypeBox[0] = getSeenFieldType(thisType, varName)
+                        receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
                         output.append("; DEBUG receiverType=" + receiverTypeBox[0] + "\n")
                     }
                 }
@@ -12633,7 +12573,14 @@ class LLVMIRGenerator {
         return "Int"
     }
 
-    fun inferMethodCallExprTypeLocal(expr: ParserExpressionNode) r: String {
+    fun resolveMethodCallReceiverType(expr: ParserExpressionNode) r: String {
+        if expr.operands.length() > 0 {
+            return inferExpressionType(expr.operands[0])
+        }
+        return resolveLiteralMethodReceiverType(expr.literalValue)
+    }
+
+    fun tryInferImplicitOrFreeMethodCallType(expr: ParserExpressionNode) r: String {
         if currentClassName != "" and expr.literalValue == "this" {
             let registryRetType = getMethodReturnType(currentClassName, expr.callee)
             if registryRetType != "" {
@@ -12655,14 +12602,12 @@ class LLVMIRGenerator {
                 return freeFuncRetType
             }
         }
+        return ""
+    }
+
+    fun tryInferStaticMethodCallType(expr: ParserExpressionNode) r: String {
         if expr.literalValue != "" and expr.literalValue != "this" {
             let recVarType = findVarType(expr.literalValue)
-            if recVarType != "" {
-                let registryRetType = getMethodReturnType(recVarType, expr.callee)
-                if registryRetType != "" {
-                    return registryRetType
-                }
-            }
             if recVarType == "" {
                 let staticOwnerType = getBaseTypeName(expr.literalValue)
                 var staticRetType = getMethodReturnType(expr.literalValue, expr.callee)
@@ -12671,19 +12616,6 @@ class LLVMIRGenerator {
                 }
                 if staticRetType != "" {
                     return staticRetType
-                }
-            }
-        }
-        if expr.operands.length() > 0 {
-            let recExprType = inferExpressionType(expr.operands[0])
-            if expr.callee == "get" and (recExprType.startsWith("Vec<") or recExprType.startsWith("BTreeMap<")) {
-                let debugRetType = getMethodReturnType(recExprType, expr.callee)
-                traceGen("inferExpressionType: MethodCall get() receiver type=" + recExprType + " -> " + debugRetType)
-            }
-            if recExprType != "" {
-                let registryRetType = getMethodReturnType(recExprType, expr.callee)
-                if registryRetType != "" {
-                    return registryRetType
                 }
             }
         }
@@ -12699,21 +12631,6 @@ class LLVMIRGenerator {
         if (expr.callee == "withLength" or expr.callee == "withCapacity") and expr.literalValue.startsWith("Array") {
             return expr.literalValue
         }
-        if expr.callee == "toUpperCase" or expr.callee == "toLowerCase" or expr.callee == "abs" or expr.callee == "min" or expr.callee == "max" or expr.callee == "clamp" or expr.callee == "floor" or expr.callee == "ceil" or expr.callee == "round" or expr.callee == "sqrt" or expr.callee == "first" or expr.callee == "last" or expr.callee == "remove" {
-            var recTypeForImpl = ""
-            if expr.operands.length() > 0 {
-                recTypeForImpl = inferExpressionType(expr.operands[0])
-            }
-            if recTypeForImpl == "" and expr.literalValue != "" {
-                recTypeForImpl = findVarType(expr.literalValue)
-            }
-            let implResult = inferReceiverMethodTypeImpl(expr.callee, recTypeForImpl)
-            if implResult != "" {
-                return implResult
-            }
-        }
-        let mcTable = inferMethodCallTypeTable(expr.callee)
-        if mcTable != "" { return mcTable }
         if expr.callee == "fromJson" {
             if expr.literalValue != "" and expr.literalValue != "this" {
                 let staticRetType = getMethodReturnType(expr.literalValue, "fromJson")
@@ -12723,33 +12640,27 @@ class LLVMIRGenerator {
             }
             return "ptr"
         }
+        return ""
+    }
+
+    fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
+        if expr.callee == "toUpperCase" or expr.callee == "toLowerCase" or expr.callee == "abs" or
+            expr.callee == "min" or expr.callee == "max" or expr.callee == "clamp" or
+            expr.callee == "floor" or expr.callee == "ceil" or expr.callee == "round" or
+            expr.callee == "sqrt" or expr.callee == "first" or expr.callee == "last" or
+            expr.callee == "remove" {
+            let implResult = inferReceiverMethodTypeImpl(expr.callee, receiverType)
+            if implResult != "" {
+                return implResult
+            }
+        }
         if expr.callee == "get" {
-            var recType = ""
-            if expr.operands.length() > 0 {
-                recType = inferExpressionType(expr.operands[0])
-            }
-            if recType == "" and expr.literalValue != "" {
-                if expr.literalValue.contains(".") {
-                    recType = resolveChainedPathType(expr.literalValue)
-                }
-                if recType == "" {
-                    recType = findVarType(expr.literalValue)
-                }
-                if recType == "" {
-                    let thisIdx = findVar("this")
-                    if thisIdx >= 0 {
-                        let thisType = varTypes[thisIdx]
-                        recType = getSemanticFieldType(thisType, expr.literalValue)
-                        if recType == "" {
-                            recType = getSeenFieldType(thisType, expr.literalValue)
-                        }
-                    }
-                }
-            }
-            traceGen("inferExpressionType: get() recType=" + recType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
-            let isCollectionGet = recType.startsWith("Array<") or recType.startsWith("Vec<") or recType.startsWith("HashMap<") or recType.startsWith("StringHashMap<") or recType.startsWith("BTreeMap<") or recType.startsWith("Map<") or recType == ""
+            traceGen("inferExpressionType: get() recType=" + receiverType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
+            let isCollectionGet = receiverType.startsWith("Array<") or receiverType.startsWith("Vec<") or
+                receiverType.startsWith("HashMap<") or receiverType.startsWith("StringHashMap<") or
+                receiverType.startsWith("BTreeMap<") or receiverType.startsWith("Map<") or receiverType == ""
             if isCollectionGet {
-                let collGetType = resolveCollectionGetTypeImpl(recType)
+                let collGetType = resolveCollectionGetTypeImpl(receiverType)
                 if collGetType != "" {
                     return collGetType
                 }
@@ -12757,95 +12668,40 @@ class LLVMIRGenerator {
             }
         }
         if expr.callee == "pop" {
-            var popRecType = ""
-            if expr.operands.length() > 0 {
-                popRecType = inferExpressionType(expr.operands[0])
-            }
-            if popRecType == "" and expr.literalValue != "" {
-                popRecType = findVarType(expr.literalValue)
-            }
-            let popResult = resolvePopElementTypeImpl(popRecType)
+            let popResult = resolvePopElementTypeImpl(receiverType)
             if popResult != "" {
                 return popResult
             }
             return "Int"
         }
         if expr.callee == "unwrap" {
-            var recType = ""
-            if expr.operands.length() > 0 {
-                recType = inferExpressionType(expr.operands[0])
-            }
-            if recType == "" and expr.literalValue != "" {
-                recType = findVarType(expr.literalValue)
-                if recType == "" and expr.literalValue.contains(".") {
-                    recType = resolveChainedPathType(expr.literalValue)
-                }
-            }
             var isClassInner = 0
-            if isClassType(recType) { isClassInner = 1 }
-            let unwrapResult = resolveUnwrapTypeImpl(recType, isClassInner)
+            if isClassType(receiverType) { isClassInner = 1 }
+            let unwrapResult = resolveUnwrapTypeImpl(receiverType, isClassInner)
             if unwrapResult != "" {
                 return unwrapResult
             }
             return "ptr"
         }
-        var receiverType = ""
-        var receiverTypeResolved = false
-        if expr.operands.length() > 0 {
-            receiverType = inferExpressionType(expr.operands[0])
-            receiverTypeResolved = true
+        return ""
+    }
+
+    fun tryInferReceiverRegistryMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
+        if receiverType == "" {
+            return ""
         }
-        if not receiverTypeResolved {
-            let varIdx = findVar(expr.literalValue)
-            var varIdxHandled = false
-            if varIdx >= 0 {
-                receiverType = varTypes[varIdx]
-                varIdxHandled = true
-            }
-            if not varIdxHandled {
-                let thisIdx = findVar("this")
-                if thisIdx >= 0 {
-                    let thisType = varTypes[thisIdx]
-                    var fieldType = getSemanticFieldType(thisType, expr.literalValue)
-                    if fieldType == "" {
-                        fieldType = getSeenFieldType(thisType, expr.literalValue)
-                    }
-                    if fieldType != "Int" or expr.literalValue == "length" {
-                        receiverType = fieldType
-                    }
+        if isSimdVectorType(receiverType) == 1 {
+            if expr.callee == "reduce_add" or expr.callee == "reduce_min" or expr.callee == "reduce_max" {
+                if receiverType.startsWith("f32") or receiverType.startsWith("f64") {
+                    return "Float"
                 }
-                if receiverType == "" and expr.literalValue.contains(".") {
-                    receiverType = resolveChainedPathType(expr.literalValue)
-                }
+                return "Int"
             }
         }
-        if receiverType != "" {
-            if isSimdVectorType(receiverType) == 1 {
-                if expr.callee == "reduce_add" or expr.callee == "reduce_min" or expr.callee == "reduce_max" {
-                    if receiverType.startsWith("f32") or receiverType.startsWith("f64") {
-                        return "Float"
-                    }
-                    return "Int"
-                }
-            }
-            let methodRetType = getMethodReturnType(receiverType, expr.callee)
-            if methodRetType != "" {
-                return methodRetType
-            }
-        }
-        if currentClassName != "" {
-            let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
-            if implicitMethodRetType != "" {
-                return implicitMethodRetType
-            }
-        }
-        let freeFuncRetType = getFunctionReturnType(expr.callee)
-        if freeFuncRetType != "" {
-            if isAsyncFunction(expr.callee) {
-                return "ptr"
-            }
-            return freeFuncRetType
-        }
+        return getMethodReturnType(receiverType, expr.callee)
+    }
+
+    fun tryInferMethodCallBoolSuffix(expr: ParserExpressionNode) r: String {
         let boolSuffix = "_" + expr.callee
         var boolScanIdx = funcNames.length() - 1
         while boolScanIdx >= 0 {
@@ -12853,11 +12709,56 @@ class LLVMIRGenerator {
                 if funcRetTypes[boolScanIdx] == "Bool" {
                     return "Bool"
                 }
-                boolScanIdx = 0 - 1
+                boolScanIdx = -1
             }
             boolScanIdx = boolScanIdx - 1
         }
         return ""
+    }
+
+    fun inferMethodCallExprTypeLocal(expr: ParserExpressionNode) r: String {
+        let implicitOrFreeResult = tryInferImplicitOrFreeMethodCallType(expr)
+        if implicitOrFreeResult != "" {
+            return implicitOrFreeResult
+        }
+
+        let receiverType = resolveMethodCallReceiverType(expr)
+        let receiverRegistryType = tryInferReceiverRegistryMethodCallType(expr, receiverType)
+        if receiverRegistryType != "" {
+            return receiverRegistryType
+        }
+
+        let staticResult = tryInferStaticMethodCallType(expr)
+        if staticResult != "" {
+            return staticResult
+        }
+
+        let builtinReceiverResult = tryInferBuiltinReceiverMethodCallType(expr, receiverType)
+        if builtinReceiverResult != "" {
+            return builtinReceiverResult
+        }
+
+        let mcTable = inferMethodCallTypeTable(expr.callee)
+        if mcTable != "" {
+            return mcTable
+        }
+
+        if currentClassName != "" {
+            let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
+            if implicitMethodRetType != "" {
+                return implicitMethodRetType
+            }
+        }
+
+        let freeFuncRetType = getFunctionReturnType(expr.callee)
+        if freeFuncRetType != "" {
+            if isAsyncFunction(expr.callee) {
+                return "ptr"
+            }
+            return freeFuncRetType
+        }
+
+        return tryInferMethodCallBoolSuffix(expr)
     }
 
     fun inferCallExprTypeLocal(expr: ParserExpressionNode) r: String {
