@@ -10856,85 +10856,6 @@ class LLVMIRGenerator {
         return tryGenerateArrayResolvedReceiverMethodCall(expr, methodName, receiverReg, receiverType)
     }
 
-    fun tryGenerateStaticFactoryMethodCall(expr: ParserExpressionNode, methodName: String,
-        potentialClassName: String, fullClassName: String) r: String {
-
-        if methodName == "new" {
-            return tryGenerateStaticFactoryMethodCallImpl(output, g_regBox,
-                methodName, potentialClassName, fullClassName, "", 0)
-        }
-
-        let needsStaticFactoryArg = (methodName == "withCapacity" and
-            (potentialClassName == "HashMap" or
-                potentialClassName == "StringHashMap")) or
-            (potentialClassName == "Array" and methodName == "withLength")
-        if not needsStaticFactoryArg or expr.arguments.length() == 0 {
-            return ""
-        }
-
-        let staticFactoryArg0 = generateExpression(expr.arguments[0])
-        return tryGenerateStaticFactoryMethodCallImpl(output, g_regBox,
-            methodName, potentialClassName, fullClassName, staticFactoryArg0,
-            expr.arguments.length())
-    }
-
-    fun emitPreparedStaticMethodCall(expr: ParserExpressionNode, className: String,
-        methodName: String, funcName: String, argRegs: Array<String>,
-        argTypeStrs: Array<String>) r: String {
-
-        let staticReturnType = resolveStaticMethodReturnTypeImpl(
-            getMethodReturnType(className, methodName), inferExpressionType(expr))
-        let staticLlvmReturnType = mapType(staticReturnType)
-        var isClassRecv = 0
-        if isClassType(className) { isClassRecv = 1 }
-        var isDataRecv = 0
-        if isDataType(className) { isDataRecv = 1 }
-        let hasImplicitThis = 0
-        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
-        let filledArgRegs = g_defaultFillArgRegs
-        let filledArgTypeStrs = g_defaultFillArgTypeStrs
-        recordLateUserDeclare(funcName, staticLlvmReturnType, filledArgTypeStrs, hasImplicitThis)
-        return emitGenericStaticCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName),
-            staticLlvmReturnType, className, filledArgRegs, filledArgTypeStrs,
-            isClassRecv, isDataRecv, hasImplicitThis)
-    }
-
-    fun tryGenerateUppercaseStaticMethodCall(expr: ParserExpressionNode, methodName: String,
-        potentialClassName: String, fullClassName: String) r: String {
-
-        let staticFactoryResult = tryGenerateStaticFactoryMethodCall(expr, methodName,
-            potentialClassName, fullClassName)
-        if staticFactoryResult != "" {
-            return staticFactoryResult
-        }
-
-        let funcName = potentialClassName + "_" + methodName
-        var staticArgRegs = Array<String>()
-        var staticArgTypeStrs = Array<String>()
-        prepareCallArguments(funcName, expr.arguments, staticArgRegs, staticArgTypeStrs,
-            false, false, false, "")
-
-        if potentialClassName == "StringBuilder" and methodName == "new" {
-            return emitStringBuilderNewCallImpl(output, g_regBox, funcName, staticArgRegs, staticArgTypeStrs)
-        }
-        if potentialClassName == "String" and methodName == "fromCharCode" {
-            return emitStringFromCharCodeCallImpl(output, g_regBox, staticArgRegs, staticArgTypeStrs)
-        }
-
-        return emitPreparedStaticMethodCall(expr, potentialClassName, methodName, funcName,
-            staticArgRegs, staticArgTypeStrs)
-    }
-
-    fun emitFallbackStaticMethodCall(expr: ParserExpressionNode, className: String,
-        methodName: String) r: String {
-
-        let funcName = className + "_" + methodName
-        var argRegs = Array<String>()
-        var argTypeStrs = Array<String>()
-        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
-        return emitPreparedStaticMethodCall(expr, className, methodName, funcName, argRegs, argTypeStrs)
-    }
-
     fun tryGenerateStaticMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String) r: String {
 
@@ -10952,30 +10873,75 @@ class LLVMIRGenerator {
 
         let firstChar = potentialClassName.substring(0, 1)
         let isUppercase = firstChar >= "A" and firstChar <= "Z"
+        if isUppercase and methodName == "new" {
+            let staticFactoryResult = tryGenerateStaticFactoryMethodCallImpl(
+                output, g_regBox, methodName, potentialClassName,
+                fullClassName, "", 0)
+            if staticFactoryResult != "" {
+                return staticFactoryResult
+            }
+        }
+        if isUppercase and expr.arguments.length() > 0 {
+            let needsStaticFactoryArg = (methodName == "withCapacity" and
+                (potentialClassName == "HashMap" or
+                    potentialClassName == "StringHashMap")) or
+                (potentialClassName == "Array" and methodName == "withLength")
+            if needsStaticFactoryArg {
+                let staticFactoryArg0 = generateExpression(expr.arguments[0])
+                let staticFactoryResult = tryGenerateStaticFactoryMethodCallImpl(
+                    output, g_regBox, methodName, potentialClassName,
+                    fullClassName, staticFactoryArg0,
+                    expr.arguments.length())
+                if staticFactoryResult != "" {
+                    return staticFactoryResult
+                }
+            }
+        }
+
+        var staticClassName = expr.literalValue
         if isUppercase {
-            return tryGenerateUppercaseStaticMethodCall(expr, methodName, potentialClassName, fullClassName)
+            staticClassName = potentialClassName
         }
-        return emitFallbackStaticMethodCall(expr, expr.literalValue, methodName)
-    }
+        let funcName = staticClassName + "_" + methodName
 
-    fun tryGenerateStandaloneParserFallbackMethodCall(expr: ParserExpressionNode,
-        methodName: String) r: String {
+        var argRegs = Array<String>()
+        var argTypeStrs = Array<String>()
+        var enableFloatPromotion = true
+        if isUppercase {
+            enableFloatPromotion = false
+        }
+        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs,
+            false, enableFloatPromotion, false, "")
 
-        if not isStandaloneParserWorkaroundImpl(methodName) {
-            return ""
+        if isUppercase and potentialClassName == "StringBuilder" and
+            methodName == "new" {
+            return emitStringBuilderNewCallImpl(output, g_regBox, funcName,
+                argRegs, argTypeStrs)
+        }
+        if isUppercase and potentialClassName == "String" and
+            methodName == "fromCharCode" {
+            return emitStringFromCharCodeCallImpl(output, g_regBox, argRegs,
+                argTypeStrs)
         }
 
-        output.append("; INFO: calling standalone function " + methodName + " (parser workaround)\n")
-        var standaloneArgRegs = Array<String>()
-        var standaloneArgTypes = Array<String>()
-        prepareCallArguments(methodName, expr.arguments, standaloneArgRegs, standaloneArgTypes,
-            false, false, false, "")
-        let standaloneRetType = resolveStandaloneParserWorkaroundRetTypeImpl(methodName)
-        fillDefaultParamsLocal(methodName, standaloneArgRegs, standaloneArgTypes)
+        let staticReturnType = resolveStaticMethodReturnTypeImpl(
+            getMethodReturnType(staticClassName, methodName),
+            inferExpressionType(expr))
+        let staticLlvmReturnType = mapType(staticReturnType)
+        var isClassRecv = 0
+        if isClassType(staticClassName) { isClassRecv = 1 }
+        var isDataRecv = 0
+        if isDataType(staticClassName) { isDataRecv = 1 }
+        let hasImplicitThis = 0
+        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
         let filledArgRegs = g_defaultFillArgRegs
-        let filledArgTypes = g_defaultFillArgTypeStrs
-        return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(methodName),
-            standaloneRetType, filledArgRegs, filledArgTypes, 0)
+        let filledArgTypeStrs = g_defaultFillArgTypeStrs
+        recordLateUserDeclare(funcName, staticLlvmReturnType, filledArgTypeStrs,
+            hasImplicitThis)
+        return emitGenericStaticCallImpl(output, g_regBox,
+            quoteIdentIfNeeded(funcName), staticLlvmReturnType,
+            staticClassName, filledArgRegs, filledArgTypeStrs, isClassRecv,
+            isDataRecv, hasImplicitThis)
     }
 
     fun tryHandleUnresolvedMethodReceiver(expr: ParserExpressionNode, methodName: String,
@@ -10995,9 +10961,22 @@ class LLVMIRGenerator {
             return generateCall(expr)
         }
 
-        let standaloneFallback = tryGenerateStandaloneParserFallbackMethodCall(expr, methodName)
-        if standaloneFallback != "" {
-            return standaloneFallback
+        if isStandaloneParserWorkaroundImpl(methodName) {
+            output.append("; INFO: calling standalone function " + methodName +
+                " (parser workaround)\n")
+            var standaloneArgRegs = Array<String>()
+            var standaloneArgTypes = Array<String>()
+            prepareCallArguments(methodName, expr.arguments, standaloneArgRegs,
+                standaloneArgTypes, false, false, false, "")
+            let standaloneRetType = resolveStandaloneParserWorkaroundRetTypeImpl(
+                methodName)
+            fillDefaultParamsLocal(methodName, standaloneArgRegs,
+                standaloneArgTypes)
+            let filledArgRegs = g_defaultFillArgRegs
+            let filledArgTypes = g_defaultFillArgTypeStrs
+            return emitUserFunctionCallImpl(output, g_regBox,
+                quoteIdentIfNeeded(methodName), standaloneRetType,
+                filledArgRegs, filledArgTypes, 0)
         }
 
         output.append("; WARNING: receiver not resolved for " + methodName + ", receiverType='" + receiverType + "', currentClass='" + currentClassName + "', literal='" + expr.literalValue + "', operands=" + expr.operands.length().toString() + ", using default\n")
