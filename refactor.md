@@ -10,7 +10,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,769` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,782` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -27,6 +27,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
+  - `generateMultiple()` is down to about `74` lines.
+  - `generateSingle()` is down to about `195` lines.
   - `generateCall()` is down to about `66` lines.
   - `generateMethodCall()` is down to about `57` lines.
   - `generateBinary()` is down to about `339` lines.
@@ -73,6 +75,23 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `preRegisterFunctionParameters()` at about `48` lines.
     - `tryEmitMainFunction()` at about `28` lines.
     - `emitFunctionParameterAllocas()` at about `39` lines.
+  - Module-entry helpers inside `llvm_ir_gen.seen` are now split into:
+    - `resetSharedModuleGenerationScratchState()` at about `16` lines.
+    - `collectProgramsStringConstants()` at about `8` lines.
+    - `emitProgramClassTypes()` at about `11` lines.
+    - `emitProgramsClassTypes()` at about `8` lines.
+    - `emitProgramsGlobalVariables()` at about `8` lines.
+    - `generateProgramClasses()` at about `15` lines.
+    - `generateProgramsClasses()` at about `8` lines.
+    - `emitCImportHeaderDeclares()` at about `66` lines.
+    - `tryHandleSpecialTopLevelFunction()` at about `22` lines.
+    - `shouldSkipStandaloneTopLevelFunction()` at about `7` lines.
+    - `emitProgramTopLevelFunctions()` at about `37` lines.
+    - `emitProgramsTopLevelFunctions()` at about `8` lines.
+    - `collectProgramDefinedSymbols()` at about `27` lines.
+    - `emitAdditionalGeneratedStringConstants()` at about `16` lines.
+    - `emitGeneratedClosures()` at about `6` lines.
+    - `emitOptimizationStatisticsSummary()` at about `68` lines.
   - Receiver-preparation helpers inside `llvm_ir_gen.seen` are now split into:
     - `resolveRebuiltLiteralPathMethodReceiver()` at about `28` lines.
     - `resolveMethodFieldPathType()` at about `27` lines.
@@ -346,11 +365,12 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Split the member/field-access cluster further by expanding `ir_member_access.seen` with shared swizzle/type-tail/field-load helpers, shrinking `generateMemberAccess()` behind receiver-kind and path-shape helpers, shrinking `generateFieldAccess()` / `generateFieldAccessPtr()` behind shared layout/load helpers, and shrinking `inferMemberAccessExprTypeLocal()` behind focused JSON/receiver-type helpers. This keeps member-access lowering and member-access type inference aligned on the same receiver-shape split instead of maintaining duplicate chained-path and field-lookup logic.
 - Split the method-call receiver/type-inference cluster further by extracting shared literal receiver type resolution for module constants, enum literals, rebuilt local chains, and implicit-`this` field chains; shrinking `resolveChainedLiteralMethodReceiver()` into enum-plus-implicit-`this` fallback helpers; and breaking `inferMethodCallExprTypeLocal()` into focused receiver-type, static-call, builtin-receiver, registry, and bool-suffix helpers. This keeps runtime receiver preparation and method-call type inference aligned on the same receiver-shape split instead of duplicating chained literal path logic in two places.
 - Split the method-call emission cluster further by collapsing receiver preparation behind `tryPrepareMethodCallReceiver()`, extracting builtin receiver dispatch for length/string-builder/conversion/numeric/string-like methods, and extracting normalized instance-call emission for traced unwrap handling, hot-reload interception, receiver ABI normalization, and specialized `unwrap()` handling. This turns `generateMethodCall()` into a short orchestration layer instead of leaving builtin and user-defined instance dispatch interleaved in one block.
+- Split the module-entry orchestration further by extracting shared reset, string-collection, class-type emission, class emission, top-level function emission, defined-symbol collection, extra string-constant flush, closure emission, and optimization-stat helpers. This shrinks `generateMultiple()` and `generateSingle()` into explicit phase pipelines instead of leaving module sequencing, special top-level handling, and post-generation cleanup interleaved in two duplicated entrypoints.
 
 ### Validation Status
 
 - Spot checks continue to use explicit RAM caps derived from current system memory.
-- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap after the latest method-call emission split on top of the earlier method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, assignment-lowering extraction, and indexed-assignment extraction.
+- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap after the latest module-entry orchestration split on top of the earlier method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, assignment-lowering extraction, and indexed-assignment extraction.
 - `./compiler_seen/target/seen check compiler_seen/test_array_struct.seen` also passes under the same cap, which now gives the current refactor stream a targeted sanity check across struct-literal construction plus array access.
 - `./compiler_seen/target/seen check compiler_seen/test_result.seen` also passes under the same cap, which gives this batch direct coverage for enum-constructor lowering via `Ok(42)`.
 - `./compiler_seen/target/seen check compiler_seen/test_conditional_exprs.seen` also passes under the same cap, which gives this batch a targeted sanity check across `if`-expression lowering, integer elvis lowering, and `when` expression arm dispatch.
@@ -359,6 +379,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/test_member_access_paths.seen` also passes under the same cap, which gives this batch direct coverage for local member chains plus indexed member access on local array aliases.
 - `./compiler_seen/target/seen check compiler_seen/test_method_receiver_resolution.seen` also passes under the same cap, which gives this batch direct coverage for chained method receivers on implicit-`this` field paths and rebuilt local chained paths.
 - `./compiler_seen/target/seen check compiler_seen/test_method_builtin_dispatch.seen` also passes under the same cap, which gives this batch direct coverage for StringBuilder method dispatch plus builtin string/int/float method lowering across `trim()`, `toInt()`, `toFloat()`, `toString()`, and `length()`.
+- `./compiler_seen/target/seen check compiler_seen/test_import_io.seen` also passes under the same cap, which gives this batch a direct import-path sanity check across the shared `generateSingle()` module-entry sequencing.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_call_fixups.seen` reaches the expected `missing main` diagnostic, which at least confirms the new helper module parses cleanly.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_method_finalize.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_field_layout.seen` also reaches the expected `missing main` diagnostic.
@@ -368,13 +389,13 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_class_method_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_assignment_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_variable_gen.seen` also reaches the expected `missing main` diagnostic.
-- Bounded direct checks of `compiler_seen/src/main_compiler.seen` and `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest method-call emission split on top of the earlier method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
+- Bounded direct checks of `compiler_seen/src/main_compiler.seen` and `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest module-entry orchestration split on top of the earlier method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
 - The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 
 ### Phase Status
 
 - Phase 1: partially complete; state sync and explicit function-lowering options are in place.
-- Phase 2: core module-emission and call-argument dedup completed.
+- Phase 2: core module-emission, module-entrypoint helper reuse, and call-argument dedup completed.
 - Phase 3: in progress; declaration scan, async registry extraction, late user declare registry extraction, and trait registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
 - Phase 4: well underway; function signature/default-return/coroutine helpers plus entry/setup, parameter pre-registration, `main` dispatch, and parameter alloca emission are split out, but body emission still largely lives in `llvm_ir_gen.seen`.
 - Phase 5: well underway; final free-call emission, RealParser call fixups, final instance-method-call normalization, array mutator lowering, receiver-preparation helpers, method-call builtin/normalized-instance helpers, a full `generateCall()` phase split, and shared class-method lowering helpers are in place.

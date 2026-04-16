@@ -3219,6 +3219,326 @@ class LLVMIRGenerator {
         return generateMultiple(programs)
     }
 
+    fun resetSharedModuleGenerationScratchState() r: Void {
+        output = StringBuilder.new()
+        stringConstants = Array<String>()
+        g_closureCount = 0
+        g_closureDefs = ""
+        g_pforCount = 0
+        g_comptimeNames = ""
+        g_comptimeValues = ""
+        g_comptimeCount = 0
+        g_intrinsicFuncNames = ""
+        g_intrinsicLlvmNames = ""
+        g_intrinsicCount = 0
+        g_sendTypes = ""
+        g_syncTypes = ""
+    }
+
+    fun collectProgramsStringConstants(programs: Array<ProgramNode>) r: Void {
+        var pi = 0
+        while pi < programs.length() {
+            collectStringConstants(programs[pi])
+            pi = pi + 1
+        }
+    }
+
+    fun emitProgramClassTypes(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Class" {
+                emitClassType(item.classNode)
+            }
+            i = i + 1
+        }
+    }
+
+    fun emitProgramsClassTypes(programs: Array<ProgramNode>) r: Void {
+        var pi = 0
+        while pi < programs.length() {
+            emitProgramClassTypes(programs[pi])
+            pi = pi + 1
+        }
+    }
+
+    fun emitProgramsGlobalVariables(programs: Array<ProgramNode>) r: Void {
+        var pi = 0
+        while pi < programs.length() {
+            emitProgramGlobalVariables(programs[pi])
+            pi = pi + 1
+        }
+    }
+
+    fun generateProgramClasses(program: ProgramNode) r: Void {
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if item.itemType == "Class" {
+                if canUseLargePlainClassPath(item.classNode.parentName, item.classNode.decorators, item.classNode.methods) {
+                    generatePlainLargeClass(item.classNode.name, item.classNode.parentName, item.classNode.methods)
+                } else {
+                    generateClass(item.classNode)
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    fun generateProgramsClasses(programs: Array<ProgramNode>) r: Void {
+        var pi = 0
+        while pi < programs.length() {
+            generateProgramClasses(programs[pi])
+            pi = pi + 1
+        }
+    }
+
+    fun emitCImportHeaderDeclares(cImportHeaderPath: String) r: Void {
+        if cImportHeaderPath == "" {
+            return
+        }
+        output.append("; @cImport(\"" + cImportHeaderPath + "\")\n")
+        let ciCmd = "clang -Xclang -ast-dump -fsyntax-only " + cImportHeaderPath + " 2>/dev/null"
+        let ciResult: CommandResult = runCommand(ciCmd)
+        if not ciResult.success {
+            return
+        }
+
+        let ciLines = ciResult.output.split("\n")
+        var ciLi = 0
+        while ciLi < ciLines.length() {
+            let ciLine = ciLines[ciLi]
+            if ciLine.contains("FunctionDecl") and not ciLine.contains("implicit") {
+                let ciQuoteStart = ciLine.indexOf("'")
+                let ciQuoteEnd = ciLine.lastIndexOf("'")
+                if ciQuoteStart >= 0 and ciQuoteEnd > ciQuoteStart {
+                    let ciProto = ciLine.substring(ciQuoteStart + 1, ciQuoteEnd)
+                    let ciParenStart = ciProto.indexOf("(")
+                    if ciParenStart >= 0 {
+                        let ciRetType = ciProto.substring(0, ciParenStart).trim()
+                        let ciRetLlvm = mapCTypeToLlvm(ciRetType)
+                        var ciFuncName = ""
+                        let ciBeforeQuote = ciLine.substring(0, ciQuoteStart).trim()
+                        let ciWords = ciBeforeQuote.split(" ")
+                        if ciWords.length() > 0 {
+                            ciFuncName = ciWords[ciWords.length() - 1]
+                        }
+                        if ciFuncName != "" and not ciFuncName.startsWith("__") {
+                            let ciParamPart = ciProto.substring(ciParenStart + 1, ciProto.length() - 1)
+                            var ciParamStr = ""
+                            var ciIsVariadic = false
+                            if ciParamPart != "void" and ciParamPart != "" {
+                                let ciParams = ciParamPart.split(",")
+                                var ciPi = 0
+                                while ciPi < ciParams.length() {
+                                    let ciP = ciParams[ciPi].trim()
+                                    if ciP == "..." {
+                                        ciIsVariadic = true
+                                    } else {
+                                        if ciParamStr != "" {
+                                            ciParamStr = ciParamStr + ", "
+                                        }
+                                        ciParamStr = ciParamStr + mapCTypeToLlvm(ciP)
+                                    }
+                                    ciPi = ciPi + 1
+                                }
+                            }
+                            if ciIsVariadic {
+                                if ciParamStr != "" {
+                                    ciParamStr = ciParamStr + ", "
+                                }
+                                ciParamStr = ciParamStr + "..."
+                            }
+                            output.append("declare " + ciRetLlvm + " @" + ciFuncName + "(" + ciParamStr + ") nounwind\n")
+                            registerFunction(ciFuncName, ciRetType)
+                        }
+                    }
+                }
+            }
+            ciLi = ciLi + 1
+        }
+    }
+
+    fun tryHandleSpecialTopLevelFunction(fn: FunctionNode) r: Bool {
+        if fn.name == "__cImport" and fn.hasDecorator("cImport") {
+            var cImportHeaderPath = ""
+            var ciDecIdx = 0
+            while ciDecIdx < fn.decorators.length() {
+                if fn.decorators[ciDecIdx].name == "cImport" {
+                    if fn.decorators[ciDecIdx].arguments.length() > 0 {
+                        cImportHeaderPath = fn.decorators[ciDecIdx].arguments[0]
+                    }
+                }
+                ciDecIdx = ciDecIdx + 1
+            }
+            emitCImportHeaderDeclares(cImportHeaderPath)
+            return true
+        }
+        if fn.hasDecorator("variadic_generic") {
+            generateVariadicGenericExpansion(fn)
+            return true
+        }
+        return false
+    }
+
+    fun shouldSkipStandaloneTopLevelFunction(fnName: String) r: Bool {
+        if fnName == "new" {
+            return true
+        }
+        return isRuntimeBackedStringCompatFunction(fnName)
+    }
+
+    fun emitProgramTopLevelFunctions(program: ProgramNode, moduleIndex: Int,
+        traceModule: Bool) r: Void {
+
+        var i = 0
+        while i < program.items.length() {
+            let item = program.items[i]
+            if traceModule {
+                println("[irgen module " + moduleIndex.toString() + "] function loop item " + i.toString() + ": " + item.itemType)
+            }
+            if item.itemType == "Function" {
+                if traceModule {
+                    println("[irgen module " + moduleIndex.toString() + "] function item confirmed at idx " + i.toString())
+                }
+                let fnName = item.function.name
+                if shouldSkipStandaloneTopLevelFunction(fnName) {
+                    i = i + 1
+                    continue
+                }
+                if traceModule {
+                    println("[irgen module " + moduleIndex.toString() + "] function name resolved: " + fnName)
+                }
+                if tryHandleSpecialTopLevelFunction(item.function) {
+                    i = i + 1
+                    continue
+                }
+                if traceModule {
+                    println("[irgen module " + moduleIndex.toString() + "] function start: " + fnName)
+                }
+                generateFunction(item.function)
+                if traceModule {
+                    println("[irgen module " + moduleIndex.toString() + "] function done: " + fnName)
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    fun emitProgramsTopLevelFunctions(programs: Array<ProgramNode>) r: Void {
+        var pi = 0
+        while pi < programs.length() {
+            emitProgramTopLevelFunctions(programs[pi], 0, false)
+            pi = pi + 1
+        }
+    }
+
+    fun collectProgramDefinedSymbols(program: ProgramNode) r: Array<String> {
+        let definedSymbols = Array<String>()
+        var collectIdx = 0
+        while collectIdx < program.items.length() {
+            let collectItem = program.items[collectIdx]
+            if collectItem.itemType == "Function" {
+                if not isRuntimeBackedStringCompatFunction(collectItem.function.name) {
+                    definedSymbols.push(collectItem.function.name)
+                }
+            }
+            if collectItem.itemType == "Class" {
+                let className = collectItem.classNode.name
+                var methodIdx = 0
+                while methodIdx < collectItem.classNode.methods.length() {
+                    let method = collectItem.classNode.methods[methodIdx]
+                    definedSymbols.push(className + "_" + method.name)
+                    methodIdx = methodIdx + 1
+                }
+            }
+            if collectItem.itemType == "GlobalVar" {
+                definedSymbols.push(collectItem.name)
+            }
+            collectIdx = collectIdx + 1
+        }
+        return definedSymbols
+    }
+
+    fun emitAdditionalGeneratedStringConstants(startIndex: Int) r: Void {
+        if stringConstants.length() <= startIndex {
+            return
+        }
+
+        output.append("\n; Additional string constants from derive/reflect codegen\n")
+        var sci = startIndex
+        while sci < stringConstants.length() {
+            let scStr = stringConstants[sci]
+            let escaped = escapeString(scStr)
+            let scLen = scStr.length() + 1
+            output.append("@.str." + stringConstantPrefix + sci.toString() + " = private unnamed_addr constant [" + scLen.toString() + " x i8] c\"" + escaped + "\\00\"\n")
+            sci = sci + 1
+        }
+    }
+
+    fun emitGeneratedClosures() r: Void {
+        if g_closureDefs.length() > 0 {
+            output.append(g_closureDefs)
+        }
+    }
+
+    fun emitOptimizationStatisticsSummary(moduleIndex: Int, printToStdout: Bool) r: Void {
+        let hasAnyOpts = g_branchesEliminated > 0 or g_deadStatementsEliminated > 0 or
+            g_constantsFolded > 0 or g_cseHits > 0 or g_loopsOptimized > 0 or
+            g_deadStoresEliminated > 0 or g_reductionChainsDetected > 0
+        if not hasAnyOpts {
+            return
+        }
+
+        output.append("\n; --- Optimization Statistics ---\n")
+        if g_branchesEliminated > 0 {
+            output.append("; Branches eliminated: " + g_branchesEliminated.toString() + "\n")
+        }
+        if g_deadStatementsEliminated > 0 {
+            output.append("; Dead statements eliminated: " + g_deadStatementsEliminated.toString() + "\n")
+        }
+        if g_constantsFolded > 0 {
+            output.append("; Constants folded: " + g_constantsFolded.toString() + "\n")
+        }
+        if g_cseHits > 0 {
+            output.append("; CSE hits: " + g_cseHits.toString() + "\n")
+        }
+        if g_loopsOptimized > 0 {
+            output.append("; Loops optimized: " + g_loopsOptimized.toString() + "\n")
+        }
+        if g_deadStoresEliminated > 0 {
+            output.append("; Dead stores eliminated: " + g_deadStoresEliminated.toString() + "\n")
+        }
+        if g_reductionChainsDetected > 0 {
+            output.append("; Reduction chains detected: " + g_reductionChainsDetected.toString() + "\n")
+        }
+
+        if printToStdout {
+            println("  Optimization stats (module " + moduleIndex.toString() + "):")
+            if g_branchesEliminated > 0 {
+                println("    Branches eliminated: " + g_branchesEliminated.toString())
+            }
+            if g_deadStatementsEliminated > 0 {
+                println("    Dead statements eliminated: " + g_deadStatementsEliminated.toString())
+            }
+            if g_constantsFolded > 0 {
+                println("    Constants folded: " + g_constantsFolded.toString())
+            }
+            if g_cseHits > 0 {
+                println("    CSE hits: " + g_cseHits.toString())
+            }
+            if g_loopsOptimized > 0 {
+                println("    Loops optimized: " + g_loopsOptimized.toString())
+            }
+            if g_deadStoresEliminated > 0 {
+                println("    Dead stores eliminated: " + g_deadStoresEliminated.toString())
+            }
+            if g_reductionChainsDetected > 0 {
+                println("    Reduction chains detected: " + g_reductionChainsDetected.toString())
+            }
+        }
+    }
+
     // Multi-module monolithic entry point: generates a single .ll file
     // containing IR for ALL programs. Used by the `--release` path and
     // single-file compilation. Follows the three-pass architecture:
@@ -3231,58 +3551,28 @@ class LLVMIRGenerator {
     // decorators complete before generateFunction(main) tries to resolve
     // method return types.
     fun generateMultiple(programs: Array<ProgramNode>) r: String {
-        output = StringBuilder.new()
-        stringConstants = Array<String>()
+        resetSharedModuleGenerationScratchState()
         stringConstantPrefix = ""  // No prefix for multi-module
-        g_closureCount = 0
-        g_closureDefs = ""
-        g_pforCount = 0
-        g_comptimeNames = ""
-        g_comptimeValues = ""
-        g_comptimeCount = 0
-        g_intrinsicFuncNames = ""
-        g_intrinsicLlvmNames = ""
-        g_intrinsicCount = 0
-        g_sendTypes = ""
-        g_syncTypes = ""
 
         // First pass: collect string constants from all programs
-        var pi = 0
-        while pi < programs.length() {
-            collectStringConstants(programs[pi])
-            pi = pi + 1
-        }
+        collectProgramsStringConstants(programs)
 
         // Emit module header
         emitPrologue()
 
         // Emit class struct type definitions from all programs
-        pi = 0
-        while pi < programs.length() {
-            let program = programs[pi]
-            var i = 0
-            while i < program.items.length() {
-                let item = program.items[i]
-                if item.itemType == "Class" {
-                    emitClassType(item.classNode)
-                }
-                i = i + 1
-            }
-            pi = pi + 1
-        }
+        emitProgramsClassTypes(programs)
 
         // Emit global variable declarations from all programs
-        pi = 0
-        while pi < programs.length() {
-            emitProgramGlobalVariables(programs[pi])
-            pi = pi + 1
-        }
+        emitProgramsGlobalVariables(programs)
 
         // Emit string constants
         emitStringConstants()
+        let stringConstCountBeforeGen = stringConstants.length()
 
         // Emit runtime declarations
-        emitRuntimeDeclarations()
+        let definedFuncs = Array<String>()
+        emitRuntimeDeclarations(definedFuncs)
 
         // Sync class fields → CodegenState before code generation begins.
         syncState()
@@ -3294,158 +3584,18 @@ class LLVMIRGenerator {
         // runs first, it calls inferExpressionType on method calls like
         // obj.serialize(), but the method return type isn't registered yet,
         // causing type inference to fail and generate incorrect IR.
-        pi = 0
-        while pi < programs.length() {
-            let program = programs[pi]
-            var i = 0
-            while i < program.items.length() {
-                if program.items[i].itemType == "Class" {
-                    if canUseLargePlainClassPath(program.items[i].classNode.parentName, program.items[i].classNode.decorators, program.items[i].classNode.methods) {
-                        generatePlainLargeClass(program.items[i].classNode.name, program.items[i].classNode.parentName, program.items[i].classNode.methods)
-                    } else {
-                        let item = program.items[i]
-                        generateClass(item.classNode)
-                    }
-                }
-                i = i + 1
-            }
-            pi = pi + 1
-        }
+        generateProgramsClasses(programs)
 
         // Emit functions (top-level) from all programs
-        pi = 0
-        while pi < programs.length() {
-            let program = programs[pi]
-            var i = 0
-            while i < program.items.length() {
-                let item = program.items[i]
-                if item.itemType == "Function" {
-                    let fnName = item.function.name
-                    // Skip 'new' - it's always a class method, never a standalone function
-                    if fnName == "new" {
-                        i = i + 1
-                        continue
-                    }
-                    if isRuntimeBackedStringCompatFunction(fnName) {
-                        i = i + 1
-                        continue
-                    }
-                    // : @cImport("header.h") — auto-generate extern declarations from C headers
-                    if fnName == "__cImport" and item.function.hasDecorator("cImport") {
-                        var cImportHeaderPath = ""
-                        var ciDecIdx = 0
-                        while ciDecIdx < item.function.decorators.length() {
-                            if item.function.decorators[ciDecIdx].name == "cImport" {
-                                if item.function.decorators[ciDecIdx].arguments.length() > 0 {
-                                    cImportHeaderPath = item.function.decorators[ciDecIdx].arguments[0]
-                                }
-                            }
-                            ciDecIdx = ciDecIdx + 1
-                        }
-                        if cImportHeaderPath != "" {
-                            output.append("; @cImport(\"" + cImportHeaderPath + "\")\n")
-                            // Use clang to extract function declarations from the C header
-                            let ciCmd = "clang -Xclang -ast-dump -fsyntax-only " + cImportHeaderPath + " 2>/dev/null"
-                            let ciResult: CommandResult = runCommand(ciCmd)
-                            if ciResult.success {
-                                // Parse clang AST dump: look for FunctionDecl lines
-                                let ciLines = ciResult.output.split("\n")
-                                var ciLi = 0
-                                while ciLi < ciLines.length() {
-                                    let ciLine = ciLines[ciLi]
-                                    // Match: FunctionDecl ... <name> '<rettype> (<paramtypes>)'
-                                    if ciLine.contains("FunctionDecl") and not ciLine.contains("implicit") {
-                                        // Extract function name and type from the AST dump line
-                                        // Format: |-FunctionDecl 0xADDR <loc> <loc> <name> '<type>'
-                                        let ciQuoteStart = ciLine.indexOf("'")
-                                        let ciQuoteEnd = ciLine.lastIndexOf("'")
-                                        if ciQuoteStart >= 0 and ciQuoteEnd > ciQuoteStart {
-                                            let ciProto = ciLine.substring(ciQuoteStart + 1, ciQuoteEnd)
-                                            // ciProto is like "double (double)" or "int (const char *, ...)"
-                                            let ciParenStart = ciProto.indexOf("(")
-                                            if ciParenStart >= 0 {
-                                                let ciRetType = ciProto.substring(0, ciParenStart).trim()
-                                                let ciRetLlvm = mapCTypeToLlvm(ciRetType)
-                                                // Extract function name: last non-quoted word before the quote
-                                                var ciFuncName = ""
-                                                let ciBeforeQuote = ciLine.substring(0, ciQuoteStart).trim()
-                                                let ciWords = ciBeforeQuote.split(" ")
-                                                if ciWords.length() > 0 {
-                                                    ciFuncName = ciWords[ciWords.length() - 1]
-                                                }
-                                                if ciFuncName != "" and not ciFuncName.startsWith("__") {
-                                                    // Parse parameter types
-                                                    let ciParamPart = ciProto.substring(ciParenStart + 1, ciProto.length() - 1)
-                                                    var ciParamStr = ""
-                                                    var ciIsVariadic = false
-                                                    if ciParamPart != "void" and ciParamPart != "" {
-                                                        let ciParams = ciParamPart.split(",")
-                                                        var ciPi = 0
-                                                        while ciPi < ciParams.length() {
-                                                            let ciP = ciParams[ciPi].trim()
-                                                            if ciP == "..." {
-                                                                ciIsVariadic = true
-                                                            } else {
-                                                                if ciParamStr != "" { ciParamStr = ciParamStr + ", " }
-                                                                ciParamStr = ciParamStr + mapCTypeToLlvm(ciP)
-                                                            }
-                                                            ciPi = ciPi + 1
-                                                        }
-                                                    }
-                                                    if ciIsVariadic {
-                                                        if ciParamStr != "" { ciParamStr = ciParamStr + ", " }
-                                                        ciParamStr = ciParamStr + "..."
-                                                    }
-                                                    output.append("declare " + ciRetLlvm + " @" + ciFuncName + "(" + ciParamStr + ") nounwind\n")
-                                                    registerFunction(ciFuncName, ciRetType)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    ciLi = ciLi + 1
-                                }
-                            }
-                        }
-                        i = i + 1
-                        continue
-                    }
-                    // : Variadic generic expansion
-                    if item.function.hasDecorator("variadic_generic") {
-                        generateVariadicGenericExpansion(item.function)
-                        i = i + 1
-                        continue
-                    }
-                    generateFunction(item.function)
-                }
-                i = i + 1
-            }
-            pi = pi + 1
-        }
+        emitProgramsTopLevelFunctions(programs)
 
         // Emit vtable constants for trait implementations
         emitTraitVtableConstants()
 
-        // Emit closure definitions generated during compilation
-        if g_closureDefs.length() > 0 {
-            output.append(g_closureDefs)
-        }
+        emitAdditionalGeneratedStringConstants(stringConstCountBeforeGen)
+        emitGeneratedClosures()
 
-        // Emit optimization stats as IR comments
-        if g_branchesEliminated > 0 or g_deadStatementsEliminated > 0 or g_constantsFolded > 0 or g_cseHits > 0 {
-            output.append("\n; --- Optimization Statistics ---\n")
-            if g_branchesEliminated > 0 {
-                output.append("; Branches eliminated: " + g_branchesEliminated.toString() + "\n")
-            }
-            if g_deadStatementsEliminated > 0 {
-                output.append("; Dead statements eliminated: " + g_deadStatementsEliminated.toString() + "\n")
-            }
-            if g_constantsFolded > 0 {
-                output.append("; Constants folded: " + g_constantsFolded.toString() + "\n")
-            }
-            if g_cseHits > 0 {
-                output.append("; CSE hits: " + g_cseHits.toString() + "\n")
-            }
-        }
+        emitOptimizationStatisticsSummary(0, false)
 
         // Emit @llvm.global_ctors for @init functions
         emitGlobalConstructors()
@@ -3481,17 +3631,7 @@ class LLVMIRGenerator {
         // nextReg, nextBlock, currentFunctionReturnType, loop labels, opt counters, etc.)
         reset()
         // Module-specific state not covered by reset()
-        g_closureCount = 0
-        g_closureDefs = ""
-        g_pforCount = 0
-        g_comptimeNames = ""
-        g_comptimeValues = ""
-        g_comptimeCount = 0
-        g_intrinsicFuncNames = ""
-        g_intrinsicLlvmNames = ""
-        g_intrinsicCount = 0
-        g_sendTypes = ""
-        g_syncTypes = ""
+        resetSharedModuleGenerationScratchState()
         // Set module prefix for string constants (e.g., "M0.", "M1.", etc.)
         stringConstantPrefix = "M" + moduleIndex.toString() + "."
 
@@ -3520,14 +3660,7 @@ class LLVMIRGenerator {
         // Emit class struct type definitions for THIS module
         println("[irgen module " + moduleIndex.toString() + "] class type scan start")
         let classTypeStartTime = getIrgenTraceTimeSeconds()
-        var i = 0
-        while i < program.items.length() {
-            let item = program.items[i]
-            if item.itemType == "Class" {
-                emitClassType(item.classNode)
-            }
-            i = i + 1
-        }
+        emitProgramClassTypes(program)
         let classTypeEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] class type scan done in " + (classTypeEndTime - classTypeStartTime).toString() + "s")
 
@@ -3555,31 +3688,7 @@ class LLVMIRGenerator {
         var stringConstCountBeforeGen = stringConstants.length()
 
         // Collect function names defined in this module (to skip their declarations)
-        var definedFuncs = Array<String>()
-        var collectIdx = 0
-        while collectIdx < program.items.length() {
-            let collectItem = program.items[collectIdx]
-            if collectItem.itemType == "Function" {
-                if not isRuntimeBackedStringCompatFunction(collectItem.function.name) {
-                    definedFuncs.push(collectItem.function.name)
-                }
-            }
-            if collectItem.itemType == "Class" {
-                // Also collect class method names (format: ClassName_methodName)
-                let className = collectItem.classNode.name
-                var methodIdx = 0
-                while methodIdx < collectItem.classNode.methods.length() {
-                    let method = collectItem.classNode.methods[methodIdx]
-                    definedFuncs.push(className + "_" + method.name)
-                    methodIdx = methodIdx + 1
-                }
-            }
-            // Add global var names to prevent duplicate extern declarations
-            if collectItem.itemType == "GlobalVar" {
-                definedFuncs.push(collectItem.name)
-            }
-            collectIdx = collectIdx + 1
-        }
+        let definedFuncs = collectProgramDefinedSymbols(program)
 
         // Emit declares for cross-module user-defined functions
         // These are built during registerDeclarations (Pass 1) and emitted here (Pass 2)
@@ -3614,47 +3723,14 @@ class LLVMIRGenerator {
         // generateFunction(main) calls inferExpressionType on method calls.
         println("[irgen module " + moduleIndex.toString() + "] classes start")
         let classesStartTime = getIrgenTraceTimeSeconds()
-        i = 0
-        while i < program.items.length() {
-            if program.items[i].itemType == "Class" {
-                if canUseLargePlainClassPath(program.items[i].classNode.parentName, program.items[i].classNode.decorators, program.items[i].classNode.methods) {
-                    generatePlainLargeClass(program.items[i].classNode.name, program.items[i].classNode.parentName, program.items[i].classNode.methods)
-                } else {
-                    let item = program.items[i]
-                    generateClass(item.classNode)
-                }
-            }
-            i = i + 1
-        }
+        generateProgramClasses(program)
         let classesEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] classes done in " + (classesEndTime - classesStartTime).toString() + "s")
 
         // Emit functions (top-level) for THIS module
         println("[irgen module " + moduleIndex.toString() + "] functions start")
         let functionsStartTime = getIrgenTraceTimeSeconds()
-        i = 0
-        while i < program.items.length() {
-            let item = program.items[i]
-            println("[irgen module " + moduleIndex.toString() + "] function loop item " + i.toString() + ": " + item.itemType)
-            if item.itemType == "Function" {
-                println("[irgen module " + moduleIndex.toString() + "] function item confirmed at idx " + i.toString())
-                let fnName = item.function.name
-                // Skip 'new' - it's always a class method, never a standalone function
-                if fnName == "new" {
-                    i = i + 1
-                    continue
-                }
-                if isRuntimeBackedStringCompatFunction(fnName) {
-                    i = i + 1
-                    continue
-                }
-                println("[irgen module " + moduleIndex.toString() + "] function name resolved: " + fnName)
-                println("[irgen module " + moduleIndex.toString() + "] function start: " + fnName)
-                generateFunction(item.function)
-                println("[irgen module " + moduleIndex.toString() + "] function done: " + fnName)
-            }
-            i = i + 1
-        }
+        emitProgramTopLevelFunctions(program, moduleIndex, true)
         let functionsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] functions done in " + (functionsEndTime - functionsStartTime).toString() + "s")
 
@@ -3664,30 +3740,15 @@ class LLVMIRGenerator {
         // Must be AFTER generateFunction so g_traitImplRegistry is populated
         emitTraitVtableConstants()
 
-        // Emit any new string constants added during class/function generation
-        // (e.g., by @derive(Debug), @reflect, @derive(Json) codegen)
-        if stringConstants.length() > stringConstCountBeforeGen {
-            output.append("\n; Additional string constants from derive/reflect codegen\n")
-            var sci = stringConstCountBeforeGen
-            while sci < stringConstants.length() {
-                let scStr = stringConstants[sci]
-                let scLen = scStr.length() + 1
-                output.append("@.str." + stringConstantPrefix + sci.toString() + " = private unnamed_addr constant [" + scLen.toString() + " x i8] c\"")
-                output.append(scStr)
-                output.append("\\00\"\n")
-                sci = sci + 1
-            }
-        }
+        emitAdditionalGeneratedStringConstants(stringConstCountBeforeGen)
 
-        // Emit closure definitions generated during this module
-        if g_closureDefs.length() > 0 {
-            output.append(g_closureDefs)
-        }
+        emitGeneratedClosures()
 
         // Unused function pruning warnings (9.10c)
         // AST-level check: scan all function bodies for Call expressions that reference each function
         // Only check small modules (< 20 functions) to avoid O(n^2) cost on large modules
         if program.items.length() < 20 {
+            var i = 0
             i = 0
             while i < program.items.length() {
                 let ufItem = program.items[i]
@@ -3730,55 +3791,7 @@ class LLVMIRGenerator {
             }
         }
 
-        // Emit optimization stats as IR comments
-        let hasAnyOpts = g_branchesEliminated > 0 or g_deadStatementsEliminated > 0 or g_constantsFolded > 0 or g_cseHits > 0 or g_loopsOptimized > 0 or g_deadStoresEliminated > 0 or g_reductionChainsDetected > 0
-        if hasAnyOpts {
-            output.append("\n; --- Optimization Statistics ---\n")
-            if g_branchesEliminated > 0 {
-                output.append("; Branches eliminated: " + g_branchesEliminated.toString() + "\n")
-            }
-            if g_deadStatementsEliminated > 0 {
-                output.append("; Dead statements eliminated: " + g_deadStatementsEliminated.toString() + "\n")
-            }
-            if g_constantsFolded > 0 {
-                output.append("; Constants folded: " + g_constantsFolded.toString() + "\n")
-            }
-            if g_cseHits > 0 {
-                output.append("; CSE hits: " + g_cseHits.toString() + "\n")
-            }
-            if g_loopsOptimized > 0 {
-                output.append("; Loops optimized: " + g_loopsOptimized.toString() + "\n")
-            }
-            if g_deadStoresEliminated > 0 {
-                output.append("; Dead stores eliminated: " + g_deadStoresEliminated.toString() + "\n")
-            }
-            if g_reductionChainsDetected > 0 {
-                output.append("; Reduction chains detected: " + g_reductionChainsDetected.toString() + "\n")
-            }
-            // Also print stats to stdout for user visibility
-            println("  Optimization stats (module " + moduleIndex.toString() + "):")
-            if g_branchesEliminated > 0 {
-                println("    Branches eliminated: " + g_branchesEliminated.toString())
-            }
-            if g_deadStatementsEliminated > 0 {
-                println("    Dead statements eliminated: " + g_deadStatementsEliminated.toString())
-            }
-            if g_constantsFolded > 0 {
-                println("    Constants folded: " + g_constantsFolded.toString())
-            }
-            if g_cseHits > 0 {
-                println("    CSE hits: " + g_cseHits.toString())
-            }
-            if g_loopsOptimized > 0 {
-                println("    Loops optimized: " + g_loopsOptimized.toString())
-            }
-            if g_deadStoresEliminated > 0 {
-                println("    Dead stores eliminated: " + g_deadStoresEliminated.toString())
-            }
-            if g_reductionChainsDetected > 0 {
-                println("    Reduction chains detected: " + g_reductionChainsDetected.toString())
-            }
-        }
+        emitOptimizationStatisticsSummary(moduleIndex, true)
 
         // Clear per-module CSE cache (expressions don't carry across modules)
         cseClear()
