@@ -1,0 +1,19 @@
+fun main() r: Int {
+    let arr = Array<Int>.withLength(4)
+
+    let map = HashMap<String, Int>.withCapacity(3)
+    map.insert("k", 7)
+
+    let builder = StringBuilder.new()
+    builder.append("ok")
+    let built = builder.toString()
+
+    let charText = String.fromCharCode(65)
+
+    if arr.length() == 4 and arr.get(0) == 0 and
+       map.getOrDefault("k", -1) == 7 and
+       built == "ok" and charText == "A" {
+        return 0
+    }
+    return 1
+}
