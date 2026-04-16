@@ -2,6 +2,9 @@
 // Extracted from llvm_ir_gen.seen to keep generateCall() focused on lowering
 // instead of carrying special-case bootstrap tables inline.
 
+import str.string.{StringBuilder}
+import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
+
 fun pipeContainsCallFixupImpl(entries: String, name: String) r: Bool {
     if entries == "" or name == "" {
         return false
@@ -60,4 +63,15 @@ fun resolveStandaloneParserWorkaroundRetTypeImpl(methodName: String) r: String {
         return "void"
     }
     return "ptr"
+}
+
+fun emitStandaloneParserWorkaroundCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, argRegs: Array<String>,
+    argTypes: Array<String>) r: String {
+
+    output.append("; INFO: calling standalone function " + methodName +
+        " (parser workaround)\n")
+    return emitUserFunctionCallImpl(output, regBox, methodName,
+        resolveStandaloneParserWorkaroundRetTypeImpl(methodName), argRegs,
+        argTypes, 0)
 }

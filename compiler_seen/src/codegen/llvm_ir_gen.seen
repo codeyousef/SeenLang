@@ -55,15 +55,15 @@ import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_call_dispatch.{emitSimdReductionVarImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
-import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, resolveStandaloneParserWorkaroundRetTypeImpl}
+import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
-import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl, emitPreparedDynTraitMethodCallImpl, tryGenerateExplicitOptionMethodCallImpl, tryGenerateExplicitHotReloadMethodCallImpl, tryGenerateExplicitCollectionMethodCallImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
@@ -10887,17 +10887,6 @@ class LLVMIRGenerator {
         prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs,
             false, enableFloatPromotion, false, "")
 
-        if isUppercase and potentialClassName == "StringBuilder" and
-            methodName == "new" {
-            return emitStringBuilderNewCallImpl(output, g_regBox, funcName,
-                argRegs, argTypeStrs)
-        }
-        if isUppercase and potentialClassName == "String" and
-            methodName == "fromCharCode" {
-            return emitStringFromCharCodeCallImpl(output, g_regBox, argRegs,
-                argTypeStrs)
-        }
-
         let staticReturnType = resolveStaticMethodReturnTypeImpl(
             getMethodReturnType(staticClassName, methodName),
             inferExpressionType(expr))
@@ -10906,16 +10895,11 @@ class LLVMIRGenerator {
         if isClassType(staticClassName) { isClassRecv = 1 }
         var isDataRecv = 0
         if isDataType(staticClassName) { isDataRecv = 1 }
-        let hasImplicitThis = 0
         fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
-        let filledArgRegs = g_defaultFillArgRegs
-        let filledArgTypeStrs = g_defaultFillArgTypeStrs
-        recordLateUserDeclare(funcName, staticLlvmReturnType, filledArgTypeStrs,
-            hasImplicitThis)
-        return emitGenericStaticCallImpl(output, g_regBox,
-            quoteIdentIfNeeded(funcName), staticLlvmReturnType,
-            staticClassName, filledArgRegs, filledArgTypeStrs, isClassRecv,
-            isDataRecv, hasImplicitThis)
+        return emitPreparedStaticMethodCallImpl(output, g_regBox, methodName,
+            potentialClassName, staticClassName, funcName,
+            staticLlvmReturnType, isClassRecv, isDataRecv,
+            g_defaultFillArgRegs, g_defaultFillArgTypeStrs)
     }
 
     fun tryResolveArrayMutatorPointerFromLiteral(varName: String) r: String {
@@ -11182,55 +11166,17 @@ class LLVMIRGenerator {
             var dynArgTypes = Array<String>()
             prepareMethodCallArgRegsAndTypes(expr.arguments, dynArgRegs,
                 dynArgTypes)
-            let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output,
-                g_regBox, receiverReg, receiverType, methodName, structNames,
-                structMethodNames, structMethodRetTypes, dynArgRegs,
-                dynArgTypes, 0)
-            if dynTraitResult != "" {
-                return dynTraitResult
-            }
-
-            receiverType = normalizeExplicitMethodReceiverTypeImpl(methodName,
-                receiverType)
-
-            var optDefaultReg = "0"
-            if (methodName == "unwrapOr" or methodName == "UnwrapOr") and
-                expr.arguments.length() > 0 {
-                optDefaultReg = generateExpression(expr.arguments[0])
-            }
-            let optionResult = tryGenerateExplicitOptionMethodCallImpl(output,
-                g_regBox, g_blockLabelBox, methodName, receiverReg,
-                receiverType, optDefaultReg)
-            if optionResult != "" {
-                return optionResult
-            }
-
-            var hotStateArg = "0"
-            if methodName == "__seen_hot_set_state" and
-                expr.arguments.length() > 0 {
-                hotStateArg = generateExpression(expr.arguments[0])
-            }
-            let hotReloadResult =
-                tryGenerateExplicitHotReloadMethodCallImpl(output, g_regBox,
-                    methodName, receiverReg, receiverType, hotStateArg,
-                    g_reprCClassNames, structNames)
-            if hotReloadResult != "" {
-                return hotReloadResult
-            }
-
-            var collArg0c = "0"
-            var collArg1c = "0"
-            if expr.arguments.length() > 0 {
-                collArg0c = generateExpression(expr.arguments[0])
-            }
-            if expr.arguments.length() > 1 {
-                collArg1c = generateExpression(expr.arguments[1])
-            }
-            let collectionResult = tryGenerateExplicitCollectionMethodCallImpl(
-                output, g_regBox, methodName, receiverReg, receiverType,
-                collArg0c, collArg1c)
-            if collectionResult != "" {
-                return collectionResult
+            let explicitReceiverTypeBox = Array<String>()
+            explicitReceiverTypeBox.push(receiverType)
+            let explicitFastPath =
+                tryGeneratePreparedExplicitReceiverFastPathImpl(output,
+                    g_regBox, g_blockLabelBox, methodName, receiverReg,
+                    explicitReceiverTypeBox, structNames, structMethodNames,
+                    structMethodRetTypes, dynArgRegs, dynArgTypes,
+                    g_reprCClassNames)
+            receiverType = explicitReceiverTypeBox[0]
+            if explicitFastPath != "" {
+                return explicitFastPath
             }
         }
 
@@ -11295,17 +11241,14 @@ class LLVMIRGenerator {
                     var svDynArgTypes = Array<String>()
                     prepareMethodCallArgRegsAndTypes(expr.arguments,
                         svDynArgRegs, svDynArgTypes)
-                    let dynTraitResult = emitPreparedDynTraitMethodCallImpl(
-                        output, g_regBox, receiverReg, varType, methodName,
-                        structNames, structMethodNames, structMethodRetTypes,
-                        svDynArgRegs, svDynArgTypes, 1)
-                    if dynTraitResult != "" {
-                        return dynTraitResult
-                    }
-
-                    if isSimdVectorType(varType) == 1 {
-                        return emitSimdReductionVarImpl(output, g_regBox,
-                            methodName, receiverReg, varType)
+                    let localVarFastPath =
+                        tryGeneratePreparedLocalVariableReceiverFastPathImpl(
+                            output, g_regBox, methodName, receiverReg,
+                            varType, structNames, structMethodNames,
+                            structMethodRetTypes, svDynArgRegs,
+                            svDynArgTypes)
+                    if localVarFastPath != "" {
+                        return localVarFastPath
                     }
                 } else {
                     let gvMcIdx = findModuleConstant(varName)
@@ -11315,12 +11258,17 @@ class LLVMIRGenerator {
                         if not isModuleConstMutable(gvMcIdx) {
                             gvMcInvSuffix = ", !invariant.load !190"
                         }
-                        receiverReg = emitModuleConstantLoadImpl(output,
-                            g_regBox, "@" + varName, gvMcType, gvMcInvSuffix)
-                        receiverType =
-                            fallbackModuleConstantMethodReceiverTypeImpl(
-                                gvMcType,
-                                resolveLiteralMethodReceiverType(varName))
+                        let moduleConstReceiverRegBox = Array<String>()
+                        moduleConstReceiverRegBox.push(receiverReg)
+                        let moduleConstReceiverTypeBox = Array<String>()
+                        moduleConstReceiverTypeBox.push(receiverType)
+                        prepareModuleConstantMethodReceiverImpl(output,
+                            g_regBox, "@" + varName, gvMcType, gvMcInvSuffix,
+                            resolveLiteralMethodReceiverType(varName),
+                            moduleConstReceiverRegBox,
+                            moduleConstReceiverTypeBox)
+                        receiverReg = moduleConstReceiverRegBox[0]
+                        receiverType = moduleConstReceiverTypeBox[0]
                     }
                     if receiverReg == "" {
                         let thisIdx = findVar("this")
@@ -11423,22 +11371,16 @@ class LLVMIRGenerator {
             }
 
             if isStandaloneParserWorkaroundImpl(methodName) {
-                output.append("; INFO: calling standalone function " +
-                    methodName + " (parser workaround)\n")
                 var standaloneArgRegs = Array<String>()
                 var standaloneArgTypes = Array<String>()
                 prepareCallArguments(methodName, expr.arguments,
                     standaloneArgRegs, standaloneArgTypes, false, false,
                     false, "")
-                let standaloneRetType =
-                    resolveStandaloneParserWorkaroundRetTypeImpl(methodName)
                 fillDefaultParamsLocal(methodName, standaloneArgRegs,
                     standaloneArgTypes)
-                let filledArgRegs = g_defaultFillArgRegs
-                let filledArgTypes = g_defaultFillArgTypeStrs
-                return emitUserFunctionCallImpl(output, g_regBox,
-                    quoteIdentIfNeeded(methodName), standaloneRetType,
-                    filledArgRegs, filledArgTypes, 0)
+                return emitStandaloneParserWorkaroundCallImpl(output,
+                    g_regBox, methodName, g_defaultFillArgRegs,
+                    g_defaultFillArgTypeStrs)
             }
 
             output.append("; WARNING: receiver not resolved for " + methodName +
@@ -11452,12 +11394,11 @@ class LLVMIRGenerator {
             if unresolvedFallback != "" {
                 return unresolvedFallback
             }
-
-            if receiverType == "Bool" {
-                receiverReg = "false"
-            } else {
-                receiverReg = "0"
-            }
+            let unresolvedReceiverRegBox = Array<String>()
+            unresolvedReceiverRegBox.push(receiverReg)
+            applyUnresolvedReceiverDefaultImpl(unresolvedReceiverRegBox,
+                receiverType)
+            receiverReg = unresolvedReceiverRegBox[0]
         }
 
         // Generate arguments BEFORE allocating result register to keep numbers in order

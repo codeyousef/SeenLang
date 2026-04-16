@@ -11,8 +11,10 @@ import codegen.ir_type_mapping.{mapFieldNameToReceiverType}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_type_ops.{emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitStringBuilderMethodImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitLengthSizeMethodImpl}
-import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitStaticCollectionNewImpl, emitArrayWithLengthImpl}
+import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitStaticCollectionNewImpl, emitArrayWithLengthImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitSimdReductionVarImpl}
 import codegen.ir_type_dispatch.{dispatchCollectionMethodImpl}
+import codegen.ir_decl_scan.{recordLateUserDeclareImpl}
+import codegen.ir_variable_gen.{emitModuleConstantLoadImpl}
 import codegen.type_registry.{findStructReg, getFieldTypeFromListsReg, isClassTypeReg}
 
 fun quoteIdentIfNeededImpl(name: String) r: String {
@@ -173,6 +175,74 @@ fun emitPreparedDynTraitMethodCallImpl(output: StringBuilder, regBox: Array<Int>
     return emitDynTraitVtableCallImpl(output, regBox, receiverReg, dynTraitName,
         methodName, dynMethodNames, dynRetTypes, argRegs, argTypes,
         receiverLoadKind)
+}
+
+fun tryGeneratePreparedExplicitReceiverFastPathImpl(output: StringBuilder,
+    regBox: Array<Int>, blockLabelBox: Array<Int>, methodName: String,
+    receiverReg: String, receiverTypeBox: Array<String>,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>, dynArgRegs: Array<String>,
+    dynArgTypes: Array<String>, reprCClassNames: String) r: String {
+
+    let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output, regBox,
+        receiverReg, receiverTypeBox[0], methodName, structNames,
+        structMethodNames, structMethodRetTypes, dynArgRegs, dynArgTypes, 0)
+    if dynTraitResult != "" {
+        return dynTraitResult
+    }
+
+    receiverTypeBox[0] = normalizeExplicitMethodReceiverTypeImpl(methodName,
+        receiverTypeBox[0])
+
+    var optDefaultReg = "0"
+    if (methodName == "unwrapOr" or methodName == "UnwrapOr") and
+        dynArgRegs.length() > 0 {
+        optDefaultReg = dynArgRegs[0]
+    }
+    let optionResult = tryGenerateExplicitOptionMethodCallImpl(output, regBox,
+        blockLabelBox, methodName, receiverReg, receiverTypeBox[0],
+        optDefaultReg)
+    if optionResult != "" {
+        return optionResult
+    }
+
+    var hotStateArg = "0"
+    if methodName == "__seen_hot_set_state" and dynArgRegs.length() > 0 {
+        hotStateArg = dynArgRegs[0]
+    }
+    let hotReloadResult = tryGenerateExplicitHotReloadMethodCallImpl(output,
+        regBox, methodName, receiverReg, receiverTypeBox[0], hotStateArg,
+        reprCClassNames, structNames)
+    if hotReloadResult != "" {
+        return hotReloadResult
+    }
+
+    var collArg0 = "0"
+    var collArg1 = "0"
+    if dynArgRegs.length() > 0 {
+        collArg0 = dynArgRegs[0]
+    }
+    if dynArgRegs.length() > 1 {
+        collArg1 = dynArgRegs[1]
+    }
+    return tryGenerateExplicitCollectionMethodCallImpl(output, regBox,
+        methodName, receiverReg, receiverTypeBox[0], collArg0, collArg1)
+}
+
+fun tryGeneratePreparedLocalVariableReceiverFastPathImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String, structNames: Array<String>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    dynArgRegs: Array<String>, dynArgTypes: Array<String>) r: String {
+
+    let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output, regBox,
+        receiverReg, receiverType, methodName, structNames, structMethodNames,
+        structMethodRetTypes, dynArgRegs, dynArgTypes, 1)
+    if dynTraitResult != "" {
+        return dynTraitResult
+    }
+    return emitSimdReductionVarImpl(output, regBox, methodName, receiverReg,
+        receiverType)
 }
 
 fun tryGenerateExplicitOptionMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
@@ -452,6 +522,41 @@ fun resolveStaticMethodReturnTypeImpl(registeredStaticReturnType: String,
         staticReturnType = inferredStaticReturnType
     }
     return staticReturnType
+}
+
+fun prepareModuleConstantMethodReceiverImpl(output: StringBuilder,
+    regBox: Array<Int>, globalName: String, llvmType: String,
+    invariantSuffix: String, inferredReceiverType: String,
+    receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
+
+    receiverRegBox[0] = emitModuleConstantLoadImpl(output, regBox, globalName,
+        llvmType, invariantSuffix)
+    receiverTypeBox[0] = fallbackModuleConstantMethodReceiverTypeImpl(llvmType,
+        inferredReceiverType)
+}
+
+fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
+    methodName: String, potentialClassName: String, staticClassName: String,
+    funcName: String, staticLlvmReturnType: String, isClassRecv: Int,
+    isDataRecv: Int, argRegs: Array<String>, argTypeStrs: Array<String>)
+    r: String {
+
+    if potentialClassName == "StringBuilder" and methodName == "new" {
+        return emitStringBuilderNewCallImpl(output, regBox, funcName, argRegs,
+            argTypeStrs)
+    }
+    if potentialClassName == "String" and methodName == "fromCharCode" {
+        return emitStringFromCharCodeCallImpl(output, regBox, argRegs,
+            argTypeStrs)
+    }
+
+    let hasImplicitThis = 0
+    recordLateUserDeclareImpl(funcName, staticLlvmReturnType, argTypeStrs,
+        hasImplicitThis)
+    return emitGenericStaticCallImpl(output, regBox,
+        quoteIdentIfNeededImpl(funcName), staticLlvmReturnType,
+        staticClassName, argRegs, argTypeStrs, isClassRecv, isDataRecv,
+        hasImplicitThis)
 }
 
 fun shouldLowerUnresolvedMethodAsCallImpl(currentClassName: String,
