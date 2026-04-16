@@ -10,7 +10,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,855` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,867` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -32,6 +32,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `generateCall()` is down to about `66` lines.
   - `generateMethodCall()` is down to about `57` lines.
   - `generateBinary()` is down to about `339` lines.
+  - `emitClassType()` is down to about `29` lines.
+  - `generateClass()` is down to about `48` lines.
+  - `generatePlainLargeClass()` is down to about `23` lines.
   - `generateClassMethodFromList()` is down to about `179` lines.
   - `inferExpressionType()` is down to about `193` lines.
   - `generateAssignmentExpr()` is down to about `16` lines.
@@ -388,6 +391,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Split the method-call emission cluster further by collapsing receiver preparation behind `tryPrepareMethodCallReceiver()`, extracting builtin receiver dispatch for length/string-builder/conversion/numeric/string-like methods, and extracting normalized instance-call emission for traced unwrap handling, hot-reload interception, receiver ABI normalization, and specialized `unwrap()` handling. This turns `generateMethodCall()` into a short orchestration layer instead of leaving builtin and user-defined instance dispatch interleaved in one block.
 - Split the module-entry orchestration further by extracting shared reset, string-collection, class-type emission, class emission, top-level function emission, defined-symbol collection, extra string-constant flush, closure emission, and optimization-stat helpers. This shrinks `generateMultiple()` and `generateSingle()` into explicit phase pipelines instead of leaving module sequencing, special top-level handling, and post-generation cleanup interleaved in two duplicated entrypoints.
 - Split the block/statement pipeline further by extracting dead-store scan helpers, deferred-cleanup emission, assignment-like expression dispatch, unused-result warnings, loop-control emission, scoped/defer/unsafe/try-catch helpers, and grouped statement-family dispatchers. This turns `generateBlock()` and `generateStatement()` into short orchestration layers instead of leaving block cleanup, dead-store heuristics, and every statement-kind branch mixed together.
+- Split the type/class-emission cluster further by shrinking `emitClassType()` behind focused dedup, header-layout reuse, decorator-metadata, special-case gpu/union emission, associated-type-alias registration, and default-field layout helpers; shrinking `generateClass()` behind dedicated trait/type-alias/decorator/hot-reload/inherited-thunk helpers; and deduplicating the StringBuilder runtime-backed method skip list shared by normal and large-class emission. This keeps the class/type pipeline on the same dispatcher-plus-phases shape now used across statements, expressions, and calls.
 
 ### Validation Status
 
@@ -403,6 +407,10 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/test_method_builtin_dispatch.seen` also passes under the same cap, which gives this batch direct coverage for StringBuilder method dispatch plus builtin string/int/float method lowering across `trim()`, `toInt()`, `toFloat()`, `toString()`, and `length()`.
 - `./compiler_seen/target/seen check compiler_seen/test_import_io.seen` also passes under the same cap, which gives this batch a direct import-path sanity check across the shared `generateSingle()` module-entry sequencing.
 - `./compiler_seen/target/seen check compiler_seen/test_statement_forms.seen` also passes under the same cap, which gives this batch direct coverage for the refactored statement dispatcher across `while`/`continue`/`break`, `try/catch`, `unsafe`, and inline block handling.
+- `./compiler_seen/target/seen check compiler_seen/test_type_emission_forms.seen` also passes under the same cap, which gives this batch direct coverage for `type`/`distinct`, `union`, `@trait`, `@repr(C)`, `@gpu_buffer`, and decorator-generated class emission in the same module.
+- `./compiler_seen/target/seen check tests/test_gpu_buffer.seen` also passes under the same cap, which revalidates the extracted gpu-buffer type-emission path against the existing dedicated layout test.
+- `./compiler_seen/target/seen check tests/p2/test_trait_monomorph.seen` also passes under the same cap, which revalidates the extracted trait-path helper against an existing trait codegen test.
+- `./compiler_seen/target/seen check tests/p2/test_derive_debug.seen` also passes under the same cap, which revalidates the extracted class-decorator scan and generated-method dispatch path against an existing derive test.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_call_fixups.seen` reaches the expected `missing main` diagnostic, which at least confirms the new helper module parses cleanly.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_method_finalize.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_field_layout.seen` also reaches the expected `missing main` diagnostic.
@@ -412,7 +420,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_class_method_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_assignment_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_variable_gen.seen` also reaches the expected `missing main` diagnostic.
-- Bounded direct checks of `compiler_seen/src/main_compiler.seen` and `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest block/statement pipeline split on top of the earlier module-entry orchestration split, method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
+- Bounded direct checks of `compiler_seen/src/main_compiler.seen` and `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest type/class-emission split on top of the earlier block/statement pipeline split, module-entry orchestration split, method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
 - The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 
 ### Phase Status

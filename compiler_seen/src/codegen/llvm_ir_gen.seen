@@ -3902,353 +3902,335 @@ class LLVMIRGenerator {
         emitLoopMetadataImpl(output, getCurrentFunctionOptions(), g_blockBox, g_reductionLoopIds, g_nestedLoopIds, g_loopTileHints)
     }
 
+    fun hasGeneratedClassType(className: String) r: Bool {
+        var classIdx = 0
+        while classIdx < generatedClasses.length() {
+            if generatedClasses[classIdx] == className {
+                return true
+            }
+            classIdx = classIdx + 1
+        }
+        return false
+    }
+
+    fun tryReuseHeaderLoadedClassType(classNode: ClassNode) r: Bool {
+        if not typesLoadedFromHeader {
+            return false
+        }
+        let structIdx = findStruct(classNode.name)
+        if structIdx < 0 {
+            return false
+        }
+        let existingLayout = structLayouts[structIdx]
+        let usesInlineSeenString = existingLayout.contains("{ i64, ptr }")
+        let usesNamedSeenString = existingLayout.contains("%SeenString")
+        if existingLayout != "" and (usesInlineSeenString or not usesNamedSeenString) {
+            registerStructLayout(classNode)
+            generatedClasses.push(classNode.name)
+            return true
+        }
+        return false
+    }
+
+    fun registerClassTypeDecoratorMetadata(className: String, decorator: AnnotationNode, typeFlags: Array<Int>) r: Void {
+        if decorator.name == "derive" {
+            output.append("; @derive detected on " + className + "\n")
+        }
+        if decorator.name == "repr" {
+            typeFlags[0] = 1
+            g_reprCClassNames = g_reprCClassNames + className + "|"
+        }
+        if decorator.name == "packed" {
+            typeFlags[1] = 1
+        }
+        if decorator.name == "cache_line" {
+            typeFlags[2] = 1
+            g_cacheLineClasses = g_cacheLineClasses + className + "|"
+        }
+        if decorator.name == "send" {
+            g_sendTypes = g_sendTypes + className + "|"
+            output.append("; @send type: " + className + "\n")
+        }
+        if decorator.name == "sync" {
+            g_syncTypes = g_syncTypes + className + "|"
+            output.append("; @sync type: " + className + "\n")
+        }
+        if decorator.name == "layout" {
+            if decorator.arguments.length() > 0 {
+                if decorator.arguments[0] == "soa" {
+                    g_soaClassNames = g_soaClassNames + className + "|"
+                    g_soaClassCount = g_soaClassCount + 1
+                    output.append("; @layout(soa) type: " + className + "\n")
+                }
+                if decorator.arguments[0] == "aos" {
+                    output.append("; @layout(aos) type: " + className + " (default layout)\n")
+                }
+            }
+        }
+        if decorator.name == "trivially_copyable" {
+            g_triviallyCopyableClasses = g_triviallyCopyableClasses + className + "|"
+            output.append("; @trivially_copyable type: " + className + "\n")
+        }
+        if decorator.name == "move" {
+            g_moveOnlyClasses = g_moveOnlyClasses + className + "|"
+            output.append("; @move (non-copyable) type: " + className + "\n")
+        }
+        if decorator.name == "c_resource" {
+            g_cResourceClasses = g_cResourceClasses + className + "|"
+            if decorator.arguments.length() > 0 {
+                g_cResourceDestructors = g_cResourceDestructors + decorator.arguments[0] + "|"
+            } else {
+                g_cResourceDestructors = g_cResourceDestructors + "free|"
+            }
+            output.append("; @c_resource type: " + className + "\n")
+        }
+        if decorator.name == "reflect" {
+            g_reflectClassNames = g_reflectClassNames + className + "|"
+            g_reflectClassCount = g_reflectClassCount + 1
+            output.append("; @reflect type: " + className + "\n")
+        }
+        if decorator.name == "binary" {
+            var binEndian = "le"
+            var binVersion = "1"
+            if decorator.arguments.length() > 0 {
+                binEndian = decorator.arguments[0]
+            }
+            if decorator.arguments.length() > 1 {
+                binVersion = decorator.arguments[1]
+            }
+            g_binaryClassNames = g_binaryClassNames + className + "|"
+            g_binaryEndianness = g_binaryEndianness + binEndian + "|"
+            g_binaryVersions = g_binaryVersions + binVersion + "|"
+            g_binaryClassCount = g_binaryClassCount + 1
+            output.append("; @binary type: " + className + " (endian=" + binEndian + ", version=" + binVersion + ")\n")
+        }
+        if decorator.name == "packet" {
+            var pktId = "0"
+            if decorator.arguments.length() > 0 {
+                pktId = decorator.arguments[0]
+            }
+            g_packetClassNames = g_packetClassNames + className + "|"
+            g_packetClassIds = g_packetClassIds + pktId + "|"
+            g_packetCount = g_packetCount + 1
+            output.append("; @packet type: " + className + " (id=" + pktId + ")\n")
+        }
+    }
+
+    fun tryEmitGpuBufferClassType(classNode: ClassNode, decorator: AnnotationNode) r: Bool {
+        if decorator.name != "gpu_buffer" {
+            return false
+        }
+        var gpuLayout = "std140"
+        if decorator.arguments.length() > 0 {
+            gpuLayout = decorator.arguments[0]
+        }
+        g_gpuBufferClasses = g_gpuBufferClasses + classNode.name + "|"
+        g_gpuBufferLayouts = g_gpuBufferLayouts + gpuLayout + "|"
+        output.append("; @gpu_buffer(" + gpuLayout + ") type: " + classNode.name + "\n")
+        output.append("%" + quoteIdentIfNeeded(classNode.name) + " = type { ")
+        var gpuFi = 0
+        var gpuOffset = 0
+        var gpuFieldIdx = 0
+        while gpuFi < classNode.fields.length() {
+            let gpuField = classNode.fields[gpuFi]
+            let gpuFieldType = mapType(normalizeDeclaredTypeNode(gpuField.paramType))
+            var gpuFieldSize = 8
+            var gpuFieldAlign = 8
+            if gpuFieldType == "i32" { gpuFieldSize = 4; gpuFieldAlign = 4 }
+            if gpuFieldType == "float" { gpuFieldSize = 4; gpuFieldAlign = 4 }
+            if gpuFieldType == "double" { gpuFieldSize = 8; gpuFieldAlign = 8 }
+            if gpuFieldType == "i64" { gpuFieldSize = 8; gpuFieldAlign = 8 }
+            if gpuFieldType == "i1" { gpuFieldSize = 4; gpuFieldAlign = 4 }
+            if gpuLayout == "std140" {
+                if gpuFieldAlign < 4 { gpuFieldAlign = 4 }
+            }
+            var gpuPadding = 0
+            if gpuOffset % gpuFieldAlign != 0 {
+                gpuPadding = gpuFieldAlign - (gpuOffset % gpuFieldAlign)
+            }
+            if gpuPadding > 0 {
+                if gpuFieldIdx > 0 { output.append(", ") }
+                output.append("[" + gpuPadding.toString() + " x i8]")
+                gpuFieldIdx = gpuFieldIdx + 1
+                gpuOffset = gpuOffset + gpuPadding
+            }
+            if gpuFieldIdx > 0 { output.append(", ") }
+            output.append(gpuFieldType)
+            gpuFieldIdx = gpuFieldIdx + 1
+            gpuOffset = gpuOffset + gpuFieldSize
+            gpuFi = gpuFi + 1
+        }
+        if gpuLayout == "std140" {
+            if gpuOffset % 16 != 0 {
+                let tailPad = 16 - (gpuOffset % 16)
+                output.append(", [" + tailPad.toString() + " x i8]")
+            }
+        }
+        output.append(" }\n")
+        return true
+    }
+
+    fun tryEmitUnionClassType(classNode: ClassNode, decorator: AnnotationNode) r: Bool {
+        if decorator.name != "union" {
+            return false
+        }
+        var maxFieldSize = 0
+        var maxFieldType = "i8"
+        var fieldIdx = 0
+        while fieldIdx < classNode.fields.length() {
+            let unionField = classNode.fields[fieldIdx]
+            let unionFieldType = mapType(normalizeDeclaredTypeNode(unionField.paramType))
+            let unionFieldSize = getLlvmTypeSize(unionFieldType)
+            if unionFieldSize > maxFieldSize {
+                maxFieldSize = unionFieldSize
+                maxFieldType = unionFieldType
+            }
+            fieldIdx = fieldIdx + 1
+        }
+        if maxFieldSize == 0 {
+            maxFieldSize = 1
+        }
+        output.append("; @union — overlapping fields, max size = " + maxFieldSize.toString() + " bytes\n")
+        output.append("%" + quoteIdentIfNeeded(classNode.name) + " = type { " + maxFieldType + " }\n")
+        g_unionTypes = g_unionTypes + classNode.name + "|"
+        return true
+    }
+
+    fun tryEmitSpecialClassTypeDecorator(classNode: ClassNode, decorator: AnnotationNode) r: Bool {
+        if tryEmitGpuBufferClassType(classNode, decorator) {
+            return true
+        }
+        if tryEmitUnionClassType(classNode, decorator) {
+            return true
+        }
+        return false
+    }
+
+    fun scanClassTypeDecorators(classNode: ClassNode, typeFlags: Array<Int>) r: Bool {
+        let className = classNode.name
+        var decoratorIdx = 0
+        while decoratorIdx < classNode.decorators.length() {
+            let decorator = classNode.decorators[decoratorIdx]
+            registerClassTypeDecoratorMetadata(className, decorator, typeFlags)
+            if tryEmitSpecialClassTypeDecorator(classNode, decorator) {
+                return true
+            }
+            decoratorIdx = decoratorIdx + 1
+        }
+        return false
+    }
+
+    fun appendAssociatedTypeAliasMapping(aliasName: String, aliasTarget: String) r: Void {
+        g_typeAliasNames = g_typeAliasNames + aliasName + "|"
+        g_typeAliasTargets = g_typeAliasTargets + aliasTarget + "|"
+        g_typeAliasCount = g_typeAliasCount + 1
+    }
+
+    fun registerAssociatedTypeAliasField(className: String, field: ParamNode) r: Void {
+        let aliasName = field.name.substring(12, field.name.length())
+        appendAssociatedTypeAliasMapping(className + "." + aliasName, field.paramType.typeName)
+    }
+
+    fun countRealClassTypeFields(classNode: ClassNode) r: Int {
+        var realFieldCount = 0
+        var fieldIdx = 0
+        while fieldIdx < classNode.fields.length() {
+            let field = classNode.fields[fieldIdx]
+            if not field.name.startsWith("@type_alias:") {
+                realFieldCount = realFieldCount + 1
+            } else {
+                registerAssociatedTypeAliasField(classNode.name, field)
+            }
+            fieldIdx = fieldIdx + 1
+        }
+        return realFieldCount
+    }
+
+    fun resolveClassTypeFieldLlvmType(field: ParamNode) r: String {
+        var fieldTypeName = field.paramType.typeName
+        if fieldTypeName.contains(":bitfield(") {
+            let bitfieldPos = fieldTypeName.indexOf(":bitfield(", 0)
+            if bitfieldPos >= 0 {
+                fieldTypeName = fieldTypeName.substring(0, bitfieldPos)
+            }
+        }
+        return mapType(fieldTypeName)
+    }
+
+    fun emitClassTypeFields(classNode: ClassNode) r: Void {
+        var fieldIdx = 0
+        var emittedFirst = false
+        while fieldIdx < classNode.fields.length() {
+            let field = classNode.fields[fieldIdx]
+            if not field.name.startsWith("@type_alias:") {
+                if emittedFirst {
+                    output.append(", ")
+                }
+                output.append(resolveClassTypeFieldLlvmType(field))
+                emittedFirst = true
+            }
+            fieldIdx = fieldIdx + 1
+        }
+    }
+
+    fun emitClassTypeHeader(className: String, typeFlags: Array<Int>) r: Void {
+        if typeFlags[0] == 1 {
+            output.append("; @repr(C) — sequential C-compatible layout\n")
+        }
+        if typeFlags[1] == 1 {
+            output.append("; @packed — no padding between fields\n")
+        }
+        if typeFlags[2] == 1 {
+            output.append("; @cache_line — 64-byte aligned allocation\n")
+        }
+        if typeFlags[1] == 1 {
+            output.append("%" + quoteIdentIfNeeded(className) + " = type <{ ")
+        } else {
+            output.append("%" + quoteIdentIfNeeded(className) + " = type { ")
+        }
+    }
+
+    fun emitClassTypeFooter(typeFlags: Array<Int>) r: Void {
+        if typeFlags[1] == 1 {
+            output.append(" }>\n")
+        } else {
+            output.append(" }\n")
+        }
+    }
+
     // Emit a named LLVM struct type definition (e.g., %MyClass = type { i64, ptr }).
     // Deduplicates by tracking emitted classes in generatedClasses[].
     // If types were loaded from a header file (typesLoadedFromHeader), skips
     // emission for types that already have a header-sourced layout (detected by
     // the presence of inline "{ i64, ptr }" for SeenString rather than "%SeenString").
     fun emitClassType(classNode: ClassNode) r: Void {
-        // Skip if already emitted in this module (deduplication)
-        var classIdx = 0
-        while classIdx < generatedClasses.length() {
-            if generatedClasses[classIdx] == classNode.name {
-                return
-            }
-            classIdx = classIdx + 1
+        let className = classNode.name
+        if hasGeneratedClassType(className) {
+            return
+        }
+        if tryReuseHeaderLoadedClassType(classNode) {
+            return
         }
 
-        // Skip if types were loaded from header file AND this class has a layout from the header
-        // The header uses inline type syntax { i64, ptr } while our code uses %SeenString
-        // Key indicator: header uses "{ i64, ptr }" for SeenString, while we use "%SeenString"
-        if typesLoadedFromHeader {
-            let structIdx = findStruct(classNode.name)
-            if structIdx >= 0 {
-                let existingLayout = structLayouts[structIdx]
-                // Header layouts use inline SeenString: { i64, ptr }
-                // User-defined layouts would use named type: %SeenString
-                // If layout has "{ i64, ptr }" (inline SeenString), it's definitely from header
-                // If layout doesn't contain "%SeenString", it's from header
-                let usesInlineSeenString = existingLayout.contains("{ i64, ptr }")
-                let usesNamedSeenString = existingLayout.contains("%SeenString")
-                // If has inline SeenString pattern or non-empty without %SeenString, it's from header
-                if existingLayout != "" and (usesInlineSeenString or not usesNamedSeenString) {
-                    // Type is from header - just register layout and skip emit
-                    registerStructLayout(classNode)
-                    generatedClasses.push(classNode.name)
-                    return
-                }
-            }
-        }
-
-        generatedClasses.push(classNode.name)
-
-        // Register struct layout for code generation
+        generatedClasses.push(className)
         registerStructLayout(classNode)
 
-        // Emit struct type for class
-        // %ClassName = type { field1Type, field2Type, ... }
-        // @repr(C): sequential C-compatible layout (no field reordering, default padding)
-        var hasReprC = false
-        var hasPacked = false
-        var hasCacheLine = false
-        // Collect derive trait flags during first scan (boolean flags avoid local string method calls)
-        var hasDeriveSerialize = false
-        var hasDeriveDeserialize = false
-        var hasDeriveClone = false
-        var hasDeriveHash = false
-        var hasDeriveEq = false
-        var hasDeriveDebug = false
-        var hasDeriveJson = false
-        var hasBinaryDec = false
-        var hasReflectDec = false
-        var hasPacketDec = false
-        var packetIdDec = "0"
-        var reprCDecIdx = 0
-        while reprCDecIdx < classNode.decorators.length() {
-            if classNode.decorators[reprCDecIdx].name == "derive" {
-                // Set boolean flags for each derive trait (avoids local string method calls)
-                var daiLoop = 0
-                while daiLoop < classNode.decorators[reprCDecIdx].arguments.length() {
-                    if classNode.decorators[reprCDecIdx].arguments[daiLoop] == "Serialize" {
-                        hasDeriveSerialize = true
-                    }
-                    if classNode.decorators[reprCDecIdx].arguments[daiLoop] == "Deserialize" {
-                        hasDeriveDeserialize = true
-                    }
-                    if classNode.decorators[reprCDecIdx].arguments[daiLoop] == "Clone" {
-                        hasDeriveClone = true
-                    }
-                    if classNode.decorators[reprCDecIdx].arguments[daiLoop] == "Hash" {
-                        hasDeriveHash = true
-                    }
-                    if classNode.decorators[reprCDecIdx].arguments[daiLoop] == "Eq" {
-                        hasDeriveEq = true
-                    }
-                    if classNode.decorators[reprCDecIdx].arguments[daiLoop] == "Debug" {
-                        hasDeriveDebug = true
-                    }
-                    if classNode.decorators[reprCDecIdx].arguments[daiLoop] == "Json" {
-                        hasDeriveJson = true
-                    }
-                    daiLoop = daiLoop + 1
-                }
-                output.append("; @derive detected on " + className + "\n")
-            }
-            if classNode.decorators[reprCDecIdx].name == "binary" {
-                hasBinaryDec = true
-            }
-            if classNode.decorators[reprCDecIdx].name == "reflect" {
-                hasReflectDec = true
-            }
-            if classNode.decorators[reprCDecIdx].name == "packet" {
-                hasPacketDec = true
-                if classNode.decorators[reprCDecIdx].arguments.length() > 0 {
-                    packetIdDec = classNode.decorators[reprCDecIdx].arguments[0]
-                }
-            }
-            if classNode.decorators[reprCDecIdx].name == "repr" {
-                // @repr(C) is the only repr variant — detect by name alone
-                // (decorator arguments not accessible due to phantom field GEP bug)
-                hasReprC = true
-                g_reprCClassNames = g_reprCClassNames + classNode.name + "|"
-            }
-            if classNode.decorators[reprCDecIdx].name == "packed" {
-                hasPacked = true
-            }
-            if classNode.decorators[reprCDecIdx].name == "cache_line" {
-                hasCacheLine = true
-                // Track for aligned allocation in constructor
-                g_cacheLineClasses = g_cacheLineClasses + classNode.name + "|"
-            }
-            // @send/@sync type annotations
-            if classNode.decorators[reprCDecIdx].name == "send" {
-                g_sendTypes = g_sendTypes + classNode.name + "|"
-                output.append("; @send type: " + classNode.name + "\n")
-            }
-            if classNode.decorators[reprCDecIdx].name == "sync" {
-                g_syncTypes = g_syncTypes + classNode.name + "|"
-                output.append("; @sync type: " + classNode.name + "\n")
-            }
-            // : @layout(soa) / @layout(aos) decorators
-            if classNode.decorators[reprCDecIdx].name == "layout" {
-                if classNode.decorators[reprCDecIdx].arguments.length() > 0 {
-                    if classNode.decorators[reprCDecIdx].arguments[0] == "soa" {
-                        g_soaClassNames = g_soaClassNames + classNode.name + "|"
-                        g_soaClassCount = g_soaClassCount + 1
-                        output.append("; @layout(soa) type: " + classNode.name + "\n")
-                    }
-                    if classNode.decorators[reprCDecIdx].arguments[0] == "aos" {
-                        output.append("; @layout(aos) type: " + classNode.name + " (default layout)\n")
-                    }
-                }
-            }
-            // : @trivially_copyable decorator
-            if classNode.decorators[reprCDecIdx].name == "trivially_copyable" {
-                g_triviallyCopyableClasses = g_triviallyCopyableClasses + classNode.name + "|"
-                output.append("; @trivially_copyable type: " + classNode.name + "\n")
-            }
-            // : @move non-copyable types
-            if classNode.decorators[reprCDecIdx].name == "move" {
-                g_moveOnlyClasses = g_moveOnlyClasses + classNode.name + "|"
-                output.append("; @move (non-copyable) type: " + classNode.name + "\n")
-            }
-            // : @c_resource(destroy="func") lifetime bridging
-            if classNode.decorators[reprCDecIdx].name == "c_resource" {
-                g_cResourceClasses = g_cResourceClasses + classNode.name + "|"
-                if classNode.decorators[reprCDecIdx].arguments.length() > 0 {
-                    g_cResourceDestructors = g_cResourceDestructors + classNode.decorators[reprCDecIdx].arguments[0] + "|"
-                } else {
-                    g_cResourceDestructors = g_cResourceDestructors + "free|"
-                }
-                output.append("; @c_resource type: " + classNode.name + "\n")
-            }
-            // P2 : @reflect RTTI decorator
-            if classNode.decorators[reprCDecIdx].name == "reflect" {
-                g_reflectClassNames = g_reflectClassNames + classNode.name + "|"
-                g_reflectClassCount = g_reflectClassCount + 1
-                output.append("; @reflect type: " + classNode.name + "\n")
-            }
-            // P2 : @binary serialization decorator
-            if classNode.decorators[reprCDecIdx].name == "binary" {
-                var binEndian = "le"
-                var binVersion = "1"
-                var binCompress = ""
-                if classNode.decorators[reprCDecIdx].arguments.length() > 0 {
-                    binEndian = classNode.decorators[reprCDecIdx].arguments[0]
-                }
-                if classNode.decorators[reprCDecIdx].arguments.length() > 1 {
-                    binVersion = classNode.decorators[reprCDecIdx].arguments[1]
-                }
-                if classNode.decorators[reprCDecIdx].arguments.length() > 2 {
-                    binCompress = classNode.decorators[reprCDecIdx].arguments[2]
-                }
-                g_binaryClassNames = g_binaryClassNames + classNode.name + "|"
-                g_binaryEndianness = g_binaryEndianness + binEndian + "|"
-                g_binaryVersions = g_binaryVersions + binVersion + "|"
-                g_binaryClassCount = g_binaryClassCount + 1
-                output.append("; @binary type: " + classNode.name + " (endian=" + binEndian + ", version=" + binVersion + ")\n")
-            }
-            // P2 : @packet(id=N) network packet decorator
-            if classNode.decorators[reprCDecIdx].name == "packet" {
-                var pktId = "0"
-                if classNode.decorators[reprCDecIdx].arguments.length() > 0 {
-                    pktId = classNode.decorators[reprCDecIdx].arguments[0]
-                }
-                g_packetClassNames = g_packetClassNames + classNode.name + "|"
-                g_packetClassIds = g_packetClassIds + pktId + "|"
-                g_packetCount = g_packetCount + 1
-                output.append("; @packet type: " + classNode.name + " (id=" + pktId + ")\n")
-            }
-            // : @gpu_buffer(std140) / @gpu_buffer(std430) struct layout
-            if classNode.decorators[reprCDecIdx].name == "gpu_buffer" {
-                var gpuLayout = "std140"
-                if classNode.decorators[reprCDecIdx].arguments.length() > 0 {
-                    gpuLayout = classNode.decorators[reprCDecIdx].arguments[0]
-                }
-                g_gpuBufferClasses = g_gpuBufferClasses + classNode.name + "|"
-                g_gpuBufferLayouts = g_gpuBufferLayouts + gpuLayout + "|"
-                output.append("; @gpu_buffer(" + gpuLayout + ") type: " + classNode.name + "\n")
-                // Emit struct with std140/std430 padding
-                output.append("%" + quoteIdentIfNeeded(classNode.name) + " = type { ")
-                var gpuFi = 0
-                var gpuOffset = 0
-                var gpuFieldIdx = 0
-                while gpuFi < classNode.fields.length() {
-                    let gpuField = classNode.fields[gpuFi]
-                    let gpuFieldType = mapType(normalizeDeclaredTypeNode(gpuField.paramType))
-                    // Determine field size and alignment for std140
-                    var gpuFieldSize = 8
-                    var gpuFieldAlign = 8
-                    if gpuFieldType == "i32" { gpuFieldSize = 4; gpuFieldAlign = 4 }
-                    if gpuFieldType == "float" { gpuFieldSize = 4; gpuFieldAlign = 4 }
-                    if gpuFieldType == "double" { gpuFieldSize = 8; gpuFieldAlign = 8 }
-                    if gpuFieldType == "i64" { gpuFieldSize = 8; gpuFieldAlign = 8 }
-                    if gpuFieldType == "i1" { gpuFieldSize = 4; gpuFieldAlign = 4 }
-                    // std140: vec3/vec4 align to 16; arrays align to 16
-                    if gpuLayout == "std140" {
-                        if gpuFieldAlign < 4 { gpuFieldAlign = 4 }
-                    }
-                    // Insert padding if needed
-                    var gpuPadding = 0
-                    if gpuOffset % gpuFieldAlign != 0 {
-                        gpuPadding = gpuFieldAlign - (gpuOffset % gpuFieldAlign)
-                    }
-                    if gpuPadding > 0 {
-                        if gpuFieldIdx > 0 { output.append(", ") }
-                        output.append("[" + gpuPadding.toString() + " x i8]")
-                        gpuFieldIdx = gpuFieldIdx + 1
-                        gpuOffset = gpuOffset + gpuPadding
-                    }
-                    if gpuFieldIdx > 0 { output.append(", ") }
-                    output.append(gpuFieldType)
-                    gpuFieldIdx = gpuFieldIdx + 1
-                    gpuOffset = gpuOffset + gpuFieldSize
-                    gpuFi = gpuFi + 1
-                }
-                // std140: total size rounded to 16 bytes
-                if gpuLayout == "std140" {
-                    if gpuOffset % 16 != 0 {
-                        let tailPad = 16 - (gpuOffset % 16)
-                        output.append(", [" + tailPad.toString() + " x i8]")
-                    }
-                }
-                output.append(" }\n")
-                return
-            }
-            if classNode.decorators[reprCDecIdx].name == "union" {
-                // Union type: emit as storage for the largest field
-                var maxFieldSize = 0
-                var maxFieldType = "i8"
-                var ufi = 0
-                while ufi < classNode.fields.length() {
-                    let uField = classNode.fields[ufi]
-                    let uFieldType = mapType(normalizeDeclaredTypeNode(uField.paramType))
-                    let uFieldSize = getLlvmTypeSize(uFieldType)
-                    if uFieldSize > maxFieldSize {
-                        maxFieldSize = uFieldSize
-                        maxFieldType = uFieldType
-                    }
-                    ufi = ufi + 1
-                }
-                if maxFieldSize == 0 { maxFieldSize = 1 }
-                output.append("; @union — overlapping fields, max size = " + maxFieldSize.toString() + " bytes\n")
-                output.append("%" + quoteIdentIfNeeded(classNode.name) + " = type { " + maxFieldType + " }\n")
-                g_unionTypes = g_unionTypes + classNode.name + "|"
-                return
-            }
-            reprCDecIdx = reprCDecIdx + 1
-        }
-        if hasReprC {
-            output.append("; @repr(C) — sequential C-compatible layout\n")
-        }
-        if hasPacked {
-            output.append("; @packed — no padding between fields\n")
-        }
-        if hasCacheLine {
-            output.append("; @cache_line — 64-byte aligned allocation\n")
-        }
-        if hasPacked {
-            output.append("%" + quoteIdentIfNeeded(classNode.name) + " = type <{ ")
-        } else {
-            output.append("%" + quoteIdentIfNeeded(classNode.name) + " = type { ")
+        let typeFlags = Array<Int>()
+        typeFlags.push(0)
+        typeFlags.push(0)
+        typeFlags.push(0)
+        if scanClassTypeDecorators(classNode, typeFlags) {
+            return
         }
 
-        // Count real fields (skip @type_alias: synthetic fields from )
-        var realFieldCount = 0
-        var rfi = 0
-        while rfi < classNode.fields.length() {
-            let rfiField = classNode.fields[rfi]
-            let rfiName = rfiField.name
-            if not rfiName.startsWith("@type_alias:") {
-                realFieldCount = realFieldCount + 1
-            } else {
-                // : Register associated type alias
-                let assocNameLen = rfiName.length()
-                let assocParts = rfiName.substring(12, assocNameLen)
-                let rfiPT = rfiField.paramType
-                let assocTarget = rfiPT.typeName
-                let fullAlias = classNode.name + "." + assocParts
-                g_typeAliasNames = g_typeAliasNames + fullAlias + "|"
-                g_typeAliasTargets = g_typeAliasTargets + assocTarget + "|"
-                g_typeAliasCount = g_typeAliasCount + 1
-            }
-            rfi = rfi + 1
-        }
+        emitClassTypeHeader(className, typeFlags)
+        let realFieldCount = countRealClassTypeFields(classNode)
         if realFieldCount == 0 {
-            // Empty struct - add dummy i8 byte for LLVM validity
             output.append("i8")
         } else {
-            var i = 0
-            var emittedFirst = false
-            while i < classNode.fields.length() {
-                let emitField = classNode.fields[i]
-                let emitFieldName = emitField.name
-                // Skip synthetic @type_alias fields
-                if not emitFieldName.startsWith("@type_alias:") {
-                    if emittedFirst {
-                        output.append(", ")
-                    }
-                    // : Strip bitfield annotation from type for LLVM
-                    let emitFieldPT = emitField.paramType
-                    var fieldTypeName = emitFieldPT.typeName
-                    if fieldTypeName.contains(":bitfield(") {
-                        let bfPos = fieldTypeName.indexOf(":bitfield(", 0)
-                        if bfPos >= 0 {
-                            fieldTypeName = fieldTypeName.substring(0, bfPos)
-                        }
-                    }
-                    output.append(mapType(fieldTypeName))
-                    emittedFirst = true
-                }
-                i = i + 1
-            }
+            emitClassTypeFields(classNode)
         }
-
-        if hasPacked {
-            output.append(" }>\n")
-        } else {
-            output.append(" }\n")
-        }
+        emitClassTypeFooter(typeFlags)
     }
 
     fun generateHotReloadMethods(classNode: ClassNode) r: Void {
@@ -4275,6 +4257,311 @@ class LLVMIRGenerator {
         return true
     }
 
+    fun isRuntimeBackedStringBuilderMethod(methodName: String) r: Bool {
+        return methodName == "new" or methodName == "append" or methodName == "appendChar" or
+            methodName == "toString" or methodName == "clear" or methodName == "length"
+    }
+
+    fun emitTraitVtableType(classNode: ClassNode) r: Void {
+        let className = classNode.name
+        registerDynTraitName(className)
+        output.append("; dyn " + className + " vtable type\n")
+        output.append("%" + quoteIdentIfNeeded(className + "_vtable") + " = type { ")
+        var methodIdx = 0
+        while methodIdx < classNode.methods.length() {
+            if methodIdx > 0 {
+                output.append(", ")
+            }
+            output.append("ptr")
+            methodIdx = methodIdx + 1
+        }
+        if classNode.methods.length() == 0 {
+            output.append("i8")
+        }
+        output.append(" }\n\n")
+    }
+
+    fun isTraitClassNode(classNode: ClassNode) r: Bool {
+        var decoratorIdx = 0
+        while decoratorIdx < classNode.decorators.length() {
+            if classNode.decorators[decoratorIdx].name == "trait" {
+                return true
+            }
+            decoratorIdx = decoratorIdx + 1
+        }
+        return false
+    }
+
+    fun tryGenerateTraitClass(classNode: ClassNode) r: Bool {
+        if not isTraitClassNode(classNode) {
+            return false
+        }
+
+        let className = classNode.name
+        output.append("; trait " + className + " (method signatures + default impls)\n")
+        var traitMethodIdx = 0
+        while traitMethodIdx < classNode.methods.length() {
+            let traitMethod = classNode.methods[traitMethodIdx]
+            let traitFuncName = className + "_" + traitMethod.name
+            let traitRetTypeName = resolveMethodReturnType(className, traitMethod)
+            registerFunction(traitFuncName, traitRetTypeName)
+            registerStructMethod(className, traitMethod.name, traitRetTypeName)
+            if traitMethod.body.statements.length() > 0 {
+                let defaultFuncName = className + "_" + traitMethod.name + "_default"
+                output.append("; trait default method: " + defaultFuncName + "\n")
+                let savedRetType = currentFunctionReturnType
+                currentFunctionReturnType = traitRetTypeName
+                let savedVarNames = varNames
+                let savedVarRegs = varRegs
+                let savedVarTypes = varTypes
+                let savedPreAllocatedVars = preAllocatedVars
+                let savedPreAllocatedTypes = preAllocatedTypes
+                let savedPreAllocatedRegs = preAllocatedRegs
+                let savedDeclOrdinalNames = declOrdinalNames
+                let savedDeclOrdinalCounts = declOrdinalCounts
+                let savedActiveVarCount = activeVarCount
+                let savedNextReg = g_regBox[0]
+                let savedBlockTerm = blockTerminated
+                varNames = Array<String>()
+                varRegs = Array<String>()
+                varTypes = Array<String>()
+                preAllocatedVars = Array<String>()
+                preAllocatedTypes = Array<String>()
+                preAllocatedRegs = Array<String>()
+                declOrdinalNames = Array<String>()
+                declOrdinalCounts = Array<Int>()
+                activeVarCount = 0
+                g_regBox[0] = 1
+                blockTerminated = false
+                cseClear()
+                var defaultParamStr = ""
+                var paramIdx = 0
+                while paramIdx < traitMethod.params.length() {
+                    if paramIdx > 0 {
+                        defaultParamStr = defaultParamStr + ", "
+                    }
+                    let defaultParam = traitMethod.params[paramIdx]
+                    let defaultParamType = mapType(normalizeDeclaredTypeNode(defaultParam.paramType))
+                    let defaultParamReg = "%" + quoteIdentIfNeeded(defaultParam.name)
+                    defaultParamStr = defaultParamStr + defaultParamType + " " + defaultParamReg
+                    storeVar(defaultParam.name, defaultParamReg, normalizeDeclaredTypeNode(defaultParam.paramType))
+                    paramIdx = paramIdx + 1
+                }
+                let defaultRetType = mapType(traitRetTypeName)
+                output.append("define " + defaultRetType + " @" + quoteIdentIfNeeded(defaultFuncName) + "(" + defaultParamStr + ") {\n")
+                output.append("entry:\n")
+                generateBlock(traitMethod.body)
+                if not blockTerminated {
+                    if defaultRetType == "void" {
+                        output.append("  ret void\n")
+                    } else {
+                        output.append("  ret " + defaultRetType + " zeroinitializer\n")
+                    }
+                }
+                output.append("}\n\n")
+                currentFunctionReturnType = savedRetType
+                varNames = savedVarNames
+                varRegs = savedVarRegs
+                varTypes = savedVarTypes
+                preAllocatedVars = savedPreAllocatedVars
+                preAllocatedTypes = savedPreAllocatedTypes
+                preAllocatedRegs = savedPreAllocatedRegs
+                declOrdinalNames = savedDeclOrdinalNames
+                declOrdinalCounts = savedDeclOrdinalCounts
+                activeVarCount = savedActiveVarCount
+                g_regBox[0] = savedNextReg
+                blockTerminated = savedBlockTerm
+                registerFunction(defaultFuncName, traitRetTypeName)
+            }
+            traitMethodIdx = traitMethodIdx + 1
+        }
+
+        emitTraitVtableType(classNode)
+        return true
+    }
+
+    fun registerTopLevelTypeAlias(className: String, aliasTarget: String) r: Void {
+        output.append("; type " + className + " = " + aliasTarget + "\n")
+        if g_typeAliasCount > 0 {
+            g_typeAliasNames = g_typeAliasNames + "|" + className
+            g_typeAliasTargets = g_typeAliasTargets + "|" + aliasTarget
+        } else {
+            g_typeAliasNames = className
+            g_typeAliasTargets = aliasTarget
+        }
+        g_typeAliasCount = g_typeAliasCount + 1
+    }
+
+    fun tryHandleTypeAliasClass(classNode: ClassNode) r: Bool {
+        let className = classNode.name
+        var isTypeAlias = false
+        var decoratorIdx = 0
+        while decoratorIdx < classNode.decorators.length() {
+            let decorator = classNode.decorators[decoratorIdx]
+            if decorator.name == "type_alias" {
+                isTypeAlias = true
+                if decorator.arguments.length() > 0 {
+                    registerTopLevelTypeAlias(className, decorator.arguments[0])
+                }
+            }
+            decoratorIdx = decoratorIdx + 1
+        }
+        if not isTypeAlias {
+            return false
+        }
+
+        decoratorIdx = 0
+        while decoratorIdx < classNode.decorators.length() {
+            let decorator = classNode.decorators[decoratorIdx]
+            if decorator.name == "distinct" {
+                if decorator.arguments.length() > 0 {
+                    output.append("; distinct " + className + " = " + decorator.arguments[0] + " (no implicit conversion)\n")
+                    g_distinctTypeNames = g_distinctTypeNames + className + "|"
+                }
+            }
+            decoratorIdx = decoratorIdx + 1
+        }
+        return true
+    }
+
+    fun scanGeneratedClassDecorators(classNode: ClassNode, decoratorFlags: Array<Int>, packetIdBox: Array<String>) r: Void {
+        var decoratorIdx = 0
+        while decoratorIdx < classNode.decorators.length() {
+            let decorator = classNode.decorators[decoratorIdx]
+            if decorator.name == "derive" {
+                decoratorFlags[0] = 1
+                decoratorFlags[1] = 1
+                decoratorFlags[2] = 1
+                decoratorFlags[3] = 1
+                decoratorFlags[4] = 1
+                decoratorFlags[5] = 1
+                decoratorFlags[6] = 1
+            }
+            if decorator.name == "binary" {
+                decoratorFlags[7] = 1
+            }
+            if decorator.name == "reflect" {
+                decoratorFlags[8] = 1
+            }
+            if decorator.name == "packet" {
+                decoratorFlags[9] = 1
+                if decorator.arguments.length() > 0 {
+                    packetIdBox[0] = decorator.arguments[0]
+                }
+            }
+            decoratorIdx = decoratorIdx + 1
+        }
+    }
+
+    fun hasHotReloadMarkerMethod(classNode: ClassNode) r: Bool {
+        var methodIdx = 0
+        while methodIdx < classNode.methods.length() {
+            if classNode.methods[methodIdx].name == "__seen_hot_reload_marker__" {
+                return true
+            }
+            methodIdx = methodIdx + 1
+        }
+        return false
+    }
+
+    fun generateRegularClassMethods(classNode: ClassNode, isStringBuilder: Bool) r: Void {
+        var methodIdx = 0
+        while methodIdx < classNode.methods.length() {
+            let methodName = classNode.methods[methodIdx].name
+            if methodName == "__seen_hot_reload_marker__" {
+                methodIdx = methodIdx + 1
+                continue
+            }
+            if isStringBuilder and isRuntimeBackedStringBuilderMethod(methodName) {
+                methodIdx = methodIdx + 1
+                continue
+            }
+            generateClassMethodByIndex(classNode, methodIdx)
+            methodIdx = methodIdx + 1
+        }
+    }
+
+    fun emitGeneratedClassDecoratorMethods(classNode: ClassNode, decoratorFlags: Array<Int>, packetIdStr: String) r: Void {
+        if decoratorFlags[0] == 1 {
+            generateDeriveSerialize(classNode)
+        }
+        if decoratorFlags[1] == 1 {
+            generateDeriveDeserialize(classNode)
+        }
+        if decoratorFlags[2] == 1 {
+            generateDeriveClone(classNode)
+        }
+        if decoratorFlags[3] == 1 {
+            generateDeriveHash(classNode)
+        }
+        if decoratorFlags[4] == 1 {
+            generateDeriveEq(classNode)
+        }
+        if decoratorFlags[5] == 1 {
+            generateDeriveDebug(classNode)
+        }
+        if decoratorFlags[6] == 1 {
+            generateJsonSerialize(classNode)
+            generateJsonDeserialize(classNode)
+        }
+        if decoratorFlags[8] == 1 {
+            generateReflect(classNode)
+        }
+        if decoratorFlags[7] == 1 {
+            generateBinarySerializer(classNode)
+            generateBinaryDeserializer(classNode)
+        }
+        if decoratorFlags[9] == 1 {
+            generatePacketWriter(classNode, packetIdStr)
+            generatePacketReader(classNode, packetIdStr)
+        }
+    }
+
+    fun emitInheritedClassMethodThunks(classNode: ClassNode) r: Void {
+        let parentNameLen = classNode.parentName.length()
+        if parentNameLen == 0 {
+            return
+        }
+        let parentIdx = findStruct(classNode.parentName)
+        if parentIdx < 0 {
+            return
+        }
+
+        let parentMethodList = structMethodNames[parentIdx]
+        let parentRetTypes = structMethodRetTypes[parentIdx]
+        let parentMethodCount = countCommaFields(parentMethodList)
+        var parentMethodIdx = 0
+        while parentMethodIdx < parentMethodCount {
+            let parentMethodName = commaGet(parentMethodList, parentMethodIdx)
+            let parentRetType = pipeGet(parentRetTypes, parentMethodIdx)
+            var childHasMethod = 0
+            var childMethodIdx = 0
+            while childMethodIdx < classNode.methods.length() {
+                if classNode.methods[childMethodIdx].name == parentMethodName {
+                    childHasMethod = 1
+                }
+                childMethodIdx = childMethodIdx + 1
+            }
+            if childHasMethod == 0 {
+                let llvmRet = mapType(parentRetType)
+                let thunkName = classNode.name + "_" + parentMethodName
+                let parentFuncName = classNode.parentName + "_" + parentMethodName
+                output.append("define " + llvmRet + " @" + quoteIdentIfNeeded(thunkName) + "(ptr %this) {\n")
+                output.append("entry:\n")
+                if llvmRet == "void" {
+                    output.append("  call void @" + quoteIdentIfNeeded(parentFuncName) + "(ptr %this)\n")
+                    output.append("  ret void\n")
+                } else {
+                    let callReg = getNextReg()
+                    output.append("  " + callReg + " = call " + llvmRet + " @" + quoteIdentIfNeeded(parentFuncName) + "(ptr %this)\n")
+                    output.append("  ret " + llvmRet + " " + callReg + "\n")
+                }
+                output.append("}\n\n")
+            }
+            parentMethodIdx = parentMethodIdx + 1
+        }
+    }
+
     fun generatePlainLargeClass(className: String, parentName: String, methods: Array<FunctionNode>) r: Void {
         if className == "" {
             return
@@ -4289,11 +4576,9 @@ class LLVMIRGenerator {
                 methodIdx = methodIdx + 1
                 continue
             }
-            if isStringBuilder {
-                if methodName == "new" or methodName == "append" or methodName == "appendChar" or methodName == "toString" or methodName == "clear" or methodName == "length" {
-                    methodIdx = methodIdx + 1
-                    continue
-                }
+            if isStringBuilder and isRuntimeBackedStringBuilderMethod(methodName) {
+                methodIdx = methodIdx + 1
+                continue
             }
             generateClassMethodFromList(className, parentName, methods, methodIdx)
             methodIdx = methodIdx + 1
@@ -4320,154 +4605,11 @@ class LLVMIRGenerator {
             return
         }
 
-        // Skip @trait definitions (no struct type, only method signatures for checking)
-        var classIsTrait = false
-        var classDecScanIdx = 0
-        while classDecScanIdx < classNode.decorators.length() {
-            if classNode.decorators[classDecScanIdx].name == "trait" {
-                classIsTrait = true
-            }
-            classDecScanIdx = classDecScanIdx + 1
-        }
-        if classIsTrait {
-            output.append("; trait " + className + " (method signatures + default impls)\n")
-            // Register trait methods as expected signatures for validation
-            var traitMI = 0
-            while traitMI < classNode.methods.length() {
-                let traitMethod = classNode.methods[traitMI]
-                let traitFuncName = className + "_" + traitMethod.name
-                let traitRetTypeName = resolveMethodReturnType(className, traitMethod)
-                registerFunction(traitFuncName, traitRetTypeName)
-                registerStructMethod(className, traitMethod.name, traitRetTypeName)
-                // Generate default implementation for methods with a body
-                if traitMethod.body.statements.length() > 0 {
-                    let defaultFuncName = className + "_" + traitMethod.name + "_default"
-                    output.append("; trait default method: " + defaultFuncName + "\n")
-                    // Save and set per-function state
-                    let savedRetType = currentFunctionReturnType
-                    currentFunctionReturnType = traitRetTypeName
-                    let savedVarNames = varNames
-                    let savedVarRegs = varRegs
-                    let savedVarTypes = varTypes
-                    let savedPreAllocatedVars = preAllocatedVars
-                    let savedPreAllocatedTypes = preAllocatedTypes
-                    let savedPreAllocatedRegs = preAllocatedRegs
-                    let savedDeclOrdinalNames = declOrdinalNames
-                    let savedDeclOrdinalCounts = declOrdinalCounts
-                    let savedActiveVarCount = activeVarCount
-                    let savedNextReg = g_regBox[0]
-                    let savedBlockTerm = blockTerminated
-                    varNames = Array<String>()
-                    varRegs = Array<String>()
-                    varTypes = Array<String>()
-                    preAllocatedVars = Array<String>()
-                    preAllocatedTypes = Array<String>()
-                    preAllocatedRegs = Array<String>()
-                    declOrdinalNames = Array<String>()
-                    declOrdinalCounts = Array<Int>()
-                    activeVarCount = 0
-                    g_regBox[0] = 1
-                    blockTerminated = false
-                    cseClear()
-                    // Build parameter list
-                    var defParamStr = ""
-                    var defPI = 0
-                    while defPI < traitMethod.params.length() {
-                        if defPI > 0 {
-                            defParamStr = defParamStr + ", "
-                        }
-                        let defParam = traitMethod.params[defPI]
-                        let defParamType = mapType(normalizeDeclaredTypeNode(defParam.paramType))
-                        let defParamReg = "%" + quoteIdentIfNeeded(defParam.name)
-                        defParamStr = defParamStr + defParamType + " " + defParamReg
-                        storeVar(defParam.name, defParamReg, normalizeDeclaredTypeNode(defParam.paramType))
-                        defPI = defPI + 1
-                    }
-                    let defRetType = mapType(traitRetTypeName)
-                    output.append("define " + defRetType + " @" + quoteIdentIfNeeded(defaultFuncName) + "(" + defParamStr + ") {\n")
-                    output.append("entry:\n")
-                    generateBlock(traitMethod.body)
-                    if not blockTerminated {
-                        if defRetType == "void" {
-                            output.append("  ret void\n")
-                        } else {
-                            output.append("  ret " + defRetType + " zeroinitializer\n")
-                        }
-                    }
-                    output.append("}\n\n")
-                    // Restore state
-                    currentFunctionReturnType = savedRetType
-                    varNames = savedVarNames
-                    varRegs = savedVarRegs
-                    varTypes = savedVarTypes
-                    preAllocatedVars = savedPreAllocatedVars
-                    preAllocatedTypes = savedPreAllocatedTypes
-                    preAllocatedRegs = savedPreAllocatedRegs
-                    declOrdinalNames = savedDeclOrdinalNames
-                    declOrdinalCounts = savedDeclOrdinalCounts
-                    activeVarCount = savedActiveVarCount
-                    g_regBox[0] = savedNextReg
-                    blockTerminated = savedBlockTerm
-                    registerFunction(defaultFuncName, traitRetTypeName)
-                }
-                traitMI = traitMI + 1
-            }
-            // : Emit vtable struct type for dyn Trait dispatch
-            registerDynTraitName(className)
-            output.append("; dyn " + className + " vtable type\n")
-            output.append("%" + quoteIdentIfNeeded(className + "_vtable") + " = type { ")
-            var vtMI = 0
-            while vtMI < classNode.methods.length() {
-                if vtMI > 0 {
-                    output.append(", ")
-                }
-                output.append("ptr")
-                vtMI = vtMI + 1
-            }
-            if classNode.methods.length() == 0 {
-                output.append("i8")
-            }
-            output.append(" }\n\n")
+        if tryGenerateTraitClass(classNode) {
             return
         }
 
-        // Handle @type_alias: register alias in mapType lookup
-        var classIsTypeAlias = false
-        classDecScanIdx = 0
-        while classDecScanIdx < classNode.decorators.length() {
-            if classNode.decorators[classDecScanIdx].name == "type_alias" {
-                classIsTypeAlias = true
-                if classNode.decorators[classDecScanIdx].arguments.length() > 0 {
-                    let aliasTarget = classNode.decorators[classDecScanIdx].arguments[0]
-                    output.append("; type " + className + " = " + aliasTarget + "\n")
-                    // Register as a type alias: when mapType sees className, resolve to target
-                    if g_typeAliasCount > 0 {
-                        g_typeAliasNames = g_typeAliasNames + "|" + className
-                        g_typeAliasTargets = g_typeAliasTargets + "|" + aliasTarget
-                    } else {
-                        g_typeAliasNames = className
-                        g_typeAliasTargets = aliasTarget
-                    }
-                    g_typeAliasCount = g_typeAliasCount + 1
-                }
-            }
-            classDecScanIdx = classDecScanIdx + 1
-        }
-        if classIsTypeAlias {
-            // Check if this is also a @distinct type
-            var classIsDistinct = false
-            var distDecIdx = 0
-            while distDecIdx < classNode.decorators.length() {
-                if classNode.decorators[distDecIdx].name == "distinct" {
-                    classIsDistinct = true
-                    if classNode.decorators[distDecIdx].arguments.length() > 0 {
-                        let distinctTarget = classNode.decorators[distDecIdx].arguments[0]
-                        output.append("; distinct " + className + " = " + distinctTarget + " (no implicit conversion)\n")
-                        g_distinctTypeNames = g_distinctTypeNames + className + "|"
-                    }
-                }
-                distDecIdx = distDecIdx + 1
-            }
+        if tryHandleTypeAliasClass(classNode) {
             return
         }
 
@@ -4475,161 +4617,31 @@ class LLVMIRGenerator {
         // the source class because call sites already dispatch to the C runtime ABI.
         let isStringBuilder = className == "StringBuilder"
 
-        // Scan decorators for @derive/@binary/@reflect/@packet in generateClass
-        // NOTE: use Int 0/1 not Bool — stage1_frozen has broken boolean variables
-        var hasDeriveSerialize = 0
-        var hasDeriveDeserialize = 0
-        var hasDeriveClone = 0
-        var hasDeriveHash = 0
-        var hasDeriveEq = 0
-        var hasDeriveDebug = 0
-        var hasDeriveJson = 0
-        var hasBinaryDec2 = 0
-        var hasReflectDec2 = 0
-        var hasPacketDec2 = 0
-        var packetIdDec = "0"
-        var gcDecScan = 0
-        while gcDecScan < classNode.decorators.length() {
-            if classNode.decorators[gcDecScan].name == "derive" {
-                // Unconditionally enable all derive traits when @derive is detected
-                // The argument scanning nested loop causes codegen issues with stage1_frozen
-                // Instead, generate all derive methods — unused ones are harmless
-                hasDeriveSerialize = 1
-                hasDeriveDeserialize = 1
-                hasDeriveClone = 1
-                hasDeriveHash = 1
-                hasDeriveEq = 1
-                hasDeriveDebug = 1
-                hasDeriveJson = 1
-            }
-            if classNode.decorators[gcDecScan].name == "binary" {
-                hasBinaryDec2 = 1
-            }
-            if classNode.decorators[gcDecScan].name == "reflect" {
-                hasReflectDec2 = 1
-            }
-            if classNode.decorators[gcDecScan].name == "packet" {
-                hasPacketDec2 = 1
-                if classNode.decorators[gcDecScan].arguments.length() > 0 {
-                    packetIdDec = classNode.decorators[gcDecScan].arguments[0]
-                }
-            }
-            gcDecScan = gcDecScan + 1
-        }
+        let decoratorFlags = Array<Int>()
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        let packetIdBox = Array<String>()
+        packetIdBox.push("0")
+        scanGeneratedClassDecorators(classNode, decoratorFlags, packetIdBox)
 
-        // Pre-scan methods for @hot_reload sentinel (avoids accessing classNode.decorators
-        // which is at a broken GEP index due to the static fun phantom field bug).
-        var isHotReload = 0
-        var hrScan = 0
-        while hrScan < classNode.methods.length() {
-            if classNode.methods[hrScan].name == "__seen_hot_reload_marker__" {
-                isHotReload = 1
-                break
-            }
-            hrScan = hrScan + 1
-        }
-
-        // Generate all methods for this class
-        var i = 0
-        while i < classNode.methods.length() {
-            let methodName = classNode.methods[i].name
-            // Skip the @hot_reload sentinel marker
-            if methodName == "__seen_hot_reload_marker__" {
-                i = i + 1
-                continue
-            }
-            // For StringBuilder, skip methods provided by C runtime
-            if isStringBuilder {
-                if methodName == "new" or methodName == "append" or methodName == "appendChar" or methodName == "toString" or methodName == "clear" or methodName == "length" {
-                    i = i + 1
-                    continue
-                }
-            }
-            generateClassMethodByIndex(classNode, i)
-            i = i + 1
-        }
+        let isHotReload = hasHotReloadMarkerMethod(classNode)
+        generateRegularClassMethods(classNode, isStringBuilder)
 
         // Generate @hot_reload synthesized methods if class has the decorator
-        if isHotReload == 1 {
+        if isHotReload {
             generateHotReloadMethods(classNode)
         }
 
-        // Dispatch decorator-generated methods using Int flags (not Bool — stage1 bug)
-        if hasDeriveSerialize == 1 {
-            generateDeriveSerialize(classNode)
-        }
-        if hasDeriveDeserialize == 1 {
-            generateDeriveDeserialize(classNode)
-        }
-        if hasDeriveClone == 1 {
-            generateDeriveClone(classNode)
-        }
-        if hasDeriveHash == 1 {
-            generateDeriveHash(classNode)
-        }
-        if hasDeriveEq == 1 {
-            generateDeriveEq(classNode)
-        }
-        if hasDeriveDebug == 1 {
-            generateDeriveDebug(classNode)
-        }
-        if hasDeriveJson == 1 {
-            generateJsonSerialize(classNode)
-            generateJsonDeserialize(classNode)
-        }
-        if hasReflectDec2 == 1 {
-            generateReflect(classNode)
-        }
-        if hasBinaryDec2 == 1 {
-            generateBinarySerializer(classNode)
-            generateBinaryDeserializer(classNode)
-        }
-        if hasPacketDec2 == 1 {
-            generatePacketWriter(classNode, packetIdDec)
-            generatePacketReader(classNode, packetIdDec)
-        }
-
-        // Generate inherited method thunks for methods defined on parent but not overridden
-        let pnLen2 = classNode.parentName.length()
-        if pnLen2 > 0 {
-            let parentIdx = findStruct(classNode.parentName)
-            if parentIdx >= 0 {
-                let parentMethodList = structMethodNames[parentIdx]
-                let parentRetTypes = structMethodRetTypes[parentIdx]
-                let pmc = countCommaFields(parentMethodList)
-                var pmi = 0
-                while pmi < pmc {
-                    let parentMethodName = commaGet(parentMethodList, pmi)
-                    let parentRetType = pipeGet(parentRetTypes, pmi)
-                    // Check if child already defines this method
-                    var childHasIt = 0
-                    var cmi = 0
-                    while cmi < classNode.methods.length() {
-                        if classNode.methods[cmi].name == parentMethodName {
-                            childHasIt = 1
-                        }
-                        cmi = cmi + 1
-                    }
-                    if childHasIt == 0 {
-                        let llvmRet = mapType(parentRetType)
-                        let thunkName = classNode.name + "_" + parentMethodName
-                        let parentFuncName = classNode.parentName + "_" + parentMethodName
-                        output.append("define " + llvmRet + " @" + quoteIdentIfNeeded(thunkName) + "(ptr %this) {\n")
-                        output.append("entry:\n")
-                        if llvmRet == "void" {
-                            output.append("  call void @" + quoteIdentIfNeeded(parentFuncName) + "(ptr %this)\n")
-                            output.append("  ret void\n")
-                        } else {
-                            let r = getNextReg()
-                            output.append("  " + r + " = call " + llvmRet + " @" + quoteIdentIfNeeded(parentFuncName) + "(ptr %this)\n")
-                            output.append("  ret " + llvmRet + " " + r + "\n")
-                        }
-                        output.append("}\n\n")
-                    }
-                    pmi = pmi + 1
-                }
-            }
-        }
+        emitGeneratedClassDecoratorMethods(classNode, decoratorFlags, packetIdBox[0])
+        emitInheritedClassMethodThunks(classNode)
 
         g_currentClassParentName = ""
     }

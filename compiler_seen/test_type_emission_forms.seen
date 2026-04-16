@@ -1,0 +1,54 @@
+// Test: type-emission forms and decorated class scanning
+type Count = Int
+distinct UserId = Int
+
+@repr(C)
+class Point {
+    var x: Int
+    var y: Int
+}
+
+@gpu_buffer(std140)
+class UniformBlock {
+    var time: Float
+    var strength: Float
+}
+
+union Payload {
+    number: Int
+    ratio: Float
+}
+
+@trait
+class Displayable {
+    fun display() r: Int {
+        return 7
+    }
+}
+
+@derive(Debug)
+class TaggedValue {
+    var id: Int
+}
+
+class Widget {
+    var point: Point
+
+    fun new() r: Widget {
+        point = Point(3, 4)
+    }
+
+    fun display() r: Int {
+        return point.x + point.y
+    }
+}
+
+fun main() r: Int {
+    let block = UniformBlock{ time: 1.0, strength: 2.0 }
+    let widget = Widget.new()
+    let count: Count = widget.display()
+    if count == 7 and block.time == 1.0 and sizeof(Payload) >= 1 {
+        return 0
+    }
+    return 1
+}
