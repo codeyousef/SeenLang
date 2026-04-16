@@ -48,6 +48,7 @@ import codegen.ir_control_flow.{detectMemcpyPatternImpl}
 import codegen.ir_call_dispatch.{emitStaticCollectionNewImpl}
 import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
+import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
 import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
 import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback, emitStructFieldStoresImpl}
@@ -1833,7 +1834,6 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("macro.interpreter")
         modules.push("macro.expander")
         modules.push("bootstrap.frontend")
-        modules.push("codegen.llvm_ir_gen")
         modules.push("codegen.ir_optimization")
         modules.push("codegen.ir_declarations")
         modules.push("codegen.ir_type_info")
@@ -1864,10 +1864,14 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_path_expr")
         modules.push("codegen.ir_member_access")
         modules.push("codegen.ir_method_receiver")
+        modules.push("codegen.ir_method_fastpath")
         modules.push("codegen.ir_binary_expr")
         modules.push("codegen.ir_class_method_gen")
         modules.push("codegen.ir_stmt_gen")
         modules.push("codegen.type_registry")
+        // Scan the main generator after extracted helpers so their
+        // declarations are available during bootstrap registration.
+        modules.push("codegen.llvm_ir_gen")
         // JSON module (required by LSP)
         modules.push("json.value")
         modules.push("json.parser")

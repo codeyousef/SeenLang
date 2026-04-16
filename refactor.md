@@ -6,12 +6,12 @@ Refactor `compiler_seen/src/codegen/llvm_ir_gen.seen` and the surrounding LLVM c
 
 This started as an investigation and proposed plan. It now also tracks which refactor slices have already been completed.
 
-## Completed So Far (2026-04-16)
+## Completed So Far (2026-04-17)
 
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,408` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,409` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -19,6 +19,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `ir_trait_registry.seen`
   - `ir_call_fixups.seen`
   - `ir_method_finalize.seen`
+  - `ir_method_fastpath.seen`
   - `ir_field_layout.seen`
   - `ir_path_expr.seen`
   - `ir_member_access.seen`
@@ -27,6 +28,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `ir_class_method_gen.seen`
   - `ir_variable_gen.seen`
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
+- The latest continuation splits the prepared method-call fast-path/static-factory/unresolved-fallback helpers into `ir_method_fastpath.seen`, which now sits at `494` lines; `ir_method_receiver.seen` is back down to `148` lines and focused on receiver typing / pointer normalization only.
+- `main_compiler.seen` now also seeds `ir_method_fastpath.seen` through a direct import in the older-bootstrap compatibility block, which makes the frozen compiler discover `74` modules during full bootstrap instead of silently lowering cross-module fast-path helpers as unknown `Int`-returning calls.
 - The latest continuation also pushes more final instance-call cleanup into `ir_method_finalize.seen`, which is now `475` lines and owns shared traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, `Option.unwrap()` specialization logic, the shared low-level array free/push/pop/swap IR emission now used by `tryGenerateArrayMutatorMethodCall()`, and shared class-handle free emission for non-array `free()` lowering.
 - That same working-tree continuation now also removes the last one-use instance-call wrappers from `llvm_ir_gen.seen`, so `emitNormalizedInstanceMethodCall()` calls `ir_method_finalize.seen` directly for traced-unwrap normalization, hot-reload interception, return-type fallback, receiver ABI preparation, and specialization.
 - The latest continuation also removes the one-use static/parser fallback wrappers from `llvm_ir_gen.seen`, so `tryGenerateStaticMethodCall()` and `generateMethodCall()` now own that orchestration directly instead of bouncing through separate local helper layers.
@@ -188,29 +191,29 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `72bb5b9` with message `Reuse member access in array mutator lowering`.
-- The continuation from `72bb5b9` to the current working tree touched:
-  - `compiler_seen/src/codegen/llvm_ir_gen.seen`
+- Latest committed refactor commit available from a clean checkout is `d725ca4` with message `Extract receiver fast-path helpers`.
+- The continuation from `d725ca4` to the current working tree touched:
+  - `compiler_seen/src/codegen/ir_method_fastpath.seen`
+  - `compiler_seen/src/codegen/ir_method_finalize.seen`
   - `compiler_seen/src/codegen/ir_method_receiver.seen`
-  - `compiler_seen/src/codegen/ir_call_fixups.seen`
+  - `compiler_seen/src/codegen/llvm_ir_gen.seen`
+  - `compiler_seen/src/main_compiler.seen`
   - `refactor.md`
-- That continuation keeps expanding the shared method-call helper surface without adding another bootstrap compiler module:
-  - shared identifier quoting, receiver-type helpers, receiver-pointer normalization, prepared dyn-trait dispatch, builtin receiver emission, static class-literal dispatch, and unresolved-receiver fallback helpers now live in `ir_method_receiver.seen`.
-  - shared prepared static-call emission now also routes through `ir_method_receiver.seen`, so `llvm_ir_gen.seen` no longer owns the low-level declaration + `emitGenericStaticCallImpl(...)` path for prepared static method calls.
-  - shared explicit-receiver fast-path orchestration, loaded local-variable fast-path dispatch, and module-constant receiver preparation now also route through `ir_method_receiver.seen`, which trims `generateMethodCall()` further but leaves `ir_method_receiver.seen` itself above the 500-line target for now at `633` lines; that helper file is now the clearest next split candidate.
-  - shared final instance-call helpers for traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, and `Option.unwrap()` specialization now also route through `ir_method_finalize.seen`.
-  - shared low-level array free/push/pop/swap IR emission now also routes through `ir_method_finalize.seen`, which keeps the array-mutator cleanup inside the existing compiler-module count instead of adding a fresh bootstrap module.
-  - the follow-up continuation after `57f9870` keeps shrinking the same area by reusing existing member-access lowering for array pointer resolution and by moving non-array class-handle free emission into `ir_method_finalize.seen`.
-  - standalone parser-workaround call emission now also routes through `ir_call_fixups.seen`, and unresolved default-receiver selection is now reused directly from the extracted helper instead of being open-coded in `generateMethodCall()`.
-  - `llvm_ir_gen.seen` keeps the AST-facing orchestration wrappers, but shared helper logic for method-field path resolution, enum literal receiver resolution, explicit receiver-type normalization, module-constant receiver type fallback, pointer normalization, prepared dyn-trait emission, builtin receiver emission, static-method receiver-name parsing, static factory dispatch, static return-type fallback, unresolved-call lowering checks, unresolved fallback emission, and unresolved default-receiver selection now routes through the extracted helper module.
-  - a first attempt at the same array-mutator extraction through a fresh `ir_method_array.seen` module exposed a frozen-bootstrap visibility quirk during full builds, so the final working tree folds that code into `ir_method_finalize.seen` instead and keeps `main_compiler.seen` unchanged.
-  - follow-up bootstrap-hardening fixes in the same working tree now also:
-    - route `getCurrentFunctionOptions()` through shared `CodegenState` instead of a local `FunctionLoweringOptions` cache.
-    - store `g_sharedCodegenState` as an `Int` handle in `type_registry.seen` so the frozen bootstrap compiler does not lower it as a `ptr` global.
-    - mark `runtimeDeclsLoaded = true` immediately after `emitCoreRuntimeDecls(...)` so `emitTypecheckerDecls(...)` does not emit a second conflicting `Result_*` declaration block.
-    - avoid direct indexed nested imported-type accesses in the most fragile spots by first binding the indexed node to a local (`computeJsonObjectSize()`, `generateJsonDeserializeImpl()` init field loop, `collectDefaultParamStringConstantsFromFunction()`, `resolveMethodReturnTypeFromList()`).
-    - add `lastIndexOf(...)` to the runtime shim and runtime-backed string-compat list so bootstrap builds no longer die at final link when `llvm_ir_gen.seen` lowers `ciLine.lastIndexOf(\"'\")`.
+- That continuation keeps expanding the shared method-call helper surface without leaving another overgrown helper file behind:
+  - shared prepared dyn-trait dispatch, explicit/local fast-path orchestration, primitive/string/numeric receiver helpers, static factory dispatch, prepared static-call emission, and unresolved fallback lowering now live in `ir_method_fastpath.seen`.
+  - `ir_method_receiver.seen` now only owns receiver typing, field-path lookup, enum-literal receiver resolution, explicit receiver normalization, module-constant receiver-type fallback, and receiver-to-pointer normalization.
+  - shared final instance-call helpers for traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, `Option.unwrap()` specialization, and shared array/class mutation IR emission continue to route through `ir_method_finalize.seen`.
+  - the follow-up continuation after `d725ca4` also hardens bootstrap visibility for the new helper split:
+    - `main_compiler.seen` now directly imports one `ir_method_fastpath.seen` symbol in the compatibility seeding block so older frozen compilers discover the helper during main-file import scanning.
+    - that direct seed import restores correct `%SeenString` return typing for cross-module fast-path helpers during full bootstrap; before that seed, the frozen compiler was silently lowering calls into `ir_method_fastpath.seen` as `i64`-returning externs inside `llvm_ir_gen.seen`.
+    - the same follow-up also swaps the extracted helper modules away from `isClassTypeReg(...)` in the most fragile spots and back onto `isClassTypeImpl(...)`, which removes the `i1` vs `i64` compare regressions that first showed up in `/tmp/seen_module_24.ll` and `/tmp/seen_module_33.ll`.
 - Last known validation for the latest continuation used a `MemTotal / 4` cap of `16229809` KB:
+  - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_fastpath.seen`.
+  - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_receiver.seen`.
+  - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_finalize.seen`.
+  - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - after seeding `ir_method_fastpath.seen` through a direct import in `main_compiler.seen`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_method_fastpath_split_fix5 --fast --no-cache --no-fork` completed successfully under the same cap and discovered `74` modules, which confirms the split helper is now visible to the frozen bootstrap compiler during full builds.
   - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_finalize.seen`.
   - passed after the traced-unwrap/hot-reload follow-up extraction: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen` and `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_finalize.seen`.

@@ -7,7 +7,7 @@ import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
-import codegen.type_registry.{isClassTypeReg, isDataTypeReg}
+import codegen.type_registry.{isDataTypeReg}
 import str.string.{StringBuilder}
 
 fun stripMethodGenericSuffixImpl(typeName: String) r: String {
@@ -364,7 +364,7 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
         receiverType != "Array<Float>" {
         if isDataTypeReg(pushElemType) {
             var ptrArgReg = argReg
-            if isClassTypeReg(pushElemType, structNames) == 1 {
+            if isClassTypeImpl(pushElemType, structNames) == 1 {
                 let tmpReg = getNextRegFn(regBox)
                 output.append("  " + tmpReg + " = alloca i64\n")
                 output.append("  store i64 " + argReg + ", ptr " + tmpReg +
@@ -385,7 +385,7 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
             return resultReg
         }
         var ptrArgReg = argReg
-        if isClassTypeReg(pushElemType, structNames) == 1 {
+        if isClassTypeImpl(pushElemType, structNames) == 1 {
             let ptrReg = getNextRegFn(regBox)
             output.append("  " + ptrReg + " = inttoptr i64 " + argReg +
                 " to ptr\n")
