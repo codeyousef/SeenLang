@@ -2,6 +2,7 @@
 // Extracted from llvm_ir_gen.seen to keep generateMethodCall() focused on
 // receiver discovery and dispatch rather than ABI normalization details.
 
+import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
@@ -43,6 +44,26 @@ fun normalizeInstanceMethodTypeNameImpl(receiverType: String, methodName: String
     return stripMethodGenericSuffixImpl(instanceTypeName)
 }
 
+fun resolveMethodCallInstanceTypeNameImpl(expr: ParserExpressionNode,
+    methodName: String, receiverType: String,
+    tracedUnwrapSourceType: String) r: String {
+
+    var tracedUnwrapType = ""
+    if receiverType == "ptr" and methodName == "toJson" and
+        expr.operands.length() > 0 {
+        let receiverExpr = expr.operands[0]
+        if receiverExpr.kind == "MethodCall" and
+            receiverExpr.callee == "unwrap" and
+            receiverExpr.operands.length() > 0 and
+            tracedUnwrapSourceType.endsWith("?") {
+            tracedUnwrapType = tracedUnwrapSourceType.substring(0,
+                tracedUnwrapSourceType.length() - 1)
+        }
+    }
+    return normalizeInstanceMethodTypeNameImpl(receiverType, methodName,
+        tracedUnwrapType)
+}
+
 fun isHotReloadGetterMethodImpl(methodName: String) r: Bool {
     return methodName == "__seen_hot_get_size" or methodName == "__seen_hot_get_version" or methodName == "__seen_hot_get_state"
 }
@@ -75,6 +96,16 @@ fun emitHotReloadMethodCallImpl(output: StringBuilder, regBox: Array<Int>, metho
     }
     output.append("  call void @" + quotedFuncName + "(ptr " + actualReceiver + ", i64 " + actualStateArg + ")\n")
     return "0"
+}
+
+fun tryGeneratePreparedHotReloadInstanceMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, quotedFuncName: String,
+    receiverReg: String, receiverType: String, hotStateArg: String,
+    structNames: Array<String>) r: String {
+
+    let hotClassReceiver = isClassTypeImpl(receiverType, structNames)
+    return emitHotReloadMethodCallImpl(output, regBox, methodName,
+        quotedFuncName, receiverReg, hotClassReceiver, hotStateArg)
 }
 
 fun resolveMethodCallReturnTypeImpl(inferredReturnType: String,
