@@ -4292,6 +4292,74 @@ class LLVMIRGenerator {
         return false
     }
 
+    fun emitTraitDefaultMethod(className: String, traitMethod: FunctionNode, traitRetTypeName: String) r: Void {
+        let defaultFuncName = className + "_" + traitMethod.name + "_default"
+        output.append("; trait default method: " + defaultFuncName + "\n")
+        let savedRetType = currentFunctionReturnType
+        currentFunctionReturnType = traitRetTypeName
+        let savedVarNames = varNames
+        let savedVarRegs = varRegs
+        let savedVarTypes = varTypes
+        let savedPreAllocatedVars = preAllocatedVars
+        let savedPreAllocatedTypes = preAllocatedTypes
+        let savedPreAllocatedRegs = preAllocatedRegs
+        let savedDeclOrdinalNames = declOrdinalNames
+        let savedDeclOrdinalCounts = declOrdinalCounts
+        let savedActiveVarCount = activeVarCount
+        let savedNextReg = g_regBox[0]
+        let savedBlockTerm = blockTerminated
+        varNames = Array<String>()
+        varRegs = Array<String>()
+        varTypes = Array<String>()
+        preAllocatedVars = Array<String>()
+        preAllocatedTypes = Array<String>()
+        preAllocatedRegs = Array<String>()
+        declOrdinalNames = Array<String>()
+        declOrdinalCounts = Array<Int>()
+        activeVarCount = 0
+        g_regBox[0] = 1
+        blockTerminated = false
+        cseClear()
+        var defaultParamStr = ""
+        var paramIdx = 0
+        while paramIdx < traitMethod.params.length() {
+            if paramIdx > 0 {
+                defaultParamStr = defaultParamStr + ", "
+            }
+            let defaultParam = traitMethod.params[paramIdx]
+            let defaultParamType = mapType(normalizeDeclaredTypeNode(defaultParam.paramType))
+            let defaultParamReg = "%" + quoteIdentIfNeeded(defaultParam.name)
+            defaultParamStr = defaultParamStr + defaultParamType + " " + defaultParamReg
+            storeVar(defaultParam.name, defaultParamReg, normalizeDeclaredTypeNode(defaultParam.paramType))
+            paramIdx = paramIdx + 1
+        }
+        let defaultRetType = mapType(traitRetTypeName)
+        output.append("define " + defaultRetType + " @" + quoteIdentIfNeeded(defaultFuncName) + "(" + defaultParamStr + ") {\n")
+        output.append("entry:\n")
+        generateBlock(traitMethod.body)
+        if not blockTerminated {
+            if defaultRetType == "void" {
+                output.append("  ret void\n")
+            } else {
+                output.append("  ret " + defaultRetType + " zeroinitializer\n")
+            }
+        }
+        output.append("}\n\n")
+        currentFunctionReturnType = savedRetType
+        varNames = savedVarNames
+        varRegs = savedVarRegs
+        varTypes = savedVarTypes
+        preAllocatedVars = savedPreAllocatedVars
+        preAllocatedTypes = savedPreAllocatedTypes
+        preAllocatedRegs = savedPreAllocatedRegs
+        declOrdinalNames = savedDeclOrdinalNames
+        declOrdinalCounts = savedDeclOrdinalCounts
+        activeVarCount = savedActiveVarCount
+        g_regBox[0] = savedNextReg
+        blockTerminated = savedBlockTerm
+        registerFunction(defaultFuncName, traitRetTypeName)
+    }
+
     fun tryGenerateTraitClass(classNode: ClassNode) r: Bool {
         if not isTraitClassNode(classNode) {
             return false
@@ -4307,71 +4375,7 @@ class LLVMIRGenerator {
             registerFunction(traitFuncName, traitRetTypeName)
             registerStructMethod(className, traitMethod.name, traitRetTypeName)
             if traitMethod.body.statements.length() > 0 {
-                let defaultFuncName = className + "_" + traitMethod.name + "_default"
-                output.append("; trait default method: " + defaultFuncName + "\n")
-                let savedRetType = currentFunctionReturnType
-                currentFunctionReturnType = traitRetTypeName
-                let savedVarNames = varNames
-                let savedVarRegs = varRegs
-                let savedVarTypes = varTypes
-                let savedPreAllocatedVars = preAllocatedVars
-                let savedPreAllocatedTypes = preAllocatedTypes
-                let savedPreAllocatedRegs = preAllocatedRegs
-                let savedDeclOrdinalNames = declOrdinalNames
-                let savedDeclOrdinalCounts = declOrdinalCounts
-                let savedActiveVarCount = activeVarCount
-                let savedNextReg = g_regBox[0]
-                let savedBlockTerm = blockTerminated
-                varNames = Array<String>()
-                varRegs = Array<String>()
-                varTypes = Array<String>()
-                preAllocatedVars = Array<String>()
-                preAllocatedTypes = Array<String>()
-                preAllocatedRegs = Array<String>()
-                declOrdinalNames = Array<String>()
-                declOrdinalCounts = Array<Int>()
-                activeVarCount = 0
-                g_regBox[0] = 1
-                blockTerminated = false
-                cseClear()
-                var defaultParamStr = ""
-                var paramIdx = 0
-                while paramIdx < traitMethod.params.length() {
-                    if paramIdx > 0 {
-                        defaultParamStr = defaultParamStr + ", "
-                    }
-                    let defaultParam = traitMethod.params[paramIdx]
-                    let defaultParamType = mapType(normalizeDeclaredTypeNode(defaultParam.paramType))
-                    let defaultParamReg = "%" + quoteIdentIfNeeded(defaultParam.name)
-                    defaultParamStr = defaultParamStr + defaultParamType + " " + defaultParamReg
-                    storeVar(defaultParam.name, defaultParamReg, normalizeDeclaredTypeNode(defaultParam.paramType))
-                    paramIdx = paramIdx + 1
-                }
-                let defaultRetType = mapType(traitRetTypeName)
-                output.append("define " + defaultRetType + " @" + quoteIdentIfNeeded(defaultFuncName) + "(" + defaultParamStr + ") {\n")
-                output.append("entry:\n")
-                generateBlock(traitMethod.body)
-                if not blockTerminated {
-                    if defaultRetType == "void" {
-                        output.append("  ret void\n")
-                    } else {
-                        output.append("  ret " + defaultRetType + " zeroinitializer\n")
-                    }
-                }
-                output.append("}\n\n")
-                currentFunctionReturnType = savedRetType
-                varNames = savedVarNames
-                varRegs = savedVarRegs
-                varTypes = savedVarTypes
-                preAllocatedVars = savedPreAllocatedVars
-                preAllocatedTypes = savedPreAllocatedTypes
-                preAllocatedRegs = savedPreAllocatedRegs
-                declOrdinalNames = savedDeclOrdinalNames
-                declOrdinalCounts = savedDeclOrdinalCounts
-                activeVarCount = savedActiveVarCount
-                g_regBox[0] = savedNextReg
-                blockTerminated = savedBlockTerm
-                registerFunction(defaultFuncName, traitRetTypeName)
+                emitTraitDefaultMethod(className, traitMethod, traitRetTypeName)
             }
             traitMethodIdx = traitMethodIdx + 1
         }
@@ -4724,16 +4728,11 @@ class LLVMIRGenerator {
     // could match the same register numbers in method B (since each method
     // resets nextReg to 1), producing self-referential IR that causes LLVM
     // verification failures.
-    fun generateClassMethodFromList(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
-        let methodName = methods[methodIdx].name
-        if className == "JsonParseResult" or className == "JsonParser" or className == "LLVMIRGenerator" {
-            println("[irgen class method start] " + className + "." + methodName)
-        }
-        if tryEmitOptionClassMethodShimImpl(output, className, methodName) == 1 {
-            return
-        }
+    fun shouldTraceClassMethodStart(className: String) r: Bool {
+        return className == "JsonParseResult" or className == "JsonParser" or className == "LLVMIRGenerator"
+    }
 
-        // Reset per-function state (nextBlock NOT reset - accumulates for per-loop metadata)
+    fun resetClassMethodGenerationState(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
         g_regBox[0] = 1
         varNames = Array<String>()
         varRegs = Array<String>()
@@ -4745,80 +4744,70 @@ class LLVMIRGenerator {
         declOrdinalNames = Array<String>()
         declOrdinalCounts = Array<Int>()
         currentFunctionReturnType = resolveMethodReturnTypeFromList(className, methods, methodIdx)
-        currentClassName = className  // Track class for method type inference
+        currentClassName = className
         g_currentClassParentName = parentName
         blockTerminated = false
         resetFunctionLoweringOptionsState()
-        cseClear()  // CSE cache must not carry over between class methods (cross-method register collision)
+        cseClear()
+    }
 
-        let normalizedMethodParamTypes = Array<String>()
-        let mappedMethodParamTypes = Array<String>()
-        let quotedMethodArgNames = Array<String>()
-        var methodParamInfoIdx = 0
-        while methodParamInfoIdx < methods[methodIdx].params.length() {
-            let methodParam = methods[methodIdx].params[methodParamInfoIdx]
+    fun collectClassMethodParameterInfo(methods: Array<FunctionNode>, methodIdx: Int,
+        normalizedMethodParamTypes: Array<String>, mappedMethodParamTypes: Array<String>,
+        quotedMethodArgNames: Array<String>) r: Void {
+
+        var paramInfoIdx = 0
+        while paramInfoIdx < methods[methodIdx].params.length() {
+            let methodParam = methods[methodIdx].params[paramInfoIdx]
             let normalizedParamType = normalizeDeclaredTypeNode(methodParam.paramType)
             normalizedMethodParamTypes.push(normalizedParamType)
             mappedMethodParamTypes.push(mapTypeForParameter(normalizedParamType))
             quotedMethodArgNames.push(quoteIdentIfNeeded(methodParam.name + ".arg"))
-            methodParamInfoIdx = methodParamInfoIdx + 1
+            paramInfoIdx = paramInfoIdx + 1
         }
+    }
 
-        // Pre-register parameter types for use during variable collection
-        // (needed so inferExpressionType can find parameter types)
-        // Also pre-register 'this' for instance methods (non-static)
-        let isStaticMethod = methods[methodIdx].isStatic
-        if not isStaticMethod {
+    fun prepareClassMethodVariableCollection(className: String, methods: Array<FunctionNode>, methodIdx: Int,
+        normalizedMethodParamTypes: Array<String>) r: Void {
+
+        if not methods[methodIdx].isStatic {
             storeVar("this", "", className)
         }
-        var preParamIdx = 0
-        while preParamIdx < methods[methodIdx].params.length() {
-            let param = methods[methodIdx].params[preParamIdx]
-            storeVar(param.name, "", normalizedMethodParamTypes[preParamIdx])
-            preParamIdx = preParamIdx + 1
+        var paramIdx = 0
+        while paramIdx < methods[methodIdx].params.length() {
+            let param = methods[methodIdx].params[paramIdx]
+            storeVar(param.name, "", normalizedMethodParamTypes[paramIdx])
+            paramIdx = paramIdx + 1
         }
-
-        // Collect all variable declarations for hoisting allocas to entry block
         collectVariableDeclarations(methods[methodIdx].body)
-
-        // Clear pre-registered parameters (will be re-added with proper registers)
         varNames = Array<String>()
         varRegs = Array<String>()
         varTypes = Array<String>()
         activeVarCount = 0
+    }
 
-        let returnType = mapType(currentFunctionReturnType)
-
-        // Determine if this is a static method (name is "new" or has isStatic flag)
-        let isStatic = methods[methodIdx].isStatic or methodName == "new"
+    fun emitClassMethodSignature(className: String, methodName: String, methods: Array<FunctionNode>,
+        methodIdx: Int, isStatic: Bool, returnType: String, mappedMethodParamTypes: Array<String>,
+        quotedMethodArgNames: Array<String>) r: String {
 
         let methodAttrs = buildMethodAttrsImpl(methods, methodIdx, className, methodName,
             g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
-
-        // Function signature: ClassName_methodName or ClassName_new
-        // Add noundef on primitive return types to enable stronger LLVM optimizations
         var methodRetPrefix = "define "
         if returnType == "i64" or returnType == "double" or returnType == "i1" {
             methodRetPrefix = "define noundef "
         }
         output.append(methodRetPrefix + returnType + " @" + quoteIdentIfNeeded(className + "_" + methodName) + "(")
 
-        // For instance methods, first parameter is 'this' pointer
         var hasThis = false
         if not isStatic {
             output.append("ptr %this")
             hasThis = true
         }
 
-        // Detect explicit receiver param: first param with name 'self' or 'this' and type == className
-        // (Python/Rust-style explicit self parameter)
         var isStaticInt = 0
         if isStatic {
             isStaticInt = 1
         }
         let explicitReceiverName = detectExplicitReceiverNameImpl(className, isStaticInt, methods, methodIdx)
-
-        // Other parameters (skip explicit receiver param — handled by implicit ptr %this)
         var hasThisInt = 0
         if hasThis {
             hasThisInt = 1
@@ -4828,36 +4817,39 @@ class LLVMIRGenerator {
 
         output.append(")" + methodAttrs + " #0 {\n")
         output.append("entry:\n")
+        return explicitReceiverName
+    }
 
-        // For instance methods, store 'this' pointer
-        if not isStatic {
-            let thisReg = getNextReg()
-            output.append("  " + thisReg + " = alloca ptr\n")
-            output.append("  store ptr %this, ptr " + thisReg + "\n")
-            storeVar("this", thisReg, className)
-            // If method has explicit receiver with different name (e.g. 'self'), register it too
-            if explicitReceiverName != "this" {
-                if explicitReceiverName != "" {
-                    storeVar(explicitReceiverName, thisReg, className)
-                }
+    fun emitClassMethodReceiverBinding(className: String, isStatic: Bool, explicitReceiverName: String) r: Void {
+        if isStatic {
+            return
+        }
+        let thisReg = getNextReg()
+        output.append("  " + thisReg + " = alloca ptr\n")
+        output.append("  store ptr %this, ptr " + thisReg + "\n")
+        storeVar("this", thisReg, className)
+        if explicitReceiverName != "this" {
+            if explicitReceiverName != "" {
+                storeVar(explicitReceiverName, thisReg, className)
             }
         }
+    }
 
-        // Allocate space for parameters and store them (skip explicit receiver)
+    fun emitClassMethodParameterBindings(methods: Array<FunctionNode>, methodIdx: Int, explicitReceiverName: String,
+        normalizedMethodParamTypes: Array<String>, quotedMethodArgNames: Array<String>) r: Void {
+
         var paramIdx = 0
         while paramIdx < methods[methodIdx].params.length() {
             let param = methods[methodIdx].params[paramIdx]
-            var isExplicitReceiver2 = 0
+            var isExplicitReceiver = 0
             if param.name == explicitReceiverName {
                 if explicitReceiverName != "" {
-                    isExplicitReceiver2 = 1
+                    isExplicitReceiver = 1
                 }
             }
-            if isExplicitReceiver2 == 0 {
+            if isExplicitReceiver == 0 {
                 let seenTypeName = normalizedMethodParamTypes[paramIdx]
                 let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
-                // Data type params come in as ptr (ABI compat with Rust backend)
-                // Use the incoming ptr directly as the variable location
                 if isDataType(semanticSeenTypeName) {
                     storeVar(param.name, "%" + quotedMethodArgNames[paramIdx], semanticSeenTypeName)
                 } else {
@@ -4870,36 +4862,70 @@ class LLVMIRGenerator {
             }
             paramIdx = paramIdx + 1
         }
+    }
 
-        // Emit allocas for all local variables at entry (avoids domination errors)
+    fun emitClassMethodConstructorSetup(className: String, methodName: String) r: Void {
+        if methodName != "new" {
+            return
+        }
+        let thisReg = emitConstructorAllocationImpl(output, g_regBox, className,
+            structNames, structSizes, structFieldNames, structFieldTypes)
+        storeVar("this", thisReg, className)
+    }
+
+    fun tryEmitClassMethodConstructorReturn(methodName: String) r: Bool {
+        if blockTerminated {
+            return false
+        }
+        if methodName != "new" {
+            return false
+        }
+        let thisVarIdx = findVar("this")
+        if thisVarIdx < 0 {
+            return false
+        }
+        emitConstructorReturnImpl(output, g_regBox, varRegs[thisVarIdx])
+        blockTerminated = true
+        return true
+    }
+
+    fun emitClassMethodDefaultReturn(returnType: String) r: Void {
+        if blockTerminated {
+            return
+        }
+        emitDefaultReturnValueImpl(output, returnType)
+    }
+
+    fun generateClassMethodFromList(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
+        let methodName = methods[methodIdx].name
+        if shouldTraceClassMethodStart(className) {
+            println("[irgen class method start] " + className + "." + methodName)
+        }
+        if tryEmitOptionClassMethodShimImpl(output, className, methodName) == 1 {
+            return
+        }
+
+        resetClassMethodGenerationState(className, parentName, methods, methodIdx)
+
+        let normalizedMethodParamTypes = Array<String>()
+        let mappedMethodParamTypes = Array<String>()
+        let quotedMethodArgNames = Array<String>()
+        collectClassMethodParameterInfo(methods, methodIdx, normalizedMethodParamTypes, mappedMethodParamTypes, quotedMethodArgNames)
+        prepareClassMethodVariableCollection(className, methods, methodIdx, normalizedMethodParamTypes)
+
+        let returnType = mapType(currentFunctionReturnType)
+        let isStatic = methods[methodIdx].isStatic or methodName == "new"
+        let explicitReceiverName = emitClassMethodSignature(className, methodName, methods, methodIdx,
+            isStatic, returnType, mappedMethodParamTypes, quotedMethodArgNames)
+        emitClassMethodReceiverBinding(className, isStatic, explicitReceiverName)
+        emitClassMethodParameterBindings(methods, methodIdx, explicitReceiverName,
+            normalizedMethodParamTypes, quotedMethodArgNames)
         emitPreAllocatedAllocas()
+        emitClassMethodConstructorSetup(className, methodName)
 
-        // For constructor 'new' methods: allocate object, zero-init, register 'this'
-        if methodName == "new" {
-            let cThisReg = emitConstructorAllocationImpl(output, g_regBox, className,
-                structNames, structSizes, structFieldNames, structFieldTypes)
-            storeVar("this", cThisReg, className)
-        }
-
-        // Generate method body
         generateBlock(methods[methodIdx].body)
-
-        // For 'new' constructor: return the allocated object as i64
-        if not blockTerminated {
-            if methodName == "new" {
-                let cThisVarIdx = findVar("this")
-                if cThisVarIdx >= 0 {
-                    emitConstructorReturnImpl(output, g_regBox, varRegs[cThisVarIdx])
-                    blockTerminated = true
-                }
-            }
-        }
-
-        // If no terminator was generated, add a default return
-        if not blockTerminated {
-            emitDefaultReturnValueImpl(output, returnType)
-        }
-
+        tryEmitClassMethodConstructorReturn(methodName)
+        emitClassMethodDefaultReturn(returnType)
         output.append("}\n\n")
     }
 

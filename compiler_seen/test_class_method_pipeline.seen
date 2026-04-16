@@ -1,0 +1,40 @@
+// Test: class-method lowering pipeline helpers
+
+@trait
+class FallbackScore {
+    fun score(this: FallbackScore) r: Int {
+        return 11
+    }
+}
+
+class BaseValue {
+    var base: Int
+
+    static fun new(value: Int) r: BaseValue {
+        return BaseValue { base: value }
+    }
+
+    fun getBase() r: Int {
+        return base
+    }
+}
+
+class DerivedValue extends BaseValue {
+    var extra: Int
+
+    static fun new(value: Int, extraValue: Int) r: DerivedValue {
+        return DerivedValue { base: value, extra: extraValue }
+    }
+
+    fun total(this: DerivedValue, delta: Int) r: Int {
+        return this.getBase() + this.extra + delta
+    }
+}
+
+fun main() r: Int {
+    let derived = DerivedValue.new(4, 5)
+    if derived.getBase() == 4 and derived.total(3) == 12 {
+        return 0
+    }
+    return 1
+}
