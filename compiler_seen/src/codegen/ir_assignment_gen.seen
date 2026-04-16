@@ -212,6 +212,85 @@ fun tryEmitBitfieldAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int>
     return 1
 }
 
+fun emitIndexAssignmentBoundsCheckImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayReg: String, indexReg: String, failLabel: String, okLabel: String) r: Void {
+
+    let lenPtrReg = getNextRegFn(regBox)
+    output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 0\n")
+    let lenReg = getNextRegFn(regBox)
+    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
+    let oobReg = getNextRegFn(regBox)
+    output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " + lenReg + "\n")
+    output.append("  br i1 " + oobReg + ", label %" + failLabel + ", label %" + okLabel + "\n")
+    output.append(failLabel + ":\n")
+    output.append("  call void @seen_bounds_check(i64 " + indexReg + ", i64 " + lenReg + ")\n")
+    output.append("  unreachable\n")
+    output.append(okLabel + ":\n")
+}
+
+fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayReg: String, indexReg: String, valueReg: String, elementType: String) r: Int {
+
+    if elementType == "Int" or elementType == "Char" {
+        let dataPtrPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
+        let dataPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
+        let elemPtrReg = getNextRegFn(regBox)
+        output.append("  " + elemPtrReg + " = getelementptr inbounds nuw i64, ptr " + dataPtrReg + ", i64 " + indexReg + "\n")
+        output.append("  store i64 " + valueReg + ", ptr " + elemPtrReg + ", align 8, !tbaa !105\n")
+        return 1
+    }
+    if elementType == "Float" {
+        let dataPtrPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 3\n")
+        let dataPtrReg = getNextRegFn(regBox)
+        output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
+        let elemPtrReg = getNextRegFn(regBox)
+        output.append("  " + elemPtrReg + " = getelementptr inbounds nuw double, ptr " + dataPtrReg + ", i64 " + indexReg + "\n")
+        output.append("  store double " + valueReg + ", ptr " + elemPtrReg + ", align 8, !tbaa !106\n")
+        return 1
+    }
+    return 0
+}
+
+fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayReg: String, indexReg: String, valueReg: String, elementType: String,
+    llvmElementType: String, valueIsStructLiteral: Int, structNames: Array<String>) r: Void {
+
+    var valuePtrReg = ""
+    if isClassTypeImpl(elementType, structNames) == 1 {
+        let tmpReg = getNextRegFn(regBox)
+        output.append("  " + tmpReg + " = alloca i64\n")
+        output.append("  store i64 " + valueReg + ", ptr " + tmpReg + "\n")
+        valuePtrReg = tmpReg
+    } else if isDataTypeImpl(elementType) == 1 {
+        if valueIsStructLiteral == 1 {
+            valuePtrReg = valueReg
+        } else {
+            let tmpReg = getNextRegFn(regBox)
+            output.append("  " + tmpReg + " = alloca %" + elementType + "\n")
+            output.append("  store %" + elementType + " " + valueReg + ", ptr " + tmpReg + "\n")
+            valuePtrReg = tmpReg
+        }
+    } else if llvmElementType == "ptr" {
+        let tmpReg = getNextRegFn(regBox)
+        var storedValue = valueReg
+        if storedValue == "0" {
+            storedValue = "null"
+        }
+        output.append("  " + tmpReg + " = alloca ptr\n")
+        output.append("  store ptr " + storedValue + ", ptr " + tmpReg + "\n")
+        valuePtrReg = tmpReg
+    } else {
+        let tmpReg = getNextRegFn(regBox)
+        output.append("  " + tmpReg + " = alloca " + llvmElementType + "\n")
+        output.append("  store " + llvmElementType + " " + valueReg + ", ptr " + tmpReg + "\n")
+        valuePtrReg = tmpReg
+    }
+    output.append("  call void @Array_set(ptr " + arrayReg + ", i64 " + indexReg + ", ptr " + valuePtrReg + ")\n")
+}
+
 // emitFieldStoreImpl — Store a value into a struct field via GEP
 // Handles nullable String (zeroinitializer), ptr (null/inttoptr), data type struct literal loading
 // valueReg: the register holding the value to store
