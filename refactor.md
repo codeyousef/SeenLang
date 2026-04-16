@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,405` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,430` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -44,12 +44,14 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also moves standalone parser-workaround call emission into `ir_call_fixups.seen` and reuses the extracted unresolved-default receiver helper, trimming more low-level call/text plumbing out of `generateMethodCall()` without adding another bootstrap compiler module.
 - The latest continuation also moves the explicit-receiver fast-path orchestration, loaded local-variable receiver fast path, and module-constant receiver preparation further into `ir_method_receiver.seen`, so `generateMethodCall()` now hands off more of the dyn-trait/option/hot-reload/collection/local-SIMD receiver staging instead of open-coding those branches inline.
 - The latest continuation also collapses the repeated "prepare call arguments, then fill default parameters" flow behind a shared local helper in `llvm_ir_gen.seen`, so the implicit-`this`, regular-call, static-call, parser-workaround, and final instance-call branches stop repeating that prep/fill sequence inline while still using the frozen compiler's existing global default-fill handoff.
+- The latest continuation also splits the remaining special-case branches inside `inferExpressionType()` behind focused local helpers for literal, index-access, array-literal, string-interpolation, unary, await, try-propagate, and other special expression kinds, so the top-level type-inference dispatcher now reads as a short registry/pipeline entrypoint instead of one long mixed branch ladder.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
   - `generateSingle()` is down to about `195` lines.
   - `generateCall()` is down to about `139` lines.
   - `generateMethodCall()` is now about `427` lines after absorbing receiver-preparation, unresolved-receiver orchestration, builtin receiver dispatch, and normalized instance-call lowering, still below the 500-line target.
+  - `inferExpressionType()` is now down to about `75` lines at the top-level dispatcher, with the remaining special-case expression branches routed through focused local helpers.
   - `tryGenerateStaticMethodCall()` is now about `72` lines after handing its prepared static-call emission off to `ir_method_receiver.seen`.
   - `tryGenerateArrayMutatorMethodCall()` is now about `103` lines after handing off its low-level free/push/pop/swap IR emission to `ir_method_finalize.seen` and reusing shared member-access lowering for array target resolution.
   - `generateBinary()` is down to about `339` lines.
@@ -192,7 +194,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `faadaf5` with message `Split method fast-path helpers and seed bootstrap discovery`.
+- Latest committed refactor commit available from a clean checkout is `27381f5` with message `Share default-filled call preparation flow`.
 - The continuation from `faadaf5` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
   - `refactor.md`
@@ -205,6 +207,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - that direct seed import restores correct `%SeenString` return typing for cross-module fast-path helpers during full bootstrap; before that seed, the frozen compiler was silently lowering calls into `ir_method_fastpath.seen` as `i64`-returning externs inside `llvm_ir_gen.seen`.
     - the same follow-up also swaps the extracted helper modules away from `isClassTypeReg(...)` in the most fragile spots and back onto `isClassTypeImpl(...)`, which removes the `i1` vs `i64` compare regressions that first showed up in `/tmp/seen_module_24.ll` and `/tmp/seen_module_33.ll`.
 - Last known validation for the latest continuation used a `MemTotal / 4` cap of `16229809` KB:
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_infer_type_helper_split --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_infer_type_helper_split`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - the first bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_call_prep_helper --fast --no-cache --no-fork` for the shared call-prep helper slice exposed a real source-level regression in `/tmp/seen_module_5.ll` (`use of undefined value '@Array_clear'`) because the first helper draft used `Array.clear()` while copying default-filled args.

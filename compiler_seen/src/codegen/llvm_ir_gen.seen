@@ -12683,6 +12683,181 @@ class LLVMIRGenerator {
         return ""
     }
 
+    fun inferLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.literalType == "Int" or expr.literalType == "Integer" {
+            return "Int"
+        }
+        if expr.literalType == "String" {
+            return "String"
+        }
+        if expr.literalType == "Char" {
+            return "Char"
+        }
+        if expr.literalType == "Bool" or expr.literalType == "Boolean" {
+            return "Bool"
+        }
+        if expr.literalType == "Float" {
+            return "Float"
+        }
+        if expr.literalType != "" {
+            return expr.literalType
+        }
+        if expr.literalValue.startsWith("\"") or expr.literalValue.startsWith("'") {
+            return "String"
+        }
+        if expr.literalValue.contains(".") {
+            return "Float"
+        }
+        return "Int"
+    }
+
+    fun inferIndexAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
+        let arrayType = inferExpressionType(expr.operands[0])
+        let elemType = inferIndexElementType(arrayType)
+        if elemType != "" { return elemType }
+        if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
+            return arrayType.substring(6, arrayType.length() - 1)
+        }
+        return "ptr"
+    }
+
+    fun inferArrayLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.arguments.length() == 0 {
+            return "Array"
+        }
+        let firstElemType = inferExpressionType(expr.arguments[0])
+        if firstElemType == "String" {
+            return "Array<String>"
+        }
+        if firstElemType == "Float" {
+            return "Array<Float>"
+        }
+        if firstElemType == "Bool" {
+            return "Array<Bool>"
+        }
+        return "Array<Int>"
+    }
+
+    fun inferStringInterpolationExprTypeLocal(expr: ParserExpressionNode) r: String {
+        var i = 0
+        while i < expr.arguments.length() {
+            collectStringConstantsFromExpr(expr.arguments[i])
+            i = i + 1
+        }
+        i = 0
+        while i < expr.operands.length() {
+            collectStringConstantsFromExpr(expr.operands[i])
+            i = i + 1
+        }
+        return "String"
+    }
+
+    fun inferUnaryExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.operator == "!" or expr.operator == "not" {
+            return "Bool"
+        }
+        if expr.operator == "&" and expr.operands.length() > 0 {
+            return "*" + inferExpressionType(expr.operands[0])
+        }
+        if expr.operator == "*" and expr.operands.length() > 0 {
+            let ptrType = inferExpressionType(expr.operands[0])
+            if ptrType.startsWith("*") {
+                return ptrType.substring(1, ptrType.length())
+            }
+            return "Int"
+        }
+        if expr.operands.length() > 0 {
+            return inferExpressionType(expr.operands[0])
+        }
+        return "Int"
+    }
+
+    fun inferAwaitExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.operands.length() == 0 {
+            return "Void"
+        }
+        let inner = expr.operands[0]
+        if inner.kind == "Call" {
+            let asyncRet = getAsyncDeclaredRetType(inner.callee)
+            if asyncRet != "" { return asyncRet }
+            return getFunctionReturnType(inner.callee)
+        }
+        return inferExpressionType(inner)
+    }
+
+    fun inferTryPropagateExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.operands.length() == 0 {
+            return ""
+        }
+        let tryInnerType = inferExpressionType(expr.operands[0])
+        let tryResult = resolveTryPropagateTypeImpl(tryInnerType)
+        if tryResult != "" {
+            return tryResult
+        }
+        return tryInnerType
+    }
+
+    fun inferSpecialExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.kind == "StructLiteral" {
+            return expr.literalType
+        }
+        if expr.kind == "IndexAccess" {
+            return inferIndexAccessExprTypeLocal(expr)
+        }
+        if expr.kind == "ArrayLiteral" {
+            return inferArrayLiteralExprTypeLocal(expr)
+        }
+        if expr.kind == "StringInterpolation" {
+            return inferStringInterpolationExprTypeLocal(expr)
+        }
+        if expr.kind == "Unary" {
+            return inferUnaryExprTypeLocal(expr)
+        }
+        if expr.kind == "Await" {
+            return inferAwaitExprTypeLocal(expr)
+        }
+        if expr.kind == "Elvis" or expr.kind == "NullCoalesce" {
+            if expr.operands.length() > 0 {
+                return inferExpressionType(expr.operands[0])
+            }
+            return ""
+        }
+        if expr.kind == "SafeNavigation" {
+            return "Int"
+        }
+        if expr.kind == "WhenExpression" {
+            if expr.arguments.length() > 0 {
+                let firstArm = expr.arguments[0]
+                if firstArm.operands.length() > 1 {
+                    return inferExpressionType(firstArm.operands[1])
+                }
+            }
+            return ""
+        }
+        if expr.kind == "Range" {
+            return "Range"
+        }
+        if expr.kind == "IfExpression" {
+            if expr.operands.length() > 1 {
+                return inferExpressionType(expr.operands[1])
+            }
+            return ""
+        }
+        if expr.kind == "IsExpression" {
+            return "Bool"
+        }
+        if expr.kind == "Closure" {
+            return "Int"
+        }
+        if expr.kind == "TryPropagate" {
+            return inferTryPropagateExprTypeLocal(expr)
+        }
+        if expr.kind == "Cast" {
+            return expr.literalValue
+        }
+        return ""
+    }
+
     // Infer the Seen type of an expression for codegen decisions (operator
     // selection, ABI, field access type, etc.). This is NOT the typechecker —
     // it operates during codegen and uses the variable/function/struct registries
@@ -12696,33 +12871,7 @@ class LLVMIRGenerator {
     // if inference fails.
     fun inferExpressionType(expr: ParserExpressionNode) r: String {
         if expr.kind == "Literal" {
-            if expr.literalType == "Int" or expr.literalType == "Integer" {
-                return "Int"
-            }
-            if expr.literalType == "String" {
-                return "String"
-            }
-            if expr.literalType == "Char" {
-                return "Char"
-            }
-            if expr.literalType == "Bool" or expr.literalType == "Boolean" {
-                return "Bool"
-            }
-            if expr.literalType == "Float" {
-                return "Float"
-            }
-            // If literalType is set but not one of the known types, return it
-            if expr.literalType != "" {
-                return expr.literalType
-            }
-            // Fallback: try to infer from literal value
-            if expr.literalValue.startsWith("\"") or expr.literalValue.startsWith("'") {
-                return "String"
-            }
-            if expr.literalValue.contains(".") {
-                return "Float"
-            }
-            return "Int"  // Default for numeric literals
+            return inferLiteralExprTypeLocal(expr)
         }
         if expr.kind == "Variable" or expr.kind == "VarExpr" {
             let variableResult = inferVariableExprTypeLocal(expr)
@@ -12751,133 +12900,9 @@ class LLVMIRGenerator {
                 return memberAccessResult
             }
         }
-        if expr.kind == "StructLiteral" {
-            // Struct literal - return the struct type name
-            return expr.literalType
-        }
-        if expr.kind == "IndexAccess" {
-            // Array indexing - return element type
-            let arrayType = inferExpressionType(expr.operands[0])
-            let elemType = inferIndexElementType(arrayType)
-            if elemType != "" { return elemType }
-            // Generic fallback: parse Array<T> to extract T
-            if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
-                let elementType = arrayType.substring(6, arrayType.length() - 1)
-                return elementType
-            }
-            return "ptr"  // Default for unknown array types
-        }
-        if expr.kind == "ArrayLiteral" {
-            // Infer element type from first element if available
-            if expr.arguments.length() > 0 {
-                let firstElemType = inferExpressionType(expr.arguments[0])
-                if firstElemType == "String" {
-                    return "Array<String>"
-                }
-                if firstElemType == "Float" {
-                    return "Array<Float>"
-                }
-                if firstElemType == "Bool" {
-                    return "Array<Bool>"
-                }
-                return "Array<Int>"
-            }
-            return "Array"
-        }
-        if expr.kind == "StringInterpolation" {
-            var i = 0
-            while i < expr.arguments.length() {
-                collectStringConstantsFromExpr(expr.arguments[i])
-                i = i + 1
-            }
-            i = 0
-            while i < expr.operands.length() {
-                collectStringConstantsFromExpr(expr.operands[i])
-                i = i + 1
-            }
-            return "String"
-        }
-        if expr.kind == "Unary" {
-            // Unary operators
-            if expr.operator == "!" or expr.operator == "not" {
-                return "Bool"
-            }
-            // Address-of: &T → *T (pointer type)
-            if expr.operator == "&" and expr.operands.length() > 0 {
-                let innerType = inferExpressionType(expr.operands[0])
-                return "*" + innerType
-            }
-            // Pointer dereference: *T → remove one pointer level
-            if expr.operator == "*" and expr.operands.length() > 0 {
-                let ptrType = inferExpressionType(expr.operands[0])
-                if ptrType.startsWith("*") {
-                    return ptrType.substring(1, ptrType.length())
-                }
-                return "Int"
-            }
-            if expr.operands.length() > 0 {
-                return inferExpressionType(expr.operands[0])
-            }
-            return "Int"
-        }
-        if expr.kind == "Await" {
-            if expr.operands.length() > 0 {
-                let inner = expr.operands[0]
-                if inner.kind == "Call" {
-                    let asyncRet = getAsyncDeclaredRetType(inner.callee)
-                    if asyncRet != "" { return asyncRet }
-                    return getFunctionReturnType(inner.callee)
-                }
-                return inferExpressionType(inner)
-            }
-            return "Void"
-        }
-        if expr.kind == "Elvis" or expr.kind == "NullCoalesce" {
-            // Elvis/NullCoalesce returns the type of the left operand
-            if expr.operands.length() > 0 {
-                return inferExpressionType(expr.operands[0])
-            }
-        }
-        if expr.kind == "SafeNavigation" {
-            // Safe navigation returns the member type (nullable, but we use default)
-            return "Int"
-        }
-        if expr.kind == "WhenExpression" {
-            // When expression returns the type of the first arm's result
-            if expr.arguments.length() > 0 {
-                let firstArm = expr.arguments[0]
-                if firstArm.operands.length() > 1 {
-                    return inferExpressionType(firstArm.operands[1])
-                }
-            }
-        }
-        if expr.kind == "Range" {
-            return "Range"
-        }
-        if expr.kind == "IfExpression" {
-            // If expression returns the type of the then branch
-            if expr.operands.length() > 1 {
-                return inferExpressionType(expr.operands[1])
-            }
-        }
-        if expr.kind == "IsExpression" {
-            return "Bool"
-        }
-        if expr.kind == "Closure" {
-            return "Int"
-        }
-        if expr.kind == "TryPropagate" {
-            if expr.operands.length() > 0 {
-                let tryInnerType = inferExpressionType(expr.operands[0])
-                let tryResult = resolveTryPropagateTypeImpl(tryInnerType)
-                if tryResult != "" {
-                    return tryResult
-                }
-                return tryInnerType
-            }
-        }
-        if expr.kind == "Cast" {
-            return expr.literalValue
+        let specialExprResult = inferSpecialExprTypeLocal(expr)
+        if specialExprResult != "" {
+            return specialExprResult
         }
         return "Int"
     }
