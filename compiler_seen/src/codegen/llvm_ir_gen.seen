@@ -11319,35 +11319,6 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun resolveRebuiltLiteralPathMethodReceiver(expr: ParserExpressionNode,
-        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
-
-        if expr.operands.length() != 0 or not expr.literalValue.contains(".") {
-            return
-        }
-        if receiverRegBox[0] != "" {
-            return
-        }
-
-        let receiverSegments = splitChainedPathImpl(expr.literalValue)
-        if receiverSegments.length() == 0 {
-            return
-        }
-
-        let baseReceiverName = receiverSegments[0]
-        if findVarType(baseReceiverName) == "" {
-            return
-        }
-
-        let rebuiltReceiverExpr = buildChainedPathExprImpl(expr.literalValue)
-        if rebuiltReceiverExpr.kind == "None" {
-            return
-        }
-
-        receiverRegBox[0] = generateExpression(rebuiltReceiverExpr)
-        receiverTypeBox[0] = inferExpressionType(rebuiltReceiverExpr)
-    }
-
     fun resolveLiteralMethodReceiverType(literalValue: String) r: String {
         if literalValue == "" {
             return ""
@@ -11437,16 +11408,6 @@ class LLVMIRGenerator {
         }
     }
 
-    fun tryGenerateExplicitDynTraitMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-        var dynArgRegs = Array<String>()
-        var dynArgTypes = Array<String>()
-        prepareMethodCallArgRegsAndTypes(expr.arguments, dynArgRegs, dynArgTypes)
-        return emitPreparedDynTraitMethodCallImpl(output, g_regBox, receiverReg,
-            receiverType, methodName, structNames, structMethodNames,
-            structMethodRetTypes, dynArgRegs, dynArgTypes, 0)
-    }
-
     fun tryPrepareExplicitMethodReceiver(expr: ParserExpressionNode, methodName: String,
         receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
 
@@ -11463,7 +11424,14 @@ class LLVMIRGenerator {
         let simdRedResult = emitSimdReductionImpl(output, g_regBox, methodName, receiverReg, receiverType)
         if simdRedResult != "" { return simdRedResult }
 
-        let dynTraitResult = tryGenerateExplicitDynTraitMethodCall(expr, methodName, receiverReg, receiverType)
+        var dynArgRegs = Array<String>()
+        var dynArgTypes = Array<String>()
+        prepareMethodCallArgRegsAndTypes(expr.arguments, dynArgRegs,
+            dynArgTypes)
+        let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output,
+            g_regBox, receiverReg, receiverType, methodName, structNames,
+            structMethodNames, structMethodRetTypes, dynArgRegs, dynArgTypes,
+            0)
         if dynTraitResult != "" {
             return dynTraitResult
         }
@@ -11514,122 +11482,6 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun resolveChainedLiteralMethodReceiver(expr: ParserExpressionNode,
-        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
-
-        if receiverRegBox[0] != "" {
-            return
-        }
-        if expr.operands.length() != 0 or not expr.literalValue.contains(".") {
-            return
-        }
-
-        if tryResolveEnumLiteralMethodReceiverImpl(expr, receiverRegBox,
-            receiverTypeBox) == 1 {
-            return
-        }
-        tryResolveImplicitThisChainedLiteralMethodReceiver(expr, receiverRegBox, receiverTypeBox)
-    }
-
-    fun tryPrepareLocalVariableMethodReceiver(expr: ParserExpressionNode, methodName: String,
-        varName: String, receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
-
-        let idx = findVar(varName)
-        if idx < 0 {
-            return ""
-        }
-
-        let varReg = varRegs[idx]
-        let varType = varTypes[idx]
-        let llvmType = mapType(varType)
-        receiverRegBox[0] = emitLocalVariableLoadImpl(output, g_regBox, llvmType, varReg)
-        receiverTypeBox[0] = varType
-
-        var svDynArgRegs = Array<String>()
-        var svDynArgTypes = Array<String>()
-        prepareMethodCallArgRegsAndTypes(expr.arguments, svDynArgRegs,
-            svDynArgTypes)
-        let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output,
-            g_regBox, receiverRegBox[0], varType, methodName, structNames,
-            structMethodNames, structMethodRetTypes, svDynArgRegs,
-            svDynArgTypes, 1)
-        if dynTraitResult != "" {
-            return dynTraitResult
-        }
-
-        if isSimdVectorType(varType) == 1 {
-            return emitSimdReductionVarImpl(output, g_regBox, methodName, receiverRegBox[0], varType)
-        }
-
-        return ""
-    }
-
-    fun tryPrepareModuleConstantMethodReceiver(varName: String,
-        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
-
-        let gvMcIdx = findModuleConstant(varName)
-        if gvMcIdx < 0 {
-            return
-        }
-
-        let gvMcType = moduleConstantTypes[gvMcIdx]
-        var gvMcInvSuffix = ""
-        if not isModuleConstMutable(gvMcIdx) {
-            gvMcInvSuffix = ", !invariant.load !190"
-        }
-        receiverRegBox[0] = emitModuleConstantLoadImpl(output, g_regBox, "@" + varName,
-            gvMcType, gvMcInvSuffix)
-        receiverTypeBox[0] = fallbackModuleConstantMethodReceiverTypeImpl(gvMcType,
-            resolveLiteralMethodReceiverType(varName))
-    }
-
-    fun tryPrepareLLVMIRGeneratorFieldMethodReceiver(varName: String, thisReg: String,
-        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
-
-        let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-        if idxCheck < 0 {
-            return
-        }
-
-        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, thisReg)
-        receiverRegBox[0] = generateFieldAccess(thisPtrReg, "LLVMIRGenerator", varName)
-        receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
-    }
-
-    fun tryPrepareStructImplicitThisFieldMethodReceiver(varName: String, thisReg: String,
-        thisType: String, receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
-
-        let fieldIdx = getFieldInfo(thisType, varName)
-        output.append("; DEBUG fieldIdx=" + fieldIdx.toString() + "\n")
-        if fieldIdx < 0 {
-            return
-        }
-
-        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, thisReg)
-        receiverRegBox[0] = generateFieldAccess(thisPtrReg, thisType, varName)
-        output.append("; DEBUG after generateFieldAccess: receiverReg=" + receiverRegBox[0] + "\n")
-        receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
-        output.append("; DEBUG receiverType=" + receiverTypeBox[0] + "\n")
-    }
-
-    fun tryPrepareKnownImplicitThisFieldMethodReceiver(varName: String, thisReg: String,
-        thisType: String, receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
-
-        output.append("; DEBUG: thisType=" + thisType + " varName=" + varName + "\n")
-        if thisType != "SeenLexer" or varName != "keywordManager" {
-            return
-        }
-
-        output.append("; DEBUG: Matched SeenLexer.keywordManager!\n")
-        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, thisReg)
-        let gepReg = getNextReg()
-        output.append("  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n")
-        receiverRegBox[0] = getNextReg()
-        output.append("  " + receiverRegBox[0] + " = load ptr, ptr " + gepReg + "\n")
-        receiverTypeBox[0] = "KeywordManager"
-        output.append("; DEBUG: receiverReg=" + receiverRegBox[0] + " receiverType=" + receiverTypeBox[0] + "\n")
-    }
-
     fun tryPrepareImplicitThisFieldMethodReceiver(varName: String,
         receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
 
@@ -11641,7 +11493,14 @@ class LLVMIRGenerator {
         let thisReg = varRegs[thisIdx]
         let thisType = varTypes[thisIdx]
         if thisType == "LLVMIRGenerator" {
-            tryPrepareLLVMIRGeneratorFieldMethodReceiver(varName, thisReg, receiverRegBox, receiverTypeBox)
+            let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+            if idxCheck >= 0 {
+                let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
+                    g_regBox, thisReg)
+                receiverRegBox[0] = generateFieldAccess(thisPtrReg,
+                    "LLVMIRGenerator", varName)
+                receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
+            }
             if receiverRegBox[0] != "" {
                 return
             }
@@ -11650,15 +11509,39 @@ class LLVMIRGenerator {
         let structIdx = findStruct(thisType)
         output.append("; DEBUG methodCall: varName=" + varName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n")
         if structIdx >= 0 {
-            tryPrepareStructImplicitThisFieldMethodReceiver(varName, thisReg, thisType,
-                receiverRegBox, receiverTypeBox)
+            let fieldIdx = getFieldInfo(thisType, varName)
+            output.append("; DEBUG fieldIdx=" + fieldIdx.toString() + "\n")
+            if fieldIdx >= 0 {
+                let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
+                    g_regBox, thisReg)
+                receiverRegBox[0] = generateFieldAccess(thisPtrReg, thisType,
+                    varName)
+                output.append("; DEBUG after generateFieldAccess: receiverReg=" +
+                    receiverRegBox[0] + "\n")
+                receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
+                output.append("; DEBUG receiverType=" + receiverTypeBox[0] +
+                    "\n")
+            }
             if receiverRegBox[0] != "" {
                 return
             }
         }
         if structIdx < 0 {
-            tryPrepareKnownImplicitThisFieldMethodReceiver(varName, thisReg, thisType,
-                receiverRegBox, receiverTypeBox)
+            output.append("; DEBUG: thisType=" + thisType + " varName=" +
+                varName + "\n")
+            if thisType == "SeenLexer" and varName == "keywordManager" {
+                output.append("; DEBUG: Matched SeenLexer.keywordManager!\n")
+                let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
+                    g_regBox, thisReg)
+                let gepReg = getNextReg()
+                output.append("  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n")
+                receiverRegBox[0] = getNextReg()
+                output.append("  " + receiverRegBox[0] + " = load ptr, ptr " +
+                    gepReg + "\n")
+                receiverTypeBox[0] = "KeywordManager"
+                output.append("; DEBUG: receiverReg=" + receiverRegBox[0] +
+                    " receiverType=" + receiverTypeBox[0] + "\n")
+            }
         }
     }
 
@@ -11673,16 +11556,46 @@ class LLVMIRGenerator {
         }
 
         let varName = expr.literalValue
-        let localVarResult = tryPrepareLocalVariableMethodReceiver(expr, methodName, varName,
-            receiverRegBox, receiverTypeBox)
-        if localVarResult != "" {
-            return localVarResult
-        }
-        if receiverRegBox[0] != "" {
+        let idx = findVar(varName)
+        if idx >= 0 {
+            let varReg = varRegs[idx]
+            let varType = varTypes[idx]
+            let llvmType = mapType(varType)
+            receiverRegBox[0] = emitLocalVariableLoadImpl(output, g_regBox,
+                llvmType, varReg)
+            receiverTypeBox[0] = varType
+
+            var svDynArgRegs = Array<String>()
+            var svDynArgTypes = Array<String>()
+            prepareMethodCallArgRegsAndTypes(expr.arguments, svDynArgRegs,
+                svDynArgTypes)
+            let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output,
+                g_regBox, receiverRegBox[0], varType, methodName,
+                structNames, structMethodNames, structMethodRetTypes,
+                svDynArgRegs, svDynArgTypes, 1)
+            if dynTraitResult != "" {
+                return dynTraitResult
+            }
+
+            if isSimdVectorType(varType) == 1 {
+                return emitSimdReductionVarImpl(output, g_regBox, methodName,
+                    receiverRegBox[0], varType)
+            }
             return ""
         }
 
-        tryPrepareModuleConstantMethodReceiver(varName, receiverRegBox, receiverTypeBox)
+        let gvMcIdx = findModuleConstant(varName)
+        if gvMcIdx >= 0 {
+            let gvMcType = moduleConstantTypes[gvMcIdx]
+            var gvMcInvSuffix = ""
+            if not isModuleConstMutable(gvMcIdx) {
+                gvMcInvSuffix = ", !invariant.load !190"
+            }
+            receiverRegBox[0] = emitModuleConstantLoadImpl(output, g_regBox,
+                "@" + varName, gvMcType, gvMcInvSuffix)
+            receiverTypeBox[0] = fallbackModuleConstantMethodReceiverTypeImpl(
+                gvMcType, resolveLiteralMethodReceiverType(varName))
+        }
         if receiverRegBox[0] != "" {
             return ""
         }
@@ -11694,14 +11607,37 @@ class LLVMIRGenerator {
     fun tryPrepareMethodCallReceiver(expr: ParserExpressionNode, methodName: String,
         receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
 
-        resolveRebuiltLiteralPathMethodReceiver(expr, receiverRegBox, receiverTypeBox)
+        if receiverRegBox[0] == "" and expr.operands.length() == 0 and
+            expr.literalValue.contains(".") {
+            let receiverSegments = splitChainedPathImpl(expr.literalValue)
+            if receiverSegments.length() > 0 {
+                let baseReceiverName = receiverSegments[0]
+                if findVarType(baseReceiverName) != "" {
+                    let rebuiltReceiverExpr = buildChainedPathExprImpl(
+                        expr.literalValue)
+                    if rebuiltReceiverExpr.kind != "None" {
+                        receiverRegBox[0] = generateExpression(
+                            rebuiltReceiverExpr)
+                        receiverTypeBox[0] = inferExpressionType(
+                            rebuiltReceiverExpr)
+                    }
+                }
+            }
+        }
 
         let explicitReceiverResult = tryPrepareExplicitMethodReceiver(expr, methodName, receiverRegBox, receiverTypeBox)
         if explicitReceiverResult != "" {
             return explicitReceiverResult
         }
 
-        resolveChainedLiteralMethodReceiver(expr, receiverRegBox, receiverTypeBox)
+        if receiverRegBox[0] == "" and expr.operands.length() == 0 and
+            expr.literalValue.contains(".") {
+            if tryResolveEnumLiteralMethodReceiverImpl(expr, receiverRegBox,
+                receiverTypeBox) != 1 {
+                tryResolveImplicitThisChainedLiteralMethodReceiver(expr,
+                    receiverRegBox, receiverTypeBox)
+            }
+        }
         return tryResolveSimpleLiteralMethodReceiver(expr, methodName, receiverRegBox, receiverTypeBox)
     }
 
