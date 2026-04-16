@@ -10,7 +10,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,820` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,805` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -42,7 +42,10 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `generateArrayLiteral()` is down to about `19` lines.
   - `generateElvis()` is down to about `23` lines.
   - `generateSafeNavigation()` is down to about `26` lines.
+  - `generateStructLiteral()` is down to about `34` lines.
+  - `generateStringInterpolation()` is down to about `20` lines.
   - `generateWhenExpression()` is down to about `57` lines.
+  - `generateEnumConstructor()` is down to about `10` lines.
   - `generateMemberAccess()` is down to about `302` lines.
   - `generateShortCircuitAnd()` is down to about `49` lines.
   - `generateShortCircuitOr()` is down to about `45` lines.
@@ -78,6 +81,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `tryGenerateImplicitThisCall()` at about `62` lines.
     - `tryGenerateMathBuiltinCall()` at about `25` lines.
   - Expression-dispatch helpers inside `llvm_ir_gen.seen` are now split into:
+    - `tryGenerateConstructionExpression()` at about `11` lines.
     - `tryGenerateConditionalValueExpression()` at about `17` lines.
     - `tryGenerateSpecialExpression()` at about `54` lines.
   - Type-inference helpers inside `llvm_ir_gen.seen` are now split into:
@@ -148,6 +152,18 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `emitArrayLiteralAllocation()` at about `12` lines.
     - `generateArrayLiteralElementValue()` at about `10` lines.
     - `emitArrayLiteralElementPush()` at about `28` lines.
+  - Construction-expression helpers inside `llvm_ir_gen.seen` are now split into:
+    - `inferStructLiteralFieldTypeFromValueExpr()` at about `13` lines.
+    - `buildInferredStructLiteralLayoutInfo()` at about `24` lines.
+    - `resolveStructLiteralLayoutInfo()` at about `24` lines.
+    - `allocateStructLiteralStorage()` at about `10` lines.
+    - `resolveStructLiteralFieldValue()` at about `15` lines.
+    - `resolveStructLiteralFieldInfo()` at about `32` lines.
+    - `normalizeSeenStringValueReg()` at about `5` lines.
+    - `emitSeenStringConcat()` at about `5` lines.
+    - `convertInterpolatedExprToString()` at about `27` lines.
+    - `allocateEnumConstructorObject()` at about `8` lines.
+    - `emitEnumConstructorFieldStores()` at about `12` lines.
   - Conditional-expression helpers inside `llvm_ir_gen.seen` are now split into:
     - `emitIfExpressionSideEffects()` at about `11` lines.
     - `emitIfExpressionBranchValue()` at about `7` lines.
@@ -223,12 +239,14 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Split `generateIfStatement()` into focused constant-fold, select-optimization, condition-type, branch-weight, and end-block helpers. This turns the main `if` emitter into a short orchestration layer while keeping the existing shared `ir_stmt_gen.seen` branching scaffold in place.
 - Split declaration and array-literal lowering further by sharing declaration-type fallback between `collectStmtVars()` and `generateLetStatement()`, extracting the let-initializer / prealloc reuse path, extracting `if let` binding materialization, and breaking `generateArrayLiteral()` into focused element-type, allocation, nested-array, and push helpers. This keeps three more statement/expression entrypoints at the orchestration layer instead of leaving them as mixed resolver/emitter blobs.
 - Split the conditional-expression cluster further by grouping conditional/special-form dispatch inside `generateExpression()`, extracting shared phi/nullish helpers, shrinking `generateIfExpression()`/`generateElvis()`/`generateSafeNavigation()`, and breaking `generateWhenExpression()` into focused pattern-match, guard, binding, and arm-result helpers. This makes the expression path read more like a dispatcher plus explicit lowering phases instead of one long sequence of unrelated special cases.
+- Split the construction-expression cluster further by grouping struct/array/string construction dispatch inside `generateExpression()`, shrinking `generateStructLiteral()` behind focused layout/allocation/field helpers, routing struct-literal fallback field-type inference through `ir_struct_gen.seen`, shrinking `generateStringInterpolation()` behind shared string-normalization/concat helpers, and splitting `generateEnumConstructor()` into allocation plus field-store helpers. This keeps data-construction lowering on the same dispatcher-plus-phases pattern now used by the other expression families.
 
 ### Validation Status
 
 - Spot checks continue to use explicit RAM caps derived from current system memory.
-- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap after the latest conditional-expression split on top of the earlier declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, assignment-lowering extraction, and indexed-assignment extraction.
-- `./compiler_seen/target/seen check compiler_seen/test_array_struct.seen` also passes under the same cap, which gives this batch a targeted sanity check across declaration lowering plus array-literal construction.
+- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap after the latest construction-expression split on top of the earlier conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, assignment-lowering extraction, and indexed-assignment extraction.
+- `./compiler_seen/target/seen check compiler_seen/test_array_struct.seen` also passes under the same cap, which now gives the current refactor stream a targeted sanity check across struct-literal construction plus array access.
+- `./compiler_seen/target/seen check compiler_seen/test_result.seen` also passes under the same cap, which gives this batch direct coverage for enum-constructor lowering via `Ok(42)`.
 - `./compiler_seen/target/seen check compiler_seen/test_conditional_exprs.seen` also passes under the same cap, which gives this batch a targeted sanity check across `if`-expression lowering, integer elvis lowering, and `when` expression arm dispatch.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_call_fixups.seen` reaches the expected `missing main` diagnostic, which at least confirms the new helper module parses cleanly.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_method_finalize.seen` also reaches the expected `missing main` diagnostic.
@@ -239,7 +257,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_class_method_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_assignment_gen.seen` also reaches the expected `missing main` diagnostic.
 - Direct compiler self-checks still hit the pre-existing early allocator failure: `free(): invalid size` while checking `compiler_seen/src/main_compiler.seen`.
-- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest conditional-expression split on top of the earlier declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
+- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest construction-expression split on top of the earlier conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
 - The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 
 ### Phase Status
@@ -249,7 +267,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Phase 3: in progress; declaration scan, async registry extraction, late user declare registry extraction, and trait registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
 - Phase 4: well underway; function signature/default-return/coroutine helpers plus entry/setup, parameter pre-registration, `main` dispatch, and parameter alloca emission are split out, but body emission still largely lives in `llvm_ir_gen.seen`.
 - Phase 5: well underway; final free-call emission, RealParser call fixups, final instance-method-call normalization, array mutator lowering, receiver-preparation helpers, a full `generateCall()` phase split, and shared class-method lowering helpers are in place.
-- Phase 6: in progress; `inferExpressionType()`, `generateExpression()`, `generateBinary()`, `generateWhileStatement()`, `generateForInStatement()`, `generateIfStatement()`, `generateIfLetStatement()`, `generateIfExpression()`, `generateLetStatement()`, `generateReturnStatement()`, `generateArrayLiteral()`, `generateElvis()`, `generateSafeNavigation()`, `generateWhenExpression()`, `generateMemberAccess()`, `generateFieldAccess()`, `generateFieldAccessPtr()`, `generateMemberAssignment()`, `generateIndexAssignment()`, `resolveChainedPathType()`, and the short-circuit boolean path now rely on focused helper phases or shared helper modules, and the loop/statement/expression pipeline reuses `ir_control_flow.seen`, `ir_stmt_gen.seen`, `ir_assignment_gen.seen`, `ir_field_layout.seen`, `ir_path_expr.seen`, `ir_member_access.seen`, `ir_binary_expr.seen`, and `ir_class_method_gen.seen`, but more statement/expression helpers still need to leave `llvm_ir_gen.seen`.
+- Phase 6: in progress; `inferExpressionType()`, `generateExpression()`, `generateBinary()`, `generateWhileStatement()`, `generateForInStatement()`, `generateIfStatement()`, `generateIfLetStatement()`, `generateIfExpression()`, `generateLetStatement()`, `generateReturnStatement()`, `generateArrayLiteral()`, `generateStructLiteral()`, `generateStringInterpolation()`, `generateElvis()`, `generateSafeNavigation()`, `generateWhenExpression()`, `generateEnumConstructor()`, `generateMemberAccess()`, `generateFieldAccess()`, `generateFieldAccessPtr()`, `generateMemberAssignment()`, `generateIndexAssignment()`, `resolveChainedPathType()`, and the short-circuit boolean path now rely on focused helper phases or shared helper modules, and the loop/statement/expression pipeline reuses `ir_control_flow.seen`, `ir_stmt_gen.seen`, `ir_assignment_gen.seen`, `ir_field_layout.seen`, `ir_path_expr.seen`, `ir_member_access.seen`, `ir_binary_expr.seen`, `ir_class_method_gen.seen`, and `ir_struct_gen.seen`, but more statement/expression helpers still need to leave `llvm_ir_gen.seen`.
 - Phase 7: not started yet.
 
 ## Baseline Snapshot

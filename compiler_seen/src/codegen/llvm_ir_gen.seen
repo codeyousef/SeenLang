@@ -58,7 +58,7 @@ import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitT
 import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, resolveStandaloneParserWorkaroundRetTypeImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitHotReloadMethodCallImpl, resolveMethodReceiverAbiImpl, extractOptionInnerTypeImpl}
-import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback}
+import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
@@ -7928,10 +7928,20 @@ class LLVMIRGenerator {
     // StructLiteral, ArrayLiteral, StringInterpolation, Elvis/NullCoalesce,
     // SafeNavigation, WhenExpression, IfExpression, Cast, Closure, Lambda,
     // EnumVariant constructors, Result ? operator, etc.
-    fun tryGenerateConditionalValueExpression(expr: ParserExpressionNode) r: String {
+    fun tryGenerateConstructionExpression(expr: ParserExpressionNode) r: String {
+        if expr.kind == "StructLiteral" {
+            return generateStructLiteral(expr)
+        }
+        if expr.kind == "ArrayLiteral" {
+            return generateArrayLiteral(expr)
+        }
         if expr.kind == "StringInterpolation" {
             return generateStringInterpolation(expr)
         }
+        return ""
+    }
+
+    fun tryGenerateConditionalValueExpression(expr: ParserExpressionNode) r: String {
         if expr.kind == "Elvis" or expr.kind == "NullCoalesce" {
             return generateElvis(expr)
         }
@@ -8031,11 +8041,9 @@ class LLVMIRGenerator {
         if expr.kind == "IndexAccess" {
             return generateIndexAccess(expr)
         }
-        if expr.kind == "StructLiteral" {
-            return generateStructLiteral(expr)
-        }
-        if expr.kind == "ArrayLiteral" {
-            return generateArrayLiteral(expr)
+        let constructionReg = tryGenerateConstructionExpression(expr)
+        if constructionReg != "" {
+            return constructionReg
         }
         let conditionalReg = tryGenerateConditionalValueExpression(expr)
         if conditionalReg != "" {
@@ -9062,84 +9070,74 @@ class LLVMIRGenerator {
     // each field at its GEP offset. Data types use value semantics and return
     // the allocated pointer directly. Class values follow the current ABI and
     // are represented as pointer-as-i64 in expression results.
-    fun generateStructLiteral(expr: ParserExpressionNode) r: String {
-        // Get struct name from literalType
-        let structName = expr.literalType
+    fun inferStructLiteralFieldTypeFromValueExpr(valueExpr: ParserExpressionNode, sizeOut: Array<Int>) r: String {
+        if valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
+            sizeOut[0] = 24
+            return "%" + quoteIdentIfNeeded(valueExpr.literalType)
+        }
+        var fieldType = inferStructFieldTypeFromExpr(valueExpr, sizeOut)
+        if valueExpr.kind == "MethodCall" {
+            let calleeType = inferExpressionType(valueExpr)
+            if isDataType(calleeType) {
+                fieldType = "%" + quoteIdentIfNeeded(calleeType)
+            }
+        }
+        return fieldType
+    }
 
-        // Helper vars for building layout strings with braces
+    fun buildInferredStructLiteralLayoutInfo(expr: ParserExpressionNode) r: String {
         let lb = "{"
         let rb = "}"
+        var structSize = 0
+        var layoutFields = ""
+        var fieldI = 0
+        while fieldI < expr.arguments.length() {
+            if fieldI > 0 {
+                layoutFields = layoutFields + ", "
+            }
+            var inferredFieldType = "i64"
+            var fieldSize = 8
+            let fieldExpr = expr.arguments[fieldI]
+            if fieldExpr.operands.length() > 0 {
+                let fieldSizeOut = Array<Int>()
+                fieldSizeOut.push(8)
+                inferredFieldType = inferStructLiteralFieldTypeFromValueExpr(fieldExpr.operands[0], fieldSizeOut)
+                fieldSize = fieldSizeOut[0]
+            }
+            structSize = structSize + fieldSize
+            layoutFields = layoutFields + inferredFieldType
+            fieldI = fieldI + 1
+        }
+        return structSize.toString() + "|" + lb + " " + layoutFields + " " + rb
+    }
 
-        // Try to get layout from registry first
-        let structIdx = findStruct(structName)
-        var structSize = 8  // Default size
-        var structLayout = lb + " i64 " + rb  // Default layout
-
+    fun resolveStructLiteralLayoutInfo(expr: ParserExpressionNode, structName: String, structIdx: Int) r: String {
         if structIdx >= 0 {
-            // Use registered layout
-            structSize = structSizes[structIdx]
-            structLayout = structLayouts[structIdx]
-        }
-        if structIdx < 0 {
-            // Try unified struct field lookup for layout
-            let knownLitLayout = resolveKnownStructFieldImpl(structName, "")
-            if knownLitLayout != "" {
-                structLayout = knownLitLayout
-                // Estimate struct size from layout string by counting fields
-                structSize = getLlvmTypeSize(structLayout)
-                if structSize < 8 { structSize = 8 }
+            var structSize = structSizes[structIdx]
+            if structSize < 8 {
+                structSize = 8
             }
-            if knownLitLayout == "" {
-                // Generic struct: estimate based on field count and infer field types from expressions
-                let fieldCount = expr.arguments.length()
-                structSize = 0
-                var layoutFields = ""
-                var fieldI = 0
-                while fieldI < fieldCount {
-                    if fieldI > 0 {
-                        layoutFields = layoutFields + ", "
-                    }
-                    // Infer field type from the expression
-                    var inferredFieldType = "i64"
-                    if fieldI < expr.arguments.length() {
-                        let fieldExpr = expr.arguments[fieldI]
-                        if fieldExpr.operands.length() > 0 {
-                            let valueExpr = fieldExpr.operands[0]
-                            if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
-                                inferredFieldType = "%SeenString"
-                                structSize = structSize + 16
-                            } else if valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
-                                inferredFieldType = "ptr"
-                                structSize = structSize + 8
-                            } else if valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
-                                inferredFieldType = "i1"
-                                structSize = structSize + 8  // Aligned
-                            } else if valueExpr.kind == "StructLiteral" {
-                                // Inline data type - use %TypeName if available
-                                if valueExpr.literalType != "" {
-                                    inferredFieldType = "%" + quoteIdentIfNeeded(valueExpr.literalType)
-                                    structSize = structSize + 24  // Estimate
-                                } else {
-                                    structSize = structSize + 8
-                                }
-                            } else {
-                                structSize = structSize + 8
-                            }
-                        } else {
-                            structSize = structSize + 8
-                        }
-                    } else {
-                        structSize = structSize + 8
-                    }
-                    layoutFields = layoutFields + inferredFieldType
-                    fieldI = fieldI + 1
-                }
-                structLayout = lb + " " + layoutFields + " " + rb
-                println("[WARN] Unknown struct type '" + structName + "' - using inferred layout: " + structLayout + " size=" + structSize.toString())
-            }
+            return structSize.toString() + "|" + structLayouts[structIdx]
         }
+        let knownLitLayout = resolveKnownStructFieldImpl(structName, "")
+        if knownLitLayout != "" {
+            var knownStructSize = getLlvmTypeSize(knownLitLayout)
+            if knownStructSize < 8 {
+                knownStructSize = 8
+            }
+            return knownStructSize.toString() + "|" + knownLitLayout
+        }
+        let inferredInfo = splitPipe(buildInferredStructLiteralLayoutInfo(expr))
+        var inferredSize = inferredInfo[0].toInt()
+        if inferredSize < 8 {
+            inferredSize = 8
+        }
+        let inferredLayout = inferredInfo[1]
+        println("[WARN] Unknown struct type '" + structName + "' - using inferred layout: " + inferredLayout + " size=" + inferredSize.toString())
+        return inferredSize.toString() + "|" + inferredLayout
+    }
 
-        // Allocate memory for struct (use pool allocator for small objects)
+    fun allocateStructLiteralStorage(structSize: Int) r: String {
         let mallocReg = getNextReg()
         if structSize <= 80 {
             output.append("  " + mallocReg + " = call ptr @seen_pool_alloc(i64 " + structSize.toString() + ")\n")
@@ -9147,10 +9145,69 @@ class LLVMIRGenerator {
         if structSize > 80 {
             output.append("  " + mallocReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
         }
-        // Escape analysis hint (9.11c): LLVM heap-to-stack promotion when pointer doesn't escape
         output.append("  ; escape-analysis: heap-to-stack candidate (" + structSize.toString() + " bytes)\n")
+        return mallocReg
+    }
 
-        // Collect field value registers, LLVM types, and GEP indices into parallel arrays
+    fun resolveStructLiteralFieldValue(structName: String, structIdx: Int, fieldName: String, fieldExpr: ParserExpressionNode) r: String {
+        if fieldExpr.operands.length() == 0 {
+            return "0"
+        }
+        let savedPendingType = pendingArrayLiteralType
+        var fieldSeenType = ""
+        if structIdx >= 0 {
+            fieldSeenType = getSeenFieldType(structName, fieldName)
+        }
+        if fieldExpr.operands[0].kind == "ArrayLiteral" and (fieldSeenType.startsWith("Array") or fieldSeenType.startsWith("List")) {
+            pendingArrayLiteralType = fieldSeenType
+        }
+        let valueReg = generateExpression(fieldExpr.operands[0])
+        pendingArrayLiteralType = savedPendingType
+        return valueReg
+    }
+
+    fun resolveStructLiteralFieldInfo(structName: String, structIdx: Int, fieldName: String, fieldExpr: ParserExpressionNode, defaultGepIndex: Int) r: String {
+        var gepIndex = defaultGepIndex
+        var fieldType = "i64"
+        if structIdx >= 0 {
+            let regFieldIdx = getFieldInfo(structName, fieldName)
+            if regFieldIdx >= 0 {
+                gepIndex = regFieldIdx
+                fieldType = getFieldType(structName, fieldName)
+                output.append("; DEBUG fieldType for " + structName + "." + fieldName + " = " + fieldType + "\n")
+            }
+            return fieldType + "|" + gepIndex.toString()
+        }
+        let knownFieldLayout = resolveKnownStructFieldImpl(structName, fieldName)
+        if knownFieldLayout != "" {
+            gepIndex = g_resolvedFieldIndex
+            fieldType = decodeFieldTypeCode(g_resolvedFieldTypeCode)
+            return fieldType + "|" + gepIndex.toString()
+        }
+        let fbGepBox = Array<Int>()
+        fbGepBox.push(defaultGepIndex)
+        let fbType = resolveStructLiteralFieldFallback(structName, fieldName, fbGepBox)
+        if fbType != "" {
+            gepIndex = fbGepBox[0]
+            fieldType = fbType
+            return fieldType + "|" + gepIndex.toString()
+        }
+        if fieldExpr.operands.length() > 0 {
+            let fieldSizeOut = Array<Int>()
+            fieldSizeOut.push(8)
+            fieldType = inferStructLiteralFieldTypeFromValueExpr(fieldExpr.operands[0], fieldSizeOut)
+        }
+        return fieldType + "|" + gepIndex.toString()
+    }
+
+    fun generateStructLiteral(expr: ParserExpressionNode) r: String {
+        let structName = expr.literalType
+        let structIdx = findStruct(structName)
+        let layoutInfo = splitPipe(resolveStructLiteralLayoutInfo(expr, structName, structIdx))
+        let structSize = layoutInfo[0].toInt()
+        let structLayout = layoutInfo[1]
+        let mallocReg = allocateStructLiteralStorage(structSize)
+
         var slFieldRegs = Array<String>()
         var slFieldTypes = Array<String>()
         var slGepIndices = Array<Int>()
@@ -9158,81 +9215,17 @@ class LLVMIRGenerator {
         while fieldIdx < expr.arguments.length() {
             let fieldExpr = expr.arguments[fieldIdx]
             let fieldName = fieldExpr.variableName
-
-            // Generate the field value
-            var valueReg = "0"
-            if fieldExpr.operands.length() > 0 {
-                let savedPendingType = pendingArrayLiteralType
-                var fieldSeenType = ""
-                if structIdx >= 0 {
-                    fieldSeenType = getSeenFieldType(structName, fieldName)
-                }
-                if fieldExpr.operands[0].kind == "ArrayLiteral" and (fieldSeenType.startsWith("Array") or fieldSeenType.startsWith("List")) {
-                    pendingArrayLiteralType = fieldSeenType
-                }
-                valueReg = generateExpression(fieldExpr.operands[0])
-                pendingArrayLiteralType = savedPendingType
-            }
-            slFieldRegs.push(valueReg)
-
-            // Get field index and type - try registry first, then fallback
-            var gepIndex = fieldIdx
-            var fieldType = "i64"
-
-            if structIdx >= 0 {
-                let regFieldIdx = getFieldInfo(structName, fieldName)
-                if regFieldIdx >= 0 {
-                    gepIndex = regFieldIdx
-                    fieldType = getFieldType(structName, fieldName)
-                    output.append("; DEBUG fieldType for " + structName + "." + fieldName + " = " + fieldType + "\n")
-                }
-            }
-            if structIdx < 0 {
-                // Reuse known-struct metadata even when the type was not registered
-                // in the local struct table for this module.
-                let knownFieldLayout = resolveKnownStructFieldImpl(structName, fieldName)
-                if knownFieldLayout != "" {
-                    gepIndex = g_resolvedFieldIndex
-                    fieldType = decodeFieldTypeCode(g_resolvedFieldTypeCode)
-                } else {
-                    // Hardcoded fallback — delegated to ir_struct_gen.seen
-                    var fbGepBox = Array<Int>()
-                    fbGepBox.push(fieldIdx)
-                    let fbType = resolveStructLiteralFieldFallback(structName, fieldName, fbGepBox)
-                    if fbType != "" {
-                        gepIndex = fbGepBox[0]
-                        fieldType = fbType
-                    } else {
-                        // Infer field type from expression
-                        if fieldExpr.operands.length() > 0 {
-                            let valueExpr = fieldExpr.operands[0]
-                            if valueExpr.kind == "Literal" and valueExpr.literalType == "String" {
-                                fieldType = "%SeenString"
-                            } else if valueExpr.kind == "Literal" and valueExpr.literalType == "Bool" {
-                                fieldType = "i1"
-                            } else if valueExpr.kind == "Call" and valueExpr.callee.startsWith("Array") {
-                                fieldType = "ptr"
-                            } else if valueExpr.kind == "StructLiteral" and valueExpr.literalType != "" {
-                                fieldType = "%" + quoteIdentIfNeeded(valueExpr.literalType)
-                            } else if valueExpr.kind == "MethodCall" {
-                                let calleeType = inferExpressionType(valueExpr)
-                                if isDataType(calleeType) {
-                                    fieldType = "%" + quoteIdentIfNeeded(calleeType)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            slFieldRegs.push(resolveStructLiteralFieldValue(structName, structIdx, fieldName, fieldExpr))
+            let fieldInfo = splitPipe(resolveStructLiteralFieldInfo(structName, structIdx, fieldName, fieldExpr, fieldIdx))
+            let fieldType = fieldInfo[0]
+            let gepIndex = fieldInfo[1].toInt()
             slFieldTypes.push(fieldType)
             slGepIndices.push(gepIndex)
             fieldIdx = fieldIdx + 1
         }
 
-        // Emit GEP + store chain — delegated to ir_struct_gen.seen
         emitStructFieldStoresImpl(output, g_regBox, structLayout, mallocReg, slFieldRegs, slFieldTypes, slGepIndices)
 
-        // Class types are stored as i64 (pointer-as-int), so convert ptr to i64
         if isClassType(structName) {
             let i64Reg = getNextReg()
             output.append("  " + i64Reg + " = ptrtoint ptr " + mallocReg + " to i64\n")
@@ -13360,9 +13353,48 @@ class LLVMIRGenerator {
         collectStringConstantsFromExprImpl(expr, stringConstants, g_callCountNamesBox, g_callCountEntriesBox)
         syncCollectionBoxes()
     }
-    // Generate IR for string interpolation: "Hello {name}!"
-    // Emits a chain of seen_str_concat_ss calls, converting each interpolated
-    // expression to a string (via toString, seen_int_to_string, etc.).
+    fun normalizeSeenStringValueReg(valueReg: String) r: String {
+        if valueReg == "0" {
+            return "zeroinitializer"
+        }
+        return valueReg
+    }
+
+    fun emitSeenStringConcat(leftReg: String, rightReg: String) r: String {
+        let concatReg = getNextReg()
+        output.append("  " + concatReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + normalizeSeenStringValueReg(leftReg) + ", %SeenString " + normalizeSeenStringValueReg(rightReg) + ")\n")
+        return concatReg
+    }
+
+    fun convertInterpolatedExprToString(exprNode: ParserExpressionNode) r: String {
+        let exprType = inferExpressionType(exprNode)
+        let exprReg = generateExpression(exprNode)
+        if exprType == "String" {
+            return normalizeSeenStringValueReg(exprReg)
+        }
+        if exprType == "Int" {
+            let strExprReg = getNextReg()
+            output.append("  " + strExprReg + " = call %SeenString @seen_int_to_string(i64 " + exprReg + ")\n")
+            return strExprReg
+        }
+        if exprType == "Float" {
+            let strExprReg = getNextReg()
+            output.append("  " + strExprReg + " = call %SeenString @seen_float_to_string(double " + exprReg + ")\n")
+            return strExprReg
+        }
+        if exprType == "Bool" {
+            let strExprReg = getNextReg()
+            output.append("  " + strExprReg + " = call %SeenString @seen_bool_to_string(i1 " + exprReg + ")\n")
+            return strExprReg
+        }
+        if exprType == "Char" {
+            let strExprReg = getNextReg()
+            output.append("  " + strExprReg + " = call %SeenString @seen_char_to_str(i64 " + exprReg + ")\n")
+            return strExprReg
+        }
+        return exprReg
+    }
+
     fun generateStringInterpolation(expr: ParserExpressionNode) r: String {
         var resultReg = ""
         let numParts = expr.arguments.length()
@@ -13374,58 +13406,10 @@ class LLVMIRGenerator {
             if resultReg == "" {
                 resultReg = partReg
             } else {
-                // Fix default "0" values to proper SeenString zeroinitializer
-                var resultStrReg = resultReg
-                var partStrReg = partReg
-                if resultReg == "0" {
-                    resultStrReg = "zeroinitializer"
-                }
-                if partReg == "0" {
-                    partStrReg = "zeroinitializer"
-                }
-                let concatReg = getNextReg()
-                output.append("  " + concatReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + resultStrReg + ", %SeenString " + partStrReg + ")\n")
-                resultReg = concatReg
+                resultReg = emitSeenStringConcat(resultReg, partReg)
             }
             if i < numExprs {
-                let exprNode = expr.operands[i]
-                let exprType = inferExpressionType(exprNode)
-                let exprReg = generateExpression(exprNode)
-                // Convert expression to string based on its type
-                // Use a single strExprReg variable that's assigned in each branch
-                var strExprReg = exprReg
-                if exprType == "String" {
-                    // Fix default "0" value to proper SeenString zeroinitializer
-                    if exprReg == "0" {
-                        strExprReg = "zeroinitializer"
-                    } else {
-                        strExprReg = exprReg
-                    }
-                } else if exprType == "Int" {
-                    strExprReg = getNextReg()
-                    output.append("  " + strExprReg + " = call %SeenString @seen_int_to_string(i64 " + exprReg + ")\n")
-                } else if exprType == "Float" {
-                    strExprReg = getNextReg()
-                    output.append("  " + strExprReg + " = call %SeenString @seen_float_to_string(double " + exprReg + ")\n")
-                } else if exprType == "Bool" {
-                    strExprReg = getNextReg()
-                    output.append("  " + strExprReg + " = call %SeenString @seen_bool_to_string(i1 " + exprReg + ")\n")
-                } else if exprType == "Char" {
-                    strExprReg = getNextReg()
-                    output.append("  " + strExprReg + " = call %SeenString @seen_char_to_str(i64 " + exprReg + ")\n")
-                }
-                // Fix default "0" values to proper SeenString zeroinitializer
-                var resultStrReg2 = resultReg
-                var strExprStrReg = strExprReg
-                if resultReg == "0" {
-                    resultStrReg2 = "zeroinitializer"
-                }
-                if strExprReg == "0" {
-                    strExprStrReg = "zeroinitializer"
-                }
-                let concatReg = getNextReg()
-                output.append("  " + concatReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + resultStrReg2 + ", %SeenString " + strExprStrReg + ")\n")
-                resultReg = concatReg
+                resultReg = emitSeenStringConcat(resultReg, convertInterpolatedExprToString(expr.operands[i]))
             }
             i = i + 1
         }
@@ -13787,23 +13771,15 @@ class LLVMIRGenerator {
     // Data enums (with fields) allocate a heap object: 8 bytes for the
     // tag at offset 0, then 8 bytes per field at offsets 8, 16, 24, etc.
     // Returns the malloc'd pointer (data enums map to "ptr" in mapType).
-    fun generateEnumConstructor(variantName: String, expr: ParserExpressionNode) r: String {
-        let tag = lookupEnumVariantTag(variantName)
-        let fieldCount = lookupEnumFieldCount(variantName)
-
-        // Simple enum: just return the tag as an integer value
-        if fieldCount == 0 {
-            return tag.toString()
-        }
-
-        // Data enum: allocate heap object
-        // Total size: 8 bytes for tag + 8 bytes per field
+    fun allocateEnumConstructorObject(tag: Int, fieldCount: Int) r: String {
         let totalSize = 8 + fieldCount * 8
         let objReg = getNextReg()
         output.append("  " + objReg + " = call ptr @malloc(i64 " + totalSize.toString() + ")\n")
-        // Store tag at offset 0
         output.append("  store i64 " + tag.toString() + ", ptr " + objReg + "\n")
-        // Store each field
+        return objReg
+    }
+
+    fun emitEnumConstructorFieldStores(variantName: String, expr: ParserExpressionNode, objReg: String, fieldCount: Int) r: Void {
         var fi = 0
         while fi < fieldCount and fi < expr.arguments.length() {
             let fieldReg = generateExpression(expr.arguments[fi])
@@ -13815,6 +13791,15 @@ class LLVMIRGenerator {
             output.append("  store " + fieldLlvm + " " + fieldReg + ", ptr " + fieldPtrReg + "\n")
             fi = fi + 1
         }
-        // Return as ptr (enum types map to "ptr" in mapType)
+    }
+
+    fun generateEnumConstructor(variantName: String, expr: ParserExpressionNode) r: String {
+        let tag = lookupEnumVariantTag(variantName)
+        let fieldCount = lookupEnumFieldCount(variantName)
+        if fieldCount == 0 {
+            return tag.toString()
+        }
+        let objReg = allocateEnumConstructorObject(tag, fieldCount)
+        emitEnumConstructorFieldStores(variantName, expr, objReg, fieldCount)
         return objReg
     }
