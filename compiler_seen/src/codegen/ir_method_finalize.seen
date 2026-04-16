@@ -3,6 +3,9 @@
 // receiver discovery and dispatch rather than ABI normalization details.
 
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
 import str.string.{StringBuilder}
 
 fun stripMethodGenericSuffixImpl(typeName: String) r: String {
@@ -74,6 +77,19 @@ fun emitHotReloadMethodCallImpl(output: StringBuilder, regBox: Array<Int>, metho
     return "0"
 }
 
+fun resolveMethodCallReturnTypeImpl(inferredReturnType: String,
+    registeredReturnType: String) r: String {
+
+    var returnTypeStr = inferredReturnType
+    if returnTypeStr == "" or returnTypeStr == "Unknown" {
+        returnTypeStr = registeredReturnType
+    }
+    if returnTypeStr == "" or returnTypeStr == "Unknown" {
+        returnTypeStr = "Int"
+    }
+    return returnTypeStr
+}
+
 // resolveMethodReceiverAbiImpl — lower receiver storage to the ABI expected by
 // the final instance-method call.
 fun resolveMethodReceiverAbiImpl(output: StringBuilder, regBox: Array<Int>,
@@ -119,6 +135,31 @@ fun resolveMethodReceiverAbiImpl(output: StringBuilder, regBox: Array<Int>,
     receiverLlvmTypeBox[0] = receiverLlvmType
 }
 
+fun prepareMethodCallReceiverAbiImpl(output: StringBuilder, regBox: Array<Int>,
+    instanceTypeName: String, receiverRegBox: Array<String>,
+    receiverType: String, receiverLlvmTypeBox: Array<String>,
+    structNames: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Void {
+
+    var receiverStorageLlvmType = mapTypeImpl(receiverType, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    if receiverType.startsWith("dyn ") or receiverType.startsWith("*") {
+        receiverStorageLlvmType = "i64"
+    } else if reprCClassNames != "" {
+        let baseType = getBaseTypeNameImpl(receiverType)
+        if reprCClassNames.contains(baseType + "|") {
+            receiverStorageLlvmType = "%" + baseType
+        }
+    }
+
+    let receiverIsClass = isClassTypeImpl(receiverType, structNames)
+    let receiverIsData = isDataTypeImpl(receiverType)
+    resolveMethodReceiverAbiImpl(output, regBox, instanceTypeName,
+        receiverStorageLlvmType, receiverRegBox, receiverLlvmTypeBox,
+        receiverIsClass, receiverIsData)
+}
+
 // extractOptionInnerTypeImpl — parse Option<T> payload type for unwrap lowering.
 fun extractOptionInnerTypeImpl(receiverType: String, fallbackType: String) r: String {
     var ltPos = -1
@@ -137,4 +178,29 @@ fun extractOptionInnerTypeImpl(receiverType: String, fallbackType: String) r: St
         return receiverType.substring(ltPos + 1, gtPos)
     }
     return fallbackType
+}
+
+fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, instanceTypeName: String,
+    receiverType: String, returnTypeStr: String, receiverLlvmType: String,
+    receiverReg: String, structNames: Array<String>) r: String {
+
+    if methodName == "unwrap" and instanceTypeName == "String" {
+        return receiverReg
+    }
+
+    if methodName == "unwrap" and instanceTypeName == "Option" {
+        let innerType = extractOptionInnerTypeImpl(receiverType, returnTypeStr)
+        var isClassInner = 0
+        let baseInnerType = getBaseTypeNameImpl(innerType)
+        if isClassTypeImpl(baseInnerType, structNames) == 1 or
+            baseInnerType == "Vec" or baseInnerType == "Map" or
+            baseInnerType == "HashMap" or baseInnerType == "Result" {
+            isClassInner = 1
+        }
+        return emitOptionUnwrapSpecializedImpl(output, regBox, innerType,
+            receiverLlvmType, receiverReg, isClassInner)
+    }
+
+    return ""
 }

@@ -55,9 +55,9 @@ import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_call_dispatch.{emitSimdReductionVarImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_dispatch.{emitSimdReductionVarImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, resolveStandaloneParserWorkaroundRetTypeImpl}
-import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitHotReloadMethodCallImpl, resolveMethodReceiverAbiImpl, extractOptionInnerTypeImpl}
+import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitHotReloadMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
@@ -11923,54 +11923,26 @@ class LLVMIRGenerator {
     fun resolveMethodCallReturnType(expr: ParserExpressionNode, instanceTypeName: String,
         methodName: String) r: String {
 
-        var returnTypeStr = inferExpressionType(expr)
-        if returnTypeStr == "" or returnTypeStr == "Unknown" {
-            let regRetType = getMethodReturnType(instanceTypeName, methodName)
-            if regRetType != "" {
-                returnTypeStr = regRetType
-            }
-        }
-        if returnTypeStr == "" or returnTypeStr == "Unknown" {
-            returnTypeStr = "Int"
-        }
-        return returnTypeStr
+        return resolveMethodCallReturnTypeImpl(inferExpressionType(expr),
+            getMethodReturnType(instanceTypeName, methodName))
     }
 
     fun prepareMethodCallReceiverAbi(instanceTypeName: String, receiverRegBox: Array<String>,
         receiverType: String, receiverLlvmTypeBox: Array<String>) r: Void {
 
-        let receiverStorageLlvmType = mapType(receiverType)
-        var receiverIsClass = 0
-        if isClassType(receiverType) {
-            receiverIsClass = 1
-        }
-        var receiverIsData = 0
-        if isDataType(receiverType) {
-            receiverIsData = 1
-        }
-        resolveMethodReceiverAbiImpl(output, g_regBox, instanceTypeName, receiverStorageLlvmType, receiverRegBox, receiverLlvmTypeBox, receiverIsClass, receiverIsData)
+        prepareMethodCallReceiverAbiImpl(output, g_regBox, instanceTypeName,
+            receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
+            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames)
     }
 
     fun tryGenerateSpecializedInstanceMethodCall(methodName: String, instanceTypeName: String,
         receiverType: String, returnTypeStr: String, receiverLlvmType: String,
         receiverReg: String) r: String {
 
-        if methodName == "unwrap" and instanceTypeName == "String" {
-            return receiverReg
-        }
-
-        if methodName == "unwrap" and instanceTypeName == "Option" {
-            let innerType = extractOptionInnerTypeImpl(receiverType, returnTypeStr)
-            var isClassInner = 0
-            let baseInnerType = getBaseTypeName(innerType)
-            if isClassType(baseInnerType) or baseInnerType == "Vec" or baseInnerType == "Map" or
-                baseInnerType == "HashMap" or baseInnerType == "Result" {
-                isClassInner = 1
-            }
-            return emitOptionUnwrapSpecializedImpl(output, g_regBox, innerType, receiverLlvmType, receiverReg, isClassInner)
-        }
-
-        return ""
+        return tryGenerateSpecializedInstanceMethodCallImpl(output, g_regBox,
+            methodName, instanceTypeName, receiverType, returnTypeStr,
+            receiverLlvmType, receiverReg, structNames)
     }
 
     fun emitNormalizedInstanceMethodCall(expr: ParserExpressionNode, methodName: String,
