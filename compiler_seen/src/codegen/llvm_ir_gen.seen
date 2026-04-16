@@ -11887,66 +11887,31 @@ class LLVMIRGenerator {
         return tryGenerateStringLikeReceiverMethodCall(expr, methodName, receiverReg, receiverType)
     }
 
-    fun resolveMethodCallInstanceTypeName(expr: ParserExpressionNode, methodName: String,
-        receiverType: String) r: String {
+    fun emitNormalizedInstanceMethodCall(expr: ParserExpressionNode, methodName: String,
+        receiverReg: String, receiverType: String) r: String {
 
         var tracedUnwrapSourceType = ""
-        if receiverType == "ptr" and methodName == "toJson" and expr.operands.length() > 0 {
+        if receiverType == "ptr" and methodName == "toJson" and
+            expr.operands.length() > 0 {
             let receiverExpr = expr.operands[0]
-            if receiverExpr.kind == "MethodCall" and receiverExpr.callee == "unwrap" and
+            if receiverExpr.kind == "MethodCall" and
+                receiverExpr.callee == "unwrap" and
                 receiverExpr.operands.length() > 0 {
-                tracedUnwrapSourceType = inferExpressionType(receiverExpr.operands[0])
+                tracedUnwrapSourceType = inferExpressionType(
+                    receiverExpr.operands[0])
             }
         }
-        return resolveMethodCallInstanceTypeNameImpl(expr, methodName,
-            receiverType, tracedUnwrapSourceType)
-    }
-
-    fun tryGenerateHotReloadInstanceMethodCall(expr: ParserExpressionNode, methodName: String,
-        funcName: String, receiverReg: String, receiverType: String) r: String {
+        let instanceTypeName = resolveMethodCallInstanceTypeNameImpl(expr,
+            methodName, receiverType, tracedUnwrapSourceType)
+        let funcName = instanceTypeName + "_" + methodName
 
         var hotStateArg = ""
         if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
             hotStateArg = generateExpression(expr.arguments[0])
         }
-
-        return tryGeneratePreparedHotReloadInstanceMethodCallImpl(output,
-            g_regBox, methodName, quoteIdentIfNeeded(funcName), receiverReg,
-            receiverType, hotStateArg, structNames)
-    }
-
-    fun resolveMethodCallReturnType(expr: ParserExpressionNode, instanceTypeName: String,
-        methodName: String) r: String {
-
-        return resolveMethodCallReturnTypeImpl(inferExpressionType(expr),
-            getMethodReturnType(instanceTypeName, methodName))
-    }
-
-    fun prepareMethodCallReceiverAbi(instanceTypeName: String, receiverRegBox: Array<String>,
-        receiverType: String, receiverLlvmTypeBox: Array<String>) r: Void {
-
-        prepareMethodCallReceiverAbiImpl(output, g_regBox, instanceTypeName,
-            receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
-            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames)
-    }
-
-    fun tryGenerateSpecializedInstanceMethodCall(methodName: String, instanceTypeName: String,
-        receiverType: String, returnTypeStr: String, receiverLlvmType: String,
-        receiverReg: String) r: String {
-
-        return tryGenerateSpecializedInstanceMethodCallImpl(output, g_regBox,
-            methodName, instanceTypeName, receiverType, returnTypeStr,
-            receiverLlvmType, receiverReg, structNames)
-    }
-
-    fun emitNormalizedInstanceMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-
-        let instanceTypeName = resolveMethodCallInstanceTypeName(expr, methodName, receiverType)
-        let funcName = instanceTypeName + "_" + methodName
-
-        let hotReloadResult = tryGenerateHotReloadInstanceMethodCall(expr, methodName, funcName, receiverReg, receiverType)
+        let hotReloadResult = tryGeneratePreparedHotReloadInstanceMethodCallImpl(
+            output, g_regBox, methodName, quoteIdentIfNeeded(funcName),
+            receiverReg, receiverType, hotStateArg, structNames)
         if hotReloadResult != "" {
             return hotReloadResult
         }
@@ -11955,19 +11920,27 @@ class LLVMIRGenerator {
         var argTypeStrs = Array<String>()
         prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
 
-        let returnTypeStr = resolveMethodCallReturnType(expr, instanceTypeName, methodName)
+        let returnTypeStr = resolveMethodCallReturnTypeImpl(
+            inferExpressionType(expr), getMethodReturnType(instanceTypeName,
+                methodName))
         let llvmReturnType = mapType(returnTypeStr)
 
         let receiverRegBox = Array<String>()
         receiverRegBox.push(receiverReg)
         let receiverLlvmTypeBox = Array<String>()
         receiverLlvmTypeBox.push("ptr")
-        prepareMethodCallReceiverAbi(instanceTypeName, receiverRegBox, receiverType, receiverLlvmTypeBox)
+        prepareMethodCallReceiverAbiImpl(output, g_regBox, instanceTypeName,
+            receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
+            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames)
 
         let normalizedReceiverReg = receiverRegBox[0]
         let receiverLlvmType = receiverLlvmTypeBox[0]
 
-        let specializedResult = tryGenerateSpecializedInstanceMethodCall(methodName, instanceTypeName, receiverType, returnTypeStr, receiverLlvmType, normalizedReceiverReg)
+        let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
+            output, g_regBox, methodName, instanceTypeName, receiverType,
+            returnTypeStr, receiverLlvmType, normalizedReceiverReg,
+            structNames)
         if specializedResult != "" {
             return specializedResult
         }

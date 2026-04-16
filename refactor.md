@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,903` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,876` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -28,6 +28,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `ir_variable_gen.seen`
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
 - The latest continuation also pushes more final instance-call cleanup into `ir_method_finalize.seen`, which is now `237` lines and owns shared traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, and `Option.unwrap()` specialization logic used by `emitNormalizedInstanceMethodCall()`.
+- That same working-tree continuation now also removes the last one-use instance-call wrappers from `llvm_ir_gen.seen`, so `emitNormalizedInstanceMethodCall()` calls `ir_method_finalize.seen` directly for traced-unwrap normalization, hot-reload interception, return-type fallback, receiver ABI preparation, and specialization.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
@@ -150,12 +151,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `tryGenerateNumericReceiverMethodCall()` at about `21` lines.
     - `tryGenerateStringLikeReceiverMethodCall()` at about `40` lines.
     - `tryGenerateBuiltinMethodCall()` at about `26` lines.
-    - `resolveMethodCallInstanceTypeName()` at about `10` lines.
-    - `tryGenerateHotReloadInstanceMethodCall()` at about `9` lines.
-    - `resolveMethodCallReturnType()` at about `5` lines.
-    - `prepareMethodCallReceiverAbi()` at about `8` lines.
-    - `tryGenerateSpecializedInstanceMethodCall()` at about `7` lines.
-    - `emitNormalizedInstanceMethodCall()` at about `57` lines.
+    - `emitNormalizedInstanceMethodCall()` at about `41` lines.
   - Method-call fallback helpers inside `llvm_ir_gen.seen` are now split into:
     - `tryGenerateOptionResolvedReceiverMethodCall()` at about `15` lines.
     - `tryGenerateSmallVecResolvedReceiverMethodCall()` at about `16` lines.
@@ -241,6 +237,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_finalize.seen`.
   - passed after the traced-unwrap/hot-reload follow-up extraction: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen` and `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_finalize.seen`.
   - a fresh bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_method_finalize_followup --fast --no-cache --no-fork` under the same cap reached `Optimization stats` through modules `0` and `5`, then failed in Pass 2b when parallel `opt` workers started reporting `Could not open input file` for many `/tmp/seen_module_*.ll` paths, ending with `Error: optimization failed for module 0`.
+  - after pruning the last one-use instance-call wrappers from `llvm_ir_gen.seen`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_finalize_wrapper_prune --fast --no-cache --no-fork` completed successfully under the same cap.
   - passed: `./bootstrap/stage1_frozen check compiler_seen/src/test_ir_method_receiver_import.seen` while the temporary harness existed, which confirmed the extracted helper module resolved cleanly under the frozen bootstrap compiler.
   - passed after the follow-up bootstrap-hardening fixes: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - reached and cleared `Optimization stats (module 5)` for `compiler_seen/src/codegen/llvm_ir_gen.seen`, then cleared the next frozen-bootstrap blockers in `type_registry.seen` (module 37), `ir_decl_features.seen` (module 11), `parser/real_parser.seen` (module 6), and the final link step (`lastIndexOf`) during bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen ... --fast --no-cache --no-fork` runs.
@@ -248,14 +245,14 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - after that rewrite, a fresh bounded stage1 compile again got through `Optimization stats (module 5)` and into Pass 2b, and a direct bounded `opt -O3 /tmp/seen_module_5.ll` repro also succeeded, which confirms the old module-5 `String`-collapse failure is gone.
   - after the runtime `lastIndexOf(...)` fix, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_continue_stage1_rerun --fast --no-cache --no-fork` completed successfully under the same cap.
   - after folding the static/unresolved dispatch extraction into `ir_method_receiver.seen` instead of adding a new compiler module, a second bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_receiver_dispatch_merge --fast --no-cache --no-fork` also completed successfully under the same cap.
-  - current validation frontier after re-running both the `596169c` baseline and the new `ir_method_finalize.seen` extraction is again a bounded Pass 2b failure with the same signatures in both runs:
+  - an earlier validation frontier after re-running both the `596169c` baseline and the first `ir_method_finalize.seen` extraction was a bounded Pass 2b failure with the same signatures in both runs:
     - duplicate `Result_isOkay` declarations across multiple `/tmp/seen_module_*.ll` files (for example `/tmp/seen_module_7.ll`, `/tmp/seen_module_11.ll`, `/tmp/seen_module_19.ll`).
     - malformed integer-style SDL constants lowered as floating-point globals in `/tmp/seen_module_9.ll` and `/tmp/seen_module_33.ll` (`floating point constant invalid for type`).
-  - because the same frontier reproduced while re-checking the pre-change `596169c` checkpoint, the current method-finalize extraction is not yet isolated as the cause of that bounded full-compile failure.
+  - because that frontier also reproduced while re-checking the pre-change `596169c` checkpoint, the first method-finalize extraction was not isolated as the cause of that bounded full-compile failure.
 - If resuming in the same area, the cleanest next slices are:
   - keep moving the remaining receiver-preparation wrappers out of `llvm_ir_gen.seen` into `ir_method_receiver.seen`, especially the implicit-`this` field receiver path and the rebuilt chained-literal receiver path.
-  - keep pushing final instance-call glue from `llvm_ir_gen.seen` into `ir_method_finalize.seen`, especially the remaining quoted-function-name/receiver-result orchestration around `emitNormalizedInstanceMethodCall()`.
-  - if validating the same area again, capture why Pass 2b starts losing `/tmp/seen_module_*.ll` inputs before assuming the remaining issue is source-level IR breakage; the latest bounded run no longer failed first on the earlier `Result_isOkay` / SDL-constant signatures.
+  - keep pushing the remaining low-level static/parser fallback call emission out of `llvm_ir_gen.seen`, now that the instance-call path is routed directly through `ir_method_finalize.seen`.
+  - if Pass 2b regressions reappear in later slices, compare them against the now-green `/tmp/seen_refactor_finalize_wrapper_prune` success before assuming the wrapper-pruning cleanup was involved.
   - collapse the still-duplicated call-argument preparation/fill-default plumbing shared by free-function calls, parser-workaround calls, static calls, and receiver method calls, but do it in smaller slices than the reverted helper-plumbing experiment.
   - keep moving the remaining array-mutator and user/static-call emission helpers out of `llvm_ir_gen.seen` now that the static/unresolved dispatch logic already routes through `ir_method_receiver.seen`.
   - Shared loop analysis is now routed through `ir_control_flow.seen` for:
