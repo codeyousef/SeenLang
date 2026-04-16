@@ -456,3 +456,20 @@ fun emitArraySwapMutationImpl(output: StringBuilder, regBox: Array<Int>,
         ", align 8, !tbaa !105\n")
     return "0"
 }
+
+fun emitClassFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
+    valueSlotReg: String, classSize: Int) r: String {
+
+    let valReg = getNextRegFn(regBox)
+    output.append("  " + valReg + " = load i64, ptr " + valueSlotReg + "\n")
+    let ptrReg = getNextRegFn(regBox)
+    output.append("  " + ptrReg + " = inttoptr i64 " + valReg + " to ptr\n")
+    if classSize > 0 and classSize <= 80 {
+        output.append("  call void @seen_pool_free(ptr " + ptrReg + ", i64 " +
+            classSize.toString() + ")\n")
+    }
+    if classSize == 0 or classSize > 80 {
+        output.append("  call void @free(ptr " + ptrReg + ")\n")
+    }
+    return "0"
+}

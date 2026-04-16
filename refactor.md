@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,543` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,467` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -27,7 +27,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `ir_class_method_gen.seen`
   - `ir_variable_gen.seen`
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
-- The latest continuation also pushes more final instance-call cleanup into `ir_method_finalize.seen`, which is now `458` lines and owns shared traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, `Option.unwrap()` specialization logic, and the shared low-level array free/push/pop/swap IR emission now used by `tryGenerateArrayMutatorMethodCall()`.
+- The latest continuation also pushes more final instance-call cleanup into `ir_method_finalize.seen`, which is now `475` lines and owns shared traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, `Option.unwrap()` specialization logic, the shared low-level array free/push/pop/swap IR emission now used by `tryGenerateArrayMutatorMethodCall()`, and shared class-handle free emission for non-array `free()` lowering.
 - That same working-tree continuation now also removes the last one-use instance-call wrappers from `llvm_ir_gen.seen`, so `emitNormalizedInstanceMethodCall()` calls `ir_method_finalize.seen` directly for traced-unwrap normalization, hot-reload interception, return-type fallback, receiver ABI preparation, and specialization.
 - The latest continuation also removes the one-use static/parser fallback wrappers from `llvm_ir_gen.seen`, so `tryGenerateStaticMethodCall()` and `generateMethodCall()` now own that orchestration directly instead of bouncing through separate local helper layers.
 - The latest continuation also removes the one-use resolved-receiver fast-path and builtin-method wrapper ladders from `llvm_ir_gen.seen`, so `tryGenerateResolvedReceiverFastPathMethodCall()` and `tryGenerateBuiltinMethodCall()` now dispatch directly to the same low-level helpers instead of routing through extra local shells.
@@ -36,13 +36,14 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also folds the one-use rebuilt chained-literal probe and local-variable receiver shim into their parent phases, so the remaining receiver-preparation flow is concentrated in a smaller set of phase helpers instead of fanning back out into extra local probes.
 - The latest continuation also folds `tryPrepareMethodCallReceiver()` and `tryHandleUnresolvedMethodReceiver()` into `generateMethodCall()`, removing the remaining receiver-box plumbing for prep and unresolved fallback while keeping the full method-call dispatch under the 500-line target.
 - The latest continuation also keeps the method-call tail orchestration local while moving the array-mutator IR emission itself into `ir_method_finalize.seen`, so `tryGenerateArrayMutatorMethodCall()` now focuses on resolving the target array pointer instead of also owning the low-level free/push/pop/swap IR text.
+- The latest continuation also replaces the open-coded array target resolution ladder in `tryGenerateArrayMutatorMethodCall()` with a shared `tryResolveArrayMutatorPointerFromLiteral()` helper that reuses existing member-access lowering for local, module-constant, implicit-`this`, and chained receiver paths instead of repeating that logic inline.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
   - `generateSingle()` is down to about `195` lines.
   - `generateCall()` is down to about `139` lines.
   - `generateMethodCall()` is now about `464` lines after absorbing receiver-preparation, unresolved-receiver orchestration, builtin receiver dispatch, and normalized instance-call lowering, still below the 500-line target.
-  - `tryGenerateArrayMutatorMethodCall()` is now about `234` lines after handing off its low-level free/push/pop/swap IR emission to `ir_method_finalize.seen`.
+  - `tryGenerateArrayMutatorMethodCall()` is now about `111` lines after handing off its low-level free/push/pop/swap IR emission to `ir_method_finalize.seen` and reusing shared member-access lowering for array target resolution.
   - `generateBinary()` is down to about `339` lines.
   - `emitClassType()` is down to about `29` lines.
   - `generateClass()` is down to about `48` lines.
@@ -183,8 +184,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `484f3e5` with message `Inline method receiver orchestration`.
-- The continuation from `484f3e5` to the current working tree touched:
+- Latest committed refactor commit available from a clean checkout is `57f9870` with message `Extract array mutator emission helpers`.
+- The continuation from `57f9870` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
   - `compiler_seen/src/codegen/ir_method_finalize.seen`
   - `refactor.md`
@@ -192,6 +193,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - shared identifier quoting, receiver-type helpers, receiver-pointer normalization, prepared dyn-trait dispatch, builtin receiver emission, static class-literal dispatch, and unresolved-receiver fallback helpers now live in `ir_method_receiver.seen`.
   - shared final instance-call helpers for traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, and `Option.unwrap()` specialization now also route through `ir_method_finalize.seen`.
   - shared low-level array free/push/pop/swap IR emission now also routes through `ir_method_finalize.seen`, which keeps the array-mutator cleanup inside the existing compiler-module count instead of adding a fresh bootstrap module.
+  - the follow-up continuation after `57f9870` keeps shrinking the same area by reusing existing member-access lowering for array pointer resolution and by moving non-array class-handle free emission into `ir_method_finalize.seen`.
   - `llvm_ir_gen.seen` keeps the AST-facing orchestration wrappers, but shared helper logic for method-field path resolution, enum literal receiver resolution, explicit receiver-type normalization, module-constant receiver type fallback, pointer normalization, prepared dyn-trait emission, builtin receiver emission, static-method receiver-name parsing, static factory dispatch, static return-type fallback, unresolved-call lowering checks, unresolved fallback emission, and unresolved default-receiver selection now routes through the extracted helper module.
   - a first attempt at the same array-mutator extraction through a fresh `ir_method_array.seen` module exposed a frozen-bootstrap visibility quirk during full builds, so the final working tree folds that code into `ir_method_finalize.seen` instead and keeps `main_compiler.seen` unchanged.
   - follow-up bootstrap-hardening fixes in the same working tree now also:
@@ -241,12 +243,19 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - a first bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_array_method_extract --fast --no-cache --no-fork` temporarily exposed a real module-5 regression when the array-mutator extraction lived in a fresh `ir_method_array.seen` helper module: `/tmp/seen_module_5.ll:72167` returned `i64` from `@emitArrayFreeMutationImpl(...)` where `%SeenString` was expected.
   - after folding those helpers into the already-registered `ir_method_finalize.seen` module instead, the `%SeenString` vs `i64` module-5 regression disappeared: bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_array_finalize_extract --fast --no-cache --no-fork` and `... /tmp/seen_refactor_array_finalize_extract_rerun --fast --no-cache --no-fork` both cleared `Optimization stats (module 5)` and then fell back to the older transient Pass 2b `Could not open input file` failure mode for many `/tmp/seen_module_*.ll` files, ending with `Error: optimization failed for module 0` and `Error: optimization failed for module 1` respectively.
+  - passed on the latest continuation: repeated `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - after replacing the open-coded array target resolution ladder with `tryResolveArrayMutatorPointerFromLiteral()`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_array_pointer_resolver --fast --no-cache --no-fork` again cleared `Optimization stats (module 5)` and fell back to the same transient Pass 2b missing-`/tmp/seen_module_*.ll` failure mode, this time ending with `Error: optimization failed for module 2`.
+  - passed on the latest continuation: repeated `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_finalize.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - after moving non-array class-handle free emission into `ir_method_finalize.seen`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_array_pointer_resolver_followup --fast --no-cache --no-fork` again cleared `Optimization stats (module 5)` and fell back to the same transient Pass 2b missing-`/tmp/seen_module_*.ll` failure mode, ending with `Error: optimization failed for module 1`.
 - If resuming in the same area, the cleanest next slices are:
   - keep moving the remaining receiver-preparation logic out of `llvm_ir_gen.seen` into `ir_method_receiver.seen`, especially the still-stateful implicit-`this` field receiver path and chained-literal receiver path now that the local rebuilt/probe wrapper shells are gone.
   - after pruning the local static/parser and builtin/fast-path wrapper ladders, the next clean step is moving the remaining low-level static/parser fallback call emission itself out of `llvm_ir_gen.seen`, rather than just its orchestration shell.
   - if Pass 2b regressions reappear in later slices, compare them against the now-green `/tmp/seen_refactor_finalize_wrapper_prune` success before assuming the wrapper-pruning cleanup was involved.
   - collapse the still-duplicated call-argument preparation/fill-default plumbing shared by free-function calls, parser-workaround calls, static calls, and receiver method calls, but do it in smaller slices than the reverted helper-plumbing experiment.
-  - keep moving the remaining array-mutator pointer-resolution and user/static-call orchestration helpers out of `llvm_ir_gen.seen` now that the low-level free/push/pop/swap emission already routes through `ir_method_finalize.seen`.
+  - keep moving the remaining array-mutator orchestration and user/static-call plumbing out of `llvm_ir_gen.seen` now that low-level free/push/pop/swap emission, class-handle `free()` emission, and the array target-resolution ladder have already been split down.
   - Shared loop analysis is now routed through `ir_control_flow.seen` for:
     - memcpy/memmove pattern detection.
     - literal loop-bound extraction and tile-size computation.

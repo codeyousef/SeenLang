@@ -57,7 +57,7 @@ import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionM
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
 import codegen.ir_call_dispatch.{emitSimdReductionVarImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, resolveStandaloneParserWorkaroundRetTypeImpl}
-import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl}
+import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
@@ -10918,6 +10918,62 @@ class LLVMIRGenerator {
             isDataRecv, hasImplicitThis)
     }
 
+    fun tryResolveArrayMutatorPointerFromLiteral(varName: String) r: String {
+        if varName == "" {
+            return ""
+        }
+
+        if varName.contains(".") {
+            let fieldName = extractLastMemberFieldSegmentImpl(varName)
+            let receiverName = varName.substring(0,
+                varName.length() - fieldName.length() - 1)
+
+            if receiverName.contains(".") {
+                let chainedArrayPtr = tryGenerateChainedReceiverMemberAccess(
+                    receiverName, fieldName)
+                if chainedArrayPtr != "" {
+                    return chainedArrayPtr
+                }
+            } else {
+                let varArrayPtr = tryGenerateVariableReceiverMemberAccess(
+                    receiverName, fieldName)
+                if varArrayPtr != "" {
+                    return varArrayPtr
+                }
+
+                let constArrayPtr = tryGenerateModuleConstReceiverMemberAccess(
+                    receiverName, fieldName)
+                if constArrayPtr != "" {
+                    return constArrayPtr
+                }
+
+                let implicitThisArrayPtr =
+                    tryGenerateImplicitThisReceiverMemberAccess(receiverName,
+                        fieldName)
+                if implicitThisArrayPtr != "" {
+                    return implicitThisArrayPtr
+                }
+            }
+            return ""
+        }
+
+        let varIdx = findVar(varName)
+        if varIdx >= 0 {
+            return emitLocalVariableLoadImpl(output, g_regBox, "ptr",
+                varRegs[varIdx])
+        }
+
+        let implicitThisArrayPtr = tryGenerateImplicitThisVariable(varName)
+        if implicitThisArrayPtr != "" {
+            return implicitThisArrayPtr
+        }
+
+        let loadReg = getNextReg()
+        output.append("  " + loadReg + " = load ptr, ptr @" + varName +
+            "\n")
+        return loadReg
+    }
+
     fun tryGenerateArrayMutatorMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String, receiverType: String) r: String {
 
@@ -10933,11 +10989,8 @@ class LLVMIRGenerator {
             if isArrayType {
                 var freePtrReg = receiverReg
                 if freePtrReg == "" and expr.literalValue != "" {
-                    let freeVarIdx = findVar(expr.literalValue)
-                    if freeVarIdx >= 0 {
-                        freePtrReg = getNextReg()
-                        output.append("  " + freePtrReg + " = load ptr, ptr " + varRegs[freeVarIdx] + "\n")
-                    }
+                    freePtrReg = tryResolveArrayMutatorPointerFromLiteral(
+                        expr.literalValue)
                 }
                 if freePtrReg != "" {
                     return emitArrayFreeMutationImpl(output, g_regBox,
@@ -10957,17 +11010,8 @@ class LLVMIRGenerator {
                     if sIdx >= 0 {
                         sSize = structSizes[sIdx]
                     }
-                    let valReg = getNextReg()
-                    output.append("  " + valReg + " = load i64, ptr " + varRegs[freeVarIdx] + "\n")
-                    let pReg = getNextReg()
-                    output.append("  " + pReg + " = inttoptr i64 " + valReg + " to ptr\n")
-                    if sSize > 0 and sSize <= 80 {
-                        output.append("  call void @seen_pool_free(ptr " + pReg + ", i64 " + sSize.toString() + ")\n")
-                    }
-                    if sSize == 0 or sSize > 80 {
-                        output.append("  call void @free(ptr " + pReg + ")\n")
-                    }
-                    return "0"
+                    return emitClassFreeMutationImpl(output, g_regBox,
+                        varRegs[freeVarIdx], sSize)
                 }
             }
         }
@@ -10986,117 +11030,8 @@ class LLVMIRGenerator {
                 pushElemType = elemType
             }
 
-            var arrayPtrReg = ""
             let varName = expr.literalValue
-            if varName != "" {
-                if varName.contains(".") {
-                    var dotIdx = 0
-                    var searchIdx = 0
-                    while searchIdx < varName.length() {
-                        if varName.byteAt(searchIdx) == 46 {
-                            dotIdx = searchIdx
-                            searchIdx = varName.length()
-                        }
-                        searchIdx = searchIdx + 1
-                    }
-                    let firstPart = varName.substring(0, dotIdx)
-                    let restPart = varName.substring(dotIdx + 1, varName.length())
-
-                    output.append("; DEBUG push chained: firstPart=" + firstPart + " restPart=" + restPart + "\n")
-
-                    let firstVarIdx = findVar(firstPart)
-                    var firstPartHandled = false
-                    if firstVarIdx >= 0 {
-                        let firstVarReg = varRegs[firstVarIdx]
-                        let firstVarType = varTypes[firstVarIdx]
-                        let firstPtrReg = getNextReg()
-                        output.append("  " + firstPtrReg + " = load ptr, ptr " + firstVarReg + "\n")
-                        let fieldPtrReg = generateFieldAccessPtr(firstPtrReg, firstVarType, restPart)
-                        let loadedArrPtr = getNextReg()
-                        output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
-                        arrayPtrReg = loadedArrPtr
-                        firstPartHandled = true
-                    }
-                    if not firstPartHandled {
-                        let thisIdx = findVar("this")
-                        if thisIdx >= 0 {
-                            let thisReg = varRegs[thisIdx]
-                            let thisType = varTypes[thisIdx]
-                            let structIdx = findStruct(thisType)
-                            if structIdx >= 0 {
-                                let fieldIdx = getFieldInfo(thisType, firstPart)
-                                output.append("; DEBUG push chained from this: thisType=" + thisType + " firstPart=" + firstPart + " fieldIdx=" + fieldIdx.toString() + "\n")
-                                if fieldIdx >= 0 {
-                                    let thisPtrReg = getNextReg()
-                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                                    let firstFieldType = getSeenFieldType(thisType, firstPart)
-                                    let firstFieldReg = generateFieldAccess(thisPtrReg, thisType, firstPart)
-                                    output.append("; DEBUG push chained: firstFieldType=" + firstFieldType + " firstFieldReg=" + firstFieldReg + "\n")
-
-                                    var accessFieldReg = firstFieldReg
-                                    if isClassType(firstFieldType) {
-                                        let ptrConvReg = getNextReg()
-                                        output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldReg + " to ptr\n")
-                                        accessFieldReg = ptrConvReg
-                                    }
-
-                                    let fieldPtrReg = generateFieldAccessPtr(accessFieldReg, firstFieldType, restPart)
-                                    let loadedArrPtr = getNextReg()
-                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
-                                    arrayPtrReg = loadedArrPtr
-                                    output.append("; DEBUG push chained: arrayPtrReg=" + arrayPtrReg + "\n")
-                                }
-                            }
-                        }
-                    }
-                }
-                if not varName.contains(".") {
-                    let varIdx = findVar(varName)
-                    var pushVarHandled = false
-                    if varIdx >= 0 {
-                        let loadReg = getNextReg()
-                        output.append("  " + loadReg + " = load ptr, ptr " + varRegs[varIdx] + "\n")
-                        arrayPtrReg = loadReg
-                        pushVarHandled = true
-                    }
-                    if not pushVarHandled {
-                        let thisIdx = findVar("this")
-                        if thisIdx >= 0 {
-                            let thisReg = varRegs[thisIdx]
-                            let thisType = varTypes[thisIdx]
-                            if thisType == "LLVMIRGenerator" {
-                                let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-                                if idxCheck >= 0 {
-                                    let thisPtrReg = getNextReg()
-                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                                    let fieldPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
-                                    let loadedArrPtr = getNextReg()
-                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
-                                    arrayPtrReg = loadedArrPtr
-                                }
-                            }
-                            let structIdx = findStruct(thisType)
-                            if structIdx >= 0 {
-                                let fieldIdx = getFieldInfo(thisType, varName)
-                                if fieldIdx >= 0 {
-                                    let thisPtrReg = getNextReg()
-                                    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                                    let fieldPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, varName)
-                                    let loadedArrPtr = getNextReg()
-                                    output.append("  " + loadedArrPtr + " = load ptr, ptr " + fieldPtrReg + "\n")
-                                    arrayPtrReg = loadedArrPtr
-                                }
-                            }
-                        }
-                        if arrayPtrReg == "" {
-                            let loadReg = getNextReg()
-                            output.append("  " + loadReg + " = load ptr, ptr @" + varName + "\n")
-                            arrayPtrReg = loadReg
-                        }
-                    }
-                }
-            }
+            var arrayPtrReg = tryResolveArrayMutatorPointerFromLiteral(varName)
 
             if arrayPtrReg == "" and (receiverType.startsWith("Array<") or receiverType == "Array") {
                 arrayPtrReg = receiverReg
@@ -11113,16 +11048,8 @@ class LLVMIRGenerator {
         }
 
         if methodName == "pop" {
-            var arrayPtrReg = ""
-            let popVarName = expr.literalValue
-            if popVarName != "" {
-                let popVarIdx = findVar(popVarName)
-                if popVarIdx >= 0 {
-                    let loadReg = getNextReg()
-                    output.append("  " + loadReg + " = load ptr, ptr " + varRegs[popVarIdx] + "\n")
-                    arrayPtrReg = loadReg
-                }
-            }
+            var arrayPtrReg =
+                tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
             if arrayPtrReg == "" { arrayPtrReg = receiverReg }
             if arrayPtrReg != "" {
                 return emitArrayPopMutationImpl(output, g_regBox,
@@ -11135,13 +11062,10 @@ class LLVMIRGenerator {
             if isArraySwap and expr.arguments.length() == 2 {
                 let idxAReg = generateExpression(expr.arguments[0])
                 let idxBReg = generateExpression(expr.arguments[1])
-                var arrayPtrReg = receiverReg
-                if arrayPtrReg == "" and expr.literalValue != "" {
-                    let swapVarIdx = findVar(expr.literalValue)
-                    if swapVarIdx >= 0 {
-                        arrayPtrReg = getNextReg()
-                        output.append("  " + arrayPtrReg + " = load ptr, ptr " + varRegs[swapVarIdx] + "\n")
-                    }
+                var arrayPtrReg =
+                    tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
+                if arrayPtrReg == "" {
+                    arrayPtrReg = receiverReg
                 }
                 if arrayPtrReg != "" {
                     return emitArraySwapMutationImpl(output, g_regBox,
