@@ -419,6 +419,9 @@ bool contains(SeenString text, SeenString needle);
 // Find index of substring
 int64_t indexOf(SeenString text, SeenString needle, int64_t start);
 
+// Find last index of substring
+int64_t lastIndexOf(SeenString text, SeenString needle, int64_t start);
+
 // ============================================================================
 // Stdin/Stdout Functions (for LSP and interactive programs)
 // ============================================================================

@@ -2356,6 +2356,31 @@ int64_t indexOf(SeenString text, SeenString needle, int64_t start) {
     return -1;
 }
 
+int64_t lastIndexOf(SeenString text, SeenString needle, int64_t start) {
+    if (needle.len == 0) {
+        if (start < 0 || start > text.len) return text.len;
+        return start;
+    }
+    if (text.len < needle.len) return -1;
+
+    int64_t max_start = text.len - needle.len;
+    if (start < 0 || start > max_start) {
+        start = max_start;
+    }
+
+    for (int64_t i = start; i >= 0; i--) {
+        bool found = true;
+        for (int64_t j = 0; j < needle.len; j++) {
+            if (text.data[i + j] != needle.data[j]) {
+                found = false;
+                break;
+            }
+        }
+        if (found) return i;
+    }
+    return -1;
+}
+
 int64_t StringBuilder_appendChar(void* sb, int64_t ch) {
     StringBuilder* s = (StringBuilder*)sb;
     SeenString charStr = seen_char_to_str(ch);

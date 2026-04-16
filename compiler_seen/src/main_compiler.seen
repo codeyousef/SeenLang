@@ -1875,7 +1875,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         // IO module (required by LSP for stdio)
         modules.push("io.stdio")
         // String utilities - disabled during bootstrap due to conflicts with C runtime functions
-        // (split, trim, startsWith, endsWith, contains, indexOf, StringBuilder_length)
+        // (split, trim, startsWith, endsWith, contains, indexOf, lastIndexOf, StringBuilder_length)
         // These functions are provided by seen_runtime.c instead
         // modules.push("str.string")
         // Optimization pipeline modules

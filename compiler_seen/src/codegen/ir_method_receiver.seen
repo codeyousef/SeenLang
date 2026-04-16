@@ -11,7 +11,7 @@ import codegen.ir_type_mapping.{mapFieldNameToReceiverType}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_type_ops.{emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitStringBuilderMethodImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitLengthSizeMethodImpl}
-import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl}
+import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitStaticCollectionNewImpl, emitArrayWithLengthImpl}
 import codegen.ir_type_dispatch.{dispatchCollectionMethodImpl}
 import codegen.type_registry.{findStructReg, getFieldTypeFromListsReg, isClassTypeReg}
 
@@ -351,4 +351,178 @@ fun tryGenerateStringLikeReceiverMethodCallImpl(output: StringBuilder,
         }
     }
     return ""
+}
+
+fun resolveStaticMethodClassNamesImpl(receiverLiteral: String) r: String {
+    var potentialClassName = receiverLiteral
+    var ltIdx = 0
+    var i = 0
+    while i < potentialClassName.length() {
+        if potentialClassName.byteAt(i) == 60 {
+            ltIdx = i
+            i = potentialClassName.length()
+        }
+        i = i + 1
+    }
+    if ltIdx > 0 {
+        potentialClassName = potentialClassName.substring(0, ltIdx)
+    }
+    return potentialClassName + "|" + receiverLiteral
+}
+
+fun isStaticMethodReceiverReferenceImpl(receiverVarIdx: Int,
+    classVarIdx: Int) r: Bool {
+    return receiverVarIdx < 0 and classVarIdx < 0
+}
+
+fun emitStaticHashMapWithCapacityCallImpl(output: StringBuilder,
+    regBox: Array<Int>, potentialClassName: String, fullClassName: String,
+    capArg: String) r: String {
+
+    var hasStringKey = fullClassName.contains("<String")
+    let hasStringValue = fullClassName.contains(", String>") or
+        fullClassName.contains(",String>") or
+        fullClassName.contains("<String>")
+    if potentialClassName == "StringHashMap" {
+        hasStringKey = true
+    }
+
+    let rawReg = getNextRegFn(regBox)
+    if hasStringKey {
+        if hasStringValue {
+            output.append("  " + rawReg +
+                " = call ptr @HashMap_new_str_str_with_capacity(i64 " +
+                capArg + ")\n")
+        } else {
+            output.append("  " + rawReg +
+                " = call ptr @HashMap_new_str_with_capacity(i64 " +
+                capArg + ")\n")
+        }
+    } else {
+        if hasStringValue {
+            output.append("  " + rawReg +
+                " = call ptr @HashMap_new_int_str_with_capacity(i64 " +
+                capArg + ")\n")
+        } else {
+            output.append("  " + rawReg +
+                " = call ptr @HashMap_new_with_capacity(i64 " +
+                capArg + ")\n")
+        }
+    }
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = ptrtoint ptr " + rawReg +
+        " to i64\n")
+    return resultReg
+}
+
+fun tryGenerateStaticFactoryMethodCallImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, potentialClassName: String,
+    fullClassName: String, firstArgReg: String, argCount: Int) r: String {
+
+    if methodName == "new" {
+        let collNewResult = emitStaticCollectionNewImpl(output, regBox,
+            potentialClassName, fullClassName)
+        if collNewResult != "" {
+            return collNewResult
+        }
+    }
+
+    if methodName == "withCapacity" and argCount > 0 and
+        (potentialClassName == "HashMap" or
+            potentialClassName == "StringHashMap") {
+        return emitStaticHashMapWithCapacityCallImpl(output, regBox,
+            potentialClassName, fullClassName, firstArgReg)
+    }
+
+    if potentialClassName == "Array" and methodName == "withLength" and
+        argCount > 0 {
+        return emitArrayWithLengthImpl(output, regBox, fullClassName,
+            firstArgReg)
+    }
+
+    return ""
+}
+
+fun resolveStaticMethodReturnTypeImpl(registeredStaticReturnType: String,
+    inferredStaticReturnType: String) r: String {
+
+    var staticReturnType = registeredStaticReturnType
+    if staticReturnType == "" or staticReturnType == "Unknown" {
+        staticReturnType = inferredStaticReturnType
+    }
+    return staticReturnType
+}
+
+fun shouldLowerUnresolvedMethodAsCallImpl(currentClassName: String,
+    implicitMethodRetType: String, functionRetType: String) r: Bool {
+
+    if currentClassName != "" and implicitMethodRetType != "" {
+        return true
+    }
+    return functionRetType != ""
+}
+
+fun tryGenerateUnresolvedReceiverFallbackMethodImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, receiverReg: String,
+    receiverType: String) r: String {
+
+    if methodName == "toString" {
+        let toStrReg = getNextRegFn(regBox)
+        if receiverType == "Float" {
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_float_to_string(double " +
+                receiverReg + ")\n")
+        } else if receiverType == "Int" or receiverType == "" or
+            receiverType == "Char" {
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_int_to_string(i64 " +
+                receiverReg + ")\n")
+        } else if receiverType == "Bool" {
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_bool_to_string(i1 " +
+                receiverReg + ")\n")
+        } else {
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_int_to_string(i64 0)\n")
+        }
+        return toStrReg
+    }
+
+    if methodName == "toInt" and receiverType == "Float" {
+        let toIntReg = getNextRegFn(regBox)
+        output.append("  " + toIntReg + " = fptosi double " + receiverReg +
+            " to i64\n")
+        return toIntReg
+    }
+
+    if methodName == "toFloat" and receiverType == "Int" {
+        let toFloatReg = getNextRegFn(regBox)
+        output.append("  " + toFloatReg + " = sitofp i64 " + receiverReg +
+            " to double\n")
+        return toFloatReg
+    }
+
+    if methodName == "toString_disabled" and receiverType == "" {
+        let emptyStrReg = getNextRegFn(regBox)
+        output.append("  " + emptyStrReg +
+            " = call %SeenString @seen_int_to_string(i64 0)\n")
+        return emptyStrReg
+    }
+
+    return ""
+}
+
+fun applyUnresolvedReceiverDefaultImpl(receiverRegBox: Array<String>,
+    receiverType: String) r: Void {
+
+    if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
+        receiverRegBox.set(0, "0")
+        return
+    }
+    if receiverType == "Bool" {
+        receiverRegBox.set(0, "false")
+        return
+    }
+    receiverRegBox.set(0, "0")
 }

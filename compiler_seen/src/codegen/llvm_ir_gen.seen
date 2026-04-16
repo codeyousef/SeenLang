@@ -55,7 +55,7 @@ import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_call_dispatch.{emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_dispatch.{emitSimdReductionVarImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, resolveStandaloneParserWorkaroundRetTypeImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitHotReloadMethodCallImpl, resolveMethodReceiverAbiImpl, extractOptionInnerTypeImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
@@ -63,7 +63,7 @@ import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
-import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl, emitPreparedDynTraitMethodCallImpl, tryGenerateExplicitOptionMethodCallImpl, tryGenerateExplicitHotReloadMethodCallImpl, tryGenerateExplicitCollectionMethodCallImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl, emitPreparedDynTraitMethodCallImpl, tryGenerateExplicitOptionMethodCallImpl, tryGenerateExplicitHotReloadMethodCallImpl, tryGenerateExplicitCollectionMethodCallImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
@@ -1369,7 +1369,7 @@ class LLVMIRGenerator {
         if funcName == "String_toUpperCase" or funcName == "String_toLowerCase" or funcName == "String_toInt" or funcName == "String_toFloat" or funcName == "String_reverse" or funcName == "String_isEmpty" or funcName == "String_count" or funcName == "String_replace" {
             return true
         }
-        if funcName == "split" or funcName == "startsWith" or funcName == "endsWith" or funcName == "contains" or funcName == "indexOf" {
+        if funcName == "split" or funcName == "startsWith" or funcName == "endsWith" or funcName == "contains" or funcName == "indexOf" or funcName == "lastIndexOf" {
             return true
         }
         return false
@@ -10856,96 +10856,34 @@ class LLVMIRGenerator {
         return tryGenerateArrayResolvedReceiverMethodCall(expr, methodName, receiverReg, receiverType)
     }
 
-    fun resolveStaticMethodClassNames(receiverLiteral: String) r: String {
-        var potentialClassName = receiverLiteral
-        var ltIdx = 0
-        var i = 0
-        while i < potentialClassName.length() {
-            if potentialClassName.byteAt(i) == 60 {
-                ltIdx = i
-                i = potentialClassName.length()
-            }
-            i = i + 1
-        }
-        if ltIdx > 0 {
-            potentialClassName = potentialClassName.substring(0, ltIdx)
-        }
-        return potentialClassName + "|" + receiverLiteral
-    }
-
-    fun isStaticMethodReceiverReference(receiverLiteral: String, potentialClassName: String) r: Bool {
-        return findVar(receiverLiteral) < 0 and findVar(potentialClassName) < 0
-    }
-
-    fun emitStaticHashMapWithCapacityCall(potentialClassName: String, fullClassName: String,
-        capArg: String) r: String {
-
-        var hasStringKey = fullClassName.contains("<String")
-        let hasStringValue = fullClassName.contains(", String>") or
-            fullClassName.contains(",String>") or fullClassName.contains("<String>")
-        if potentialClassName == "StringHashMap" {
-            hasStringKey = true
-        }
-        let rawReg = getNextReg()
-        if hasStringKey {
-            if hasStringValue {
-                output.append("  " + rawReg + " = call ptr @HashMap_new_str_str_with_capacity(i64 " + capArg + ")\n")
-            } else {
-                output.append("  " + rawReg + " = call ptr @HashMap_new_str_with_capacity(i64 " + capArg + ")\n")
-            }
-        } else {
-            if hasStringValue {
-                output.append("  " + rawReg + " = call ptr @HashMap_new_int_str_with_capacity(i64 " + capArg + ")\n")
-            } else {
-                output.append("  " + rawReg + " = call ptr @HashMap_new_with_capacity(i64 " + capArg + ")\n")
-            }
-        }
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
-        return resultReg
-    }
-
     fun tryGenerateStaticFactoryMethodCall(expr: ParserExpressionNode, methodName: String,
         potentialClassName: String, fullClassName: String) r: String {
 
         if methodName == "new" {
-            let collNewResult = emitStaticCollectionNewImpl(output, g_regBox, potentialClassName, fullClassName)
-            if collNewResult != "" {
-                return collNewResult
-            }
+            return tryGenerateStaticFactoryMethodCallImpl(output, g_regBox,
+                methodName, potentialClassName, fullClassName, "", 0)
         }
 
-        if methodName == "withCapacity" and
-            (potentialClassName == "HashMap" or potentialClassName == "StringHashMap") and
-            expr.arguments.length() > 0 {
-            let capArg = generateExpression(expr.arguments[0])
-            return emitStaticHashMapWithCapacityCall(potentialClassName, fullClassName, capArg)
+        let needsStaticFactoryArg = (methodName == "withCapacity" and
+            (potentialClassName == "HashMap" or
+                potentialClassName == "StringHashMap")) or
+            (potentialClassName == "Array" and methodName == "withLength")
+        if not needsStaticFactoryArg or expr.arguments.length() == 0 {
+            return ""
         }
 
-        if potentialClassName == "Array" and methodName == "withLength" and expr.arguments.length() > 0 {
-            let countReg = generateExpression(expr.arguments[0])
-            return emitArrayWithLengthImpl(output, g_regBox, fullClassName, countReg)
-        }
-
-        return ""
-    }
-
-    fun resolveStaticMethodReturnType(expr: ParserExpressionNode, className: String,
-        methodName: String) r: String {
-
-        let registeredStaticReturnType = getMethodReturnType(className, methodName)
-        var staticReturnType = registeredStaticReturnType
-        if staticReturnType == "" or staticReturnType == "Unknown" {
-            staticReturnType = inferExpressionType(expr)
-        }
-        return staticReturnType
+        let staticFactoryArg0 = generateExpression(expr.arguments[0])
+        return tryGenerateStaticFactoryMethodCallImpl(output, g_regBox,
+            methodName, potentialClassName, fullClassName, staticFactoryArg0,
+            expr.arguments.length())
     }
 
     fun emitPreparedStaticMethodCall(expr: ParserExpressionNode, className: String,
         methodName: String, funcName: String, argRegs: Array<String>,
         argTypeStrs: Array<String>) r: String {
 
-        let staticReturnType = resolveStaticMethodReturnType(expr, className, methodName)
+        let staticReturnType = resolveStaticMethodReturnTypeImpl(
+            getMethodReturnType(className, methodName), inferExpressionType(expr))
         let staticLlvmReturnType = mapType(staticReturnType)
         var isClassRecv = 0
         if isClassType(className) { isClassRecv = 1 }
@@ -11004,10 +10942,11 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let classNames = splitPipe(resolveStaticMethodClassNames(expr.literalValue))
+        let classNames = splitPipe(resolveStaticMethodClassNamesImpl(expr.literalValue))
         let potentialClassName = classNames[0]
         let fullClassName = classNames[1]
-        if not isStaticMethodReceiverReference(expr.literalValue, potentialClassName) {
+        if not isStaticMethodReceiverReferenceImpl(findVar(expr.literalValue),
+            findVar(potentialClassName)) {
             return ""
         }
 
@@ -11017,16 +10956,6 @@ class LLVMIRGenerator {
             return tryGenerateUppercaseStaticMethodCall(expr, methodName, potentialClassName, fullClassName)
         }
         return emitFallbackStaticMethodCall(expr, expr.literalValue, methodName)
-    }
-
-    fun shouldLowerUnresolvedMethodAsCall(methodName: String) r: Bool {
-        if currentClassName != "" {
-            let implicitMethodRetType = getMethodReturnType(currentClassName, methodName)
-            if implicitMethodRetType != "" {
-                return true
-            }
-        }
-        return getFunctionReturnType(methodName) != ""
     }
 
     fun tryGenerateStandaloneParserFallbackMethodCall(expr: ParserExpressionNode,
@@ -11049,56 +10978,6 @@ class LLVMIRGenerator {
             standaloneRetType, filledArgRegs, filledArgTypes, 0)
     }
 
-    fun tryGenerateUnresolvedReceiverFallbackMethod(methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-
-        if methodName == "toString" {
-            let toStrReg = getNextReg()
-            if receiverType == "Float" {
-                output.append("  " + toStrReg + " = call %SeenString @seen_float_to_string(double " + receiverReg + ")\n")
-            } else if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
-                output.append("  " + toStrReg + " = call %SeenString @seen_int_to_string(i64 " + receiverReg + ")\n")
-            } else if receiverType == "Bool" {
-                output.append("  " + toStrReg + " = call %SeenString @seen_bool_to_string(i1 " + receiverReg + ")\n")
-            } else {
-                output.append("  " + toStrReg + " = call %SeenString @seen_int_to_string(i64 0)\n")
-            }
-            return toStrReg
-        }
-
-        if methodName == "toInt" and receiverType == "Float" {
-            let toIntReg = getNextReg()
-            output.append("  " + toIntReg + " = fptosi double " + receiverReg + " to i64\n")
-            return toIntReg
-        }
-
-        if methodName == "toFloat" and receiverType == "Int" {
-            let toFloatReg = getNextReg()
-            output.append("  " + toFloatReg + " = sitofp i64 " + receiverReg + " to double\n")
-            return toFloatReg
-        }
-
-        if methodName == "toString_disabled" and receiverType == "" {
-            let emptyStrReg = getNextReg()
-            output.append("  " + emptyStrReg + " = call %SeenString @seen_int_to_string(i64 0)\n")
-            return emptyStrReg
-        }
-
-        return ""
-    }
-
-    fun applyUnresolvedReceiverDefault(receiverRegBox: Array<String>, receiverType: String) r: Void {
-        if receiverType == "Int" or receiverType == "" or receiverType == "Char" {
-            receiverRegBox.set(0, "0")
-            return
-        }
-        if receiverType == "Bool" {
-            receiverRegBox.set(0, "false")
-            return
-        }
-        receiverRegBox.set(0, "0")
-    }
-
     fun tryHandleUnresolvedMethodReceiver(expr: ParserExpressionNode, methodName: String,
         receiverRegBox: Array<String>, receiverType: String) r: String {
 
@@ -11106,7 +10985,13 @@ class LLVMIRGenerator {
             return ""
         }
 
-        if shouldLowerUnresolvedMethodAsCall(methodName) {
+        var implicitMethodRetType = ""
+        if currentClassName != "" {
+            implicitMethodRetType = getMethodReturnType(currentClassName,
+                methodName)
+        }
+        if shouldLowerUnresolvedMethodAsCallImpl(currentClassName,
+            implicitMethodRetType, getFunctionReturnType(methodName)) {
             return generateCall(expr)
         }
 
@@ -11116,13 +11001,13 @@ class LLVMIRGenerator {
         }
 
         output.append("; WARNING: receiver not resolved for " + methodName + ", receiverType='" + receiverType + "', currentClass='" + currentClassName + "', literal='" + expr.literalValue + "', operands=" + expr.operands.length().toString() + ", using default\n")
-        let unresolvedFallback = tryGenerateUnresolvedReceiverFallbackMethod(methodName,
-            receiverRegBox[0], receiverType)
+        let unresolvedFallback = tryGenerateUnresolvedReceiverFallbackMethodImpl(
+            output, g_regBox, methodName, receiverRegBox[0], receiverType)
         if unresolvedFallback != "" {
             return unresolvedFallback
         }
 
-        applyUnresolvedReceiverDefault(receiverRegBox, receiverType)
+        applyUnresolvedReceiverDefaultImpl(receiverRegBox, receiverType)
         return ""
     }
 
