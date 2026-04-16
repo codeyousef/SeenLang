@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `14,237` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `14,051` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -22,6 +22,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `ir_field_layout.seen`
   - `ir_path_expr.seen`
   - `ir_member_access.seen`
+  - `ir_method_receiver.seen`
   - `ir_binary_expr.seen`
   - `ir_class_method_gen.seen`
   - `ir_variable_gen.seen`
@@ -220,26 +221,32 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 - Latest committed refactor commit available from a clean checkout is `eac87df` with message `Split LLVM IR method call fallback helpers`.
 - Current uncommitted continuation beyond `eac87df` is in:
+  - `compiler_seen/src/codegen/ir_decl_features.seen`
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
-  - `compiler_seen/test_method_receiver_sources.seen`
+  - `compiler_seen/src/codegen/ir_method_receiver.seen`
+  - `compiler_seen/src/codegen/type_registry.seen`
+  - `compiler_seen/src/main_compiler.seen`
   - `refactor.md`
-- That uncommitted continuation is the method-call receiver-preparation split:
-  - explicit receiver prep now routes through `tryGenerateExplicitDynTraitMethodCall()`, `normalizeExplicitMethodReceiverType()`, `tryGenerateExplicitOptionMethodCall()`, `tryGenerateExplicitHotReloadMethodCall()`, and `tryGenerateExplicitCollectionMethodCall()`.
-  - simple literal receiver prep now routes through `tryPrepareLocalVariableMethodReceiver()`, `tryPrepareModuleConstantMethodReceiver()`, and `tryPrepareImplicitThisFieldMethodReceiver()`.
-  - `generateMethodCall()` stays a short phase dispatcher at about `57` lines.
-  - new focused regression: `compiler_seen/test_method_receiver_sources.seen`.
-- Last known validation for the uncommitted continuation used a `MemTotal / 4` cap of `4021497` KB:
-  - passed: `compiler_seen/test_method_receiver_sources.seen`
-  - passed: `compiler_seen/test_method_receiver_resolution.seen`
-  - passed: `compiler_seen/test_method_builtin_dispatch.seen`
-  - passed: `compiler_seen/test_static_method_call_paths.seen`
-  - passed: `tests/codegen/test_trait_vtable.seen`
-  - passed: `examples/hello_world/hello_english.seen`
-  - unchanged bounded timeout at `45s`: `compiler_seen/src/codegen/llvm_ir_gen.seen`
-  - unchanged bounded timeout at `45s`: `compiler_seen/src/main_compiler.seen`
+- That uncommitted continuation is now the first dedicated receiver-helper extraction on top of the earlier method-call receiver-preparation split:
+  - shared identifier quoting, receiver-type helpers, receiver-pointer normalization, prepared dyn-trait dispatch, and builtin receiver emission helpers now live in `ir_method_receiver.seen`.
+  - `llvm_ir_gen.seen` keeps the AST-facing receiver wrappers, but shared helper logic for `inferTypeRegistryFieldType()`, `getSemanticFieldType()`, `resolveMethodFieldPathType()`, `tryResolveEnumLiteralMethodReceiver()`, `normalizeExplicitMethodReceiverType()`, module-constant receiver type fallback, pointer normalization, prepared dyn-trait emission, and builtin receiver emission now routes through the extracted helper module.
+  - `main_compiler.seen` bootstrap registration now includes `codegen.ir_method_receiver`.
+  - follow-up bootstrap-hardening fixes in the same working tree now also:
+    - route `getCurrentFunctionOptions()` through shared `CodegenState` instead of a local `FunctionLoweringOptions` cache.
+    - store `g_sharedCodegenState` as an `Int` handle in `type_registry.seen` so the frozen bootstrap compiler does not lower it as a `ptr` global.
+    - mark `runtimeDeclsLoaded = true` immediately after `emitCoreRuntimeDecls(...)` so `emitTypecheckerDecls(...)` does not emit a second conflicting `Result_*` declaration block.
+    - avoid direct indexed nested imported-type accesses in the most fragile spots by first binding the indexed node to a local (`computeJsonObjectSize()`, `generateJsonDeserializeImpl()` init field loop, `collectDefaultParamStringConstantsFromFunction()`, `resolveMethodReturnTypeFromList()`).
+- Last known validation for the uncommitted continuation used a `MemTotal / 4` cap of `16229809` KB:
+  - passed: `./bootstrap/stage1_frozen check compiler_seen/src/test_ir_method_receiver_import.seen` while the temporary harness existed, which confirmed the extracted helper module resolved cleanly under the frozen bootstrap compiler.
+  - passed after the follow-up bootstrap-hardening fixes: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - reached and cleared `Optimization stats (module 5)` for `compiler_seen/src/codegen/llvm_ir_gen.seen`, then cleared the next frozen-bootstrap blockers in `type_registry.seen` (module 37), `ir_decl_features.seen` (module 11), and `parser/real_parser.seen` (module 6) during bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen ... --fast --no-cache --no-fork` runs.
+  - the `store %SeenString 0, ptr %4` failure previously seen at `/tmp/seen_module_5.ll:84130` inside `LLVMIRGenerator_collectDefaultParamStringConstantsFromFunction` was fixed by rewriting that indexed imported-type access to bind the parameter node first.
+  - after that rewrite, a fresh bounded stage1 compile again got through `Optimization stats (module 5)` and into Pass 2b, and a direct bounded `opt -O3 /tmp/seen_module_5.ll` repro also succeeded, which confirms the old module-5 `String`-collapse failure is gone.
+  - the latest full bounded stage1 compile still does not finish cleanly, but the remaining Pass 2b failure was no longer isolated cleanly from the parallel optimizer noise before the run ended; the next debugging pass should capture the first failing module explicitly after module 5 is skipped as a suspect.
 - If resuming in the same area, the cleanest next slices are:
-  - move the receiver-preparation helpers out of `llvm_ir_gen.seen` into a dedicated helper module once the current split feels stable.
-  - or keep shrinking the method-call cluster by extracting the builtin receiver helpers around `tryGenerateLengthLikeMethodCall()` through `tryGenerateBuiltinMethodCall()`.
+  - isolate the next failing Pass 2b module now that the old `/tmp/seen_module_5.ll:84130` `store %SeenString 0` repro is fixed and module 5 itself survives standalone `opt -O3`.
+  - keep moving the remaining receiver-preparation wrappers out of `llvm_ir_gen.seen` into `ir_method_receiver.seen`, especially the implicit-`this` field receiver path and the rebuilt chained-literal receiver path.
+  - after the bootstrap path is a bit calmer, the next structural extraction candidate is still the static/unresolved method-call dispatch cluster around `resolveStaticMethodClassNames()` / `tryGenerateStaticMethodCall()` / `tryHandleUnresolvedMethodReceiver()`.
   - Shared loop analysis is now routed through `ir_control_flow.seen` for:
     - memcpy/memmove pattern detection.
     - literal loop-bound extraction and tile-size computation.
@@ -487,6 +494,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Split the constructor/runtime call cluster further by extracting dedicated helpers for array constructors, collection constructors, repr-C constructors, heap-backed class allocation, default array-field initialization, positional constructor stores, option constructors, `super`, empty-callee evaluation, print/println, file-IO builtins, and panic lowering. This turns `tryGenerateConstructorLikeCall()` and `tryGenerateRuntimeBuiltinCall()` into short orchestration layers instead of mixed constructor/runtime dispatch blobs.
 - Split the method-call fallback cluster further by extracting focused helpers for resolved option/smallvec/collection/array fast paths, static receiver-name resolution, specialized static factories, shared prepared static-call emission, unresolved receiver call fallback, standalone parser fallback, unresolved primitive conversion fallback, and unresolved receiver defaulting. This turns the top of `generateMethodCall()` into explicit phases instead of interleaving fast paths, static dispatch, and fallback behavior in three large helpers.
 - Split the receiver-preparation cluster further by extracting explicit dyn-trait, option, hot-reload, and collection receiver helpers; simple-variable dyn/SIMD receiver helpers; module-constant receiver loading/type fallback; and implicit-`this` field receiver helpers. This shrinks both `tryPrepareExplicitMethodReceiver()` and `tryResolveSimpleLiteralMethodReceiver()` into short orchestration layers while keeping `generateMethodCall()` itself at the phase-dispatch level.
+- Moved the shared receiver-type utilities that no longer need direct AST/state mutation into `ir_method_receiver.seen`, then rewired `llvm_ir_gen.seen` to delegate identifier quoting, TypeRegistry field inference, semantic field lookup, method-field path resolution, enum literal receiver resolution, explicit receiver-type normalization, and module-constant fallback typing through that helper module. This is the first receiver-preparation slice that now lives in its own file instead of only being split into class-local helpers.
+- Expanded `ir_method_receiver.seen` further so it now also owns receiver-pointer normalization, prepared dyn-trait vtable dispatch, explicit option/hot-reload/collection receiver emission, and builtin receiver emission for length-like, StringBuilder, primitive-conversion, numeric, and string-like methods. `llvm_ir_gen.seen` now stays at the “prepare args, choose phase” layer for that part of `generateMethodCall()` instead of interleaving helper selection with low-level IR string emission.
 
 ### Validation Status
 
@@ -530,6 +539,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_class_method_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_assignment_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_variable_gen.seen` also reaches the expected `missing main` diagnostic.
+- `./bootstrap/stage1_frozen check compiler_seen/src/test_ir_method_receiver_import.seen` passed under a `MemTotal / 4` cap before that temporary harness was removed, which confirms `codegen.ir_method_receiver` resolves cleanly under the frozen bootstrap compiler.
+- `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_check_stage1_b --fast --no-cache --no-fork` also reached `Optimization stats (module 5)` for `compiler_seen/src/codegen/llvm_ir_gen.seen` under the same cap after the larger receiver-emission extraction.
+- That full stage1 bootstrap path is now known to under-register newer helper modules carried only in the source tree, so it is not yet a complete validator for post-freeze helper extractions; in this run the failure surfaced as `quoteIdentIfNeededImpl()` lowering with a fallback `i64` return type inside `/tmp/seen_module_5.ll`.
 - Bounded direct checks of `compiler_seen/src/main_compiler.seen` and `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest method-call receiver-preparation split on top of the earlier method-call fallback split, constructor/runtime call split, loop-lowering split, class-method emission split, type/class-emission split, block/statement pipeline split, module-entry orchestration split, method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
 - The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 

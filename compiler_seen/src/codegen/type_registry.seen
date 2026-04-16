@@ -669,15 +669,15 @@ class CodegenState {
     }
 }
 
-var g_sharedCodegenState: CodegenState
+var g_sharedCodegenState: Int = 0
 var g_sharedCodegenStateInitialized: Bool = false
 
 fun getSharedCodegenState() r: CodegenState {
     if not g_sharedCodegenStateInitialized {
-        g_sharedCodegenState = CodegenState.new()
+        g_sharedCodegenState = CodegenState.new() as Int
         g_sharedCodegenStateInitialized = true
     }
-    return g_sharedCodegenState
+    return g_sharedCodegenState as CodegenState
 }
 
 // =========================================================================

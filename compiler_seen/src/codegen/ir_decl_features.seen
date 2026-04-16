@@ -780,7 +780,9 @@ fun computeJsonObjectSize(classNode: ClassNode, structNames: Array<String>, stru
     var totalSize = 0
     var fi = 0
     while fi < classNode.fields.length() {
-        totalSize = totalSize + getTypeSizeReg(classNode.fields[fi].paramType.typeName, structNames, structSizes)
+        let field = classNode.fields[fi]
+        let fieldType = field.paramType.typeName
+        totalSize = totalSize + getTypeSizeReg(fieldType, structNames, structSizes)
         fi = fi + 1
     }
     if totalSize == 0 {
@@ -847,7 +849,8 @@ fun generateJsonDeserializeImpl(output: StringBuilder, classNode: ClassNode, str
     var initByteOff = 0
     while initFi < classNode.fields.length() {
         let initFis = initFi.toString()
-        let initFieldType = classNode.fields[initFi].paramType.typeName
+        let initField = classNode.fields[initFi]
+        let initFieldType = initField.paramType.typeName
         var isArrayField = 0
         if initFieldType.startsWith("Array<") {
             isArrayField = 1

@@ -53,9 +53,9 @@ import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inf
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
 import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
-import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
-import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitLengthSizeMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_call_dispatch.{emitDynTraitVtableCallImpl, emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
+import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
+import codegen.ir_call_dispatch.{emitSimdReductionVarImpl, emitStaticCollectionNewImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitArrayWithLengthImpl, emitOptionUnwrapSpecializedImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, resolveStandaloneParserWorkaroundRetTypeImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitHotReloadMethodCallImpl, resolveMethodReceiverAbiImpl, extractOptionInnerTypeImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
@@ -63,6 +63,7 @@ import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl, emitPreparedDynTraitMethodCallImpl, tryGenerateExplicitOptionMethodCallImpl, tryGenerateExplicitHotReloadMethodCallImpl, tryGenerateExplicitCollectionMethodCallImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
@@ -293,8 +294,6 @@ var g_insideUnsafe: Int = 0
 // Using Array<Int> so extracted free functions can mutate via reference-type params
 var g_regBox: Array<Int> = Array<Int>()
 var g_blockBox: Array<Int> = Array<Int>()
-var g_currentFunctionOptions: FunctionLoweringOptions
-var g_currentFunctionOptionsInitialized: Bool = false
 
 // Try/catch label for error branching within try blocks
 var g_tryCatchLabel: String = ""
@@ -878,22 +877,11 @@ fun countCommaFields(data: String) r: Int {
 // LLVM requires @"name" / %"name" syntax for identifiers with non-ASCII chars.
 // ASCII-only names pass through unchanged (zero overhead for common case).
 fun quoteIdentIfNeeded(name: String) r: String {
-    var i = 0
-    while i < name.length() {
-        if name.charAt(i).toInt() >= 128 {
-            return "\"" + name + "\""
-        }
-        i = i + 1
-    }
-    return name
+    return quoteIdentIfNeededImpl(name)
 }
 
 fun getCurrentFunctionOptions() r: FunctionLoweringOptions {
-    if not g_currentFunctionOptionsInitialized {
-        g_currentFunctionOptions = FunctionLoweringOptions.new()
-        g_currentFunctionOptionsInitialized = true
-    }
-    return g_currentFunctionOptions
+    return getSharedCodegenState().functionOptions
 }
 
 // The main code generator class. One instance is created in main_compiler.seen
@@ -3143,37 +3131,12 @@ class LLVMIRGenerator {
     }
 
     fun inferTypeRegistryFieldType(fieldName: String) r: String {
-        if fieldName == "structNames" { return "Array<String>" }
-        if fieldName == "structLayouts" { return "Array<String>" }
-        if fieldName == "structFieldNames" { return "Array<String>" }
-        if fieldName == "structFieldTypes" { return "Array<String>" }
-        if fieldName == "structLlvmFieldTypes" { return "Array<String>" }
-        if fieldName == "structSizes" { return "Array<Int>" }
-        if fieldName == "structMethodNames" { return "Array<String>" }
-        if fieldName == "structMethodRetTypes" { return "Array<String>" }
-        if fieldName == "funcNames" { return "Array<String>" }
-        if fieldName == "funcRetTypes" { return "Array<String>" }
-        if fieldName == "classMethodBaseNames" { return "Array<String>" }
-        if fieldName == "typeHeaderPath" { return "String" }
-        return ""
+        return inferTypeRegistryFieldTypeImpl(fieldName)
     }
 
     fun getSemanticFieldType(structName: String, fieldName: String) r: String {
-        let structIdx = findStruct(structName)
-        if structIdx >= 0 {
-            let fieldNamesStr = structFieldNames[structIdx]
-            let fieldTypesStr = structFieldTypes[structIdx]
-            if fieldNamesStr != "" and fieldTypesStr != "" {
-                let semanticFieldType = getFieldTypeFromListsReg(fieldNamesStr, fieldTypesStr, fieldName)
-                if semanticFieldType != "" {
-                    return semanticFieldType
-                }
-            }
-        }
-        if structName == "TypeRegistry" {
-            return inferTypeRegistryFieldType(fieldName)
-        }
-        return ""
+        return getSemanticFieldTypeImpl(structName, fieldName, structNames,
+            structFieldNames, structFieldTypes)
     }
     // Resolve the type of a chained path like "item.function.returnType"
     // Returns the type of the final field in the chain
@@ -4971,6 +4934,7 @@ class LLVMIRGenerator {
     // emitters in ir_decl_runtime, ir_decl_parser, ir_decl_features.
     fun emitRuntimeDeclarations(definedFuncs: Array<String>) r: Void {
         emitCoreRuntimeDecls(output, runtimeDeclsLoaded, definedFuncs)
+        runtimeDeclsLoaded = true
         emitStringAndIODecls(output, definedFuncs)
         emitParserDecls(output, definedFuncs)
         emitTypecheckerDecls(output, runtimeDeclsLoaded, definedFuncs)
@@ -11547,30 +11511,9 @@ class LLVMIRGenerator {
     }
 
     fun resolveMethodFieldPathType(baseType: String, fieldPath: String) r: String {
-        if baseType == "" or fieldPath == "" {
-            return ""
-        }
-        if fieldPath.contains(".") {
-            let chainedType = resolveChainedPathSuffixTypeImpl(baseType, fieldPath,
-                structNames, structFieldNames, structFieldTypes,
-                structMethodNames, structMethodRetTypes)
-            if chainedType != "" {
-                return chainedType
-            }
-        }
-        let semanticFieldType = getSemanticFieldType(baseType, fieldPath)
-        if semanticFieldType != "" and semanticFieldType != "Int" {
-            return semanticFieldType
-        }
-        let seenFieldType = getSeenFieldType(baseType, fieldPath)
-        if seenFieldType != "" and seenFieldType != "Int" {
-            return seenFieldType
-        }
-        let mappedType = mapFieldNameToReceiverType(fieldPath)
-        if mappedType != "" {
-            return mappedType
-        }
-        return seenFieldType
+        return resolveMethodFieldPathTypeImpl(baseType, fieldPath, structNames,
+            structFieldNames, structFieldTypes, structMethodNames,
+            structMethodRetTypes)
     }
 
     fun resolveLiteralMethodReceiverType(literalValue: String) r: String {
@@ -11608,17 +11551,8 @@ class LLVMIRGenerator {
 
     fun tryResolveEnumLiteralMethodReceiver(expr: ParserExpressionNode,
         receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Int {
-
-        if expr.literalValue == "" or not expr.literalValue.contains(".") {
-            return 0
-        }
-        let pathParts = splitFirstPathDotImpl(expr.literalValue)
-        if pathParts[0] != "SeenTokenType" {
-            return 0
-        }
-        receiverRegBox[0] = getSeenTokenTypeValue(pathParts[1]).toString()
-        receiverTypeBox[0] = "Int"
-        return 1
+        return tryResolveEnumLiteralMethodReceiverImpl(expr, receiverRegBox,
+            receiverTypeBox)
     }
 
     fun tryResolveImplicitThisChainedLiteralMethodReceiver(expr: ParserExpressionNode,
@@ -11654,88 +11588,57 @@ class LLVMIRGenerator {
         return 1
     }
 
+    fun prepareMethodCallArgRegsAndTypes(args: Array<ParserExpressionNode>,
+        argRegs: Array<String>, argTypes: Array<String>) r: Void {
+
+        var argIdx = 0
+        while argIdx < args.length() {
+            let argReg = generateExpression(args[argIdx])
+            let argType = inferExpressionType(args[argIdx])
+            argRegs.push(argReg)
+            argTypes.push(mapType(argType))
+            argIdx = argIdx + 1
+        }
+    }
+
     fun tryGenerateExplicitDynTraitMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String, receiverType: String) r: String {
-
-        if not receiverType.startsWith("dyn ") {
-            return ""
-        }
-
-        let dynTraitName = receiverType.substring(4, receiverType.length())
-        let dynTraitIdx = findStruct(dynTraitName)
-        var dynMethodNames = ""
-        var dynRetTypes = ""
-        if dynTraitIdx >= 0 {
-            dynMethodNames = structMethodNames[dynTraitIdx]
-            dynRetTypes = structMethodRetTypes[dynTraitIdx]
-        }
-
         var dynArgRegs = Array<String>()
         var dynArgTypes = Array<String>()
-        var dynAIdx = 0
-        while dynAIdx < expr.arguments.length() {
-            let dynArgReg = generateExpression(expr.arguments[dynAIdx])
-            let dynArgType = inferExpressionType(expr.arguments[dynAIdx])
-            dynArgRegs.push(dynArgReg)
-            dynArgTypes.push(mapType(dynArgType))
-            dynAIdx = dynAIdx + 1
-        }
-        return emitDynTraitVtableCallImpl(output, g_regBox, receiverReg, dynTraitName,
-            methodName, dynMethodNames, dynRetTypes, dynArgRegs, dynArgTypes, 0)
+        prepareMethodCallArgRegsAndTypes(expr.arguments, dynArgRegs, dynArgTypes)
+        return emitPreparedDynTraitMethodCallImpl(output, g_regBox, receiverReg,
+            receiverType, methodName, structNames, structMethodNames,
+            structMethodRetTypes, dynArgRegs, dynArgTypes, 0)
     }
 
     fun normalizeExplicitMethodReceiverType(methodName: String, receiverType: String) r: String {
-        if receiverType == "String" or receiverType == "" or receiverType == "Unknown" {
-            if methodName == "isSome" or methodName == "isNone" or methodName == "unwrap" {
-                return "Option"
-            }
-        }
-        return receiverType
+        return normalizeExplicitMethodReceiverTypeImpl(methodName, receiverType)
     }
 
     fun tryGenerateExplicitOptionMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String, receiverType: String) r: String {
-
-        let isOptionType = receiverType == "Option" or receiverType.startsWith("Option<")
-        if not isOptionType {
-            return ""
-        }
-
         var optDefaultReg = "0"
         if (methodName == "unwrapOr" or methodName == "UnwrapOr") and expr.arguments.length() > 0 {
             optDefaultReg = generateExpression(expr.arguments[0])
         }
-        return emitOptionMethodImpl(output, g_regBox, g_blockLabelBox, methodName, receiverReg, optDefaultReg)
+        return tryGenerateExplicitOptionMethodCallImpl(output, g_regBox,
+            g_blockLabelBox, methodName, receiverReg, receiverType,
+            optDefaultReg)
     }
 
     fun tryGenerateExplicitHotReloadMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String, receiverType: String) r: String {
-
-        if methodName == "__seen_hot_get_size" or methodName == "__seen_hot_get_version" or methodName == "__seen_hot_get_state" {
-            let hotRecvPtr = convertReceiverToPtr(receiverReg, receiverType)
-            let hotResultReg = getNextReg()
-            output.append("  " + hotResultReg + " = call i64 @" + quoteIdentIfNeeded(receiverType + "_" + methodName) + "(ptr " + hotRecvPtr + ")\n")
-            return hotResultReg
+        var hotStateArg = "0"
+        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
+            hotStateArg = generateExpression(expr.arguments[0])
         }
-        if methodName == "__seen_hot_set_state" {
-            let hotRecvPtr2 = convertReceiverToPtr(receiverReg, receiverType)
-            var hotStateArg = "0"
-            if expr.arguments.length() > 0 {
-                hotStateArg = generateExpression(expr.arguments[0])
-            }
-            output.append("  call void @" + quoteIdentIfNeeded(receiverType + "_" + methodName) + "(ptr " + hotRecvPtr2 + ", i64 " + hotStateArg + ")\n")
-            return "0"
-        }
-        return ""
+        return tryGenerateExplicitHotReloadMethodCallImpl(output, g_regBox,
+            methodName, receiverReg, receiverType, hotStateArg,
+            g_reprCClassNames, structNames)
     }
 
     fun tryGenerateExplicitCollectionMethodCall(expr: ParserExpressionNode,
         methodName: String, receiverReg: String, receiverType: String) r: String {
-
-        let isCollectionTypeC = receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or receiverType.startsWith("HashMap<") or receiverType == "HashMap" or receiverType.startsWith("StringHashMap<") or receiverType == "StringHashMap" or receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
-        if not isCollectionTypeC {
-            return ""
-        }
 
         var collArg0c = "0"
         var collArg1c = "0"
@@ -11745,8 +11648,8 @@ class LLVMIRGenerator {
         if expr.arguments.length() > 1 {
             collArg1c = generateExpression(expr.arguments[1])
         }
-        return dispatchCollectionMethodImpl(output, g_regBox, methodName, receiverReg,
-            receiverType, collArg0c, collArg1c)
+        return tryGenerateExplicitCollectionMethodCallImpl(output, g_regBox,
+            methodName, receiverReg, receiverType, collArg0c, collArg1c)
     }
 
     fun tryPrepareExplicitMethodReceiver(expr: ParserExpressionNode, methodName: String,
@@ -11810,32 +11713,12 @@ class LLVMIRGenerator {
 
     fun tryGenerateSimpleVariableDynTraitMethodCall(expr: ParserExpressionNode,
         methodName: String, receiverReg: String, varType: String) r: String {
-
-        if not varType.startsWith("dyn ") {
-            return ""
-        }
-
-        let svDynTraitName = varType.substring(4, varType.length())
-        let svDynTraitIdx = findStruct(svDynTraitName)
-        var svDynMethodNames = ""
-        var svDynRetTypes = ""
-        if svDynTraitIdx >= 0 {
-            svDynMethodNames = structMethodNames[svDynTraitIdx]
-            svDynRetTypes = structMethodRetTypes[svDynTraitIdx]
-        }
-
         var svDynArgRegs = Array<String>()
         var svDynArgTypes = Array<String>()
-        var svDynAIdx = 0
-        while svDynAIdx < expr.arguments.length() {
-            let svDynArgReg = generateExpression(expr.arguments[svDynAIdx])
-            let svDynArgType = inferExpressionType(expr.arguments[svDynAIdx])
-            svDynArgRegs.push(svDynArgReg)
-            svDynArgTypes.push(mapType(svDynArgType))
-            svDynAIdx = svDynAIdx + 1
-        }
-        return emitDynTraitVtableCallImpl(output, g_regBox, receiverReg, svDynTraitName,
-            methodName, svDynMethodNames, svDynRetTypes, svDynArgRegs, svDynArgTypes, 1)
+        prepareMethodCallArgRegsAndTypes(expr.arguments, svDynArgRegs, svDynArgTypes)
+        return emitPreparedDynTraitMethodCallImpl(output, g_regBox, receiverReg,
+            varType, methodName, structNames, structMethodNames,
+            structMethodRetTypes, svDynArgRegs, svDynArgTypes, 1)
     }
 
     fun tryPrepareLocalVariableMethodReceiver(expr: ParserExpressionNode, methodName: String,
@@ -11866,15 +11749,7 @@ class LLVMIRGenerator {
     }
 
     fun fallbackModuleConstantMethodReceiverType(llvmType: String, receiverType: String) r: String {
-        if receiverType != "" {
-            return receiverType
-        }
-        if llvmType == "i64" { return "Int" }
-        if llvmType == "double" { return "Float" }
-        if llvmType == "i1" { return "Bool" }
-        if llvmType == "%SeenString" { return "String" }
-        if llvmType == "ptr" { return "ptr" }
-        return receiverType
+        return fallbackModuleConstantMethodReceiverTypeImpl(llvmType, receiverType)
     }
 
     fun tryPrepareModuleConstantMethodReceiver(varName: String,
@@ -12020,25 +11895,8 @@ class LLVMIRGenerator {
 
     fun tryGenerateLengthLikeMethodCall(methodName: String, receiverReg: String,
         receiverType: String) r: String {
-
-        if methodName != "length" and methodName != "len" and methodName != "size" {
-            return ""
-        }
-
-        let isNonArrayColl = receiverType.startsWith("List<") or receiverType == "List" or
-            receiverType.startsWith("Vec<") or receiverType == "Vec" or
-            receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap"
-        if isNonArrayColl {
-            let collectionPtrReg = convertReceiverToPtr(receiverReg, receiverType)
-            let resultReg = getNextReg()
-            output.append("  " + resultReg + " = call i64 @seen_arr_length_ptr(ptr " + collectionPtrReg + ")\n")
-            return resultReg
-        }
-        if receiverType == "StringBuilder" {
-            let sbPtrReg = convertReceiverToPtr(receiverReg, receiverType)
-            return emitStringBuilderMethodImpl(output, g_regBox, "length", sbPtrReg, "", 0)
-        }
-        return emitLengthSizeMethodImpl(output, g_regBox, receiverReg, receiverType)
+        return tryGenerateLengthLikeMethodCallImpl(output, g_regBox, methodName,
+            receiverReg, receiverType, g_reprCClassNames, structNames)
     }
 
     fun tryGenerateStringBuilderReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
@@ -12069,28 +11927,15 @@ class LLVMIRGenerator {
                 sbArg0 = generateExpression(expr.arguments[0])
             }
         }
-
-        let sbPtrReg = convertReceiverToPtr(receiverReg, receiverType)
-        return emitStringBuilderMethodImpl(output, g_regBox, methodName, sbPtrReg, sbArg0, isFloatFused)
+        return emitStringBuilderReceiverMethodCallImpl(output, g_regBox,
+            methodName, receiverReg, receiverType, sbArg0, isFloatFused,
+            g_reprCClassNames, structNames)
     }
 
     fun tryGeneratePrimitiveConversionMethodCall(methodName: String, receiverReg: String,
         receiverType: String) r: String {
-
-        if methodName == "toString" {
-            var isClassReceiver = 0
-            if isClassType(receiverType) {
-                isClassReceiver = 1
-            }
-            return emitToStringMethodImpl(output, g_regBox, receiverReg, receiverType, isClassReceiver)
-        }
-        if methodName == "toInt" {
-            return emitToIntMethodImpl(output, g_regBox, receiverReg, receiverType)
-        }
-        if methodName == "toFloat" {
-            return emitToFloatMethodImpl(output, g_regBox, receiverReg, receiverType)
-        }
-        return ""
+        return tryGeneratePrimitiveConversionMethodCallImpl(output, g_regBox,
+            methodName, receiverReg, receiverType, structNames)
     }
 
     fun tryGenerateNumericReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
@@ -12111,17 +11956,12 @@ class LLVMIRGenerator {
         if expr.arguments.length() > 1 {
             numArg1 = generateExpression(expr.arguments[1])
         }
-        return emitNumericMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, numArg0, numArg1)
+        return tryGenerateNumericReceiverMethodCallImpl(output, g_regBox,
+            methodName, receiverReg, receiverType, numArg0, numArg1)
     }
 
     fun tryGenerateStringLikeReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String, receiverType: String) r: String {
-
-        let jsonResult = emitJsonValueMethodImpl(output, g_regBox, methodName, receiverReg, receiverType)
-        if jsonResult != "" {
-            return jsonResult
-        }
-
         var strArg0 = ""
         var strArg1 = ""
         let strArgCount = expr.arguments.length()
@@ -12131,27 +11971,9 @@ class LLVMIRGenerator {
         if strArgCount > 1 {
             strArg1 = generateExpression(expr.arguments[1])
         }
-
-        let strResult = emitStringMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, strArg0, strArg1, strArgCount)
-        if strResult != "" {
-            return strResult
-        }
-        if methodName == "toCString" and receiverType == "String" {
-            return emitCStrConversionImpl(output, g_regBox, "str_to_cstr", receiverReg)
-        }
-        if methodName == "toSeenString" and receiverType == "Int" {
-            return emitCStrConversionImpl(output, g_regBox, "cstr_to_str", receiverReg)
-        }
-        if methodName == "trim" {
-            if receiverType != "String" and receiverType != "" {
-                let funcName = receiverType + "_trim"
-                let trimReceiverReg = convertReceiverToPtr(receiverReg, receiverType)
-                let resultReg = getNextReg()
-                output.append("  " + resultReg + " = call %SeenString @" + quoteIdentIfNeeded(funcName) + "(ptr " + trimReceiverReg + ", %SeenString " + strArg0 + ")\n")
-                return resultReg
-            }
-        }
-        return ""
+        return tryGenerateStringLikeReceiverMethodCallImpl(output, g_regBox,
+            methodName, receiverReg, receiverType, strArg0, strArg1,
+            strArgCount, g_reprCClassNames, structNames)
     }
 
     fun tryGenerateBuiltinMethodCall(expr: ParserExpressionNode, methodName: String,
@@ -12665,18 +12487,8 @@ class LLVMIRGenerator {
     // before dereferencing. Returns a new register with the ptr value if
     // conversion was needed, or the original register unchanged for non-class types.
     fun convertReceiverToPtr(receiverReg: String, receiverType: String) r: String {
-        // @repr(C) value types are NOT heap-allocated — no inttoptr
-        if g_reprCClassNames != "" {
-            if g_reprCClassNames.contains(receiverType + "|") {
-                return receiverReg
-            }
-        }
-        if isClassType(receiverType) {
-            let ptrConvReg = getNextReg()
-            output.append("  " + ptrConvReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
-            return ptrConvReg
-        }
-        return receiverReg
+        return convertReceiverToPtrImpl(output, g_regBox, receiverReg,
+            receiverType, g_reprCClassNames, structNames)
     }
 
     // Check whether a Seen type is a data type (value semantics, passed by
@@ -12880,7 +12692,8 @@ class LLVMIRGenerator {
     fun collectDefaultParamStringConstantsFromFunction(fn: FunctionNode) r: Void {
         var paramIdx = 0
         while paramIdx < fn.params.length() {
-            let paramTypeName = fn.params[paramIdx].paramType.typeName
+            let param = fn.params[paramIdx]
+            let paramTypeName = param.paramType.typeName
             if paramTypeName.contains("~default~") {
                 let defaultPos = paramTypeName.indexOf("~default~", 0)
                 let defaultValue = paramTypeName.substring(defaultPos + 9, paramTypeName.length())
@@ -12986,14 +12799,15 @@ class LLVMIRGenerator {
     }
 
     fun resolveMethodReturnTypeFromList(className: String, methods: Array<FunctionNode>, methodIdx: Int) r: String {
-        let declaredType = normalizeDeclaredTypeNode(methods[methodIdx].returnType)
+        let method = methods[methodIdx]
+        let declaredType = normalizeDeclaredTypeNode(method.returnType)
         if declaredType != "" and declaredType != "Unknown" {
             return declaredType
         }
-        if methods[methodIdx].name == "new" {
+        if method.name == "new" {
             return className
         }
-        let inferredType = inferBlockReturnType(className, methods[methodIdx].body)
+        let inferredType = inferBlockReturnType(className, method.body)
         if inferredType != "" and inferredType != "Unknown" {
             return inferredType
         }
