@@ -220,8 +220,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `ef24b17` with message `Extract final instance call helpers`.
-- The continuation from `596169c` to `ef24b17` touched:
+- Latest committed refactor commit available from a clean checkout is `66536aa` with message `Push more instance call helpers into finalize`.
+- The continuation from `ef24b17` to `66536aa` touched:
   - `compiler_seen/src/codegen/ir_method_finalize.seen`
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
   - `refactor.md`
