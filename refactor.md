@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,714` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,692` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -32,7 +32,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also removes the one-use static/parser fallback wrappers from `llvm_ir_gen.seen`, so `tryGenerateStaticMethodCall()` and `tryHandleUnresolvedMethodReceiver()` now own the orchestration directly instead of bouncing through separate local helper layers.
 - The latest continuation also removes the one-use resolved-receiver fast-path and builtin-method wrapper ladders from `llvm_ir_gen.seen`, so `tryGenerateResolvedReceiverFastPathMethodCall()` and `tryGenerateBuiltinMethodCall()` now dispatch directly to the same low-level helpers instead of routing through extra local shells.
 - The latest continuation also removes the remaining direct forwarding wrappers in the receiver-preparation block, so literal receiver-type resolution, explicit receiver normalization, module-constant fallback typing, enum literal resolution, explicit option/hot-reload/collection fast paths, and simple-variable dyn-trait dispatch now call the shared `ir_method_receiver.seen` helpers directly instead of bouncing through one-use locals.
-- The latest continuation also inlines the remaining one-use implicit-`this` field and literal-receiver shells into their parent phases, so `tryPrepareImplicitThisFieldMethodReceiver()`, `tryResolveSimpleLiteralMethodReceiver()`, and `tryPrepareMethodCallReceiver()` now own that local orchestration directly instead of bouncing through extra single-call helpers.
+- The latest continuation also inlines the remaining one-use implicit-`this` chained-literal, implicit-field, and simple-literal receiver shells into `tryPrepareMethodCallReceiver()`, so that phase now owns the local dotted-literal, local-variable, module-constant, and implicit-`this` field orchestration directly instead of bouncing through extra single-call helpers.
 - The latest continuation also folds the one-use rebuilt chained-literal probe and local-variable receiver shim into their parent phases, so the remaining receiver-preparation flow is concentrated in a smaller set of phase helpers instead of fanning back out into extra local probes.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
@@ -185,8 +185,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `3a83310` with message `Prune receiver preparation wrappers`.
-- The continuation from `2e45874` to `3a83310` touched:
+- Latest committed refactor commit available from a clean checkout is `b0a2675` with message `Inline more receiver preparation phases`.
+- The continuation from `b0a2675` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
   - `refactor.md`
 - That continuation keeps expanding the shared method-call helper surface without adding another bootstrap compiler module:
@@ -219,6 +219,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - after folding the rebuilt chained-literal probe and local-variable receiver shim into their parent phases, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_receiver_parent_inline --fast --no-cache --no-fork` completed successfully under the same cap.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - after merging the remaining implicit-`this` chained-literal, implicit-field, and simple-literal receiver helpers into `tryPrepareMethodCallReceiver()`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_receiver_merge_followup --fast --no-cache --no-fork` completed successfully under the same cap.
   - passed: `./bootstrap/stage1_frozen check compiler_seen/src/test_ir_method_receiver_import.seen` while the temporary harness existed, which confirmed the extracted helper module resolved cleanly under the frozen bootstrap compiler.
   - passed after the follow-up bootstrap-hardening fixes: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - reached and cleared `Optimization stats (module 5)` for `compiler_seen/src/codegen/llvm_ir_gen.seen`, then cleared the next frozen-bootstrap blockers in `type_registry.seen` (module 37), `ir_decl_features.seen` (module 11), `parser/real_parser.seen` (module 6), and the final link step (`lastIndexOf`) during bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen ... --fast --no-cache --no-fork` runs.

@@ -11358,43 +11358,6 @@ class LLVMIRGenerator {
             structMethodNames, structMethodRetTypes)
     }
 
-    fun tryResolveImplicitThisChainedLiteralMethodReceiver(expr: ParserExpressionNode,
-        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Int {
-
-        if expr.literalValue == "" or not expr.literalValue.contains(".") {
-            return 0
-        }
-        let pathParts = splitFirstPathDotImpl(expr.literalValue)
-        let thisIdx = findVar("this")
-        if thisIdx < 0 {
-            return 0
-        }
-        let thisType = varTypes[thisIdx]
-        let firstFieldType = resolveMethodFieldPathTypeImpl(thisType,
-            pathParts[0], structNames, structFieldNames, structFieldTypes,
-            structMethodNames, structMethodRetTypes)
-        if firstFieldType == "" {
-            return 0
-        }
-
-        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, varRegs[thisIdx])
-        var accessFieldReg = ""
-        if isClassType(firstFieldType) {
-            let firstFieldReg = generateFieldAccess(thisPtrReg, thisType, pathParts[0])
-            let ptrConvReg = getNextReg()
-            output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldReg + " to ptr\n")
-            accessFieldReg = ptrConvReg
-        } else {
-            accessFieldReg = generateFieldAccessPtr(thisPtrReg, thisType, pathParts[0])
-        }
-
-        receiverRegBox[0] = generateFieldAccess(accessFieldReg, firstFieldType, pathParts[1])
-        receiverTypeBox[0] = resolveMethodFieldPathTypeImpl(firstFieldType,
-            pathParts[1], structNames, structFieldNames, structFieldTypes,
-            structMethodNames, structMethodRetTypes)
-        return 1
-    }
-
     fun prepareMethodCallArgRegsAndTypes(args: Array<ParserExpressionNode>,
         argRegs: Array<String>, argTypes: Array<String>) r: Void {
 
@@ -11482,76 +11445,73 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun tryPrepareImplicitThisFieldMethodReceiver(varName: String,
-        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Void {
-
-        let thisIdx = findVar("this")
-        if thisIdx < 0 {
-            return
-        }
-
-        let thisReg = varRegs[thisIdx]
-        let thisType = varTypes[thisIdx]
-        if thisType == "LLVMIRGenerator" {
-            let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-            if idxCheck >= 0 {
-                let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
-                    g_regBox, thisReg)
-                receiverRegBox[0] = generateFieldAccess(thisPtrReg,
-                    "LLVMIRGenerator", varName)
-                receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
-            }
-            if receiverRegBox[0] != "" {
-                return
-            }
-        }
-
-        let structIdx = findStruct(thisType)
-        output.append("; DEBUG methodCall: varName=" + varName + " thisType=" + thisType + " structIdx=" + structIdx.toString() + "\n")
-        if structIdx >= 0 {
-            let fieldIdx = getFieldInfo(thisType, varName)
-            output.append("; DEBUG fieldIdx=" + fieldIdx.toString() + "\n")
-            if fieldIdx >= 0 {
-                let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
-                    g_regBox, thisReg)
-                receiverRegBox[0] = generateFieldAccess(thisPtrReg, thisType,
-                    varName)
-                output.append("; DEBUG after generateFieldAccess: receiverReg=" +
-                    receiverRegBox[0] + "\n")
-                receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
-                output.append("; DEBUG receiverType=" + receiverTypeBox[0] +
-                    "\n")
-            }
-            if receiverRegBox[0] != "" {
-                return
-            }
-        }
-        if structIdx < 0 {
-            output.append("; DEBUG: thisType=" + thisType + " varName=" +
-                varName + "\n")
-            if thisType == "SeenLexer" and varName == "keywordManager" {
-                output.append("; DEBUG: Matched SeenLexer.keywordManager!\n")
-                let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
-                    g_regBox, thisReg)
-                let gepReg = getNextReg()
-                output.append("  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n")
-                receiverRegBox[0] = getNextReg()
-                output.append("  " + receiverRegBox[0] + " = load ptr, ptr " +
-                    gepReg + "\n")
-                receiverTypeBox[0] = "KeywordManager"
-                output.append("; DEBUG: receiverReg=" + receiverRegBox[0] +
-                    " receiverType=" + receiverTypeBox[0] + "\n")
-            }
-        }
-    }
-
-    fun tryResolveSimpleLiteralMethodReceiver(expr: ParserExpressionNode, methodName: String,
+    fun tryPrepareMethodCallReceiver(expr: ParserExpressionNode, methodName: String,
         receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
 
-        if expr.literalValue == "" {
+        if receiverRegBox[0] == "" and expr.operands.length() == 0 and
+            expr.literalValue.contains(".") {
+            let receiverSegments = splitChainedPathImpl(expr.literalValue)
+            if receiverSegments.length() > 0 {
+                let baseReceiverName = receiverSegments[0]
+                if findVarType(baseReceiverName) != "" {
+                    let rebuiltReceiverExpr = buildChainedPathExprImpl(
+                        expr.literalValue)
+                    if rebuiltReceiverExpr.kind != "None" {
+                        receiverRegBox[0] = generateExpression(
+                            rebuiltReceiverExpr)
+                        receiverTypeBox[0] = inferExpressionType(
+                            rebuiltReceiverExpr)
+                    }
+                }
+            }
+        }
+
+        let explicitReceiverResult = tryPrepareExplicitMethodReceiver(expr, methodName, receiverRegBox, receiverTypeBox)
+        if explicitReceiverResult != "" {
+            return explicitReceiverResult
+        }
+
+        if expr.operands.length() == 0 and expr.literalValue.contains(".") {
+            if receiverRegBox[0] == "" and
+                tryResolveEnumLiteralMethodReceiverImpl(expr, receiverRegBox,
+                    receiverTypeBox) != 1 {
+                let pathParts = splitFirstPathDotImpl(expr.literalValue)
+                let thisIdx = findVar("this")
+                if thisIdx >= 0 {
+                    let thisType = varTypes[thisIdx]
+                    let firstFieldType = resolveMethodFieldPathTypeImpl(
+                        thisType, pathParts[0], structNames,
+                        structFieldNames, structFieldTypes,
+                        structMethodNames, structMethodRetTypes)
+                    if firstFieldType != "" {
+                        let thisPtrReg = emitImplicitThisPointerLoadImpl(
+                            output, g_regBox, varRegs[thisIdx])
+                        var accessFieldReg = ""
+                        if isClassType(firstFieldType) {
+                            let firstFieldReg = generateFieldAccess(
+                                thisPtrReg, thisType, pathParts[0])
+                            let ptrConvReg = getNextReg()
+                            output.append("  " + ptrConvReg +
+                                " = inttoptr i64 " + firstFieldReg +
+                                " to ptr\n")
+                            accessFieldReg = ptrConvReg
+                        } else {
+                            accessFieldReg = generateFieldAccessPtr(
+                                thisPtrReg, thisType, pathParts[0])
+                        }
+                        receiverRegBox[0] = generateFieldAccess(
+                            accessFieldReg, firstFieldType, pathParts[1])
+                        receiverTypeBox[0] = resolveMethodFieldPathTypeImpl(
+                            firstFieldType, pathParts[1], structNames,
+                            structFieldNames, structFieldTypes,
+                            structMethodNames, structMethodRetTypes)
+                    }
+                }
+            }
             return ""
         }
-        if expr.operands.length() == 0 and expr.literalValue.contains(".") {
+
+        if expr.literalValue == "" {
             return ""
         }
 
@@ -11600,45 +11560,63 @@ class LLVMIRGenerator {
             return ""
         }
 
-        tryPrepareImplicitThisFieldMethodReceiver(varName, receiverRegBox, receiverTypeBox)
+        let thisIdx = findVar("this")
+        if thisIdx < 0 {
+            return ""
+        }
+
+        let thisReg = varRegs[thisIdx]
+        let thisType = varTypes[thisIdx]
+        if thisType == "LLVMIRGenerator" {
+            let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+            if idxCheck >= 0 {
+                let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
+                    g_regBox, thisReg)
+                receiverRegBox[0] = generateFieldAccess(thisPtrReg,
+                    "LLVMIRGenerator", varName)
+                receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
+            }
+            if receiverRegBox[0] != "" {
+                return ""
+            }
+        }
+
+        let structIdx = findStruct(thisType)
+        output.append("; DEBUG methodCall: varName=" + varName + " thisType=" +
+            thisType + " structIdx=" + structIdx.toString() + "\n")
+        if structIdx >= 0 {
+            let fieldIdx = getFieldInfo(thisType, varName)
+            output.append("; DEBUG fieldIdx=" + fieldIdx.toString() + "\n")
+            if fieldIdx >= 0 {
+                let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
+                    g_regBox, thisReg)
+                receiverRegBox[0] = generateFieldAccess(thisPtrReg, thisType,
+                    varName)
+                output.append("; DEBUG after generateFieldAccess: receiverReg=" +
+                    receiverRegBox[0] + "\n")
+                receiverTypeBox[0] = resolveLiteralMethodReceiverType(varName)
+                output.append("; DEBUG receiverType=" + receiverTypeBox[0] +
+                    "\n")
+            }
+            return ""
+        }
+
+        output.append("; DEBUG: thisType=" + thisType + " varName=" + varName +
+            "\n")
+        if thisType == "SeenLexer" and varName == "keywordManager" {
+            output.append("; DEBUG: Matched SeenLexer.keywordManager!\n")
+            let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
+                g_regBox, thisReg)
+            let gepReg = getNextReg()
+            output.append("  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n")
+            receiverRegBox[0] = getNextReg()
+            output.append("  " + receiverRegBox[0] + " = load ptr, ptr " +
+                gepReg + "\n")
+            receiverTypeBox[0] = "KeywordManager"
+            output.append("; DEBUG: receiverReg=" + receiverRegBox[0] +
+                " receiverType=" + receiverTypeBox[0] + "\n")
+        }
         return ""
-    }
-
-    fun tryPrepareMethodCallReceiver(expr: ParserExpressionNode, methodName: String,
-        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
-
-        if receiverRegBox[0] == "" and expr.operands.length() == 0 and
-            expr.literalValue.contains(".") {
-            let receiverSegments = splitChainedPathImpl(expr.literalValue)
-            if receiverSegments.length() > 0 {
-                let baseReceiverName = receiverSegments[0]
-                if findVarType(baseReceiverName) != "" {
-                    let rebuiltReceiverExpr = buildChainedPathExprImpl(
-                        expr.literalValue)
-                    if rebuiltReceiverExpr.kind != "None" {
-                        receiverRegBox[0] = generateExpression(
-                            rebuiltReceiverExpr)
-                        receiverTypeBox[0] = inferExpressionType(
-                            rebuiltReceiverExpr)
-                    }
-                }
-            }
-        }
-
-        let explicitReceiverResult = tryPrepareExplicitMethodReceiver(expr, methodName, receiverRegBox, receiverTypeBox)
-        if explicitReceiverResult != "" {
-            return explicitReceiverResult
-        }
-
-        if receiverRegBox[0] == "" and expr.operands.length() == 0 and
-            expr.literalValue.contains(".") {
-            if tryResolveEnumLiteralMethodReceiverImpl(expr, receiverRegBox,
-                receiverTypeBox) != 1 {
-                tryResolveImplicitThisChainedLiteralMethodReceiver(expr,
-                    receiverRegBox, receiverTypeBox)
-            }
-        }
-        return tryResolveSimpleLiteralMethodReceiver(expr, methodName, receiverRegBox, receiverTypeBox)
     }
 
     fun tryGenerateBuiltinMethodCall(expr: ParserExpressionNode, methodName: String,
