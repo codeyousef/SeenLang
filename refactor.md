@@ -27,7 +27,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `ir_class_method_gen.seen`
   - `ir_variable_gen.seen`
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
-- The current uncommitted continuation also pushes more final instance-call cleanup into `ir_method_finalize.seen`, which is now `206` lines and owns shared return-type fallback, receiver ABI preparation, and `Option.unwrap()` specialization logic used by `emitNormalizedInstanceMethodCall()`.
+- The latest continuation also pushes more final instance-call cleanup into `ir_method_finalize.seen`, which is now `206` lines and owns shared return-type fallback, receiver ABI preparation, and `Option.unwrap()` specialization logic used by `emitNormalizedInstanceMethodCall()`.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
@@ -220,12 +220,12 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `596169c` with message `Expand receiver dispatch helpers and harden runtime string support`.
-- Current uncommitted continuation beyond `596169c` is in:
+- Latest committed refactor commit available from a clean checkout is `ef24b17` with message `Extract final instance call helpers`.
+- The continuation from `596169c` to `ef24b17` touched:
   - `compiler_seen/src/codegen/ir_method_finalize.seen`
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
   - `refactor.md`
-- That uncommitted continuation keeps expanding the shared method-call helper surface without adding another bootstrap compiler module:
+- That continuation keeps expanding the shared method-call helper surface without adding another bootstrap compiler module:
   - shared identifier quoting, receiver-type helpers, receiver-pointer normalization, prepared dyn-trait dispatch, builtin receiver emission, static class-literal dispatch, and unresolved-receiver fallback helpers now live in `ir_method_receiver.seen`.
   - shared final instance-call helpers for return-type fallback, receiver ABI preparation, and `Option.unwrap()` specialization now also route through `ir_method_finalize.seen`.
   - `llvm_ir_gen.seen` keeps the AST-facing orchestration wrappers, but shared helper logic for `inferTypeRegistryFieldType()`, `getSemanticFieldType()`, `resolveMethodFieldPathType()`, `tryResolveEnumLiteralMethodReceiver()`, `normalizeExplicitMethodReceiverType()`, module-constant receiver type fallback, pointer normalization, prepared dyn-trait emission, builtin receiver emission, static-method receiver-name parsing, static factory dispatch, static return-type fallback, unresolved-call lowering checks, unresolved fallback emission, and unresolved default-receiver selection now routes through the extracted helper module.
@@ -236,9 +236,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - mark `runtimeDeclsLoaded = true` immediately after `emitCoreRuntimeDecls(...)` so `emitTypecheckerDecls(...)` does not emit a second conflicting `Result_*` declaration block.
     - avoid direct indexed nested imported-type accesses in the most fragile spots by first binding the indexed node to a local (`computeJsonObjectSize()`, `generateJsonDeserializeImpl()` init field loop, `collectDefaultParamStringConstantsFromFunction()`, `resolveMethodReturnTypeFromList()`).
     - add `lastIndexOf(...)` to the runtime shim and runtime-backed string-compat list so bootstrap builds no longer die at final link when `llvm_ir_gen.seen` lowers `ciLine.lastIndexOf(\"'\")`.
-- Last known validation for the uncommitted continuation used a `MemTotal / 4` cap of `16229809` KB:
-  - passed on the current uncommitted continuation: `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
-  - passed on the current uncommitted continuation: `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_finalize.seen`.
+- Last known validation for the latest continuation used a `MemTotal / 4` cap of `16229809` KB:
+  - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - passed on the latest continuation: `./bootstrap/stage1_frozen check compiler_seen/src/codegen/ir_method_finalize.seen`.
   - passed: `./bootstrap/stage1_frozen check compiler_seen/src/test_ir_method_receiver_import.seen` while the temporary harness existed, which confirmed the extracted helper module resolved cleanly under the frozen bootstrap compiler.
   - passed after the follow-up bootstrap-hardening fixes: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - reached and cleared `Optimization stats (module 5)` for `compiler_seen/src/codegen/llvm_ir_gen.seen`, then cleared the next frozen-bootstrap blockers in `type_registry.seen` (module 37), `ir_decl_features.seen` (module 11), `parser/real_parser.seen` (module 6), and the final link step (`lastIndexOf`) during bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen ... --fast --no-cache --no-fork` runs.
