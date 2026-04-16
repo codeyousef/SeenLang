@@ -2324,15 +2324,24 @@ class LLVMIRGenerator {
         return inferExpressionType(expr)
     }
 
+    fun declarationTypeNeedsFallback(typeName: String) r: Bool {
+        return typeName == "" or typeName == "Unknown" or typeName == "Void"
+    }
+
+    fun resolveDeclarationBaseType(stmt: StatementNode) r: String {
+        var varType = normalizeDeclaredTypeNode(stmt.variableType)
+        if declarationTypeNeedsFallback(varType) and stmt.initializer.kind != "None" {
+            varType = inferDeclarationInitializerType(stmt.initializer)
+        }
+        return varType
+    }
+
     // Helper to collect variables from a single statement - separate method to avoid merging
     fun collectStmtVars(stmt: StatementNode) r: Void {
         // Handle Let/Var declarations
         if stmt.kind == "Let" or stmt.kind == "Var" {
-            var varType = normalizeDeclaredTypeNode(stmt.variableType)
-            if varType == "" or varType == "Unknown" or varType == "Void" {
-                varType = inferDeclarationInitializerType(stmt.initializer)
-            }
-            if varType == "" or varType == "Unknown" or varType == "Void" {
+            var varType = resolveDeclarationBaseType(stmt)
+            if declarationTypeNeedsFallback(varType) {
                 varType = "Int"
             }
             // Debug: trace VNode-related variable types
@@ -6512,73 +6521,72 @@ class LLVMIRGenerator {
     // collectVariableDeclarations), reuses the existing alloca register.
     // Supports dead store elimination: skips literal initializers that are
     // immediately overwritten (tracked in g_deadStoreSkipVars).
-    fun generateLetStatement(stmt: StatementNode) r: Void {
-        let declOrdinal = nextDeclarationOrdinal(stmt.variableName)
-        let preIdx = findPreAllocatedOccurrence(stmt.variableName, declOrdinal)
-        // Get variable type - prefer explicit type, fall back to inference
-        var varType = normalizeDeclaredTypeNode(stmt.variableType)
-        if varType == "" or varType == "Unknown" or varType == "Void" {
-            // Infer type from initializer
-            if stmt.initializer.kind != "None" {
-                varType = inferDeclarationInitializerType(stmt.initializer)
-            }
+    fun resolveLetStatementType(stmt: StatementNode, preIdx: Int) r: String {
+        var varType = resolveDeclarationBaseType(stmt)
+        if declarationTypeNeedsFallback(varType) and preIdx >= 0 {
+            varType = preAllocatedTypes[preIdx]
         }
-        // Final fallback: "Void" or "" type → use pre-allocated type or "Int"
-        if varType == "" or varType == "Unknown" or varType == "Void" {
-            if preIdx >= 0 {
-                varType = preAllocatedTypes[preIdx]
-            }
-        }
-        if varType == "" or varType == "Unknown" or varType == "Void" {
+        if declarationTypeNeedsFallback(varType) {
             varType = "Int"
         }
-        let llvmType = mapType(varType)
-        var reg = ""
+        return varType
+    }
+
+    fun resolveLetStatementAlloca(preIdx: Int, llvmType: String) r: String {
         if preIdx >= 0 and preIdx < preAllocatedRegs.length() {
             let existingLlvmType = mapType(preAllocatedTypes[preIdx])
             if existingLlvmType == llvmType {
-                reg = preAllocatedRegs[preIdx]
+                return preAllocatedRegs[preIdx]
             }
         }
-        if reg == "" {
-            // Fallback: allocate here (shouldn't happen with proper collection)
-            reg = getNextReg()
-            output.append("  " + reg + " = alloca " + llvmType + "\n")
-        }
-        storeVar(stmt.variableName, reg, varType)
+        let reg = getNextReg()
+        output.append("  " + reg + " = alloca " + llvmType + "\n")
+        return reg
+    }
 
-        // Initialize if there's an initializer
-        if stmt.initializer.kind != "None" {
-            // Dead store elimination: skip literal initializer if immediately overwritten
-            var skipDeadInit = false
-            if g_deadStoreSkipVars != "" and stmt.initializer.kind == "Literal" {
-                // Check if this variable is in the skip list (pipe-delimited)
-                var dsScanIdx = 0
-                while dsScanIdx < g_deadStoreSkipVars.length() {
-                    let dsEntry = pipeGet(g_deadStoreSkipVars, dsScanIdx)
-                    if dsEntry == "" { dsScanIdx = g_deadStoreSkipVars.length() }
-                    if dsEntry != "" {
-                        if dsEntry == stmt.variableName {
-                            skipDeadInit = true
-                            dsScanIdx = g_deadStoreSkipVars.length()
-                        }
-                    }
-                    dsScanIdx = dsScanIdx + 1
-                }
-            }
-            if skipDeadInit {
-                output.append("  ; DSE: skipped dead literal init for " + stmt.variableName + "\n")
-            }
-            if not skipDeadInit {
-                let savedPendingType = pendingArrayLiteralType
-                if stmt.initializer.kind == "ArrayLiteral" and (varType.startsWith("Array") or varType.startsWith("List")) {
-                    pendingArrayLiteralType = varType
-                }
-                let valueReg = generateExpression(stmt.initializer)
-                pendingArrayLiteralType = savedPendingType
-                output.append("  store " + llvmType + " " + valueReg + ", ptr " + reg + "\n")
-            }
+    fun shouldSkipDeadLiteralInitializer(stmt: StatementNode) r: Bool {
+        if g_deadStoreSkipVars == "" or stmt.initializer.kind != "Literal" {
+            return false
         }
+        var dsScanIdx = 0
+        while dsScanIdx < g_deadStoreSkipVars.length() {
+            let dsEntry = pipeGet(g_deadStoreSkipVars, dsScanIdx)
+            if dsEntry == "" {
+                return false
+            }
+            if dsEntry == stmt.variableName {
+                return true
+            }
+            dsScanIdx = dsScanIdx + 1
+        }
+        return false
+    }
+
+    fun emitLetStatementInitializer(stmt: StatementNode, reg: String, varType: String, llvmType: String) r: Void {
+        if stmt.initializer.kind == "None" {
+            return
+        }
+        if shouldSkipDeadLiteralInitializer(stmt) {
+            output.append("  ; DSE: skipped dead literal init for " + stmt.variableName + "\n")
+            return
+        }
+        let savedPendingType = pendingArrayLiteralType
+        if stmt.initializer.kind == "ArrayLiteral" and (varType.startsWith("Array") or varType.startsWith("List")) {
+            pendingArrayLiteralType = varType
+        }
+        let valueReg = generateExpression(stmt.initializer)
+        pendingArrayLiteralType = savedPendingType
+        output.append("  store " + llvmType + " " + valueReg + ", ptr " + reg + "\n")
+    }
+
+    fun generateLetStatement(stmt: StatementNode) r: Void {
+        let declOrdinal = nextDeclarationOrdinal(stmt.variableName)
+        let preIdx = findPreAllocatedOccurrence(stmt.variableName, declOrdinal)
+        let varType = resolveLetStatementType(stmt, preIdx)
+        let llvmType = mapType(varType)
+        let reg = resolveLetStatementAlloca(preIdx, llvmType)
+        storeVar(stmt.variableName, reg, varType)
+        emitLetStatementInitializer(stmt, reg, varType, llvmType)
     }
 
     fun emitPendingReturnDefers() r: Void {
@@ -7017,6 +7025,15 @@ class LLVMIRGenerator {
         finalizeConditionalEndBlock(endLabel, thenTerminated, elseTerminated)
     }
 
+    fun emitIfLetBinding(bindName: String, exprReg: String) r: Int {
+        let bindReg = getNextReg()
+        output.append("  " + bindReg + " = alloca i64, align 8\n")
+        output.append("  store i64 " + exprReg + ", ptr " + bindReg + "\n")
+        let savedIfLetVarCount = activeVarCount
+        storeVar(bindName, bindReg, "Int")
+        return savedIfLetVarCount
+    }
+
     // if let name = expr { ... } else { ... }
     // Evaluate expr, if non-null bind name to value and run then-block
     fun generateIfLetStatement(stmt: StatementNode) r: Void {
@@ -7024,19 +7041,12 @@ class LLVMIRGenerator {
         let cmpReg = emitConditionToI1Impl(output, g_regBox, exprReg, "Int")
         let branchInfo = emitIfBranchingImpl(output, g_blockBox, cmpReg, "")
         let branchLabels = splitPipe(branchInfo)
-        let thenLabel = branchLabels[0]
         let elseLabel = branchLabels[1]
         let endLabel = branchLabels[2]
 
         cseClear()
         blockTerminated = false
-        // Create local variable binding for the unwrapped value
-        let bindName = stmt.variableName
-        let bindReg = getNextReg()
-        output.append("  " + bindReg + " = alloca i64, align 8\n")
-        output.append("  store i64 " + exprReg + ", ptr " + bindReg + "\n")
-        let savedIfLetVarCount = activeVarCount
-        storeVar(bindName, bindReg, "Int")
+        let savedIfLetVarCount = emitIfLetBinding(stmt.variableName, exprReg)
         generateBlock(stmt.thenBranch)
         activeVarCount = savedIfLetVarCount
         let thenTerminated = blockTerminated
@@ -8219,24 +8229,30 @@ class LLVMIRGenerator {
     // is set correctly, then pushes each element. The element type is
     // resolved from pendingArrayLiteralType (set by the enclosing let/var
     // statement) or inferred from the first element.
-    fun generateArrayLiteral(expr: ParserExpressionNode) r: String {
-        let savedPendingType = pendingArrayLiteralType
-
-        // Resolve element type from expected array type or first element
-        var elementType = ""
-        if pendingArrayLiteralType != "" {
-            elementType = extractArrayLiteralElementType(pendingArrayLiteralType)
+    fun resolveArrayLiteralElementSeenType(elemExpr: ParserExpressionNode, defaultType: String) r: String {
+        if defaultType != "" {
+            return defaultType
         }
-        if elementType == "" and expr.arguments.length() > 0 {
-            let firstExpr = expr.arguments[0]
-            if firstExpr.kind == "StructLiteral" and firstExpr.literalType != "" {
-                elementType = firstExpr.literalType
-            } else {
-                elementType = inferExpressionType(firstExpr)
+        if elemExpr.kind == "StructLiteral" and elemExpr.literalType != "" {
+            return elemExpr.literalType
+        }
+        return inferExpressionType(elemExpr)
+    }
+
+    fun resolveArrayLiteralElementType(expr: ParserExpressionNode) r: String {
+        if pendingArrayLiteralType != "" {
+            let pendingElementType = extractArrayLiteralElementType(pendingArrayLiteralType)
+            if pendingElementType != "" {
+                return pendingElementType
             }
         }
+        if expr.arguments.length() == 0 {
+            return ""
+        }
+        return resolveArrayLiteralElementSeenType(expr.arguments[0], "")
+    }
 
-        // Create array using runtime helpers so element_size stays consistent
+    fun emitArrayLiteralAllocation(elementType: String) r: String {
         let arrReg = getNextReg()
         if elementType == "String" {
             output.append("  " + arrReg + " = call ptr @seen_arr_new_str_ptr()\n")
@@ -8246,53 +8262,63 @@ class LLVMIRGenerator {
         } else {
             output.append("  " + arrReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
         }
+        return arrReg
+    }
+
+    fun generateArrayLiteralElementValue(elemExpr: ParserExpressionNode, elementType: String) r: String {
+        let savedElemPending = pendingArrayLiteralType
+        pendingArrayLiteralType = ""
+        if elemExpr.kind == "ArrayLiteral" and (elementType.startsWith("Array") or elementType.startsWith("List")) {
+            pendingArrayLiteralType = elementType
+        }
+        let argReg = generateExpression(elemExpr)
+        pendingArrayLiteralType = savedElemPending
+        return argReg
+    }
+
+    fun emitArrayLiteralElementPush(arrReg: String, argReg: String, argType: String, argIsStructLiteral: Bool) r: Void {
+        if argType == "String" {
+            output.append("  call void @seen_arr_push_str(ptr " + arrReg + ", %SeenString " + argReg + ")\n")
+            return
+        }
+        if argType == "Int" {
+            output.append("  call void @seen_arr_push_i64(ptr " + arrReg + ", i64 " + argReg + ")\n")
+            return
+        }
+
+        var ptrArgReg = argReg
+        if ptrArgReg == "0" {
+            ptrArgReg = "null"
+        }
+        if isClassType(argType) {
+            let tmpClassReg = getNextReg()
+            output.append("  " + tmpClassReg + " = alloca i64\n")
+            output.append("  store i64 " + argReg + ", ptr " + tmpClassReg + "\n")
+            ptrArgReg = tmpClassReg
+        }
+        if isDataType(argType) and not argIsStructLiteral {
+            let tmpDataReg = getNextReg()
+            output.append("  " + tmpDataReg + " = alloca %" + argType + "\n")
+            output.append("  store %" + argType + " " + argReg + ", ptr " + tmpDataReg + "\n")
+            ptrArgReg = tmpDataReg
+        }
+        let pushReg = getNextReg()
+        output.append("  " + pushReg + " = call i64 @Array_push(ptr " + arrReg + ", ptr " + ptrArgReg + ")\n")
+    }
+
+    fun generateArrayLiteral(expr: ParserExpressionNode) r: String {
+        let savedPendingType = pendingArrayLiteralType
+        let elementType = resolveArrayLiteralElementType(expr)
+        let arrReg = emitArrayLiteralAllocation(elementType)
 
         // Populate elements
         var elemIdx = 0
         while elemIdx < expr.arguments.length() {
             let elemExpr = expr.arguments[elemIdx]
-            let savedElemPending = pendingArrayLiteralType
-            pendingArrayLiteralType = ""
-            if elemExpr.kind == "ArrayLiteral" and (elementType.startsWith("Array") or elementType.startsWith("List")) {
-                pendingArrayLiteralType = elementType
-            }
-            let argReg = generateExpression(elemExpr)
-            pendingArrayLiteralType = savedElemPending
-
-            var argType = elementType
-            if argType == "" {
-                if elemExpr.kind == "StructLiteral" and elemExpr.literalType != "" {
-                    argType = elemExpr.literalType
-                } else {
-                    argType = inferExpressionType(elemExpr)
-                }
-            }
+            let argReg = generateArrayLiteralElementValue(elemExpr, elementType)
+            let argType = resolveArrayLiteralElementSeenType(elemExpr, elementType)
             let argIsStructLiteral = elemExpr.kind == "StructLiteral"
-
-            if argType == "String" {
-                output.append("  call void @seen_arr_push_str(ptr " + arrReg + ", %SeenString " + argReg + ")\n")
-            } else if argType == "Int" {
-                output.append("  call void @seen_arr_push_i64(ptr " + arrReg + ", i64 " + argReg + ")\n")
-            } else {
-                var ptrArgReg = argReg
-                if ptrArgReg == "0" {
-                    ptrArgReg = "null"
-                }
-                if isClassType(argType) {
-                    let tmpClassReg = getNextReg()
-                    output.append("  " + tmpClassReg + " = alloca i64\n")
-                    output.append("  store i64 " + argReg + ", ptr " + tmpClassReg + "\n")
-                    ptrArgReg = tmpClassReg
-                }
-                if isDataType(argType) and not argIsStructLiteral {
-                    let tmpDataReg = getNextReg()
-                    output.append("  " + tmpDataReg + " = alloca %" + argType + "\n")
-                    output.append("  store %" + argType + " " + argReg + ", ptr " + tmpDataReg + "\n")
-                    ptrArgReg = tmpDataReg
-                }
-                let pushReg = getNextReg()
-                output.append("  " + pushReg + " = call i64 @Array_push(ptr " + arrReg + ", ptr " + ptrArgReg + ")\n")
-            }
+            emitArrayLiteralElementPush(arrReg, argReg, argType, argIsStructLiteral)
             elemIdx = elemIdx + 1
         }
 
