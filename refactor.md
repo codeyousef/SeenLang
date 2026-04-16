@@ -6,11 +6,11 @@ Refactor `compiler_seen/src/codegen/llvm_ir_gen.seen` and the surrounding LLVM c
 
 This started as an investigation and proposed plan. It now also tracks which refactor slices have already been completed.
 
-## Completed So Far (2026-04-15)
+## Completed So Far (2026-04-16)
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `14,031` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,827` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -39,6 +39,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `generateShortCircuitOr()` is down to about `45` lines.
   - `generateFieldAccess()` is down to about `181` lines.
   - `generateFieldAccessPtr()` is down to about `41` lines.
+  - `generateMemberAssignment()` is down to about `31` lines.
   - `resolveChainedPathType()` is down to about `26` lines.
   - Function-pipeline helpers inside `llvm_ir_gen.seen` are now split into:
     - `shouldSkipFunctionByCfg()` at about `50` lines.
@@ -82,12 +83,23 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - Shared conditional-branch scaffolding is now routed through `ir_stmt_gen.seen` for:
     - condition normalization to `i1`.
     - branch label allocation and `br i1` emission for `if` / `if let`.
+  - Shared assignment lowering is now routed through `ir_assignment_gen.seen` for:
+    - expression-result receiver pointer preparation.
+    - local-variable receiver pointer preparation.
+    - assignment field-type lookup.
+    - union field stores and bitfield writeback.
+    - final field stores.
   - The remaining while-loop helpers in `llvm_ir_gen.seen` are now just the IR-emission layer:
     - `emitLiteralBoundWhileHints()`
     - `emitWhileLoopInvariantAnnotations()`
     - `emitGcdPatternWhileHint()`
     - `emitWhileConditionBranch()`
     - `tryEmitMemcpyOptimizedWhileLoop()`
+  - Member-assignment helpers inside `llvm_ir_gen.seen` are now split into:
+    - `emitResolvedMemberAssignment()` at about `47` lines.
+    - `tryGenerateExpressionReceiverMemberAssignment()` at about `13` lines.
+    - `tryGenerateSimpleReceiverMemberAssignment()` at about `15` lines.
+    - `tryGenerateImplicitThisMemberAssignment()` at about `29` lines.
 
 ### Implemented Slices
 
@@ -139,11 +151,12 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Extracted binary-expression pointer arithmetic, SIMD arithmetic/comparison emission, operator-suffix mapping, and overloaded operator call emission into `ir_binary_expr.seen`, then rewired `generateBinary()` to use those shared emitters.
 - Extracted boolean-result classification, scalar-to-bool coercion, and short-circuit phi emission into `ir_binary_expr.seen`, then rewired `generateShortCircuitAnd()` / `generateShortCircuitOr()` to use those shared helpers instead of open-coding the same `icmp`/`phi` scaffolding twice.
 - Expanded `ir_class_method_gen.seen` from an Option-only special case into a real class-method helper module that now owns method-attribute synthesis, explicit receiver detection, shared parameter-signature emission, constructor allocation/Array-List field bootstrap, and constructor return emission. `generateClassMethodFromList()` is now a much thinner orchestrator around those shared helpers.
+- Expanded `ir_assignment_gen.seen` from a single field-store helper into a broader assignment-lowering helper module that now owns receiver-pointer preparation, assignment field-type resolution, union stores, and shared bitfield writeback. `generateMemberAssignment()` is now a small dispatcher over focused helper phases instead of a mixed resolver/emitter blob.
 
 ### Validation Status
 
 - Spot checks continue to use explicit RAM caps derived from current system memory.
-- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap.
+- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap after the latest assignment-lowering extraction.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_call_fixups.seen` reaches the expected `missing main` diagnostic, which at least confirms the new helper module parses cleanly.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_method_finalize.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_field_layout.seen` also reaches the expected `missing main` diagnostic.
@@ -151,8 +164,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_member_access.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_binary_expr.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_class_method_gen.seen` also reaches the expected `missing main` diagnostic.
+- `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_assignment_gen.seen` also reaches the expected `missing main` diagnostic.
 - Direct compiler self-checks still hit the pre-existing early allocator failure: `free(): invalid size` while checking `compiler_seen/src/main_compiler.seen`.
-- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest shared binary-expression extraction, short-circuit helper reuse, and class-method helper extraction on top of the earlier shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
+- A bounded direct check of `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest assignment-lowering extraction on top of the earlier shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
 - The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 
 ### Phase Status
@@ -162,7 +176,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Phase 3: in progress; declaration scan, async registry extraction, late user declare registry extraction, and trait registry extraction are started, but other registries still live in `llvm_ir_gen.seen`.
 - Phase 4: well underway; function signature/default-return/coroutine helpers plus entry/setup, parameter pre-registration, `main` dispatch, and parameter alloca emission are split out, but body emission still largely lives in `llvm_ir_gen.seen`.
 - Phase 5: well underway; final free-call emission, RealParser call fixups, final instance-method-call normalization, array mutator lowering, receiver-preparation helpers, a full `generateCall()` phase split, and shared class-method lowering helpers are in place.
-- Phase 6: in progress; `inferExpressionType()`, `generateBinary()`, `generateWhileStatement()`, `generateForInStatement()`, `generateIfStatement()`, `generateIfLetStatement()`, `generateMemberAccess()`, `generateFieldAccess()`, `generateFieldAccessPtr()`, `resolveChainedPathType()`, and the short-circuit boolean path now rely on focused helper phases or shared helper modules, and the loop/statement/expression pipeline reuses `ir_control_flow.seen`, `ir_stmt_gen.seen`, `ir_field_layout.seen`, `ir_path_expr.seen`, `ir_member_access.seen`, `ir_binary_expr.seen`, and `ir_class_method_gen.seen`, but more statement/expression helpers still need to leave `llvm_ir_gen.seen`.
+- Phase 6: in progress; `inferExpressionType()`, `generateBinary()`, `generateWhileStatement()`, `generateForInStatement()`, `generateIfStatement()`, `generateIfLetStatement()`, `generateMemberAccess()`, `generateFieldAccess()`, `generateFieldAccessPtr()`, `generateMemberAssignment()`, `resolveChainedPathType()`, and the short-circuit boolean path now rely on focused helper phases or shared helper modules, and the loop/statement/expression pipeline reuses `ir_control_flow.seen`, `ir_stmt_gen.seen`, `ir_assignment_gen.seen`, `ir_field_layout.seen`, `ir_path_expr.seen`, `ir_member_access.seen`, `ir_binary_expr.seen`, and `ir_class_method_gen.seen`, but more statement/expression helpers still need to leave `llvm_ir_gen.seen`.
 - Phase 7: not started yet.
 
 ## Baseline Snapshot
