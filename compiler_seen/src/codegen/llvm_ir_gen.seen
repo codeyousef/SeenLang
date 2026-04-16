@@ -12517,13 +12517,14 @@ class LLVMIRGenerator {
         return tryInferMethodCallBoolSuffix(expr)
     }
 
-    fun inferCallExprTypeLocal(expr: ParserExpressionNode) r: String {
+    fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
         if isSimdVectorType(expr.callee) == 1 {
             return expr.callee
         }
         if expr.callee.endsWith("_new") {
             let baseType = expr.callee.substring(0, expr.callee.length() - 4)
-            if isClassType(baseType) or isDataType(baseType) or findStruct(baseType) >= 0 {
+            if isClassType(baseType) or isDataType(baseType) or
+                findStruct(baseType) >= 0 {
                 return baseType
             }
         }
@@ -12533,27 +12534,31 @@ class LLVMIRGenerator {
             if fromJsonRet != "" {
                 return fromJsonRet
             }
-            if isClassType(baseType) or isDataType(baseType) or findStruct(baseType) >= 0 {
+            if isClassType(baseType) or isDataType(baseType) or
+                findStruct(baseType) >= 0 {
                 return baseType + "?"
             }
         }
+        return ""
+    }
+
+    fun tryInferBuiltinCallExprType(expr: ParserExpressionNode) r: String {
         if expr.callee == "simd_select" or expr.callee == "simd_shuffle" {
             if expr.arguments.length() >= 2 {
                 return inferExpressionType(expr.arguments[1])
             }
         }
-        let callExprType = inferCallExprTypeImpl(expr.callee)
-        if callExprType != "" {
-            return callExprType
+        let builtinType = inferCallExprTypeImpl(expr.callee)
+        if builtinType != "" {
+            return builtinType
         }
-        if g_enumVariantCount > 0 {
-            if isEnumVariant(expr.callee) {
-                let enumParent = lookupEnumParent(expr.callee)
-                if enumParent != "" {
-                    return enumParent
-                }
-            }
+        if g_enumVariantCount > 0 and isEnumVariant(expr.callee) {
+            return lookupEnumParent(expr.callee)
         }
+        return ""
+    }
+
+    fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
         let userRetType = getFunctionReturnType(expr.callee)
         if userRetType != "" {
             if isAsyncFunction(expr.callee) {
@@ -12562,17 +12567,28 @@ class LLVMIRGenerator {
             return userRetType
         }
         let callTable = inferCallTypeTable(expr.callee)
-        if callTable != "" { return callTable }
+        if callTable != "" {
+            return callTable
+        }
         if isClassType(expr.callee) {
             return expr.callee
         }
         if currentClassName != "" {
-            let implicitRetType = getMethodReturnType(currentClassName, expr.callee)
-            if implicitRetType != "" {
-                return implicitRetType
-            }
+            return getMethodReturnType(currentClassName, expr.callee)
         }
         return ""
+    }
+
+    fun inferCallExprTypeLocal(expr: ParserExpressionNode) r: String {
+        let generatedCallType = tryInferGeneratedCallType(expr)
+        if generatedCallType != "" {
+            return generatedCallType
+        }
+        let builtinCallType = tryInferBuiltinCallExprType(expr)
+        if builtinCallType != "" {
+            return builtinCallType
+        }
+        return tryInferResolvedCallExprType(expr)
     }
 
     fun tryInferJsonValueMemberAccessType(expr: ParserExpressionNode, fieldName: String) r: String {
@@ -12638,9 +12654,38 @@ class LLVMIRGenerator {
         return ""
     }
 
+    fun tryInferDirectMemberAccessType(expr: ParserExpressionNode,
+        fieldName: String) r: String {
+
+        if expr.literalValue == "this" and currentClassName != "" {
+            let implicitThisFieldType = tryInferMemberFieldType(currentClassName,
+                fieldName)
+            if implicitThisFieldType != "" {
+                return implicitThisFieldType
+            }
+        }
+        if expr.operands.length() > 0 {
+            let receiverFieldType = tryInferMemberFieldType(
+                inferExpressionType(expr.operands[0]), fieldName)
+            if receiverFieldType != "" {
+                return receiverFieldType
+            }
+        }
+        if expr.literalValue != "" and expr.literalValue != "this" {
+            let literalReceiverFieldType =
+                tryInferLiteralReceiverMemberAccessType(expr.literalValue,
+                    fieldName)
+            if literalReceiverFieldType != "" {
+                return literalReceiverFieldType
+            }
+        }
+        return ""
+    }
+
     fun inferMemberAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
         if expr.literalValue != "" {
-            let swizzleType = inferSimdSwizzleMemberTypeImpl(findVarType(expr.literalValue), expr.variableName)
+            let swizzleType = inferSimdSwizzleMemberTypeImpl(
+                findVarType(expr.literalValue), expr.variableName)
             if swizzleType != "" {
                 return swizzleType
             }
@@ -12659,24 +12704,9 @@ class LLVMIRGenerator {
         if jsonFieldType != "" {
             return jsonFieldType
         }
-
-        if expr.literalValue == "this" and currentClassName != "" {
-            let implicitThisFieldType = tryInferMemberFieldType(currentClassName, fieldName)
-            if implicitThisFieldType != "" {
-                return implicitThisFieldType
-            }
-        }
-        if expr.operands.length() > 0 {
-            let receiverFieldType = tryInferMemberFieldType(inferExpressionType(expr.operands[0]), fieldName)
-            if receiverFieldType != "" {
-                return receiverFieldType
-            }
-        }
-        if expr.literalValue != "" and expr.literalValue != "this" {
-            let literalReceiverFieldType = tryInferLiteralReceiverMemberAccessType(expr.literalValue, fieldName)
-            if literalReceiverFieldType != "" {
-                return literalReceiverFieldType
-            }
+        let directFieldType = tryInferDirectMemberAccessType(expr, fieldName)
+        if directFieldType != "" {
+            return directFieldType
         }
         let fieldFallback = inferFieldTypeFallback(fieldName)
         if fieldFallback != "" { return fieldFallback }
