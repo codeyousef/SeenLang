@@ -6581,194 +6581,191 @@ class LLVMIRGenerator {
         }
     }
 
+    fun emitPendingReturnDefers() r: Void {
+        if g_deferCount > 0 {
+            output.append("  ; defer cleanup before return (LIFO)\n")
+            var deferIdx = g_deferCount - 1
+            while deferIdx >= 0 {
+                generateExpression(g_deferExprs[deferIdx])
+                deferIdx = deferIdx - 1
+            }
+        }
+    }
+
+    fun prepareErrdeferReturnStatement(stmt: StatementNode) r: Void {
+        if g_errdeferCount == 0 {
+            return
+        }
+        if stmt.returnValue.kind == "None" {
+            output.append("  ; errdefer cleanup before void return (LIFO)\n")
+            var voidErrdeferIdx = g_errdeferCount - 1
+            while voidErrdeferIdx >= 0 {
+                generateExpression(g_errdeferExprs[voidErrdeferIdx])
+                voidErrdeferIdx = voidErrdeferIdx - 1
+            }
+            return
+        }
+
+        let tempAllocaReg = getNextReg()
+        output.append("  " + tempAllocaReg + " = alloca i64\n")
+        let returnValueReg = generateExpression(stmt.returnValue)
+        output.append("  store i64 " + returnValueReg + ", ptr " + tempAllocaReg + "\n")
+        let isErrReg = getNextReg()
+        output.append("  " + isErrReg + " = icmp eq i64 " + returnValueReg + ", 0 ; errdefer: check if error\n")
+        let errLabel = getNextBlockLabel()
+        let okLabel = getNextBlockLabel()
+        output.append("  br i1 " + isErrReg + ", label %" + errLabel + ", label %" + okLabel + "\n")
+        output.append(errLabel + ":\n")
+        output.append("  ; errdefer cleanup (error path, LIFO)\n")
+        var errdeferIdx = g_errdeferCount - 1
+        while errdeferIdx >= 0 {
+            generateExpression(g_errdeferExprs[errdeferIdx])
+            errdeferIdx = errdeferIdx - 1
+        }
+        output.append("  br label %" + okLabel + "\n")
+        output.append(okLabel + ":\n")
+        g_errdeferTempAlloca = tempAllocaReg
+    }
+
+    fun emitReturnRegionAndProfileCleanup() r: Void {
+        if currentFunctionRegionSizeBytes() > 0 {
+            let regionLoadReg = getNextReg()
+            output.append("  " + regionLoadReg + " = load ptr, ptr %__region_ptr\n")
+            output.append("  call void @__seen_region_destroy(ptr " + regionLoadReg + ") ; @preallocate cleanup\n")
+        }
+        if g_currentFunctionIsProfiled {
+            let strIdx = getStringConstantIndex(g_currentFunctionNameForProfile)
+            output.append("  ; @profile instrumentation - exit (explicit return)\n")
+            output.append("  call void @__seen_profile_exit(ptr @.str." + strIdx.toString() + ")\n")
+        }
+    }
+
+    fun tryEmitAsyncReturnStatement(stmt: StatementNode) r: Bool {
+        if not isCurrentFunctionAsyncLowering() {
+            return false
+        }
+        if stmt.returnValue.kind != "None" {
+            let savedPendingType = pendingArrayLiteralType
+            if stmt.returnValue.kind == "ArrayLiteral" and (currentFunctionReturnType.startsWith("Array") or currentFunctionReturnType.startsWith("List")) {
+                pendingArrayLiteralType = currentFunctionReturnType
+            }
+            if stmt.returnValue.kind == "Call" {
+                markTailCallPosition()
+            }
+            let valueReg = generateExpression(stmt.returnValue)
+            pendingArrayLiteralType = savedPendingType
+            let promiseType = mapType(currentFunctionReturnType)
+            output.append("  store " + promiseType + " " + valueReg + ", ptr " + g_asyncFunctionPromise + "\n")
+        }
+        output.append("  br label %" + g_asyncFinalLabel + "\n")
+        blockTerminated = true
+        return true
+    }
+
+    fun emitDefaultEmptyReturnStatement() r: Void {
+        let llvmType = mapType(currentFunctionReturnType)
+        if llvmType == "void" or currentFunctionReturnType == "" or currentFunctionReturnType == "Void" {
+            if g_isMainFunc == 1 {
+                output.append("  ret i32 0\n")
+                return
+            }
+        }
+        emitDefaultReturnValueImpl(output, llvmType)
+    }
+
+    fun tryEmitCharLiteralReturnFastPath(stmt: StatementNode) r: Bool {
+        if currentFunctionReturnType != "Char" {
+            return false
+        }
+        if stmt.returnValue.kind != "Literal" or stmt.returnValue.literalType != "String" {
+            return false
+        }
+        let charValue = stmt.returnValue.literalValue
+        if charValue.length() != 1 {
+            return false
+        }
+        let codeStr = charToCodeStr(charValue)
+        output.append("  ret i64 " + codeStr + "\n")
+        return true
+    }
+
+    fun resolveReturnStatementValueReg(stmt: StatementNode) r: String {
+        if g_errdeferTempAlloca != "" {
+            let loadReg = getNextReg()
+            output.append("  " + loadReg + " = load i64, ptr " + g_errdeferTempAlloca + "\n")
+            g_errdeferTempAlloca = ""
+            return loadReg
+        }
+
+        let savedPendingType = pendingArrayLiteralType
+        if stmt.returnValue.kind == "ArrayLiteral" and (currentFunctionReturnType.startsWith("Array") or currentFunctionReturnType.startsWith("List")) {
+            pendingArrayLiteralType = currentFunctionReturnType
+        }
+        let valueReg = generateExpression(stmt.returnValue)
+        pendingArrayLiteralType = savedPendingType
+        return valueReg
+    }
+
+    fun normalizeReturnStatementValueReg(stmt: StatementNode, llvmType: String, valueReg: String) r: String {
+        var normalizedValueReg = valueReg
+        if isDataType(currentFunctionReturnType) and stmt.returnValue.kind == "StructLiteral" {
+            let loadReg = getNextReg()
+            output.append("  " + loadReg + " = load " + llvmType + ", ptr " + normalizedValueReg + "\n")
+            normalizedValueReg = loadReg
+        }
+        if normalizedValueReg == "0" {
+            var fixedValue = false
+            if llvmType == "ptr" {
+                normalizedValueReg = "null"
+                fixedValue = true
+            }
+            if not fixedValue and llvmType == "%SeenString" {
+                normalizedValueReg = "zeroinitializer"
+                fixedValue = true
+            }
+            if not fixedValue and llvmType == "%SeenArray" {
+                normalizedValueReg = "zeroinitializer"
+                fixedValue = true
+            }
+            if not fixedValue and llvmType == "i1" {
+                normalizedValueReg = "false"
+            }
+        }
+        return normalizedValueReg
+    }
+
     // Generate IR for a return statement. Emits pending defer expressions
     // in LIFO order before the return. For async functions, stores the return
     // value into the coroutine promise and branches to the async cleanup label.
     // Handles type coercion (int-to-float, class-to-ptr, data-type-to-ptr).
     // Sets blockTerminated=true to prevent unreachable instructions after ret.
     fun generateReturnStatement(stmt: StatementNode) r: Void {
-        // Emit pending defers before return (LIFO order)
-        if g_deferCount > 0 {
-            output.append("  ; defer cleanup before return (LIFO)\n")
-            var dRetIdx = g_deferCount - 1
-            while dRetIdx >= 0 {
-                generateExpression(g_deferExprs[dRetIdx])
-                dRetIdx = dRetIdx - 1
-            }
-        }
-        // Emit errdefer cleanup only on error return path (Result convention: 0=Err)
-        // Evaluates return expression into temp, checks if error (null/zero), branches
-        if g_errdeferCount > 0 and stmt.returnValue.kind != "None" {
-            // Store return value in temp alloca to avoid double-evaluation
-            let edTempAlloca = getNextReg()
-            output.append("  " + edTempAlloca + " = alloca i64\n")
-            let edRetVal = generateExpression(stmt.returnValue)
-            output.append("  store i64 " + edRetVal + ", ptr " + edTempAlloca + "\n")
-            let edCheckReg = getNextReg()
-            output.append("  " + edCheckReg + " = icmp eq i64 " + edRetVal + ", 0 ; errdefer: check if error\n")
-            let edErrLabel = getNextBlockLabel()
-            let edOkLabel = getNextBlockLabel()
-            output.append("  br i1 " + edCheckReg + ", label %" + edErrLabel + ", label %" + edOkLabel + "\n")
-            output.append(edErrLabel + ":\n")
-            output.append("  ; errdefer cleanup (error path, LIFO)\n")
-            var edRetIdx = g_errdeferCount - 1
-            while edRetIdx >= 0 {
-                generateExpression(g_errdeferExprs[edRetIdx])
-                edRetIdx = edRetIdx - 1
-            }
-            output.append("  br label %" + edOkLabel + "\n")
-            output.append(edOkLabel + ":\n")
-            // Mark that return value is pre-evaluated (will be loaded from alloca)
-            // We set a flag so the return generation below can reuse the temp
-            g_errdeferTempAlloca = edTempAlloca
-        }
-        if g_errdeferCount > 0 and stmt.returnValue.kind == "None" {
-            // Void return with errdefer — run errdefer unconditionally (no return value to check)
-            output.append("  ; errdefer cleanup before void return (LIFO)\n")
-            var edRetIdx = g_errdeferCount - 1
-            while edRetIdx >= 0 {
-                generateExpression(g_errdeferExprs[edRetIdx])
-                edRetIdx = edRetIdx - 1
-            }
-        }
-        if currentFunctionRegionSizeBytes() > 0 {
-            let regionLoadReg = getNextReg()
-            output.append("  " + regionLoadReg + " = load ptr, ptr %__region_ptr\n")
-            output.append("  call void @__seen_region_destroy(ptr " + regionLoadReg + ") ; @preallocate cleanup\n")
-        }
-        // Emit profile_exit before return if profiled
-        if g_currentFunctionIsProfiled {
-            let strIdx = getStringConstantIndex(g_currentFunctionNameForProfile)
-            output.append("  ; @profile instrumentation - exit (explicit return)\n")
-            output.append("  call void @__seen_profile_exit(ptr @.str." + strIdx.toString() + ")\n")
-        }
+        emitPendingReturnDefers()
+        prepareErrdeferReturnStatement(stmt)
+        emitReturnRegionAndProfileCleanup()
 
-        // For async functions, store return value in promise and branch to final suspend
-        if isCurrentFunctionAsyncLowering() {
-            if stmt.returnValue.kind != "None" {
-                // Evaluate the return expression
-                let savedPendingType = pendingArrayLiteralType
-                if stmt.returnValue.kind == "ArrayLiteral" and (currentFunctionReturnType.startsWith("Array") or currentFunctionReturnType.startsWith("List")) {
-                    pendingArrayLiteralType = currentFunctionReturnType
-                }
-                // Tail call optimization for async: still mark call position
-                if stmt.returnValue.kind == "Call" {
-                    markTailCallPosition()
-                }
-                let valueReg = generateExpression(stmt.returnValue)
-                pendingArrayLiteralType = savedPendingType
-                let promiseType = mapType(currentFunctionReturnType)
-                output.append("  store " + promiseType + " " + valueReg + ", ptr " + g_asyncFunctionPromise + "\n")
-            }
-            output.append("  br label %" + g_asyncFinalLabel + "\n")
-            blockTerminated = true
+        if tryEmitAsyncReturnStatement(stmt) {
             return
         }
 
         if stmt.returnValue.kind == "None" {
-            // Check if function has non-void return type - use default value
-            let llvmType = mapType(currentFunctionReturnType)
-            var emittedDefRet = false
-            if llvmType == "void" or currentFunctionReturnType == "" or currentFunctionReturnType == "Void" {
-                if g_isMainFunc == 1 {
-                    output.append("  ret i32 0\n")
-                } else {
-                    output.append("  ret void\n")
-                }
-                emittedDefRet = true
-            }
-            if not emittedDefRet and llvmType == "i1" {
-                output.append("  ret i1 false\n")
-                emittedDefRet = true
-            }
-            if not emittedDefRet and llvmType == "i64" {
-                output.append("  ret i64 0\n")
-                emittedDefRet = true
-            }
-            if not emittedDefRet and llvmType == "ptr" {
-                output.append("  ret ptr null\n")
-                emittedDefRet = true
-            }
-            if not emittedDefRet and llvmType == "%SeenString" {
-                output.append("  ret %SeenString zeroinitializer\n")
-                emittedDefRet = true
-            }
-            if not emittedDefRet and llvmType == "%SeenArray" {
-                output.append("  ret %SeenArray zeroinitializer\n")
-                emittedDefRet = true
-            }
-            if not emittedDefRet {
-                // Generic struct type - return zeroinitializer
-                output.append("  ret " + llvmType + " zeroinitializer\n")
-            }
+            emitDefaultEmptyReturnStatement()
+            blockTerminated = true
+            return
         }
-        if stmt.returnValue.kind != "None" {
-            // Tail call optimization: if returning a direct function call, mark for tail call
-            if stmt.returnValue.kind == "Call" {
-                markTailCallPosition()
-            }
-            // Special handling for Char return type with string literals
-            if currentFunctionReturnType == "Char" and stmt.returnValue.kind == "Literal" and stmt.returnValue.literalType == "String" {
-                // Convert single-char string to its code point
-                let charValue = stmt.returnValue.literalValue
-                if charValue.length() == 1 {
-                    // Get first character's code point
-                    let codeStr = charToCodeStr(charValue)
-                    output.append("  ret i64 " + codeStr + "\n")
-                    blockTerminated = true
-                    return
-                }
-            }
 
-            // If errdefer already evaluated the return expression, load from temp alloca
-            var valueReg = ""
-            if g_errdeferTempAlloca != "" {
-                let edLoadReg = getNextReg()
-                output.append("  " + edLoadReg + " = load i64, ptr " + g_errdeferTempAlloca + "\n")
-                valueReg = edLoadReg
-                g_errdeferTempAlloca = ""
-            } else {
-                let savedPendingType = pendingArrayLiteralType
-                if stmt.returnValue.kind == "ArrayLiteral" and (currentFunctionReturnType.startsWith("Array") or currentFunctionReturnType.startsWith("List")) {
-                    pendingArrayLiteralType = currentFunctionReturnType
-                }
-                valueReg = generateExpression(stmt.returnValue)
-                pendingArrayLiteralType = savedPendingType
-            }
-            // Use the function's declared return type, not inferred type
-            let llvmType = mapType(currentFunctionReturnType)
-            // If returning a data type from a struct literal, we need to load the struct
-            // (struct literals return ptr, but data type functions should return inline struct)
-            if isDataType(currentFunctionReturnType) and stmt.returnValue.kind == "StructLiteral" {
-                let loadReg = getNextReg()
-                output.append("  " + loadReg + " = load " + llvmType + ", ptr " + valueReg + "\n")
-                valueReg = loadReg
-            }
-            // Note: class types use mapType → i64, and generateStructLiteral already returns i64
-            // for class types (via ptrtoint). No conversion needed here.
-            // Handle default return values when expression generation fails
-            if valueReg == "0" {
-                var fixedValReg = false
-                if llvmType == "ptr" {
-                    valueReg = "null"
-                    fixedValReg = true
-                }
-                if not fixedValReg and llvmType == "%SeenString" {
-                    // Return empty string { 0, null }
-                    valueReg = "zeroinitializer"
-                    fixedValReg = true
-                }
-                if not fixedValReg and llvmType == "%SeenArray" {
-                    // Return empty array { 0, 0, null }
-                    valueReg = "zeroinitializer"
-                    fixedValReg = true
-                }
-                if not fixedValReg and llvmType == "i1" {
-                    valueReg = "false"
-                }
-            }
-            output.append("  ret " + llvmType + " " + valueReg + "\n")
+        if stmt.returnValue.kind == "Call" {
+            markTailCallPosition()
         }
+        if tryEmitCharLiteralReturnFastPath(stmt) {
+            blockTerminated = true
+            return
+        }
+
+        let llvmType = mapType(currentFunctionReturnType)
+        let rawValueReg = resolveReturnStatementValueReg(stmt)
+        let valueReg = normalizeReturnStatementValueReg(stmt, llvmType, rawValueReg)
+        output.append("  ret " + llvmType + " " + valueReg + "\n")
         blockTerminated = true
     }
 
