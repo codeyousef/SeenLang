@@ -57,7 +57,7 @@ import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionM
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
 import codegen.ir_call_dispatch.{emitSimdReductionVarImpl, emitUserMethodCallImpl, emitUserFunctionCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, resolveStandaloneParserWorkaroundRetTypeImpl}
-import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl}
+import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
@@ -10940,13 +10940,8 @@ class LLVMIRGenerator {
                     }
                 }
                 if freePtrReg != "" {
-                    let dataPtrPtrReg = getNextReg()
-                    output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + freePtrReg + ", i32 0, i32 3\n")
-                    let dataPtrReg = getNextReg()
-                    output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + "\n")
-                    output.append("  call void @free(ptr " + dataPtrReg + ")\n")
-                    output.append("  call void @free(ptr " + freePtrReg + ")\n")
-                    return "0"
+                    return emitArrayFreeMutationImpl(output, g_regBox,
+                        freePtrReg)
                 }
             }
             if not isArrayType and isClassType(freeReceiverType) {
@@ -11108,100 +11103,11 @@ class LLVMIRGenerator {
             }
 
             if arrayPtrReg != "" {
-                if pushElemType == "String" {
-                    output.append("  call void @seen_arr_push_str(ptr " + arrayPtrReg + ", %SeenString " + argReg + ")\n")
-                    return "0"
-                }
-                if pushElemType == "Int" or pushElemType == "Char" or receiverType == "Array<Int>" {
-                    let lenPtrReg = getNextReg()
-                    let lenReg = getNextReg()
-                    let capPtrReg = getNextReg()
-                    let capReg = getNextReg()
-                    let needsGrowReg = getNextReg()
-                    let slowLabel = getNextBlockLabel()
-                    let fastLabel = getNextBlockLabel()
-                    let doneLabel = getNextBlockLabel()
-
-                    output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 0\n")
-                    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
-                    output.append("  " + capPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 1\n")
-                    output.append("  " + capReg + " = load i64, ptr " + capPtrReg + ", !tbaa !108, !range !188\n")
-                    output.append("  " + needsGrowReg + " = icmp sge i64 " + lenReg + ", " + capReg + "\n")
-                    output.append("  br i1 " + needsGrowReg + ", label %" + slowLabel + ", label %" + fastLabel + ", !prof !197\n")
-
-                    output.append(slowLabel + ":\n")
-                    let newCapReg = getNextReg()
-                    output.append("  " + newCapReg + " = shl i64 " + capReg + ", 1\n")
-                    output.append("  store i64 " + newCapReg + ", ptr " + capPtrReg + ", !tbaa !108\n")
-                    let newByteSizeReg = getNextReg()
-                    output.append("  " + newByteSizeReg + " = shl i64 " + newCapReg + ", 3\n")
-                    let slowDataPtrPtrReg = getNextReg()
-                    output.append("  " + slowDataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
-                    let slowOldDataReg = getNextReg()
-                    output.append("  " + slowOldDataReg + " = load ptr, ptr " + slowDataPtrPtrReg + ", !tbaa !104\n")
-                    let slowNewDataReg = getNextReg()
-                    output.append("  " + slowNewDataReg + " = call ptr @realloc(ptr " + slowOldDataReg + ", i64 " + newByteSizeReg + ")\n")
-                    output.append("  store ptr " + slowNewDataReg + ", ptr " + slowDataPtrPtrReg + ", !tbaa !104\n")
-                    let slowElemPtrReg = getNextReg()
-                    output.append("  " + slowElemPtrReg + " = getelementptr inbounds i64, ptr " + slowNewDataReg + ", i64 " + lenReg + "\n")
-                    output.append("  store i64 " + argReg + ", ptr " + slowElemPtrReg + ", !tbaa !105\n")
-                    let slowNewLenReg = getNextReg()
-                    output.append("  " + slowNewLenReg + " = add nsw i64 " + lenReg + ", 1\n")
-                    output.append("  store i64 " + slowNewLenReg + ", ptr " + lenPtrReg + ", !tbaa !108\n")
-                    output.append("  br label %" + doneLabel + "\n")
-
-                    output.append(fastLabel + ":\n")
-                    let dataPtrPtrReg = getNextReg()
-                    let dataPtrReg = getNextReg()
-                    let elemPtrReg = getNextReg()
-                    let newLenReg = getNextReg()
-                    output.append("  " + dataPtrPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
-                    output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg + ", !tbaa !104\n")
-                    output.append("  " + elemPtrReg + " = getelementptr inbounds i64, ptr " + dataPtrReg + ", i64 " + lenReg + "\n")
-                    output.append("  store i64 " + argReg + ", ptr " + elemPtrReg + ", !tbaa !105\n")
-                    output.append("  " + newLenReg + " = add nsw i64 " + lenReg + ", 1\n")
-                    output.append("  store i64 " + newLenReg + ", ptr " + lenPtrReg + ", !tbaa !108\n")
-                    output.append("  br label %" + doneLabel + "\n")
-
-                    output.append(doneLabel + ":\n")
-                    return "0"
-                }
-                if pushElemType == "Float" or receiverType == "Array<Float>" {
-                    let castReg = getNextReg()
-                    output.append("  " + castReg + " = bitcast double " + argReg + " to i64\n")
-                    output.append("  call void @seen_arr_push_i64(ptr " + arrayPtrReg + ", i64 " + castReg + ")\n")
-                    return "0"
-                }
-                if pushElemType != "String" and pushElemType != "Int" and pushElemType != "Float" and receiverType != "Array<Int>" and receiverType != "Array<Float>" {
-                    if isDataType(pushElemType) {
-                        var ptrArgReg = argReg
-                        if isClassType(pushElemType) {
-                            let tmpReg = getNextReg()
-                            output.append("  " + tmpReg + " = alloca i64\n")
-                            output.append("  store i64 " + argReg + ", ptr " + tmpReg + "\n")
-                            ptrArgReg = tmpReg
-                        }
-                        if not argIsStructLiteral {
-                            let tmpReg = getNextReg()
-                            output.append("  " + tmpReg + " = alloca %" + pushElemType + "\n")
-                            output.append("  store %" + pushElemType + " " + argReg + ", ptr " + tmpReg + "\n")
-                            ptrArgReg = tmpReg
-                        }
-                        let resultReg = getNextReg()
-                        output.append("  " + resultReg + " = call i64 @Array_push(ptr " + arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
-                        return resultReg
-                    }
-                    var ptrArgReg = argReg
-                    if isClassType(pushElemType) {
-                        let ptrReg = getNextReg()
-                        output.append("  " + ptrReg + " = inttoptr i64 " + argReg + " to ptr\n")
-                        ptrArgReg = ptrReg
-                    }
-                    if ptrArgReg == "0" {
-                        ptrArgReg = "null"
-                    }
-                    output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg + ", ptr " + ptrArgReg + ")\n")
-                    return "0"
+                let pushResult = emitArrayPushMutationImpl(output, g_regBox,
+                    g_blockLabelBox, arrayPtrReg, argReg, pushElemType,
+                    receiverType, argIsStructLiteral, structNames)
+                if pushResult != "" {
+                    return pushResult
                 }
             }
         }
@@ -11219,21 +11125,8 @@ class LLVMIRGenerator {
             }
             if arrayPtrReg == "" { arrayPtrReg = receiverReg }
             if arrayPtrReg != "" {
-                var elemType = ""
-                if receiverType.startsWith("Array<") and receiverType.endsWith(">") {
-                    elemType = receiverType.substring(6, receiverType.length() - 1)
-                }
-                let popResultReg = getNextReg()
-                if elemType == "Float" {
-                    output.append("  " + popResultReg + " = call double @seen_arr_pop_f64(ptr " + arrayPtrReg + ")\n")
-                    return popResultReg
-                }
-                if elemType == "String" {
-                    output.append("  " + popResultReg + " = call %SeenString @seen_arr_pop_str(ptr " + arrayPtrReg + ")\n")
-                    return popResultReg
-                }
-                output.append("  " + popResultReg + " = call i64 @seen_arr_pop_i64(ptr " + arrayPtrReg + ")\n")
-                return popResultReg
+                return emitArrayPopMutationImpl(output, g_regBox,
+                    arrayPtrReg, resolvePopElementTypeImpl(receiverType))
             }
         }
 
@@ -11251,21 +11144,8 @@ class LLVMIRGenerator {
                     }
                 }
                 if arrayPtrReg != "" {
-                    let dataPPReg = getNextReg()
-                    output.append("  " + dataPPReg + " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg + ", i32 0, i32 3\n")
-                    let dataPReg = getNextReg()
-                    output.append("  " + dataPReg + " = load ptr, ptr " + dataPPReg + ", !tbaa !104\n")
-                    let elemAPtrReg = getNextReg()
-                    output.append("  " + elemAPtrReg + " = getelementptr inbounds i64, ptr " + dataPReg + ", i64 " + idxAReg + "\n")
-                    let elemBPtrReg = getNextReg()
-                    output.append("  " + elemBPtrReg + " = getelementptr inbounds i64, ptr " + dataPReg + ", i64 " + idxBReg + "\n")
-                    let valAReg = getNextReg()
-                    output.append("  " + valAReg + " = load i64, ptr " + elemAPtrReg + ", align 8, !tbaa !105\n")
-                    let valBReg = getNextReg()
-                    output.append("  " + valBReg + " = load i64, ptr " + elemBPtrReg + ", align 8, !tbaa !105\n")
-                    output.append("  store i64 " + valBReg + ", ptr " + elemAPtrReg + ", align 8, !tbaa !105\n")
-                    output.append("  store i64 " + valAReg + ", ptr " + elemBPtrReg + ", align 8, !tbaa !105\n")
-                    return "0"
+                    return emitArraySwapMutationImpl(output, g_regBox,
+                        arrayPtrReg, idxAReg, idxBReg)
                 }
             }
         }
@@ -11323,154 +11203,6 @@ class LLVMIRGenerator {
             argTypes.push(mapType(argType))
             argIdx = argIdx + 1
         }
-    }
-
-    fun tryGenerateBuiltinMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-
-        let lengthLikeResult = tryGenerateLengthLikeMethodCallImpl(output,
-            g_regBox, methodName, receiverReg, receiverType,
-            g_reprCClassNames, structNames)
-        if lengthLikeResult != "" {
-            return lengthLikeResult
-        }
-
-        if receiverType == "StringBuilder" {
-            if methodName == "append" or methodName == "appendInt" or
-                methodName == "appendFloat" or
-                methodName == "appendChar" or methodName == "clear" or
-                methodName == "length" or methodName == "toString" {
-                var sbArg0 = ""
-                var isFloatFused = 0
-                if methodName == "append" and expr.arguments.length() > 0 {
-                    let appendArgExpr = expr.arguments[0]
-                    if appendArgExpr.kind == "Call" and
-                        appendArgExpr.callee == "__FloatToString" and
-                        appendArgExpr.arguments.length() > 0 {
-                        sbArg0 = generateExpression(appendArgExpr.arguments[0])
-                        isFloatFused = 1
-                    } else {
-                        sbArg0 = generateExpression(expr.arguments[0])
-                    }
-                } else {
-                    if expr.arguments.length() > 0 {
-                        sbArg0 = generateExpression(expr.arguments[0])
-                    }
-                }
-                let stringBuilderResult =
-                    emitStringBuilderReceiverMethodCallImpl(output, g_regBox,
-                        methodName, receiverReg, receiverType, sbArg0,
-                        isFloatFused, g_reprCClassNames, structNames)
-                if stringBuilderResult != "" {
-                    return stringBuilderResult
-                }
-            }
-        }
-
-        let conversionResult = tryGeneratePrimitiveConversionMethodCallImpl(
-            output, g_regBox, methodName, receiverReg, receiverType,
-            structNames)
-        if conversionResult != "" {
-            return conversionResult
-        }
-
-        if methodName == "abs" or methodName == "min" or methodName == "max" or
-            methodName == "clamp" or methodName == "floor" or
-            methodName == "ceil" or methodName == "round" or
-            methodName == "sqrt" or methodName == "isNaN" or
-            methodName == "isInfinite" {
-            var numArg0 = ""
-            var numArg1 = ""
-            if expr.arguments.length() > 0 {
-                numArg0 = generateExpression(expr.arguments[0])
-            }
-            if expr.arguments.length() > 1 {
-                numArg1 = generateExpression(expr.arguments[1])
-            }
-            let numericResult = tryGenerateNumericReceiverMethodCallImpl(
-                output, g_regBox, methodName, receiverReg, receiverType,
-                numArg0, numArg1)
-            if numericResult != "" {
-                return numericResult
-            }
-        }
-
-        var strArg0 = ""
-        var strArg1 = ""
-        let strArgCount = expr.arguments.length()
-        if strArgCount > 0 {
-            strArg0 = generateExpression(expr.arguments[0])
-        }
-        if strArgCount > 1 {
-            strArg1 = generateExpression(expr.arguments[1])
-        }
-        return tryGenerateStringLikeReceiverMethodCallImpl(output, g_regBox,
-            methodName, receiverReg, receiverType, strArg0, strArg1,
-            strArgCount, g_reprCClassNames, structNames)
-    }
-
-    fun emitNormalizedInstanceMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-
-        var tracedUnwrapSourceType = ""
-        if receiverType == "ptr" and methodName == "toJson" and
-            expr.operands.length() > 0 {
-            let receiverExpr = expr.operands[0]
-            if receiverExpr.kind == "MethodCall" and
-                receiverExpr.callee == "unwrap" and
-                receiverExpr.operands.length() > 0 {
-                tracedUnwrapSourceType = inferExpressionType(
-                    receiverExpr.operands[0])
-            }
-        }
-        let instanceTypeName = resolveMethodCallInstanceTypeNameImpl(expr,
-            methodName, receiverType, tracedUnwrapSourceType)
-        let funcName = instanceTypeName + "_" + methodName
-
-        var hotStateArg = ""
-        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
-            hotStateArg = generateExpression(expr.arguments[0])
-        }
-        let hotReloadResult = tryGeneratePreparedHotReloadInstanceMethodCallImpl(
-            output, g_regBox, methodName, quoteIdentIfNeeded(funcName),
-            receiverReg, receiverType, hotStateArg, structNames)
-        if hotReloadResult != "" {
-            return hotReloadResult
-        }
-
-        var argRegs = Array<String>()
-        var argTypeStrs = Array<String>()
-        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
-
-        let returnTypeStr = resolveMethodCallReturnTypeImpl(
-            inferExpressionType(expr), getMethodReturnType(instanceTypeName,
-                methodName))
-        let llvmReturnType = mapType(returnTypeStr)
-
-        let receiverRegBox = Array<String>()
-        receiverRegBox.push(receiverReg)
-        let receiverLlvmTypeBox = Array<String>()
-        receiverLlvmTypeBox.push("ptr")
-        prepareMethodCallReceiverAbiImpl(output, g_regBox, instanceTypeName,
-            receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
-            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames)
-
-        let normalizedReceiverReg = receiverRegBox[0]
-        let receiverLlvmType = receiverLlvmTypeBox[0]
-
-        let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
-            output, g_regBox, methodName, instanceTypeName, receiverType,
-            returnTypeStr, receiverLlvmType, normalizedReceiverReg,
-            structNames)
-        if specializedResult != "" {
-            return specializedResult
-        }
-
-        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
-        argRegs = g_defaultFillArgRegs
-        argTypeStrs = g_defaultFillArgTypeStrs
-        return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType, normalizedReceiverReg, argRegs, argTypeStrs, 0)
     }
 
     // Generate IR for a method call (receiver.method(args)). The largest and
@@ -11810,12 +11542,151 @@ class LLVMIRGenerator {
             return arrayMutatorResult
         }
 
-        let builtinMethodResult = tryGenerateBuiltinMethodCall(expr, methodName, receiverReg, receiverType)
-        if builtinMethodResult != "" {
-            return builtinMethodResult
+        let lengthLikeResult = tryGenerateLengthLikeMethodCallImpl(output,
+            g_regBox, methodName, receiverReg, receiverType,
+            g_reprCClassNames, structNames)
+        if lengthLikeResult != "" {
+            return lengthLikeResult
         }
 
-        return emitNormalizedInstanceMethodCall(expr, methodName, receiverReg, receiverType)
+        if receiverType == "StringBuilder" {
+            if methodName == "append" or methodName == "appendInt" or
+                methodName == "appendFloat" or
+                methodName == "appendChar" or methodName == "clear" or
+                methodName == "length" or methodName == "toString" {
+                var sbArg0 = ""
+                var isFloatFused = 0
+                if methodName == "append" and expr.arguments.length() > 0 {
+                    let appendArgExpr = expr.arguments[0]
+                    if appendArgExpr.kind == "Call" and
+                        appendArgExpr.callee == "__FloatToString" and
+                        appendArgExpr.arguments.length() > 0 {
+                        sbArg0 = generateExpression(appendArgExpr.arguments[0])
+                        isFloatFused = 1
+                    } else {
+                        sbArg0 = generateExpression(expr.arguments[0])
+                    }
+                } else {
+                    if expr.arguments.length() > 0 {
+                        sbArg0 = generateExpression(expr.arguments[0])
+                    }
+                }
+                let stringBuilderResult =
+                    emitStringBuilderReceiverMethodCallImpl(output, g_regBox,
+                        methodName, receiverReg, receiverType, sbArg0,
+                        isFloatFused, g_reprCClassNames, structNames)
+                if stringBuilderResult != "" {
+                    return stringBuilderResult
+                }
+            }
+        }
+
+        let conversionResult = tryGeneratePrimitiveConversionMethodCallImpl(
+            output, g_regBox, methodName, receiverReg, receiverType,
+            structNames)
+        if conversionResult != "" {
+            return conversionResult
+        }
+
+        if methodName == "abs" or methodName == "min" or methodName == "max" or
+            methodName == "clamp" or methodName == "floor" or
+            methodName == "ceil" or methodName == "round" or
+            methodName == "sqrt" or methodName == "isNaN" or
+            methodName == "isInfinite" {
+            var numArg0 = ""
+            var numArg1 = ""
+            if expr.arguments.length() > 0 {
+                numArg0 = generateExpression(expr.arguments[0])
+            }
+            if expr.arguments.length() > 1 {
+                numArg1 = generateExpression(expr.arguments[1])
+            }
+            let numericResult = tryGenerateNumericReceiverMethodCallImpl(
+                output, g_regBox, methodName, receiverReg, receiverType,
+                numArg0, numArg1)
+            if numericResult != "" {
+                return numericResult
+            }
+        }
+
+        var strArg0 = ""
+        var strArg1 = ""
+        let strArgCount = expr.arguments.length()
+        if strArgCount > 0 {
+            strArg0 = generateExpression(expr.arguments[0])
+        }
+        if strArgCount > 1 {
+            strArg1 = generateExpression(expr.arguments[1])
+        }
+        let stringLikeResult = tryGenerateStringLikeReceiverMethodCallImpl(
+            output, g_regBox, methodName, receiverReg, receiverType, strArg0,
+            strArg1, strArgCount, g_reprCClassNames, structNames)
+        if stringLikeResult != "" {
+            return stringLikeResult
+        }
+
+        var tracedUnwrapSourceType = ""
+        if receiverType == "ptr" and methodName == "toJson" and
+            expr.operands.length() > 0 {
+            let receiverExpr = expr.operands[0]
+            if receiverExpr.kind == "MethodCall" and
+                receiverExpr.callee == "unwrap" and
+                receiverExpr.operands.length() > 0 {
+                tracedUnwrapSourceType = inferExpressionType(
+                    receiverExpr.operands[0])
+            }
+        }
+        let instanceTypeName = resolveMethodCallInstanceTypeNameImpl(expr,
+            methodName, receiverType, tracedUnwrapSourceType)
+        let funcName = instanceTypeName + "_" + methodName
+
+        var hotStateArg = ""
+        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
+            hotStateArg = generateExpression(expr.arguments[0])
+        }
+        let hotReloadResult = tryGeneratePreparedHotReloadInstanceMethodCallImpl(
+            output, g_regBox, methodName, quoteIdentIfNeeded(funcName),
+            receiverReg, receiverType, hotStateArg, structNames)
+        if hotReloadResult != "" {
+            return hotReloadResult
+        }
+
+        var argRegs = Array<String>()
+        var argTypeStrs = Array<String>()
+        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs,
+            false, true, false, "")
+
+        let returnTypeStr = resolveMethodCallReturnTypeImpl(
+            inferExpressionType(expr), getMethodReturnType(instanceTypeName,
+                methodName))
+        let llvmReturnType = mapType(returnTypeStr)
+
+        let receiverRegBox = Array<String>()
+        receiverRegBox.push(receiverReg)
+        let receiverLlvmTypeBox = Array<String>()
+        receiverLlvmTypeBox.push("ptr")
+        prepareMethodCallReceiverAbiImpl(output, g_regBox, instanceTypeName,
+            receiverRegBox, receiverType, receiverLlvmTypeBox, structNames,
+            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames)
+
+        let normalizedReceiverReg = receiverRegBox[0]
+        let receiverLlvmType = receiverLlvmTypeBox[0]
+
+        let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
+            output, g_regBox, methodName, instanceTypeName, receiverType,
+            returnTypeStr, receiverLlvmType, normalizedReceiverReg,
+            structNames)
+        if specializedResult != "" {
+            return specializedResult
+        }
+
+        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
+        argRegs = g_defaultFillArgRegs
+        argTypeStrs = g_defaultFillArgTypeStrs
+        return emitUserMethodCallImpl(output, g_regBox,
+            quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType,
+            normalizedReceiverReg, argRegs, argTypeStrs, 0)
     }
 
     // Generate IR for an await expression. Calls the async function to get
