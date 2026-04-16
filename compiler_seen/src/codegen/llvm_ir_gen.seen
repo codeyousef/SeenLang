@@ -11348,12 +11348,6 @@ class LLVMIRGenerator {
         receiverTypeBox[0] = inferExpressionType(rebuiltReceiverExpr)
     }
 
-    fun resolveMethodFieldPathType(baseType: String, fieldPath: String) r: String {
-        return resolveMethodFieldPathTypeImpl(baseType, fieldPath, structNames,
-            structFieldNames, structFieldTypes, structMethodNames,
-            structMethodRetTypes)
-    }
-
     fun resolveLiteralMethodReceiverType(literalValue: String) r: String {
         if literalValue == "" {
             return ""
@@ -11381,16 +11375,16 @@ class LLVMIRGenerator {
         let thisType = varTypes[thisIdx]
         if literalValue.contains(".") {
             let pathParts = splitFirstPathDotImpl(literalValue)
-            let firstFieldType = resolveMethodFieldPathType(thisType, pathParts[0])
-            return resolveMethodFieldPathType(firstFieldType, pathParts[1])
+            let firstFieldType = resolveMethodFieldPathTypeImpl(thisType,
+                pathParts[0], structNames, structFieldNames,
+                structFieldTypes, structMethodNames, structMethodRetTypes)
+            return resolveMethodFieldPathTypeImpl(firstFieldType, pathParts[1],
+                structNames, structFieldNames, structFieldTypes,
+                structMethodNames, structMethodRetTypes)
         }
-        return resolveMethodFieldPathType(thisType, literalValue)
-    }
-
-    fun tryResolveEnumLiteralMethodReceiver(expr: ParserExpressionNode,
-        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: Int {
-        return tryResolveEnumLiteralMethodReceiverImpl(expr, receiverRegBox,
-            receiverTypeBox)
+        return resolveMethodFieldPathTypeImpl(thisType, literalValue,
+            structNames, structFieldNames, structFieldTypes,
+            structMethodNames, structMethodRetTypes)
     }
 
     fun tryResolveImplicitThisChainedLiteralMethodReceiver(expr: ParserExpressionNode,
@@ -11405,7 +11399,9 @@ class LLVMIRGenerator {
             return 0
         }
         let thisType = varTypes[thisIdx]
-        let firstFieldType = resolveMethodFieldPathType(thisType, pathParts[0])
+        let firstFieldType = resolveMethodFieldPathTypeImpl(thisType,
+            pathParts[0], structNames, structFieldNames, structFieldTypes,
+            structMethodNames, structMethodRetTypes)
         if firstFieldType == "" {
             return 0
         }
@@ -11422,7 +11418,9 @@ class LLVMIRGenerator {
         }
 
         receiverRegBox[0] = generateFieldAccess(accessFieldReg, firstFieldType, pathParts[1])
-        receiverTypeBox[0] = resolveMethodFieldPathType(firstFieldType, pathParts[1])
+        receiverTypeBox[0] = resolveMethodFieldPathTypeImpl(firstFieldType,
+            pathParts[1], structNames, structFieldNames, structFieldTypes,
+            structMethodNames, structMethodRetTypes)
         return 1
     }
 
@@ -11449,47 +11447,6 @@ class LLVMIRGenerator {
             structMethodRetTypes, dynArgRegs, dynArgTypes, 0)
     }
 
-    fun normalizeExplicitMethodReceiverType(methodName: String, receiverType: String) r: String {
-        return normalizeExplicitMethodReceiverTypeImpl(methodName, receiverType)
-    }
-
-    fun tryGenerateExplicitOptionMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-        var optDefaultReg = "0"
-        if (methodName == "unwrapOr" or methodName == "UnwrapOr") and expr.arguments.length() > 0 {
-            optDefaultReg = generateExpression(expr.arguments[0])
-        }
-        return tryGenerateExplicitOptionMethodCallImpl(output, g_regBox,
-            g_blockLabelBox, methodName, receiverReg, receiverType,
-            optDefaultReg)
-    }
-
-    fun tryGenerateExplicitHotReloadMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-        var hotStateArg = "0"
-        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
-            hotStateArg = generateExpression(expr.arguments[0])
-        }
-        return tryGenerateExplicitHotReloadMethodCallImpl(output, g_regBox,
-            methodName, receiverReg, receiverType, hotStateArg,
-            g_reprCClassNames, structNames)
-    }
-
-    fun tryGenerateExplicitCollectionMethodCall(expr: ParserExpressionNode,
-        methodName: String, receiverReg: String, receiverType: String) r: String {
-
-        var collArg0c = "0"
-        var collArg1c = "0"
-        if expr.arguments.length() > 0 {
-            collArg0c = generateExpression(expr.arguments[0])
-        }
-        if expr.arguments.length() > 1 {
-            collArg1c = generateExpression(expr.arguments[1])
-        }
-        return tryGenerateExplicitCollectionMethodCallImpl(output, g_regBox,
-            methodName, receiverReg, receiverType, collArg0c, collArg1c)
-    }
-
     fun tryPrepareExplicitMethodReceiver(expr: ParserExpressionNode, methodName: String,
         receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
 
@@ -11511,20 +11468,44 @@ class LLVMIRGenerator {
             return dynTraitResult
         }
 
-        receiverType = normalizeExplicitMethodReceiverType(methodName, receiverType)
+        receiverType = normalizeExplicitMethodReceiverTypeImpl(methodName,
+            receiverType)
         receiverTypeBox[0] = receiverType
 
-        let optionResult = tryGenerateExplicitOptionMethodCall(expr, methodName, receiverReg, receiverType)
+        var optDefaultReg = "0"
+        if (methodName == "unwrapOr" or methodName == "UnwrapOr") and
+            expr.arguments.length() > 0 {
+            optDefaultReg = generateExpression(expr.arguments[0])
+        }
+        let optionResult = tryGenerateExplicitOptionMethodCallImpl(output,
+            g_regBox, g_blockLabelBox, methodName, receiverReg, receiverType,
+            optDefaultReg)
         if optionResult != "" {
             return optionResult
         }
 
-        let hotReloadResult = tryGenerateExplicitHotReloadMethodCall(expr, methodName, receiverReg, receiverType)
+        var hotStateArg = "0"
+        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
+            hotStateArg = generateExpression(expr.arguments[0])
+        }
+        let hotReloadResult = tryGenerateExplicitHotReloadMethodCallImpl(
+            output, g_regBox, methodName, receiverReg, receiverType,
+            hotStateArg, g_reprCClassNames, structNames)
         if hotReloadResult != "" {
             return hotReloadResult
         }
 
-        let collectionResult = tryGenerateExplicitCollectionMethodCall(expr, methodName, receiverReg, receiverType)
+        var collArg0c = "0"
+        var collArg1c = "0"
+        if expr.arguments.length() > 0 {
+            collArg0c = generateExpression(expr.arguments[0])
+        }
+        if expr.arguments.length() > 1 {
+            collArg1c = generateExpression(expr.arguments[1])
+        }
+        let collectionResult = tryGenerateExplicitCollectionMethodCallImpl(
+            output, g_regBox, methodName, receiverReg, receiverType,
+            collArg0c, collArg1c)
         if collectionResult != "" {
             return collectionResult
         }
@@ -11543,20 +11524,11 @@ class LLVMIRGenerator {
             return
         }
 
-        if tryResolveEnumLiteralMethodReceiver(expr, receiverRegBox, receiverTypeBox) == 1 {
+        if tryResolveEnumLiteralMethodReceiverImpl(expr, receiverRegBox,
+            receiverTypeBox) == 1 {
             return
         }
         tryResolveImplicitThisChainedLiteralMethodReceiver(expr, receiverRegBox, receiverTypeBox)
-    }
-
-    fun tryGenerateSimpleVariableDynTraitMethodCall(expr: ParserExpressionNode,
-        methodName: String, receiverReg: String, varType: String) r: String {
-        var svDynArgRegs = Array<String>()
-        var svDynArgTypes = Array<String>()
-        prepareMethodCallArgRegsAndTypes(expr.arguments, svDynArgRegs, svDynArgTypes)
-        return emitPreparedDynTraitMethodCallImpl(output, g_regBox, receiverReg,
-            varType, methodName, structNames, structMethodNames,
-            structMethodRetTypes, svDynArgRegs, svDynArgTypes, 1)
     }
 
     fun tryPrepareLocalVariableMethodReceiver(expr: ParserExpressionNode, methodName: String,
@@ -11573,8 +11545,14 @@ class LLVMIRGenerator {
         receiverRegBox[0] = emitLocalVariableLoadImpl(output, g_regBox, llvmType, varReg)
         receiverTypeBox[0] = varType
 
-        let dynTraitResult = tryGenerateSimpleVariableDynTraitMethodCall(expr, methodName,
-            receiverRegBox[0], varType)
+        var svDynArgRegs = Array<String>()
+        var svDynArgTypes = Array<String>()
+        prepareMethodCallArgRegsAndTypes(expr.arguments, svDynArgRegs,
+            svDynArgTypes)
+        let dynTraitResult = emitPreparedDynTraitMethodCallImpl(output,
+            g_regBox, receiverRegBox[0], varType, methodName, structNames,
+            structMethodNames, structMethodRetTypes, svDynArgRegs,
+            svDynArgTypes, 1)
         if dynTraitResult != "" {
             return dynTraitResult
         }
@@ -11584,10 +11562,6 @@ class LLVMIRGenerator {
         }
 
         return ""
-    }
-
-    fun fallbackModuleConstantMethodReceiverType(llvmType: String, receiverType: String) r: String {
-        return fallbackModuleConstantMethodReceiverTypeImpl(llvmType, receiverType)
     }
 
     fun tryPrepareModuleConstantMethodReceiver(varName: String,
@@ -11605,7 +11579,7 @@ class LLVMIRGenerator {
         }
         receiverRegBox[0] = emitModuleConstantLoadImpl(output, g_regBox, "@" + varName,
             gvMcType, gvMcInvSuffix)
-        receiverTypeBox[0] = fallbackModuleConstantMethodReceiverType(gvMcType,
+        receiverTypeBox[0] = fallbackModuleConstantMethodReceiverTypeImpl(gvMcType,
             resolveLiteralMethodReceiverType(varName))
     }
 
