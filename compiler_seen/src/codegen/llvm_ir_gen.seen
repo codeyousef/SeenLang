@@ -67,6 +67,7 @@ import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryEx
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl}
@@ -7551,73 +7552,130 @@ class LLVMIRGenerator {
         currentLoopEndLabel = savedEndLabel
     }
 
+    fun generateAssignmentValuePreservingPendingType(valueExpr: ParserExpressionNode) r: String {
+        let savedPendingType = pendingArrayLiteralType
+        let valueReg = generateExpression(valueExpr)
+        pendingArrayLiteralType = savedPendingType
+        return valueReg
+    }
+
+    fun generateAssignmentValueForSeenType(valueExpr: ParserExpressionNode, targetSeenType: String) r: String {
+        let savedPendingType = pendingArrayLiteralType
+        if targetSeenType != "" and valueExpr.kind == "ArrayLiteral" {
+            if targetSeenType.startsWith("Array") or targetSeenType.startsWith("List") {
+                pendingArrayLiteralType = targetSeenType
+            }
+        }
+        let valueReg = generateExpression(valueExpr)
+        pendingArrayLiteralType = savedPendingType
+        return valueReg
+    }
+
+    fun tryGenerateModuleConstantAssignment(varName: String, valueExpr: ParserExpressionNode) r: Int {
+        let constIdx = findModuleConstant(varName)
+        if constIdx < 0 {
+            return 0
+        }
+        let constType = moduleConstantTypes[constIdx]
+        let valueReg = generateAssignmentValuePreservingPendingType(valueExpr)
+        emitStoreValueToPtrImpl(output, constType, valueReg, "@" + varName)
+        return 1
+    }
+
+    fun tryGenerateImplicitThisFieldAssignment(varName: String, valueExpr: ParserExpressionNode) r: Int {
+        let thisIdx = findVar("this")
+        if thisIdx < 0 {
+            return 0
+        }
+
+        let thisType = varTypes[thisIdx]
+        let structIdx = findStruct(thisType)
+        if structIdx < 0 {
+            return 0
+        }
+
+        let fieldIdx = getFieldInfo(thisType, varName)
+        if fieldIdx < 0 {
+            return 0
+        }
+
+        let fieldSeenType = getSeenFieldType(thisType, varName)
+        let valueReg = generateAssignmentValueForSeenType(valueExpr, fieldSeenType)
+        let fieldType = getFieldType(thisType, varName)
+        emitImplicitThisFieldStoreImpl(output, g_regBox,
+            varRegs[thisIdx], structLayouts[structIdx], fieldIdx, fieldType, valueReg)
+        return 1
+    }
+
+    fun tryGenerateFallbackAssignmentTarget(varName: String, valueExpr: ParserExpressionNode) r: Int {
+        if tryGenerateModuleConstantAssignment(varName, valueExpr) == 1 {
+            return 1
+        }
+        return tryGenerateImplicitThisFieldAssignment(varName, valueExpr)
+    }
+
+    fun emitDistinctAssignmentTypeWarning(varType: String, valueExpr: ParserExpressionNode) r: Void {
+        if g_distinctTypeNames == "" or not g_distinctTypeNames.contains(varType + "|") {
+            return
+        }
+        let rhsType = inferExpressionType(valueExpr)
+        if rhsType != "" and rhsType != varType {
+            emitDistinctTypeMismatchWarningImpl(output, rhsType, varType)
+        }
+    }
+
+    fun emitLocalVariableAssignment(idx: Int, valueExpr: ParserExpressionNode) r: String {
+        let varType = varTypes[idx]
+        let valueReg = generateAssignmentValueForSeenType(valueExpr, varType)
+        emitStoreValueToPtrImpl(output, mapType(varType), valueReg, varRegs[idx])
+        return varType
+    }
+
+    fun applyMoveAssignmentSemantics(valueExpr: ParserExpressionNode) r: Void {
+        if g_moveOnlyClasses == "" {
+            return
+        }
+        if valueExpr.kind != "Variable" and valueExpr.kind != "VarExpr" {
+            return
+        }
+
+        let rhsVarName = getExprVariableNameImpl(valueExpr.variableName, valueExpr.literalValue)
+        if rhsVarName == "" {
+            return
+        }
+
+        let rhsIdx = findVar(rhsVarName)
+        if rhsIdx < 0 {
+            return
+        }
+
+        let rhsType = varTypes[rhsIdx]
+        if not g_moveOnlyClasses.contains(rhsType + "|") {
+            return
+        }
+
+        emitMoveSourceNullifyImpl(output, varRegs[rhsIdx])
+        g_movedVarNames = g_movedVarNames + rhsVarName + "|"
+        g_movedVarCount = g_movedVarCount + 1
+    }
+
+    fun emitTriviallyCopyableAssignmentNote(varType: String) r: Void {
+        if g_triviallyCopyableClasses != "" and g_triviallyCopyableClasses.contains(varType + "|") {
+            emitTriviallyCopyableAssignmentNoteImpl(output, varType)
+        }
+    }
+
     // Handle assignment expression (from parser)
     fun generateAssignmentExpr(expr: ParserExpressionNode) r: Void {
         let varName = expr.variableName
         let idx = findVar(varName)
 
         if idx < 0 {
-            // Check if it's a global variable (module constant)
-            let gvConstIdx = findModuleConstant(varName)
-            if gvConstIdx >= 0 {
-                let gvConstType = moduleConstantTypes[gvConstIdx]
-                let gvSavedPending = pendingArrayLiteralType
-                let gvValueReg = generateExpression(expr.operands[0])
-                pendingArrayLiteralType = gvSavedPending
-                output.append("  store " + gvConstType + " " + gvValueReg + ", ptr @" + varName + "\n")
-                return
-            }
-            // Variable not found - check if 'this' exists and varName is a field
-            let thisIdx = findVar("this")
-            if thisIdx >= 0 {
-                let thisReg = varRegs[thisIdx]
-                let thisType = varTypes[thisIdx]
-
-                // Check if this type has the field
-                let structIdx = findStruct(thisType)
-                if structIdx >= 0 {
-                    let fieldIdx = getFieldInfo(thisType, varName)
-                    if fieldIdx >= 0 {
-                        // Generate field assignment to fieldName
-                        let savedPendingType = pendingArrayLiteralType
-                        let fieldSeenType = getSeenFieldType(thisType, varName)
-                        if expr.operands[0].kind == "ArrayLiteral" and (fieldSeenType.startsWith("Array") or fieldSeenType.startsWith("List")) {
-                            pendingArrayLiteralType = fieldSeenType
-                        }
-                        let valueReg = generateExpression(expr.operands[0])
-                        pendingArrayLiteralType = savedPendingType
-
-                        // Load 'this' pointer
-                        let thisPtrReg = getNextReg()
-                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                        // Get struct layout and field type
-                        let structLayout = structLayouts[structIdx]
-                        let fieldType = getFieldType(thisType, varName)
-
-                        // Generate GEP to field
-                        let fieldPtrReg = getNextReg()
-                        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
-
-                        // Store the value
-                        output.append("  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n")
-                        return
-                    }
-                }
-            }
+            tryGenerateFallbackAssignmentTarget(varName, expr.operands[0])
             return
         }
 
-        let savedPendingType = pendingArrayLiteralType
-        let varType = varTypes[idx]
-        if expr.operands[0].kind == "ArrayLiteral" and (varType.startsWith("Array") or varType.startsWith("List")) {
-            pendingArrayLiteralType = varType
-        }
-        let valueReg = generateExpression(expr.operands[0])
-        pendingArrayLiteralType = savedPendingType
-        let varReg = varRegs[idx]
-        let llvmType = mapType(varType)
-        output.append("  store " + llvmType + " " + valueReg + ", ptr " + varReg + "\n")
+        emitLocalVariableAssignment(idx, expr.operands[0])
     }
 
     // Generate IR for a variable assignment statement (x = expr).
@@ -7629,107 +7687,15 @@ class LLVMIRGenerator {
         let idx = findVar(varName)
 
         if idx < 0 {
-            // Check if it's a global variable (module constant)
-            let gvConstIdx2 = findModuleConstant(varName)
-            if gvConstIdx2 >= 0 {
-                let gvConstType2 = moduleConstantTypes[gvConstIdx2]
-                let gvSavedPending2 = pendingArrayLiteralType
-                let gvValueReg2 = generateExpression(stmt.initializer)
-                pendingArrayLiteralType = gvSavedPending2
-                output.append("  store " + gvConstType2 + " " + gvValueReg2 + ", ptr @" + varName + "\n")
-                return
-            }
-            // Variable not found - check if 'this' exists and varName is a field
-            let thisIdx = findVar("this")
-            if thisIdx >= 0 {
-                let thisReg = varRegs[thisIdx]
-                let thisType = varTypes[thisIdx]
-
-                // Check if this type has the field
-                let structIdx = findStruct(thisType)
-                if structIdx >= 0 {
-                    let fieldIdx = getFieldInfo(thisType, varName)
-                    if fieldIdx >= 0 {
-                        // Generate field assignment to fieldName
-                        let savedPendingType = pendingArrayLiteralType
-                        let fieldSeenType = getSeenFieldType(thisType, varName)
-                        if stmt.initializer.kind == "ArrayLiteral" and (fieldSeenType.startsWith("Array") or fieldSeenType.startsWith("List")) {
-                            pendingArrayLiteralType = fieldSeenType
-                        }
-                        let valueReg = generateExpression(stmt.initializer)
-                        pendingArrayLiteralType = savedPendingType
-
-                        // Load 'this' pointer
-                        let thisPtrReg = getNextReg()
-                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                        // Get struct layout and field type
-                        let structLayout = structLayouts[structIdx]
-                        let fieldType = getFieldType(thisType, varName)
-
-                        // Generate GEP to field
-                        let fieldPtrReg = getNextReg()
-                        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
-
-                        // Store the value
-                        output.append("  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n")
-                        return
-                    }
-                }
-            }
+            tryGenerateFallbackAssignmentTarget(varName, stmt.initializer)
             return
         }
 
-        let savedPendingType = pendingArrayLiteralType
         let varType = varTypes[idx]
-        if stmt.initializer.kind == "ArrayLiteral" and (varType.startsWith("Array") or varType.startsWith("List")) {
-            pendingArrayLiteralType = varType
-        }
-
-        // Distinct type enforcement: check that RHS type matches exactly
-        if g_distinctTypeNames != "" and g_distinctTypeNames.contains(varType + "|") {
-            let rhsType = inferExpressionType(stmt.initializer)
-            if rhsType != varType and rhsType != "" {
-                output.append("  ; WARNING: distinct type mismatch — cannot assign " + rhsType + " to " + varType + "\n")
-            }
-        }
-
-        let valueReg = generateExpression(stmt.initializer)
-        pendingArrayLiteralType = savedPendingType
-        let varReg = varRegs[idx]
-        let llvmType = mapType(varType)
-        output.append("  store " + llvmType + " " + valueReg + ", ptr " + varReg + "\n")
-
-        // : Move enforcement — if RHS is a variable of a @move type, null the source
-        if g_moveOnlyClasses != "" {
-            if stmt.initializer.kind == "Variable" or stmt.initializer.kind == "VarExpr" {
-                var rhsVarName = stmt.initializer.variableName
-                if rhsVarName == "" {
-                    rhsVarName = stmt.initializer.literalValue
-                }
-                if rhsVarName != "" {
-                    let rhsIdx = findVar(rhsVarName)
-                    if rhsIdx >= 0 {
-                        let rhsType = varTypes[rhsIdx]
-                        if g_moveOnlyClasses.contains(rhsType + "|") {
-                            // Null the source register (move semantics)
-                            let rhsSrcReg = varRegs[rhsIdx]
-                            output.append("  store i64 0, ptr " + rhsSrcReg + " ; @move: nullify source\n")
-                            // Track this variable as moved
-                            g_movedVarNames = g_movedVarNames + rhsVarName + "|"
-                            g_movedVarCount = g_movedVarCount + 1
-                        }
-                    }
-                }
-            }
-        }
-
-        // : @trivially_copyable — emit IR comment for trivial copy
-        if g_triviallyCopyableClasses != "" {
-            if g_triviallyCopyableClasses.contains(varType + "|") {
-                output.append("  ; @trivially_copyable: bitwise copy of " + varType + "\n")
-            }
-        }
+        emitDistinctAssignmentTypeWarning(varType, stmt.initializer)
+        emitLocalVariableAssignment(idx, stmt.initializer)
+        applyMoveAssignmentSemantics(stmt.initializer)
+        emitTriviallyCopyableAssignmentNote(varType)
     }
 
     // Generate member assignment: a.b = value or a.b = value
@@ -9270,10 +9236,79 @@ class LLVMIRGenerator {
     // (@global_name), enum variant tags (i64 constants), and 'this' field
     // access if the bare name matches a struct field on the current class.
     fun getExprVariableName(expr: ParserExpressionNode) r: String {
-        if expr.variableName != "" {
-            return expr.variableName
+        return getExprVariableNameImpl(expr.variableName, expr.literalValue)
+    }
+
+    fun tryEmitMovedVariableRead(varName: String) r: Int {
+        if g_movedVarCount > 0 and g_movedVarNames.contains(varName + "|") {
+            emitMovedVariableUseTrapImpl(output, varName)
+            return 1
         }
-        return expr.literalValue
+        return 0
+    }
+
+    fun tryGenerateComptimeVariable(varName: String) r: String {
+        if g_comptimeCount > 0 {
+            let ctVal = lookupComptimeVar(varName)
+            if ctVal != -9999999 {
+                return emitComptimeVariableLoadImpl(output, g_regBox, ctVal)
+            }
+        }
+        return ""
+    }
+
+    fun tryGenerateImplicitThisVariable(varName: String) r: String {
+        let thisIdx = findVar("this")
+        if thisIdx < 0 {
+            return ""
+        }
+
+        let thisReg = varRegs[thisIdx]
+        let thisType = varTypes[thisIdx]
+        if thisType == "LLVMIRGenerator" {
+            let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+            if idxCheck >= 0 {
+                let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, thisReg)
+                return generateFieldAccess(thisPtrReg, thisType, varName)
+            }
+        }
+
+        let structIdx = findStruct(thisType)
+        if structIdx < 0 {
+            return ""
+        }
+
+        let fieldIdx = getFieldInfo(thisType, varName)
+        if fieldIdx < 0 {
+            return ""
+        }
+
+        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, thisReg)
+        return generateFieldAccess(thisPtrReg, thisType, varName)
+    }
+
+    fun tryGenerateFallbackVariable(varName: String) r: String {
+        let constIdx = findModuleConstant(varName)
+        if constIdx >= 0 {
+            var invSuffix = ""
+            if not isModuleConstMutable(constIdx) {
+                invSuffix = ", !invariant.load !190"
+            }
+            return emitModuleConstantLoadImpl(output, g_regBox,
+                "@" + varName, moduleConstantTypes[constIdx], invSuffix)
+        }
+
+        let implicitThisReg = tryGenerateImplicitThisVariable(varName)
+        if implicitThisReg != "" {
+            return implicitThisReg
+        }
+
+        let fpRetType = getFunctionReturnType(varName)
+        if fpRetType != "" {
+            return emitFunctionPointerInteropLoadImpl(output, g_regBox,
+                "@" + quoteIdentIfNeeded(varName))
+        }
+        return ""
     }
 
     fun generateVariable(expr: ParserExpressionNode) r: String {
@@ -9282,88 +9317,26 @@ class LLVMIRGenerator {
             return "0"
         }
 
-        // : Use-after-move check — if variable was moved, emit panic
-        if g_movedVarCount > 0 {
-            if g_movedVarNames.contains(varName + "|") {
-                output.append("  ; ERROR: use after move of '" + varName + "'\n")
-                output.append("  call void @seen_use_after_move()\n")
-                output.append("  unreachable\n")
-                return "0"
-            }
+        if tryEmitMovedVariableRead(varName) == 1 {
+            return "0"
         }
 
-        // Comptime variable lookup — emit constant if in comptime registry
-        if g_comptimeCount > 0 {
-            let ctVal = lookupComptimeVar(varName)
-            if ctVal != -9999999 {
-                let ctReg = getNextReg()
-                output.append("  " + ctReg + " = add i64 " + ctVal.toString() + ", 0 ; comptime constant\n")
-                return ctReg
-            }
+        let ctReg = tryGenerateComptimeVariable(varName)
+        if ctReg != "" {
+            return ctReg
         }
 
         let idx = findVar(varName)
         if idx < 0 {
-            // Check if it's a module constant (from type header)
-            let constIdx = findModuleConstant(varName)
-            if constIdx >= 0 {
-                // Load from global variable: @NAME
-                let constType = moduleConstantTypes[constIdx]
-                let loadReg = getNextReg()
-                // LICM: annotate immutable globals with !invariant.load so LLVM can hoist/CSE
-                var invSuffix = ""
-                if not isModuleConstMutable(constIdx) {
-                    invSuffix = ", !invariant.load !190"
-                }
-                output.append("  " + loadReg + " = load " + constType + ", ptr @" + varName + invSuffix + "\n")
-                return loadReg
-            }
-
-            // Variable not found - check if 'this' exists and varName is a field
-            let thisIdx = findVar("this")
-            if thisIdx >= 0 {
-                // Try to access as fieldName
-                let thisReg = varRegs[thisIdx]
-                let thisType = varTypes[thisIdx]
-
-                if thisType == "LLVMIRGenerator" {
-                    let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-                    if idxCheck >= 0 {
-                        let thisPtrReg = getNextReg()
-                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                        return generateFieldAccess(thisPtrReg, thisType, varName)
-                    }
-                }
-
-                // Check if this type has the field
-                let structIdx = findStruct(thisType)
-                if structIdx >= 0 {
-                    let fieldIdx = getFieldInfo(thisType, varName)
-                    if fieldIdx >= 0 {
-                        // Load 'this' pointer
-                        let thisPtrReg = getNextReg()
-                        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-                        // Access the field
-                        return generateFieldAccess(thisPtrReg, thisType, varName)
-                    }
-                }
-            }
-            // Function pointer interop: if name matches a registered function, emit ptrtoint
-            let fpRetType = getFunctionReturnType(varName)
-            if fpRetType != "" {
-                let fpReg = getNextReg()
-                output.append("  " + fpReg + " = ptrtoint ptr @" + quoteIdentIfNeeded(varName) + " to i64 ; function pointer\n")
-                return fpReg
+            let fallbackReg = tryGenerateFallbackVariable(varName)
+            if fallbackReg != "" {
+                return fallbackReg
             }
             return "0"
         }
 
-        let varReg = varRegs[idx]
-        let varType = varTypes[idx]
-        let llvmType = mapType(varType)
-        let loadReg = getNextReg()
-        output.append("  " + loadReg + " = load " + llvmType + ", ptr " + varReg + "\n")
-        return loadReg
+        return emitLocalVariableLoadImpl(output, g_regBox,
+            mapType(varTypes[idx]), varRegs[idx])
     }
 
     // Generate IR for a binary expression (+, -, *, /, %, ==, !=, <, >, etc.).
@@ -12602,50 +12575,77 @@ class LLVMIRGenerator {
         return declaredType
     }
 
+    fun mapSimpleLlvmTypeToSeenType(llvmType: String) r: String {
+        if llvmType == "i64" {
+            return "Int"
+        }
+        if llvmType == "double" {
+            return "Float"
+        }
+        if llvmType == "i1" {
+            return "Bool"
+        }
+        if llvmType == "%SeenString" {
+            return "String"
+        }
+        return "Int"
+    }
+
+    fun tryInferModuleConstantVariableType(varName: String) r: String {
+        let constIdx = findModuleConstant(varName)
+        if constIdx < 0 {
+            return ""
+        }
+        let seenType = getModuleConstSeenType(constIdx)
+        if seenType != "" {
+            return seenType
+        }
+        return mapSimpleLlvmTypeToSeenType(moduleConstantTypes[constIdx])
+    }
+
+    fun tryInferImplicitThisVariableType(varName: String) r: String {
+        let thisIdx = findVar("this")
+        if thisIdx < 0 {
+            return ""
+        }
+
+        let thisType = varTypes[thisIdx]
+        if thisType == "LLVMIRGenerator" {
+            let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+            if idxCheck >= 0 {
+                return getSeenFieldType(thisType, varName)
+            }
+        }
+
+        let structIdx = findStruct(thisType)
+        if structIdx < 0 {
+            return ""
+        }
+
+        let fieldIdx = getFieldInfo(thisType, varName)
+        if fieldIdx >= 0 {
+            return getSeenFieldType(thisType, varName)
+        }
+        return ""
+    }
+
     fun inferVariableExprTypeLocal(expr: ParserExpressionNode) r: String {
         let varName = getExprVariableName(expr)
         let varType = findVarType(varName)
         if varType != "" {
             return varType
         }
-        let constIdx = findModuleConstant(varName)
-        if constIdx >= 0 {
-            let constType = moduleConstantTypes[constIdx]
-            let seenType = getModuleConstSeenType(constIdx)
-            if seenType != "" {
-                return seenType
-            }
-            if constType == "i64" {
-                return "Int"
-            }
-            if constType == "double" {
-                return "Float"
-            }
-            if constType == "i1" {
-                return "Bool"
-            }
-            if constType == "%SeenString" {
-                return "String"
-            }
-            return "Int"
+
+        let moduleConstType = tryInferModuleConstantVariableType(varName)
+        if moduleConstType != "" {
+            return moduleConstType
         }
-        let thisIdx = findVar("this")
-        if thisIdx >= 0 {
-            let thisType = varTypes[thisIdx]
-            if thisType == "LLVMIRGenerator" {
-                let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-                if idxCheck >= 0 {
-                    return getSeenFieldType(thisType, varName)
-                }
-            }
-            let structIdx = findStruct(thisType)
-            if structIdx >= 0 {
-                let fieldIdx = getFieldInfo(thisType, varName)
-                if fieldIdx >= 0 {
-                    return getSeenFieldType(thisType, varName)
-                }
-            }
+
+        let implicitThisType = tryInferImplicitThisVariableType(varName)
+        if implicitThisType != "" {
+            return implicitThisType
         }
+
         let vn = varName
         if vn == "Int8" or vn == "UInt8" or vn == "Int16" or vn == "UInt16" or vn == "Int32" or vn == "UInt32" or vn == "Int64" or vn == "UInt64" or vn == "Float32" {
             return vn

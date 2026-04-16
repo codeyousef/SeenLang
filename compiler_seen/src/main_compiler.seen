@@ -1843,6 +1843,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_gen")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_assignment_gen")
+        modules.push("codegen.ir_variable_gen")
         modules.push("codegen.ir_field_layout")
         modules.push("codegen.ir_path_expr")
         modules.push("codegen.ir_member_access")

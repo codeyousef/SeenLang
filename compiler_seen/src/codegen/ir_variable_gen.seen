@@ -1,0 +1,86 @@
+// ir_variable_gen.seen — Shared variable load/store helpers
+// Extracted from llvm_ir_gen.seen expression and assignment lowering.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun getExprVariableNameImpl(variableName: String, literalValue: String) r: String {
+    if variableName != "" {
+        return variableName
+    }
+    return literalValue
+}
+
+fun emitMovedVariableUseTrapImpl(output: StringBuilder, varName: String) r: Void {
+    output.append("  ; ERROR: use after move of '" + varName + "'\n")
+    output.append("  call void @seen_use_after_move()\n")
+    output.append("  unreachable\n")
+}
+
+fun emitComptimeVariableLoadImpl(output: StringBuilder, regBox: Array<Int>, ctVal: Int) r: String {
+    let ctReg = getNextRegFn(regBox)
+    output.append("  " + ctReg + " = add i64 " + ctVal.toString() + ", 0 ; comptime constant\n")
+    return ctReg
+}
+
+fun emitModuleConstantLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    quotedGlobalName: String, constType: String, invariantSuffix: String) r: String {
+
+    let loadReg = getNextRegFn(regBox)
+    output.append("  " + loadReg + " = load " + constType + ", ptr " + quotedGlobalName + invariantSuffix + "\n")
+    return loadReg
+}
+
+fun emitFunctionPointerInteropLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    quotedName: String) r: String {
+
+    let fpReg = getNextRegFn(regBox)
+    output.append("  " + fpReg + " = ptrtoint ptr " + quotedName + " to i64 ; function pointer\n")
+    return fpReg
+}
+
+fun emitLocalVariableLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    llvmType: String, varReg: String) r: String {
+
+    let loadReg = getNextRegFn(regBox)
+    output.append("  " + loadReg + " = load " + llvmType + ", ptr " + varReg + "\n")
+    return loadReg
+}
+
+fun emitStoreValueToPtrImpl(output: StringBuilder, llvmType: String,
+    valueReg: String, ptrReg: String) r: Void {
+
+    output.append("  store " + llvmType + " " + valueReg + ", ptr " + ptrReg + "\n")
+}
+
+fun emitDistinctTypeMismatchWarningImpl(output: StringBuilder,
+    rhsType: String, varType: String) r: Void {
+
+    output.append("  ; WARNING: distinct type mismatch — cannot assign " + rhsType + " to " + varType + "\n")
+}
+
+fun emitImplicitThisPointerLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    thisReg: String) r: String {
+
+    let thisPtrReg = getNextRegFn(regBox)
+    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+    return thisPtrReg
+}
+
+fun emitImplicitThisFieldStoreImpl(output: StringBuilder, regBox: Array<Int>,
+    thisReg: String, structLayout: String, fieldIdx: Int,
+    fieldType: String, valueReg: String) r: Void {
+
+    let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox, thisReg)
+    let fieldPtrReg = getNextRegFn(regBox)
+    output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + thisPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
+    output.append("  store " + fieldType + " " + valueReg + ", ptr " + fieldPtrReg + "\n")
+}
+
+fun emitMoveSourceNullifyImpl(output: StringBuilder, rhsSrcReg: String) r: Void {
+    output.append("  store i64 0, ptr " + rhsSrcReg + " ; @move: nullify source\n")
+}
+
+fun emitTriviallyCopyableAssignmentNoteImpl(output: StringBuilder, varType: String) r: Void {
+    output.append("  ; @trivially_copyable: bitwise copy of " + varType + "\n")
+}
