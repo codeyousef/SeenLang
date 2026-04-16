@@ -7928,6 +7928,81 @@ class LLVMIRGenerator {
     // StructLiteral, ArrayLiteral, StringInterpolation, Elvis/NullCoalesce,
     // SafeNavigation, WhenExpression, IfExpression, Cast, Closure, Lambda,
     // EnumVariant constructors, Result ? operator, etc.
+    fun tryGenerateConditionalValueExpression(expr: ParserExpressionNode) r: String {
+        if expr.kind == "StringInterpolation" {
+            return generateStringInterpolation(expr)
+        }
+        if expr.kind == "Elvis" or expr.kind == "NullCoalesce" {
+            return generateElvis(expr)
+        }
+        if expr.kind == "SafeNavigation" {
+            return generateSafeNavigation(expr)
+        }
+        if expr.kind == "WhenExpression" {
+            return generateWhenExpression(expr)
+        }
+        if expr.kind == "IfExpression" {
+            return generateIfExpression(expr)
+        }
+        return ""
+    }
+
+    fun tryGenerateSpecialExpression(expr: ParserExpressionNode) r: String {
+        if expr.kind == "Cast" {
+            let cSrcReg = generateExpression(expr.operands[0])
+            let cSrcType = inferExpressionType(expr.operands[0])
+            let cTgtType = expr.literalValue
+            return emitCastExprImpl(output, g_regBox, cSrcReg, cSrcType, cTgtType)
+        }
+        if expr.kind == "IsExpression" {
+            let isSubjectReg = generateExpression(expr.operands[0])
+            let isTypeName = expr.literalValue
+            let isTagIdx = lookupEnumVariantTag(isTypeName)
+            if isTagIdx >= 0 {
+                let isTagLoad = getNextReg()
+                output.append("  " + isTagLoad + " = load i64, ptr " + isSubjectReg + "\n")
+                let isCmpReg = getNextReg()
+                output.append("  " + isCmpReg + " = icmp eq i64 " + isTagLoad + ", " + isTagIdx.toString() + "\n")
+                return isCmpReg
+            }
+            let isSubjectType = inferExpressionType(expr.operands[0])
+            if isSubjectType == isTypeName {
+                return "1"
+            }
+            return "0"
+        }
+        if expr.kind == "Closure" {
+            return generateClosure(expr)
+        }
+        if expr.kind == "TryPropagate" {
+            let tryInnerReg = generateExpression(expr.operands[0])
+            let tryInnerType = inferExpressionType(expr.operands[0])
+            if tryInnerType.startsWith("Result") {
+                let tryIsOkReg = getNextReg()
+                output.append("  " + tryIsOkReg + " = icmp ne i64 " + tryInnerReg + ", 0\n")
+
+                let tryLabelSuffix = g_regBox[0].toString()
+                let tryOkLabel = "try.ok." + tryLabelSuffix
+                let tryErrLabel = "try.err." + tryLabelSuffix
+
+                output.append("  br i1 " + tryIsOkReg + ", label %" + tryOkLabel + ", label %" + tryErrLabel + "\n")
+
+                output.append(tryErrLabel + ":\n")
+                let tryRetType = mapType(currentFunctionReturnType)
+                if tryRetType == "void" {
+                    output.append("  ret void\n")
+                } else {
+                    output.append("  ret " + tryRetType + " 0\n")
+                }
+
+                output.append(tryOkLabel + ":\n")
+                return tryInnerReg
+            }
+            return tryInnerReg
+        }
+        return ""
+    }
+
     fun generateExpression(expr: ParserExpressionNode) r: String {
         if expr.kind == "Literal" {
             return generateLiteral(expr)
@@ -7962,86 +8037,13 @@ class LLVMIRGenerator {
         if expr.kind == "ArrayLiteral" {
             return generateArrayLiteral(expr)
         }
-        if expr.kind == "StringInterpolation" {
-            return generateStringInterpolation(expr)
+        let conditionalReg = tryGenerateConditionalValueExpression(expr)
+        if conditionalReg != "" {
+            return conditionalReg
         }
-        if expr.kind == "Elvis" {
-            return generateElvis(expr)
-        }
-        if expr.kind == "NullCoalesce" {
-            return generateElvis(expr)
-        }
-        if expr.kind == "SafeNavigation" {
-            return generateSafeNavigation(expr)
-        }
-        if expr.kind == "WhenExpression" {
-            return generateWhenExpression(expr)
-        }
-        if expr.kind == "IfExpression" {
-            return generateIfExpression(expr)
-        }
-        if expr.kind == "Cast" {
-            let cSrcReg = generateExpression(expr.operands[0])
-            let cSrcType = inferExpressionType(expr.operands[0])
-            let cTgtType = expr.literalValue
-            return emitCastExprImpl(output, g_regBox, cSrcReg, cSrcType, cTgtType)
-        }
-        // 'is' type test: check enum tag or static type
-        if expr.kind == "IsExpression" {
-            let isSubjectReg = generateExpression(expr.operands[0])
-            let isTypeName = expr.literalValue
-            // For enum variants: load tag from ptr and compare
-            let isTagIdx = lookupEnumVariantTag(isTypeName)
-            if isTagIdx >= 0 {
-                let isTagLoad = getNextReg()
-                output.append("  " + isTagLoad + " = load i64, ptr " + isSubjectReg + "\n")
-                let isCmpReg = getNextReg()
-                output.append("  " + isCmpReg + " = icmp eq i64 " + isTagLoad + ", " + isTagIdx.toString() + "\n")
-                return isCmpReg
-            }
-            // For class types: static type comparison — always true if types match at compile time
-            let isSubjectType = inferExpressionType(expr.operands[0])
-            if isSubjectType == isTypeName {
-                return "1"
-            }
-            return "0"
-        }
-        // Closure literal: |params| body → generate anonymous function, return fn ptr as i64
-        if expr.kind == "Closure" {
-            return generateClosure(expr)
-        }
-        // '?' error propagation: inline Result check + early return on Err
-        // Runtime layout: Ok(v) returns v as-is (non-zero i64), Err(msg) returns 0 (NULL)
-        // So: check if value == 0, if so return 0 (propagate), else value IS the Ok payload
-        if expr.kind == "TryPropagate" {
-            let tryInnerReg = generateExpression(expr.operands[0])
-            let tryInnerType = inferExpressionType(expr.operands[0])
-            // Only apply Result semantics if type is Result
-            if tryInnerType.startsWith("Result") {
-                let tryIsOkReg = getNextReg()
-                output.append("  " + tryIsOkReg + " = icmp ne i64 " + tryInnerReg + ", 0\n")
-
-                let tryLabelSuffix = g_regBox[0].toString()
-                let tryOkLabel = "try.ok." + tryLabelSuffix
-                let tryErrLabel = "try.err." + tryLabelSuffix
-
-                output.append("  br i1 " + tryIsOkReg + ", label %" + tryOkLabel + ", label %" + tryErrLabel + "\n")
-
-                // Err path: return 0 (propagate error upward)
-                output.append(tryErrLabel + ":\n")
-                let tryRetType = mapType(currentFunctionReturnType)
-                if tryRetType == "void" {
-                    output.append("  ret void\n")
-                } else {
-                    output.append("  ret " + tryRetType + " 0\n")
-                }
-
-                // Ok path: the value IS the Ok payload (Ok just passes through)
-                output.append(tryOkLabel + ":\n")
-                return tryInnerReg
-            }
-            // Non-Result type: pass through unchanged
-            return tryInnerReg
+        let specialReg = tryGenerateSpecialExpression(expr)
+        if specialReg != "" {
+            return specialReg
         }
         return "0"
     }
@@ -8050,6 +8052,34 @@ class LLVMIRGenerator {
     // value). Emits then/else blocks and a phi node to merge the result.
     // Supports multi-expression blocks separated by semicolons, where side
     // effects execute before the final expression provides the block value.
+    fun emitIfExpressionSideEffects(expr: ParserExpressionNode, startIdx: Int, stopOnSentinel: Bool) r: Int {
+        var sideIdx = startIdx
+        while sideIdx < expr.arguments.length() {
+            let sideExpr = expr.arguments[sideIdx]
+            if stopOnSentinel and sideExpr.kind == "Sentinel" {
+                return sideIdx + 1
+            }
+            generateExpression(sideExpr)
+            sideIdx = sideIdx + 1
+        }
+        return sideIdx
+    }
+
+    fun emitIfExpressionBranchValue(branchExpr: ParserExpressionNode, branchLabelPrefix: String, mergeLabel: String) r: String {
+        let branchReg = generateExpression(branchExpr)
+        let phiLabel = branchLabelPrefix + ".end." + g_regBox[0].toString()
+        output.append("  br label %" + phiLabel + "\n")
+        output.append(phiLabel + ":\n")
+        output.append("  br label %" + mergeLabel + "\n")
+        return branchReg + "|" + phiLabel
+    }
+
+    fun emitPhiMergeValue(llvmType: String, thenReg: String, thenLabel: String, elseReg: String, elseLabel: String) r: String {
+        let resultReg = getNextReg()
+        output.append("  " + resultReg + " = phi " + llvmType + " [ " + thenReg + ", %" + thenLabel + " ], [ " + elseReg + ", %" + elseLabel + " ]\n")
+        return resultReg
+    }
+
     fun generateIfExpression(expr: ParserExpressionNode) r: String {
         // if-as-expression: if cond { thenExpr } else { elseExpr }
         // Generates SSA with phi node
@@ -8057,29 +8087,8 @@ class LLVMIRGenerator {
         let thenExpr = expr.operands[1]
         let elseExpr = expr.operands[2]
 
-        // Generate condition
         let condReg = generateExpression(condExpr)
-        // Ensure condition is i1 — if condExpr is a comparison it already returns i1,
-        // otherwise we need icmp ne i64 to convert integer/ptr to bool
-        var condBool = condReg
-        let condKind = condExpr.kind
-        var condIsComparison = false
-        if condKind == "Binary" {
-            let op = condExpr.operator
-            if op == "<" or op == ">" or op == "<=" or op == ">=" or op == "==" or op == "!=" {
-                condIsComparison = true
-            }
-            if op == "and" or op == "or" {
-                condIsComparison = true
-            }
-        }
-        if condKind == "Not" {
-            condIsComparison = true
-        }
-        if not condIsComparison {
-            condBool = getNextReg()
-            output.append("  " + condBool + " = icmp ne i64 " + condReg + ", 0\n")
-        }
+        let condBool = emitConditionToI1Impl(output, g_regBox, condReg, inferIfConditionType(condExpr))
 
         let labelSuffix = g_regBox[0].toString()
         let thenLabel = "if.expr.then." + labelSuffix
@@ -8090,42 +8099,23 @@ class LLVMIRGenerator {
 
         // Generate then-branch side-effect expressions (before the value expression)
         output.append(thenLabel + ":\n")
-        var ifSideIdx = 0
-        while ifSideIdx < expr.arguments.length() {
-            let sideExpr = expr.arguments[ifSideIdx]
-            if sideExpr.kind == "Sentinel" {
-                ifSideIdx = ifSideIdx + 1
-                break
-            }
-            generateExpression(sideExpr)
-            ifSideIdx = ifSideIdx + 1
-        }
-        let thenReg = generateExpression(thenExpr)
-        // Capture current block for phi (may differ from thenLabel if side-effects added blocks)
-        let thenPhiLabel = "if.expr.then.end." + g_regBox[0].toString()
-        output.append("  br label %" + thenPhiLabel + "\n")
-        output.append(thenPhiLabel + ":\n")
-        output.append("  br label %" + mergeLabel + "\n")
+        var ifSideIdx = emitIfExpressionSideEffects(expr, 0, true)
+        let thenInfo = splitPipe(emitIfExpressionBranchValue(thenExpr, "if.expr.then", mergeLabel))
+        let thenReg = thenInfo[0]
+        let thenPhiLabel = thenInfo[1]
 
         // Generate else-branch side-effect expressions
         output.append(elseLabel + ":\n")
-        while ifSideIdx < expr.arguments.length() {
-            generateExpression(expr.arguments[ifSideIdx])
-            ifSideIdx = ifSideIdx + 1
-        }
-        let elseReg = generateExpression(elseExpr)
-        let elsePhiLabel = "if.expr.else.end." + g_regBox[0].toString()
-        output.append("  br label %" + elsePhiLabel + "\n")
-        output.append(elsePhiLabel + ":\n")
-        output.append("  br label %" + mergeLabel + "\n")
+        emitIfExpressionSideEffects(expr, ifSideIdx, false)
+        let elseInfo = splitPipe(emitIfExpressionBranchValue(elseExpr, "if.expr.else", mergeLabel))
+        let elseReg = elseInfo[0]
+        let elsePhiLabel = elseInfo[1]
 
         // Merge with phi
         output.append(mergeLabel + ":\n")
         let resultType = inferExpressionType(thenExpr)
         let irType = mapType(resultType)
-        let phiReg = getNextReg()
-        output.append("  " + phiReg + " = phi " + irType + " [ " + thenReg + ", %" + thenPhiLabel + " ], [ " + elseReg + ", %" + elsePhiLabel + " ]\n")
-        return phiReg
+        return emitPhiMergeValue(irType, thenReg, thenPhiLabel, elseReg, elsePhiLabel)
     }
 
     // Generate IR for a closure expression (|x| expr or |x, y| { ... }).
@@ -13446,6 +13436,39 @@ class LLVMIRGenerator {
     // Generate IR for the elvis/null-coalesce operator (a ?? b).
     // Evaluates 'a', checks if null (icmp eq ptr, null), and returns 'b'
     // if null, otherwise 'a'. Uses a phi node to merge the two paths.
+    fun emitNullishCheckComparison(valueReg: String, llvmType: String) r: String {
+        let cmpReg = getNextReg()
+        if llvmType == "%SeenString" {
+            let lenReg = getNextReg()
+            output.append("  " + lenReg + " = extractvalue %SeenString " + valueReg + ", 0\n")
+            output.append("  " + cmpReg + " = icmp eq i64 " + lenReg + ", 0\n")
+            return cmpReg
+        }
+        if llvmType == "i1" {
+            output.append("  " + cmpReg + " = icmp eq i1 " + valueReg + ", 0\n")
+            return cmpReg
+        }
+        if llvmType == "double" {
+            output.append("  " + cmpReg + " = fcmp oeq double " + valueReg + ", 0.0\n")
+            return cmpReg
+        }
+        output.append("  " + cmpReg + " = icmp eq i64 " + valueReg + ", 0\n")
+        return cmpReg
+    }
+
+    fun defaultValueForLlvmType(llvmType: String) r: String {
+        if llvmType == "%SeenString" {
+            return "zeroinitializer"
+        }
+        if llvmType == "double" {
+            return "0.0"
+        }
+        if llvmType == "i1" {
+            return "false"
+        }
+        return "0"
+    }
+
     fun generateElvis(expr: ParserExpressionNode) r: String {
         let leftReg = generateExpression(expr.operands[0])
         let leftType = inferExpressionType(expr.operands[0])
@@ -13455,21 +13478,7 @@ class LLVMIRGenerator {
         let elseLabel = getNextBlockLabel()
         let endLabel = getNextBlockLabel()
 
-        // Check if left is "null" / zero / empty
-        let cmpReg = getNextReg()
-        if llvmType == "%SeenString" {
-            // For strings, check if length is 0
-            let lenReg = getNextReg()
-            output.append("  " + lenReg + " = extractvalue %SeenString " + leftReg + ", 0\n")
-            output.append("  " + cmpReg + " = icmp eq i64 " + lenReg + ", 0\n")
-        } else if llvmType == "i1" {
-            output.append("  " + cmpReg + " = icmp eq i1 " + leftReg + ", 0\n")
-        } else if llvmType == "double" {
-            output.append("  " + cmpReg + " = fcmp oeq double " + leftReg + ", 0.0\n")
-        } else {
-            // i64 or ptr: check == 0
-            output.append("  " + cmpReg + " = icmp eq i64 " + leftReg + ", 0\n")
-        }
+        let cmpReg = emitNullishCheckComparison(leftReg, llvmType)
 
         output.append("  br i1 " + cmpReg + ", label %" + elseLabel + ", label %" + thenLabel + "\n")
 
@@ -13484,43 +13493,36 @@ class LLVMIRGenerator {
 
         // Merge with phi
         output.append(endLabel + ":\n")
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = phi " + llvmType + " [ " + leftReg + ", %" + thenLabel + " ], [ " + rightReg + ", %" + elseLabel + " ]\n")
-        return resultReg
+        return emitPhiMergeValue(llvmType, leftReg, thenLabel, rightReg, elseLabel)
     }
 
     // Safe navigation: obj?.member — returns member if obj is non-null, else default
     // Generate IR for the safe navigation operator (a?.b).
     // Checks if 'a' is null — if so, short-circuits to null/0 without
     // accessing the field. Otherwise, proceeds with normal field access.
+    fun buildSafeNavigationMemberExpr(expr: ParserExpressionNode) r: ParserExpressionNode {
+        let memberExpr = ParserExpressionNode.new()
+        memberExpr.kind = "MemberAccess"
+        memberExpr.variableName = expr.variableName
+        memberExpr.operands.push(expr.operands[0])
+        return memberExpr
+    }
+
     fun generateSafeNavigation(expr: ParserExpressionNode) r: String {
         let recvReg = generateExpression(expr.operands[0])
         let recvType = inferExpressionType(expr.operands[0])
-        let memberName = expr.variableName
 
         let thenLabel = getNextBlockLabel()
         let elseLabel = getNextBlockLabel()
         let endLabel = getNextBlockLabel()
 
-        // Check if receiver is null (pointer == 0)
-        let cmpReg = getNextReg()
-        if mapType(recvType) == "%SeenString" {
-            let lenReg = getNextReg()
-            output.append("  " + lenReg + " = extractvalue %SeenString " + recvReg + ", 0\n")
-            output.append("  " + cmpReg + " = icmp eq i64 " + lenReg + ", 0\n")
-        } else {
-            output.append("  " + cmpReg + " = icmp eq i64 " + recvReg + ", 0\n")
-        }
+        let cmpReg = emitNullishCheckComparison(recvReg, mapType(recvType))
 
         output.append("  br i1 " + cmpReg + ", label %" + elseLabel + ", label %" + thenLabel + "\n")
 
         // Then: non-null, access member
         output.append(thenLabel + ":\n")
-        // Build a MemberAccess expression to reuse existing codegen
-        let memberExpr = ParserExpressionNode.new()
-        memberExpr.kind = "MemberAccess"
-        memberExpr.variableName = memberName
-        memberExpr.operands.push(expr.operands[0])
+        let memberExpr = buildSafeNavigationMemberExpr(expr)
         let memberReg = generateMemberAccess(memberExpr)
         let memberType = inferExpressionType(memberExpr)
         let memberLlvm = mapType(memberType)
@@ -13528,23 +13530,12 @@ class LLVMIRGenerator {
 
         // Else: null, use default
         output.append(elseLabel + ":\n")
-        var defaultVal = "0"
-        if memberLlvm == "%SeenString" {
-            defaultVal = "zeroinitializer"
-        }
-        if memberLlvm == "double" {
-            defaultVal = "0.0"
-        }
-        if memberLlvm == "i1" {
-            defaultVal = "false"
-        }
+        let defaultVal = defaultValueForLlvmType(memberLlvm)
         output.append("  br label %" + endLabel + "\n")
 
         // Merge
         output.append(endLabel + ":\n")
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = phi " + memberLlvm + " [ " + memberReg + ", %" + thenLabel + " ], [ " + defaultVal + ", %" + elseLabel + " ]\n")
-        return resultReg
+        return emitPhiMergeValue(memberLlvm, memberReg, thenLabel, defaultVal, elseLabel)
     }
 
     // When expression (pattern matching)
@@ -13553,6 +13544,156 @@ class LLVMIRGenerator {
     // Each arm branches to its body block or falls through to the next
     // comparison. All arms merge into a phi node that produces the result.
     // Supports integer, string, and enum variant patterns.
+    fun emitWhenLiteralPatternBranch(subjectReg: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
+        let litVal = patternExpr.literalValue
+        let litType = patternExpr.literalType
+        let cmpReg = getNextReg()
+        if litType == "Bool" {
+            var boolVal = "0"
+            if litVal == "true" { boolVal = "1" }
+            output.append("  " + cmpReg + " = icmp eq i1 " + subjectReg + ", " + boolVal + "\n")
+        }
+        if litType == "String" {
+            let litStrIdx = getStringConstantIndex(litVal)
+            let litStrReg = getNextReg()
+            output.append("  " + litStrReg + " = load %SeenString, ptr @.str." + litStrIdx.toString() + "\n")
+            let eqReg = getNextReg()
+            var subjectStrReg = subjectReg
+            if subjectReg == "0" {
+                subjectStrReg = "zeroinitializer"
+            }
+            output.append("  " + eqReg + " = call i1 @seen_str_eq(%SeenString " + subjectStrReg + ", %SeenString " + litStrReg + ")\n")
+            output.append("  " + cmpReg + " = icmp eq i1 " + eqReg + ", 1\n")
+        }
+        if litType != "Bool" and litType != "String" {
+            output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " + litVal + "\n")
+        }
+        output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
+    }
+
+    fun emitWhenIsPatternBranch(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
+        let variantName = patternExpr.literalValue
+        let tagIdx = lookupEnumVariantTag(variantName)
+        if subjectLlvm == "i64" {
+            let cmpReg = getNextReg()
+            output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " + tagIdx.toString() + "\n")
+            output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
+            return
+        }
+        let tagLoadReg = getNextReg()
+        output.append("  " + tagLoadReg + " = load i64, ptr " + subjectReg + "\n")
+        let cmpReg = getNextReg()
+        output.append("  " + cmpReg + " = icmp eq i64 " + tagLoadReg + ", " + tagIdx.toString() + "\n")
+        output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
+    }
+
+    fun emitWhenPatternBranch(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
+        let patternKind = patternExpr.variableName
+        if patternKind == "Literal" {
+            emitWhenLiteralPatternBranch(subjectReg, patternExpr, armBodyLabel, nextCheckLabel)
+            return
+        }
+        if patternKind == "Is" {
+            emitWhenIsPatternBranch(subjectReg, subjectLlvm, patternExpr, armBodyLabel, nextCheckLabel)
+            return
+        }
+        if patternKind == "Wildcard" or patternKind == "Variable" {
+            output.append("  br label %" + armBodyLabel + "\n")
+            return
+        }
+        output.append("  br label %" + nextCheckLabel + "\n")
+    }
+
+    fun emitWhenArmGuard(arm: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
+        if arm.operands.length() <= 2 {
+            return
+        }
+        let guardReg = generateExpression(arm.operands[2])
+        let guardType = inferExpressionType(arm.operands[2])
+        var guardCond = guardReg
+        if guardType != "Bool" {
+            guardCond = getNextReg()
+            output.append("  " + guardCond + " = icmp ne i64 " + guardReg + ", 0\n")
+        }
+        let guardedLabel = armBodyLabel + ".guarded"
+        output.append("  br i1 " + guardCond + ", label %" + guardedLabel + ", label %" + nextCheckLabel + "\n")
+        output.append(guardedLabel + ":\n")
+        cseClear()
+    }
+
+    fun emitWhenPatternBindings(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode) r: Void {
+        if patternExpr.variableName != "Is" or patternExpr.operands.length() == 0 {
+            return
+        }
+        var destructPtrReg = subjectReg
+        if subjectLlvm != "ptr" {
+            destructPtrReg = getNextReg()
+            output.append("  " + destructPtrReg + " = inttoptr i64 " + subjectReg + " to ptr\n")
+        }
+        var fieldIdx = 0
+        while fieldIdx < patternExpr.operands.length() {
+            let fieldBind = patternExpr.operands[fieldIdx]
+            if fieldBind.kind == "PatternField" {
+                let bindingName = fieldBind.literalValue
+                if bindingName == "" {
+                    fieldIdx = fieldIdx + 1
+                    continue
+                }
+                let fieldOffset = 8 + fieldIdx * 8
+                let fieldPtrReg = getNextReg()
+                output.append("  " + fieldPtrReg + " = getelementptr i8, ptr " + destructPtrReg + ", i64 " + fieldOffset.toString() + "\n")
+                let variantName = patternExpr.literalValue
+                let fType = lookupEnumFieldType(variantName, fieldIdx)
+                let fLlvm = mapType(fType)
+                let fLoadReg = getNextReg()
+                output.append("  " + fLoadReg + " = load " + fLlvm + ", ptr " + fieldPtrReg + "\n")
+                let bindIdx = findVar(bindingName)
+                if bindIdx >= 0 {
+                    output.append("  store " + fLlvm + " " + fLoadReg + ", ptr " + varRegs[bindIdx] + "\n")
+                }
+            }
+            fieldIdx = fieldIdx + 1
+        }
+    }
+
+    fun normalizeWhenArmStoreValue(valueReg: String, valueType: String) r: String {
+        if valueType == "Bool" or valueType == "Boolean" {
+            let widenedReg = getNextReg()
+            output.append("  " + widenedReg + " = zext i1 " + valueReg + " to i64\n")
+            return widenedReg
+        }
+        return valueReg
+    }
+
+    fun emitWhenArmResult(arm: ParserExpressionNode, resultAlloca: String) r: Void {
+        if arm.operands.length() <= 1 {
+            return
+        }
+        let armResult = arm.operands[1]
+        if armResult.kind == "ReturnExpr" {
+            if armResult.operands.length() > 0 {
+                let retValReg = generateExpression(armResult.operands[0])
+                let retType = mapType(currentFunctionReturnType)
+                output.append("  ret " + retType + " " + retValReg + "\n")
+            } else {
+                let retType = mapType(currentFunctionReturnType)
+                if retType == "void" {
+                    output.append("  ret void\n")
+                } else {
+                    output.append("  ret " + retType + " 0\n")
+                }
+            }
+            blockTerminated = true
+            return
+        }
+        let armResultReg = generateExpression(armResult)
+        if not blockTerminated {
+            let armResultType = inferExpressionType(armResult)
+            let armStoreReg = normalizeWhenArmStoreValue(armResultReg, armResultType)
+            output.append("  store i64 " + armStoreReg + ", ptr " + resultAlloca + "\n")
+        }
+    }
+
     fun generateWhenExpression(expr: ParserExpressionNode) r: String {
         // Subject expression (if present)
         var subjectReg = "0"
@@ -13578,156 +13719,19 @@ class LLVMIRGenerator {
             // arm.operands[0] = Pattern expression
             // arm.operands[1] = arm result expression
             let patternExpr = arm.operands[0]
-            let patternKind = patternExpr.variableName
 
             let armBodyLabel = getNextBlockLabel()
             let nextCheckLabel = getNextBlockLabel()
 
-            var armGenerated = false
-            if patternKind == "Literal" {
-                // Literal pattern: compare subject with literal value
-                let litVal = patternExpr.literalValue
-                let litType = patternExpr.literalType
-                let cmpReg = getNextReg()
-                if litType == "Bool" {
-                    var boolVal = "0"
-                    if litVal == "true" { boolVal = "1" }
-                    output.append("  " + cmpReg + " = icmp eq i1 " + subjectReg + ", " + boolVal + "\n")
-                }
-                if litType == "String" {
-                    let litStrIdx = getStringConstantIndex(litVal)
-                    let litStrReg = getNextReg()
-                    output.append("  " + litStrReg + " = load %SeenString, ptr @.str." + litStrIdx.toString() + "\n")
-                    let eqReg = getNextReg()
-                    // Fix default "0" values to proper SeenString zeroinitializer
-                    var subjectStrReg = subjectReg
-                    if subjectReg == "0" {
-                        subjectStrReg = "zeroinitializer"
-                    }
-                    output.append("  " + eqReg + " = call i1 @seen_str_eq(%SeenString " + subjectStrReg + ", %SeenString " + litStrReg + ")\n")
-                    output.append("  " + cmpReg + " = icmp eq i1 " + eqReg + ", 1\n")
-                }
-                if litType != "Bool" and litType != "String" {
-                    output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " + litVal + "\n")
-                }
-                output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
-                armGenerated = true
-            }
-            if not armGenerated and patternKind == "Is" {
-                let variantName = patternExpr.literalValue
-                let tagIdx = lookupEnumVariantTag(variantName)
-                if subjectLlvm == "i64" {
-                    // Simple enum: subject IS the tag value (i64), compare directly
-                    let cmpReg = getNextReg()
-                    output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " + tagIdx.toString() + "\n")
-                    output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
-                } else {
-                    // Data enum: subject is ptr to heap object, load tag from offset 0
-                    let tagLoadReg = getNextReg()
-                    output.append("  " + tagLoadReg + " = load i64, ptr " + subjectReg + "\n")
-                    let cmpReg = getNextReg()
-                    output.append("  " + cmpReg + " = icmp eq i64 " + tagLoadReg + ", " + tagIdx.toString() + "\n")
-                    output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
-                }
-                armGenerated = true
-            }
-            if not armGenerated and (patternKind == "Wildcard" or patternKind == "Variable") {
-                // Wildcard/else pattern: always matches
-                output.append("  br label %" + armBodyLabel + "\n")
-                armGenerated = true
-            }
-            if not armGenerated {
-                // Unknown pattern kind, skip
-                output.append("  br label %" + nextCheckLabel + "\n")
-            }
+            emitWhenPatternBranch(subjectReg, subjectLlvm, patternExpr, armBodyLabel, nextCheckLabel)
 
             // Arm body
             output.append(armBodyLabel + ":\n")
             cseClear()
 
-            // Guard clause: if arm has 3 operands, evaluate guard condition
-            if arm.operands.length() > 2 {
-                let guardReg = generateExpression(arm.operands[2])
-                let guardType = inferExpressionType(arm.operands[2])
-                var guardCond = guardReg
-                // Convert non-i1 guard to i1
-                if guardType != "Bool" {
-                    guardCond = getNextReg()
-                    output.append("  " + guardCond + " = icmp ne i64 " + guardReg + ", 0\n")
-                }
-                output.append("  br i1 " + guardCond + ", label %" + armBodyLabel + ".guarded, label %" + nextCheckLabel + "\n")
-                output.append(armBodyLabel + ".guarded:\n")
-                cseClear()
-            }
-
-            // For Is patterns with destructuring, bind fields
-            if patternKind == "Is" and patternExpr.operands.length() > 0 {
-                // Get ptr to subject for field access
-                var destructPtrReg = subjectReg
-                if subjectLlvm != "ptr" {
-                    destructPtrReg = getNextReg()
-                    output.append("  " + destructPtrReg + " = inttoptr i64 " + subjectReg + " to ptr\n")
-                }
-                var fieldIdx = 0
-                while fieldIdx < patternExpr.operands.length() {
-                    let fieldBind = patternExpr.operands[fieldIdx]
-                    if fieldBind.kind == "PatternField" {
-                        let bindingName = fieldBind.literalValue
-                        if bindingName == "" {
-                            fieldIdx = fieldIdx + 1
-                            continue
-                        }
-                        // Load field from enum object: offset = 8 + fieldIdx * 8
-                        let fieldOffset = 8 + fieldIdx * 8
-                        let fieldPtrReg = getNextReg()
-                        output.append("  " + fieldPtrReg + " = getelementptr i8, ptr " + destructPtrReg + ", i64 " + fieldOffset.toString() + "\n")
-                        // Look up the field type from enum info
-                        let variantName = patternExpr.literalValue
-                        let fType = lookupEnumFieldType(variantName, fieldIdx)
-                        let fLlvm = mapType(fType)
-                        let fLoadReg = getNextReg()
-                        output.append("  " + fLoadReg + " = load " + fLlvm + ", ptr " + fieldPtrReg + "\n")
-                        // Store into binding variable
-                        let bindIdx = findVar(bindingName)
-                        if bindIdx >= 0 {
-                            output.append("  store " + fLlvm + " " + fLoadReg + ", ptr " + varRegs[bindIdx] + "\n")
-                        }
-                    }
-                    fieldIdx = fieldIdx + 1
-                }
-            }
-
-            // Generate arm result expression
-            if arm.operands.length() > 1 {
-                let armResult = arm.operands[1]
-                if armResult.kind == "ReturnExpr" {
-                    // Return from enclosing function inside when/match arm
-                    if armResult.operands.length() > 0 {
-                        let retValReg = generateExpression(armResult.operands[0])
-                        let retType = mapType(currentFunctionReturnType)
-                        output.append("  ret " + retType + " " + retValReg + "\n")
-                    } else {
-                        let retType = mapType(currentFunctionReturnType)
-                        if retType == "void" {
-                            output.append("  ret void\n")
-                        } else {
-                            output.append("  ret " + retType + " 0\n")
-                        }
-                    }
-                    blockTerminated = true
-                } else {
-                    let armResultReg = generateExpression(armResult)
-                    if not blockTerminated {
-                        let armResultType = inferExpressionType(armResult)
-                        var armStoreReg = armResultReg
-                        if armResultType == "Bool" or armResultType == "Boolean" {
-                            armStoreReg = getNextReg()
-                            output.append("  " + armStoreReg + " = zext i1 " + armResultReg + " to i64\n")
-                        }
-                        output.append("  store i64 " + armStoreReg + ", ptr " + resultAlloca + "\n")
-                    }
-                }
-            }
+            emitWhenArmGuard(arm, armBodyLabel, nextCheckLabel)
+            emitWhenPatternBindings(subjectReg, subjectLlvm, patternExpr)
+            emitWhenArmResult(arm, resultAlloca)
             if not blockTerminated {
                 output.append("  br label %" + endLabel + "\n")
             }
