@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,692` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,672` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -29,17 +29,18 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `main_compiler.seen` bootstrap module registration has been updated for each new helper module added so far.
 - The latest continuation also pushes more final instance-call cleanup into `ir_method_finalize.seen`, which is now `237` lines and owns shared traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, and `Option.unwrap()` specialization logic used by `emitNormalizedInstanceMethodCall()`.
 - That same working-tree continuation now also removes the last one-use instance-call wrappers from `llvm_ir_gen.seen`, so `emitNormalizedInstanceMethodCall()` calls `ir_method_finalize.seen` directly for traced-unwrap normalization, hot-reload interception, return-type fallback, receiver ABI preparation, and specialization.
-- The latest continuation also removes the one-use static/parser fallback wrappers from `llvm_ir_gen.seen`, so `tryGenerateStaticMethodCall()` and `tryHandleUnresolvedMethodReceiver()` now own the orchestration directly instead of bouncing through separate local helper layers.
+- The latest continuation also removes the one-use static/parser fallback wrappers from `llvm_ir_gen.seen`, so `tryGenerateStaticMethodCall()` and `generateMethodCall()` now own that orchestration directly instead of bouncing through separate local helper layers.
 - The latest continuation also removes the one-use resolved-receiver fast-path and builtin-method wrapper ladders from `llvm_ir_gen.seen`, so `tryGenerateResolvedReceiverFastPathMethodCall()` and `tryGenerateBuiltinMethodCall()` now dispatch directly to the same low-level helpers instead of routing through extra local shells.
 - The latest continuation also removes the remaining direct forwarding wrappers in the receiver-preparation block, so literal receiver-type resolution, explicit receiver normalization, module-constant fallback typing, enum literal resolution, explicit option/hot-reload/collection fast paths, and simple-variable dyn-trait dispatch now call the shared `ir_method_receiver.seen` helpers directly instead of bouncing through one-use locals.
-- The latest continuation also inlines the remaining one-use implicit-`this` chained-literal, implicit-field, and simple-literal receiver shells into `tryPrepareMethodCallReceiver()`, so that phase now owns the local dotted-literal, local-variable, module-constant, and implicit-`this` field orchestration directly instead of bouncing through extra single-call helpers.
+- The latest continuation also inlines the remaining one-use implicit-`this` chained-literal, implicit-field, and simple-literal receiver shells into the main method-call lowering flow, so `generateMethodCall()` now owns the local dotted-literal, local-variable, module-constant, and implicit-`this` field orchestration directly instead of bouncing through extra single-call helpers.
 - The latest continuation also folds the one-use rebuilt chained-literal probe and local-variable receiver shim into their parent phases, so the remaining receiver-preparation flow is concentrated in a smaller set of phase helpers instead of fanning back out into extra local probes.
+- The latest continuation also folds `tryPrepareMethodCallReceiver()` and `tryHandleUnresolvedMethodReceiver()` into `generateMethodCall()`, removing the remaining receiver-box plumbing for prep and unresolved fallback while keeping the full method-call dispatch under the 500-line target.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
   - `generateSingle()` is down to about `195` lines.
   - `generateCall()` is down to about `139` lines.
-  - `generateMethodCall()` is down to about `51` lines.
+  - `generateMethodCall()` is now about `330` lines after absorbing receiver-preparation and unresolved-receiver orchestration, still below the 500-line target.
   - `generateBinary()` is down to about `339` lines.
   - `emitClassType()` is down to about `29` lines.
   - `generateClass()` is down to about `48` lines.
@@ -128,19 +129,14 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `tryGenerateMetaStatement()` at about `26` lines.
   - Receiver-preparation helpers inside `llvm_ir_gen.seen` are now split into:
     - `resolveLiteralMethodReceiverType()` at about `38` lines.
-    - `tryResolveImplicitThisChainedLiteralMethodReceiver()` at about `36` lines.
     - `prepareMethodCallArgRegsAndTypes()` at about `12` lines.
-    - `tryPrepareExplicitMethodReceiver()` at about `73` lines.
-    - `tryPrepareImplicitThisFieldMethodReceiver()` at about `62` lines.
-    - `tryResolveSimpleLiteralMethodReceiver()` at about `58` lines.
-    - `tryPrepareMethodCallReceiver()` at about `36` lines.
+    - the remaining receiver-preparation and unresolved-receiver orchestration now lives directly inside `generateMethodCall()` rather than behind extra local box-passing helpers.
   - Method-call emission helpers inside `llvm_ir_gen.seen` are now split into:
     - `tryGenerateBuiltinMethodCall()` at about `83` lines.
-    - `emitNormalizedInstanceMethodCall()` at about `63` lines.
+    - `emitNormalizedInstanceMethodCall()` at about `82` lines.
   - Method-call fallback helpers inside `llvm_ir_gen.seen` are now split into:
     - `tryGenerateResolvedReceiverFastPathMethodCall()` at about `66` lines.
     - `tryGenerateStaticMethodCall()` at about `87` lines.
-    - `tryHandleUnresolvedMethodReceiver()` at about `45` lines.
   - Call-dispatch helpers inside `llvm_ir_gen.seen` are now split into:
     - `applyComptimeParamSpecialization()` at about `34` lines.
     - `tryGenerateMetaBuiltinCall()` at about `131` lines.
@@ -185,8 +181,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `b0a2675` with message `Inline more receiver preparation phases`.
-- The continuation from `b0a2675` to the current working tree touched:
+- Latest committed refactor commit available from a clean checkout is `600822d` with message `Merge remaining receiver prep helpers`.
+- The continuation from `600822d` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
   - `refactor.md`
 - That continuation keeps expanding the shared method-call helper surface without adding another bootstrap compiler module:
@@ -222,6 +218,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - after merging the remaining implicit-`this` chained-literal, implicit-field, and simple-literal receiver helpers into `tryPrepareMethodCallReceiver()`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_receiver_merge_followup --fast --no-cache --no-fork` completed successfully under the same cap.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - after folding receiver preparation and unresolved-receiver fallback directly into `generateMethodCall()`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_receiver_orchestration_inline --fast --no-cache --no-fork` completed successfully under the same cap.
   - passed: `./bootstrap/stage1_frozen check compiler_seen/src/test_ir_method_receiver_import.seen` while the temporary harness existed, which confirmed the extracted helper module resolved cleanly under the frozen bootstrap compiler.
   - passed after the follow-up bootstrap-hardening fixes: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - reached and cleared `Optimization stats (module 5)` for `compiler_seen/src/codegen/llvm_ir_gen.seen`, then cleared the next frozen-bootstrap blockers in `type_registry.seen` (module 37), `ir_decl_features.seen` (module 11), `parser/real_parser.seen` (module 6), and the final link step (`lastIndexOf`) during bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen ... --fast --no-cache --no-fork` runs.
@@ -477,7 +476,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Split the variable-resolution cluster further by extracting low-level variable load/store helpers into `ir_variable_gen.seen`, shrinking `generateAssignmentExpr()`/`generateAssignment()` behind shared global/implicit-`this`/local assignment helpers, shrinking `generateVariable()` behind focused moved/comptime/fallback loaders, and splitting `inferVariableExprTypeLocal()` into shared module-constant and implicit-`this` type helpers. This keeps bare-name reads and writes on the same dispatcher-plus-phases pattern as the rest of the statement/expression pipeline.
 - Split the member/field-access cluster further by expanding `ir_member_access.seen` with shared swizzle/type-tail/field-load helpers, shrinking `generateMemberAccess()` behind receiver-kind and path-shape helpers, shrinking `generateFieldAccess()` / `generateFieldAccessPtr()` behind shared layout/load helpers, and shrinking `inferMemberAccessExprTypeLocal()` behind focused JSON/receiver-type helpers. This keeps member-access lowering and member-access type inference aligned on the same receiver-shape split instead of maintaining duplicate chained-path and field-lookup logic.
 - Split the method-call receiver/type-inference cluster further by extracting shared literal receiver type resolution for module constants, enum literals, rebuilt local chains, and implicit-`this` field chains; shrinking `resolveChainedLiteralMethodReceiver()` into enum-plus-implicit-`this` fallback helpers; and breaking `inferMethodCallExprTypeLocal()` into focused receiver-type, static-call, builtin-receiver, registry, and bool-suffix helpers. This keeps runtime receiver preparation and method-call type inference aligned on the same receiver-shape split instead of duplicating chained literal path logic in two places.
-- Split the method-call emission cluster further by collapsing receiver preparation behind `tryPrepareMethodCallReceiver()`, extracting builtin receiver dispatch for length/string-builder/conversion/numeric/string-like methods, and extracting normalized instance-call emission for traced unwrap handling, hot-reload interception, receiver ABI normalization, and specialized `unwrap()` handling. This turns `generateMethodCall()` into a short orchestration layer instead of leaving builtin and user-defined instance dispatch interleaved in one block.
+- Split the method-call emission cluster further by extracting builtin receiver dispatch for length/string-builder/conversion/numeric/string-like methods, extracting normalized instance-call emission for traced unwrap handling, hot-reload interception, receiver ABI normalization, and specialized `unwrap()` handling, then folding receiver preparation and unresolved fallback back into `generateMethodCall()` to remove box-passing scaffolding while keeping the method under the 500-line target.
 - Split the module-entry orchestration further by extracting shared reset, string-collection, class-type emission, class emission, top-level function emission, defined-symbol collection, extra string-constant flush, closure emission, and optimization-stat helpers. This shrinks `generateMultiple()` and `generateSingle()` into explicit phase pipelines instead of leaving module sequencing, special top-level handling, and post-generation cleanup interleaved in two duplicated entrypoints.
 - Split the block/statement pipeline further by extracting dead-store scan helpers, deferred-cleanup emission, assignment-like expression dispatch, unused-result warnings, loop-control emission, scoped/defer/unsafe/try-catch helpers, and grouped statement-family dispatchers. This turns `generateBlock()` and `generateStatement()` into short orchestration layers instead of leaving block cleanup, dead-store heuristics, and every statement-kind branch mixed together.
 - Split the type/class-emission cluster further by shrinking `emitClassType()` behind focused dedup, header-layout reuse, decorator-metadata, special-case gpu/union emission, associated-type-alias registration, and default-field layout helpers; shrinking `generateClass()` behind dedicated trait/type-alias/decorator/hot-reload/inherited-thunk helpers; and deduplicating the StringBuilder runtime-backed method skip list shared by normal and large-class emission. This keeps the class/type pipeline on the same dispatcher-plus-phases shape now used across statements, expressions, and calls.
