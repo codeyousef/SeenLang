@@ -10618,14 +10618,11 @@ class LLVMIRGenerator {
         let misplacedRetType = resolveRealParserMisplacedMethodReturnTypeImpl(funcName)
         if misplacedRetType != "" and thisType == "RealParser" {
             let thisReg = varRegs[thisIdx]
-            var argRegs = Array<String>()
-            var argTypeStrs = Array<String>()
-            prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, false, false, "")
-
             let methodFuncName = thisType + "_" + funcName
-            fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
-            argRegs = g_defaultFillArgRegs
-            argTypeStrs = g_defaultFillArgTypeStrs
+            prepareCallArgumentsWithDefaults(methodFuncName, expr.arguments,
+                false, false, false, "")
+            let argRegs = g_defaultFillArgRegs
+            let argTypeStrs = g_defaultFillArgTypeStrs
 
             let thisPtrReg = getNextReg()
             output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
@@ -10642,9 +10639,11 @@ class LLVMIRGenerator {
         }
 
         let thisReg = varRegs[thisIdx]
-        var argRegs = Array<String>()
-        var argTypeStrs = Array<String>()
-        prepareCallArguments(thisType + "_" + funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
+        let methodFuncName = thisType + "_" + funcName
+        prepareCallArgumentsWithDefaults(methodFuncName, expr.arguments, false,
+            true, false, "")
+        let argRegs = g_defaultFillArgRegs
+        let argTypeStrs = g_defaultFillArgTypeStrs
 
         if thisType == "StringBuilder" and (funcName == "append" or funcName == "appendInt" or funcName == "appendFloat" or funcName == "appendChar" or funcName == "clear" or funcName == "length" or funcName == "toString") {
             let thisPtrReg = getNextReg()
@@ -10656,10 +10655,6 @@ class LLVMIRGenerator {
             return emitStringBuilderMethodImpl(output, g_regBox, funcName, thisPtrReg, sbArg0, 0)
         }
 
-        let methodFuncName = thisType + "_" + funcName
-        fillDefaultParamsLocal(methodFuncName, argRegs, argTypeStrs)
-        argRegs = g_defaultFillArgRegs
-        argTypeStrs = g_defaultFillArgTypeStrs
         let llvmReturnType = mapType(methodRetType)
 
         let thisPtrReg = getNextReg()
@@ -10734,13 +10729,10 @@ class LLVMIRGenerator {
             return mathBuiltinResult
         }
 
-        var argRegs = Array<String>()
-        var argTypeStrs = Array<String>()
-        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, true, false, true, "fn call")
-
-        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
-        argRegs = g_defaultFillArgRegs
-        argTypeStrs = g_defaultFillArgTypeStrs
+        prepareCallArgumentsWithDefaults(funcName, expr.arguments, true, false,
+            true, "fn call")
+        var argRegs = g_defaultFillArgRegs
+        var argTypeStrs = g_defaultFillArgTypeStrs
 
         if currentClassName == "JsonParseResult" or currentClassName == "JsonParser" or currentClassName == "LLVMIRGenerator" {
             println("[irgen call pre-promote] class=" + currentClassName + " func=" + funcName + " regs=" + argRegs.length().toString() + " types=" + argTypeStrs.length().toString())
@@ -10879,14 +10871,14 @@ class LLVMIRGenerator {
         }
         let funcName = staticClassName + "_" + methodName
 
-        var argRegs = Array<String>()
-        var argTypeStrs = Array<String>()
         var enableFloatPromotion = true
         if isUppercase {
             enableFloatPromotion = false
         }
-        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs,
-            false, enableFloatPromotion, false, "")
+        prepareCallArgumentsWithDefaults(funcName, expr.arguments, false,
+            enableFloatPromotion, false, "")
+        let argRegs = g_defaultFillArgRegs
+        let argTypeStrs = g_defaultFillArgTypeStrs
 
         let staticReturnType = resolveStaticMethodReturnTypeImpl(
             getMethodReturnType(staticClassName, methodName),
@@ -10896,11 +10888,10 @@ class LLVMIRGenerator {
         if isClassType(staticClassName) { isClassRecv = 1 }
         var isDataRecv = 0
         if isDataType(staticClassName) { isDataRecv = 1 }
-        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
         return emitPreparedStaticMethodCallImpl(output, g_regBox, methodName,
             potentialClassName, staticClassName, funcName,
             staticLlvmReturnType, isClassRecv, isDataRecv,
-            g_defaultFillArgRegs, g_defaultFillArgTypeStrs)
+            argRegs, argTypeStrs)
     }
 
     fun tryResolveArrayMutatorPointerFromLiteral(varName: String) r: String {
@@ -11372,13 +11363,8 @@ class LLVMIRGenerator {
             }
 
             if isStandaloneParserWorkaroundImpl(methodName) {
-                var standaloneArgRegs = Array<String>()
-                var standaloneArgTypes = Array<String>()
-                prepareCallArguments(methodName, expr.arguments,
-                    standaloneArgRegs, standaloneArgTypes, false, false,
-                    false, "")
-                fillDefaultParamsLocal(methodName, standaloneArgRegs,
-                    standaloneArgTypes)
+                prepareCallArgumentsWithDefaults(methodName, expr.arguments,
+                    false, false, false, "")
                 return emitStandaloneParserWorkaroundCallImpl(output,
                     g_regBox, methodName, g_defaultFillArgRegs,
                     g_defaultFillArgTypeStrs)
@@ -11517,10 +11503,10 @@ class LLVMIRGenerator {
             return hotReloadResult
         }
 
-        var argRegs = Array<String>()
-        var argTypeStrs = Array<String>()
-        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs,
-            false, true, false, "")
+        prepareCallArgumentsWithDefaults(funcName, expr.arguments, false, true,
+            false, "")
+        let argRegs = g_defaultFillArgRegs
+        let argTypeStrs = g_defaultFillArgTypeStrs
 
         let returnTypeStr = resolveMethodCallReturnTypeImpl(
             inferExpressionType(expr), getMethodReturnType(instanceTypeName,
@@ -11547,9 +11533,6 @@ class LLVMIRGenerator {
             return specializedResult
         }
 
-        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
-        argRegs = g_defaultFillArgRegs
-        argTypeStrs = g_defaultFillArgTypeStrs
         return emitUserMethodCallImpl(output, g_regBox,
             quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType,
             normalizedReceiverReg, argRegs, argTypeStrs, 0)
@@ -11972,6 +11955,19 @@ class LLVMIRGenerator {
             }
             argIdx = argIdx + 1
         }
+    }
+
+    fun prepareCallArgumentsWithDefaults(funcName: String,
+        arguments: Array<ParserExpressionNode>, enableDynBoxing: Bool,
+        enableFloatPromotion: Bool, nullifyMovedSources: Bool,
+        moveContext: String) r: Void {
+
+        let preparedArgRegs = Array<String>()
+        let preparedArgTypeStrs = Array<String>()
+        prepareCallArguments(funcName, arguments, preparedArgRegs,
+            preparedArgTypeStrs, enableDynBoxing, enableFloatPromotion,
+            nullifyMovedSources, moveContext)
+        fillDefaultParamsLocal(funcName, preparedArgRegs, preparedArgTypeStrs)
     }
 
     fun fillDefaultParamsLocal(funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: Void {
