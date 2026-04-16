@@ -1,0 +1,27 @@
+let PADDED = "  hi  "
+
+class ReceiverBox {
+    var text: String
+
+    fun new() r: ReceiverBox {
+        text = "hello"
+    }
+
+    fun implicitFieldLen() r: Int {
+        return text.length()
+    }
+
+    fun moduleConstTrimmedLen() r: Int {
+        return PADDED.trim().length()
+    }
+}
+
+fun main() r: Int {
+    let box = ReceiverBox.new()
+    let fieldLen = box.implicitFieldLen()
+    let trimmedLen = box.moduleConstTrimmedLen()
+    if fieldLen == 5 and trimmedLen == 2 {
+        return 0
+    }
+    return 1
+}
