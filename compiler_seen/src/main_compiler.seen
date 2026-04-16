@@ -1847,6 +1847,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_path_expr")
         modules.push("codegen.ir_member_access")
         modules.push("codegen.ir_binary_expr")
+        modules.push("codegen.ir_class_method_gen")
         modules.push("codegen.ir_stmt_gen")
         modules.push("codegen.type_registry")
         // JSON module (required by LSP)

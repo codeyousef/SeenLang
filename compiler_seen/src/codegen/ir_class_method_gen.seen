@@ -1,0 +1,240 @@
+// ir_class_method_gen.seen — Shared class-method lowering helpers
+// Extracted from llvm_ir_gen.seen to reduce class-method boilerplate.
+
+import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{selfCallCheck, getNextRegFn}
+import codegen.type_registry.{findStructReg, isDataTypeReg, getDataTypeSizeReg, getTypeSizeReg}
+
+fun methodHasDecoratorImpl(methods: Array<FunctionNode>, methodIdx: Int, decoratorName: String) r: Int {
+    var decoratorIdx = 0
+    while decoratorIdx < methods[methodIdx].decorators.length() {
+        if methods[methodIdx].decorators[decoratorIdx].name == decoratorName {
+            return 1
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    return 0
+}
+
+fun buildMethodAttrsImpl(methods: Array<FunctionNode>, methodIdx: Int,
+    className: String, methodName: String,
+    selfCallFuncs: String, selfCallNames: String, selfCallCount: Int) r: String {
+
+    var methodAttrs = ""
+    if methods[methodIdx].isInline {
+        methodAttrs = " alwaysinline"
+    }
+    if methodHasDecoratorImpl(methods, methodIdx, "noinline") == 1 {
+        methodAttrs = " noinline"
+    }
+    if methodHasDecoratorImpl(methods, methodIdx, "cold") == 1 {
+        methodAttrs = methodAttrs + " cold"
+    }
+    if methodHasDecoratorImpl(methods, methodIdx, "always_inline") == 1 {
+        methodAttrs = " alwaysinline"
+    }
+    if methodHasDecoratorImpl(methods, methodIdx, "hot") == 1 {
+        methodAttrs = methodAttrs + " hot"
+    }
+    if methodHasDecoratorImpl(methods, methodIdx, "pure") == 1 {
+        methodAttrs = methodAttrs + " readonly nounwind"
+    }
+
+    let qualMethodName = className + "_" + methodName
+    let isMethodSelfRecursive = selfCallCheck(qualMethodName, selfCallFuncs, selfCallNames, selfCallCount)
+    if isMethodSelfRecursive {
+        methodAttrs = methodAttrs.replace(" alwaysinline", "")
+        methodAttrs = methodAttrs.replace(" inlinehint", "")
+        methodAttrs = methodAttrs + " noinline"
+    }
+    if not isMethodSelfRecursive {
+        methodAttrs = methodAttrs + " norecurse"
+        let methodBodySize = methods[methodIdx].body.statements.length()
+        if methodBodySize <= 15 and not methodAttrs.contains("noinline") and not methodAttrs.contains("alwaysinline") {
+            methodAttrs = methodAttrs + " inlinehint"
+        }
+    }
+
+    return methodAttrs
+}
+
+fun detectExplicitReceiverNameImpl(className: String, isStatic: Int,
+    methods: Array<FunctionNode>, methodIdx: Int) r: String {
+
+    if isStatic == 1 {
+        return ""
+    }
+    if methods[methodIdx].params.length() == 0 {
+        return ""
+    }
+
+    let firstParam = methods[methodIdx].params[0]
+    if firstParam.paramType.typeName != className {
+        return ""
+    }
+    if firstParam.name == "self" {
+        return "self"
+    }
+    if firstParam.name == "this" {
+        return "this"
+    }
+    return ""
+}
+
+fun emitMethodSignatureParamsImpl(output: StringBuilder,
+    methods: Array<FunctionNode>, methodIdx: Int, explicitReceiverName: String,
+    hasThis: Int, mappedParamTypes: Array<String>, quotedArgNames: Array<String>) r: Void {
+
+    var emittedCount = 0
+    if hasThis == 1 {
+        emittedCount = 1
+    }
+
+    var paramIdx = 0
+    while paramIdx < methods[methodIdx].params.length() {
+        let param = methods[methodIdx].params[paramIdx]
+        var isExplicitReceiver = 0
+        if explicitReceiverName != "" and param.name == explicitReceiverName {
+            isExplicitReceiver = 1
+        }
+        if isExplicitReceiver == 0 {
+            if emittedCount > 0 {
+                output.append(", ")
+            }
+            output.append(mappedParamTypes[paramIdx] + " %" + quotedArgNames[paramIdx])
+            emittedCount = emittedCount + 1
+        }
+        paramIdx = paramIdx + 1
+    }
+}
+
+// tryEmitOptionClassMethodShimImpl — emit builtin Option method shims.
+// Returns 1 when a shim or skip marker was emitted, otherwise 0.
+fun tryEmitOptionClassMethodShimImpl(output: StringBuilder, className: String, methodName: String) r: Int {
+    if className != "Option" and not className.startsWith("Option<") {
+        return 0
+    }
+    if methodName == "isSome" or methodName == "IsSome" {
+        output.append("define i1 @Option_" + methodName + "(ptr %this) {\n")
+        output.append("entry:\n")
+        output.append("  %hasValuePtr = getelementptr inbounds { i1, i64 }, ptr %this, i32 0, i32 0\n")
+        output.append("  %hasValue = load i1, ptr %hasValuePtr\n")
+        output.append("  ret i1 %hasValue\n")
+        output.append("}\n\n")
+        return 1
+    }
+    if methodName == "isNone" or methodName == "IsNone" {
+        output.append("define i1 @Option_" + methodName + "(ptr %this) {\n")
+        output.append("entry:\n")
+        output.append("  %hasValuePtr = getelementptr inbounds { i1, i64 }, ptr %this, i32 0, i32 0\n")
+        output.append("  %hasValue = load i1, ptr %hasValuePtr\n")
+        output.append("  %isNone = xor i1 %hasValue, true\n")
+        output.append("  ret i1 %isNone\n")
+        output.append("}\n\n")
+        return 1
+    }
+    output.append("; SKIPPED: Option_" + methodName + " (use C runtime implementation)\n")
+    return 1
+}
+
+// emitConstructorAllocationImpl — emit the heap allocation, zero-init, and
+// Array/List field bootstrap for a class constructor. Returns the alloca used
+// to store the constructor's live `this` pointer.
+fun emitConstructorAllocationImpl(output: StringBuilder, regBox: Array<Int>, className: String,
+    structNames: Array<String>, structSizes: Array<Int>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+
+    let cStructIdx = findStructReg(className, structNames)
+    var cStructSize = 16
+    if cStructIdx >= 0 {
+        cStructSize = structSizes[cStructIdx]
+        if cStructSize == 0 {
+            cStructSize = 16
+        }
+    }
+
+    let cAllocReg = getNextRegFn(regBox)
+    if cStructSize <= 80 {
+        output.append("  " + cAllocReg + " = call ptr @seen_pool_alloc(i64 " + cStructSize.toString() + ")\n")
+    }
+    if cStructSize > 80 {
+        output.append("  " + cAllocReg + " = call ptr @malloc(i64 " + cStructSize.toString() + ")\n")
+    }
+    output.append("  call void @llvm.memset.p0.i64(ptr " + cAllocReg + ", i8 0, i64 " + cStructSize.toString() + ", i1 false)\n")
+
+    let cThisReg = getNextRegFn(regBox)
+    output.append("  " + cThisReg + " = alloca ptr\n")
+    output.append("  store ptr " + cAllocReg + ", ptr " + cThisReg + "\n")
+
+    if cStructIdx >= 0 {
+        let cFieldNamesStr = structFieldNames[cStructIdx]
+        let cFieldTypesStr = structFieldTypes[cStructIdx]
+        var cByteOffset = 0
+        var cNamePos = 0
+        var cTypePos = 0
+        var cIterDone = 0
+        while cIterDone == 0 {
+            var cNameEnd = cNamePos
+            while cNameEnd < cFieldNamesStr.length() and cFieldNamesStr.byteAt(cNameEnd) != 44 {
+                cNameEnd = cNameEnd + 1
+            }
+            var cTypeEnd = cTypePos
+            while cTypeEnd < cFieldTypesStr.length() and cFieldTypesStr.byteAt(cTypeEnd) != 124 {
+                cTypeEnd = cTypeEnd + 1
+            }
+            let cFieldSeenType = cFieldTypesStr.substring(cTypePos, cTypeEnd)
+            var cIsArrayField = 0
+            if cFieldSeenType.startsWith("Array<") {
+                cIsArrayField = 1
+            }
+            if cFieldSeenType.startsWith("List<") {
+                cIsArrayField = 1
+            }
+            if cIsArrayField == 1 {
+                let cFieldPtrReg = getNextRegFn(regBox)
+                output.append("  " + cFieldPtrReg + " = getelementptr inbounds i8, ptr " + cAllocReg + ", i64 " + cByteOffset.toString() + "\n")
+                var cElemType = ""
+                if cFieldSeenType.startsWith("Array<") {
+                    cElemType = cFieldSeenType.substring(6, cFieldSeenType.length() - 1)
+                }
+                if cFieldSeenType.startsWith("List<") {
+                    cElemType = cFieldSeenType.substring(5, cFieldSeenType.length() - 1)
+                }
+                let cArrInitReg = getNextRegFn(regBox)
+                if cElemType == "String" {
+                    output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_str_ptr()\n")
+                }
+                if cElemType != "String" {
+                    var cUsedSizeInit = 0
+                    if isDataTypeReg(cElemType) {
+                        let cElemSize = getDataTypeSizeReg(cElemType, structNames, structSizes)
+                        output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_with_size_ptr(i64 " + cElemSize.toString() + ")\n")
+                        cUsedSizeInit = 1
+                    }
+                    if cUsedSizeInit == 0 {
+                        output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
+                    }
+                }
+                output.append("  store ptr " + cArrInitReg + ", ptr " + cFieldPtrReg + "\n")
+            }
+            cByteOffset = cByteOffset + getTypeSizeReg(cFieldSeenType, structNames, structSizes)
+            if cNameEnd < cFieldNamesStr.length() {
+                cNamePos = cNameEnd + 1
+                cTypePos = cTypeEnd + 1
+            }
+            if cNameEnd >= cFieldNamesStr.length() {
+                cIterDone = 1
+            }
+        }
+    }
+
+    return cThisReg
+}
+
+fun emitConstructorReturnImpl(output: StringBuilder, regBox: Array<Int>, thisAllocaReg: String) r: Void {
+    let cThisLoad = getNextRegFn(regBox)
+    output.append("  " + cThisLoad + " = load ptr, ptr " + thisAllocaReg + "\n")
+    let cPtrToInt = getNextRegFn(regBox)
+    output.append("  " + cPtrToInt + " = ptrtoint ptr " + cThisLoad + " to i64\n")
+    output.append("  ret i64 " + cPtrToInt + "\n")
+}

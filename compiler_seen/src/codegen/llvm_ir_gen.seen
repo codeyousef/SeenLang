@@ -63,7 +63,8 @@ import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
@@ -4687,51 +4688,12 @@ class LLVMIRGenerator {
     // could match the same register numbers in method B (since each method
     // resets nextReg to 1), producing self-referential IR that causes LLVM
     // verification failures.
-    fun methodHasDecoratorInList(methods: Array<FunctionNode>, methodIdx: Int, decoratorName: String) r: Bool {
-        var decoratorIdx = 0
-        while decoratorIdx < methods[methodIdx].decorators.length() {
-            if methods[methodIdx].decorators[decoratorIdx].name == decoratorName {
-                return true
-            }
-            decoratorIdx = decoratorIdx + 1
-        }
-        return false
-    }
-
-    fun methodHasDecoratorByIndex(classNode: ClassNode, methodIdx: Int, decoratorName: String) r: Bool {
-        return methodHasDecoratorInList(classNode.methods, methodIdx, decoratorName)
-    }
-
     fun generateClassMethodFromList(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
         let methodName = methods[methodIdx].name
         if className == "JsonParseResult" or className == "JsonParser" or className == "LLVMIRGenerator" {
             println("[irgen class method start] " + className + "." + methodName)
         }
-        // Handle Option class methods specially.
-        if className == "Option" or className.startsWith("Option<") {
-            // Generate isSome/IsSome - load the hasValue field directly.
-            if methodName == "isSome" or methodName == "IsSome" {
-                output.append("define i1 @Option_" + methodName + "(ptr %this) {\n")
-                output.append("entry:\n")
-                output.append("  %hasValuePtr = getelementptr inbounds { i1, i64 }, ptr %this, i32 0, i32 0\n")
-                output.append("  %hasValue = load i1, ptr %hasValuePtr\n")
-                output.append("  ret i1 %hasValue\n")
-                output.append("}\n\n")
-                return
-            }
-            // Generate isNone/IsNone - negate the hasValue field.
-            if methodName == "isNone" or methodName == "IsNone" {
-                output.append("define i1 @Option_" + methodName + "(ptr %this) {\n")
-                output.append("entry:\n")
-                output.append("  %hasValuePtr = getelementptr inbounds { i1, i64 }, ptr %this, i32 0, i32 0\n")
-                output.append("  %hasValue = load i1, ptr %hasValuePtr\n")
-                output.append("  %isNone = xor i1 %hasValue, true\n")
-                output.append("  ret i1 %isNone\n")
-                output.append("}\n\n")
-                return
-            }
-            // Skip other Option methods - use C runtime implementations
-            output.append("; SKIPPED: Option_" + methodName + " (use C runtime implementation)\n")
+        if tryEmitOptionClassMethodShimImpl(output, className, methodName) == 1 {
             return
         }
 
@@ -4753,6 +4715,19 @@ class LLVMIRGenerator {
         resetFunctionLoweringOptionsState()
         cseClear()  // CSE cache must not carry over between class methods (cross-method register collision)
 
+        let normalizedMethodParamTypes = Array<String>()
+        let mappedMethodParamTypes = Array<String>()
+        let quotedMethodArgNames = Array<String>()
+        var methodParamInfoIdx = 0
+        while methodParamInfoIdx < methods[methodIdx].params.length() {
+            let methodParam = methods[methodIdx].params[methodParamInfoIdx]
+            let normalizedParamType = normalizeDeclaredTypeNode(methodParam.paramType)
+            normalizedMethodParamTypes.push(normalizedParamType)
+            mappedMethodParamTypes.push(mapTypeForParameter(normalizedParamType))
+            quotedMethodArgNames.push(quoteIdentIfNeeded(methodParam.name + ".arg"))
+            methodParamInfoIdx = methodParamInfoIdx + 1
+        }
+
         // Pre-register parameter types for use during variable collection
         // (needed so inferExpressionType can find parameter types)
         // Also pre-register 'this' for instance methods (non-static)
@@ -4763,7 +4738,7 @@ class LLVMIRGenerator {
         var preParamIdx = 0
         while preParamIdx < methods[methodIdx].params.length() {
             let param = methods[methodIdx].params[preParamIdx]
-            storeVar(param.name, "", normalizeDeclaredTypeNode(param.paramType))
+            storeVar(param.name, "", normalizedMethodParamTypes[preParamIdx])
             preParamIdx = preParamIdx + 1
         }
 
@@ -4781,44 +4756,8 @@ class LLVMIRGenerator {
         // Determine if this is a static method (name is "new" or has isStatic flag)
         let isStatic = methods[methodIdx].isStatic or methodName == "new"
 
-        // Build method attributes
-        var methodAttrs = ""
-        if methods[methodIdx].isInline {
-            methodAttrs = " alwaysinline"
-        }
-        if methodHasDecoratorInList(methods, methodIdx, "noinline") {
-            methodAttrs = " noinline"
-        }
-        if methodHasDecoratorInList(methods, methodIdx, "cold") {
-            methodAttrs = methodAttrs + " cold"
-        }
-        if methodHasDecoratorInList(methods, methodIdx, "always_inline") {
-            methodAttrs = " alwaysinline"
-        }
-        if methodHasDecoratorInList(methods, methodIdx, "hot") {
-            methodAttrs = methodAttrs + " hot"
-        }
-        if methodHasDecoratorInList(methods, methodIdx, "pure") {
-            methodAttrs = methodAttrs + " readonly nounwind"
-        }
-
-        // norecurse / noinline for recursive class methods; inlinehint for small methods
-        let qualMethodName = className + "_" + methodName
-        let isMethodSelfRecursive = selfCallCheck(qualMethodName, g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
-        if isMethodSelfRecursive {
-            methodAttrs = methodAttrs.replace(" alwaysinline", "")
-            methodAttrs = methodAttrs.replace(" inlinehint", "")
-            methodAttrs = methodAttrs + " noinline"
-        }
-        if not isMethodSelfRecursive {
-            methodAttrs = methodAttrs + " norecurse"
-            // Add inlinehint for small non-recursive methods (≤15 statements)
-            // This encourages LLVM to inline hot accessor/checker methods like .check()
-            let methodBodySize = methods[methodIdx].body.statements.length()
-            if methodBodySize <= 15 and not methodAttrs.contains("noinline") and not methodAttrs.contains("alwaysinline") {
-                methodAttrs = methodAttrs + " inlinehint"
-            }
-        }
+        let methodAttrs = buildMethodAttrsImpl(methods, methodIdx, className, methodName,
+            g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
 
         // Function signature: ClassName_methodName or ClassName_new
         // Add noundef on primitive return types to enable stronger LLVM optimizations
@@ -4837,52 +4776,29 @@ class LLVMIRGenerator {
 
         // Detect explicit receiver param: first param with name 'self' or 'this' and type == className
         // (Python/Rust-style explicit self parameter)
-        var explicitReceiverName = ""
-        if not isStatic {
-            if methods[methodIdx].params.length() > 0 {
-                let firstParam = methods[methodIdx].params[0]
-                if firstParam.paramType.typeName == className {
-                    if firstParam.name == "self" {
-                        explicitReceiverName = "self"
-                    }
-                    if firstParam.name == "this" {
-                        explicitReceiverName = "this"
-                    }
-                }
-            }
+        var isStaticInt = 0
+        if isStatic {
+            isStaticInt = 1
         }
+        let explicitReceiverName = detectExplicitReceiverNameImpl(className, isStaticInt, methods, methodIdx)
 
         // Other parameters (skip explicit receiver param — handled by implicit ptr %this)
-        var paramIdx = 0
-        while paramIdx < methods[methodIdx].params.length() {
-            let param = methods[methodIdx].params[paramIdx]
-            var isExplicitReceiver = 0
-            if param.name == explicitReceiverName {
-                if explicitReceiverName != "" {
-                    isExplicitReceiver = 1
-                }
-            }
-            if isExplicitReceiver == 0 {
-                if paramIdx > 0 or hasThis {
-                    output.append(", ")
-                }
-                let paramType = mapTypeForParameter(normalizeDeclaredTypeNode(param.paramType))
-                output.append(paramType + " %" + quoteIdentIfNeeded(param.name + ".arg"))
-            }
-            paramIdx = paramIdx + 1
+        var hasThisInt = 0
+        if hasThis {
+            hasThisInt = 1
         }
+        emitMethodSignatureParamsImpl(output, methods, methodIdx, explicitReceiverName,
+            hasThisInt, mappedMethodParamTypes, quotedMethodArgNames)
 
         output.append(")" + methodAttrs + " #0 {\n")
         output.append("entry:\n")
 
         // For instance methods, store 'this' pointer
-        var savedThisReg = ""
         if not isStatic {
             let thisReg = getNextReg()
             output.append("  " + thisReg + " = alloca ptr\n")
             output.append("  store ptr %this, ptr " + thisReg + "\n")
             storeVar("this", thisReg, className)
-            savedThisReg = thisReg
             // If method has explicit receiver with different name (e.g. 'self'), register it too
             if explicitReceiverName != "this" {
                 if explicitReceiverName != "" {
@@ -4892,7 +4808,7 @@ class LLVMIRGenerator {
         }
 
         // Allocate space for parameters and store them (skip explicit receiver)
-        paramIdx = 0
+        var paramIdx = 0
         while paramIdx < methods[methodIdx].params.length() {
             let param = methods[methodIdx].params[paramIdx]
             var isExplicitReceiver2 = 0
@@ -4902,17 +4818,17 @@ class LLVMIRGenerator {
                 }
             }
             if isExplicitReceiver2 == 0 {
-                let seenTypeName = normalizeDeclaredTypeNode(param.paramType)
+                let seenTypeName = normalizedMethodParamTypes[paramIdx]
                 let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
                 // Data type params come in as ptr (ABI compat with Rust backend)
                 // Use the incoming ptr directly as the variable location
                 if isDataType(semanticSeenTypeName) {
-                    storeVar(param.name, "%" + quoteIdentIfNeeded(param.name + ".arg"), semanticSeenTypeName)
+                    storeVar(param.name, "%" + quotedMethodArgNames[paramIdx], semanticSeenTypeName)
                 } else {
                     let paramType = mapStorageTypeForParameter(seenTypeName)
                     let reg = getNextReg()
                     output.append("  " + reg + " = alloca " + paramType + "\n")
-                    output.append("  store " + paramType + " %" + quoteIdentIfNeeded(param.name + ".arg") + ", ptr " + reg + "\n")
+                    output.append("  store " + paramType + " %" + quotedMethodArgNames[paramIdx] + ", ptr " + reg + "\n")
                     storeVar(param.name, reg, semanticSeenTypeName)
                 }
             }
@@ -4924,88 +4840,9 @@ class LLVMIRGenerator {
 
         // For constructor 'new' methods: allocate object, zero-init, register 'this'
         if methodName == "new" {
-            let cStructIdx = findStruct(className)
-            var cStructSize = 16
-            if cStructIdx >= 0 {
-                cStructSize = structSizes[cStructIdx]
-                if cStructSize == 0 {
-                    cStructSize = 16
-                }
-            }
-            let cAllocReg = getNextReg()
-            if cStructSize <= 80 {
-                output.append("  " + cAllocReg + " = call ptr @seen_pool_alloc(i64 " + cStructSize.toString() + ")\n")
-            }
-            if cStructSize > 80 {
-                output.append("  " + cAllocReg + " = call ptr @malloc(i64 " + cStructSize.toString() + ")\n")
-            }
-            output.append("  call void @llvm.memset.p0.i64(ptr " + cAllocReg + ", i8 0, i64 " + cStructSize.toString() + ", i1 false)\n")
-            let cThisReg = getNextReg()
-            output.append("  " + cThisReg + " = alloca ptr\n")
-            output.append("  store ptr " + cAllocReg + ", ptr " + cThisReg + "\n")
+            let cThisReg = emitConstructorAllocationImpl(output, g_regBox, className,
+                structNames, structSizes, structFieldNames, structFieldTypes)
             storeVar("this", cThisReg, className)
-            // Initialize Array<T>/List<T> fields (memset leaves them as null ptrs)
-            if cStructIdx >= 0 {
-                var cFieldNamesStr = structFieldNames[cStructIdx]
-                var cFieldTypesStr = structFieldTypes[cStructIdx]
-                var cByteOffset = 0
-                var cNamePos = 0
-                var cTypePos = 0
-                var cIterDone = 0
-                while cIterDone == 0 {
-                    var cNameEnd = cNamePos
-                    while cNameEnd < cFieldNamesStr.length() and cFieldNamesStr.byteAt(cNameEnd) != 44 {
-                        cNameEnd = cNameEnd + 1
-                    }
-                    var cTypeEnd = cTypePos
-                    while cTypeEnd < cFieldTypesStr.length() and cFieldTypesStr.byteAt(cTypeEnd) != 124 {
-                        cTypeEnd = cTypeEnd + 1
-                    }
-                    var cFieldSeenType = cFieldTypesStr.substring(cTypePos, cTypeEnd)
-                    var cIsArrayField = 0
-                    if cFieldSeenType.startsWith("Array<") {
-                        cIsArrayField = 1
-                    }
-                    if cFieldSeenType.startsWith("List<") {
-                        cIsArrayField = 1
-                    }
-                    if cIsArrayField == 1 {
-                        let cFieldPtrReg = getNextReg()
-                        output.append("  " + cFieldPtrReg + " = getelementptr inbounds i8, ptr " + cAllocReg + ", i64 " + cByteOffset.toString() + "\n")
-                        var cElemType = ""
-                        if cFieldSeenType.startsWith("Array<") {
-                            cElemType = cFieldSeenType.substring(6, cFieldSeenType.length() - 1)
-                        }
-                        if cFieldSeenType.startsWith("List<") {
-                            cElemType = cFieldSeenType.substring(5, cFieldSeenType.length() - 1)
-                        }
-                        let cArrInitReg = getNextReg()
-                        if cElemType == "String" {
-                            output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_str_ptr()\n")
-                        }
-                        if cElemType != "String" {
-                            var cUsedSizeInit = 0
-                            if isDataType(cElemType) {
-                                let cElemSize = getDataTypeSize(cElemType)
-                                output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_with_size_ptr(i64 " + cElemSize.toString() + ")\n")
-                                cUsedSizeInit = 1
-                            }
-                            if cUsedSizeInit == 0 {
-                                output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
-                            }
-                        }
-                        output.append("  store ptr " + cArrInitReg + ", ptr " + cFieldPtrReg + "\n")
-                    }
-                    cByteOffset = cByteOffset + getTypeSize(cFieldSeenType)
-                    if cNameEnd < cFieldNamesStr.length() {
-                        cNamePos = cNameEnd + 1
-                        cTypePos = cTypeEnd + 1
-                    }
-                    if cNameEnd >= cFieldNamesStr.length() {
-                        cIterDone = 1
-                    }
-                }
-            }
         }
 
         // Generate method body
@@ -5016,11 +4853,7 @@ class LLVMIRGenerator {
             if methodName == "new" {
                 let cThisVarIdx = findVar("this")
                 if cThisVarIdx >= 0 {
-                    let cThisLoad = getNextReg()
-                    output.append("  " + cThisLoad + " = load ptr, ptr " + varRegs[cThisVarIdx] + "\n")
-                    let cPtrToInt = getNextReg()
-                    output.append("  " + cPtrToInt + " = ptrtoint ptr " + cThisLoad + " to i64\n")
-                    output.append("  ret i64 " + cPtrToInt + "\n")
+                    emitConstructorReturnImpl(output, g_regBox, varRegs[cThisVarIdx])
                     blockTerminated = true
                 }
             }
@@ -5028,35 +4861,7 @@ class LLVMIRGenerator {
 
         // If no terminator was generated, add a default return
         if not blockTerminated {
-            var emittedRet = false
-            if returnType == "void" {
-                output.append("  ret void\n")
-                emittedRet = true
-            }
-            if not emittedRet and returnType == "i1" {
-                output.append("  ret i1 false\n")
-                emittedRet = true
-            }
-            if not emittedRet and returnType == "i64" {
-                output.append("  ret i64 0\n")
-                emittedRet = true
-            }
-            if not emittedRet and returnType == "ptr" {
-                output.append("  ret ptr null\n")
-                emittedRet = true
-            }
-            if not emittedRet and returnType == "%SeenString" {
-                output.append("  ret %SeenString zeroinitializer\n")
-                emittedRet = true
-            }
-            if not emittedRet and returnType == "%SeenArray" {
-                output.append("  ret %SeenArray zeroinitializer\n")
-                emittedRet = true
-            }
-            if not emittedRet {
-                // Default for other types
-                output.append("  ret " + returnType + " zeroinitializer\n")
-            }
+            emitDefaultReturnValueImpl(output, returnType)
         }
 
         output.append("}\n\n")
@@ -10129,17 +9934,7 @@ class LLVMIRGenerator {
 
     // Helper: check if an expression produces i1 (bool) rather than i64
     fun isExprBool(e: ParserExpressionNode, eType: String) r: Int {
-        if eType == "Bool" { return 1 }
-        if e.operator == "==" { return 1 }
-        if e.operator == "!=" { return 1 }
-        if e.operator == "<" { return 1 }
-        if e.operator == ">" { return 1 }
-        if e.operator == "<=" { return 1 }
-        if e.operator == ">=" { return 1 }
-        if e.operator == "and" { return 1 }
-        if e.operator == "or" { return 1 }
-        if e.operator == "not" { return 1 }
-        return 0
+        return exprProducesBoolImpl(eType, e.operator)
     }
 
     // Short-circuit AND: left ? right : false
@@ -10167,11 +9962,7 @@ class LLVMIRGenerator {
         cseClear()
 
         // Convert left to i1 if needed
-        var leftBool = leftReg
-        if isExprBool(leftExpr, leftType) == 0 {
-            leftBool = getNextReg()
-            output.append("  " + leftBool + " = icmp ne i64 " + leftReg + ", 0\n")
-        }
+        let leftBool = emitBoolCoercionImpl(output, g_regBox, leftReg, leftType, leftExpr.operator)
 
         // If left is true, evaluate right; otherwise skip to merge with false
         output.append("  br i1 " + leftBool + ", label %" + rightLabel + ", label %" + mergeLabel + "\n")
@@ -10187,20 +9978,13 @@ class LLVMIRGenerator {
         cseClear()
 
         // Convert right to i1 if needed
-        var rightBool = rightReg
-        if isExprBool(rightExpr, rightType) == 0 {
-            rightBool = getNextReg()
-            output.append("  " + rightBool + " = icmp ne i64 " + rightReg + ", 0\n")
-        }
+        let rightBool = emitBoolCoercionImpl(output, g_regBox, rightReg, rightType, rightExpr.operator)
 
         output.append("  br label %" + mergeLabel + "\n")
 
         // Merge block with phi
-        output.append(mergeLabel + ":\n")
         cseClear()
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = phi i1 [ false, %" + checkLabel + " ], [ " + rightBool + ", %" + doneLabel + " ]\n")
-        return resultReg
+        return emitShortCircuitPhiImpl(output, g_regBox, mergeLabel, "false", checkLabel, rightBool, doneLabel)
     }
 
     // Short-circuit OR: left ? true : right
@@ -10227,11 +10011,7 @@ class LLVMIRGenerator {
         cseClear()
 
         // Convert left to i1 if needed
-        var leftBool = leftReg
-        if isExprBool(leftExpr, leftType) == 0 {
-            leftBool = getNextReg()
-            output.append("  " + leftBool + " = icmp ne i64 " + leftReg + ", 0\n")
-        }
+        let leftBool = emitBoolCoercionImpl(output, g_regBox, leftReg, leftType, leftExpr.operator)
 
         // If left is true, skip to merge with true; otherwise evaluate right
         output.append("  br i1 " + leftBool + ", label %" + mergeLabel + ", label %" + rightLabel + "\n")
@@ -10247,20 +10027,13 @@ class LLVMIRGenerator {
         cseClear()
 
         // Convert right to i1 if needed
-        var rightBool = rightReg
-        if isExprBool(rightExpr, rightType) == 0 {
-            rightBool = getNextReg()
-            output.append("  " + rightBool + " = icmp ne i64 " + rightReg + ", 0\n")
-        }
+        let rightBool = emitBoolCoercionImpl(output, g_regBox, rightReg, rightType, rightExpr.operator)
 
         output.append("  br label %" + mergeLabel + "\n")
 
         // Merge block with phi
-        output.append(mergeLabel + ":\n")
         cseClear()
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = phi i1 [ true, %" + checkLabel + " ], [ " + rightBool + ", %" + doneLabel + " ]\n")
-        return resultReg
+        return emitShortCircuitPhiImpl(output, g_regBox, mergeLabel, "true", checkLabel, rightBool, doneLabel)
     }
 
     fun applyComptimeParamSpecialization(funcName: String, expr: ParserExpressionNode) r: Void {

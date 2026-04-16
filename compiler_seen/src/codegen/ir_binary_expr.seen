@@ -138,3 +138,38 @@ fun emitOverloadedBinaryCallImpl(output: StringBuilder, regBox: Array<Int>,
     output.append("  " + resultReg + " = call " + retLlvmType + " @" + quotedFuncName + "(ptr " + thisPtrReg + ", ptr " + argPtrReg + ")\n")
     return resultReg
 }
+
+fun exprProducesBoolImpl(exprType: String, operator: String) r: Int {
+    if exprType == "Bool" { return 1 }
+    if operator == "==" { return 1 }
+    if operator == "!=" { return 1 }
+    if operator == "<" { return 1 }
+    if operator == ">" { return 1 }
+    if operator == "<=" { return 1 }
+    if operator == ">=" { return 1 }
+    if operator == "and" { return 1 }
+    if operator == "or" { return 1 }
+    if operator == "not" { return 1 }
+    return 0
+}
+
+// emitBoolCoercionImpl — normalize an expression result to i1 if needed.
+fun emitBoolCoercionImpl(output: StringBuilder, regBox: Array<Int>,
+    valueReg: String, exprType: String, operator: String) r: String {
+    if exprProducesBoolImpl(exprType, operator) == 1 {
+        return valueReg
+    }
+    let boolReg = getNextRegFn(regBox)
+    output.append("  " + boolReg + " = icmp ne i64 " + valueReg + ", 0\n")
+    return boolReg
+}
+
+// emitShortCircuitPhiImpl — emit the merge label and phi for a short-circuit boolean op.
+fun emitShortCircuitPhiImpl(output: StringBuilder, regBox: Array<Int>,
+    mergeLabel: String, shortCircuitValue: String, checkLabel: String,
+    rightBoolReg: String, doneLabel: String) r: String {
+    output.append(mergeLabel + ":\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = phi i1 [ " + shortCircuitValue + ", %" + checkLabel + " ], [ " + rightBoolReg + ", %" + doneLabel + " ]\n")
+    return resultReg
+}
