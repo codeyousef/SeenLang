@@ -7957,58 +7957,76 @@ class LLVMIRGenerator {
         return ""
     }
 
+    fun emitCastSpecialExpression(expr: ParserExpressionNode) r: String {
+        let cSrcReg = generateExpression(expr.operands[0])
+        let cSrcType = inferExpressionType(expr.operands[0])
+        let cTgtType = expr.literalValue
+        return emitCastExprImpl(output, g_regBox, cSrcReg, cSrcType, cTgtType)
+    }
+
+    fun emitIsExpressionTest(expr: ParserExpressionNode) r: String {
+        let isSubjectReg = generateExpression(expr.operands[0])
+        let isTypeName = expr.literalValue
+        let isTagIdx = lookupEnumVariantTag(isTypeName)
+        if isTagIdx >= 0 {
+            let isTagLoad = getNextReg()
+            output.append("  " + isTagLoad + " = load i64, ptr " + isSubjectReg + "\n")
+            let isCmpReg = getNextReg()
+            output.append("  " + isCmpReg + " = icmp eq i64 " + isTagLoad + ", " + isTagIdx.toString() + "\n")
+            return isCmpReg
+        }
+        let isSubjectType = inferExpressionType(expr.operands[0])
+        if isSubjectType == isTypeName {
+            return "1"
+        }
+        return "0"
+    }
+
+    fun emitTryPropagateExpression(expr: ParserExpressionNode) r: String {
+        let tryInnerReg = generateExpression(expr.operands[0])
+        let tryInnerType = inferExpressionType(expr.operands[0])
+        if tryInnerType.startsWith("Result") {
+            let tryIsOkReg = getNextReg()
+            output.append("  " + tryIsOkReg + " = icmp ne i64 " + tryInnerReg + ", 0\n")
+
+            let tryLabelSuffix = g_regBox[0].toString()
+            let tryOkLabel = "try.ok." + tryLabelSuffix
+            let tryErrLabel = "try.err." + tryLabelSuffix
+
+            output.append("  br i1 " + tryIsOkReg + ", label %" + tryOkLabel + ", label %" + tryErrLabel + "\n")
+
+            output.append(tryErrLabel + ":\n")
+            let tryRetType = mapType(currentFunctionReturnType)
+            if tryRetType == "void" {
+                output.append("  ret void\n")
+            } else {
+                output.append("  ret " + tryRetType + " 0\n")
+            }
+
+            output.append(tryOkLabel + ":\n")
+            return tryInnerReg
+        }
+        return tryInnerReg
+    }
+
     fun tryGenerateSpecialExpression(expr: ParserExpressionNode) r: String {
+        if expr.kind == "Await" {
+            return generateAwaitExpression(expr)
+        }
+        if expr.kind == "Unary" {
+            return generateUnary(expr)
+        }
         if expr.kind == "Cast" {
-            let cSrcReg = generateExpression(expr.operands[0])
-            let cSrcType = inferExpressionType(expr.operands[0])
-            let cTgtType = expr.literalValue
-            return emitCastExprImpl(output, g_regBox, cSrcReg, cSrcType, cTgtType)
+            return emitCastSpecialExpression(expr)
         }
         if expr.kind == "IsExpression" {
-            let isSubjectReg = generateExpression(expr.operands[0])
-            let isTypeName = expr.literalValue
-            let isTagIdx = lookupEnumVariantTag(isTypeName)
-            if isTagIdx >= 0 {
-                let isTagLoad = getNextReg()
-                output.append("  " + isTagLoad + " = load i64, ptr " + isSubjectReg + "\n")
-                let isCmpReg = getNextReg()
-                output.append("  " + isCmpReg + " = icmp eq i64 " + isTagLoad + ", " + isTagIdx.toString() + "\n")
-                return isCmpReg
-            }
-            let isSubjectType = inferExpressionType(expr.operands[0])
-            if isSubjectType == isTypeName {
-                return "1"
-            }
-            return "0"
+            return emitIsExpressionTest(expr)
         }
         if expr.kind == "Closure" {
             return generateClosure(expr)
         }
         if expr.kind == "TryPropagate" {
-            let tryInnerReg = generateExpression(expr.operands[0])
-            let tryInnerType = inferExpressionType(expr.operands[0])
-            if tryInnerType.startsWith("Result") {
-                let tryIsOkReg = getNextReg()
-                output.append("  " + tryIsOkReg + " = icmp ne i64 " + tryInnerReg + ", 0\n")
-
-                let tryLabelSuffix = g_regBox[0].toString()
-                let tryOkLabel = "try.ok." + tryLabelSuffix
-                let tryErrLabel = "try.err." + tryLabelSuffix
-
-                output.append("  br i1 " + tryIsOkReg + ", label %" + tryOkLabel + ", label %" + tryErrLabel + "\n")
-
-                output.append(tryErrLabel + ":\n")
-                let tryRetType = mapType(currentFunctionReturnType)
-                if tryRetType == "void" {
-                    output.append("  ret void\n")
-                } else {
-                    output.append("  ret " + tryRetType + " 0\n")
-                }
-
-                output.append(tryOkLabel + ":\n")
-                return tryInnerReg
-            }
-            return tryInnerReg
+            return emitTryPropagateExpression(expr)
         }
         return ""
     }
@@ -8028,12 +8046,6 @@ class LLVMIRGenerator {
         }
         if expr.kind == "MethodCall" {
             return generateMethodCall(expr)
-        }
-        if expr.kind == "Unary" {
-            return generateUnary(expr)
-        }
-        if expr.kind == "Await" {
-            return generateAwaitExpression(expr)
         }
         if expr.kind == "MemberAccess" {
             return generateMemberAccess(expr)
@@ -11954,43 +11966,35 @@ class LLVMIRGenerator {
     // extract promise value, no: coro.resume and loop. Uses LLVM coroutine
     // intrinsics (coro.done, coro.resume, coro.destroy) directly — C wrapper
     // functions CRASH due to calling convention mismatch (fastcc vs ccc).
-    fun generateAwaitExpression(expr: ParserExpressionNode) r: String {
-        // Poll-based await: call async function, poll until done, extract result from promise
-        let futureExpr = expr.operands[0]
-
-        // Generate the inner expression (call to async function -> returns ptr handle)
-        let hdlReg = generateExpression(futureExpr)
-
-        // Determine result type from the called function's declared return type
-        var resultLlvmType = "i64"
+    fun resolveAwaitExpressionResultLlvmType(futureExpr: ParserExpressionNode) r: String {
         if futureExpr.kind == "Call" {
             let declType = getAsyncDeclaredRetType(futureExpr.callee)
             if declType != "" {
-                resultLlvmType = mapType(declType)
+                return mapType(declType)
             }
         }
+        return "i64"
+    }
 
-        // Poll loop: resume coroutine until done
+    fun emitAwaitPollLoop(hdlReg: String) r: Void {
         let pollLabel = getNextBlockLabel()
         let resumeLabel = getNextBlockLabel()
         let readyLabel = getNextBlockLabel()
 
         output.append("  br label %" + pollLabel + "\n")
-
-        // Poll: check if coroutine completed
         output.append("\n" + pollLabel + ":\n")
         let doneReg = getNextReg()
         output.append("  " + doneReg + " = call i1 @llvm.coro.done(ptr " + hdlReg + ")\n")
         output.append("  br i1 " + doneReg + ", label %" + readyLabel + ", label %" + resumeLabel + "\n")
 
-        // Not done: resume the inner coroutine and poll again
         output.append("\n" + resumeLabel + ":\n")
         output.append("  call void @llvm.coro.resume(ptr " + hdlReg + ")\n")
         output.append("  br label %" + pollLabel + "\n")
 
-        // Done: extract result from promise and destroy frame
         output.append("\n" + readyLabel + ":\n")
+    }
 
+    fun emitAwaitResultValue(hdlReg: String, resultLlvmType: String) r: String {
         if resultLlvmType == "void" {
             output.append("  call void @llvm.coro.destroy(ptr " + hdlReg + ")\n")
             return "0"
@@ -12001,138 +12005,175 @@ class LLVMIRGenerator {
         let resultReg = getNextReg()
         output.append("  " + resultReg + " = load " + resultLlvmType + ", ptr " + promisePtrReg + "\n")
         output.append("  call void @llvm.coro.destroy(ptr " + hdlReg + ")\n")
-
         return resultReg
+    }
+
+    fun generateAwaitExpression(expr: ParserExpressionNode) r: String {
+        let futureExpr = expr.operands[0]
+        let hdlReg = generateExpression(futureExpr)
+        let resultLlvmType = resolveAwaitExpressionResultLlvmType(futureExpr)
+        emitAwaitPollLoop(hdlReg)
+        return emitAwaitResultValue(hdlReg, resultLlvmType)
     }
 
     // Generate IR for a unary expression: negation (-x), logical not (!x),
     // bitwise not (~x), address-of (&x), dereference (*x).
-    fun generateUnary(expr: ParserExpressionNode) r: String {
-        // Operator overloading: check for operator_neg / operator_not methods
-        if expr.operands.length() > 0 {
-            let unaryOpType = inferExpressionType(expr.operands[0])
-            var unaryOpMethod = ""
-            if expr.operator == "-" { unaryOpMethod = "operator_neg" }
-            if expr.operator == "not" or expr.operator == "!" { unaryOpMethod = "operator_not" }
-            if unaryOpMethod != "" and unaryOpType != "Int" and unaryOpType != "Float" and unaryOpType != "Bool" and unaryOpType != "String" {
-                let unaryOpFuncName = unaryOpType + "_" + unaryOpMethod
-                let unaryOpRetType = getFunctionReturnType(unaryOpFuncName)
-                if unaryOpRetType != "" {
-                    let unaryValReg = generateExpression(expr.operands[0])
-                    let unaryThisReg = getNextReg()
-                    output.append("  " + unaryThisReg + " = inttoptr i64 " + unaryValReg + " to ptr\n")
-                    let unaryRetLlvm = mapType(unaryOpRetType)
-                    let unaryResReg = getNextReg()
-                    output.append("  " + unaryResReg + " = call " + unaryRetLlvm + " @" + quoteIdentIfNeeded(unaryOpFuncName) + "(ptr " + unaryThisReg + ")\n")
-                    return unaryResReg
+    fun tryEmitOverloadedUnary(expr: ParserExpressionNode) r: String {
+        if expr.operands.length() == 0 {
+            return ""
+        }
+        let unaryOpType = inferExpressionType(expr.operands[0])
+        var unaryOpMethod = ""
+        if expr.operator == "-" { unaryOpMethod = "operator_neg" }
+        if expr.operator == "not" or expr.operator == "!" { unaryOpMethod = "operator_not" }
+        if unaryOpMethod == "" {
+            return ""
+        }
+        if unaryOpType == "Int" or unaryOpType == "Float" or unaryOpType == "Bool" or unaryOpType == "String" {
+            return ""
+        }
+        let unaryOpFuncName = unaryOpType + "_" + unaryOpMethod
+        let unaryOpRetType = getFunctionReturnType(unaryOpFuncName)
+        if unaryOpRetType == "" {
+            return ""
+        }
+        let unaryValReg = generateExpression(expr.operands[0])
+        let unaryThisReg = getNextReg()
+        output.append("  " + unaryThisReg + " = inttoptr i64 " + unaryValReg + " to ptr\n")
+        let unaryRetLlvm = mapType(unaryOpRetType)
+        let unaryResReg = getNextReg()
+        output.append("  " + unaryResReg + " = call " + unaryRetLlvm + " @" + quoteIdentIfNeeded(unaryOpFuncName) + "(ptr " + unaryThisReg + ")\n")
+        return unaryResReg
+    }
+
+    fun emitUnaryNegation(expr: ParserExpressionNode) r: String {
+        let operandReg = generateExpression(expr.operands[0])
+        let resultReg = getNextReg()
+        let operandType = inferExpressionType(expr.operands[0])
+        if operandType == "Float" {
+            output.append("  " + resultReg + " = fneg fast double " + operandReg + "\n")
+        } else {
+            output.append("  " + resultReg + " = sub nsw i64 0, " + operandReg + "\n")
+        }
+        return resultReg
+    }
+
+    fun tryEmitNegatedComparison(innerExpr: ParserExpressionNode) r: String {
+        if innerExpr.kind != "Binary" {
+            return ""
+        }
+        let innerOp = innerExpr.operator
+        var flippedOp = ""
+        if innerOp == "==" { flippedOp = "ne" }
+        if innerOp == "!=" { flippedOp = "eq" }
+        if innerOp == "<" { flippedOp = "sge" }
+        if innerOp == ">" { flippedOp = "sle" }
+        if innerOp == "<=" { flippedOp = "sgt" }
+        if innerOp == ">=" { flippedOp = "slt" }
+        if flippedOp == "" {
+            return ""
+        }
+        let innerLeftType = inferExpressionType(innerExpr.operands[0])
+        let innerRightType = inferExpressionType(innerExpr.operands[1])
+        if innerLeftType != "Int" and innerRightType != "Int" and innerLeftType != "Char" and innerRightType != "Char" {
+            return ""
+        }
+        let aReg = generateExpression(innerExpr.operands[0])
+        let bReg = generateExpression(innerExpr.operands[1])
+        let resultReg = getNextReg()
+        output.append("  " + resultReg + " = icmp " + flippedOp + " i64 " + aReg + ", " + bReg + " ; negated comparison\n")
+        return resultReg
+    }
+
+    fun emitUnaryLogicalNot(expr: ParserExpressionNode) r: String {
+        let innerExpr = expr.operands[0]
+        let negatedCmpReg = tryEmitNegatedComparison(innerExpr)
+        if negatedCmpReg != "" {
+            return negatedCmpReg
+        }
+        let operandReg = generateExpression(innerExpr)
+        var boolReg = operandReg
+        let operandType = inferExpressionType(innerExpr)
+        if operandType != "Bool" and operandType != "Boolean" {
+            boolReg = getNextReg()
+            output.append("  " + boolReg + " = icmp ne i64 " + operandReg + ", 0\n")
+        }
+        let resultReg = getNextReg()
+        output.append("  " + resultReg + " = xor i1 " + boolReg + ", 1\n")
+        return resultReg
+    }
+
+    fun emitUnaryAddressOf(expr: ParserExpressionNode) r: String {
+        if g_insideUnsafe == 0 {
+            output.append("  ; WARNING: address-of (&) requires unsafe block\n")
+        }
+        let addrOperand = expr.operands[0]
+        let addrType = inferExpressionType(addrOperand)
+        if addrOperand.kind == "Variable" or addrOperand.kind == "VarExpr" {
+            var addrVarName = addrOperand.variableName
+            if addrVarName == "" { addrVarName = addrOperand.literalValue }
+            let addrIdx = findVar(addrVarName)
+            if addrIdx >= 0 {
+                let addrVarReg = varRegs[addrIdx]
+                if isClassType(addrType) {
+                    let addrLoadReg = getNextReg()
+                    output.append("  " + addrLoadReg + " = load i64, ptr " + addrVarReg + " ; &class — handle is pointer\n")
+                    return addrLoadReg
                 }
+                let addrResultReg = getNextReg()
+                output.append("  " + addrResultReg + " = ptrtoint ptr " + addrVarReg + " to i64 ; &var — address of alloca\n")
+                return addrResultReg
             }
+        }
+        return generateExpression(addrOperand)
+    }
+
+    fun emitUnaryDereference(expr: ParserExpressionNode) r: String {
+        if g_insideUnsafe == 0 {
+            output.append("  ; WARNING: pointer dereference (*) requires unsafe block\n")
+        }
+        let derefValReg = generateExpression(expr.operands[0])
+        let derefPtrReg = getNextReg()
+        output.append("  " + derefPtrReg + " = inttoptr i64 " + derefValReg + " to ptr\n")
+        let derefResultReg = getNextReg()
+        output.append("  " + derefResultReg + " = load i64, ptr " + derefPtrReg + " ; *ptr dereference\n")
+        return derefResultReg
+    }
+
+    fun isUnaryBitwiseNotOperator(op: String) r: Bool {
+        if op.length() != 1 {
+            return false
+        }
+        return op.charAt(0).toInt() == 126
+    }
+
+    fun emitUnaryBitwiseNot(expr: ParserExpressionNode) r: String {
+        let operandReg = generateExpression(expr.operands[0])
+        let resultReg = getNextReg()
+        output.append("  " + resultReg + " = xor i64 " + operandReg + ", -1\n")
+        return resultReg
+    }
+
+    fun generateUnary(expr: ParserExpressionNode) r: String {
+        let overloadedUnaryReg = tryEmitOverloadedUnary(expr)
+        if overloadedUnaryReg != "" {
+            return overloadedUnaryReg
         }
 
         if expr.operator == "-" {
-            let operandReg = generateExpression(expr.operands[0])
-            let resultReg = getNextReg()
-            // Check if operand is Float for fneg
-            let operandType = inferExpressionType(expr.operands[0])
-            if operandType == "Float" {
-                output.append("  " + resultReg + " = fneg fast double " + operandReg + "\n")
-            } else {
-                output.append("  " + resultReg + " = sub nsw i64 0, " + operandReg + "\n")
-            }
-            return resultReg
+            return emitUnaryNegation(expr)
         }
         if expr.operator == "not" or expr.operator == "!" {
-            // Negation simplification: not (a == b) → a != b, etc.
-            let innerExpr = expr.operands[0]
-            if innerExpr.kind == "Binary" {
-                let innerOp = innerExpr.operator
-                var flippedOp = ""
-                if innerOp == "==" { flippedOp = "ne" }
-                if innerOp == "!=" { flippedOp = "eq" }
-                if innerOp == "<" { flippedOp = "sge" }
-                if innerOp == ">" { flippedOp = "sle" }
-                if innerOp == "<=" { flippedOp = "sgt" }
-                if innerOp == ">=" { flippedOp = "slt" }
-                if flippedOp != "" {
-                    let innerLeftType = inferExpressionType(innerExpr.operands[0])
-                    let innerRightType = inferExpressionType(innerExpr.operands[1])
-                    if innerLeftType == "Int" or innerRightType == "Int" or innerLeftType == "Char" or innerRightType == "Char" {
-                        let aReg = generateExpression(innerExpr.operands[0])
-                        let bReg = generateExpression(innerExpr.operands[1])
-                        let resultReg = getNextReg()
-                        output.append("  " + resultReg + " = icmp " + flippedOp + " i64 " + aReg + ", " + bReg + " ; negated comparison\n")
-                        return resultReg
-                    }
-                }
-            }
-            let operandReg = generateExpression(expr.operands[0])
-            var boolReg = operandReg
-            // If operand is not already i1 (Bool), convert from i64 first
-            let operandType = inferExpressionType(expr.operands[0])
-            if operandType != "Bool" {
-                if operandType != "Boolean" {
-                    boolReg = getNextReg()
-                    output.append("  " + boolReg + " = icmp ne i64 " + operandReg + ", 0\n")
-                }
-            }
-            let resultReg = getNextReg()
-            output.append("  " + resultReg + " = xor i1 " + boolReg + ", 1\n")
-            return resultReg
+            return emitUnaryLogicalNot(expr)
         }
-        // Address-of: &x — returns pointer to variable as i64
         if expr.operator == "&" {
-            if g_insideUnsafe == 0 {
-                output.append("  ; WARNING: address-of (&) requires unsafe block\n")
-            }
-            let addrOperand = expr.operands[0]
-            let addrType = inferExpressionType(addrOperand)
-            if addrOperand.kind == "Variable" or addrOperand.kind == "VarExpr" {
-                var addrVarName = addrOperand.variableName
-                if addrVarName == "" { addrVarName = addrOperand.literalValue }
-                let addrIdx = findVar(addrVarName)
-                if addrIdx >= 0 {
-                    let addrVarReg = varRegs[addrIdx]
-                    if isClassType(addrType) {
-                        // Class type: handle IS already a pointer, just load and return it
-                        let addrLoadReg = getNextReg()
-                        output.append("  " + addrLoadReg + " = load i64, ptr " + addrVarReg + " ; &class — handle is pointer\n")
-                        return addrLoadReg
-                    }
-                    // Primitive or @repr(C): return pointer to alloca
-                    let addrResultReg = getNextReg()
-                    output.append("  " + addrResultReg + " = ptrtoint ptr " + addrVarReg + " to i64 ; &var — address of alloca\n")
-                    return addrResultReg
-                }
-            }
-            // Fallback: generate expression and return it (can't take address of rvalue)
-            let addrFallback = generateExpression(addrOperand)
-            return addrFallback
+            return emitUnaryAddressOf(expr)
         }
-        // Pointer dereference: *ptr — loads value from pointer
         if expr.operator == "*" {
-            if g_insideUnsafe == 0 {
-                output.append("  ; WARNING: pointer dereference (*) requires unsafe block\n")
-            }
-            let derefValReg = generateExpression(expr.operands[0])
-            let derefPtrReg = getNextReg()
-            output.append("  " + derefPtrReg + " = inttoptr i64 " + derefValReg + " to ptr\n")
-            let derefResultReg = getNextReg()
-            output.append("  " + derefResultReg + " = load i64, ptr " + derefPtrReg + " ; *ptr dereference\n")
-            return derefResultReg
+            return emitUnaryDereference(expr)
         }
-        // Bitwise NOT: ~x = x xor -1
-        // Avoid "~" string literal (miscompiled by bootstrap — use char code 126 check)
-        var opIsBitwiseNot = 0
-        if expr.operator.length() == 1 {
-            if expr.operator.charAt(0).toInt() == 126 {
-                opIsBitwiseNot = 1
-            }
-        }
-        if opIsBitwiseNot == 1 {
-            let operandReg = generateExpression(expr.operands[0])
-            let resultReg = getNextReg()
-            output.append("  " + resultReg + " = xor i64 " + operandReg + ", -1\n")
-            return resultReg
+        if isUnaryBitwiseNotOperator(expr.operator) {
+            return emitUnaryBitwiseNot(expr)
         }
         let operandReg = generateExpression(expr.operands[0])
         let resultReg = getNextReg()
