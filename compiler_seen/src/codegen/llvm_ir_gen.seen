@@ -5840,78 +5840,74 @@ class LLVMIRGenerator {
     // Performs dead store elimination: scans for "var x = literal; x = expr"
     // patterns where x is not read between the two stores, and skips the
     // first literal initialization.
-    fun generateBlock(block: BlockNode) r: Void {
-        // Save defer stack depth for this block scope
-        let savedDeferCount = g_deferCount
-        // Dead store elimination (9.10b): scan for var x = literal; x = expr2 with no read of x
-        // Only skip literal initializers (Int, Float, Bool, String) to preserve side effects
-        let savedDeadStoreSkip = g_deadStoreSkipVars
-        let savedActiveVarCount = activeVarCount
-        var dsIdx = 0
-        while dsIdx < block.statements.length() - 1 {
-            let dsStmt = block.statements[dsIdx]
-            let dsNext = block.statements[dsIdx + 1]
-            // Pattern: var x = <literal> followed by x = <new value>
-            if (dsStmt.kind == "Let" or dsStmt.kind == "Var") and dsNext.kind == "Expression" {
-                if dsNext.expression.kind == "Assignment" {
-                    if dsNext.expression.variableName == dsStmt.variableName {
-                        // Check if RHS reads the same variable (read-modify-write: x = x + y)
-                        var dsIsReadModWrite = false
-                        if dsNext.expression.operands.length() > 0 {
-                            let dsRhs = dsNext.expression.operands[0]
-                            // Direct: x = x
-                            if dsRhs.kind == "Variable" or dsRhs.kind == "VarExpr" {
-                                var dsRhsName = dsRhs.literalValue
-                                if dsRhsName == "" { dsRhsName = dsRhs.variableName }
-                                if dsRhsName == dsStmt.variableName { dsIsReadModWrite = true }
-                            }
-                            // Binary: x = x + something
-                            if dsRhs.kind == "Binary" {
-                                if dsRhs.operands.length() > 0 {
-                                    let dsLhsOp = dsRhs.operands[0]
-                                    var dsLhsName = dsLhsOp.literalValue
-                                    if dsLhsName == "" { dsLhsName = dsLhsOp.variableName }
-                                    if dsLhsName == dsStmt.variableName { dsIsReadModWrite = true }
-                                }
-                            }
-                        }
-                        if not dsIsReadModWrite {
-                            g_deadStoresEliminated = g_deadStoresEliminated + 1
-                            // Only skip the initializer if it's a pure literal (no side effects)
-                            if dsStmt.initializer.kind == "Literal" {
-                                output.append("  ; dead store eliminated: " + dsStmt.variableName + " literal init skipped\n")
-                                if g_deadStoreSkipVars == "" {
-                                    g_deadStoreSkipVars = dsStmt.variableName
-                                } else {
-                                    g_deadStoreSkipVars = g_deadStoreSkipVars + "|" + dsStmt.variableName
-                                }
-                                mlLogDecision("dead-store", "skip-init", dsStmt.variableName)
-                            } else {
-                                output.append("  ; dead store: " + dsStmt.variableName + " initialized then immediately overwritten\n")
-                                mlLogDecision("dead-store", "detected", dsStmt.variableName)
-                            }
-                        }
-                    }
-                }
+    fun isReadModifyWriteDeadStore(varName: String, rhsExpr: ParserExpressionNode) r: Bool {
+        if rhsExpr.kind == "Variable" or rhsExpr.kind == "VarExpr" {
+            var rhsName = rhsExpr.literalValue
+            if rhsName == "" {
+                rhsName = rhsExpr.variableName
             }
-            dsIdx = dsIdx + 1
+            return rhsName == varName
+        }
+        if rhsExpr.kind == "Binary" and rhsExpr.operands.length() > 0 {
+            let lhsOp = rhsExpr.operands[0]
+            var lhsName = lhsOp.literalValue
+            if lhsName == "" {
+                lhsName = lhsOp.variableName
+            }
+            return lhsName == varName
+        }
+        return false
+    }
+
+    fun tryMarkDeadStoreElimination(stmt: StatementNode, nextStmt: StatementNode) r: Void {
+        if (stmt.kind != "Let" and stmt.kind != "Var") or nextStmt.kind != "Expression" {
+            return
+        }
+        if nextStmt.expression.kind != "Assignment" or nextStmt.expression.variableName != stmt.variableName {
+            return
         }
 
-        var i = 0
-        while i < block.statements.length() {
-            // Skip statements after a terminator (ret, br unconditional)
-            if blockTerminated {
-                let remaining = block.statements.length() - i
-                if remaining > 0 {
-                    g_deadStatementsEliminated = g_deadStatementsEliminated + remaining
-                    output.append("  ; dead code eliminated: " + remaining.toString() + " statements\n")
-                }
-                break
-            }
-            generateStatement(block.statements[i])
-            i = i + 1
+        var isReadModWrite = false
+        if nextStmt.expression.operands.length() > 0 {
+            isReadModWrite = isReadModifyWriteDeadStore(stmt.variableName, nextStmt.expression.operands[0])
         }
-        // Emit deferred statements in LIFO order at block end
+        if isReadModWrite {
+            return
+        }
+
+        g_deadStoresEliminated = g_deadStoresEliminated + 1
+        if stmt.initializer.kind == "Literal" {
+            output.append("  ; dead store eliminated: " + stmt.variableName + " literal init skipped\n")
+            if g_deadStoreSkipVars == "" {
+                g_deadStoreSkipVars = stmt.variableName
+            } else {
+                g_deadStoreSkipVars = g_deadStoreSkipVars + "|" + stmt.variableName
+            }
+            mlLogDecision("dead-store", "skip-init", stmt.variableName)
+            return
+        }
+
+        output.append("  ; dead store: " + stmt.variableName + " initialized then immediately overwritten\n")
+        mlLogDecision("dead-store", "detected", stmt.variableName)
+    }
+
+    fun scanBlockDeadStorePatterns(block: BlockNode) r: Void {
+        var dsIdx = 0
+        while dsIdx < block.statements.length() - 1 {
+            tryMarkDeadStoreElimination(block.statements[dsIdx], block.statements[dsIdx + 1])
+            dsIdx = dsIdx + 1
+        }
+    }
+
+    fun emitTrailingDeadCodeNotice(block: BlockNode, startIndex: Int) r: Void {
+        let remaining = block.statements.length() - startIndex
+        if remaining > 0 {
+            g_deadStatementsEliminated = g_deadStatementsEliminated + remaining
+            output.append("  ; dead code eliminated: " + remaining.toString() + " statements\n")
+        }
+    }
+
+    fun emitBlockDeferredCleanup(savedDeferCount: Int) r: Void {
         if g_deferCount > savedDeferCount and not blockTerminated {
             output.append("  ; defer cleanup (LIFO)\n")
             var dIdx = g_deferCount - 1
@@ -5920,11 +5916,269 @@ class LLVMIRGenerator {
                 dIdx = dIdx - 1
             }
         }
+    }
+
+    fun generateBlock(block: BlockNode) r: Void {
+        // Save defer stack depth for this block scope
+        let savedDeferCount = g_deferCount
+        // Dead store elimination (9.10b): scan for var x = literal; x = expr2 with no read of x
+        // Only skip literal initializers (Int, Float, Bool, String) to preserve side effects
+        let savedDeadStoreSkip = g_deadStoreSkipVars
+        let savedActiveVarCount = activeVarCount
+
+        scanBlockDeadStorePatterns(block)
+
+        var i = 0
+        while i < block.statements.length() {
+            if blockTerminated {
+                emitTrailingDeadCodeNotice(block, i)
+                break
+            }
+            generateStatement(block.statements[i])
+            i = i + 1
+        }
+
+        emitBlockDeferredCleanup(savedDeferCount)
+
         // Restore defer stack to saved depth
         g_deferCount = savedDeferCount
         // Restore dead store skip list (scoped to this block)
         g_deadStoreSkipVars = savedDeadStoreSkip
         activeVarCount = savedActiveVarCount
+    }
+
+    fun tryGenerateAssignmentLikeExpression(expr: ParserExpressionNode) r: Bool {
+        if expr.kind == "Assignment" {
+            generateAssignmentExpr(expr)
+            return true
+        }
+        if expr.kind == "MemberAssignment" {
+            generateMemberAssignment(expr)
+            return true
+        }
+        if expr.kind == "IndexAssignment" {
+            generateIndexAssignment(expr)
+            return true
+        }
+        return false
+    }
+
+    fun warnUnusedResultCall(expr: ParserExpressionNode) r: Void {
+        if g_warnUnusedResult != 1 or expr.kind != "Call" {
+            return
+        }
+        let unusedCallName = expr.callee
+        let unusedRetType = getFunctionReturnType(unusedCallName)
+        if not unusedRetType.startsWith("Result<") and not unusedRetType.startsWith("Result ") {
+            return
+        }
+        if g_tryCatchLabel == "" {
+            output.append("; WARNING: unused Result from call to " + unusedCallName + "\n")
+            println("[WARNING] unused error result from '" + unusedCallName + "'")
+        }
+    }
+
+    fun generateExpressionStatement(stmt: StatementNode) r: Void {
+        if tryGenerateAssignmentLikeExpression(stmt.expression) {
+            return
+        }
+        warnUnusedResultCall(stmt.expression)
+        generateExpression(stmt.expression)
+    }
+
+    fun emitContinueStatement() r: Void {
+        if currentLoopCondLabel == "" {
+            output.append("  ; ERROR: continue used outside of loop\n")
+        }
+        if currentLoopCondLabel != "" {
+            let pipeIdx = currentLoopCondLabel.indexOf("|")
+            if pipeIdx >= 0 {
+                let actualLabel = currentLoopCondLabel.substring(0, pipeIdx)
+                let metaIdStr = currentLoopCondLabel.substring(pipeIdx + 1, currentLoopCondLabel.length())
+                output.append("  br label %" + actualLabel + ", !llvm.loop !" + metaIdStr + "\n")
+            }
+            if pipeIdx < 0 {
+                output.append("  br label %" + currentLoopCondLabel + ", !llvm.loop !202\n")
+            }
+            blockTerminated = true
+        }
+    }
+
+    fun emitBreakStatement() r: Void {
+        if currentLoopEndLabel == "" {
+            output.append("  ; ERROR: break used outside of loop\n")
+        }
+        if currentLoopEndLabel != "" {
+            output.append("  br label %" + currentLoopEndLabel + "\n")
+            blockTerminated = true
+        }
+    }
+
+    fun generateDeferredStatement(stmt: StatementNode, isErrdefer: Bool) r: Void {
+        if stmt.expression.kind != "" {
+            if isErrdefer {
+                g_errdeferExprs.push(stmt.expression)
+                g_errdeferCount = g_errdeferCount + 1
+            } else {
+                g_deferExprs.push(stmt.expression)
+                g_deferCount = g_deferCount + 1
+            }
+        }
+    }
+
+    fun generateInlineBlockStatement(stmt: StatementNode) r: Void {
+        if stmt.thenBranch.statements.length() > 0 {
+            generateBlock(stmt.thenBranch)
+        }
+    }
+
+    fun generateUnsafeStatement(stmt: StatementNode) r: Void {
+        output.append("  ; unsafe {\n")
+        g_insideUnsafe = g_insideUnsafe + 1
+        if stmt.thenBranch.statements.length() > 0 {
+            generateBlock(stmt.thenBranch)
+        }
+        g_insideUnsafe = g_insideUnsafe - 1
+        output.append("  ; } // end unsafe\n")
+    }
+
+    fun generateTryCatchStatement(stmt: StatementNode) r: Void {
+        let tryCatchLabel = "catch." + g_blockBox[0].toString()
+        g_blockBox[0] = g_blockBox[0] + 1
+        let tryEndLabel = "try.end." + g_blockBox[0].toString()
+        g_blockBox[0] = g_blockBox[0] + 1
+
+        let savedTryCatchLabel = g_tryCatchLabel
+        let savedTryCatchEndLabel = g_tryCatchEndLabel
+        g_tryCatchLabel = tryCatchLabel
+        g_tryCatchEndLabel = tryEndLabel
+
+        output.append("  ; try {\n")
+        if stmt.thenBranch.statements.length() > 0 {
+            generateBlock(stmt.thenBranch)
+        }
+        if not blockTerminated {
+            output.append("  br label %" + tryEndLabel + "\n")
+        }
+        blockTerminated = false
+
+        output.append(tryCatchLabel + ":\n")
+        output.append("  ; catch {\n")
+        let savedCatchVarCount = activeVarCount
+        if stmt.variableName != "" {
+            let catchVarReg = getNextReg()
+            storeVar(stmt.variableName, catchVarReg, "Int")
+            output.append("  " + catchVarReg + " = add i64 0, 0 ; catch binding\n")
+        }
+        if stmt.elseBranch.statements.length() > 0 {
+            generateBlock(stmt.elseBranch)
+        }
+        activeVarCount = savedCatchVarCount
+        if not blockTerminated {
+            output.append("  br label %" + tryEndLabel + "\n")
+        }
+        blockTerminated = false
+        output.append(tryEndLabel + ":\n")
+        output.append("  ; } // end try/catch\n")
+
+        g_tryCatchLabel = savedTryCatchLabel
+        g_tryCatchEndLabel = savedTryCatchEndLabel
+    }
+
+    fun tryGenerateBasicStatement(stmt: StatementNode) r: Bool {
+        if stmt.kind == "Let" or stmt.kind == "Var" {
+            generateLetStatement(stmt)
+            return true
+        }
+        if stmt.kind == "Return" {
+            generateReturnStatement(stmt)
+            return true
+        }
+        if stmt.kind == "Expression" {
+            generateExpressionStatement(stmt)
+            return true
+        }
+        if stmt.kind == "If" {
+            generateIfStatement(stmt)
+            return true
+        }
+        if stmt.kind == "IfLet" {
+            generateIfLetStatement(stmt)
+            return true
+        }
+        if stmt.kind == "While" {
+            generateWhileStatement(stmt)
+            return true
+        }
+        if stmt.kind == "Assignment" {
+            generateAssignment(stmt)
+            return true
+        }
+        if stmt.kind == "ForIn" {
+            generateForInStatement(stmt)
+            return true
+        }
+        if stmt.kind == "Region" {
+            generateRegionStatement(stmt)
+            return true
+        }
+        return false
+    }
+
+    fun tryGenerateLoopControlStatement(stmt: StatementNode) r: Bool {
+        if stmt.kind == "Continue" {
+            emitContinueStatement()
+            return true
+        }
+        if stmt.kind == "Break" {
+            emitBreakStatement()
+            return true
+        }
+        return false
+    }
+
+    fun tryGenerateScopedStatement(stmt: StatementNode) r: Bool {
+        if stmt.kind == "Defer" {
+            generateDeferredStatement(stmt, false)
+            return true
+        }
+        if stmt.kind == "Errdefer" {
+            generateDeferredStatement(stmt, true)
+            return true
+        }
+        if stmt.kind == "Block" {
+            generateInlineBlockStatement(stmt)
+            return true
+        }
+        if stmt.kind == "Unsafe" {
+            generateUnsafeStatement(stmt)
+            return true
+        }
+        if stmt.kind == "TryCatch" {
+            generateTryCatchStatement(stmt)
+            return true
+        }
+        return false
+    }
+
+    fun tryGenerateMetaStatement(stmt: StatementNode) r: Bool {
+        if stmt.kind == "ParallelFor" {
+            generateParallelForStatement(stmt)
+            return true
+        }
+        if stmt.kind == "ComptimeBlock" {
+            generateComptimeBlock(stmt)
+            return true
+        }
+        if stmt.kind == "ComptimeAssert" {
+            generateComptimeAssert(stmt)
+            return true
+        }
+        if stmt.kind == "ComptimeIf" {
+            generateComptimeIf(stmt)
+            return true
+        }
+        return false
     }
 
     // Top-level statement dispatch. Routes each statement kind to its
@@ -5935,198 +6189,17 @@ class LLVMIRGenerator {
     // Uses flag-based dispatch (not early returns) for stage1 compatibility.
     fun generateStatement(stmt: StatementNode) r: Void {
         var handled = false
-        if stmt.kind == "Let" or stmt.kind == "Var" {
-            generateLetStatement(stmt)
-            handled = true
+        if not handled {
+            handled = tryGenerateBasicStatement(stmt)
         }
-        if not handled and stmt.kind == "Return" {
-            generateReturnStatement(stmt)
-            handled = true
+        if not handled {
+            handled = tryGenerateLoopControlStatement(stmt)
         }
-        if not handled and stmt.kind == "Expression" {
-            // Check if the expression is actually an assignment
-            var exprHandled = false
-            if stmt.expression.kind == "Assignment" {
-                generateAssignmentExpr(stmt.expression)
-                exprHandled = true
-            }
-            if not exprHandled and stmt.expression.kind == "MemberAssignment" {
-                generateMemberAssignment(stmt.expression)
-                exprHandled = true
-            }
-            if not exprHandled and stmt.expression.kind == "IndexAssignment" {
-                generateIndexAssignment(stmt.expression)
-                exprHandled = true
-            }
-            if not exprHandled {
-                // : Warn about unused Result from function calls
-                if g_warnUnusedResult == 1 and stmt.expression.kind == "Call" {
-                    let unusedCallName = stmt.expression.callee
-                    let unusedRetType = getFunctionReturnType(unusedCallName)
-                    if unusedRetType.startsWith("Result<") or unusedRetType.startsWith("Result ") {
-                        if g_tryCatchLabel == "" {
-                            output.append("; WARNING: unused Result from call to " + unusedCallName + "\n")
-                            println("[WARNING] unused error result from '" + unusedCallName + "'")
-                        }
-                    }
-                }
-                generateExpression(stmt.expression)
-            }
-            handled = true
+        if not handled {
+            handled = tryGenerateScopedStatement(stmt)
         }
-        if not handled and stmt.kind == "If" {
-            generateIfStatement(stmt)
-            handled = true
-        }
-        if not handled and stmt.kind == "IfLet" {
-            generateIfLetStatement(stmt)
-            handled = true
-        }
-        if not handled and stmt.kind == "While" {
-            generateWhileStatement(stmt)
-            handled = true
-        }
-        if not handled and stmt.kind == "Assignment" {
-            generateAssignment(stmt)
-            handled = true
-        }
-        if not handled and stmt.kind == "Continue" {
-            // Jump to loop condition with vectorization hint
-            // currentLoopCondLabel is encoded as "label|metaId"
-            if currentLoopCondLabel == "" {
-                output.append("  ; ERROR: continue used outside of loop\n")
-            }
-            if currentLoopCondLabel != "" {
-                let pipeIdx = currentLoopCondLabel.indexOf("|")
-                if pipeIdx >= 0 {
-                    let actualLabel = currentLoopCondLabel.substring(0, pipeIdx)
-                    let metaIdStr = currentLoopCondLabel.substring(pipeIdx + 1, currentLoopCondLabel.length())
-                    output.append("  br label %" + actualLabel + ", !llvm.loop !" + metaIdStr + "\n")
-                }
-                if pipeIdx < 0 {
-                    // Fallback: no metadata encoded (old format)
-                    output.append("  br label %" + currentLoopCondLabel + ", !llvm.loop !202\n")
-                }
-                blockTerminated = true
-            }
-            handled = true
-        }
-        if not handled and stmt.kind == "Break" {
-            // Jump to loop end
-            if currentLoopEndLabel == "" {
-                output.append("  ; ERROR: break used outside of loop\n")
-            }
-            if currentLoopEndLabel != "" {
-                output.append("  br label %" + currentLoopEndLabel + "\n")
-                blockTerminated = true
-            }
-            handled = true
-        }
-        if not handled and stmt.kind == "ForIn" {
-            generateForInStatement(stmt)
-            handled = true
-        }
-        if not handled and stmt.kind == "Region" {
-            generateRegionStatement(stmt)
-            handled = true
-        }
-        if not handled and stmt.kind == "Defer" {
-            // Collect deferred expression for LIFO execution at block/function end
-            if stmt.expression.kind != "" {
-                g_deferExprs.push(stmt.expression)
-                g_deferCount = g_deferCount + 1
-            }
-            handled = true
-        }
-        if not handled and stmt.kind == "Errdefer" {
-            // Collect errdefer expression for LIFO execution on error returns only
-            if stmt.expression.kind != "" {
-                g_errdeferExprs.push(stmt.expression)
-                g_errdeferCount = g_errdeferCount + 1
-            }
-            handled = true
-        }
-        if not handled and stmt.kind == "Block" {
-            // Inline block
-            if stmt.thenBranch.statements.length() > 0 {
-                generateBlock(stmt.thenBranch)
-            }
-            handled = true
-        }
-        if not handled and stmt.kind == "Unsafe" {
-            // Unsafe block — track nesting, generate contents
-            output.append("  ; unsafe {\n")
-            g_insideUnsafe = g_insideUnsafe + 1
-            if stmt.thenBranch.statements.length() > 0 {
-                generateBlock(stmt.thenBranch)
-            }
-            g_insideUnsafe = g_insideUnsafe - 1
-            output.append("  ; } // end unsafe\n")
-            handled = true
-        }
-        if not handled and stmt.kind == "TryCatch" {
-            // try { ... } catch (e) { ... }
-            let tryCatchLabel = "catch." + g_blockBox[0].toString()
-            g_blockBox[0] = g_blockBox[0] + 1
-            let tryEndLabel = "try.end." + g_blockBox[0].toString()
-            g_blockBox[0] = g_blockBox[0] + 1
-            // Save previous try/catch state
-            let savedTryCatchLabel = g_tryCatchLabel
-            let savedTryCatchEndLabel = g_tryCatchEndLabel
-            g_tryCatchLabel = tryCatchLabel
-            g_tryCatchEndLabel = tryEndLabel
-            output.append("  ; try {\n")
-            if stmt.thenBranch.statements.length() > 0 {
-                generateBlock(stmt.thenBranch)
-            }
-            if not blockTerminated {
-                output.append("  br label %" + tryEndLabel + "\n")
-            }
-            blockTerminated = false
-            // Catch block
-            output.append(tryCatchLabel + ":\n")
-            output.append("  ; catch {\n")
-            // If catch variable was declared, bind it (as i64 0 for now)
-            let savedCatchVarCount = activeVarCount
-            if stmt.variableName != "" {
-                let catchVarReg = getNextReg()
-                storeVar(stmt.variableName, catchVarReg, "Int")
-                output.append("  " + catchVarReg + " = add i64 0, 0 ; catch binding\n")
-            }
-            if stmt.elseBranch.statements.length() > 0 {
-                generateBlock(stmt.elseBranch)
-            }
-            activeVarCount = savedCatchVarCount
-            if not blockTerminated {
-                output.append("  br label %" + tryEndLabel + "\n")
-            }
-            blockTerminated = false
-            output.append(tryEndLabel + ":\n")
-            output.append("  ; } // end try/catch\n")
-            // Restore previous try/catch state
-            g_tryCatchLabel = savedTryCatchLabel
-            g_tryCatchEndLabel = savedTryCatchEndLabel
-            handled = true
-        }
-        // parallel_for statement
-        if not handled and stmt.kind == "ParallelFor" {
-            generateParallelForStatement(stmt)
-            handled = true
-        }
-        // comptime block
-        if not handled and stmt.kind == "ComptimeBlock" {
-            generateComptimeBlock(stmt)
-            handled = true
-        }
-        // comptime assert
-        if not handled and stmt.kind == "ComptimeAssert" {
-            generateComptimeAssert(stmt)
-            handled = true
-        }
-        // comptime if
-        if not handled and stmt.kind == "ComptimeIf" {
-            generateComptimeIf(stmt)
-            handled = true
+        if not handled {
+            handled = tryGenerateMetaStatement(stmt)
         }
     }
 

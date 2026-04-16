@@ -1,0 +1,38 @@
+fun helper(flag: Int) r: Int {
+    if flag == 0 {
+        return 0
+    }
+    return 1
+}
+
+fun main() r: Int {
+    let sum = 0
+
+    while sum < 5 {
+        if sum == 1 {
+            sum = sum + 1
+            continue
+        }
+        if sum == 3 {
+            break
+        }
+        sum = sum + 1
+    }
+
+    try {
+        let ok = helper(1)
+        if ok == 1 {
+            unsafe {
+                let scoped = 9
+            }
+            {
+                let nested = 4
+            }
+            return 0
+        }
+    } catch (e) {
+        return 1
+    }
+
+    return 1
+}
