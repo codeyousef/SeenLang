@@ -191,8 +191,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `2e45874` with message `Prune fast-path and builtin wrapper ladders`.
-- The continuation from `9f96875` to `2e45874` touched:
+- Latest committed refactor commit available from a clean checkout is `3a83310` with message `Prune receiver preparation wrappers`.
+- The continuation from `2e45874` to `3a83310` touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
   - `refactor.md`
 - That continuation keeps expanding the shared method-call helper surface without adding another bootstrap compiler module:
