@@ -216,9 +216,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- Latest committed refactor commit available from a clean checkout is `66536aa` with message `Push more instance call helpers into finalize`.
-- The continuation from `ef24b17` to `66536aa` touched:
-  - `compiler_seen/src/codegen/ir_method_finalize.seen`
+- Latest committed refactor commit available from a clean checkout is `6d58bc8` with message `Inline finalize helpers in instance dispatch`.
+- The continuation from `66536aa` to `6d58bc8` touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
   - `refactor.md`
 - That continuation keeps expanding the shared method-call helper surface without adding another bootstrap compiler module:
