@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,460` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,473` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -46,6 +46,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also collapses the repeated "prepare call arguments, then fill default parameters" flow behind a shared local helper in `llvm_ir_gen.seen`, so the implicit-`this`, regular-call, static-call, parser-workaround, and final instance-call branches stop repeating that prep/fill sequence inline while still using the frozen compiler's existing global default-fill handoff.
 - The latest continuation also splits the remaining special-case branches inside `inferExpressionType()` behind focused local helpers for literal, index-access, array-literal, string-interpolation, unary, await, try-propagate, and other special expression kinds, so the top-level type-inference dispatcher now reads as a short registry/pipeline entrypoint instead of one long mixed branch ladder.
 - The latest continuation also splits the remaining direct call/member-access inference branches behind focused local helpers, so `inferCallExprTypeLocal()` now delegates generated-call, builtin-call, and resolved-call inference separately while `inferMemberAccessExprTypeLocal()` reuses a dedicated direct-field probe instead of mixing JSON, receiver-field, and fallback lookup in one branch ladder.
+- The latest continuation also untangles variable-expression inference into dedicated implicit-`this` and named-primitive helpers, so `inferVariableExprTypeLocal()` now just sequences registered locals, module constants, implicit receiver fields, and builtin numeric type names instead of carrying all of that branching inline.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
@@ -181,7 +182,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `tryGenerateConditionalValueExpression()` at about `17` lines.
     - `tryGenerateSpecialExpression()` at about `20` lines.
   - Type-inference helpers inside `llvm_ir_gen.seen` are now split into:
-    - `inferVariableExprTypeLocal()` at about `24` lines.
+    - `inferVariableExprTypeLocal()` at about `15` lines.
     - `inferBinaryExprTypeLocal()` at about `66` lines.
     - `resolveMethodCallReceiverType()` at about `7` lines.
     - `tryInferImplicitOrFreeMethodCallType()` at about `25` lines.
@@ -195,10 +196,14 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- The checkpoint immediately before the latest call/member-access inference split was `f916048` with message `Split inferExpressionType special-case helpers`.
-- The latest continuation from `f916048` to the current working tree touched:
+- The checkpoint immediately before the latest variable-type inference split was `eba8a9e` with message `Split call and member type inference helpers`.
+- The latest continuation from `eba8a9e` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
 - That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
+  - implicit-`this` variable-field inference now routes through `tryInferLLVMIRGeneratorThisFieldType()` and `tryInferStructThisFieldType()`, leaving `tryInferImplicitThisVariableType()` as a small dispatcher instead of one mixed special-case function.
+  - builtin numeric type-name detection now lives behind `tryInferNamedPrimitiveVariableType()`, leaving `inferVariableExprTypeLocal()` as a short orchestrator for local vars, module constants, implicit receiver fields, and primitive type names.
+  - the previous nearby checkpoint also split generated-call inference, builtin-call inference, and direct member-field inference into their own helpers, which keeps the remaining call/member-access inference path flat.
+- The longer continuation from `f916048` through that latest checkpoint keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
   - generated-call inference, builtin-call inference, and resolved-call inference now live behind `tryInferGeneratedCallType()`, `tryInferBuiltinCallExprType()`, and `tryInferResolvedCallExprType()`, leaving `inferCallExprTypeLocal()` as a short orchestrator.
   - direct member-field inference for implicit-`this`, expression receivers, and literal/chained receivers now routes through `tryInferDirectMemberAccessType()`, leaving `inferMemberAccessExprTypeLocal()` focused on swizzle, enum, JSON, and fallback ordering.
 - The longer continuation from `faadaf5` through that latest checkpoint keeps expanding the shared method-call helper surface without leaving another overgrown helper file behind:
@@ -210,6 +215,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - that direct seed import restores correct `%SeenString` return typing for cross-module fast-path helpers during full bootstrap; before that seed, the frozen compiler was silently lowering calls into `ir_method_fastpath.seen` as `i64`-returning externs inside `llvm_ir_gen.seen`.
     - the same follow-up also swaps the extracted helper modules away from `isClassTypeReg(...)` in the most fragile spots and back onto `isClassTypeImpl(...)`, which removes the `i1` vs `i64` compare regressions that first showed up in `/tmp/seen_module_24.ll` and `/tmp/seen_module_33.ll`.
 - Last known validation for the latest continuation used a `MemTotal / 4` cap of `16229809` KB:
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_variable_type_helper_split --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_variable_type_helper_split`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_call_member_type_split --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_call_member_type_split`.

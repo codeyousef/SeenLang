@@ -12212,28 +12212,48 @@ class LLVMIRGenerator {
         return mapSimpleLlvmTypeToSeenType(moduleConstantTypes[constIdx])
     }
 
+    fun tryInferLLVMIRGeneratorThisFieldType(thisType: String, varName: String) r: String {
+        if thisType != "LLVMIRGenerator" {
+            return ""
+        }
+        let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+        if idxCheck >= 0 {
+            return getSeenFieldType(thisType, varName)
+        }
+        return ""
+    }
+
+    fun tryInferStructThisFieldType(thisType: String, varName: String) r: String {
+        let structIdx = findStruct(thisType)
+        if structIdx < 0 {
+            return ""
+        }
+        let fieldIdx = getFieldInfo(thisType, varName)
+        if fieldIdx >= 0 {
+            return getSeenFieldType(thisType, varName)
+        }
+        return ""
+    }
+
     fun tryInferImplicitThisVariableType(varName: String) r: String {
         let thisIdx = findVar("this")
         if thisIdx < 0 {
             return ""
         }
-
         let thisType = varTypes[thisIdx]
-        if thisType == "LLVMIRGenerator" {
-            let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-            if idxCheck >= 0 {
-                return getSeenFieldType(thisType, varName)
-            }
+        let generatorFieldType = tryInferLLVMIRGeneratorThisFieldType(thisType,
+            varName)
+        if generatorFieldType != "" {
+            return generatorFieldType
         }
+        return tryInferStructThisFieldType(thisType, varName)
+    }
 
-        let structIdx = findStruct(thisType)
-        if structIdx < 0 {
-            return ""
-        }
-
-        let fieldIdx = getFieldInfo(thisType, varName)
-        if fieldIdx >= 0 {
-            return getSeenFieldType(thisType, varName)
+    fun tryInferNamedPrimitiveVariableType(varName: String) r: String {
+        if varName == "Int8" or varName == "UInt8" or varName == "Int16" or
+            varName == "UInt16" or varName == "Int32" or varName == "UInt32" or
+            varName == "Int64" or varName == "UInt64" or varName == "Float32" {
+            return varName
         }
         return ""
     }
@@ -12244,22 +12264,15 @@ class LLVMIRGenerator {
         if varType != "" {
             return varType
         }
-
         let moduleConstType = tryInferModuleConstantVariableType(varName)
         if moduleConstType != "" {
             return moduleConstType
         }
-
         let implicitThisType = tryInferImplicitThisVariableType(varName)
         if implicitThisType != "" {
             return implicitThisType
         }
-
-        let vn = varName
-        if vn == "Int8" or vn == "UInt8" or vn == "Int16" or vn == "UInt16" or vn == "Int32" or vn == "UInt32" or vn == "Int64" or vn == "UInt64" or vn == "Float32" {
-            return vn
-        }
-        return ""
+        return tryInferNamedPrimitiveVariableType(varName)
     }
 
     fun inferBinaryExprTypeLocal(expr: ParserExpressionNode) r: String {
