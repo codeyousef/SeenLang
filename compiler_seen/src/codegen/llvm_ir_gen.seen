@@ -11536,6 +11536,306 @@ class LLVMIRGenerator {
         return ""
     }
 
+    fun tryPrepareMethodCallReceiver(expr: ParserExpressionNode, methodName: String,
+        receiverRegBox: Array<String>, receiverTypeBox: Array<String>) r: String {
+
+        resolveRebuiltLiteralPathMethodReceiver(expr, receiverRegBox, receiverTypeBox)
+
+        let explicitReceiverResult = tryPrepareExplicitMethodReceiver(expr, methodName, receiverRegBox, receiverTypeBox)
+        if explicitReceiverResult != "" {
+            return explicitReceiverResult
+        }
+
+        resolveChainedLiteralMethodReceiver(expr, receiverRegBox, receiverTypeBox)
+        return tryResolveSimpleLiteralMethodReceiver(expr, methodName, receiverRegBox, receiverTypeBox)
+    }
+
+    fun tryGenerateLengthLikeMethodCall(methodName: String, receiverReg: String,
+        receiverType: String) r: String {
+
+        if methodName != "length" and methodName != "len" and methodName != "size" {
+            return ""
+        }
+
+        let isNonArrayColl = receiverType.startsWith("List<") or receiverType == "List" or
+            receiverType.startsWith("Vec<") or receiverType == "Vec" or
+            receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap"
+        if isNonArrayColl {
+            let collectionPtrReg = convertReceiverToPtr(receiverReg, receiverType)
+            let resultReg = getNextReg()
+            output.append("  " + resultReg + " = call i64 @seen_arr_length_ptr(ptr " + collectionPtrReg + ")\n")
+            return resultReg
+        }
+        if receiverType == "StringBuilder" {
+            let sbPtrReg = convertReceiverToPtr(receiverReg, receiverType)
+            return emitStringBuilderMethodImpl(output, g_regBox, "length", sbPtrReg, "", 0)
+        }
+        return emitLengthSizeMethodImpl(output, g_regBox, receiverReg, receiverType)
+    }
+
+    fun tryGenerateStringBuilderReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
+        receiverReg: String, receiverType: String) r: String {
+
+        if receiverType != "StringBuilder" {
+            return ""
+        }
+        if methodName != "append" and methodName != "appendInt" and methodName != "appendFloat" and
+            methodName != "appendChar" and methodName != "clear" and methodName != "length" and
+            methodName != "toString" {
+            return ""
+        }
+
+        var sbArg0 = ""
+        var isFloatFused = 0
+        if methodName == "append" and expr.arguments.length() > 0 {
+            let appendArgExpr = expr.arguments[0]
+            if appendArgExpr.kind == "Call" and appendArgExpr.callee == "__FloatToString" and
+                appendArgExpr.arguments.length() > 0 {
+                sbArg0 = generateExpression(appendArgExpr.arguments[0])
+                isFloatFused = 1
+            } else {
+                sbArg0 = generateExpression(expr.arguments[0])
+            }
+        } else {
+            if expr.arguments.length() > 0 {
+                sbArg0 = generateExpression(expr.arguments[0])
+            }
+        }
+
+        let sbPtrReg = convertReceiverToPtr(receiverReg, receiverType)
+        return emitStringBuilderMethodImpl(output, g_regBox, methodName, sbPtrReg, sbArg0, isFloatFused)
+    }
+
+    fun tryGeneratePrimitiveConversionMethodCall(methodName: String, receiverReg: String,
+        receiverType: String) r: String {
+
+        if methodName == "toString" {
+            var isClassReceiver = 0
+            if isClassType(receiverType) {
+                isClassReceiver = 1
+            }
+            return emitToStringMethodImpl(output, g_regBox, receiverReg, receiverType, isClassReceiver)
+        }
+        if methodName == "toInt" {
+            return emitToIntMethodImpl(output, g_regBox, receiverReg, receiverType)
+        }
+        if methodName == "toFloat" {
+            return emitToFloatMethodImpl(output, g_regBox, receiverReg, receiverType)
+        }
+        return ""
+    }
+
+    fun tryGenerateNumericReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
+        receiverReg: String, receiverType: String) r: String {
+
+        if methodName != "abs" and methodName != "min" and methodName != "max" and
+            methodName != "clamp" and methodName != "floor" and methodName != "ceil" and
+            methodName != "round" and methodName != "sqrt" and methodName != "isNaN" and
+            methodName != "isInfinite" {
+            return ""
+        }
+
+        var numArg0 = ""
+        var numArg1 = ""
+        if expr.arguments.length() > 0 {
+            numArg0 = generateExpression(expr.arguments[0])
+        }
+        if expr.arguments.length() > 1 {
+            numArg1 = generateExpression(expr.arguments[1])
+        }
+        return emitNumericMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, numArg0, numArg1)
+    }
+
+    fun tryGenerateStringLikeReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
+        receiverReg: String, receiverType: String) r: String {
+
+        let jsonResult = emitJsonValueMethodImpl(output, g_regBox, methodName, receiverReg, receiverType)
+        if jsonResult != "" {
+            return jsonResult
+        }
+
+        var strArg0 = ""
+        var strArg1 = ""
+        let strArgCount = expr.arguments.length()
+        if strArgCount > 0 {
+            strArg0 = generateExpression(expr.arguments[0])
+        }
+        if strArgCount > 1 {
+            strArg1 = generateExpression(expr.arguments[1])
+        }
+
+        let strResult = emitStringMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, strArg0, strArg1, strArgCount)
+        if strResult != "" {
+            return strResult
+        }
+        if methodName == "toCString" and receiverType == "String" {
+            return emitCStrConversionImpl(output, g_regBox, "str_to_cstr", receiverReg)
+        }
+        if methodName == "toSeenString" and receiverType == "Int" {
+            return emitCStrConversionImpl(output, g_regBox, "cstr_to_str", receiverReg)
+        }
+        if methodName == "trim" {
+            if receiverType != "String" and receiverType != "" {
+                let funcName = receiverType + "_trim"
+                let trimReceiverReg = convertReceiverToPtr(receiverReg, receiverType)
+                let resultReg = getNextReg()
+                output.append("  " + resultReg + " = call %SeenString @" + quoteIdentIfNeeded(funcName) + "(ptr " + trimReceiverReg + ", %SeenString " + strArg0 + ")\n")
+                return resultReg
+            }
+        }
+        return ""
+    }
+
+    fun tryGenerateBuiltinMethodCall(expr: ParserExpressionNode, methodName: String,
+        receiverReg: String, receiverType: String) r: String {
+
+        let lengthLikeResult = tryGenerateLengthLikeMethodCall(methodName, receiverReg, receiverType)
+        if lengthLikeResult != "" {
+            return lengthLikeResult
+        }
+
+        let stringBuilderResult = tryGenerateStringBuilderReceiverMethodCall(expr, methodName, receiverReg, receiverType)
+        if stringBuilderResult != "" {
+            return stringBuilderResult
+        }
+
+        let conversionResult = tryGeneratePrimitiveConversionMethodCall(methodName, receiverReg, receiverType)
+        if conversionResult != "" {
+            return conversionResult
+        }
+
+        let numericResult = tryGenerateNumericReceiverMethodCall(expr, methodName, receiverReg, receiverType)
+        if numericResult != "" {
+            return numericResult
+        }
+
+        return tryGenerateStringLikeReceiverMethodCall(expr, methodName, receiverReg, receiverType)
+    }
+
+    fun resolveMethodCallInstanceTypeName(expr: ParserExpressionNode, methodName: String,
+        receiverType: String) r: String {
+
+        var tracedUnwrapType = ""
+        if receiverType == "ptr" and methodName == "toJson" and expr.operands.length() > 0 {
+            let receiverExpr = expr.operands[0]
+            if receiverExpr.kind == "MethodCall" and receiverExpr.callee == "unwrap" and
+                receiverExpr.operands.length() > 0 {
+                let unwrapReceiverType = inferExpressionType(receiverExpr.operands[0])
+                if unwrapReceiverType.endsWith("?") {
+                    tracedUnwrapType = unwrapReceiverType.substring(0, unwrapReceiverType.length() - 1)
+                }
+            }
+        }
+        return normalizeInstanceMethodTypeNameImpl(receiverType, methodName, tracedUnwrapType)
+    }
+
+    fun tryGenerateHotReloadInstanceMethodCall(expr: ParserExpressionNode, methodName: String,
+        funcName: String, receiverReg: String, receiverType: String) r: String {
+
+        var hotClassReceiver = 0
+        if isClassType(receiverType) {
+            hotClassReceiver = 1
+        }
+
+        var hotStateArg = ""
+        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
+            hotStateArg = generateExpression(expr.arguments[0])
+        }
+
+        return emitHotReloadMethodCallImpl(output, g_regBox, methodName, quoteIdentIfNeeded(funcName), receiverReg, hotClassReceiver, hotStateArg)
+    }
+
+    fun resolveMethodCallReturnType(expr: ParserExpressionNode, instanceTypeName: String,
+        methodName: String) r: String {
+
+        var returnTypeStr = inferExpressionType(expr)
+        if returnTypeStr == "" or returnTypeStr == "Unknown" {
+            let regRetType = getMethodReturnType(instanceTypeName, methodName)
+            if regRetType != "" {
+                returnTypeStr = regRetType
+            }
+        }
+        if returnTypeStr == "" or returnTypeStr == "Unknown" {
+            returnTypeStr = "Int"
+        }
+        return returnTypeStr
+    }
+
+    fun prepareMethodCallReceiverAbi(instanceTypeName: String, receiverRegBox: Array<String>,
+        receiverType: String, receiverLlvmTypeBox: Array<String>) r: Void {
+
+        let receiverStorageLlvmType = mapType(receiverType)
+        var receiverIsClass = 0
+        if isClassType(receiverType) {
+            receiverIsClass = 1
+        }
+        var receiverIsData = 0
+        if isDataType(receiverType) {
+            receiverIsData = 1
+        }
+        resolveMethodReceiverAbiImpl(output, g_regBox, instanceTypeName, receiverStorageLlvmType, receiverRegBox, receiverLlvmTypeBox, receiverIsClass, receiverIsData)
+    }
+
+    fun tryGenerateSpecializedInstanceMethodCall(methodName: String, instanceTypeName: String,
+        receiverType: String, returnTypeStr: String, receiverLlvmType: String,
+        receiverReg: String) r: String {
+
+        if methodName == "unwrap" and instanceTypeName == "String" {
+            return receiverReg
+        }
+
+        if methodName == "unwrap" and instanceTypeName == "Option" {
+            let innerType = extractOptionInnerTypeImpl(receiverType, returnTypeStr)
+            var isClassInner = 0
+            let baseInnerType = getBaseTypeName(innerType)
+            if isClassType(baseInnerType) or baseInnerType == "Vec" or baseInnerType == "Map" or
+                baseInnerType == "HashMap" or baseInnerType == "Result" {
+                isClassInner = 1
+            }
+            return emitOptionUnwrapSpecializedImpl(output, g_regBox, innerType, receiverLlvmType, receiverReg, isClassInner)
+        }
+
+        return ""
+    }
+
+    fun emitNormalizedInstanceMethodCall(expr: ParserExpressionNode, methodName: String,
+        receiverReg: String, receiverType: String) r: String {
+
+        let instanceTypeName = resolveMethodCallInstanceTypeName(expr, methodName, receiverType)
+        let funcName = instanceTypeName + "_" + methodName
+
+        let hotReloadResult = tryGenerateHotReloadInstanceMethodCall(expr, methodName, funcName, receiverReg, receiverType)
+        if hotReloadResult != "" {
+            return hotReloadResult
+        }
+
+        var argRegs = Array<String>()
+        var argTypeStrs = Array<String>()
+        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
+
+        let returnTypeStr = resolveMethodCallReturnType(expr, instanceTypeName, methodName)
+        let llvmReturnType = mapType(returnTypeStr)
+
+        let receiverRegBox = Array<String>()
+        receiverRegBox.push(receiverReg)
+        let receiverLlvmTypeBox = Array<String>()
+        receiverLlvmTypeBox.push("ptr")
+        prepareMethodCallReceiverAbi(instanceTypeName, receiverRegBox, receiverType, receiverLlvmTypeBox)
+
+        let normalizedReceiverReg = receiverRegBox[0]
+        let receiverLlvmType = receiverLlvmTypeBox[0]
+
+        let specializedResult = tryGenerateSpecializedInstanceMethodCall(methodName, instanceTypeName, receiverType, returnTypeStr, receiverLlvmType, normalizedReceiverReg)
+        if specializedResult != "" {
+            return specializedResult
+        }
+
+        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
+        argRegs = g_defaultFillArgRegs
+        argTypeStrs = g_defaultFillArgTypeStrs
+        return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType, normalizedReceiverReg, argRegs, argTypeStrs, 0)
+    }
+
     // Generate IR for a method call (receiver.method(args)). The largest and
     // most complex dispatch in the codegen — handles:
     //   - SIMD horizontal reductions (reduce_add/min/max)
@@ -11562,18 +11862,9 @@ class LLVMIRGenerator {
         let receiverPrepTypeBox = Array<String>()
         receiverPrepTypeBox.push("String")
 
-        resolveRebuiltLiteralPathMethodReceiver(expr, receiverPrepRegBox, receiverPrepTypeBox)
-
-        let explicitReceiverResult = tryPrepareExplicitMethodReceiver(expr, methodName, receiverPrepRegBox, receiverPrepTypeBox)
-        if explicitReceiverResult != "" {
-            return explicitReceiverResult
-        }
-
-        resolveChainedLiteralMethodReceiver(expr, receiverPrepRegBox, receiverPrepTypeBox)
-
-        let simpleReceiverResult = tryResolveSimpleLiteralMethodReceiver(expr, methodName, receiverPrepRegBox, receiverPrepTypeBox)
-        if simpleReceiverResult != "" {
-            return simpleReceiverResult
+        let receiverPrepResult = tryPrepareMethodCallReceiver(expr, methodName, receiverPrepRegBox, receiverPrepTypeBox)
+        if receiverPrepResult != "" {
+            return receiverPrepResult
         }
 
         var receiverReg = receiverPrepRegBox[0]
@@ -11608,183 +11899,12 @@ class LLVMIRGenerator {
             return arrayMutatorResult
         }
 
-        if methodName == "length" or methodName == "len" or methodName == "size" {
-            // Non-array collection types need class method convertReceiverToPtr
-            let isNonArrayColl = receiverType.startsWith("List<") or receiverType == "List" or receiverType.startsWith("Vec<") or receiverType == "Vec" or receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap"
-            if isNonArrayColl {
-                let collectionPtrReg = convertReceiverToPtr(receiverReg, receiverType)
-                let resultReg = getNextReg()
-                output.append("  " + resultReg + " = call i64 @seen_arr_length_ptr(ptr " + collectionPtrReg + ")\n")
-                return resultReg
-            }
-            if receiverType == "StringBuilder" {
-                let sbPtrReg2 = convertReceiverToPtr(receiverReg, receiverType)
-                return emitStringBuilderMethodImpl(output, g_regBox, "length", sbPtrReg2, "", 0)
-            }
-            // HashMap, LinkedList, Array, String — delegated to ir_method_gen.seen
-            let lenResult = emitLengthSizeMethodImpl(output, g_regBox, receiverReg, receiverType)
-            if lenResult != "" { return lenResult }
-        }
-        // StringBuilder method dispatch (append, appendInt, appendFloat, appendChar, clear, length, toString)
-        if receiverType == "StringBuilder" and (methodName == "append" or methodName == "appendInt" or methodName == "appendFloat" or methodName == "appendChar" or methodName == "clear" or methodName == "length" or methodName == "toString") {
-            var sbArg0 = ""
-            var isFloatFused = 0
-            if methodName == "append" and expr.arguments.length() > 0 {
-                // Fused appendFloat: detect sb.append(__FloatToString(x)) pattern
-                let appendArgExpr = expr.arguments[0]
-                if appendArgExpr.kind == "Call" and appendArgExpr.callee == "__FloatToString" and appendArgExpr.arguments.length() > 0 {
-                    sbArg0 = generateExpression(appendArgExpr.arguments[0])
-                    isFloatFused = 1
-                } else {
-                    sbArg0 = generateExpression(expr.arguments[0])
-                }
-            } else {
-                if expr.arguments.length() > 0 {
-                    sbArg0 = generateExpression(expr.arguments[0])
-                }
-            }
-            let sbPtrReg = convertReceiverToPtr(receiverReg, receiverType)
-            return emitStringBuilderMethodImpl(output, g_regBox, methodName, sbPtrReg, sbArg0, isFloatFused)
-        }
-        // toString — delegated to ir_method_gen.seen
-        if methodName == "toString" {
-            var isClassReceiver = 0
-            if isClassType(receiverType) { isClassReceiver = 1 }
-            return emitToStringMethodImpl(output, g_regBox, receiverReg, receiverType, isClassReceiver)
-        }
-        // toInt — delegated to ir_method_gen.seen
-        if methodName == "toInt" {
-            let toIntResult = emitToIntMethodImpl(output, g_regBox, receiverReg, receiverType)
-            if toIntResult != "" { return toIntResult }
-        }
-        // toFloat — delegated to ir_method_gen.seen
-        if methodName == "toFloat" {
-            return emitToFloatMethodImpl(output, g_regBox, receiverReg, receiverType)
-        }
-        // Numeric methods (abs/min/max/clamp/floor/ceil/round/sqrt/isNaN/isInfinite) — delegated to ir_method_gen.seen
-        if methodName == "abs" or methodName == "min" or methodName == "max" or methodName == "clamp" or methodName == "floor" or methodName == "ceil" or methodName == "round" or methodName == "sqrt" or methodName == "isNaN" or methodName == "isInfinite" {
-            var numArg0 = ""
-            var numArg1 = ""
-            if expr.arguments.length() > 0 { numArg0 = generateExpression(expr.arguments[0]) }
-            if expr.arguments.length() > 1 { numArg1 = generateExpression(expr.arguments[1]) }
-            let numResult = emitNumericMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, numArg0, numArg1)
-            if numResult != "" { return numResult }
-        }
-        // JsonValue methods — delegated to ir_type_tables.seen
-        let jsonResult = emitJsonValueMethodImpl(output, g_regBox, methodName, receiverReg, receiverType)
-        if jsonResult != "" { return jsonResult }
-        // String/Char methods — delegated to ir_type_tables.seen
-        var strArg0 = ""
-        var strArg1 = ""
-        var strArgCount = expr.arguments.length()
-        if strArgCount > 0 { strArg0 = generateExpression(expr.arguments[0]) }
-        if strArgCount > 1 { strArg1 = generateExpression(expr.arguments[1]) }
-        let strResult = emitStringMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, strArg0, strArg1, strArgCount)
-        if strResult != "" { return strResult }
-        if methodName == "toCString" and receiverType == "String" {
-            return emitCStrConversionImpl(output, g_regBox, "str_to_cstr", receiverReg)
-        }
-        if methodName == "toSeenString" and receiverType == "Int" {
-            return emitCStrConversionImpl(output, g_regBox, "cstr_to_str", receiverReg)
-        }
-        // trim on class receivers (non-String) — needs convertReceiverToPtr class method
-        if methodName == "trim" {
-            if receiverType != "String" and receiverType != "" {
-                let funcName = receiverType + "_trim"
-                let trimReceiverReg = convertReceiverToPtr(receiverReg, receiverType)
-                let resultReg = getNextReg()
-                output.append("  " + resultReg + " = call %SeenString @" + quoteIdentIfNeeded(funcName) + "(ptr " + trimReceiverReg + ", %SeenString " + strArg0 + ")\n")
-                return resultReg
-            }
-        }
-        // Instance method call: generator.generate(arg) -> @LLVMIRGenerator_generate(receiver, arg)
-        // Get the receiver's type to construct the function name
-        var tracedUnwrapType = ""
-        if receiverType == "ptr" and methodName == "toJson" and expr.operands.length() > 0 {
-            let receiverExpr = expr.operands[0]
-            if receiverExpr.kind == "MethodCall" and receiverExpr.callee == "unwrap" {
-                // Trace back to find the type being unwrapped
-                if receiverExpr.operands.length() > 0 {
-                    let unwrapReceiverType = inferExpressionType(receiverExpr.operands[0])
-                    // If it's a nullable type (T?), the unwrap returns T
-                    if unwrapReceiverType.endsWith("?") {
-                        tracedUnwrapType = unwrapReceiverType.substring(0, unwrapReceiverType.length() - 1)
-                    }
-                }
-            }
-        }
-        let instanceTypeName = normalizeInstanceMethodTypeNameImpl(receiverType, methodName, tracedUnwrapType)
-
-        var funcName = instanceTypeName + "_" + methodName
-
-        var hotClassReceiver = 0
-        if isClassType(receiverType) {
-            hotClassReceiver = 1
-        }
-        var hotStateArg = ""
-        if methodName == "__seen_hot_set_state" and expr.arguments.length() > 0 {
-            hotStateArg = generateExpression(expr.arguments[0])
-        }
-        let hotReloadResult = emitHotReloadMethodCallImpl(output, g_regBox, methodName, quoteIdentIfNeeded(funcName), receiverReg, hotClassReceiver, hotStateArg)
-        if hotReloadResult != "" {
-            return hotReloadResult
+        let builtinMethodResult = tryGenerateBuiltinMethodCall(expr, methodName, receiverReg, receiverType)
+        if builtinMethodResult != "" {
+            return builtinMethodResult
         }
 
-        // Generate arguments
-        var argRegs = Array<String>()
-        var argTypeStrs = Array<String>()
-        prepareCallArguments(funcName, expr.arguments, argRegs, argTypeStrs, false, true, false, "")
-
-        // Infer return type from method name
-        var returnTypeStr = inferExpressionType(expr)
-        if returnTypeStr == "" or returnTypeStr == "Unknown" {
-            let regRetType = getMethodReturnType(instanceTypeName, methodName)
-            if regRetType != "" { returnTypeStr = regRetType }
-        }
-        if returnTypeStr == "" or returnTypeStr == "Unknown" { returnTypeStr = "Int" }
-        let llvmReturnType = mapType(returnTypeStr)
-
-        let receiverStorageLlvmType = mapType(receiverType)
-        let receiverRegBox = Array<String>()
-        receiverRegBox.push(receiverReg)
-        let receiverLlvmTypeBox = Array<String>()
-        receiverLlvmTypeBox.push("ptr")
-        var receiverIsClass = 0
-        if isClassType(receiverType) {
-            receiverIsClass = 1
-        }
-        var receiverIsData = 0
-        if isDataType(receiverType) {
-            receiverIsData = 1
-        }
-        resolveMethodReceiverAbiImpl(output, g_regBox, instanceTypeName, receiverStorageLlvmType, receiverRegBox, receiverLlvmTypeBox, receiverIsClass, receiverIsData)
-        receiverReg = receiverRegBox[0]
-        let receiverLlvmType = receiverLlvmTypeBox[0]
-
-        // String?.unwrap() - identity operation
-        // String? maps to %SeenString (same as String); unwrap is a no-op
-        if methodName == "unwrap" and instanceTypeName == "String" {
-            return receiverReg
-        }
-
-        // Option<T>.unwrap() type-specialized — delegated to ir_call_dispatch.seen
-        if methodName == "unwrap" and instanceTypeName == "Option" {
-            let innerType = extractOptionInnerTypeImpl(receiverType, returnTypeStr)
-            var isClassInner = 0
-            let baseInnerType = getBaseTypeName(innerType)
-            if isClassType(baseInnerType) or baseInnerType == "Vec" or baseInnerType == "Map" or baseInnerType == "HashMap" or baseInnerType == "Result" {
-                isClassInner = 1
-            }
-            let optUnwrapResult = emitOptionUnwrapSpecializedImpl(output, g_regBox, innerType, receiverLlvmType, receiverReg, isClassInner)
-            if optUnwrapResult != "" { return optUnwrapResult }
-            // Fall through to generic Option_unwrap for other types
-        }
-
-        // Final instance method call — delegated to ir_call_dispatch.seen
-        fillDefaultParamsLocal(funcName, argRegs, argTypeStrs)
-        argRegs = g_defaultFillArgRegs
-        argTypeStrs = g_defaultFillArgTypeStrs
-        return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType, receiverReg, argRegs, argTypeStrs, 0)
+        return emitNormalizedInstanceMethodCall(expr, methodName, receiverReg, receiverType)
     }
 
     // Generate IR for an await expression. Calls the async function to get
