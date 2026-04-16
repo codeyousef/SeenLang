@@ -10763,97 +10763,71 @@ class LLVMIRGenerator {
         return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, argRegs, argTypeStrs, freeCallTail)
     }
 
-    fun tryGenerateOptionResolvedReceiverMethodCall(expr: ParserExpressionNode,
-        methodName: String, receiverReg: String, receiverType: String) r: String {
-
-        let isOptionTypeSimple = receiverType == "Option" or receiverType.startsWith("Option<")
-        if not isOptionTypeSimple or receiverReg == "" {
-            return ""
-        }
-
-        var optDefaultRegS = "0"
-        if (methodName == "unwrapOr" or methodName == "UnwrapOr") and expr.arguments.length() > 0 {
-            optDefaultRegS = generateExpression(expr.arguments[0])
-        }
-        return emitOptionMethodImpl(output, g_regBox, g_blockLabelBox, methodName, receiverReg, optDefaultRegS)
-    }
-
-    fun tryGenerateSmallVecResolvedReceiverMethodCall(expr: ParserExpressionNode,
-        methodName: String, receiverReg: String, receiverType: String) r: String {
-
-        let isSmallVecSimple = receiverType == "SmallVec" or receiverType.startsWith("SmallVec<") or
-            receiverType.startsWith("SmallVec[")
-        if not isSmallVecSimple or receiverReg == "" {
-            return ""
-        }
-
-        var svArgReg = ""
-        if (methodName == "push" or methodName == "get") and expr.arguments.length() > 0 {
-            svArgReg = generateExpression(expr.arguments[0])
-        }
-        return emitSmallVecMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, svArgReg)
-    }
-
-    fun tryGenerateCollectionResolvedReceiverMethodCall(expr: ParserExpressionNode,
-        methodName: String, receiverReg: String, receiverType: String) r: String {
-
-        let isCollectionTypeSimple = receiverType.startsWith("Vec<") or receiverType == "Vec" or
-            receiverType.startsWith("BTreeMap<") or receiverType == "BTreeMap" or
-            receiverType.startsWith("HashMap<") or receiverType == "HashMap" or
-            receiverType.startsWith("StringHashMap<") or receiverType == "StringHashMap" or
-            receiverType.startsWith("LinkedList<") or receiverType == "LinkedList"
-        if not isCollectionTypeSimple or receiverReg == "" {
-            return ""
-        }
-
-        var collArg0s = "0"
-        var collArg1s = "0"
-        if expr.arguments.length() > 0 {
-            collArg0s = generateExpression(expr.arguments[0])
-        }
-        if expr.arguments.length() > 1 {
-            collArg1s = generateExpression(expr.arguments[1])
-        }
-        return dispatchCollectionMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, collArg0s, collArg1s)
-    }
-
-    fun tryGenerateArrayResolvedReceiverMethodCall(expr: ParserExpressionNode,
-        methodName: String, receiverReg: String, receiverType: String) r: String {
-
-        if not receiverType.startsWith("Array<") or receiverReg == "" {
-            return ""
-        }
-
-        var arrArg0 = ""
-        var arrArg1 = ""
-        if expr.arguments.length() > 0 {
-            arrArg0 = generateExpression(expr.arguments[0])
-        }
-        if expr.arguments.length() > 1 {
-            arrArg1 = generateExpression(expr.arguments[1])
-        }
-        return emitArrayBasicMethodImpl(output, g_regBox, methodName, receiverReg, receiverType, arrArg0, arrArg1)
-    }
-
     fun tryGenerateResolvedReceiverFastPathMethodCall(expr: ParserExpressionNode,
         methodName: String, receiverReg: String, receiverType: String) r: String {
 
-        let optionResult = tryGenerateOptionResolvedReceiverMethodCall(expr, methodName, receiverReg, receiverType)
-        if optionResult != "" {
-            return optionResult
+        let isOptionTypeSimple = receiverType == "Option" or
+            receiverType.startsWith("Option<")
+        if isOptionTypeSimple and receiverReg != "" {
+            var optDefaultRegS = "0"
+            if (methodName == "unwrapOr" or methodName == "UnwrapOr") and
+                expr.arguments.length() > 0 {
+                optDefaultRegS = generateExpression(expr.arguments[0])
+            }
+            return emitOptionMethodImpl(output, g_regBox, g_blockLabelBox,
+                methodName, receiverReg, optDefaultRegS)
         }
 
-        let smallVecResult = tryGenerateSmallVecResolvedReceiverMethodCall(expr, methodName, receiverReg, receiverType)
-        if smallVecResult != "" {
-            return smallVecResult
+        let isSmallVecSimple = receiverType == "SmallVec" or
+            receiverType.startsWith("SmallVec<") or
+            receiverType.startsWith("SmallVec[")
+        if isSmallVecSimple and receiverReg != "" {
+            var svArgReg = ""
+            if (methodName == "push" or methodName == "get") and
+                expr.arguments.length() > 0 {
+                svArgReg = generateExpression(expr.arguments[0])
+            }
+            return emitSmallVecMethodImpl(output, g_regBox, methodName,
+                receiverReg, receiverType, svArgReg)
         }
 
-        let collectionResult = tryGenerateCollectionResolvedReceiverMethodCall(expr, methodName, receiverReg, receiverType)
-        if collectionResult != "" {
-            return collectionResult
+        let isCollectionTypeSimple = receiverType.startsWith("Vec<") or
+            receiverType == "Vec" or
+            receiverType.startsWith("BTreeMap<") or
+            receiverType == "BTreeMap" or
+            receiverType.startsWith("HashMap<") or
+            receiverType == "HashMap" or
+            receiverType.startsWith("StringHashMap<") or
+            receiverType == "StringHashMap" or
+            receiverType.startsWith("LinkedList<") or
+            receiverType == "LinkedList"
+        if isCollectionTypeSimple and receiverReg != "" {
+            var collArg0s = "0"
+            var collArg1s = "0"
+            if expr.arguments.length() > 0 {
+                collArg0s = generateExpression(expr.arguments[0])
+            }
+            if expr.arguments.length() > 1 {
+                collArg1s = generateExpression(expr.arguments[1])
+            }
+            return dispatchCollectionMethodImpl(output, g_regBox, methodName,
+                receiverReg, receiverType, collArg0s, collArg1s)
         }
 
-        return tryGenerateArrayResolvedReceiverMethodCall(expr, methodName, receiverReg, receiverType)
+        if receiverType.startsWith("Array<") and receiverReg != "" {
+            var arrArg0 = ""
+            var arrArg1 = ""
+            if expr.arguments.length() > 0 {
+                arrArg0 = generateExpression(expr.arguments[0])
+            }
+            if expr.arguments.length() > 1 {
+                arrArg1 = generateExpression(expr.arguments[1])
+            }
+            return emitArrayBasicMethodImpl(output, g_regBox, methodName,
+                receiverReg, receiverType, arrArg0, arrArg1)
+        }
+
+        return ""
     }
 
     fun tryGenerateStaticMethodCall(expr: ParserExpressionNode, methodName: String,
@@ -11757,75 +11731,76 @@ class LLVMIRGenerator {
         return tryResolveSimpleLiteralMethodReceiver(expr, methodName, receiverRegBox, receiverTypeBox)
     }
 
-    fun tryGenerateLengthLikeMethodCall(methodName: String, receiverReg: String,
-        receiverType: String) r: String {
-        return tryGenerateLengthLikeMethodCallImpl(output, g_regBox, methodName,
-            receiverReg, receiverType, g_reprCClassNames, structNames)
-    }
-
-    fun tryGenerateStringBuilderReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
+    fun tryGenerateBuiltinMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String, receiverType: String) r: String {
 
-        if receiverType != "StringBuilder" {
-            return ""
-        }
-        if methodName != "append" and methodName != "appendInt" and methodName != "appendFloat" and
-            methodName != "appendChar" and methodName != "clear" and methodName != "length" and
-            methodName != "toString" {
-            return ""
-        }
-
-        var sbArg0 = ""
-        var isFloatFused = 0
-        if methodName == "append" and expr.arguments.length() > 0 {
-            let appendArgExpr = expr.arguments[0]
-            if appendArgExpr.kind == "Call" and appendArgExpr.callee == "__FloatToString" and
-                appendArgExpr.arguments.length() > 0 {
-                sbArg0 = generateExpression(appendArgExpr.arguments[0])
-                isFloatFused = 1
-            } else {
-                sbArg0 = generateExpression(expr.arguments[0])
-            }
-        } else {
-            if expr.arguments.length() > 0 {
-                sbArg0 = generateExpression(expr.arguments[0])
-            }
-        }
-        return emitStringBuilderReceiverMethodCallImpl(output, g_regBox,
-            methodName, receiverReg, receiverType, sbArg0, isFloatFused,
+        let lengthLikeResult = tryGenerateLengthLikeMethodCallImpl(output,
+            g_regBox, methodName, receiverReg, receiverType,
             g_reprCClassNames, structNames)
-    }
-
-    fun tryGeneratePrimitiveConversionMethodCall(methodName: String, receiverReg: String,
-        receiverType: String) r: String {
-        return tryGeneratePrimitiveConversionMethodCallImpl(output, g_regBox,
-            methodName, receiverReg, receiverType, structNames)
-    }
-
-    fun tryGenerateNumericReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-
-        if methodName != "abs" and methodName != "min" and methodName != "max" and
-            methodName != "clamp" and methodName != "floor" and methodName != "ceil" and
-            methodName != "round" and methodName != "sqrt" and methodName != "isNaN" and
-            methodName != "isInfinite" {
-            return ""
+        if lengthLikeResult != "" {
+            return lengthLikeResult
         }
 
-        var numArg0 = ""
-        var numArg1 = ""
-        if expr.arguments.length() > 0 {
-            numArg0 = generateExpression(expr.arguments[0])
+        if receiverType == "StringBuilder" {
+            if methodName == "append" or methodName == "appendInt" or
+                methodName == "appendFloat" or
+                methodName == "appendChar" or methodName == "clear" or
+                methodName == "length" or methodName == "toString" {
+                var sbArg0 = ""
+                var isFloatFused = 0
+                if methodName == "append" and expr.arguments.length() > 0 {
+                    let appendArgExpr = expr.arguments[0]
+                    if appendArgExpr.kind == "Call" and
+                        appendArgExpr.callee == "__FloatToString" and
+                        appendArgExpr.arguments.length() > 0 {
+                        sbArg0 = generateExpression(appendArgExpr.arguments[0])
+                        isFloatFused = 1
+                    } else {
+                        sbArg0 = generateExpression(expr.arguments[0])
+                    }
+                } else {
+                    if expr.arguments.length() > 0 {
+                        sbArg0 = generateExpression(expr.arguments[0])
+                    }
+                }
+                let stringBuilderResult =
+                    emitStringBuilderReceiverMethodCallImpl(output, g_regBox,
+                        methodName, receiverReg, receiverType, sbArg0,
+                        isFloatFused, g_reprCClassNames, structNames)
+                if stringBuilderResult != "" {
+                    return stringBuilderResult
+                }
+            }
         }
-        if expr.arguments.length() > 1 {
-            numArg1 = generateExpression(expr.arguments[1])
-        }
-        return tryGenerateNumericReceiverMethodCallImpl(output, g_regBox,
-            methodName, receiverReg, receiverType, numArg0, numArg1)
-    }
 
-    fun tryGenerateStringLikeReceiverMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
+        let conversionResult = tryGeneratePrimitiveConversionMethodCallImpl(
+            output, g_regBox, methodName, receiverReg, receiverType,
+            structNames)
+        if conversionResult != "" {
+            return conversionResult
+        }
+
+        if methodName == "abs" or methodName == "min" or methodName == "max" or
+            methodName == "clamp" or methodName == "floor" or
+            methodName == "ceil" or methodName == "round" or
+            methodName == "sqrt" or methodName == "isNaN" or
+            methodName == "isInfinite" {
+            var numArg0 = ""
+            var numArg1 = ""
+            if expr.arguments.length() > 0 {
+                numArg0 = generateExpression(expr.arguments[0])
+            }
+            if expr.arguments.length() > 1 {
+                numArg1 = generateExpression(expr.arguments[1])
+            }
+            let numericResult = tryGenerateNumericReceiverMethodCallImpl(
+                output, g_regBox, methodName, receiverReg, receiverType,
+                numArg0, numArg1)
+            if numericResult != "" {
+                return numericResult
+            }
+        }
+
         var strArg0 = ""
         var strArg1 = ""
         let strArgCount = expr.arguments.length()
@@ -11838,32 +11813,6 @@ class LLVMIRGenerator {
         return tryGenerateStringLikeReceiverMethodCallImpl(output, g_regBox,
             methodName, receiverReg, receiverType, strArg0, strArg1,
             strArgCount, g_reprCClassNames, structNames)
-    }
-
-    fun tryGenerateBuiltinMethodCall(expr: ParserExpressionNode, methodName: String,
-        receiverReg: String, receiverType: String) r: String {
-
-        let lengthLikeResult = tryGenerateLengthLikeMethodCall(methodName, receiverReg, receiverType)
-        if lengthLikeResult != "" {
-            return lengthLikeResult
-        }
-
-        let stringBuilderResult = tryGenerateStringBuilderReceiverMethodCall(expr, methodName, receiverReg, receiverType)
-        if stringBuilderResult != "" {
-            return stringBuilderResult
-        }
-
-        let conversionResult = tryGeneratePrimitiveConversionMethodCall(methodName, receiverReg, receiverType)
-        if conversionResult != "" {
-            return conversionResult
-        }
-
-        let numericResult = tryGenerateNumericReceiverMethodCall(expr, methodName, receiverReg, receiverType)
-        if numericResult != "" {
-            return numericResult
-        }
-
-        return tryGenerateStringLikeReceiverMethodCall(expr, methodName, receiverReg, receiverType)
     }
 
     fun emitNormalizedInstanceMethodCall(expr: ParserExpressionNode, methodName: String,

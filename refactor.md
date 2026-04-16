@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,855` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,804` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -30,6 +30,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also pushes more final instance-call cleanup into `ir_method_finalize.seen`, which is now `237` lines and owns shared traced-unwrap receiver normalization, prepared hot-reload dispatch, return-type fallback, receiver ABI preparation, and `Option.unwrap()` specialization logic used by `emitNormalizedInstanceMethodCall()`.
 - That same working-tree continuation now also removes the last one-use instance-call wrappers from `llvm_ir_gen.seen`, so `emitNormalizedInstanceMethodCall()` calls `ir_method_finalize.seen` directly for traced-unwrap normalization, hot-reload interception, return-type fallback, receiver ABI preparation, and specialization.
 - The latest continuation also removes the one-use static/parser fallback wrappers from `llvm_ir_gen.seen`, so `tryGenerateStaticMethodCall()` and `tryHandleUnresolvedMethodReceiver()` now own the orchestration directly instead of bouncing through separate local helper layers.
+- The latest continuation also removes the one-use resolved-receiver fast-path and builtin-method wrapper ladders from `llvm_ir_gen.seen`, so `tryGenerateResolvedReceiverFastPathMethodCall()` and `tryGenerateBuiltinMethodCall()` now dispatch directly to the same low-level helpers instead of routing through extra local shells.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
@@ -147,18 +148,10 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `tryPrepareMethodCallReceiver()` at about `14` lines.
   - Method-call emission helpers inside `llvm_ir_gen.seen` are now split into:
     - `tryGenerateLengthLikeMethodCall()` at about `23` lines.
-    - `tryGenerateStringBuilderReceiverMethodCall()` at about `33` lines.
-    - `tryGeneratePrimitiveConversionMethodCall()` at about `19` lines.
-    - `tryGenerateNumericReceiverMethodCall()` at about `21` lines.
-    - `tryGenerateStringLikeReceiverMethodCall()` at about `40` lines.
-    - `tryGenerateBuiltinMethodCall()` at about `26` lines.
+    - `tryGenerateBuiltinMethodCall()` at about `67` lines.
     - `emitNormalizedInstanceMethodCall()` at about `41` lines.
   - Method-call fallback helpers inside `llvm_ir_gen.seen` are now split into:
-    - `tryGenerateOptionResolvedReceiverMethodCall()` at about `15` lines.
-    - `tryGenerateSmallVecResolvedReceiverMethodCall()` at about `16` lines.
-    - `tryGenerateCollectionResolvedReceiverMethodCall()` at about `23` lines.
-    - `tryGenerateArrayResolvedReceiverMethodCall()` at about `18` lines.
-    - `tryGenerateResolvedReceiverFastPathMethodCall()` at about `21` lines.
+    - `tryGenerateResolvedReceiverFastPathMethodCall()` at about `53` lines.
     - `resolveStaticMethodClassNames()` at about `17` lines.
     - `isStaticMethodReceiverReference()` at about `3` lines.
     - `emitStaticHashMapWithCapacityCall()` at about `28` lines.
@@ -234,6 +227,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - a fresh bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_method_finalize_followup --fast --no-cache --no-fork` under the same cap reached `Optimization stats` through modules `0` and `5`, then failed in Pass 2b when parallel `opt` workers started reporting `Could not open input file` for many `/tmp/seen_module_*.ll` paths, ending with `Error: optimization failed for module 0`.
   - after pruning the last one-use instance-call wrappers from `llvm_ir_gen.seen`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_finalize_wrapper_prune --fast --no-cache --no-fork` completed successfully under the same cap.
   - after pruning the one-use static/parser fallback wrappers from `llvm_ir_gen.seen`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_static_wrapper_prune --fast --no-cache --no-fork` also completed successfully under the same cap.
+  - after pruning the one-use resolved-receiver fast-path and builtin-method wrapper ladders from `llvm_ir_gen.seen`, a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_fastpath_builtin_prune --fast --no-cache --no-fork` also completed successfully under the same cap.
   - passed: `./bootstrap/stage1_frozen check compiler_seen/src/test_ir_method_receiver_import.seen` while the temporary harness existed, which confirmed the extracted helper module resolved cleanly under the frozen bootstrap compiler.
   - passed after the follow-up bootstrap-hardening fixes: repeated `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - reached and cleared `Optimization stats (module 5)` for `compiler_seen/src/codegen/llvm_ir_gen.seen`, then cleared the next frozen-bootstrap blockers in `type_registry.seen` (module 37), `ir_decl_features.seen` (module 11), `parser/real_parser.seen` (module 6), and the final link step (`lastIndexOf`) during bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen ... --fast --no-cache --no-fork` runs.
@@ -247,7 +241,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - because that frontier also reproduced while re-checking the pre-change `596169c` checkpoint, the first method-finalize extraction was not isolated as the cause of that bounded full-compile failure.
 - If resuming in the same area, the cleanest next slices are:
   - keep moving the remaining receiver-preparation wrappers out of `llvm_ir_gen.seen` into `ir_method_receiver.seen`, especially the implicit-`this` field receiver path and the rebuilt chained-literal receiver path.
-  - after pruning the local static/parser wrapper ladder, the next clean step is moving the remaining low-level static/parser fallback call emission itself out of `llvm_ir_gen.seen`, rather than just its orchestration shell.
+  - after pruning the local static/parser and builtin/fast-path wrapper ladders, the next clean step is moving the remaining low-level static/parser fallback call emission itself out of `llvm_ir_gen.seen`, rather than just its orchestration shell.
   - if Pass 2b regressions reappear in later slices, compare them against the now-green `/tmp/seen_refactor_finalize_wrapper_prune` success before assuming the wrapper-pruning cleanup was involved.
   - collapse the still-duplicated call-argument preparation/fill-default plumbing shared by free-function calls, parser-workaround calls, static calls, and receiver method calls, but do it in smaller slices than the reverted helper-plumbing experiment.
   - keep moving the remaining array-mutator and user/static-call emission helpers out of `llvm_ir_gen.seen` now that the static/unresolved dispatch logic already routes through `ir_method_receiver.seen`.
