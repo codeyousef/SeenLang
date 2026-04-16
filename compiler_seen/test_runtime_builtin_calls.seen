@@ -1,0 +1,18 @@
+fun choose(flag: Bool) r: Option<Int> {
+    if flag {
+        return Some(3)
+    }
+    return None()
+}
+
+fun main() r: Int {
+    let argv = args()
+    let wrote = writeText("/tmp/seen_runtime_builtin_calls.txt", "ok")
+    let content = readText("/tmp/seen_runtime_builtin_calls.txt")
+    let picked = choose(argv.length() >= 0)
+
+    if wrote and content == "ok" and picked.unwrapOr(0) == 3 {
+        return 0
+    }
+    return 1
+}

@@ -10192,209 +10192,272 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun tryGenerateConstructorLikeCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if funcName.startsWith("Array<") or funcName == "Array" {
-            var elementType = ""
-            if funcName.startsWith("Array<") and funcName.endsWith(">") {
-                elementType = funcName.substring(6, funcName.length() - 1)
-            }
-
-            if expr.arguments.length() == 2 {
-                let countReg = generateExpression(expr.arguments[0])
-                let valueReg = generateExpression(expr.arguments[1])
-                var isZeroFill = 0
-                let fillValNode = expr.arguments[1]
-                if fillValNode.kind == "Literal" and fillValNode.literalValue == "0" { isZeroFill = 1 }
-                return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg, elementType, isZeroFill, currentFunctionAlignTo())
-            }
-
-            if expr.arguments.length() == 1 {
-                let capReg = generateExpression(expr.arguments[0])
-                var elemSz = 8
-                if elementType == "String" { elemSz = 16 }
-                if isDataType(elementType) { elemSz = getDataTypeSize(elementType) }
-                return emitArrayPreallocImpl(output, g_regBox, capReg, elemSz)
-            }
-
-            var elemSize = 8
-            if funcName == "Array<String>" or funcName.startsWith("Array<String") { elemSize = 16 }
-            if isDataType(elementType) { elemSize = getDataTypeSize(elementType) }
-            return emitArrayInlineImpl(output, g_regBox, elemSize, currentFunctionAlignTo())
+    fun resolveArrayConstructorElementType(funcName: String) r: String {
+        if funcName.startsWith("Array<") and funcName.endsWith(">") {
+            return funcName.substring(6, funcName.length() - 1)
         }
-
-        if funcName.startsWith("SmallVec<") or funcName.startsWith("SmallVec[") or funcName == "SmallVec" {
-            var svCapArgReg = ""
-            if expr.arguments.length() > 0 { svCapArgReg = generateExpression(expr.arguments[0]) }
-            return emitSmallVecConstructorImpl(output, g_regBox, funcName, svCapArgReg)
-        }
-
-        if funcName == "Vec" or funcName.startsWith("Vec<") or funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") or funcName == "HashMap" or funcName.startsWith("HashMap<") or funcName == "LinkedList" or funcName.startsWith("LinkedList<") {
-            var colCapArg = ""
-            if expr.arguments.length() > 0 { colCapArg = generateExpression(expr.arguments[0]) }
-            let colResult = emitCollectionConstructorImpl(output, g_regBox, funcName, colCapArg, expr.arguments.length())
-            if colResult != "" { return colResult }
-        }
-
-        if isClassType(funcName) {
-            var isReprC = false
-            if g_reprCClassNames != "" {
-                if g_reprCClassNames.contains(funcName + "|") {
-                    isReprC = true
-                }
-            }
-            if isReprC {
-                let structIdx = findStruct(funcName)
-                if expr.arguments.length() == 0 or structIdx < 0 {
-                    return "zeroinitializer"
-                }
-                var reprCArgRegs = Array<String>()
-                var reprCFieldTypes = Array<String>()
-                var fieldTypesStr = structFieldTypes[structIdx]
-                var reprCArgIdx = 0
-                while reprCArgIdx < expr.arguments.length() {
-                    reprCArgRegs.push(generateExpression(expr.arguments[reprCArgIdx]))
-                    var rcTypePos = 0
-                    var rcFldI = 0
-                    while rcFldI < reprCArgIdx {
-                        while rcTypePos < fieldTypesStr.length() and fieldTypesStr.byteAt(rcTypePos) != 124 { rcTypePos = rcTypePos + 1 }
-                        rcTypePos = rcTypePos + 1
-                        rcFldI = rcFldI + 1
-                    }
-                    var rcTypeEnd = rcTypePos
-                    while rcTypeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(rcTypeEnd) != 124 { rcTypeEnd = rcTypeEnd + 1 }
-                    reprCFieldTypes.push(mapType(fieldTypesStr.substring(rcTypePos, rcTypeEnd)))
-                    reprCArgIdx = reprCArgIdx + 1
-                }
-                return emitReprCConstructorImpl(output, g_regBox, funcName, reprCArgRegs, reprCFieldTypes)
-            }
-
-            let structIdx = findStruct(funcName)
-            let ptrReg = getNextReg()
-            var structSize = 8
-            if structIdx >= 0 {
-                structSize = structSizes[structIdx]
-                if structSize == 0 {
-                    structSize = 16
-                }
-            }
-
-            if structSize <= 80 {
-                output.append("  " + ptrReg + " = call ptr @seen_pool_alloc(i64 " + structSize.toString() + ")\n")
-            }
-            if structSize > 80 {
-                output.append("  " + ptrReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
-            }
-
-            output.append("  call void @llvm.memset.p0.i64(ptr " + ptrReg + ", i8 0, i64 " + structSize.toString() + ", i1 false)\n")
-
-            if structIdx >= 0 {
-                var fieldNamesStr = structFieldNames[structIdx]
-                var fieldTypesStr = structFieldTypes[structIdx]
-                var byteOffset = 0
-                var namePos = 0
-                var typePos = 0
-                var iterDone = 0
-                while iterDone == 0 {
-                    var nameEnd = namePos
-                    while nameEnd < fieldNamesStr.length() and fieldNamesStr.byteAt(nameEnd) != 44 {
-                        nameEnd = nameEnd + 1
-                    }
-                    var typeEnd = typePos
-                    while typeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(typeEnd) != 124 {
-                        typeEnd = typeEnd + 1
-                    }
-                    var fieldSeenType = fieldTypesStr.substring(typePos, typeEnd)
-                    var isArrayField = 0
-                    if fieldSeenType.startsWith("Array<") {
-                        isArrayField = 1
-                    }
-                    if fieldSeenType.startsWith("List<") {
-                        isArrayField = 1
-                    }
-                    if isArrayField == 1 {
-                        let fieldPtrReg = getNextReg()
-                        output.append("  " + fieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + byteOffset.toString() + "\n")
-                        var elemType = ""
-                        if fieldSeenType.startsWith("Array<") {
-                            elemType = fieldSeenType.substring(6, fieldSeenType.length() - 1)
-                        }
-                        if fieldSeenType.startsWith("List<") {
-                            elemType = fieldSeenType.substring(5, fieldSeenType.length() - 1)
-                        }
-                        let arrInitReg = getNextReg()
-                        if elemType == "String" {
-                            output.append("  " + arrInitReg + " = call ptr @seen_arr_new_str_ptr()\n")
-                        }
-                        if elemType != "String" {
-                            var usedSizeInit = 0
-                            if isDataType(elemType) {
-                                let elemSize = getDataTypeSize(elemType)
-                                output.append("  " + arrInitReg + " = call ptr @seen_arr_new_with_size_ptr(i64 " + elemSize.toString() + ")\n")
-                                usedSizeInit = 1
-                            }
-                            if usedSizeInit == 0 {
-                                output.append("  " + arrInitReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
-                            }
-                        }
-                        output.append("  store ptr " + arrInitReg + ", ptr " + fieldPtrReg + "\n")
-                    }
-                    byteOffset = byteOffset + getTypeSize(fieldSeenType)
-                    if nameEnd < fieldNamesStr.length() {
-                        namePos = nameEnd + 1
-                        typePos = typeEnd + 1
-                    }
-                    if nameEnd >= fieldNamesStr.length() {
-                        iterDone = 1
-                    }
-                }
-            }
-
-            if structIdx >= 0 and expr.arguments.length() > 0 {
-                var ctorFieldTypesStr = structFieldTypes[structIdx]
-                var ctorByteOffset = 0
-                var ctorTypePos = 0
-                var ctorArgIdx = 0
-                while ctorArgIdx < expr.arguments.length() and ctorTypePos < ctorFieldTypesStr.length() {
-                    var ctorTypeEnd = ctorTypePos
-                    while ctorTypeEnd < ctorFieldTypesStr.length() and ctorFieldTypesStr.byteAt(ctorTypeEnd) != 124 {
-                        ctorTypeEnd = ctorTypeEnd + 1
-                    }
-                    var ctorFieldSeenType = ctorFieldTypesStr.substring(ctorTypePos, ctorTypeEnd)
-                    let ctorArgExpr = expr.arguments[ctorArgIdx]
-                    let ctorArgReg = generateExpression(ctorArgExpr)
-                    let ctorFieldPtrReg = getNextReg()
-                    output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorByteOffset.toString() + "\n")
-                    if isDataType(ctorFieldSeenType) {
-                        if ctorArgExpr.kind == "StructLiteral" {
-                            let ctorFieldSize = getDataTypeSize(ctorFieldSeenType)
-                            output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + ctorFieldPtrReg + ", ptr " + ctorArgReg + ", i64 " + ctorFieldSize.toString() + ", i1 false)\n")
-                        } else {
-                            output.append("  store %" + ctorFieldSeenType + " " + ctorArgReg + ", ptr " + ctorFieldPtrReg + "\n")
-                        }
-                    } else {
-                        let ctorFieldLlvmType = mapType(ctorFieldSeenType)
-                        var ctorStoreReg = ctorArgReg
-                        if ctorFieldLlvmType == "ptr" and ctorStoreReg == "0" {
-                            ctorStoreReg = "null"
-                        }
-                        output.append("  store " + ctorFieldLlvmType + " " + ctorStoreReg + ", ptr " + ctorFieldPtrReg + "\n")
-                    }
-                    ctorByteOffset = ctorByteOffset + getTypeSize(ctorFieldSeenType)
-                    ctorArgIdx = ctorArgIdx + 1
-                    if ctorTypeEnd < ctorFieldTypesStr.length() {
-                        ctorTypePos = ctorTypeEnd + 1
-                    } else {
-                        ctorTypePos = ctorFieldTypesStr.length()
-                    }
-                }
-            }
-
-            let intReg = getNextReg()
-            output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
-            return intReg
-        }
-
         return ""
+    }
+
+    fun tryGenerateArrayConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
+        if not (funcName.startsWith("Array<") or funcName == "Array") {
+            return ""
+        }
+
+        let elementType = resolveArrayConstructorElementType(funcName)
+        if expr.arguments.length() == 2 {
+            let countReg = generateExpression(expr.arguments[0])
+            let valueReg = generateExpression(expr.arguments[1])
+            var isZeroFill = 0
+            let fillValNode = expr.arguments[1]
+            if fillValNode.kind == "Literal" and fillValNode.literalValue == "0" {
+                isZeroFill = 1
+            }
+            return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg,
+                elementType, isZeroFill, currentFunctionAlignTo())
+        }
+
+        if expr.arguments.length() == 1 {
+            let capReg = generateExpression(expr.arguments[0])
+            var elemSz = 8
+            if elementType == "String" { elemSz = 16 }
+            if isDataType(elementType) { elemSz = getDataTypeSize(elementType) }
+            return emitArrayPreallocImpl(output, g_regBox, capReg, elemSz)
+        }
+
+        var elemSize = 8
+        if funcName == "Array<String>" or funcName.startsWith("Array<String") {
+            elemSize = 16
+        }
+        if isDataType(elementType) {
+            elemSize = getDataTypeSize(elementType)
+        }
+        return emitArrayInlineImpl(output, g_regBox, elemSize, currentFunctionAlignTo())
+    }
+
+    fun tryGenerateSmallVecConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
+        if not (funcName.startsWith("SmallVec<") or funcName.startsWith("SmallVec[") or funcName == "SmallVec") {
+            return ""
+        }
+        var svCapArgReg = ""
+        if expr.arguments.length() > 0 {
+            svCapArgReg = generateExpression(expr.arguments[0])
+        }
+        return emitSmallVecConstructorImpl(output, g_regBox, funcName, svCapArgReg)
+    }
+
+    fun tryGenerateCollectionConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
+        let isCollectionCtor = funcName == "Vec" or funcName.startsWith("Vec<") or
+            funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") or
+            funcName == "HashMap" or funcName.startsWith("HashMap<") or
+            funcName == "LinkedList" or funcName.startsWith("LinkedList<")
+        if not isCollectionCtor {
+            return ""
+        }
+        var colCapArg = ""
+        if expr.arguments.length() > 0 {
+            colCapArg = generateExpression(expr.arguments[0])
+        }
+        return emitCollectionConstructorImpl(output, g_regBox, funcName, colCapArg, expr.arguments.length())
+    }
+
+    fun isReprCConstructorType(funcName: String) r: Bool {
+        return g_reprCClassNames != "" and g_reprCClassNames.contains(funcName + "|")
+    }
+
+    fun tryGenerateReprCClassConstructorCall(expr: ParserExpressionNode, funcName: String, structIdx: Int) r: String {
+        if not isReprCConstructorType(funcName) {
+            return ""
+        }
+        if expr.arguments.length() == 0 or structIdx < 0 {
+            return "zeroinitializer"
+        }
+
+        var reprCArgRegs = Array<String>()
+        var reprCFieldTypes = Array<String>()
+        let fieldTypesStr = structFieldTypes[structIdx]
+        let argCount = expr.arguments.length()
+        var reprCArgIdx = 0
+        var typePos = 0
+        while reprCArgIdx < argCount {
+            reprCArgRegs.push(generateExpression(expr.arguments[reprCArgIdx]))
+            var typeEnd = typePos
+            while typeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(typeEnd) != 124 {
+                typeEnd = typeEnd + 1
+            }
+            reprCFieldTypes.push(mapType(fieldTypesStr.substring(typePos, typeEnd)))
+            reprCArgIdx = reprCArgIdx + 1
+            if typeEnd < fieldTypesStr.length() {
+                typePos = typeEnd + 1
+            } else {
+                typePos = fieldTypesStr.length()
+            }
+        }
+        return emitReprCConstructorImpl(output, g_regBox, funcName, reprCArgRegs, reprCFieldTypes)
+    }
+
+    fun allocateClassConstructorStorage(structIdx: Int) r: String {
+        let ptrReg = getNextReg()
+        var structSize = 8
+        if structIdx >= 0 {
+            structSize = structSizes[structIdx]
+            if structSize == 0 {
+                structSize = 16
+            }
+        }
+
+        if structSize <= 80 {
+            output.append("  " + ptrReg + " = call ptr @seen_pool_alloc(i64 " + structSize.toString() + ")\n")
+        } else {
+            output.append("  " + ptrReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
+        }
+        output.append("  call void @llvm.memset.p0.i64(ptr " + ptrReg + ", i8 0, i64 " + structSize.toString() + ", i1 false)\n")
+        return ptrReg
+    }
+
+    fun emitClassConstructorArrayFieldInitializers(ptrReg: String, structIdx: Int) r: Void {
+        if structIdx < 0 {
+            return
+        }
+
+        let fieldNamesStr = structFieldNames[structIdx]
+        let fieldTypesStr = structFieldTypes[structIdx]
+        var byteOffset = 0
+        var namePos = 0
+        var typePos = 0
+        var iterDone = 0
+        while iterDone == 0 {
+            var nameEnd = namePos
+            while nameEnd < fieldNamesStr.length() and fieldNamesStr.byteAt(nameEnd) != 44 {
+                nameEnd = nameEnd + 1
+            }
+            var typeEnd = typePos
+            while typeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(typeEnd) != 124 {
+                typeEnd = typeEnd + 1
+            }
+            let fieldSeenType = fieldTypesStr.substring(typePos, typeEnd)
+            let isArrayField = fieldSeenType.startsWith("Array<") or fieldSeenType.startsWith("List<")
+            if isArrayField {
+                let fieldPtrReg = getNextReg()
+                output.append("  " + fieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + byteOffset.toString() + "\n")
+                var elemType = ""
+                if fieldSeenType.startsWith("Array<") {
+                    elemType = fieldSeenType.substring(6, fieldSeenType.length() - 1)
+                }
+                if fieldSeenType.startsWith("List<") {
+                    elemType = fieldSeenType.substring(5, fieldSeenType.length() - 1)
+                }
+                let arrInitReg = getNextReg()
+                if elemType == "String" {
+                    output.append("  " + arrInitReg + " = call ptr @seen_arr_new_str_ptr()\n")
+                } else {
+                    if isDataType(elemType) {
+                        let elemSize = getDataTypeSize(elemType)
+                        output.append("  " + arrInitReg + " = call ptr @seen_arr_new_with_size_ptr(i64 " + elemSize.toString() + ")\n")
+                    } else {
+                        output.append("  " + arrInitReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
+                    }
+                }
+                output.append("  store ptr " + arrInitReg + ", ptr " + fieldPtrReg + "\n")
+            }
+            byteOffset = byteOffset + getTypeSize(fieldSeenType)
+            if nameEnd < fieldNamesStr.length() {
+                namePos = nameEnd + 1
+                typePos = typeEnd + 1
+            }
+            if nameEnd >= fieldNamesStr.length() {
+                iterDone = 1
+            }
+        }
+    }
+
+    fun emitClassConstructorArgumentStores(expr: ParserExpressionNode, ptrReg: String, structIdx: Int) r: Void {
+        if structIdx < 0 or expr.arguments.length() == 0 {
+            return
+        }
+
+        let ctorFieldTypesStr = structFieldTypes[structIdx]
+        var ctorByteOffset = 0
+        var ctorTypePos = 0
+        var ctorArgIdx = 0
+        while ctorArgIdx < expr.arguments.length() and ctorTypePos < ctorFieldTypesStr.length() {
+            var ctorTypeEnd = ctorTypePos
+            while ctorTypeEnd < ctorFieldTypesStr.length() and ctorFieldTypesStr.byteAt(ctorTypeEnd) != 124 {
+                ctorTypeEnd = ctorTypeEnd + 1
+            }
+            let ctorFieldSeenType = ctorFieldTypesStr.substring(ctorTypePos, ctorTypeEnd)
+            let ctorArgExpr = expr.arguments[ctorArgIdx]
+            let ctorArgReg = generateExpression(ctorArgExpr)
+            let ctorFieldPtrReg = getNextReg()
+            output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorByteOffset.toString() + "\n")
+            if isDataType(ctorFieldSeenType) {
+                if ctorArgExpr.kind == "StructLiteral" {
+                    let ctorFieldSize = getDataTypeSize(ctorFieldSeenType)
+                    output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + ctorFieldPtrReg + ", ptr " + ctorArgReg + ", i64 " + ctorFieldSize.toString() + ", i1 false)\n")
+                } else {
+                    output.append("  store %" + ctorFieldSeenType + " " + ctorArgReg + ", ptr " + ctorFieldPtrReg + "\n")
+                }
+            } else {
+                let ctorFieldLlvmType = mapType(ctorFieldSeenType)
+                var ctorStoreReg = ctorArgReg
+                if ctorFieldLlvmType == "ptr" and ctorStoreReg == "0" {
+                    ctorStoreReg = "null"
+                }
+                output.append("  store " + ctorFieldLlvmType + " " + ctorStoreReg + ", ptr " + ctorFieldPtrReg + "\n")
+            }
+            ctorByteOffset = ctorByteOffset + getTypeSize(ctorFieldSeenType)
+            ctorArgIdx = ctorArgIdx + 1
+            if ctorTypeEnd < ctorFieldTypesStr.length() {
+                ctorTypePos = ctorTypeEnd + 1
+            } else {
+                ctorTypePos = ctorFieldTypesStr.length()
+            }
+        }
+    }
+
+    fun tryGenerateHeapClassConstructorCall(expr: ParserExpressionNode, funcName: String, structIdx: Int) r: String {
+        if not isClassType(funcName) {
+            return ""
+        }
+
+        let ptrReg = allocateClassConstructorStorage(structIdx)
+        emitClassConstructorArrayFieldInitializers(ptrReg, structIdx)
+        emitClassConstructorArgumentStores(expr, ptrReg, structIdx)
+        let intReg = getNextReg()
+        output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
+        return intReg
+    }
+
+    fun tryGenerateClassConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
+        if not isClassType(funcName) {
+            return ""
+        }
+
+        let structIdx = findStruct(funcName)
+        let reprCResult = tryGenerateReprCClassConstructorCall(expr, funcName, structIdx)
+        if reprCResult != "" {
+            return reprCResult
+        }
+        return tryGenerateHeapClassConstructorCall(expr, funcName, structIdx)
+    }
+
+    fun tryGenerateConstructorLikeCall(expr: ParserExpressionNode, funcName: String) r: String {
+        let arrayCtorResult = tryGenerateArrayConstructorCall(expr, funcName)
+        if arrayCtorResult != "" {
+            return arrayCtorResult
+        }
+
+        let smallVecCtorResult = tryGenerateSmallVecConstructorCall(expr, funcName)
+        if smallVecCtorResult != "" {
+            return smallVecCtorResult
+        }
+
+        let collectionCtorResult = tryGenerateCollectionConstructorCall(expr, funcName)
+        if collectionCtorResult != "" {
+            return collectionCtorResult
+        }
+
+        return tryGenerateClassConstructorCall(expr, funcName)
     }
 
     fun stripGenericCalleeName(funcName: String) r: String {
@@ -10442,7 +10505,7 @@ class LLVMIRGenerator {
         return "0"
     }
 
-    fun tryGenerateRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
+    fun tryGenerateOptionRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         if funcName == "Some" {
             var argReg = "0"
             var argType = "Int"
@@ -10457,7 +10520,10 @@ class LLVMIRGenerator {
         if funcName == "None" {
             return emitNoneConstructorImpl(output, g_regBox)
         }
+        return ""
+    }
 
+    fun tryGenerateSuperRuntimeBuiltinCall(funcName: String) r: String {
         if funcName == "super" {
             if g_currentClassParentName != "" {
                 let thisIdx = findVar("this")
@@ -10470,6 +10536,10 @@ class LLVMIRGenerator {
             }
             return "0"
         }
+        return ""
+    }
+
+    fun tryGenerateEmptyRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         if funcName == "" {
             var i = 0
             while i < expr.arguments.length() {
@@ -10478,7 +10548,10 @@ class LLVMIRGenerator {
             }
             return "0"
         }
+        return ""
+    }
 
+    fun tryGeneratePrintRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         if funcName == "println" {
             if expr.arguments.length() > 0 {
                 return emitPrintLikeCall("println", expr.arguments[0])
@@ -10491,6 +10564,10 @@ class LLVMIRGenerator {
             }
             return "0"
         }
+        return ""
+    }
+
+    fun tryGenerateIoRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
 
         if funcName == "readText" {
             if expr.arguments.length() > 0 {
@@ -10518,7 +10595,10 @@ class LLVMIRGenerator {
             output.append("  " + resultReg + " = call ptr @args()\n")
             return resultReg
         }
+        return ""
+    }
 
+    fun tryGeneratePanicRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         if funcName == "panic" {
             if expr.arguments.length() > 0 {
                 let argReg = generateExpression(expr.arguments[0])
@@ -10531,8 +10611,36 @@ class LLVMIRGenerator {
             }
             return "0"
         }
-
         return ""
+    }
+
+    fun tryGenerateRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
+        let optionResult = tryGenerateOptionRuntimeBuiltinCall(expr, funcName)
+        if optionResult != "" {
+            return optionResult
+        }
+
+        let superResult = tryGenerateSuperRuntimeBuiltinCall(funcName)
+        if superResult != "" {
+            return superResult
+        }
+
+        let emptyCallResult = tryGenerateEmptyRuntimeBuiltinCall(expr, funcName)
+        if emptyCallResult != "" {
+            return emptyCallResult
+        }
+
+        let printResult = tryGeneratePrintRuntimeBuiltinCall(expr, funcName)
+        if printResult != "" {
+            return printResult
+        }
+
+        let ioResult = tryGenerateIoRuntimeBuiltinCall(expr, funcName)
+        if ioResult != "" {
+            return ioResult
+        }
+
+        return tryGeneratePanicRuntimeBuiltinCall(expr, funcName)
     }
 
     fun tryGenerateImplicitThisCall(expr: ParserExpressionNode, funcName: String) r: String {
