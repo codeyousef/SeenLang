@@ -62,7 +62,7 @@ import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFie
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
-import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
+import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
@@ -8484,6 +8484,268 @@ class LLVMIRGenerator {
         return resultReg
     }
 
+    fun shouldRebuildMemberAccessReceiver(receiverName: String) r: Int {
+        if receiverName.contains("()") {
+            return 1
+        }
+        if receiverName.contains(".") {
+            let receiverSegments = splitChainedPathImpl(receiverName)
+            if receiverSegments.length() > 0 and findVarType(receiverSegments[0]) != "" {
+                return 1
+            }
+        }
+        return 0
+    }
+
+    fun tryRebuildMemberAccessReceiver(expr: ParserExpressionNode, receiverName: String, fieldName: String) r: String {
+        if expr.operands.length() > 0 or receiverName.contains("[") or shouldRebuildMemberAccessReceiver(receiverName) == 0 {
+            return ""
+        }
+        let rebuiltReceiverExpr = buildChainedPathExprImpl(receiverName)
+        if rebuiltReceiverExpr.kind == "None" {
+            return ""
+        }
+        let rebuiltExpr = ParserExpressionNode.new()
+        rebuiltExpr.kind = "MemberAccess"
+        rebuiltExpr.variableName = fieldName
+        rebuiltExpr.operands.push(rebuiltReceiverExpr)
+        return generateMemberAccess(rebuiltExpr)
+    }
+
+    fun tryGenerateEnumMemberAccess(receiverName: String, fieldName: String) r: String {
+        if g_enumVariantCount > 0 and isEnumVariant(fieldName) {
+            let parentEnum = lookupEnumParent(fieldName)
+            if parentEnum == receiverName {
+                let varFieldCount = lookupEnumFieldCount(fieldName)
+                if varFieldCount > 0 {
+                    let enumExpr = ParserExpressionNode.new()
+                    return generateEnumConstructor(fieldName, enumExpr)
+                }
+                return lookupEnumVariantTag(fieldName).toString()
+            }
+        }
+        if receiverName == "SeenTokenType" {
+            return getSeenTokenTypeValue(fieldName).toString()
+        }
+        return ""
+    }
+
+    fun tryGenerateSimdSwizzleMemberAccess(receiverName: String, fieldName: String) r: String {
+        if receiverName == "" {
+            return ""
+        }
+        let swzVarType = findVarType(receiverName)
+        let swizzleType = inferSimdSwizzleMemberTypeImpl(swzVarType, fieldName)
+        if swizzleType == "" {
+            return ""
+        }
+        let swzIdx = findVar(receiverName)
+        if swzIdx < 0 {
+            return ""
+        }
+        return emitSimdSwizzleMemberAccessImpl(output, g_regBox, fieldName, mapType(swzVarType), varRegs[swzIdx])
+    }
+
+    fun tryGenerateExpressionReceiverMemberAccess(receiverExpr: ParserExpressionNode, fieldName: String) r: String {
+        let receiverReg = generateExpression(receiverExpr)
+        let receiverType = inferExpressionType(receiverExpr)
+        var exprIsClass = 0
+        if isClassType(receiverType) { exprIsClass = 1 }
+        var exprIsData = 0
+        if isDataType(receiverType) { exprIsData = 1 }
+        let actualReceiverReg = prepareExpressionMemberReceiverImpl(output, g_regBox,
+            receiverReg, receiverType, g_reprCClassNames, exprIsClass, exprIsData)
+        return generateFieldAccess(actualReceiverReg, receiverType, fieldName)
+    }
+
+    fun tryGenerateVariableReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
+        let idx = findVar(receiverName)
+        if idx < 0 {
+            return ""
+        }
+        let varType = varTypes[idx]
+        var varIsClass = 0
+        if isClassType(varType) { varIsClass = 1 }
+        var varIsData = 0
+        if isDataType(varType) { varIsData = 1 }
+        let actualVarReg = prepareVariableMemberReceiverImpl(output, g_regBox,
+            varRegs[idx], varType, g_reprCClassNames, varIsClass, varIsData)
+        return generateFieldAccess(actualVarReg, varType, fieldName)
+    }
+
+    fun tryGenerateModuleConstReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
+        let constIdx = findModuleConstant(receiverName)
+        if constIdx < 0 {
+            return ""
+        }
+        let constType = moduleConstantTypes[constIdx]
+        var constSeenType = getModuleConstSeenType(constIdx)
+        if constSeenType == "" {
+            constSeenType = findVarType(receiverName)
+        }
+        var invSuffix = ""
+        if not isModuleConstMutable(constIdx) {
+            invSuffix = ", !invariant.load !190"
+        }
+        var constIsClass = 0
+        if constSeenType != "" and isClassType(constSeenType) { constIsClass = 1 }
+        var constIsData = 0
+        if constSeenType != "" and isDataType(constSeenType) { constIsData = 1 }
+        let actualConstReg = prepareModuleConstMemberReceiverImpl(output, g_regBox,
+            "@" + quoteIdentIfNeeded(receiverName), constType, constSeenType, invSuffix, constIsClass, constIsData)
+        if actualConstReg == "" {
+            return ""
+        }
+        return generateFieldAccess(actualConstReg, constSeenType, fieldName)
+    }
+
+    fun tryGenerateBracketPathMemberAccess(receiverName: String, fieldName: String) r: String {
+        if not receiverName.contains("[") {
+            return ""
+        }
+        output.append("; DEBUG generateMemberAccess: handling array path=" + receiverName + " fieldName=" + fieldName + "\n")
+        let bracketParts = splitBracketPathImpl(receiverName)
+        if bracketParts.length() < 2 {
+            return ""
+        }
+        let pathBeforeBracket = bracketParts[0]
+        let indexStr = bracketParts[1]
+        output.append("; DEBUG array path: pathBeforeBracket=" + pathBeforeBracket + " indexStr=" + indexStr + "\n")
+        if not pathBeforeBracket.contains(".") {
+            return ""
+        }
+
+        let pathParts = splitFirstPathDotImpl(pathBeforeBracket)
+        let baseVar = pathParts[0]
+        let arrayField = pathParts[1]
+        output.append("; DEBUG array path split: baseVar=" + baseVar + " arrayField=" + arrayField + "\n")
+
+        let baseIdx = findVar(baseVar)
+        if baseIdx < 0 {
+            return ""
+        }
+
+        let baseType = varTypes[baseIdx]
+        var baseIsClass = 0
+        if isClassType(baseType) { baseIsClass = 1 }
+        var baseIsData = 0
+        if isDataType(baseType) { baseIsData = 1 }
+        let basePtrReg = prepareVariableMemberReceiverImpl(output, g_regBox,
+            varRegs[baseIdx], baseType, g_reprCClassNames, baseIsClass, baseIsData)
+        let arrayReg = generateFieldAccess(basePtrReg, baseType, arrayField)
+        let arrayType = getSeenFieldType(baseType, arrayField)
+        output.append("; DEBUG array access: arrayReg=" + arrayReg + " arrayType=" + arrayType + "\n")
+
+        var elementType = parseArrayElementType(arrayType)
+        if elementType == "" and arrayType.startsWith("Array<") and arrayType.endsWith(">") {
+            elementType = arrayType.substring(6, arrayType.length() - 1)
+        }
+
+        let elementPtrReg = emitMemberArrayElementPtrImpl(output, g_regBox, arrayReg, indexStr)
+        output.append("; DEBUG element access: elementPtrReg=" + elementPtrReg + " elementType=" + elementType + "\n")
+        return generateFieldAccess(elementPtrReg, elementType, fieldName)
+    }
+
+    fun walkMemberAccessChainPointer(startPtrReg: String, startType: String, path: String) r: String {
+        if path == "" {
+            return startPtrReg
+        }
+        var chainPtr = startPtrReg
+        var chainType = startType
+        let pathSegments = splitChainedPathImpl(path)
+        var chainIdx = 0
+        while chainIdx < pathSegments.length() {
+            let chainField = pathSegments[chainIdx]
+            let chainFieldType = getSeenFieldType(chainType, chainField)
+            output.append("; DEBUG chained ptr access: chainType=" + chainType + " chainField=" + chainField + " chainFieldType=" + chainFieldType + "\n")
+            if isClassType(chainFieldType) {
+                let loadedVal = generateFieldAccess(chainPtr, chainType, chainField)
+                let convPtr = getNextReg()
+                output.append("  " + convPtr + " = inttoptr i64 " + loadedVal + " to ptr\n")
+                chainPtr = convPtr
+            } else {
+                chainPtr = generateFieldAccessPtr(chainPtr, chainType, chainField)
+            }
+            chainType = chainFieldType
+            chainIdx = chainIdx + 1
+        }
+        return chainPtr
+    }
+
+    fun tryGenerateChainedReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
+        if not receiverName.contains(".") {
+            return ""
+        }
+        let receiverParts = splitFirstPathDotImpl(receiverName)
+        let baseVarName = receiverParts[0]
+        let restPath = receiverParts[1]
+        if restPath == "" {
+            return ""
+        }
+
+        let baseIdx = findVar(baseVarName)
+        if baseIdx < 0 {
+            return ""
+        }
+        let baseType = varTypes[baseIdx]
+        var baseIsClass = 0
+        if isClassType(baseType) { baseIsClass = 1 }
+        var baseIsData = 0
+        if isDataType(baseType) { baseIsData = 1 }
+        let basePtrReg = prepareVariableMemberReceiverImpl(output, g_regBox,
+            varRegs[baseIdx], baseType, g_reprCClassNames, baseIsClass, baseIsData)
+
+        output.append("; DEBUG generateMemberAccess: baseType=" + baseType + " restPath=" + restPath + " fieldName=" + fieldName + "\n")
+        var intermediateType = resolveChainedPathSuffixTypeImpl(baseType, restPath,
+            structNames, structFieldNames, structFieldTypes, structMethodNames, structMethodRetTypes)
+        output.append("; DEBUG chained type final: intermediateType=" + intermediateType + "\n")
+        if intermediateType == "" {
+            intermediateType = "ProgramNode"
+        }
+
+        var actualIntermediateReg = ""
+        if isClassType(intermediateType) {
+            let intermediateReg = generateFieldAccess(basePtrReg, baseType, restPath)
+            let ptrConvReg = getNextReg()
+            output.append("  " + ptrConvReg + " = inttoptr i64 " + intermediateReg + " to ptr\n")
+            actualIntermediateReg = ptrConvReg
+        } else if restPath.contains(".") {
+            actualIntermediateReg = walkMemberAccessChainPointer(basePtrReg, baseType, restPath)
+        } else {
+            actualIntermediateReg = generateFieldAccessPtr(basePtrReg, baseType, restPath)
+        }
+
+        return generateFieldAccess(actualIntermediateReg, intermediateType, fieldName)
+    }
+
+    fun tryGenerateImplicitThisReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
+        let thisIdx = findVar("this")
+        if thisIdx < 0 {
+            return ""
+        }
+        let thisType = varTypes[thisIdx]
+        let fieldIdx = getFieldInfo(thisType, receiverName)
+        if fieldIdx < 0 {
+            return ""
+        }
+
+        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, varRegs[thisIdx])
+        let intermediateType = getSeenFieldType(thisType, receiverName)
+        output.append("; DEBUG this field access: thisType=" + thisType + " receiverName=" + receiverName + " intermediateType=" + intermediateType + " fieldName=" + fieldName + "\n")
+
+        var accessReg = ""
+        if isClassType(intermediateType) {
+            let intermediateReg = generateFieldAccess(thisPtrReg, thisType, receiverName)
+            let ptrConvReg = getNextReg()
+            output.append("  " + ptrConvReg + " = inttoptr i64 " + intermediateReg + " to ptr\n")
+            accessReg = ptrConvReg
+        } else {
+            accessReg = generateFieldAccessPtr(thisPtrReg, thisType, receiverName)
+        }
+
+        return generateFieldAccess(accessReg, intermediateType, fieldName)
+    }
+
     // Generate IR for member access (expr.field). Handles:
     //   - Array/String .length() — inline load from SeenArray.len field
     //   - Enum variant field access — load from heap offset (tag + fieldIdx*8)
@@ -8491,296 +8753,153 @@ class LLVMIRGenerator {
     //   - Data type field access — direct GEP on pointer
     //   - Chained access (a.b.c) — recursive resolution via generateFieldAccess
     fun generateMemberAccess(expr: ParserExpressionNode) r: String {
-        // literalValue = receiver variable name (or chained path)
-        // variableName = field/member name
         let receiverName = expr.literalValue
         let fieldName = expr.variableName
 
-        if expr.operands.length() == 0 and not receiverName.contains("[") {
-            var shouldRebuildReceiver = false
-            if receiverName.contains("()") {
-                shouldRebuildReceiver = true
-            }
-            if not shouldRebuildReceiver and receiverName.contains(".") {
-                let receiverSegments = splitChainedPathImpl(receiverName)
-                if receiverSegments.length() > 0 {
-                    if findVarType(receiverSegments[0]) != "" {
-                        shouldRebuildReceiver = true
-                    }
-                }
-            }
-            if shouldRebuildReceiver {
-                let rebuiltReceiverExpr = buildChainedPathExprImpl(receiverName)
-                if rebuiltReceiverExpr.kind != "None" {
-                    let rebuiltExpr = ParserExpressionNode.new()
-                    rebuiltExpr.kind = "MemberAccess"
-                    rebuiltExpr.variableName = fieldName
-                    rebuiltExpr.operands.push(rebuiltReceiverExpr)
-                    return generateMemberAccess(rebuiltExpr)
-                }
-            }
+        let rebuiltResult = tryRebuildMemberAccessReceiver(expr, receiverName, fieldName)
+        if rebuiltResult != "" {
+            return rebuiltResult
         }
 
-        // Enum variant access: Color.Red -> generate tag value
-        if g_enumVariantCount > 0 {
-            if isEnumVariant(fieldName) {
-                let parentEnum = lookupEnumParent(fieldName)
-                if parentEnum == receiverName {
-                    let varFieldCount = lookupEnumFieldCount(fieldName)
-                    if varFieldCount > 0 {
-                        // Data enum: construct heap object with tag + fields
-                        let enumExpr = ParserExpressionNode.new()
-                        return generateEnumConstructor(fieldName, enumExpr)
-                    }
-                    // Simple enum (no data fields): return tag as i64 constant
-                    let simpleTag = lookupEnumVariantTag(fieldName)
-                    return simpleTag.toString()
-                }
-            }
+        let enumResult = tryGenerateEnumMemberAccess(receiverName, fieldName)
+        if enumResult != "" {
+            return enumResult
         }
 
-        // Handle enum member access: SeenTokenType.KeywordImport -> integer value
-        if receiverName == "SeenTokenType" {
-            let enumValue = getSeenTokenTypeValue(fieldName)
-            return enumValue.toString()
+        let swizzleResult = tryGenerateSimdSwizzleMemberAccess(receiverName, fieldName)
+        if swizzleResult != "" {
+            return swizzleResult
         }
 
-        // SIMD swizzle syntax — vec.xzyw, vec.x, vec.xy
-        if receiverName != "" {
-            let swzVarType = findVarType(receiverName)
-            if isSimdVectorType(swzVarType) == 1 {
-                let swzLanes = simdLaneCount(swzVarType)
-                if isSwizzlePattern(fieldName, swzLanes) == 1 {
-                    let swzLT = mapType(swzVarType)
-                    let swzIdx = findVar(receiverName)
-                    if swzIdx >= 0 {
-                        return emitSimdSwizzleMemberAccessImpl(output, g_regBox, fieldName, swzLT, varRegs[swzIdx])
-                    }
-                }
-            }
-        }
-
-        // Check if receiver has an operand (chained expression like func().field)
         if expr.operands.length() > 0 {
-            // Receiver is an expression result - get its type and generate field access
-            let receiverReg = generateExpression(expr.operands[0])
-            let receiverType = inferExpressionType(expr.operands[0])
-            var exprIsClass = 0
-            if isClassType(receiverType) { exprIsClass = 1 }
-            var exprIsData = 0
-            if isDataType(receiverType) { exprIsData = 1 }
-            let actualReceiverReg = prepareExpressionMemberReceiverImpl(output, g_regBox,
-                receiverReg, receiverType, g_reprCClassNames, exprIsClass, exprIsData)
-            return generateFieldAccess(actualReceiverReg, receiverType, fieldName)
+            return tryGenerateExpressionReceiverMemberAccess(expr.operands[0], fieldName)
         }
 
-        // Simple variable field access like frontend.success or frontend.program
-        let idx = findVar(receiverName)
-        if idx >= 0 {
-            let varReg = varRegs[idx]
-            let varType = varTypes[idx]
-            var varIsClass = 0
-            if isClassType(varType) { varIsClass = 1 }
-            var varIsData = 0
-            if isDataType(varType) { varIsData = 1 }
-            let actualVarReg = prepareVariableMemberReceiverImpl(output, g_regBox,
-                varReg, varType, g_reprCClassNames, varIsClass, varIsData)
-            return generateFieldAccess(actualVarReg, varType, fieldName)
+        let varResult = tryGenerateVariableReceiverMemberAccess(receiverName, fieldName)
+        if varResult != "" {
+            return varResult
         }
 
-        let constIdx = findModuleConstant(receiverName)
-        if constIdx >= 0 {
-            let constType = moduleConstantTypes[constIdx]
-            let constSeenType = findVarType(receiverName)
-            var invSuffix = ""
-            if not isModuleConstMutable(constIdx) {
-                invSuffix = ", !invariant.load !190"
-            }
-            var constIsClass = 0
-            if constSeenType != "" and isClassType(constSeenType) { constIsClass = 1 }
-            var constIsData = 0
-            if constSeenType != "" and isDataType(constSeenType) { constIsData = 1 }
-            let quotedConstName = "@" + quoteIdentIfNeeded(receiverName)
-            let actualConstReg = prepareModuleConstMemberReceiverImpl(output, g_regBox,
-                quotedConstName, constType, constSeenType, invSuffix, constIsClass, constIsData)
-            if actualConstReg != "" {
-                return generateFieldAccess(actualConstReg, constSeenType, fieldName)
-            }
+        let constResult = tryGenerateModuleConstReceiverMemberAccess(receiverName, fieldName)
+        if constResult != "" {
+            return constResult
         }
 
-        // Handle path with array indexing like "expr.operands[0]" for ".kind"
-        if receiverName.contains("[") {
-            output.append("; DEBUG generateMemberAccess: handling array path=" + receiverName + " fieldName=" + fieldName + "\n")
-            let bracketParts = splitBracketPathImpl(receiverName)
-            if bracketParts.length() >= 2 {
-                let pathBeforeBracket = bracketParts[0]
-                let indexStr = bracketParts[1]
-                output.append("; DEBUG array path: pathBeforeBracket=" + pathBeforeBracket + " indexStr=" + indexStr + "\n")
-
-                // Generate the array access
-                // First, generate the path before bracket (e.g., "expr.operands")
-                if pathBeforeBracket.contains(".") {
-                    let pathParts = splitFirstPathDotImpl(pathBeforeBracket)
-                    let baseVar = pathParts[0]
-                    let arrayField = pathParts[1]
-
-                    output.append("; DEBUG array path split: baseVar=" + baseVar + " arrayField=" + arrayField + "\n")
-
-                    let baseIdx = findVar(baseVar)
-                    if baseIdx >= 0 {
-                        let baseReg = varRegs[baseIdx]
-                        let baseType = varTypes[baseIdx]
-
-                        // Load the base pointer
-                        let ptrReg = getNextReg()
-                        output.append("  " + ptrReg + " = load ptr, ptr " + baseReg + "\n")
-
-                        // Access the array field
-                        let arrayReg = generateFieldAccess(ptrReg, baseType, arrayField)
-                        let arrayType = getSeenFieldType(baseType, arrayField)
-
-                        output.append("; DEBUG array access: arrayReg=" + arrayReg + " arrayType=" + arrayType + "\n")
-
-                        // Infer the element type BEFORE making the array access call
-                        var elementType = "ptr"
-                        if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
-                            elementType = arrayType.substring(6, arrayType.length() - 1)
-                        }
-
-                        // Now perform index access - use pointer-based accessors to avoid ABI issues
-                        // arrayReg is ptr to SeenArray, pass pointer directly (no load needed)
-                        let elementPtrReg = getNextReg()
-                        // Use seen_arr_get_element_ptr for ALL types - it uses stored element_size for correct offset
-                        // seen_arr_get_ptr_ptr only works for 8-byte elements, but element_ptr works for any size
-                        output.append("  " + elementPtrReg + " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg + ", i64 " + indexStr + ")\n")
-
-                        output.append("; DEBUG element access: elementPtrReg=" + elementPtrReg + " elementType=" + elementType + "\n")
-
-                        // Finally, access the field on the element
-                        return generateFieldAccess(elementPtrReg, elementType, fieldName)
-                    }
-                }
-            }
+        let bracketResult = tryGenerateBracketPathMemberAccess(receiverName, fieldName)
+        if bracketResult != "" {
+            return bracketResult
         }
 
-        // Handle chained receiver like "frontend.program" with fieldName "items"
-        // Need to find base variable and chain through fields
-        if receiverName.contains(".") {
-            let receiverParts = splitFirstPathDotImpl(receiverName)
-            let baseVarName = receiverParts[0]
-            let restPath = receiverParts[1]
-            if restPath != "" {
-
-                let baseIdx = findVar(baseVarName)
-                if baseIdx >= 0 {
-                    let baseReg = varRegs[baseIdx]
-                    let baseType = varTypes[baseIdx]
-                    // Load base - class types are stored as i64, data types are inline
-                    var ptrReg = ""
-                    if isClassType(baseType) {
-                        let loadReg = getNextReg()
-                        output.append("  " + loadReg + " = load i64, ptr " + baseReg + "\n")
-                        ptrReg = getNextReg()
-                        output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
-                    } else {
-                        if isDataType(baseType) {
-                            // Data types are stored inline - use the alloca pointer directly
-                            ptrReg = baseReg
-                        } else {
-                            ptrReg = getNextReg()
-                            output.append("  " + ptrReg + " = load ptr, ptr " + baseReg + "\n")
-                        }
-                    }
-                    // First, determine the intermediate type so we know how to access it
-                    output.append("; DEBUG generateMemberAccess: baseType=" + baseType + " restPath=" + restPath + " fieldName=" + fieldName + "\n")
-                    var intermediateType = resolveChainedPathSuffixTypeImpl(baseType, restPath,
-                        structNames, structFieldNames, structFieldTypes,
-                        structMethodNames, structMethodRetTypes)
-                    output.append("; DEBUG chained type final: intermediateType=" + intermediateType + "\n")
-                    if intermediateType == "" {
-                        intermediateType = "ProgramNode"  // Default for .program access
-                    }
-
-                    // Access intermediate field (e.g., "program")
-                    // For class types: load value (i64) and convert to ptr
-                    // For inline data types: get pointer to field directly
-                    var actualIntermediateReg = ""
-                    if isClassType(intermediateType) {
-                        let intermediateReg = generateFieldAccess(ptrReg, baseType, restPath)
-                        let ptrConvReg = getNextReg()
-                        output.append("  " + ptrConvReg + " = inttoptr i64 " + intermediateReg + " to ptr\n")
-                        actualIntermediateReg = ptrConvReg
-                    } else {
-                        // Inline data types: get pointer to the field (don't load the value)
-                        // Handle chained paths like "function.returnType" by walking through each segment
-                        if restPath.contains(".") {
-                            // Walk through the chain, accessing each field in turn
-                            var chainPtr = ptrReg
-                            var chainType = baseType
-                            let pathSegments = splitChainedPathImpl(restPath)
-                            var chainIdx = 0
-                            while chainIdx < pathSegments.length() {
-                                let chainField = pathSegments[chainIdx]
-                                let chainFieldType = getSeenFieldType(chainType, chainField)
-                                output.append("; DEBUG chained ptr access: chainType=" + chainType + " chainField=" + chainField + " chainFieldType=" + chainFieldType + "\n")
-                                if isClassType(chainFieldType) {
-                                    // Class field: load i64 and convert to ptr
-                                    let loadedVal = generateFieldAccess(chainPtr, chainType, chainField)
-                                    let convPtr = getNextReg()
-                                    output.append("  " + convPtr + " = inttoptr i64 " + loadedVal + " to ptr\n")
-                                    chainPtr = convPtr
-                                } else {
-                                    // Data and primitive fields both advance via field pointer access.
-                                    chainPtr = generateFieldAccessPtr(chainPtr, chainType, chainField)
-                                }
-                                chainType = chainFieldType
-                                chainIdx = chainIdx + 1
-                            }
-                            actualIntermediateReg = chainPtr
-                        } else {
-                            // Simple single field access
-                            actualIntermediateReg = generateFieldAccessPtr(ptrReg, baseType, restPath)
-                        }
-                    }
-                    return generateFieldAccess(actualIntermediateReg, intermediateType, fieldName)
-                }
-            }
+        let chainedResult = tryGenerateChainedReceiverMemberAccess(receiverName, fieldName)
+        if chainedResult != "" {
+            return chainedResult
         }
 
-        // Handle field of 'this' - if receiverName isn't a local variable, check if it's a field on 'this'
-        let thisIdx = findVar("this")
-        if thisIdx >= 0 {
-            let thisReg = varRegs[thisIdx]
-            let thisType = varTypes[thisIdx]
-
-            // Check if receiverName is a field of thisType
-            let fieldIdx = getFieldInfo(thisType, receiverName)
-            if fieldIdx >= 0 {
-                // Load 'this' pointer and access the field chain
-                let ptrReg = getNextReg()
-                output.append("  " + ptrReg + " = load ptr, ptr " + thisReg + "\n")
-
-                let intermediateType = getSeenFieldType(thisType, receiverName)
-
-                output.append("; DEBUG this field access: thisType=" + thisType + " receiverName=" + receiverName + " intermediateType=" + intermediateType + " fieldName=" + fieldName + "\n")
-
-                // Resolve pointer to intermediate field (class -> i64 to ptr, data -> field pointer)
-                var accessReg = ""
-                if isClassType(intermediateType) {
-                    let intermediateReg = generateFieldAccess(ptrReg, thisType, receiverName)
-                    let ptrConvReg = getNextReg()
-                    output.append("  " + ptrConvReg + " = inttoptr i64 " + intermediateReg + " to ptr\n")
-                    accessReg = ptrConvReg
-                } else {
-                    accessReg = generateFieldAccessPtr(ptrReg, thisType, receiverName)
-                }
-
-                // Now access the final field (e.g., 'statements')
-                return generateFieldAccess(accessReg, intermediateType, fieldName)
-            }
+        let thisResult = tryGenerateImplicitThisReceiverMemberAccess(receiverName, fieldName)
+        if thisResult != "" {
+            return thisResult
         }
 
         return "0"
+    }
+
+    fun tryGenerateReprCFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
+        if g_reprCClassNames != "" and g_reprCClassNames.contains(structType + "|") {
+            let structIdx = findStruct(structType)
+            if structIdx >= 0 {
+                let regFieldIdx = getFieldInfo(structType, fieldName)
+                if regFieldIdx >= 0 {
+                    let evReg = getNextReg()
+                    output.append("  " + evReg + " = extractvalue %" + structType + " " + ptrReg + ", " + regFieldIdx.toString() + "\n")
+                    return evReg
+                }
+            }
+        }
+        return ""
+    }
+
+    fun tryGenerateSpecialFieldAccessChain(ptrReg: String, structType: String, fieldName: String) r: String {
+        if fieldName == "program.items" {
+            let progReg = generateFieldAccess(ptrReg, structType, "program")
+            let progPtrReg = getNextReg()
+            output.append("  " + progPtrReg + " = inttoptr i64 " + progReg + " to ptr\n")
+            return generateFieldAccess(progPtrReg, "ProgramNode", "items")
+        }
+        if fieldName == "program.items.length" {
+            let progReg = generateFieldAccess(ptrReg, structType, "program")
+            let progPtrReg = getNextReg()
+            output.append("  " + progPtrReg + " = inttoptr i64 " + progReg + " to ptr\n")
+            let itemsReg = generateFieldAccess(progPtrReg, "ProgramNode", "items")
+            let lenPtrReg = emitFieldAccessPtrImpl(output, g_regBox, itemsReg, "%SeenArray", 0)
+            return emitFieldAccessLoadImpl(output, g_regBox, "i64", lenPtrReg)
+        }
+        return ""
+    }
+
+    fun tryGenerateChainedFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
+        if not fieldName.contains(".") {
+            return ""
+        }
+        let fieldParts = splitFirstPathDotImpl(fieldName)
+        let firstField = fieldParts[0]
+        let restFields = fieldParts[1]
+        if restFields == "" {
+            output.append("; ERROR: Unknown chained field access: " + fieldName + "\n")
+            return "0"
+        }
+
+        let firstType = getSeenFieldType(structType, firstField)
+        output.append("; DEBUG chained access: structType=" + structType + " firstField=" + firstField + " firstType=" + firstType + " restFields=" + restFields + "\n")
+
+        var actualFirstReg = ""
+        if isClassType(firstType) {
+            let firstReg = generateFieldAccess(ptrReg, structType, firstField)
+            let ptrConvReg = getNextReg()
+            output.append("  " + ptrConvReg + " = inttoptr i64 " + firstReg + " to ptr\n")
+            actualFirstReg = ptrConvReg
+        } else {
+            actualFirstReg = generateFieldAccessPtr(ptrReg, structType, firstField)
+        }
+        return generateFieldAccess(actualFirstReg, firstType, restFields)
+    }
+
+    fun tryGenerateUnionFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
+        if g_unionTypes != "" and g_unionTypes.contains(structType + "|") {
+            return emitFieldAccessLoadImpl(output, g_regBox, getFieldType(structType, fieldName), ptrReg)
+        }
+        return ""
+    }
+
+    fun resolveFieldAccessLayoutInfo(structType: String, fieldName: String) r: String {
+        let lb = "{"
+        let rb = "}"
+        if structType == "LLVMIRGenerator" {
+            var idx = getLLVMIRGeneratorFieldIndex(fieldName)
+            if idx < 0 {
+                idx = 0
+            }
+            return lb + " i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr " + rb + "|" + idx.toString()
+        }
+        return resolveFieldAccessLayoutImpl(structType, fieldName, structNames, structLayouts, structFieldNames)
+    }
+
+    fun emitResolvedFieldAccessLoad(ptrReg: String, structType: String, fieldName: String) r: String {
+        let layoutParts = splitPipe(resolveFieldAccessLayoutInfo(structType, fieldName))
+        var structLayout = "{ i64 }"
+        var fieldIndex = 0
+        if layoutParts.length() >= 2 {
+            structLayout = layoutParts[0]
+            fieldIndex = parseIntManual(layoutParts[1])
+        }
+        let fieldPtrReg = emitFieldAccessPtrImpl(output, g_regBox, ptrReg, structLayout, fieldIndex)
+        var resultReg = emitFieldAccessLoadImpl(output, g_regBox, getFieldType(structType, fieldName), fieldPtrReg)
+        if g_bitfieldCount > 0 {
+            let bitfieldWidth = findBitfieldWidthImpl(structType + "." + fieldName, g_bitfieldKeys, g_bitfieldWidths)
+            if bitfieldWidth > 0 and bitfieldWidth < 64 {
+                resultReg = emitBitfieldMaskLoadImpl(output, g_regBox, resultReg, bitfieldWidth)
+            }
+        }
+        return resultReg
     }
 
     // Generate a struct field load via GEP (getelementptr). For simple fields,
@@ -8793,254 +8912,48 @@ class LLVMIRGenerator {
     // data changes on push/resize, so the invariant annotation would be
     // incorrect and could cause LLVM to cache stale pointers.
     fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
-        // @repr(C) value-type structs: use extractvalue instead of GEP+load
-        if g_reprCClassNames != "" {
-            if g_reprCClassNames.contains(structType + "|") {
-                let structIdx = findStruct(structType)
-                if structIdx >= 0 {
-                    let regFieldIdx = getFieldInfo(structType, fieldName)
-                    if regFieldIdx >= 0 {
-                        let fieldType = getFieldType(structType, fieldName)
-                        let evReg = getNextReg()
-                        output.append("  " + evReg + " = extractvalue %" + structType + " " + ptrReg + ", " + regFieldIdx.toString() + "\n")
-                        return evReg
-                    }
-                }
-            }
-        }
-        // Handle known chained field access patterns directly (avoid substring for reliability)
-        if fieldName == "program.items" {
-            // FrontendResult.program -> ProgramNode, then ProgramNode.items
-            let progReg = generateFieldAccess(ptrReg, structType, "program")
-            // program is a class type (i64), convert to ptr for next field access
-            let progPtrReg = getNextReg()
-            output.append("  " + progPtrReg + " = inttoptr i64 " + progReg + " to ptr\n")
-            return generateFieldAccess(progPtrReg, "ProgramNode", "items")
-        }
-        if fieldName == "program.items.length" {
-            // Access through chain
-            let progReg = generateFieldAccess(ptrReg, structType, "program")
-            // program is a class type (i64), convert to ptr for next field access
-            let progPtrReg = getNextReg()
-            output.append("  " + progPtrReg + " = inttoptr i64 " + progReg + " to ptr\n")
-            let itemsReg = generateFieldAccess(progPtrReg, "ProgramNode", "items")
-            // Return length field of array
-            let lenPtrReg = getNextReg()
-            output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + itemsReg + ", i32 0, i32 0\n")
-            let lenReg = getNextReg()
-            output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
-            return lenReg
-        }
-        if fieldName.contains(".") {
-            // Generic chained access - split and resolve sequentially
-            // Find the first dot
-            var dotIdx = 0
-            var searchIdx = 0
-            while searchIdx < fieldName.length() {
-                if fieldName.byteAt(searchIdx) == 46 {
-                    dotIdx = searchIdx
-                    searchIdx = fieldName.length()
-                }
-                searchIdx = searchIdx + 1
-            }
-            if dotIdx > 0 {
-                let firstField = fieldName.substring(0, dotIdx)
-                let restFields = fieldName.substring(dotIdx + 1, fieldName.length())
-
-                // Get type of first field for next access
-                let firstType = getSeenFieldType(structType, firstField)
-
-                output.append("; DEBUG chained access: structType=" + structType + " firstField=" + firstField + " firstType=" + firstType + " restFields=" + restFields + "\n")
-
-                // For class types (stored as i64), load and convert to ptr
-                // For inline data types (stored by value), get pointer to field
-                var actualFirstReg = ""
-                if isClassType(firstType) {
-                    // Class types are stored as i64 - load and convert to ptr
-                    let firstReg = generateFieldAccess(ptrReg, structType, firstField)
-                    let ptrConvReg = getNextReg()
-                    output.append("  " + ptrConvReg + " = inttoptr i64 " + firstReg + " to ptr\n")
-                    actualFirstReg = ptrConvReg
-                } else {
-                    // Inline data types - get pointer to the field directly (don't load)
-                    let fieldPtrReg = generateFieldAccessPtr(ptrReg, structType, firstField)
-                    actualFirstReg = fieldPtrReg
-                }
-
-                // Recursively access remaining fields
-                return generateFieldAccess(actualFirstReg, firstType, restFields)
-            }
-            output.append("; ERROR: Unknown chained field access: " + fieldName + "\n")
-            return "0"
+        let reprCResult = tryGenerateReprCFieldAccess(ptrReg, structType, fieldName)
+        if reprCResult != "" {
+            return reprCResult
         }
 
-        // Union types: all fields overlap at offset 0, load directly (no GEP)
-        if g_unionTypes != "" {
-            if g_unionTypes.contains(structType + "|") {
-                let unionFieldType = getFieldType(structType, fieldName)
-                let unionResultReg = getNextReg()
-                output.append("  " + unionResultReg + " = load " + unionFieldType + ", ptr " + ptrReg + " ; union field access\n")
-                return unionResultReg
-            }
+        let specialChainResult = tryGenerateSpecialFieldAccessChain(ptrReg, structType, fieldName)
+        if specialChainResult != "" {
+            return specialChainResult
         }
 
-        var fieldIndex = 0
-        var fieldType = getFieldType(structType, fieldName)
-        let lb = "{"
-        let rb = "}"
-        var structLayout = lb + " i64 " + rb
-
-        if structType == "LLVMIRGenerator" {
-            structLayout = lb + " i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr " + rb
-            let idx = getLLVMIRGeneratorFieldIndex(fieldName)
-            if idx >= 0 {
-                fieldIndex = idx
-            }
-        } else {
-            let layoutInfo = resolveFieldAccessLayoutImpl(structType, fieldName, structNames, structLayouts, structFieldNames)
-            let layoutParts = splitPipe(layoutInfo)
-            if layoutParts.length() >= 2 {
-                structLayout = layoutParts[0]
-                fieldIndex = parseIntManual(layoutParts[1])
-            }
+        let chainedResult = tryGenerateChainedFieldAccess(ptrReg, structType, fieldName)
+        if chainedResult != "" {
+            return chainedResult
         }
 
-        // Generate GEP to field
-        let fieldPtrReg = getNextReg()
-        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n")
-
-        // Load the field value
-        var resultReg = getNextReg()
-        output.append("  " + resultReg + " = load " + fieldType + ", ptr " + fieldPtrReg + "\n")
-
-        // Bitfield read: mask to extract only the relevant bits
-        if g_bitfieldCount > 0 {
-            let bfKey = structType + "." + fieldName
-            if g_bitfieldKeys.contains(bfKey + "|") {
-                // Find width by matching key in pipe-delimited registry
-                var bfSearchPos = 0
-                var bfIdx = 0
-                var bfWidth = 0
-                while bfSearchPos < g_bitfieldKeys.length() and bfWidth == 0 {
-                    var bfNextPipe = g_bitfieldKeys.indexOf("|", bfSearchPos)
-                    if bfNextPipe < 0 { bfNextPipe = g_bitfieldKeys.length() }
-                    let bfEntry = g_bitfieldKeys.substring(bfSearchPos, bfNextPipe)
-                    if bfEntry == bfKey {
-                        // Extract width at same index
-                        var bfWSearchPos = 0
-                        var bfWIdx = 0
-                        while bfWSearchPos < g_bitfieldWidths.length() {
-                            var bfWNextPipe = g_bitfieldWidths.indexOf("|", bfWSearchPos)
-                            if bfWNextPipe < 0 { bfWNextPipe = g_bitfieldWidths.length() }
-                            if bfWIdx == bfIdx {
-                                let bfWStr = g_bitfieldWidths.substring(bfWSearchPos, bfWNextPipe)
-                                bfWidth = parseSimpleInt(bfWStr)
-                                bfWSearchPos = g_bitfieldWidths.length()
-                            }
-                            bfWIdx = bfWIdx + 1
-                            bfWSearchPos = bfWNextPipe + 1
-                        }
-                    }
-                    bfIdx = bfIdx + 1
-                    bfSearchPos = bfNextPipe + 1
-                }
-                if bfWidth > 0 and bfWidth < 64 {
-                    // mask = (1 << width) - 1
-                    var bfMask = 1
-                    var bfShift = 0
-                    while bfShift < bfWidth {
-                        bfMask = bfMask * 2
-                        bfShift = bfShift + 1
-                    }
-                    bfMask = bfMask - 1
-                    let bfMaskedReg = getNextReg()
-                    output.append("  " + bfMaskedReg + " = and i64 " + resultReg + ", " + bfMask.toString() + " ; bitfield(" + bfWidth.toString() + ")\n")
-                    resultReg = bfMaskedReg
-                }
-            }
+        let unionResult = tryGenerateUnionFieldAccess(ptrReg, structType, fieldName)
+        if unionResult != "" {
+            return unionResult
         }
 
-        // NOTE: Array fields return ptr to heap SeenArray (NOT the SeenArray itself)
-        // Callers that need the SeenArray value should load it themselves
-        // This keeps the return value consistent with the storage type
-
-        // NOTE: Class fields return i64 (pointer-as-int) directly
-        // Callers that need to use the value as a pointer (e.g., for method calls)
-        // should convert using inttoptr themselves
-        // This keeps the return value consistent with the storage type
-
-        return resultReg
+        return emitResolvedFieldAccessLoad(ptrReg, structType, fieldName)
     }
 
-    // Helper function to identify array fields (stored as ptr, need dereference to get SeenArray)
-    fun isArrayField(structType: String, fieldName: String) r: Bool {
-        if structType == "ProgramNode" and fieldName == "items" { return true }
-        if structType == "ItemNode" and (fieldName == "importPath" or fieldName == "importSymbols") { return true }
-        if structType == "FrontendResult" and fieldName == "diagnostics" { return true }
-        if structType == "ImportPathInfo" and fieldName == "segments" { return true }
-        if structType == "TypeInferenceResult" and (fieldName == "errors" or fieldName == "warnings") { return true }
-        if structType == "MacroExpansionResult" and fieldName == "errors" { return true }
-        if structType == "FunctionNode" and fieldName == "params" { return true }
-        if structType == "ClassNode" and (fieldName == "fields" or fieldName == "methods" or fieldName == "decorators") { return true }
-        if structType == "ParserExpressionNode" and (fieldName == "operands" or fieldName == "arguments") { return true }
-        if structType == "FunctionType" and fieldName == "parameters" { return true }
-        if structType == "BlockNode" and fieldName == "statements" { return true }
-        return false
-    }
-
-    // Helper function to identify class fields (stored as i64, need inttoptr conversion)
-    fun isClassField(structType: String, fieldName: String) r: Bool {
-        if structType == "FrontendResult" and fieldName == "program" { return true }
-        if structType == "ItemNode" and (fieldName == "function" or fieldName == "classNode" or fieldName == "enumNode") { return true }
-        if structType == "TypeInferenceResult" and (fieldName == "type" or fieldName == "environment") { return true }
-        if structType == "MacroExpansionResult" and fieldName == "program" { return true }
-        if structType == "ComptimeValue" and fieldName == "astValue" { return true }
-        if structType == "AstNode" and (fieldName == "functionNode" or fieldName == "classNode" or fieldName == "statementNode" or fieldName == "expressionNode" or fieldName == "blockNode") { return true }
-        // Note: FunctionNode.returnType is inline data type (TypeNode), not a class
-        if structType == "FunctionNode" and fieldName == "body" { return true }
-        if structType == "FunctionType" and fieldName == "returnType" { return true }
-        if structType == "TypeError" and (fieldName == "location" or fieldName == "expected" or fieldName == "actual") { return true }
-        if structType == "StatementNode" and (fieldName == "variableType" or fieldName == "initializer" or fieldName == "expression" or fieldName == "condition" or fieldName == "thenBranch" or fieldName == "elseBranch" or fieldName == "loopCondition" or fieldName == "loopBody" or fieldName == "returnValue") { return true }
-        if (structType == "FieldNode" or structType == "ParamNode") and fieldName == "paramType" { return true }
-        return false
+    fun resolveFieldAccessPtrLayoutInfo(structType: String, fieldName: String) r: String {
+        return resolveFieldAccessLayoutInfo(structType, fieldName)
     }
 
     // Same as generateFieldAccess but returns the GEP pointer without loading
     // Used for methods like push that need to modify the field in place
     fun generateFieldAccessPtr(ptrReg: String, structType: String, fieldName: String) r: String {
-        // Union types: all fields at offset 0, return pointer unchanged
-        if g_unionTypes != "" {
-            if g_unionTypes.contains(structType + "|") {
-                return ptrReg
-            }
+        if g_unionTypes != "" and g_unionTypes.contains(structType + "|") {
+            return ptrReg
         }
 
+        let layoutParts = splitPipe(resolveFieldAccessPtrLayoutInfo(structType, fieldName))
+        var structLayout = "{ i64 }"
         var fieldIndex = 0
-        // Helper vars for building layout strings with braces
-        let lb = "{"
-        let rb = "}"
-        var structLayout = lb + " i64 " + rb  // Default
-
-        if structType == "LLVMIRGenerator" {
-            structLayout = lb + " i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr " + rb
-            let idx = getLLVMIRGeneratorFieldIndex(fieldName)
-            if idx >= 0 {
-                fieldIndex = idx
-            }
-        } else {
-            let layoutInfo = resolveFieldAccessLayoutImpl(structType, fieldName, structNames, structLayouts, structFieldNames)
-            let layoutParts = splitPipe(layoutInfo)
-            if layoutParts.length() >= 2 {
-                structLayout = layoutParts[0]
-                fieldIndex = parseIntManual(layoutParts[1])
-            }
+        if layoutParts.length() >= 2 {
+            structLayout = layoutParts[0]
+            fieldIndex = parseIntManual(layoutParts[1])
         }
-
-        // Generate GEP to field (without loading)
-        let fieldPtrReg = getNextReg()
-        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n")
-
-        return fieldPtrReg
+        return emitFieldAccessPtrImpl(output, g_regBox, ptrReg, structLayout, fieldIndex)
     }
 
     // Generate IR for a struct literal expression (StructName { field: val, ... }).
@@ -13005,18 +12918,74 @@ class LLVMIRGenerator {
         return ""
     }
 
+    fun tryInferJsonValueMemberAccessType(expr: ParserExpressionNode, fieldName: String) r: String {
+        if fieldName != "kind" and fieldName != "boolValue" and fieldName != "numberValue" and
+            fieldName != "stringValue" and fieldName != "arrayValue" and
+            fieldName != "objectKeys" and fieldName != "objectValues" {
+            return ""
+        }
+
+        if expr.operands.length() > 0 {
+            if inferExpressionType(expr.operands[0]) == "JsonValue" {
+                return getSeenFieldType("JsonValue", fieldName)
+            }
+        }
+        if expr.literalValue == "this" and currentClassName == "JsonValue" {
+            return getSeenFieldType("JsonValue", fieldName)
+        }
+        if expr.literalValue != "" and expr.literalValue != "this" {
+            if findVarType(expr.literalValue) == "JsonValue" {
+                return getSeenFieldType("JsonValue", fieldName)
+            }
+        }
+        return ""
+    }
+
+    fun tryInferMemberFieldType(receiverType: String, fieldName: String) r: String {
+        if receiverType == "" {
+            return ""
+        }
+        let semanticFieldType = getSemanticFieldType(receiverType, fieldName)
+        if semanticFieldType != "" {
+            return semanticFieldType
+        }
+        return getSeenFieldType(receiverType, fieldName)
+    }
+
+    fun tryInferLiteralReceiverMemberAccessType(receiverName: String, fieldName: String) r: String {
+        if receiverName == "" or receiverName == "this" {
+            return ""
+        }
+
+        if receiverName.contains(".") {
+            let chainedFieldType = tryInferMemberFieldType(resolveChainedPathType(receiverName), fieldName)
+            if chainedFieldType != "" {
+                return chainedFieldType
+            }
+        }
+
+        let receiverVarType = findVarType(receiverName)
+        let directFieldType = tryInferMemberFieldType(receiverVarType, fieldName)
+        if directFieldType != "" {
+            return directFieldType
+        }
+
+        let thisIdx = findVar("this")
+        if thisIdx >= 0 {
+            let receiverFieldType = getSemanticFieldType(varTypes[thisIdx], receiverName)
+            let nestedFieldType = tryInferMemberFieldType(receiverFieldType, fieldName)
+            if nestedFieldType != "" {
+                return nestedFieldType
+            }
+        }
+        return ""
+    }
+
     fun inferMemberAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
         if expr.literalValue != "" {
-            let swzRecType = findVarType(expr.literalValue)
-            if isSimdVectorType(swzRecType) == 1 {
-                let swzLanes = simdLaneCount(swzRecType)
-                if isSwizzlePattern(expr.variableName, swzLanes) == 1 {
-                    if expr.variableName.length() == 1 {
-                        if swzRecType.startsWith("f32") or swzRecType.startsWith("f64") { return "Float" }
-                        return "Int"
-                    }
-                    return swzRecType
-                }
+            let swizzleType = inferSimdSwizzleMemberTypeImpl(findVarType(expr.literalValue), expr.variableName)
+            if swizzleType != "" {
+                return swizzleType
             }
         }
         if g_enumVariantCount > 0 {
@@ -13027,96 +12996,29 @@ class LLVMIRGenerator {
                 }
             }
         }
-        var fieldName = expr.variableName
-        if fieldName.contains(".") {
-            var lastDot = 0
-            var fi = 0
-            while fi < fieldName.length() {
-                if fieldName.byteAt(fi) == 46 {
-                    lastDot = fi
-                }
-                fi = fi + 1
-            }
-            fieldName = fieldName.substring(lastDot + 1, fieldName.length())
+        let fieldName = extractLastMemberFieldSegmentImpl(expr.variableName)
+
+        let jsonFieldType = tryInferJsonValueMemberAccessType(expr, fieldName)
+        if jsonFieldType != "" {
+            return jsonFieldType
         }
-        if fieldName == "kind" or fieldName == "boolValue" or fieldName == "numberValue" or fieldName == "stringValue" or fieldName == "arrayValue" or fieldName == "objectKeys" or fieldName == "objectValues" {
-            if expr.operands.length() > 0 {
-                let recvType = inferExpressionType(expr.operands[0])
-                if recvType == "JsonValue" {
-                    let fieldType = getSeenFieldType("JsonValue", fieldName)
-                    return fieldType
-                }
-            }
-            if expr.literalValue == "this" and currentClassName == "JsonValue" {
-                let fieldType = getSeenFieldType("JsonValue", fieldName)
-                return fieldType
-            }
-            if expr.literalValue != "" and expr.literalValue != "this" {
-                let recvVarType = findVarType(expr.literalValue)
-                if recvVarType == "JsonValue" {
-                    let fieldType = getSeenFieldType("JsonValue", fieldName)
-                    return fieldType
-                }
-            }
-        }
+
         if expr.literalValue == "this" and currentClassName != "" {
-            let semanticFieldType = getSemanticFieldType(currentClassName, fieldName)
-            if semanticFieldType != "" {
-                return semanticFieldType
-            }
-            let contextFieldType = getSeenFieldType(currentClassName, fieldName)
-            if contextFieldType != "" {
-                return contextFieldType
+            let implicitThisFieldType = tryInferMemberFieldType(currentClassName, fieldName)
+            if implicitThisFieldType != "" {
+                return implicitThisFieldType
             }
         }
         if expr.operands.length() > 0 {
-            let recvType = inferExpressionType(expr.operands[0])
-            if recvType != "" {
-                let semanticFieldType = getSemanticFieldType(recvType, fieldName)
-                if semanticFieldType != "" {
-                    return semanticFieldType
-                }
-                let fieldType = getSeenFieldType(recvType, fieldName)
-                if fieldType != "" {
-                    return fieldType
-                }
+            let receiverFieldType = tryInferMemberFieldType(inferExpressionType(expr.operands[0]), fieldName)
+            if receiverFieldType != "" {
+                return receiverFieldType
             }
         }
         if expr.literalValue != "" and expr.literalValue != "this" {
-            if expr.literalValue.contains(".") {
-                let chainedType = resolveChainedPathType(expr.literalValue)
-                if chainedType != "" {
-                    let semanticFieldType = getSemanticFieldType(chainedType, fieldName)
-                    if semanticFieldType != "" {
-                        return semanticFieldType
-                    }
-                    let fieldType = getSeenFieldType(chainedType, fieldName)
-                    if fieldType != "" {
-                        return fieldType
-                    }
-                }
-            }
-            let recvVarType = findVarType(expr.literalValue)
-            if recvVarType != "" {
-                let semanticFieldType = getSemanticFieldType(recvVarType, fieldName)
-                if semanticFieldType != "" {
-                    return semanticFieldType
-                }
-                let fieldType = getSeenFieldType(recvVarType, fieldName)
-                if fieldType != "" {
-                    return fieldType
-                }
-            }
-            let thisIdx = findVar("this")
-            if thisIdx >= 0 {
-                let thisType = varTypes[thisIdx]
-                let receiverFieldType = getSemanticFieldType(thisType, expr.literalValue)
-                if receiverFieldType != "" {
-                    let semanticFieldType = getSemanticFieldType(receiverFieldType, fieldName)
-                    if semanticFieldType != "" {
-                        return semanticFieldType
-                    }
-                }
+            let literalReceiverFieldType = tryInferLiteralReceiverMemberAccessType(expr.literalValue, fieldName)
+            if literalReceiverFieldType != "" {
+                return literalReceiverFieldType
             }
         }
         let fieldFallback = inferFieldTypeFallback(fieldName)

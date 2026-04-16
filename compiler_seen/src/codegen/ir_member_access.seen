@@ -3,7 +3,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_type_mapping.{swizzleLaneIndexImpl}
+import codegen.ir_type_mapping.{swizzleLaneIndexImpl, simdLaneCountImpl, isSwizzlePatternImpl}
 
 // emitSimdSwizzleMemberAccessImpl — emit vec.x / vec.xy / vec.xzyw swizzles.
 // Returns "" when the caller should fall through.
@@ -33,6 +33,78 @@ fun emitSimdSwizzleMemberAccessImpl(output: StringBuilder, regBox: Array<Int>,
     let resReg = getNextRegFn(regBox)
     output.append("  " + resReg + " = shufflevector " + vectorLlvmType + " " + vecReg + ", " + vectorLlvmType + " undef, <" + fieldName.length().toString() + " x i32> " + swizzleMask + "\n")
     return resReg
+}
+
+fun inferSimdSwizzleMemberTypeImpl(vectorSeenType: String, fieldName: String) r: String {
+    if vectorSeenType == "" {
+        return ""
+    }
+    let swzLanes = simdLaneCountImpl(vectorSeenType)
+    if isSwizzlePatternImpl(fieldName, swzLanes) != 1 {
+        return ""
+    }
+    if fieldName.length() == 1 {
+        if vectorSeenType.startsWith("f32") or vectorSeenType.startsWith("f64") {
+            return "Float"
+        }
+        return "Int"
+    }
+    return vectorSeenType
+}
+
+fun extractLastMemberFieldSegmentImpl(fieldName: String) r: String {
+    var lastDot = -1
+    var idx = 0
+    while idx < fieldName.length() {
+        if fieldName.byteAt(idx) == 46 {
+            lastDot = idx
+        }
+        idx = idx + 1
+    }
+    if lastDot < 0 {
+        return fieldName
+    }
+    return fieldName.substring(lastDot + 1, fieldName.length())
+}
+
+fun emitMemberArrayElementPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayReg: String, indexValue: String) r: String {
+
+    let elementPtrReg = getNextRegFn(regBox)
+    output.append("  " + elementPtrReg + " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg + ", i64 " + indexValue + ")\n")
+    return elementPtrReg
+}
+
+fun emitFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structLayout: String, fieldIndex: Int) r: String {
+
+    let fieldPtrReg = getNextRegFn(regBox)
+    output.append("  " + fieldPtrReg + " = getelementptr inbounds " + structLayout + ", ptr " + ptrReg + ", i32 0, i32 " + fieldIndex.toString() + "\n")
+    return fieldPtrReg
+}
+
+fun emitFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    fieldType: String, fieldPtrReg: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = load " + fieldType + ", ptr " + fieldPtrReg + "\n")
+    return resultReg
+}
+
+fun emitBitfieldMaskLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    valueReg: String, bitfieldWidth: Int) r: String {
+
+    var bitfieldMask = 1
+    var shiftIdx = 0
+    while shiftIdx < bitfieldWidth {
+        bitfieldMask = bitfieldMask * 2
+        shiftIdx = shiftIdx + 1
+    }
+    bitfieldMask = bitfieldMask - 1
+
+    let maskedReg = getNextRegFn(regBox)
+    output.append("  " + maskedReg + " = and i64 " + valueReg + ", " + bitfieldMask.toString() + " ; bitfield(" + bitfieldWidth.toString() + ")\n")
+    return maskedReg
 }
 
 // prepareExpressionMemberReceiverImpl — normalize an expression-result receiver
