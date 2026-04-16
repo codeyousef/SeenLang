@@ -7230,6 +7230,25 @@ class LLVMIRGenerator {
         }
     }
 
+    fun enterLoopContext(condLabel: String, endLabel: String, loopMetaIdStr: String,
+        savedCondBox: Array<String>, savedEndBox: Array<String>) r: Void {
+        savedCondBox.push(currentLoopCondLabel)
+        savedEndBox.push(currentLoopEndLabel)
+        currentLoopCondLabel = condLabel + "|" + loopMetaIdStr
+        currentLoopEndLabel = endLabel
+    }
+
+    fun restoreLoopContext(savedCondLabel: String, savedEndLabel: String) r: Void {
+        currentLoopCondLabel = savedCondLabel
+        currentLoopEndLabel = savedEndLabel
+    }
+
+    fun emitLoopEndBlock(endLabel: String) r: Void {
+        output.append(endLabel + ":\n")
+        cseClear()
+        blockTerminated = false
+    }
+
     fun emitLiteralBoundWhileHints(stmt: StatementNode, loopMetaId: Int, loopBoundLiteral: Int) r: Void {
         let tileSize = computeLoopTileSizeImpl(loopBoundLiteral, g_mlUnrollThreshold)
         if tileSize > 0 {
@@ -7390,31 +7409,8 @@ class LLVMIRGenerator {
         return true
     }
 
-    // Generate IR for a while loop. Emits cond/body/end blocks with
-    // back-edge from body to cond. Attaches LLVM loop metadata for:
-    //   - !llvm.loop.vectorize.enable/width (from @vectorize decorator)
-    //   - !llvm.loop.unroll.count (from @unroll decorator or tile hints)
-    //   - !llvm.loop.distribute.enable (for nested loops)
-    // Performs pattern detection for memcpy/memmove idioms and replaces
-    // them with llvm.memcpy/memmove intrinsics.
-    // Saves/restores outer loop context (currentLoopCondLabel/EndLabel)
-    // for nested loop support. Break jumps to endLabel, continue to condLabel.
-    fun generateWhileStatement(stmt: StatementNode) r: Void {
-        let loopMetaId = g_blockBox[0] + 202
-        let loopMetaIdStr = loopMetaId.toString()
-        let condLabel = getNextBlockLabel()
-        let bodyLabel = getNextBlockLabel()
-        let endLabel = getNextBlockLabel()
-
-        let savedCondLabel = currentLoopCondLabel
-        let savedEndLabel = currentLoopEndLabel
-        currentLoopCondLabel = condLabel + "|" + loopMetaIdStr
-        currentLoopEndLabel = endLabel
-
-        if tryEmitMemcpyOptimizedWhileLoop(stmt, condLabel, bodyLabel, endLabel, savedCondLabel, savedEndLabel) {
-            return
-        }
-
+    fun emitWhileLoopAnalyses(stmt: StatementNode, loopMetaId: Int,
+        breakFlagBox: Array<String>, savedInductionVarBox: Array<String>) r: Void {
         let loopBoundLiteral = detectLoopBoundImpl(stmt.loopCondition)
         if loopBoundLiteral >= 0 {
             emitLiteralBoundWhileHints(stmt, loopMetaId, loopBoundLiteral)
@@ -7431,7 +7427,7 @@ class LLVMIRGenerator {
             mlLogDecision("reduction", reductionType, reductionVar)
         }
 
-        let savedInductionVarName = g_inductionVarName
+        savedInductionVarBox.push(g_inductionVarName)
         let inductionVarName = detectInductionVarImpl(stmt.loopBody)
         if inductionVarName != "" {
             output.append("  ; induction variable: " + inductionVarName + " → nsw\n")
@@ -7439,11 +7435,15 @@ class LLVMIRGenerator {
         }
 
         let breakFlagVar = detectBreakOnFlagImpl(stmt.loopBody)
+        breakFlagBox.push(breakFlagVar)
         if breakFlagVar != "" {
             output.append("  ; break-on-flag: " + breakFlagVar + " → early loop exit\n")
             mlLogDecision("break-flag", "early-exit", breakFlagVar)
         }
+    }
 
+    fun emitWhileLoopBody(stmt: StatementNode, condLabel: String, bodyLabel: String,
+        endLabel: String, breakFlagVar: String, loopMetaIdStr: String) r: Void {
         output.append("  br label %" + condLabel + "\n")
 
         output.append(condLabel + ":\n")
@@ -7459,38 +7459,9 @@ class LLVMIRGenerator {
         if not bodyTerminated {
             output.append("  br label %" + condLabel + ", !llvm.loop !" + loopMetaIdStr + "\n")
         }
-
-        output.append(endLabel + ":\n")
-        cseClear()
-        blockTerminated = false
-
-        g_inductionVarName = savedInductionVarName
-        currentLoopCondLabel = savedCondLabel
-        currentLoopEndLabel = savedEndLabel
     }
 
-    // Generate IR for a for-in loop over a range or array.
-    // Range loops (for i in 0..n) emit a simple counter-based loop.
-    // Array loops (for item in arr) emit index-based iteration with
-    // element load per iteration. Attaches the same loop metadata as
-    // generateWhileStatement for vectorization/unrolling hints.
-    fun generateForInStatement(stmt: StatementNode) r: Void {
-        let loopMetaId = g_blockBox[0] + 202
-        let loopMetaIdStr = loopMetaId.toString()
-        let condLabel = getNextBlockLabel()
-        let bodyLabel = getNextBlockLabel()
-        let endLabel = getNextBlockLabel()
-
-        // Save outer loop context
-        let savedCondLabel = currentLoopCondLabel
-        let savedEndLabel = currentLoopEndLabel
-        let savedForInVarCount = activeVarCount
-        currentLoopCondLabel = condLabel + "|" + loopMetaIdStr
-        currentLoopEndLabel = endLabel
-
-        // Find the pre-allocated loop variable
-        // ForIn stores: variableName=loop var, expression=iterable, loopBody=body
-        let loopVarName = stmt.variableName
+    fun resolveForInLoopVariableStorage(loopVarName: String) r: String {
         var loopVarType = findVarType(loopVarName)
         if loopVarType == "" {
             loopVarType = "Int"
@@ -7510,170 +7481,237 @@ class LLVMIRGenerator {
                 output.append("  " + loopVarReg + " = alloca " + loopVarLlvmType + "\n")
             }
         }
-        let forInIterable = stmt.expression
-        let forInIterKind = forInIterable.kind
-        if forInIterKind == "Range" {
-            // Range-based for-in: for i in start..end
-            let startReg = generateExpression(forInIterable.operands[0])
-            let endReg = generateExpression(forInIterable.operands[1])
+        return loopVarType + "|" + loopVarReg
+    }
 
-            // Use pre-allocated entry-block alloca for index counter (enables mem2reg)
-            let idxName = "__forin_idx_" + loopVarName
-            var idxReg = ""
-            let idxPreIdx = findPreAllocatedOccurrence(idxName, 1)
-            if idxPreIdx >= 0 and idxPreIdx < preAllocatedRegs.length() {
-                idxReg = preAllocatedRegs[idxPreIdx]
-            }
-            if idxReg == "" {
-                idxReg = getNextReg()
-                output.append("  " + idxReg + " = alloca i64, align 8\n")
-            }
-            storeVar(loopVarName, loopVarReg, loopVarType)
-            cseClear()
-            emitIndexedForLoopHeaderImpl(output, g_regBox, startReg, endReg, loopVarReg, idxReg, condLabel, bodyLabel, endLabel)
-            cseClear()
-            blockTerminated = false
-            generateBlock(stmt.loopBody)
-            let bodyTerminated = blockTerminated
-            if not bodyTerminated {
-                emitForInIncrementImpl(output, g_regBox, idxReg, condLabel, loopMetaIdStr)
-            }
-        } else {
-            // Check for iterator protocol: type has iter() / hasNext() / next()
-            let iterableType = inferExpressionType(forInIterable)
-            let iterFuncName = iterableType + "_iter"
-            let iterFuncRet = getFunctionReturnType(iterFuncName)
-            if iterFuncRet != "" {
-                // Iterator protocol: desugar to while __iter.hasNext() { var x = __iter.next(); ... }
-                let iterableReg = generateExpression(forInIterable)
-                let iterThisReg = getNextReg()
-                output.append("  " + iterThisReg + " = inttoptr i64 " + iterableReg + " to ptr\n")
-                let iterObjReg = getNextReg()
-                let iterRetLlvm = mapType(iterFuncRet)
-                output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeeded(iterFuncName) + "(ptr " + iterThisReg + ")\n")
-                // Store iterator handle
-                let iterStoreReg = getNextReg()
-                output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
-                output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
-                storeVar(loopVarName, loopVarReg, loopVarType)
+    fun resolveForInIndexAlloca(idxName: String) r: String {
+        var idxReg = ""
+        let idxPreIdx = findPreAllocatedOccurrence(idxName, 1)
+        if idxPreIdx >= 0 and idxPreIdx < preAllocatedRegs.length() {
+            idxReg = preAllocatedRegs[idxPreIdx]
+        }
+        if idxReg == "" {
+            idxReg = getNextReg()
+            output.append("  " + idxReg + " = alloca i64, align 8\n")
+        }
+        return idxReg
+    }
 
-                output.append("  br label %" + condLabel + "\n")
-                output.append(condLabel + ":\n")
-                cseClear()
-                // Call hasNext on iterator
-                let iterLoadReg = getNextReg()
-                output.append("  " + iterLoadReg + " = load i64, ptr " + iterStoreReg + "\n")
-                let iterPtrReg = getNextReg()
-                output.append("  " + iterPtrReg + " = inttoptr i64 " + iterLoadReg + " to ptr\n")
-                let hasNextFunc = iterFuncRet + "_hasNext"
-                let hasNextReg = getNextReg()
-                output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeeded(hasNextFunc) + "(ptr " + iterPtrReg + ")\n")
-                output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
+    fun emitRangeForInLoop(stmt: StatementNode, loopVarName: String, loopVarType: String, loopVarReg: String,
+        forInIterable: ParserExpressionNode, condLabel: String, bodyLabel: String,
+        endLabel: String, loopMetaIdStr: String) r: Void {
+        let startReg = generateExpression(forInIterable.operands[0])
+        let endReg = generateExpression(forInIterable.operands[1])
+        let idxReg = resolveForInIndexAlloca("__forin_idx_" + loopVarName)
+        storeVar(loopVarName, loopVarReg, loopVarType)
+        cseClear()
+        emitIndexedForLoopHeaderImpl(output, g_regBox, startReg, endReg, loopVarReg, idxReg, condLabel, bodyLabel, endLabel)
+        cseClear()
+        blockTerminated = false
+        generateBlock(stmt.loopBody)
+        let bodyTerminated = blockTerminated
+        if not bodyTerminated {
+            emitForInIncrementImpl(output, g_regBox, idxReg, condLabel, loopMetaIdStr)
+        }
+    }
 
-                output.append(bodyLabel + ":\n")
-                cseClear()
-                blockTerminated = false
-                // Call next() to get current element
-                let nextFunc = iterFuncRet + "_next"
-                let nextRetType = getFunctionReturnType(nextFunc)
-                var nextRetLlvm = "i64"
-                if nextRetType != "" { nextRetLlvm = mapType(nextRetType) }
-                let nextReg = getNextReg()
-                output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeeded(nextFunc) + "(ptr " + iterPtrReg + ")\n")
-                if loopVarReg != "" {
-                    output.append("  store " + nextRetLlvm + " " + nextReg + ", ptr " + loopVarReg + "\n")
-                }
-                generateBlock(stmt.loopBody)
-                let bodyTerminated = blockTerminated
-                if not bodyTerminated {
-                    output.append("  br label %" + condLabel + "\n")
-                }
-            } else {
-            // Array-based for-in: for elem in array
-            let arrReg = generateExpression(forInIterable)
-            let iterType = inferExpressionType(forInIterable)
-            var elementType = "Int"
-            if iterType.startsWith("Array<") {
-                elementType = iterType.substring(6, iterType.length() - 1)
-            }
-
-            // Get array length - inlined GEP (field 0 of %SeenArray) instead of C runtime call
-            var isStringIterable = 0
-            if iterType == "String" {
-                isStringIterable = 1
-                elementType = "Char"
-            }
-            var lenReg = ""
-            if isStringIterable == 1 {
-                lenReg = getNextReg()
-                var arrStrReg = arrReg
-                if arrReg == "0" {
-                    arrStrReg = "zeroinitializer"
-                }
-                output.append("  " + lenReg + " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
-            }
-            if isStringIterable == 0 {
-                let lenPtrReg = getNextReg()
-                lenReg = getNextReg()
-                output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
-                output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
-            }
-
-            // Use pre-allocated entry-block alloca for index counter (enables mem2reg)
-            let arrIdxName = "__forin_idx_" + loopVarName
-            var idxReg = ""
-            let arrIdxPreIdx = findPreAllocatedOccurrence(arrIdxName, 1)
-            if arrIdxPreIdx >= 0 and arrIdxPreIdx < preAllocatedRegs.length() {
-                idxReg = preAllocatedRegs[arrIdxPreIdx]
-            }
-            if idxReg == "" {
-                idxReg = getNextReg()
-                output.append("  " + idxReg + " = alloca i64, align 8\n")
-            }
-            storeVar(loopVarName, loopVarReg, loopVarType)
-            cseClear()
-            let loadIdx = emitIndexedForLoopHeaderImpl(output, g_regBox, "0", lenReg, "", idxReg, condLabel, bodyLabel, endLabel)
-            cseClear()
-            blockTerminated = false
-
-            // Get element based on type — delegated to ir_control_flow.seen
-            if isStringIterable == 1 {
-                var arrStrReg2 = arrReg
-                if arrReg == "0" {
-                    arrStrReg2 = "zeroinitializer"
-                }
-                let charReg = getNextReg()
-                output.append("  " + charReg + " = call i64 @seen_char_at(%SeenString " + arrStrReg2 + ", i64 " + loadIdx + ")\n")
-                output.append("  store i64 " + charReg + ", ptr " + loopVarReg + ", align 8\n")
-            }
-            if isStringIterable == 0 {
-                var isString = 0
-                var isFloat = 0
-                if elementType == "String" { isString = 1 }
-                if elementType == "Float" { isFloat = 1 }
-                emitForInElementFetchImpl(output, g_regBox, arrReg, loadIdx, loopVarReg, elementType, isString, isFloat)
-
-                // Auto-prefetch: prefetch element i+8 for sequential array traversals
-                emitForInPrefetchImpl(output, g_regBox, g_blockBox, arrReg, loadIdx, lenReg, elementType)
-            }
-
-            generateBlock(stmt.loopBody)
-            let bodyTerminated = blockTerminated
-            if not bodyTerminated {
-                emitForInIncrementImpl(output, g_regBox, idxReg, condLabel, loopMetaIdStr)
-            }
-            } // end array-based else
+    fun tryEmitIteratorProtocolForInLoop(stmt: StatementNode, loopVarName: String, loopVarType: String,
+        loopVarReg: String, forInIterable: ParserExpressionNode, iterableType: String,
+        condLabel: String, bodyLabel: String, endLabel: String) r: Bool {
+        let iterFuncName = iterableType + "_iter"
+        let iterFuncRet = getFunctionReturnType(iterFuncName)
+        if iterFuncRet == "" {
+            return false
         }
 
-        // End block
-        output.append(endLabel + ":\n")
+        let iterableReg = generateExpression(forInIterable)
+        let iterThisReg = getNextReg()
+        output.append("  " + iterThisReg + " = inttoptr i64 " + iterableReg + " to ptr\n")
+        let iterObjReg = getNextReg()
+        let iterRetLlvm = mapType(iterFuncRet)
+        output.append("  " + iterObjReg + " = call " + iterRetLlvm + " @" + quoteIdentIfNeeded(iterFuncName) + "(ptr " + iterThisReg + ")\n")
+        let iterStoreReg = getNextReg()
+        output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
+        output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
+        storeVar(loopVarName, loopVarReg, loopVarType)
+
+        output.append("  br label %" + condLabel + "\n")
+        output.append(condLabel + ":\n")
+        cseClear()
+        let iterLoadReg = getNextReg()
+        output.append("  " + iterLoadReg + " = load i64, ptr " + iterStoreReg + "\n")
+        let iterPtrReg = getNextReg()
+        output.append("  " + iterPtrReg + " = inttoptr i64 " + iterLoadReg + " to ptr\n")
+        let hasNextFunc = iterFuncRet + "_hasNext"
+        let hasNextReg = getNextReg()
+        output.append("  " + hasNextReg + " = call i1 @" + quoteIdentIfNeeded(hasNextFunc) + "(ptr " + iterPtrReg + ")\n")
+        output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel + ", label %" + endLabel + "\n")
+
+        output.append(bodyLabel + ":\n")
+        cseClear()
+        blockTerminated = false
+        let nextFunc = iterFuncRet + "_next"
+        let nextRetType = getFunctionReturnType(nextFunc)
+        var nextRetLlvm = "i64"
+        if nextRetType != "" {
+            nextRetLlvm = mapType(nextRetType)
+        }
+        let nextReg = getNextReg()
+        output.append("  " + nextReg + " = call " + nextRetLlvm + " @" + quoteIdentIfNeeded(nextFunc) + "(ptr " + iterPtrReg + ")\n")
+        if loopVarReg != "" {
+            output.append("  store " + nextRetLlvm + " " + nextReg + ", ptr " + loopVarReg + "\n")
+        }
+        generateBlock(stmt.loopBody)
+        let bodyTerminated = blockTerminated
+        if not bodyTerminated {
+            output.append("  br label %" + condLabel + "\n")
+        }
+        return true
+    }
+
+    fun emitStringForInElement(arrReg: String, loadIdx: String, loopVarReg: String) r: Void {
+        var arrStrReg = arrReg
+        if arrReg == "0" {
+            arrStrReg = "zeroinitializer"
+        }
+        let charReg = getNextReg()
+        output.append("  " + charReg + " = call i64 @seen_char_at(%SeenString " + arrStrReg + ", i64 " + loadIdx + ")\n")
+        output.append("  store i64 " + charReg + ", ptr " + loopVarReg + ", align 8\n")
+    }
+
+    fun emitArrayLikeForInLoop(stmt: StatementNode, loopVarName: String, loopVarType: String, loopVarReg: String,
+        forInIterable: ParserExpressionNode, condLabel: String, bodyLabel: String,
+        endLabel: String, loopMetaIdStr: String) r: Void {
+        let arrReg = generateExpression(forInIterable)
+        let iterType = inferExpressionType(forInIterable)
+        var elementType = "Int"
+        if iterType.startsWith("Array<") {
+            elementType = iterType.substring(6, iterType.length() - 1)
+        }
+
+        var isStringIterable = 0
+        if iterType == "String" {
+            isStringIterable = 1
+            elementType = "Char"
+        }
+        var lenReg = ""
+        if isStringIterable == 1 {
+            lenReg = getNextReg()
+            var arrStrReg = arrReg
+            if arrReg == "0" {
+                arrStrReg = "zeroinitializer"
+            }
+            output.append("  " + lenReg + " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
+        } else {
+            let lenPtrReg = getNextReg()
+            lenReg = getNextReg()
+            output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
+            output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
+        }
+
+        let idxReg = resolveForInIndexAlloca("__forin_idx_" + loopVarName)
+        storeVar(loopVarName, loopVarReg, loopVarType)
+        cseClear()
+        let loadIdx = emitIndexedForLoopHeaderImpl(output, g_regBox, "0", lenReg, "", idxReg, condLabel, bodyLabel, endLabel)
         cseClear()
         blockTerminated = false
 
-        // Restore outer loop context
+        if isStringIterable == 1 {
+            emitStringForInElement(arrReg, loadIdx, loopVarReg)
+        } else {
+            var isString = 0
+            var isFloat = 0
+            if elementType == "String" { isString = 1 }
+            if elementType == "Float" { isFloat = 1 }
+            emitForInElementFetchImpl(output, g_regBox, arrReg, loadIdx, loopVarReg, elementType, isString, isFloat)
+            emitForInPrefetchImpl(output, g_regBox, g_blockBox, arrReg, loadIdx, lenReg, elementType)
+        }
+
+        generateBlock(stmt.loopBody)
+        let bodyTerminated = blockTerminated
+        if not bodyTerminated {
+            emitForInIncrementImpl(output, g_regBox, idxReg, condLabel, loopMetaIdStr)
+        }
+    }
+
+    fun finalizeForInLoop(endLabel: String, savedForInVarCount: Int, savedCondLabel: String, savedEndLabel: String) r: Void {
+        emitLoopEndBlock(endLabel)
         activeVarCount = savedForInVarCount
-        currentLoopCondLabel = savedCondLabel
-        currentLoopEndLabel = savedEndLabel
+        restoreLoopContext(savedCondLabel, savedEndLabel)
+    }
+
+    // Generate IR for a while loop. Emits cond/body/end blocks with
+    // back-edge from body to cond. Attaches LLVM loop metadata for:
+    //   - !llvm.loop.vectorize.enable/width (from @vectorize decorator)
+    //   - !llvm.loop.unroll.count (from @unroll decorator or tile hints)
+    //   - !llvm.loop.distribute.enable (for nested loops)
+    // Performs pattern detection for memcpy/memmove idioms and replaces
+    // them with llvm.memcpy/memmove intrinsics.
+    // Saves/restores outer loop context (currentLoopCondLabel/EndLabel)
+    // for nested loop support. Break jumps to endLabel, continue to condLabel.
+    fun generateWhileStatement(stmt: StatementNode) r: Void {
+        let loopMetaId = g_blockBox[0] + 202
+        let loopMetaIdStr = loopMetaId.toString()
+        let condLabel = getNextBlockLabel()
+        let bodyLabel = getNextBlockLabel()
+        let endLabel = getNextBlockLabel()
+
+        let savedCondBox = Array<String>()
+        let savedEndBox = Array<String>()
+        enterLoopContext(condLabel, endLabel, loopMetaIdStr, savedCondBox, savedEndBox)
+        let savedCondLabel = savedCondBox[0]
+        let savedEndLabel = savedEndBox[0]
+
+        if tryEmitMemcpyOptimizedWhileLoop(stmt, condLabel, bodyLabel, endLabel, savedCondLabel, savedEndLabel) {
+            return
+        }
+
+        let breakFlagBox = Array<String>()
+        let savedInductionVarBox = Array<String>()
+        emitWhileLoopAnalyses(stmt, loopMetaId, breakFlagBox, savedInductionVarBox)
+        emitWhileLoopBody(stmt, condLabel, bodyLabel, endLabel, breakFlagBox[0], loopMetaIdStr)
+        emitLoopEndBlock(endLabel)
+
+        g_inductionVarName = savedInductionVarBox[0]
+        restoreLoopContext(savedCondLabel, savedEndLabel)
+    }
+
+    // Generate IR for a for-in loop over a range or array.
+    // Range loops (for i in 0..n) emit a simple counter-based loop.
+    // Array loops (for item in arr) emit index-based iteration with
+    // element load per iteration. Attaches the same loop metadata as
+    // generateWhileStatement for vectorization/unrolling hints.
+    fun generateForInStatement(stmt: StatementNode) r: Void {
+        let loopMetaId = g_blockBox[0] + 202
+        let loopMetaIdStr = loopMetaId.toString()
+        let condLabel = getNextBlockLabel()
+        let bodyLabel = getNextBlockLabel()
+        let endLabel = getNextBlockLabel()
+
+        let savedCondBox = Array<String>()
+        let savedEndBox = Array<String>()
+        enterLoopContext(condLabel, endLabel, loopMetaIdStr, savedCondBox, savedEndBox)
+        let savedCondLabel = savedCondBox[0]
+        let savedEndLabel = savedEndBox[0]
+        let savedForInVarCount = activeVarCount
+
+        let loopVarName = stmt.variableName
+        let loopVarInfo = splitPipe(resolveForInLoopVariableStorage(loopVarName))
+        let loopVarType = loopVarInfo[0]
+        let loopVarReg = loopVarInfo[1]
+        let forInIterable = stmt.expression
+        if forInIterable.kind == "Range" {
+            emitRangeForInLoop(stmt, loopVarName, loopVarType, loopVarReg, forInIterable,
+                condLabel, bodyLabel, endLabel, loopMetaIdStr)
+        } else {
+            let iterableType = inferExpressionType(forInIterable)
+            if not tryEmitIteratorProtocolForInLoop(stmt, loopVarName, loopVarType, loopVarReg,
+                forInIterable, iterableType, condLabel, bodyLabel, endLabel) {
+                emitArrayLikeForInLoop(stmt, loopVarName, loopVarType, loopVarReg, forInIterable,
+                    condLabel, bodyLabel, endLabel, loopMetaIdStr)
+            }
+        }
+        finalizeForInLoop(endLabel, savedForInVarCount, savedCondLabel, savedEndLabel)
     }
 
     fun generateAssignmentValuePreservingPendingType(valueExpr: ParserExpressionNode) r: String {

@@ -10,7 +10,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Current Snapshot
 
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,893` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,931` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -43,8 +43,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `generateVariable()` is down to about `36` lines.
   - `generateBlock()` is down to about `29` lines.
   - `generateStatement()` is down to about `16` lines.
-  - `generateWhileStatement()` is down to about `75` lines.
-  - `generateForInStatement()` is down to about `203` lines.
+  - `generateWhileStatement()` is down to about `32` lines.
+  - `generateForInStatement()` is down to about `33` lines.
   - `generateExpression()` is down to about `44` lines.
   - `generateIfStatement()` is down to about `38` lines.
   - `generateIfLetStatement()` is down to about `32` lines.
@@ -215,6 +215,19 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `emitGcdPatternWhileHint()`
     - `emitWhileConditionBranch()`
     - `tryEmitMemcpyOptimizedWhileLoop()`
+  - Loop-lowering helpers inside `llvm_ir_gen.seen` are now split into:
+    - `enterLoopContext()` at about `8` lines.
+    - `restoreLoopContext()` at about `5` lines.
+    - `emitLoopEndBlock()` at about `6` lines.
+    - `emitWhileLoopAnalyses()` at about `33` lines.
+    - `emitWhileLoopBody()` at about `19` lines.
+    - `resolveForInLoopVariableStorage()` at about `23` lines.
+    - `resolveForInIndexAlloca()` at about `13` lines.
+    - `emitRangeForInLoop()` at about `18` lines.
+    - `tryEmitIteratorProtocolForInLoop()` at about `54` lines.
+    - `emitStringForInElement()` at about `10` lines.
+    - `emitArrayLikeForInLoop()` at about `55` lines.
+    - `finalizeForInLoop()` at about `15` lines.
   - Member-assignment helpers inside `llvm_ir_gen.seen` are now split into:
     - `emitResolvedMemberAssignment()` at about `47` lines.
     - `tryGenerateExpressionReceiverMemberAssignment()` at about `13` lines.
@@ -394,11 +407,12 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - Split the block/statement pipeline further by extracting dead-store scan helpers, deferred-cleanup emission, assignment-like expression dispatch, unused-result warnings, loop-control emission, scoped/defer/unsafe/try-catch helpers, and grouped statement-family dispatchers. This turns `generateBlock()` and `generateStatement()` into short orchestration layers instead of leaving block cleanup, dead-store heuristics, and every statement-kind branch mixed together.
 - Split the type/class-emission cluster further by shrinking `emitClassType()` behind focused dedup, header-layout reuse, decorator-metadata, special-case gpu/union emission, associated-type-alias registration, and default-field layout helpers; shrinking `generateClass()` behind dedicated trait/type-alias/decorator/hot-reload/inherited-thunk helpers; and deduplicating the StringBuilder runtime-backed method skip list shared by normal and large-class emission. This keeps the class/type pipeline on the same dispatcher-plus-phases shape now used across statements, expressions, and calls.
 - Split the class-method emission cluster further by shrinking trait default-method codegen behind `emitTraitDefaultMethod()`, shrinking `generateClassMethodFromList()` behind focused state-reset, parameter-info collection, variable-collection prep, signature emission, receiver binding, parameter binding, constructor setup, constructor-return, and default-return helpers, and keeping the existing shared `ir_class_method_gen.seen` helpers responsible only for reusable ABI/signature/allocation pieces. This keeps class-method lowering on the same explicit phase-pipeline shape now used by top-level function lowering, type emission, and statement lowering.
+- Split the loop-lowering cluster further by extracting shared loop-context save/restore, while-loop analysis/body emission, for-in variable/index allocation, range lowering, iterator-protocol lowering, array/string element lowering, and shared end-block finalization helpers. This turns `generateWhileStatement()` and `generateForInStatement()` into short orchestration layers instead of mixed control-flow, storage, and iteration emitters.
 
 ### Validation Status
 
 - Spot checks continue to use explicit RAM caps derived from current system memory.
-- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap after the latest block/statement pipeline split on top of the earlier module-entry orchestration split, method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, assignment-lowering extraction, and indexed-assignment extraction.
+- `./compiler_seen/target/seen check examples/hello_world/hello_english.seen` still passes under a `MemTotal / 4` cap after the latest loop-lowering split on top of the earlier class-method emission split, type/class-emission split, block/statement pipeline split, module-entry orchestration split, method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, assignment-lowering extraction, and indexed-assignment extraction.
 - `./compiler_seen/target/seen check compiler_seen/test_array_struct.seen` also passes under the same cap, which now gives the current refactor stream a targeted sanity check across struct-literal construction plus array access.
 - `./compiler_seen/target/seen check compiler_seen/test_result.seen` also passes under the same cap, which gives this batch direct coverage for enum-constructor lowering via `Ok(42)`.
 - `./compiler_seen/target/seen check compiler_seen/test_conditional_exprs.seen` also passes under the same cap, which gives this batch a targeted sanity check across `if`-expression lowering, integer elvis lowering, and `when` expression arm dispatch.
@@ -409,8 +423,11 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/test_method_builtin_dispatch.seen` also passes under the same cap, which gives this batch direct coverage for StringBuilder method dispatch plus builtin string/int/float method lowering across `trim()`, `toInt()`, `toFloat()`, `toString()`, and `length()`.
 - `./compiler_seen/target/seen check compiler_seen/test_import_io.seen` also passes under the same cap, which gives this batch a direct import-path sanity check across the shared `generateSingle()` module-entry sequencing.
 - `./compiler_seen/target/seen check compiler_seen/test_statement_forms.seen` also passes under the same cap, which gives this batch direct coverage for the refactored statement dispatcher across `while`/`continue`/`break`, `try/catch`, `unsafe`, and inline block handling.
+- `./compiler_seen/target/seen check compiler_seen/test_loop_iteration_forms.seen` also passes under the same cap, which gives this batch direct coverage for range `for-in`, array `for-in`, string `for-in`, and `while` loop `continue`/`break` behavior after the loop-helper split.
+- `./compiler_seen/target/seen check compiler_seen/test_iterator_for_in.seen` also passes under the same cap, which gives this batch direct coverage for the extracted iterator-protocol `for-in` lowering path across `iter()`, `hasNext()`, and `next()` dispatch.
 - `./compiler_seen/target/seen check compiler_seen/test_type_emission_forms.seen` also passes under the same cap, which gives this batch direct coverage for `type`/`distinct`, `union`, `@trait`, `@repr(C)`, `@gpu_buffer`, and decorator-generated class emission in the same module.
 - `./compiler_seen/target/seen check compiler_seen/test_class_method_pipeline.seen` also passes under the same cap, which gives this batch direct coverage for explicit-receiver instance methods, inherited method thunks on `extends`, static constructor emission, and trait default-method emission in the same module.
+- `./compiler_seen/target/seen check tests/codegen/test_game_engine_features.seen` also passes under the same cap, which gives this batch a broader integration sanity check across existing array `for-each` and range-loop lowering paths.
 - `./compiler_seen/target/seen check tests/test_gpu_buffer.seen` also passes under the same cap, which revalidates the extracted gpu-buffer type-emission path against the existing dedicated layout test.
 - `./compiler_seen/target/seen check tests/p2/test_trait_monomorph.seen` also passes under the same cap, which revalidates the extracted trait-path helper against an existing trait codegen test.
 - `./compiler_seen/target/seen check tests/p2/test_derive_debug.seen` also passes under the same cap, which revalidates the extracted class-decorator scan and generated-method dispatch path against an existing derive test.
@@ -425,7 +442,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_class_method_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_assignment_gen.seen` also reaches the expected `missing main` diagnostic.
 - `./compiler_seen/target/seen check compiler_seen/src/codegen/ir_variable_gen.seen` also reaches the expected `missing main` diagnostic.
-- Bounded direct checks of `compiler_seen/src/main_compiler.seen` and `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest class-method emission split on top of the earlier type/class-emission split, block/statement pipeline split, module-entry orchestration split, method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
+- Bounded direct checks of `compiler_seen/src/main_compiler.seen` and `compiler_seen/src/codegen/llvm_ir_gen.seen` still did not finish within `45s` under the same cap after the latest loop-lowering split on top of the earlier class-method emission split, type/class-emission split, block/statement pipeline split, module-entry orchestration split, method-call emission split, method-call receiver/type-inference split, member/field-access split, variable-resolution split, special-expression split, construction-expression split, conditional-expression split, declaration/`let`/`if let`/array-literal split, `if`-statement split, return-statement split, indexed-assignment extraction, assignment-lowering extraction, shared binary-expression extraction, short-circuit helper reuse, class-method helper extraction, shared member-access extraction, shared path-expression extraction, shared field-layout extraction, `generateFunction()` split, while-loop split, shared control-flow dedup, `for-in` scaffold reuse, and shared `if` branching reuse.
 - The previously observed late optimization failure (`/usr/bin/opt: unknown pass name 'polly-canonicalize'`) remains relevant for deeper rebuild paths that get past the earlier allocator issue.
 
 ### Phase Status

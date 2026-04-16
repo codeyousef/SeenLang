@@ -1,0 +1,39 @@
+class CounterIter {
+    var current: Int
+    var limit: Int
+
+    fun hasNext() r: Bool {
+        return current < limit
+    }
+
+    fun next() r: Int {
+        let value = current
+        current = current + 1
+        return value
+    }
+}
+
+class Counter {
+    var start: Int
+    var limit: Int
+
+    static fun new(limitValue: Int) r: Counter {
+        return Counter { start: 0, limit: limitValue }
+    }
+
+    fun iter() r: CounterIter {
+        return CounterIter { current: start, limit: limit }
+    }
+}
+
+fun main() r: Int {
+    let counter = Counter.new(4)
+    let sum = 0
+    for value in counter {
+        sum = sum + value
+    }
+    if sum == 6 {
+        return 0
+    }
+    return 1
+}
