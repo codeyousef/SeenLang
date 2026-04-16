@@ -6769,158 +6769,173 @@ class LLVMIRGenerator {
         blockTerminated = true
     }
 
-    // Generate IR for an if/else statement. Performs branch elimination at
-    // compile time for constant conditions (BoolLiteral true/false).
-    // Emits conditional branch (br i1 %cond, label %then, label %else),
-    // generates then/else blocks, and emits a merge block if neither branch
-    // terminates (both have a path to the merge point).
-    fun generateIfStatement(stmt: StatementNode) r: Void {
-        // Branch elimination: fold compile-time constant conditions (9.10)
-        if stmt.condition.kind == "BoolLiteral" {
-            if stmt.condition.literalValue == "true" {
-                g_branchesEliminated = g_branchesEliminated + 1
-                mlLogDecision("branch-elim", "folded", "if-true")
-                output.append("  ; branch eliminated: if true\n")
-                generateBlock(stmt.thenBranch)
-                return
+    fun tryEmitConstantIfStatement(stmt: StatementNode) r: Bool {
+        if stmt.condition.kind != "BoolLiteral" {
+            return false
+        }
+        if stmt.condition.literalValue == "true" {
+            g_branchesEliminated = g_branchesEliminated + 1
+            mlLogDecision("branch-elim", "folded", "if-true")
+            output.append("  ; branch eliminated: if true\n")
+            generateBlock(stmt.thenBranch)
+            return true
+        }
+        if stmt.condition.literalValue == "false" {
+            g_branchesEliminated = g_branchesEliminated + 1
+            mlLogDecision("branch-elim", "folded", "if-false")
+            output.append("  ; branch eliminated: if false\n")
+            if stmt.elseBranch.statements.length() > 0 {
+                generateBlock(stmt.elseBranch)
             }
-            if stmt.condition.literalValue == "false" {
-                g_branchesEliminated = g_branchesEliminated + 1
-                mlLogDecision("branch-elim", "folded", "if-false")
-                output.append("  ; branch eliminated: if false\n")
-                if stmt.elseBranch.statements.length() > 0 {
-                    generateBlock(stmt.elseBranch)
-                }
-                return
-            }
+            return true
+        }
+        return false
+    }
+
+    fun tryEmitPairedAssignmentSelectIfStatement(stmt: StatementNode) r: Bool {
+        if stmt.thenBranch.statements.length() != 1 or stmt.elseBranch.statements.length() != 1 {
+            return false
         }
 
-        // --- Select optimization: if/else with single assignment to same variable ---
-        // Pattern: if <cond> { x = A } else { x = B } → select i1 %cond, A, B
-        var selectHandled = false
-        if stmt.thenBranch.statements.length() == 1 and stmt.elseBranch.statements.length() == 1 {
-            let thenSt = stmt.thenBranch.statements[0]
-            let elseSt = stmt.elseBranch.statements[0]
-            // Check both are assignments (Expression with Assignment kind)
-            var thenAssignName = ""
-            var elseAssignName = ""
-            var thenIsExprAssign = false
-            var elseIsExprAssign = false
-            var thenIsStmtAssign = false
-            var elseIsStmtAssign = false
-            if thenSt.kind == "Expression" and thenSt.expression.kind == "Assignment" {
-                thenAssignName = thenSt.expression.variableName
-                thenIsExprAssign = true
-            }
-            if thenSt.kind == "Assignment" {
-                thenAssignName = thenSt.variableName
-                thenIsStmtAssign = true
-            }
-            if elseSt.kind == "Expression" and elseSt.expression.kind == "Assignment" {
-                elseAssignName = elseSt.expression.variableName
-                elseIsExprAssign = true
-            }
-            if elseSt.kind == "Assignment" {
-                elseAssignName = elseSt.variableName
-                elseIsStmtAssign = true
-            }
-            // Only proceed if both are confirmed assignments
-            var thenHasRHS = false
-            var elseHasRHS = false
-            if thenIsExprAssign and thenSt.expression.operands.length() > 0 { thenHasRHS = true }
-            if thenIsStmtAssign { thenHasRHS = true }
-            if elseIsExprAssign and elseSt.expression.operands.length() > 0 { elseHasRHS = true }
-            if elseIsStmtAssign { elseHasRHS = true }
-            if thenAssignName != "" and thenAssignName == elseAssignName and thenHasRHS and elseHasRHS {
-                // Determine variable type first
-                let selVarIdx = findVar(thenAssignName)
-                if selVarIdx >= 0 {
-                    let selVarType = varTypes[selVarIdx]
-                    let selLlvmType = mapType(selVarType)
-                    if selLlvmType == "i64" or selLlvmType == "double" {
-                        // Get RHS expressions safely
-                        var thenRHS = thenSt.initializer
-                        if thenIsExprAssign { thenRHS = thenSt.expression.operands[0] }
-                        var elseRHS = elseSt.initializer
-                        if elseIsExprAssign { elseRHS = elseSt.expression.operands[0] }
-                        // Check both RHS are cheap (no calls, no index ops)
-                        let thenCost = exprCost(thenRHS)
-                        let elseCost = exprCost(elseRHS)
-                        if thenCost < 8 and elseCost < 8 {
-                            let selCondReg = generateExpression(stmt.condition)
-                            let selThenReg = generateExpression(thenRHS)
-                            let selElseReg = generateExpression(elseRHS)
-                            let selResultReg = getNextReg()
-                            output.append("  " + selResultReg + " = select i1 " + selCondReg + ", " + selLlvmType + " " + selThenReg + ", " + selLlvmType + " " + selElseReg + " ; branchless if/else\n")
-                            output.append("  store " + selLlvmType + " " + selResultReg + ", ptr " + varRegs[selVarIdx] + "\n")
-                            selectHandled = true
-                            g_branchesEliminated = g_branchesEliminated + 1
-                            mlLogDecision("select", "if-else", thenAssignName)
-                        }
-                    }
-                }
-            }
+        let thenStmt = stmt.thenBranch.statements[0]
+        let elseStmt = stmt.elseBranch.statements[0]
+        var thenAssignName = ""
+        var elseAssignName = ""
+        var thenIsExprAssign = false
+        var elseIsExprAssign = false
+        var thenIsStmtAssign = false
+        var elseIsStmtAssign = false
+
+        if thenStmt.kind == "Expression" and thenStmt.expression.kind == "Assignment" {
+            thenAssignName = thenStmt.expression.variableName
+            thenIsExprAssign = true
         }
-        // --- Select optimization: single-arm if for max/min pattern ---
-        // Pattern: if x > y { y = x } → select i1 %cmp, x, y (conditional max)
-        // Pattern: if x < y { y = x } → select i1 %cmp, x, y (conditional min)
-        if not selectHandled and stmt.thenBranch.statements.length() == 1 and stmt.elseBranch.statements.length() == 0 {
-            let maxSt = stmt.thenBranch.statements[0]
-            var maxAssignName = ""
-            var maxIsExprAssign = false
-            var maxIsStmtAssign = false
-            if maxSt.kind == "Expression" and maxSt.expression.kind == "Assignment" {
-                maxAssignName = maxSt.expression.variableName
-                maxIsExprAssign = true
-            }
-            if maxSt.kind == "Assignment" {
-                maxAssignName = maxSt.variableName
-                maxIsStmtAssign = true
-            }
-            // Condition must be a comparison
-            if maxAssignName != "" and stmt.condition.kind == "Binary" {
-                var isCompareOp = false
-                if stmt.condition.operator == ">" or stmt.condition.operator == ">=" or stmt.condition.operator == "<" or stmt.condition.operator == "<=" {
-                    isCompareOp = true
-                }
-                // Check RHS availability
-                var maxHasRHS = false
-                if maxIsExprAssign and maxSt.expression.operands.length() > 0 { maxHasRHS = true }
-                if maxIsStmtAssign { maxHasRHS = true }
-                if isCompareOp and stmt.condition.operands.length() >= 2 and maxHasRHS {
-                    var maxRHS = maxSt.initializer
-                    if maxIsExprAssign { maxRHS = maxSt.expression.operands[0] }
-                    let maxRHSCost = exprCost(maxRHS)
-                    if maxRHSCost < 5 {
-                        let maxVarIdx = findVar(maxAssignName)
-                        if maxVarIdx >= 0 {
-                            let maxVarType = varTypes[maxVarIdx]
-                            let maxLlvmType = mapType(maxVarType)
-                            if maxLlvmType == "i64" or maxLlvmType == "double" {
-                                let maxCondReg = generateExpression(stmt.condition)
-                                let maxNewReg = generateExpression(maxRHS)
-                                // Current value of the assigned variable
-                                let maxOldReg = getNextReg()
-                                output.append("  " + maxOldReg + " = load " + maxLlvmType + ", ptr " + varRegs[maxVarIdx] + "\n")
-                                let maxSelReg = getNextReg()
-                                output.append("  " + maxSelReg + " = select i1 " + maxCondReg + ", " + maxLlvmType + " " + maxNewReg + ", " + maxLlvmType + " " + maxOldReg + " ; branchless max/min\n")
-                                output.append("  store " + maxLlvmType + " " + maxSelReg + ", ptr " + varRegs[maxVarIdx] + "\n")
-                                selectHandled = true
-                                g_branchesEliminated = g_branchesEliminated + 1
-                                mlLogDecision("select", "max-min", maxAssignName)
-                            }
-                        }
-                    }
-                }
-            }
+        if thenStmt.kind == "Assignment" {
+            thenAssignName = thenStmt.variableName
+            thenIsStmtAssign = true
         }
-        if selectHandled { return }
+        if elseStmt.kind == "Expression" and elseStmt.expression.kind == "Assignment" {
+            elseAssignName = elseStmt.expression.variableName
+            elseIsExprAssign = true
+        }
+        if elseStmt.kind == "Assignment" {
+            elseAssignName = elseStmt.variableName
+            elseIsStmtAssign = true
+        }
+
+        var thenHasRhs = false
+        var elseHasRhs = false
+        if thenIsExprAssign and thenStmt.expression.operands.length() > 0 { thenHasRhs = true }
+        if thenIsStmtAssign { thenHasRhs = true }
+        if elseIsExprAssign and elseStmt.expression.operands.length() > 0 { elseHasRhs = true }
+        if elseIsStmtAssign { elseHasRhs = true }
+        if thenAssignName == "" or thenAssignName != elseAssignName or not thenHasRhs or not elseHasRhs {
+            return false
+        }
+
+        let varIdx = findVar(thenAssignName)
+        if varIdx < 0 {
+            return false
+        }
+
+        let varType = varTypes[varIdx]
+        let llvmType = mapType(varType)
+        if llvmType != "i64" and llvmType != "double" {
+            return false
+        }
+
+        var thenRhs = thenStmt.initializer
+        if thenIsExprAssign { thenRhs = thenStmt.expression.operands[0] }
+        var elseRhs = elseStmt.initializer
+        if elseIsExprAssign { elseRhs = elseStmt.expression.operands[0] }
+        if exprCost(thenRhs) >= 8 or exprCost(elseRhs) >= 8 {
+            return false
+        }
 
         let condReg = generateExpression(stmt.condition)
-        var condType = inferExpressionType(stmt.condition)
-        let condKind = stmt.condition.kind
+        let thenReg = generateExpression(thenRhs)
+        let elseReg = generateExpression(elseRhs)
+        let resultReg = getNextReg()
+        output.append("  " + resultReg + " = select i1 " + condReg + ", " + llvmType + " " + thenReg + ", " + llvmType + " " + elseReg + " ; branchless if/else\n")
+        output.append("  store " + llvmType + " " + resultReg + ", ptr " + varRegs[varIdx] + "\n")
+        g_branchesEliminated = g_branchesEliminated + 1
+        mlLogDecision("select", "if-else", thenAssignName)
+        return true
+    }
+
+    fun tryEmitSingleArmSelectIfStatement(stmt: StatementNode) r: Bool {
+        if stmt.thenBranch.statements.length() != 1 or stmt.elseBranch.statements.length() != 0 {
+            return false
+        }
+
+        let thenStmt = stmt.thenBranch.statements[0]
+        var assignName = ""
+        var isExprAssign = false
+        var isStmtAssign = false
+        if thenStmt.kind == "Expression" and thenStmt.expression.kind == "Assignment" {
+            assignName = thenStmt.expression.variableName
+            isExprAssign = true
+        }
+        if thenStmt.kind == "Assignment" {
+            assignName = thenStmt.variableName
+            isStmtAssign = true
+        }
+        if assignName == "" or stmt.condition.kind != "Binary" {
+            return false
+        }
+
+        var isCompareOp = false
+        if stmt.condition.operator == ">" or stmt.condition.operator == ">=" or stmt.condition.operator == "<" or stmt.condition.operator == "<=" {
+            isCompareOp = true
+        }
+        var hasRhs = false
+        if isExprAssign and thenStmt.expression.operands.length() > 0 { hasRhs = true }
+        if isStmtAssign { hasRhs = true }
+        if not isCompareOp or stmt.condition.operands.length() < 2 or not hasRhs {
+            return false
+        }
+
+        var rhsExpr = thenStmt.initializer
+        if isExprAssign { rhsExpr = thenStmt.expression.operands[0] }
+        if exprCost(rhsExpr) >= 5 {
+            return false
+        }
+
+        let varIdx = findVar(assignName)
+        if varIdx < 0 {
+            return false
+        }
+
+        let varType = varTypes[varIdx]
+        let llvmType = mapType(varType)
+        if llvmType != "i64" and llvmType != "double" {
+            return false
+        }
+
+        let condReg = generateExpression(stmt.condition)
+        let newValueReg = generateExpression(rhsExpr)
+        let oldValueReg = getNextReg()
+        output.append("  " + oldValueReg + " = load " + llvmType + ", ptr " + varRegs[varIdx] + "\n")
+        let selectedValueReg = getNextReg()
+        output.append("  " + selectedValueReg + " = select i1 " + condReg + ", " + llvmType + " " + newValueReg + ", " + llvmType + " " + oldValueReg + " ; branchless max/min\n")
+        output.append("  store " + llvmType + " " + selectedValueReg + ", ptr " + varRegs[varIdx] + "\n")
+        g_branchesEliminated = g_branchesEliminated + 1
+        mlLogDecision("select", "max-min", assignName)
+        return true
+    }
+
+    fun tryEmitSelectOptimizedIfStatement(stmt: StatementNode) r: Bool {
+        if tryEmitPairedAssignmentSelectIfStatement(stmt) {
+            return true
+        }
+        return tryEmitSingleArmSelectIfStatement(stmt)
+    }
+
+    fun inferIfConditionType(expr: ParserExpressionNode) r: String {
+        var condType = inferExpressionType(expr)
+        let condKind = expr.kind
         if condKind == "Binary" {
-            let condOp = stmt.condition.operator
+            let condOp = expr.operator
             if condOp == "==" or condOp == "!=" or condOp == "<" or condOp == ">" or condOp == "<=" or condOp == ">=" or condOp == "and" or condOp == "or" {
                 condType = "Bool"
             }
@@ -6929,29 +6944,57 @@ class LLVMIRGenerator {
             condType = "Bool"
         }
         if condKind == "Literal" {
-            let condLitVal = stmt.condition.literalValue
+            let condLitVal = expr.literalValue
             if condLitVal == "true" or condLitVal == "false" {
                 condType = "Bool"
             }
         }
-        let condBool = emitConditionToI1Impl(output, g_regBox, condReg, condType)
+        return condType
+    }
 
-        // Branch weight heuristic: short then-block ending in return is likely error/early-exit path
-        var branchWeightMeta = ""
+    fun computeIfBranchWeightMetadata(stmt: StatementNode) r: String {
         if stmt.thenBranch.statements.length() > 0 and stmt.thenBranch.statements.length() <= 3 {
             let lastThenStmt = stmt.thenBranch.statements[stmt.thenBranch.statements.length() - 1]
             if lastThenStmt.kind == "Return" {
-                branchWeightMeta = ", !prof !197"
+                return ", !prof !197"
             }
         }
+        return ""
+    }
 
-        let branchInfo = emitIfBranchingImpl(output, g_blockBox, condBool, branchWeightMeta)
+    fun finalizeConditionalEndBlock(endLabel: String, thenTerminated: Bool, elseTerminated: Bool) r: Void {
+        output.append(endLabel + ":\n")
+        cseClear()
+        if thenTerminated and elseTerminated {
+            blockTerminated = true
+            output.append("  unreachable\n")
+            return
+        }
+        blockTerminated = false
+    }
+
+    // Generate IR for an if/else statement. Performs branch elimination at
+    // compile time for constant conditions (BoolLiteral true/false).
+    // Emits conditional branch (br i1 %cond, label %then, label %else),
+    // generates then/else blocks, and emits a merge block if neither branch
+    // terminates (both have a path to the merge point).
+    fun generateIfStatement(stmt: StatementNode) r: Void {
+        if tryEmitConstantIfStatement(stmt) {
+            return
+        }
+        if tryEmitSelectOptimizedIfStatement(stmt) {
+            return
+        }
+
+        let condReg = generateExpression(stmt.condition)
+        let condType = inferIfConditionType(stmt.condition)
+        let condBool = emitConditionToI1Impl(output, g_regBox, condReg, condType)
+        let branchInfo = emitIfBranchingImpl(output, g_blockBox, condBool, computeIfBranchWeightMetadata(stmt))
         let branchLabels = splitPipe(branchInfo)
-        let thenLabel = branchLabels[0]
         let elseLabel = branchLabels[1]
         let endLabel = branchLabels[2]
 
-        cseClear()  // CSE cache invalid across basic block boundaries
+        cseClear()
         blockTerminated = false
         generateBlock(stmt.thenBranch)
         let thenTerminated = blockTerminated
@@ -6971,17 +7014,7 @@ class LLVMIRGenerator {
             output.append("  br label %" + endLabel + "\n")
         }
 
-        // End block
-        output.append(endLabel + ":\n")
-        cseClear()  // CSE cache invalid across basic block boundaries
-        // Only set blockTerminated if BOTH branches terminate
-        if thenTerminated and elseTerminated {
-            blockTerminated = true
-            output.append("  unreachable\n")
-        }
-        if not (thenTerminated and elseTerminated) {
-            blockTerminated = false
-        }
+        finalizeConditionalEndBlock(endLabel, thenTerminated, elseTerminated)
     }
 
     // if let name = expr { ... } else { ... }
@@ -7023,15 +7056,7 @@ class LLVMIRGenerator {
             output.append("  br label %" + endLabel + "\n")
         }
 
-        output.append(endLabel + ":\n")
-        cseClear()
-        if thenTerminated and elseTerminated {
-            blockTerminated = true
-            output.append("  unreachable\n")
-        }
-        if not (thenTerminated and elseTerminated) {
-            blockTerminated = false
-        }
+        finalizeConditionalEndBlock(endLabel, thenTerminated, elseTerminated)
     }
 
     fun blockHasTerminator(block: BlockNode) r: Bool {
