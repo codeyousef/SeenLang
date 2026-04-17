@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,528` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,577` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -48,6 +48,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also splits the remaining direct call/member-access inference branches behind focused local helpers, so `inferCallExprTypeLocal()` now delegates generated-call, builtin-call, and resolved-call inference separately while `inferMemberAccessExprTypeLocal()` reuses a dedicated direct-field probe instead of mixing JSON, receiver-field, and fallback lookup in one branch ladder.
 - The latest continuation also untangles variable-expression inference into dedicated implicit-`this` and named-primitive helpers, so `inferVariableExprTypeLocal()` now just sequences registered locals, module constants, implicit receiver fields, and builtin numeric type names instead of carrying all of that branching inline.
 - The latest continuation also splits binary-expression inference and static-method-call inference into smaller local phases, so SIMD detection, arithmetic/string promotion, overloaded operator lookup, declared static method lookup, factory-style constructors, and `fromJson` fallback typing are no longer mixed together inside two long local functions.
+- The latest continuation also splits builtin receiver-method inference into dedicated helpers for simple receiver builtins, collection `get`, `pop`, `unwrap`, and SIMD reduce methods, so the remaining method-call inference path no longer mixes receiver builtin special cases and registry lookup in one branch ladder.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
@@ -188,8 +189,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `resolveMethodCallReceiverType()` at about `7` lines.
     - `tryInferImplicitOrFreeMethodCallType()` at about `25` lines.
     - `tryInferStaticMethodCallType()` at about `11` lines.
-    - `tryInferBuiltinReceiverMethodCallType()` at about `43` lines.
-    - `tryInferReceiverRegistryMethodCallType()` at about `15` lines.
+    - `tryInferBuiltinReceiverMethodCallType()` at about `17` lines.
+    - `tryInferReceiverRegistryMethodCallType()` at about `10` lines.
     - `tryInferMethodCallBoolSuffix()` at about `15` lines.
     - `inferMethodCallExprTypeLocal()` at about `45` lines.
     - `inferCallExprTypeLocal()` at about `12` lines.
@@ -197,10 +198,14 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
-- The checkpoint immediately before the latest binary/static inference split was `90a3554` with message `Split variable inference helpers`.
-- The latest continuation from `90a3554` to the current working tree touched:
+- The checkpoint immediately before the latest builtin receiver inference split was `53aeab1` with message `Split binary and static inference helpers`.
+- The latest continuation from `53aeab1` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
 - That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
+  - simple receiver builtins, collection `get` inference, `pop` element typing, and `unwrap` specialization now route through `tryInferSimpleBuiltinReceiverMethodType()`, `tryInferCollectionGetMethodType()`, `tryInferPopMethodType()`, and `tryInferUnwrapMethodType()`, leaving `tryInferBuiltinReceiverMethodCallType()` as a short orchestrator.
+  - SIMD reduce return typing now routes through `tryInferSimdReduceMethodType()`, leaving `tryInferReceiverRegistryMethodCallType()` focused on the “special-case SIMD reduction or regular method registry lookup” decision only.
+  - the previous nearby checkpoint also split SIMD/arithmetic/overloaded binary inference and declared/factory/fromJson static-call inference into dedicated helpers, which keeps the remaining method-call type path flatter.
+- The longer continuation from `90a3554` through that latest checkpoint keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
   - SIMD binary detection, arithmetic/string promotion, and overloaded operator lookup now route through `tryInferSimdBinaryExprType()`, `tryInferArithmeticBinaryExprType()`, and `tryInferOverloadedBinaryExprType()`, leaving `inferBinaryExprTypeLocal()` as a short orchestrator.
   - declared static method lookup, factory-style collection/class constructor typing, and `fromJson` fallback typing now route through `tryInferDeclaredStaticMethodCallType()`, `tryInferStaticFactoryMethodType()`, and `tryInferStaticFromJsonMethodType()`, leaving `tryInferStaticMethodCallType()` as a short orchestrator.
   - the previous nearby checkpoints also split implicit-`this` variable-field inference, generated-call inference, builtin-call inference, and direct member-field inference into dedicated helpers, which keeps the whole remaining inference cluster flatter.
@@ -220,6 +225,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - that direct seed import restores correct `%SeenString` return typing for cross-module fast-path helpers during full bootstrap; before that seed, the frozen compiler was silently lowering calls into `ir_method_fastpath.seen` as `i64`-returning externs inside `llvm_ir_gen.seen`.
     - the same follow-up also swaps the extracted helper modules away from `isClassTypeReg(...)` in the most fragile spots and back onto `isClassTypeImpl(...)`, which removes the `i1` vs `i64` compare regressions that first showed up in `/tmp/seen_module_24.ll` and `/tmp/seen_module_33.ll`.
 - Last known validation for the latest continuation used a `MemTotal / 4` cap of `16229809` KB:
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_builtin_receiver_infer_split --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_builtin_receiver_infer_split`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - the first bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_binary_static_infer_split --fast --no-cache --no-fork` for the binary/static inference helper split hit the old transient Pass 2b missing-`/tmp/seen_module_*.ll` failure mode, ending with `Error: optimization failed for module 0`.

@@ -12467,17 +12467,23 @@ class LLVMIRGenerator {
         return tryInferStaticFromJsonMethodType(expr)
     }
 
-    fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
-        if expr.callee == "toUpperCase" or expr.callee == "toLowerCase" or expr.callee == "abs" or
-            expr.callee == "min" or expr.callee == "max" or expr.callee == "clamp" or
-            expr.callee == "floor" or expr.callee == "ceil" or expr.callee == "round" or
-            expr.callee == "sqrt" or expr.callee == "first" or expr.callee == "last" or
-            expr.callee == "remove" {
-            let implResult = inferReceiverMethodTypeImpl(expr.callee, receiverType)
-            if implResult != "" {
-                return implResult
-            }
+    fun tryInferSimpleBuiltinReceiverMethodType(methodName: String,
+        receiverType: String) r: String {
+
+        if methodName == "toUpperCase" or methodName == "toLowerCase" or
+            methodName == "abs" or methodName == "min" or methodName == "max" or
+            methodName == "clamp" or methodName == "floor" or
+            methodName == "ceil" or methodName == "round" or
+            methodName == "sqrt" or methodName == "first" or
+            methodName == "last" or methodName == "remove" {
+            return inferReceiverMethodTypeImpl(methodName, receiverType)
         }
+        return ""
+    }
+
+    fun tryInferCollectionGetMethodType(expr: ParserExpressionNode,
+        receiverType: String) r: String {
+
         if expr.callee == "get" {
             traceGen("inferExpressionType: get() recType=" + receiverType + " literalValue=" + expr.literalValue + " operands=" + expr.operands.length().toString())
             let isCollectionGet = receiverType.startsWith("Array<") or receiverType.startsWith("Vec<") or
@@ -12491,21 +12497,67 @@ class LLVMIRGenerator {
                 return "Option<Int>"
             }
         }
-        if expr.callee == "pop" {
-            let popResult = resolvePopElementTypeImpl(receiverType)
-            if popResult != "" {
-                return popResult
+        return ""
+    }
+
+    fun tryInferPopMethodType(methodName: String, receiverType: String) r: String {
+        if methodName != "pop" {
+            return ""
+        }
+        let popResult = resolvePopElementTypeImpl(receiverType)
+        if popResult != "" {
+            return popResult
+        }
+        return "Int"
+    }
+
+    fun tryInferUnwrapMethodType(methodName: String, receiverType: String) r: String {
+        if methodName != "unwrap" {
+            return ""
+        }
+        var isClassInner = 0
+        if isClassType(receiverType) {
+            isClassInner = 1
+        }
+        let unwrapResult = resolveUnwrapTypeImpl(receiverType, isClassInner)
+        if unwrapResult != "" {
+            return unwrapResult
+        }
+        return "ptr"
+    }
+
+    fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
+        let simpleBuiltinType = tryInferSimpleBuiltinReceiverMethodType(
+            expr.callee, receiverType)
+        if simpleBuiltinType != "" {
+            return simpleBuiltinType
+        }
+        let collectionGetType = tryInferCollectionGetMethodType(expr,
+            receiverType)
+        if collectionGetType != "" {
+            return collectionGetType
+        }
+        let popType = tryInferPopMethodType(expr.callee, receiverType)
+        if popType != "" {
+            return popType
+        }
+        let unwrapType = tryInferUnwrapMethodType(expr.callee, receiverType)
+        if unwrapType != "" {
+            return unwrapType
+        }
+        return ""
+    }
+
+    fun tryInferSimdReduceMethodType(methodName: String, receiverType: String) r: String {
+        if isSimdVectorType(receiverType) != 1 {
+            return ""
+        }
+        if methodName == "reduce_add" or methodName == "reduce_min" or
+            methodName == "reduce_max" {
+            if receiverType.startsWith("f32") or receiverType.startsWith("f64") {
+                return "Float"
             }
             return "Int"
-        }
-        if expr.callee == "unwrap" {
-            var isClassInner = 0
-            if isClassType(receiverType) { isClassInner = 1 }
-            let unwrapResult = resolveUnwrapTypeImpl(receiverType, isClassInner)
-            if unwrapResult != "" {
-                return unwrapResult
-            }
-            return "ptr"
         }
         return ""
     }
@@ -12514,13 +12566,10 @@ class LLVMIRGenerator {
         if receiverType == "" {
             return ""
         }
-        if isSimdVectorType(receiverType) == 1 {
-            if expr.callee == "reduce_add" or expr.callee == "reduce_min" or expr.callee == "reduce_max" {
-                if receiverType.startsWith("f32") or receiverType.startsWith("f64") {
-                    return "Float"
-                }
-                return "Int"
-            }
+        let simdReduceType = tryInferSimdReduceMethodType(expr.callee,
+            receiverType)
+        if simdReduceType != "" {
+            return simdReduceType
         }
         return getMethodReturnType(receiverType, expr.callee)
     }
