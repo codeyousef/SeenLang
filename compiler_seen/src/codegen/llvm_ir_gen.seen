@@ -12923,19 +12923,35 @@ class LLVMIRGenerator {
         return "String"
     }
 
+    fun tryInferAddressUnaryType(expr: ParserExpressionNode) r: String {
+        if expr.operator != "&" or expr.operands.length() == 0 {
+            return ""
+        }
+        return "*" + inferExpressionType(expr.operands[0])
+    }
+
+    fun tryInferDereferenceUnaryType(expr: ParserExpressionNode) r: String {
+        if expr.operator != "*" or expr.operands.length() == 0 {
+            return ""
+        }
+        let ptrType = inferExpressionType(expr.operands[0])
+        if ptrType.startsWith("*") {
+            return ptrType.substring(1, ptrType.length())
+        }
+        return "Int"
+    }
+
     fun inferUnaryExprTypeLocal(expr: ParserExpressionNode) r: String {
         if expr.operator == "!" or expr.operator == "not" {
             return "Bool"
         }
-        if expr.operator == "&" and expr.operands.length() > 0 {
-            return "*" + inferExpressionType(expr.operands[0])
+        let addressType = tryInferAddressUnaryType(expr)
+        if addressType != "" {
+            return addressType
         }
-        if expr.operator == "*" and expr.operands.length() > 0 {
-            let ptrType = inferExpressionType(expr.operands[0])
-            if ptrType.startsWith("*") {
-                return ptrType.substring(1, ptrType.length())
-            }
-            return "Int"
+        let dereferenceType = tryInferDereferenceUnaryType(expr)
+        if dereferenceType != "" {
+            return dereferenceType
         }
         if expr.operands.length() > 0 {
             return inferExpressionType(expr.operands[0])
@@ -12943,15 +12959,25 @@ class LLVMIRGenerator {
         return "Int"
     }
 
+    fun tryInferAwaitedCallType(inner: ParserExpressionNode) r: String {
+        if inner.kind != "Call" {
+            return ""
+        }
+        let asyncRet = getAsyncDeclaredRetType(inner.callee)
+        if asyncRet != "" {
+            return asyncRet
+        }
+        return getFunctionReturnType(inner.callee)
+    }
+
     fun inferAwaitExprTypeLocal(expr: ParserExpressionNode) r: String {
         if expr.operands.length() == 0 {
             return "Void"
         }
         let inner = expr.operands[0]
-        if inner.kind == "Call" {
-            let asyncRet = getAsyncDeclaredRetType(inner.callee)
-            if asyncRet != "" { return asyncRet }
-            return getFunctionReturnType(inner.callee)
+        let awaitedCallType = tryInferAwaitedCallType(inner)
+        if awaitedCallType != "" {
+            return awaitedCallType
         }
         return inferExpressionType(inner)
     }
