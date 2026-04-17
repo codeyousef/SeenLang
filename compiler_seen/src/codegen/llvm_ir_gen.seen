@@ -12384,29 +12384,40 @@ class LLVMIRGenerator {
         return resolveLiteralMethodReceiverType(expr.literalValue)
     }
 
-    fun tryInferImplicitOrFreeMethodCallType(expr: ParserExpressionNode) r: String {
+    fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
         if currentClassName != "" and expr.literalValue == "this" {
-            let registryRetType = getMethodReturnType(currentClassName, expr.callee)
-            if registryRetType != "" {
-                return registryRetType
-            }
-        }
-        if expr.literalValue == "" and expr.operands.length() == 0 {
-            if currentClassName != "" {
-                let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
-                if implicitMethodRetType != "" {
-                    return implicitMethodRetType
-                }
-            }
-            let freeFuncRetType = getFunctionReturnType(expr.callee)
-            if freeFuncRetType != "" {
-                if isAsyncFunction(expr.callee) {
-                    return "ptr"
-                }
-                return freeFuncRetType
-            }
+            return getMethodReturnType(currentClassName, expr.callee)
         }
         return ""
+    }
+
+    fun tryInferBareMethodOrFunctionCallType(expr: ParserExpressionNode) r: String {
+        if expr.literalValue != "" or expr.operands.length() != 0 {
+            return ""
+        }
+        if currentClassName != "" {
+            let implicitMethodRetType = getMethodReturnType(currentClassName,
+                expr.callee)
+            if implicitMethodRetType != "" {
+                return implicitMethodRetType
+            }
+        }
+        let freeFuncRetType = getFunctionReturnType(expr.callee)
+        if freeFuncRetType == "" {
+            return ""
+        }
+        if isAsyncFunction(expr.callee) {
+            return "ptr"
+        }
+        return freeFuncRetType
+    }
+
+    fun tryInferImplicitOrFreeMethodCallType(expr: ParserExpressionNode) r: String {
+        let explicitThisType = tryInferExplicitThisMethodCallType(expr)
+        if explicitThisType != "" {
+            return explicitThisType
+        }
+        return tryInferBareMethodOrFunctionCallType(expr)
     }
 
     fun tryInferDeclaredStaticMethodCallType(expr: ParserExpressionNode) r: String {
@@ -12589,6 +12600,28 @@ class LLVMIRGenerator {
         return ""
     }
 
+    fun tryInferLateMethodCallFallbackType(expr: ParserExpressionNode) r: String {
+        let mcTable = inferMethodCallTypeTable(expr.callee)
+        if mcTable != "" {
+            return mcTable
+        }
+        if currentClassName != "" {
+            let implicitMethodRetType = getMethodReturnType(currentClassName,
+                expr.callee)
+            if implicitMethodRetType != "" {
+                return implicitMethodRetType
+            }
+        }
+        let freeFuncRetType = getFunctionReturnType(expr.callee)
+        if freeFuncRetType != "" {
+            if isAsyncFunction(expr.callee) {
+                return "ptr"
+            }
+            return freeFuncRetType
+        }
+        return tryInferMethodCallBoolSuffix(expr)
+    }
+
     fun inferMethodCallExprTypeLocal(expr: ParserExpressionNode) r: String {
         let implicitOrFreeResult = tryInferImplicitOrFreeMethodCallType(expr)
         if implicitOrFreeResult != "" {
@@ -12610,28 +12643,7 @@ class LLVMIRGenerator {
         if builtinReceiverResult != "" {
             return builtinReceiverResult
         }
-
-        let mcTable = inferMethodCallTypeTable(expr.callee)
-        if mcTable != "" {
-            return mcTable
-        }
-
-        if currentClassName != "" {
-            let implicitMethodRetType = getMethodReturnType(currentClassName, expr.callee)
-            if implicitMethodRetType != "" {
-                return implicitMethodRetType
-            }
-        }
-
-        let freeFuncRetType = getFunctionReturnType(expr.callee)
-        if freeFuncRetType != "" {
-            if isAsyncFunction(expr.callee) {
-                return "ptr"
-            }
-            return freeFuncRetType
-        }
-
-        return tryInferMethodCallBoolSuffix(expr)
+        return tryInferLateMethodCallFallbackType(expr)
     }
 
     fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
