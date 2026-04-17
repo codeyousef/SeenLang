@@ -13044,6 +13044,25 @@ class LLVMIRGenerator {
         return ""
     }
 
+    fun tryInferFixedSpecialExprType(expr: ParserExpressionNode) r: String {
+        if expr.kind == "Range" {
+            return "Range"
+        }
+        if expr.kind == "IsExpression" {
+            return "Bool"
+        }
+        if expr.kind == "Closure" {
+            return "Int"
+        }
+        if expr.kind == "TryPropagate" {
+            return inferTryPropagateExprTypeLocal(expr)
+        }
+        if expr.kind == "Cast" {
+            return expr.literalValue
+        }
+        return ""
+    }
+
     fun inferSpecialExprTypeLocal(expr: ParserExpressionNode) r: String {
         if expr.kind == "StructLiteral" {
             return expr.literalType
@@ -13071,20 +13090,9 @@ class LLVMIRGenerator {
         if branchingSpecialType != "" or expr.kind == "WhenExpression" or expr.kind == "IfExpression" {
             return branchingSpecialType
         }
-        if expr.kind == "Range" {
-            return "Range"
-        }
-        if expr.kind == "IsExpression" {
-            return "Bool"
-        }
-        if expr.kind == "Closure" {
-            return "Int"
-        }
-        if expr.kind == "TryPropagate" {
-            return inferTryPropagateExprTypeLocal(expr)
-        }
-        if expr.kind == "Cast" {
-            return expr.literalValue
+        let fixedSpecialType = tryInferFixedSpecialExprType(expr)
+        if fixedSpecialType != "" or expr.kind == "Cast" {
+            return fixedSpecialType
         }
         return ""
     }
