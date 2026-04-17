@@ -208,6 +208,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 
 ### Handoff Snapshot
 
+- The last code checkpoint before this note refresh is `ea1b81a` with message `Factor string interpolation constant collection`; that checkpoint keeps the branch on the latest fully committed inference-helper split with a clean worktree.
 - The checkpoint immediately before the latest unary/await helper split was `37ab337` with message `Split literal type inference helpers`.
 - The checkpoint immediately before the latest index/array-literal helper split was `2ec492e` with message `Split unary and await inference helpers`.
 - The checkpoint immediately before the latest special-expression tail split was `d0cb90a` with message `Split index and array literal inference helpers`.
@@ -262,6 +263,11 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `main_compiler.seen` now directly imports one `ir_method_fastpath.seen` symbol in the compatibility seeding block so older frozen compilers discover the helper during main-file import scanning.
     - that direct seed import restores correct `%SeenString` return typing for cross-module fast-path helpers during full bootstrap; before that seed, the frozen compiler was silently lowering calls into `ir_method_fastpath.seen` as `i64`-returning externs inside `llvm_ir_gen.seen`.
     - the same follow-up also swaps the extracted helper modules away from `isClassTypeReg(...)` in the most fragile spots and back onto `isClassTypeImpl(...)`, which removes the `i1` vs `i64` compare regressions that first showed up in `/tmp/seen_module_24.ll` and `/tmp/seen_module_33.ll`.
+- The latest reverted validation-hardening experiment was a one-file `ir_decl_parser.seen` change that dropped the manual `Result_*`, `Ok`, and `Err` declarations from `emitTypecheckerDecls(...)`; the local capped checks passed, but the patch was intentionally reverted because it never reached a fresh full-bootstrap green checkpoint.
+- The most important validation note for the next handoff is that the frozen `./bootstrap/stage1_frozen` validator path is observably older and less trustworthy than the current `main_compiler.seen` source driver:
+  - a capped `bash -lc 'ulimit -v 12582912 && ./bootstrap/stage1_frozen compile compiler_seen/src/lsp/server.seen /tmp/seen_lsp_server_12g --fast --no-cache --no-fork'` still printed `Pass 2b` in parallel, backgrounded the per-module `opt` jobs in `/tmp/seen_parallel_opt.sh`, and linked successfully even though `opt` reported undefined `@Int_set` in modules `3` and `4` plus an `i64` vs `%SeenString` mismatch in module `0`.
+  - a separate capped `main_compiler.seen` run under the same `12582912` KB limit produced a serial-looking `/tmp/seen_parallel_opt.sh` even while the console banner still said `(parallel)`, so treat the frozen bootstrap's Pass 2b status text as unreliable when debugging low-memory behavior.
+  - because of that drift, the safest next step is to branch from the clean `ea1b81a` code checkpoint, keep using explicit `ulimit -v ...` caps, and only promote new validation-hardening patches after a fresh full `main_compiler.seen` bootstrap succeeds rather than relying on smaller module compiles alone.
 - Last known validation for the latest continuation used a `MemTotal / 4` cap of `16229809` KB:
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
