@@ -12882,21 +12882,27 @@ class LLVMIRGenerator {
         return inferLiteralValueFallbackType(expr)
     }
 
-    fun inferIndexAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let arrayType = inferExpressionType(expr.operands[0])
+    fun tryInferIndexedElementType(arrayType: String) r: String {
         let elemType = inferIndexElementType(arrayType)
-        if elemType != "" { return elemType }
+        if elemType != "" {
+            return elemType
+        }
         if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
             return arrayType.substring(6, arrayType.length() - 1)
+        }
+        return ""
+    }
+
+    fun inferIndexAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
+        let arrayType = inferExpressionType(expr.operands[0])
+        let elemType = tryInferIndexedElementType(arrayType)
+        if elemType != "" {
+            return elemType
         }
         return "ptr"
     }
 
-    fun inferArrayLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.arguments.length() == 0 {
-            return "Array"
-        }
-        let firstElemType = inferExpressionType(expr.arguments[0])
+    fun tryInferKnownArrayLiteralType(firstElemType: String) r: String {
         if firstElemType == "String" {
             return "Array<String>"
         }
@@ -12905,6 +12911,18 @@ class LLVMIRGenerator {
         }
         if firstElemType == "Bool" {
             return "Array<Bool>"
+        }
+        return ""
+    }
+
+    fun inferArrayLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.arguments.length() == 0 {
+            return "Array"
+        }
+        let firstElemType = inferExpressionType(expr.arguments[0])
+        let knownArrayType = tryInferKnownArrayLiteralType(firstElemType)
+        if knownArrayType != "" {
+            return knownArrayType
         }
         return "Array<Int>"
     }

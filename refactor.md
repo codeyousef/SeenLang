@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,627` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,645` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -52,6 +52,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also splits the remaining method-call inference shell into explicit-`this`, bare method/function, and late fallback phases, so `inferMethodCallExprTypeLocal()` now reads as a short receiver-type pipeline instead of mixing implicit receiver cases, free-function fallback, and late table/boolean suffix lookup inline.
 - The latest continuation also separates declared literal typing from raw-literal fallback typing, so `inferLiteralExprTypeLocal()` now just sequences `tryInferDeclaredLiteralType()` and `inferLiteralValueFallbackType()` instead of mixing registry-style literal tags and text-shape fallback inline.
 - The latest continuation also separates unary pointer/address inference and awaited-call return inference into dedicated helpers, so `inferUnaryExprTypeLocal()` and `inferAwaitExprTypeLocal()` no longer mix `&`/`*` handling and async-call return probing inline with their fallback paths.
+- The latest continuation also separates indexed-element extraction and first-element array-literal typing into dedicated helpers, so `inferIndexAccessExprTypeLocal()` and `inferArrayLiteralExprTypeLocal()` now just sequence `tryInferIndexedElementType()` / `tryInferKnownArrayLiteralType()` before their existing fallback types instead of mixing parsing and fallback selection inline.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
@@ -205,6 +206,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Handoff Snapshot
 
 - The checkpoint immediately before the latest unary/await helper split was `37ab337` with message `Split literal type inference helpers`.
+- The checkpoint immediately before the latest index/array-literal helper split was `2ec492e` with message `Split unary and await inference helpers`.
 - The latest continuation from `7bd1e2f` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
 - The latest continuation from `82ef1c1` to the current working tree touched:
@@ -214,6 +216,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
   - unary address-of and dereference probing now route through `tryInferAddressUnaryType()` and `tryInferDereferenceUnaryType()`, leaving `inferUnaryExprTypeLocal()` as a short phase pipeline instead of one mixed operator ladder.
   - awaited call-result lookup now routes through `tryInferAwaitedCallType()`, leaving `inferAwaitExprTypeLocal()` focused on “empty await, awaited call, otherwise infer inner expression” sequencing.
+- That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
+  - indexed element extraction for `Array<T>` and `Ptr<T>` access now routes through `tryInferIndexedElementType()`, leaving `inferIndexAccessExprTypeLocal()` focused on “infer receiver, extract element type, otherwise use ptr” sequencing.
+  - first-element array-literal typing now routes through `tryInferKnownArrayLiteralType()`, leaving `inferArrayLiteralExprTypeLocal()` focused on “empty array, infer first element, otherwise default to Array<Int>” sequencing.
 - That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
   - declared literal tags such as `Int`/`Float`/`String`/custom literal types now route through `tryInferDeclaredLiteralType()`, leaving the textual `"`/`'`/`.` fallback in `inferLiteralValueFallbackType()` instead of keeping both concerns inline in one function.
   - the same continuation also reconfirmed that the last committed checkpoint still full-bootstraps clean under the capped frozen compiler path, which helped distinguish transient validation races from real source-level regressions before taking the next tiny slice.
@@ -249,6 +254,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - the first bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_unary_await_infer_split --fast --no-cache --no-fork` for the unary/await helper split hit the old transient Pass 2b missing-`/tmp/seen_module_*.ll` failure mode, ending with `Error: optimization failed for module 4`.
   - a fresh rerun with `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_unary_await_infer_split_rerun --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_unary_await_infer_split_rerun`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_index_array_infer_split --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_index_array_infer_split`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_literal_infer_split --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_literal_infer_split`.
