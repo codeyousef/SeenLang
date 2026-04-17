@@ -12842,7 +12842,7 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun inferLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
+    fun tryInferDeclaredLiteralType(expr: ParserExpressionNode) r: String {
         if expr.literalType == "Int" or expr.literalType == "Integer" {
             return "Int"
         }
@@ -12861,6 +12861,10 @@ class LLVMIRGenerator {
         if expr.literalType != "" {
             return expr.literalType
         }
+        return ""
+    }
+
+    fun inferLiteralValueFallbackType(expr: ParserExpressionNode) r: String {
         if expr.literalValue.startsWith("\"") or expr.literalValue.startsWith("'") {
             return "String"
         }
@@ -12868,6 +12872,14 @@ class LLVMIRGenerator {
             return "Float"
         }
         return "Int"
+    }
+
+    fun inferLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
+        let declaredLiteralType = tryInferDeclaredLiteralType(expr)
+        if declaredLiteralType != "" {
+            return declaredLiteralType
+        }
+        return inferLiteralValueFallbackType(expr)
     }
 
     fun inferIndexAccessExprTypeLocal(expr: ParserExpressionNode) r: String {

@@ -11,7 +11,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 ### Current Snapshot
 
 - This document reflects the current working tree, not just committed history.
-- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,589` lines.
+- `llvm_ir_gen.seen` has been reduced from the plan baseline of `16,086` lines to `13,601` lines.
 - New extracted helper modules now in tree:
   - `ir_module_emit.seen`
   - `ir_decl_scan.seen`
@@ -50,6 +50,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also splits binary-expression inference and static-method-call inference into smaller local phases, so SIMD detection, arithmetic/string promotion, overloaded operator lookup, declared static method lookup, factory-style constructors, and `fromJson` fallback typing are no longer mixed together inside two long local functions.
 - The latest continuation also splits builtin receiver-method inference into dedicated helpers for simple receiver builtins, collection `get`, `pop`, `unwrap`, and SIMD reduce methods, so the remaining method-call inference path no longer mixes receiver builtin special cases and registry lookup in one branch ladder.
 - The latest continuation also splits the remaining method-call inference shell into explicit-`this`, bare method/function, and late fallback phases, so `inferMethodCallExprTypeLocal()` now reads as a short receiver-type pipeline instead of mixing implicit receiver cases, free-function fallback, and late table/boolean suffix lookup inline.
+- The latest continuation also separates declared literal typing from raw-literal fallback typing, so `inferLiteralExprTypeLocal()` now just sequences `tryInferDeclaredLiteralType()` and `inferLiteralValueFallbackType()` instead of mixing registry-style literal tags and text-shape fallback inline.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
@@ -196,12 +197,18 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - `inferMethodCallExprTypeLocal()` at about `28` lines.
     - `inferCallExprTypeLocal()` at about `12` lines.
     - `inferMemberAccessExprTypeLocal()` at about `31` lines.
+    - `inferLiteralExprTypeLocal()` at about `7` lines.
 
 ### Handoff Snapshot
 
-- The checkpoint immediately before the latest method-call shell split was `7bd1e2f` with message `Split builtin receiver inference helpers`.
+- The checkpoint immediately before the latest literal-type helper split was `82ef1c1` with message `Split method call inference shell helpers`.
 - The latest continuation from `7bd1e2f` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
+- The latest continuation from `82ef1c1` to the current working tree touched:
+  - `compiler_seen/src/codegen/llvm_ir_gen.seen`
+- That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
+  - declared literal tags such as `Int`/`Float`/`String`/custom literal types now route through `tryInferDeclaredLiteralType()`, leaving the textual `"`/`'`/`.` fallback in `inferLiteralValueFallbackType()` instead of keeping both concerns inline in one function.
+  - the same continuation also reconfirmed that the last committed checkpoint still full-bootstraps clean under the capped frozen compiler path, which helped distinguish transient validation races from real source-level regressions before taking the next tiny slice.
 - That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
   - explicit `this` method lookup and bare free-function/implicit-method fallback now route through `tryInferExplicitThisMethodCallType()` and `tryInferBareMethodOrFunctionCallType()`, leaving `tryInferImplicitOrFreeMethodCallType()` as a short orchestrator.
   - the late method-call fallback chain for method-call type tables, implicit current-class methods, free functions, and bool-suffix probing now routes through `tryInferLateMethodCallFallbackType()`, leaving `inferMethodCallExprTypeLocal()` as a short phase pipeline.
@@ -230,6 +237,10 @@ This started as an investigation and proposed plan. It now also tracks which ref
     - that direct seed import restores correct `%SeenString` return typing for cross-module fast-path helpers during full bootstrap; before that seed, the frozen compiler was silently lowering calls into `ir_method_fastpath.seen` as `i64`-returning externs inside `llvm_ir_gen.seen`.
     - the same follow-up also swaps the extracted helper modules away from `isClassTypeReg(...)` in the most fragile spots and back onto `isClassTypeImpl(...)`, which removes the `i1` vs `i64` compare regressions that first showed up in `/tmp/seen_module_24.ll` and `/tmp/seen_module_33.ll`.
 - Last known validation for the latest continuation used a `MemTotal / 4` cap of `16229809` KB:
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_literal_infer_split --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_literal_infer_split`.
+  - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_clean_checkpoint_probe --fast --no-cache --no-fork` also completed successfully under the same cap from the clean `82ef1c1` checkpoint, which confirmed the validation path itself was healthy before the latest literal-type helper slice landed.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - the first bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_method_call_shell_split --fast --no-cache --no-fork` for the method-call shell helper split hit the old transient Pass 2b missing-`/tmp/seen_module_*.ll` failure mode, ending with `Error: optimization failed for module 1`.
