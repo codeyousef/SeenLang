@@ -12275,69 +12275,104 @@ class LLVMIRGenerator {
         return tryInferNamedPrimitiveVariableType(varName)
     }
 
-    fun inferBinaryExprTypeLocal(expr: ParserExpressionNode) r: String {
+    fun tryInferSimdBinaryExprType(expr: ParserExpressionNode) r: String {
         if expr.operands.length() >= 2 {
             let binLeftType = inferExpressionType(expr.operands[0])
             if isSimdVectorType(binLeftType) == 1 {
                 return binLeftType
             }
         }
-        if expr.operator == "==" or expr.operator == "!=" or expr.operator == "<" or expr.operator == ">" or expr.operator == "<=" or expr.operator == ">=" or expr.operator == "and" or expr.operator == "or" {
+        return ""
+    }
+
+    fun isBoolBinaryOperator(operatorName: String) r: Int {
+        if operatorName == "==" or operatorName == "!=" or operatorName == "<" or
+            operatorName == ">" or operatorName == "<=" or operatorName == ">=" or
+            operatorName == "and" or operatorName == "or" {
+            return 1
+        }
+        return 0
+    }
+
+    fun tryInferArithmeticBinaryExprType(expr: ParserExpressionNode) r: String {
+        if expr.operator == "+" {
+            if expr.operands.length() < 2 {
+                return ""
+            }
+            let leftExpr = expr.operands[0]
+            let rightExpr = expr.operands[1]
+            if leftExpr.kind == "Literal" and leftExpr.literalType == "String" {
+                return "String"
+            }
+            if rightExpr.kind == "Literal" and rightExpr.literalType == "String" {
+                return "String"
+            }
+            let leftType = inferExpressionType(expr.operands[0])
+            if leftType == "String" {
+                return "String"
+            }
+            let rightType = inferExpressionType(expr.operands[1])
+            if rightType == "String" {
+                return "String"
+            }
+            if leftType == "Float" or rightType == "Float" {
+                return "Float"
+            }
+            return ""
+        }
+        if expr.operator == "-" or expr.operator == "*" or expr.operator == "/" or
+            expr.operator == "%" {
+            if expr.operands.length() >= 2 {
+                let leftType = inferExpressionType(expr.operands[0])
+                let rightType = inferExpressionType(expr.operands[1])
+                if leftType == "Float" or rightType == "Float" {
+                    return "Float"
+                }
+            }
+        }
+        return ""
+    }
+
+    fun resolveBinaryOperatorOverloadSuffix(operatorName: String) r: String {
+        if operatorName == "+" { return "operator_add" }
+        if operatorName == "-" { return "operator_sub" }
+        if operatorName == "*" { return "operator_mul" }
+        if operatorName == "/" { return "operator_div" }
+        if operatorName == "%" { return "operator_mod" }
+        if operatorName == "==" { return "operator_eq" }
+        if operatorName == "!=" { return "operator_neq" }
+        if operatorName == "<" { return "operator_lt" }
+        if operatorName == ">" { return "operator_gt" }
+        if operatorName == "<=" { return "operator_lte" }
+        if operatorName == ">=" { return "operator_gte" }
+        return ""
+    }
+
+    fun tryInferOverloadedBinaryExprType(expr: ParserExpressionNode) r: String {
+        let opSuffix = resolveBinaryOperatorOverloadSuffix(expr.operator)
+        if opSuffix == "" or expr.operands.length() < 1 {
+            return ""
+        }
+        let leftOpType = inferExpressionType(expr.operands[0])
+        let opFuncN = leftOpType + "_" + opSuffix
+        return getFunctionReturnType(opFuncN)
+    }
+
+    fun inferBinaryExprTypeLocal(expr: ParserExpressionNode) r: String {
+        let simdType = tryInferSimdBinaryExprType(expr)
+        if simdType != "" {
+            return simdType
+        }
+        if isBoolBinaryOperator(expr.operator) == 1 {
             return "Bool"
         }
-        if expr.operator == "+" {
-            if expr.operands.length() >= 2 {
-                let leftExpr = expr.operands[0]
-                let rightExpr = expr.operands[1]
-                if leftExpr.kind == "Literal" and leftExpr.literalType == "String" {
-                    return "String"
-                }
-                if rightExpr.kind == "Literal" and rightExpr.literalType == "String" {
-                    return "String"
-                }
-                let leftType = inferExpressionType(expr.operands[0])
-                if leftType == "String" {
-                    return "String"
-                }
-                let rightType = inferExpressionType(expr.operands[1])
-                if rightType == "String" {
-                    return "String"
-                }
-                if leftType == "Float" or rightType == "Float" {
-                    return "Float"
-                }
-            }
+        let arithmeticType = tryInferArithmeticBinaryExprType(expr)
+        if arithmeticType != "" {
+            return arithmeticType
         }
-        if expr.operator == "-" or expr.operator == "*" or expr.operator == "/" or expr.operator == "%" {
-            if expr.operands.length() >= 2 {
-                let leftType = inferExpressionType(expr.operands[0])
-                let rightType = inferExpressionType(expr.operands[1])
-                if leftType == "Float" or rightType == "Float" {
-                    return "Float"
-                }
-            }
-        }
-        var opSuffix = ""
-        if expr.operator == "+" { opSuffix = "operator_add" }
-        if opSuffix == "" and expr.operator == "-" { opSuffix = "operator_sub" }
-        if opSuffix == "" and expr.operator == "*" { opSuffix = "operator_mul" }
-        if opSuffix == "" and expr.operator == "/" { opSuffix = "operator_div" }
-        if opSuffix == "" and expr.operator == "%" { opSuffix = "operator_mod" }
-        if opSuffix == "" and expr.operator == "==" { opSuffix = "operator_eq" }
-        if opSuffix == "" and expr.operator == "!=" { opSuffix = "operator_neq" }
-        if opSuffix == "" and expr.operator == "<" { opSuffix = "operator_lt" }
-        if opSuffix == "" and expr.operator == ">" { opSuffix = "operator_gt" }
-        if opSuffix == "" and expr.operator == "<=" { opSuffix = "operator_lte" }
-        if opSuffix == "" and expr.operator == ">=" { opSuffix = "operator_gte" }
-        if opSuffix != "" {
-            if expr.operands.length() >= 1 {
-                let leftOpType = inferExpressionType(expr.operands[0])
-                let opFuncN = leftOpType + "_" + opSuffix
-                let opRetT = getFunctionReturnType(opFuncN)
-                if opRetT != "" {
-                    return opRetT
-                }
-            }
+        let overloadType = tryInferOverloadedBinaryExprType(expr)
+        if overloadType != "" {
+            return overloadType
         }
         return "Int"
     }
@@ -12374,7 +12409,7 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun tryInferStaticMethodCallType(expr: ParserExpressionNode) r: String {
+    fun tryInferDeclaredStaticMethodCallType(expr: ParserExpressionNode) r: String {
         if expr.literalValue != "" and expr.literalValue != "this" {
             let recVarType = findVarType(expr.literalValue)
             if recVarType == "" {
@@ -12388,6 +12423,10 @@ class LLVMIRGenerator {
                 }
             }
         }
+        return ""
+    }
+
+    fun tryInferStaticFactoryMethodType(expr: ParserExpressionNode) r: String {
         if expr.callee == "new" {
             return expr.literalValue
         }
@@ -12400,6 +12439,10 @@ class LLVMIRGenerator {
         if (expr.callee == "withLength" or expr.callee == "withCapacity") and expr.literalValue.startsWith("Array") {
             return expr.literalValue
         }
+        return ""
+    }
+
+    fun tryInferStaticFromJsonMethodType(expr: ParserExpressionNode) r: String {
         if expr.callee == "fromJson" {
             if expr.literalValue != "" and expr.literalValue != "this" {
                 let staticRetType = getMethodReturnType(expr.literalValue, "fromJson")
@@ -12410,6 +12453,18 @@ class LLVMIRGenerator {
             return "ptr"
         }
         return ""
+    }
+
+    fun tryInferStaticMethodCallType(expr: ParserExpressionNode) r: String {
+        let declaredStaticType = tryInferDeclaredStaticMethodCallType(expr)
+        if declaredStaticType != "" {
+            return declaredStaticType
+        }
+        let staticFactoryType = tryInferStaticFactoryMethodType(expr)
+        if staticFactoryType != "" {
+            return staticFactoryType
+        }
+        return tryInferStaticFromJsonMethodType(expr)
     }
 
     fun tryInferBuiltinReceiverMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
