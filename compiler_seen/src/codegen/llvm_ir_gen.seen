@@ -13012,6 +13012,38 @@ class LLVMIRGenerator {
         return tryInnerType
     }
 
+    fun tryInferNullishSpecialExprType(expr: ParserExpressionNode) r: String {
+        if expr.kind == "Elvis" or expr.kind == "NullCoalesce" {
+            if expr.operands.length() > 0 {
+                return inferExpressionType(expr.operands[0])
+            }
+            return ""
+        }
+        if expr.kind == "SafeNavigation" {
+            return "Int"
+        }
+        return ""
+    }
+
+    fun tryInferBranchingSpecialExprType(expr: ParserExpressionNode) r: String {
+        if expr.kind == "WhenExpression" {
+            if expr.arguments.length() > 0 {
+                let firstArm = expr.arguments[0]
+                if firstArm.operands.length() > 1 {
+                    return inferExpressionType(firstArm.operands[1])
+                }
+            }
+            return ""
+        }
+        if expr.kind == "IfExpression" {
+            if expr.operands.length() > 1 {
+                return inferExpressionType(expr.operands[1])
+            }
+            return ""
+        }
+        return ""
+    }
+
     fun inferSpecialExprTypeLocal(expr: ParserExpressionNode) r: String {
         if expr.kind == "StructLiteral" {
             return expr.literalType
@@ -13031,32 +13063,16 @@ class LLVMIRGenerator {
         if expr.kind == "Await" {
             return inferAwaitExprTypeLocal(expr)
         }
-        if expr.kind == "Elvis" or expr.kind == "NullCoalesce" {
-            if expr.operands.length() > 0 {
-                return inferExpressionType(expr.operands[0])
-            }
-            return ""
+        let nullishSpecialType = tryInferNullishSpecialExprType(expr)
+        if nullishSpecialType != "" or expr.kind == "SafeNavigation" {
+            return nullishSpecialType
         }
-        if expr.kind == "SafeNavigation" {
-            return "Int"
-        }
-        if expr.kind == "WhenExpression" {
-            if expr.arguments.length() > 0 {
-                let firstArm = expr.arguments[0]
-                if firstArm.operands.length() > 1 {
-                    return inferExpressionType(firstArm.operands[1])
-                }
-            }
-            return ""
+        let branchingSpecialType = tryInferBranchingSpecialExprType(expr)
+        if branchingSpecialType != "" or expr.kind == "WhenExpression" or expr.kind == "IfExpression" {
+            return branchingSpecialType
         }
         if expr.kind == "Range" {
             return "Range"
-        }
-        if expr.kind == "IfExpression" {
-            if expr.operands.length() > 1 {
-                return inferExpressionType(expr.operands[1])
-            }
-            return ""
         }
         if expr.kind == "IsExpression" {
             return "Bool"
