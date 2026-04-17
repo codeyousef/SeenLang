@@ -12927,17 +12927,17 @@ class LLVMIRGenerator {
         return "Array<Int>"
     }
 
-    fun inferStringInterpolationExprTypeLocal(expr: ParserExpressionNode) r: String {
+    fun collectStringConstantsFromExprList(exprs: Array<ParserExpressionNode>) r: Void {
         var i = 0
-        while i < expr.arguments.length() {
-            collectStringConstantsFromExpr(expr.arguments[i])
+        while i < exprs.length() {
+            collectStringConstantsFromExpr(exprs[i])
             i = i + 1
         }
-        i = 0
-        while i < expr.operands.length() {
-            collectStringConstantsFromExpr(expr.operands[i])
-            i = i + 1
-        }
+    }
+
+    fun inferStringInterpolationExprTypeLocal(expr: ParserExpressionNode) r: String {
+        collectStringConstantsFromExprList(expr.arguments)
+        collectStringConstantsFromExprList(expr.operands)
         return "String"
     }
 

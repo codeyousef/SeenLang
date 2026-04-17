@@ -55,6 +55,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The latest continuation also separates indexed-element extraction and first-element array-literal typing into dedicated helpers, so `inferIndexAccessExprTypeLocal()` and `inferArrayLiteralExprTypeLocal()` now just sequence `tryInferIndexedElementType()` / `tryInferKnownArrayLiteralType()` before their existing fallback types instead of mixing parsing and fallback selection inline.
 - The latest continuation also separates nullish/safe-navigation and branching special-expression inference into dedicated helpers, so `inferSpecialExprTypeLocal()` now sequences `tryInferNullishSpecialExprType()` and `tryInferBranchingSpecialExprType()` instead of carrying those late fallback ladders inline.
 - The latest continuation also separates the remaining fixed-result special-expression cases into a dedicated helper, so `inferSpecialExprTypeLocal()` now routes `Range`, `IsExpression`, `Closure`, `TryPropagate`, and `Cast` through `tryInferFixedSpecialExprType()` instead of carrying that last tail inline.
+- The latest continuation also removes the duplicated string-interpolation constant-collection loops behind `collectStringConstantsFromExprList()`, so `inferStringInterpolationExprTypeLocal()` now reads as a two-step sweep over arguments and operands instead of open-coding the same loop twice.
 - Current large-method snapshot:
   - `generateFunction()` is down to about `420` lines.
   - `generateMultiple()` is down to about `74` lines.
@@ -211,6 +212,7 @@ This started as an investigation and proposed plan. It now also tracks which ref
 - The checkpoint immediately before the latest index/array-literal helper split was `2ec492e` with message `Split unary and await inference helpers`.
 - The checkpoint immediately before the latest special-expression tail split was `d0cb90a` with message `Split index and array literal inference helpers`.
 - The checkpoint immediately before the latest fixed special-expression split was `d1269db` with message `Split special expression tail helpers`.
+- The checkpoint immediately before the latest string-interpolation helper split was `d9ef706` with message `Split fixed special expression inference helper`.
 - The latest continuation from `7bd1e2f` to the current working tree touched:
   - `compiler_seen/src/codegen/llvm_ir_gen.seen`
 - The latest continuation from `82ef1c1` to the current working tree touched:
@@ -228,6 +230,8 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - `when` and `if` expression result probing now routes through `tryInferBranchingSpecialExprType()`, leaving `inferSpecialExprTypeLocal()` flatter near the tail of the special-expression ladder.
 - That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
   - fixed-result special-expression cases now route through `tryInferFixedSpecialExprType()`, leaving `inferSpecialExprTypeLocal()` as an almost pure phase pipeline from struct/index/array/string/unary/await through nullish, branching, and fixed-result tails.
+- That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
+  - string-interpolation constant collection now routes through `collectStringConstantsFromExprList()`, leaving `inferStringInterpolationExprTypeLocal()` as a short “collect both lists, then return String” helper instead of repeating the same loop shape twice.
 - That continuation keeps shrinking the remaining local type-inference ladders inside `llvm_ir_gen.seen` without adding another bootstrap-visible helper module:
   - declared literal tags such as `Int`/`Float`/`String`/custom literal types now route through `tryInferDeclaredLiteralType()`, leaving the textual `"`/`'`/`.` fallback in `inferLiteralValueFallbackType()` instead of keeping both concerns inline in one function.
   - the same continuation also reconfirmed that the last committed checkpoint still full-bootstraps clean under the capped frozen compiler path, which helped distinguish transient validation races from real source-level regressions before taking the next tiny slice.
@@ -273,6 +277,9 @@ This started as an investigation and proposed plan. It now also tracks which ref
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - the first bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_special_fixed_split --fast --no-cache --no-fork` for the fixed special-expression helper split hit the old transient Pass 2b missing-`/tmp/seen_module_*.ll` failure mode, ending with `Error: optimization failed for module 0`.
   - a fresh rerun with `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_special_fixed_split_rerun --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_special_fixed_split_rerun`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
+  - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
+  - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_string_interp_helper_rerun --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_string_interp_helper_rerun`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/codegen/llvm_ir_gen.seen`.
   - passed on the latest continuation: another `./bootstrap/stage1_frozen check compiler_seen/src/main_compiler.seen`.
   - a bounded `./bootstrap/stage1_frozen compile compiler_seen/src/main_compiler.seen /tmp/seen_refactor_literal_infer_split --fast --no-cache --no-fork` completed successfully under the same cap and produced `Build succeeded -> /tmp/seen_refactor_literal_infer_split`.
