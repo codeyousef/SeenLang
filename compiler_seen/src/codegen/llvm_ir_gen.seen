@@ -43,9 +43,10 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{recordCrossModuleDeclareImpl, registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildDeclareParamsImpl, buildDeclareStringImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, shouldSkipStringBuilderMethodDeclImpl, shouldRegisterCrossModuleFunctionImpl}
+import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, recordCrossModuleDeclareStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerAsyncFunctionStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, hasCrossModuleDeclareStateImpl, hasLateUserDeclareStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl, appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
@@ -58,7 +59,7 @@ import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionM
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl}
 import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
-import codegen.ir_call_args.{fillDefaultParamsImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
+import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
@@ -1339,17 +1340,8 @@ class LLVMIRGenerator {
     }
 
     fun registerFloatParamMetadata(funcName: String, params: Array<ParamNode>) r: Void {
-        var paramIdx = 0
-        while paramIdx < params.length() {
-            let paramTypeName = normalizeDeclaredTypeNode(params[paramIdx].paramType)
-            if paramTypeName == "Float" {
-                if not hasFloatParamFuncImpl(funcName, paramIdx, g_floatParamFuncNames, g_floatParamParamIdxs) {
-                    g_floatParamFuncNames.push(funcName)
-                    g_floatParamParamIdxs.push(paramIdx)
-                }
-            }
-            paramIdx = paramIdx + 1
-        }
+        registerFloatParamMetadataImpl(funcName, params, g_floatParamFuncNames,
+            g_floatParamParamIdxs)
     }
 
     // Register known data types from the parser that are used as value types
@@ -1371,13 +1363,7 @@ class LLVMIRGenerator {
     // The registries built here form the declarationsHash component of the
     // content-addressed IR cache key.
     fun isRuntimeBackedStringCompatFunction(funcName: String) r: Bool {
-        if funcName == "String_toUpperCase" or funcName == "String_toLowerCase" or funcName == "String_toInt" or funcName == "String_toFloat" or funcName == "String_reverse" or funcName == "String_isEmpty" or funcName == "String_count" or funcName == "String_replace" {
-            return true
-        }
-        if funcName == "split" or funcName == "startsWith" or funcName == "endsWith" or funcName == "contains" or funcName == "indexOf" or funcName == "lastIndexOf" {
-            return true
-        }
-        return false
+        return isRuntimeBackedStringCompatFunctionImpl(funcName)
     }
 
     fun registerDeclarations(program: ProgramNode) r: Void {
@@ -1425,14 +1411,9 @@ class LLVMIRGenerator {
 
     fun collectDeclaredParamTypeInfo(params: Array<ParamNode>, paramSeenTypes: Array<String>,
         paramLlvmTypes: Array<String>) r: Void {
-
-        var paramIdx = 0
-        while paramIdx < params.length() {
-            let paramTypeName = normalizeDeclaredTypeNode(params[paramIdx].paramType)
-            paramSeenTypes.push(paramTypeName)
-            paramLlvmTypes.push(mapType(paramTypeName))
-            paramIdx = paramIdx + 1
-        }
+        collectDeclaredParamTypeInfoImpl(params, paramSeenTypes, paramLlvmTypes,
+            structNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+            g_enumTypeNames, g_reprCClassNames)
     }
 
     fun registerClassDeclarationItem(item: ItemNode) r: Void {
@@ -1449,10 +1430,6 @@ class LLVMIRGenerator {
 
             let mangledName = item.classNode.name + "_" + method.name
             let methodRetTypeName = resolveMethodReturnType(item.classNode.name, method)
-            registerFunction(mangledName, methodRetTypeName)
-            if method.isAsync {
-                registerAsyncFunction(mangledName, methodRetTypeName)
-            }
             registerFloatParamMetadata(mangledName, method.params)
 
             var methodRetLlvm = mapType(methodRetTypeName)
@@ -1462,9 +1439,19 @@ class LLVMIRGenerator {
             let methodSeenParamTypes = Array<String>()
             let methodLlvmParamTypes = Array<String>()
             collectDeclaredParamTypeInfo(method.params, methodSeenParamTypes, methodLlvmParamTypes)
-            let methodDeclParams = buildDeclareParamsImpl(methodSeenParamTypes, methodLlvmParamTypes, not method.isStatic)
-            let methodDecl = buildDeclareStringImpl(quoteIdentIfNeeded(mangledName), methodRetLlvm, methodDeclParams, false)
-            recordCrossModuleDeclareEntry(mangledName, methodDecl, item.visibility)
+            let updated = registerMethodDeclarationStateImpl(mangledName,
+                methodRetTypeName, methodRetLlvm, method.isAsync, method.isStatic,
+                item.visibility, methodSeenParamTypes, methodLlvmParamTypes,
+                funcNames, funcRetTypes, g_asyncFuncNames, g_asyncFuncRetTypes,
+                g_asyncFuncCount, g_xmDeclareNames, g_xmDeclareStrs,
+                g_xmDeclareVis, g_xmDeclareCount)
+            g_asyncFuncNames = unpackDeclRegistryFieldImpl(updated, 0)
+            g_asyncFuncRetTypes = unpackDeclRegistryFieldImpl(updated, 1)
+            g_asyncFuncCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 2))
+            g_xmDeclareNames = unpackDeclRegistryFieldImpl(updated, 3)
+            g_xmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 4)
+            g_xmDeclareVis = unpackDeclRegistryFieldImpl(updated, 5)
+            g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
             methodIdx = methodIdx + 1
         }
     }
@@ -1478,17 +1465,9 @@ class LLVMIRGenerator {
         let isRuntimeStringCompat = isRuntimeBackedStringCompatFunction(funcObj.name)
         let floatRegistryFuncName = getFloatParamRegistryName(funcObj)
         let funcRetTypeName = resolveFunctionReturnType(funcObj)
-        registerFunction(funcObj.name, funcRetTypeName)
-        if funcObj.isAsync {
-            registerAsyncFunction(funcObj.name, funcRetTypeName)
-        }
         registerFloatParamMetadata(floatRegistryFuncName, funcObj.params)
 
         let bodyStmtCount = funcObj.body.statements.length()
-        if not shouldRegisterCrossModuleFunctionImpl(funcObj.name, funcObj.isExtern, bodyStmtCount, isRuntimeStringCompat) {
-            return
-        }
-
         var declRetLlvm = mapType(funcRetTypeName)
         if funcObj.isAsync {
             declRetLlvm = "ptr"
@@ -1496,9 +1475,20 @@ class LLVMIRGenerator {
         let declSeenParamTypes = Array<String>()
         let declLlvmParamTypes = Array<String>()
         collectDeclaredParamTypeInfo(funcObj.params, declSeenParamTypes, declLlvmParamTypes)
-        let declParams = buildDeclareParamsImpl(declSeenParamTypes, declLlvmParamTypes, false)
-        let declStr = buildDeclareStringImpl(quoteIdentIfNeeded(funcObj.name), declRetLlvm, declParams, funcObj.isExtern and bodyStmtCount == 0)
-        recordCrossModuleDeclareEntry(funcObj.name, declStr, item.visibility)
+        let updated = registerFunctionDeclarationStateImpl(funcObj.name,
+            funcRetTypeName, declRetLlvm, funcObj.isAsync, funcObj.isExtern,
+            bodyStmtCount, item.visibility, isRuntimeStringCompat,
+            declSeenParamTypes, declLlvmParamTypes, funcNames, funcRetTypes,
+            g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount,
+            g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareVis,
+            g_xmDeclareCount)
+        g_asyncFuncNames = unpackDeclRegistryFieldImpl(updated, 0)
+        g_asyncFuncRetTypes = unpackDeclRegistryFieldImpl(updated, 1)
+        g_asyncFuncCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 2))
+        g_xmDeclareNames = unpackDeclRegistryFieldImpl(updated, 3)
+        g_xmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 4)
+        g_xmDeclareVis = unpackDeclRegistryFieldImpl(updated, 5)
+        g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
     }
 
     fun recordCrossModuleDeclareEntry(symbolName: String, declStr: String, visibility: String) r: Void {
@@ -11800,40 +11790,11 @@ class LLVMIRGenerator {
     }
 
     fun normalizeSeenTypeName(seenType: String) r: String {
-        var normalized = seenType
-        if normalized.startsWith("move:") {
-            normalized = normalized.substring(5, normalized.length())
-        }
-        if normalized.startsWith("borrow:") {
-            normalized = normalized.substring(7, normalized.length())
-        }
-        if normalized.startsWith("comptime:") {
-            normalized = normalized.substring(9, normalized.length())
-        }
-        if normalized.contains("~default~") {
-            let defPos = normalized.indexOf("~default~", 0)
-            normalized = normalized.substring(0, defPos)
-        }
-        if normalized == "i1" {
-            return "Bool"
-        }
-        if normalized == "i64" {
-            return "Int"
-        }
-        if normalized == "%SeenString" {
-            return "String"
-        }
-        return normalized
+        return normalizeSeenTypeNameImpl(seenType)
     }
 
     fun normalizeDeclaredTypeNode(typeNode: TypeNode) r: String {
-        let normalized = normalizeSeenTypeName(typeNode.typeName)
-        if typeNode.isNullable {
-            if normalized == "Option<String>" or normalized == "Optional<String>" {
-                return "String?"
-            }
-        }
-        return normalized
+        return normalizeDeclaredTypeNodeImpl(typeNode)
     }
 
     fun prepareCallArguments(funcName: String, arguments: Array<ParserExpressionNode>,

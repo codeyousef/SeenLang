@@ -1,0 +1,206 @@
+// ir_decl_items.seen — declaration-item registration helpers
+// Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen while
+// preserving the existing registry and cross-module declare behavior.
+
+import parser.real_parser.{ParamNode, TypeNode}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_call_args.{hasFloatParamFuncImpl}
+import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl}
+import codegen.ir_decl_registry.{declRegistryPackSepImpl, unpackDeclRegistryFieldImpl, registerFunctionStateImpl, registerAsyncFunctionStateImpl, recordCrossModuleDeclareStateImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+
+fun normalizeSeenTypeNameImpl(seenType: String) r: String {
+    var normalized = seenType
+    if normalized.startsWith("move:") {
+        normalized = normalized.substring(5, normalized.length())
+    }
+    if normalized.startsWith("borrow:") {
+        normalized = normalized.substring(7, normalized.length())
+    }
+    if normalized.startsWith("comptime:") {
+        normalized = normalized.substring(9, normalized.length())
+    }
+    if normalized.contains("~default~") {
+        let defPos = normalized.indexOf("~default~", 0)
+        normalized = normalized.substring(0, defPos)
+    }
+    if normalized == "i1" {
+        return "Bool"
+    }
+    if normalized == "i64" {
+        return "Int"
+    }
+    if normalized == "%SeenString" {
+        return "String"
+    }
+    return normalized
+}
+
+fun normalizeDeclaredTypeNodeImpl(typeNode: TypeNode) r: String {
+    let normalized = normalizeSeenTypeNameImpl(typeNode.typeName)
+    if typeNode.isNullable {
+        if normalized == "Option<String>" or normalized == "Optional<String>" {
+            return "String?"
+        }
+    }
+    return normalized
+}
+
+fun mapDeclaredTypeImpl(seenType: String, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String) r: String {
+
+    if seenType.startsWith("dyn ") {
+        return "i64"
+    }
+    if seenType.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseT = getBaseTypeNameImpl(seenType)
+        if reprCClassNames.contains(baseT + "|") {
+            return "%" + baseT
+        }
+    }
+    return mapTypeImpl(seenType, structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames)
+}
+
+fun registerFloatParamMetadataImpl(funcName: String, params: Array<ParamNode>,
+    floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Void {
+
+    var paramIdx = 0
+    while paramIdx < params.length() {
+        let paramTypeName = normalizeDeclaredTypeNodeImpl(params[paramIdx].paramType)
+        if paramTypeName == "Float" {
+            if not hasFloatParamFuncImpl(funcName, paramIdx, floatParamFuncNames,
+                floatParamParamIdxs) {
+                floatParamFuncNames.push(funcName)
+                floatParamParamIdxs.push(paramIdx)
+            }
+        }
+        paramIdx = paramIdx + 1
+    }
+}
+
+fun collectDeclaredParamTypeInfoImpl(params: Array<ParamNode>,
+    paramSeenTypes: Array<String>, paramLlvmTypes: Array<String>,
+    structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    reprCClassNames: String) r: Void {
+
+    var paramIdx = 0
+    while paramIdx < params.length() {
+        let paramTypeName = normalizeDeclaredTypeNodeImpl(params[paramIdx].paramType)
+        paramSeenTypes.push(paramTypeName)
+        paramLlvmTypes.push(mapDeclaredTypeImpl(paramTypeName, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            reprCClassNames))
+        paramIdx = paramIdx + 1
+    }
+}
+
+fun isRuntimeBackedStringCompatFunctionImpl(funcName: String) r: Bool {
+    if funcName == "String_toUpperCase" or funcName == "String_toLowerCase" or funcName == "String_toInt" or funcName == "String_toFloat" or funcName == "String_reverse" or funcName == "String_isEmpty" or funcName == "String_count" or funcName == "String_replace" {
+        return true
+    }
+    if funcName == "split" or funcName == "startsWith" or funcName == "endsWith" or funcName == "contains" or funcName == "indexOf" or funcName == "lastIndexOf" {
+        return true
+    }
+    return false
+}
+
+fun packDeclarationItemStateImpl(asyncFuncNames: String,
+    asyncFuncRetTypes: String, asyncFuncCount: Int, xmDeclareNames: String,
+    xmDeclareStrs: String, xmDeclareVis: String, xmDeclareCount: Int) r: String {
+
+    let sep = declRegistryPackSepImpl()
+    return asyncFuncNames + sep + asyncFuncRetTypes + sep +
+        asyncFuncCount.toString() + sep + xmDeclareNames + sep +
+        xmDeclareStrs + sep + xmDeclareVis + sep + xmDeclareCount.toString()
+}
+
+fun registerMethodDeclarationStateImpl(mangledName: String,
+    methodRetTypeName: String, methodRetLlvm: String, methodIsAsync: Bool,
+    methodIsStatic: Bool, visibility: String,
+    methodSeenParamTypes: Array<String>, methodLlvmParamTypes: Array<String>,
+    funcNames: Array<String>, funcRetTypes: Array<String>,
+    asyncFuncNames: String, asyncFuncRetTypes: String, asyncFuncCount: Int,
+    xmDeclareNames: String, xmDeclareStrs: String, xmDeclareVis: String,
+    xmDeclareCount: Int) r: String {
+
+    registerFunctionStateImpl(mangledName, methodRetTypeName, funcNames,
+        funcRetTypes)
+
+    var updatedAsyncFuncNames = asyncFuncNames
+    var updatedAsyncFuncRetTypes = asyncFuncRetTypes
+    var updatedAsyncFuncCount = asyncFuncCount
+    if methodIsAsync {
+        let asyncUpdated = registerAsyncFunctionStateImpl(mangledName,
+            methodRetTypeName, updatedAsyncFuncNames, updatedAsyncFuncRetTypes,
+            updatedAsyncFuncCount)
+        updatedAsyncFuncNames = unpackDeclRegistryFieldImpl(asyncUpdated, 0)
+        updatedAsyncFuncRetTypes = unpackDeclRegistryFieldImpl(asyncUpdated, 1)
+        updatedAsyncFuncCount = unpackDeclRegistryFieldImpl(asyncUpdated, 2).toInt()
+    }
+
+    let methodDeclParams = buildDeclareParamsImpl(methodSeenParamTypes,
+        methodLlvmParamTypes, not methodIsStatic)
+    let methodDecl = buildDeclareStringImpl(quoteIdentIfNeededImpl(mangledName),
+        methodRetLlvm, methodDeclParams, false)
+    let declUpdated = recordCrossModuleDeclareStateImpl(mangledName, methodDecl,
+        visibility, xmDeclareNames, xmDeclareStrs, xmDeclareVis, xmDeclareCount)
+
+    return packDeclarationItemStateImpl(updatedAsyncFuncNames,
+        updatedAsyncFuncRetTypes, updatedAsyncFuncCount,
+        unpackDeclRegistryFieldImpl(declUpdated, 0),
+        unpackDeclRegistryFieldImpl(declUpdated, 1),
+        unpackDeclRegistryFieldImpl(declUpdated, 2),
+        unpackDeclRegistryFieldImpl(declUpdated, 3).toInt())
+}
+
+fun registerFunctionDeclarationStateImpl(funcName: String,
+    funcRetTypeName: String, declRetLlvm: String, funcIsAsync: Bool,
+    funcIsExtern: Bool, bodyStmtCount: Int, visibility: String,
+    isRuntimeStringCompat: Bool, declSeenParamTypes: Array<String>,
+    declLlvmParamTypes: Array<String>, funcNames: Array<String>,
+    funcRetTypes: Array<String>, asyncFuncNames: String,
+    asyncFuncRetTypes: String, asyncFuncCount: Int, xmDeclareNames: String,
+    xmDeclareStrs: String, xmDeclareVis: String, xmDeclareCount: Int) r: String {
+
+    registerFunctionStateImpl(funcName, funcRetTypeName, funcNames, funcRetTypes)
+
+    var updatedAsyncFuncNames = asyncFuncNames
+    var updatedAsyncFuncRetTypes = asyncFuncRetTypes
+    var updatedAsyncFuncCount = asyncFuncCount
+    if funcIsAsync {
+        let asyncUpdated = registerAsyncFunctionStateImpl(funcName,
+            funcRetTypeName, updatedAsyncFuncNames, updatedAsyncFuncRetTypes,
+            updatedAsyncFuncCount)
+        updatedAsyncFuncNames = unpackDeclRegistryFieldImpl(asyncUpdated, 0)
+        updatedAsyncFuncRetTypes = unpackDeclRegistryFieldImpl(asyncUpdated, 1)
+        updatedAsyncFuncCount = unpackDeclRegistryFieldImpl(asyncUpdated, 2).toInt()
+    }
+
+    if not shouldRegisterCrossModuleFunctionImpl(funcName, funcIsExtern,
+        bodyStmtCount, isRuntimeStringCompat) {
+        return packDeclarationItemStateImpl(updatedAsyncFuncNames,
+            updatedAsyncFuncRetTypes, updatedAsyncFuncCount, xmDeclareNames,
+            xmDeclareStrs, xmDeclareVis, xmDeclareCount)
+    }
+
+    let declParams = buildDeclareParamsImpl(declSeenParamTypes,
+        declLlvmParamTypes, false)
+    let declStr = buildDeclareStringImpl(quoteIdentIfNeededImpl(funcName),
+        declRetLlvm, declParams, funcIsExtern and bodyStmtCount == 0)
+    let declUpdated = recordCrossModuleDeclareStateImpl(funcName, declStr,
+        visibility, xmDeclareNames, xmDeclareStrs, xmDeclareVis, xmDeclareCount)
+
+    return packDeclarationItemStateImpl(updatedAsyncFuncNames,
+        updatedAsyncFuncRetTypes, updatedAsyncFuncCount,
+        unpackDeclRegistryFieldImpl(declUpdated, 0),
+        unpackDeclRegistryFieldImpl(declUpdated, 1),
+        unpackDeclRegistryFieldImpl(declUpdated, 2),
+        unpackDeclRegistryFieldImpl(declUpdated, 3).toInt())
+}
