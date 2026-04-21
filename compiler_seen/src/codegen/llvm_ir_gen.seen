@@ -85,7 +85,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, emitIndexedForLoopHeaderImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
@@ -6910,24 +6910,18 @@ class LLVMIRGenerator {
     }
 
     fun computeIfBranchWeightMetadata(stmt: StatementNode) r: String {
-        if stmt.thenBranch.statements.length() > 0 and stmt.thenBranch.statements.length() <= 3 {
-            let lastThenStmt = stmt.thenBranch.statements[stmt.thenBranch.statements.length() - 1]
-            if lastThenStmt.kind == "Return" {
-                return ", !prof !197"
-            }
+        let thenCount = stmt.thenBranch.statements.length()
+        var lastThenKind = ""
+        if thenCount > 0 {
+            lastThenKind = stmt.thenBranch.statements[thenCount - 1].kind
         }
-        return ""
+        return computeIfBranchWeightMetadataImpl(thenCount, lastThenKind)
     }
 
     fun finalizeConditionalEndBlock(endLabel: String, thenTerminated: Bool, elseTerminated: Bool) r: Void {
-        output.append(endLabel + ":\n")
         cseClear()
-        if thenTerminated and elseTerminated {
-            blockTerminated = true
-            output.append("  unreachable\n")
-            return
-        }
-        blockTerminated = false
+        blockTerminated = finalizeConditionalEndBlockImpl(output, endLabel,
+            thenTerminated, elseTerminated)
     }
 
     // Generate IR for an if/else statement. Performs branch elimination at
@@ -8039,17 +8033,13 @@ class LLVMIRGenerator {
 
     fun emitIfExpressionBranchValue(branchExpr: ParserExpressionNode, branchLabelPrefix: String, mergeLabel: String) r: String {
         let branchReg = generateExpression(branchExpr)
-        let phiLabel = branchLabelPrefix + ".end." + g_regBox[0].toString()
-        output.append("  br label %" + phiLabel + "\n")
-        output.append(phiLabel + ":\n")
-        output.append("  br label %" + mergeLabel + "\n")
-        return branchReg + "|" + phiLabel
+        return emitIfExpressionBranchValueImpl(output, branchReg,
+            branchLabelPrefix, mergeLabel, g_regBox[0].toString())
     }
 
     fun emitPhiMergeValue(llvmType: String, thenReg: String, thenLabel: String, elseReg: String, elseLabel: String) r: String {
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = phi " + llvmType + " [ " + thenReg + ", %" + thenLabel + " ], [ " + elseReg + ", %" + elseLabel + " ]\n")
-        return resultReg
+        return emitPhiMergeValueImpl(output, g_regBox, llvmType, thenReg,
+            thenLabel, elseReg, elseLabel)
     }
 
     fun generateIfExpression(expr: ParserExpressionNode) r: String {

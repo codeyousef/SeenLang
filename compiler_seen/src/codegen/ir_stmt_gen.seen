@@ -44,6 +44,50 @@ fun emitIfBranchingImpl(output: StringBuilder, blockLabelBox: Array<Int>, condBo
     return thenLabel + "|" + elseLabel + "|" + endLabel
 }
 
+fun computeIfBranchWeightMetadataImpl(thenStatementCount: Int,
+    lastThenKind: String) r: String {
+
+    if thenStatementCount > 0 and thenStatementCount <= 3 {
+        if lastThenKind == "Return" {
+            return ", !prof !197"
+        }
+    }
+    return ""
+}
+
+fun finalizeConditionalEndBlockImpl(output: StringBuilder, endLabel: String,
+    thenTerminated: Bool, elseTerminated: Bool) r: Bool {
+
+    output.append(endLabel + ":\n")
+    if thenTerminated and elseTerminated {
+        output.append("  unreachable\n")
+        return true
+    }
+    return false
+}
+
+fun emitIfExpressionBranchValueImpl(output: StringBuilder, branchReg: String,
+    branchLabelPrefix: String, mergeLabel: String,
+    labelSuffix: String) r: String {
+
+    let phiLabel = branchLabelPrefix + ".end." + labelSuffix
+    output.append("  br label %" + phiLabel + "\n")
+    output.append(phiLabel + ":\n")
+    output.append("  br label %" + mergeLabel + "\n")
+    return branchReg + "|" + phiLabel
+}
+
+fun emitPhiMergeValueImpl(output: StringBuilder, regBox: Array<Int>,
+    llvmType: String, thenReg: String, thenLabel: String, elseReg: String,
+    elseLabel: String) r: String {
+
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = phi " + llvmType + " [ " +
+        thenReg + ", %" + thenLabel + " ], [ " + elseReg + ", %" +
+        elseLabel + " ]\n")
+    return resultReg
+}
+
 // emitRangeForLoopImpl — emit range-based for-in loop scaffolding
 // startReg/endReg: pre-generated range bound registers
 // loopVarAlloca: alloca register for the loop variable
