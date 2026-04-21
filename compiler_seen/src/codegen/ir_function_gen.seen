@@ -373,6 +373,87 @@ fun shouldSkipSpecialFunctionBodyImpl(output: StringBuilder,
     return false
 }
 
+fun prepareFunctionAttributesImpl(output: StringBuilder, fn: FunctionNode,
+    sanitizerMode: String, funcAttrsBox: Array<String>,
+    initFuncNamesBox: Array<String>, initFuncCountBox: Array<Int>,
+    trustedFuncNamesBox: Array<String>,
+    specializationNamesBox: Array<String>,
+    specializationCountBox: Array<Int>) r: Void {
+
+    ensureFunctionStringBoxValue(funcAttrsBox)
+    ensureFunctionStringBoxValue(initFuncNamesBox)
+    ensureFunctionIntBoxValue(initFuncCountBox)
+    ensureFunctionStringBoxValue(trustedFuncNamesBox)
+    ensureFunctionStringBoxValue(specializationNamesBox)
+    ensureFunctionIntBoxValue(specializationCountBox)
+
+    var funcAttrs = ""
+    if fn.isInline {
+        funcAttrs = " alwaysinline"
+    }
+    if hasFunctionDecoratorImpl(fn, "noinline") {
+        funcAttrs = " noinline"
+    }
+    if hasFunctionDecoratorImpl(fn, "cold") {
+        funcAttrs = funcAttrs + " cold"
+    }
+    if hasFunctionDecoratorImpl(fn, "always_inline") {
+        funcAttrs = " alwaysinline"
+    }
+    if hasFunctionDecoratorImpl(fn, "hot") {
+        funcAttrs = funcAttrs + " hot"
+    }
+    if hasFunctionDecoratorImpl(fn, "pure") {
+        funcAttrs = funcAttrs + " readonly nounwind"
+    }
+    if hasFunctionDecoratorImpl(fn, "likely") {
+        funcAttrs = funcAttrs + " hot"
+    }
+    if hasFunctionDecoratorImpl(fn, "unlikely") {
+        funcAttrs = funcAttrs + " cold"
+    }
+    if hasFunctionDecoratorImpl(fn, "init") {
+        initFuncNamesBox[0] = initFuncNamesBox[0] + fn.name + "|"
+        initFuncCountBox[0] = initFuncCountBox[0] + 1
+    }
+    if hasFunctionDecoratorImpl(fn, "trusted") {
+        trustedFuncNamesBox[0] = trustedFuncNamesBox[0] + fn.name + "|"
+        output.append("; @trusted function: " + fn.name + "\n")
+    }
+    if sanitizerMode != "" {
+        if sanitizerMode == "address" {
+            funcAttrs = funcAttrs + " sanitize_address"
+        }
+        if sanitizerMode == "thread" {
+            funcAttrs = funcAttrs + " sanitize_thread"
+        }
+        if sanitizerMode == "memory" {
+            funcAttrs = funcAttrs + " sanitize_memory"
+        }
+    }
+    if hasFunctionDecoratorImpl(fn, "specialize") {
+        var specIdx = 0
+        while specIdx < fn.decorators.length() {
+            if fn.decorators[specIdx].name == "specialize" {
+                if fn.decorators[specIdx].arguments.length() > 0 {
+                    let specArg = fn.decorators[specIdx].arguments[0]
+                    specializationNamesBox[0] = specializationNamesBox[0] +
+                        fn.name + ":" + specArg + "|"
+                    specializationCountBox[0] =
+                        specializationCountBox[0] + 1
+                    output.append("; @specialize: " + fn.name + " with " +
+                        specArg + "\n")
+                }
+            }
+            specIdx = specIdx + 1
+        }
+    }
+    if fn.isAsync {
+        funcAttrs = funcAttrs + " presplitcoroutine"
+    }
+    funcAttrsBox[0] = funcAttrs
+}
+
 // emitFunctionSignatureImpl — emit function header, parameters, and entry label
 fun emitFunctionSignatureImpl(output: StringBuilder, signaturePrefix: String,
     paramDecls: Array<String>, funcAttrs: String) r: Void {
