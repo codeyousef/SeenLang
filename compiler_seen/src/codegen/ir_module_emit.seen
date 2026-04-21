@@ -1,7 +1,7 @@
 // Shared LLVM IR module-emission helpers.
 // Extracted from llvm_ir_gen.seen to deduplicate single- and multi-module paths.
 
-import parser.real_parser.{ProgramNode}
+import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, pipeGet}
 import codegen.ir_decl_items.{isRuntimeBackedStringCompatFunctionImpl}
@@ -330,6 +330,33 @@ fun emitOptimizationStatisticsSummaryImpl(output: StringBuilder, moduleIndex: In
                 reductionChainsDetected.toString())
         }
     }
+}
+
+fun shouldSkipStandaloneTopLevelFunctionImpl(fnName: String) r: Bool {
+    if fnName == "new" {
+        return true
+    }
+    return isRuntimeBackedStringCompatFunctionImpl(fnName)
+}
+
+fun resolveSpecialTopLevelFunctionActionImpl(fn: FunctionNode) r: String {
+    if fn.name == "__cImport" and fn.hasDecorator("cImport") {
+        var cImportHeaderPath = ""
+        var ciDecIdx = 0
+        while ciDecIdx < fn.decorators.length() {
+            if fn.decorators[ciDecIdx].name == "cImport" {
+                if fn.decorators[ciDecIdx].arguments.length() > 0 {
+                    cImportHeaderPath = fn.decorators[ciDecIdx].arguments[0]
+                }
+            }
+            ciDecIdx = ciDecIdx + 1
+        }
+        return "cImport|" + cImportHeaderPath
+    }
+    if fn.hasDecorator("variadic_generic") {
+        return "variadic_generic|"
+    }
+    return ""
 }
 
 fun emitGlobalConstructorsImpl(output: StringBuilder, initFuncCount: Int, initFuncNames: String) r: Void {

@@ -78,7 +78,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
-import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, emitGlobalConstructorsImpl}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
@@ -3204,21 +3204,21 @@ class LLVMIRGenerator {
     }
 
     fun tryHandleSpecialTopLevelFunction(fn: FunctionNode) r: Bool {
-        if fn.name == "__cImport" and fn.hasDecorator("cImport") {
+        let actionInfo = resolveSpecialTopLevelFunctionActionImpl(fn)
+        if actionInfo == "" {
+            return false
+        }
+        let actionParts = splitPipe(actionInfo)
+        let action = actionParts[0]
+        if action == "cImport" {
             var cImportHeaderPath = ""
-            var ciDecIdx = 0
-            while ciDecIdx < fn.decorators.length() {
-                if fn.decorators[ciDecIdx].name == "cImport" {
-                    if fn.decorators[ciDecIdx].arguments.length() > 0 {
-                        cImportHeaderPath = fn.decorators[ciDecIdx].arguments[0]
-                    }
-                }
-                ciDecIdx = ciDecIdx + 1
+            if actionParts.length() > 1 {
+                cImportHeaderPath = actionParts[1]
             }
             emitCImportHeaderDeclares(cImportHeaderPath)
             return true
         }
-        if fn.hasDecorator("variadic_generic") {
+        if action == "variadic_generic" {
             generateVariadicGenericExpansion(fn)
             return true
         }
@@ -3226,10 +3226,7 @@ class LLVMIRGenerator {
     }
 
     fun shouldSkipStandaloneTopLevelFunction(fnName: String) r: Bool {
-        if fnName == "new" {
-            return true
-        }
-        return isRuntimeBackedStringCompatFunction(fnName)
+        return shouldSkipStandaloneTopLevelFunctionImpl(fnName)
     }
 
     fun emitProgramTopLevelFunctions(program: ProgramNode, moduleIndex: Int,
