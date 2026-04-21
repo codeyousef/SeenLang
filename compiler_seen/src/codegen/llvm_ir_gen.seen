@@ -93,8 +93,8 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentRece
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl}
-import codegen.ir_function_param_meta.{stripFunctionSignatureParameterTypeImpl, stripFunctionAllocaParameterTypeImpl, prepareFunctionParameterStorageImpl, buildFunctionParameterDeclImpl, emitBorrowParameterHandleImpl, recordPreRegisteredComptimeParameterImpl, recordPreRegisteredDefaultParameterImpl, recordPreRegisteredDynParameterImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, buildFunctionParameterDeclsImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl}
+import codegen.ir_function_param_meta.{stripFunctionAllocaParameterTypeImpl, prepareFunctionParameterStorageImpl, emitBorrowParameterHandleImpl, recordPreRegisteredComptimeParameterImpl, recordPreRegisteredDefaultParameterImpl, recordPreRegisteredDynParameterImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -4951,29 +4951,13 @@ class LLVMIRGenerator {
 
         // norecurse / noinline for recursive functions
         println("[irgen function] recursion flags start: " + fnName)
-        let isSelfRecursive = selfCallCheck(fnName, g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
-        if isSelfRecursive {
-            // Prevent catastrophic code explosion from inlining recursive calls
-            funcAttrs = funcAttrs.replace(" alwaysinline", "")
-            funcAttrs = funcAttrs.replace(" inlinehint", "")
-            funcAttrs = funcAttrs + " noinline"
-        }
-        if not isSelfRecursive {
-            funcAttrs = funcAttrs + " norecurse"
-        }
+        funcAttrs = normalizeRecursiveFunctionAttrsImpl(fnName, funcAttrs,
+            g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
         println("[irgen function] recursion flags done: " + fnName)
 
         // ML register pressure estimation (9.7): count unique variables
         println("[irgen function] reg-pressure start: " + fnName)
-        var regPressureCount = fn.params.length()
-        var rpIdx = 0
-        while rpIdx < fn.body.statements.length() {
-            let rpStmt = fn.body.statements[rpIdx]
-            if rpStmt.kind == "Let" or rpStmt.kind == "Var" {
-                regPressureCount = regPressureCount + 1
-            }
-            rpIdx = rpIdx + 1
-        }
+        let regPressureCount = countFunctionRegisterPressureImpl(fn)
         if regPressureCount > 14 {
             output.append("; register pressure high: " + regPressureCount.toString() + " vars — capping unroll/vectorize\n")
             g_currentFunctionHighPressure = true
@@ -4983,42 +4967,13 @@ class LLVMIRGenerator {
         println("[irgen function] reg-pressure done: " + fnName)
 
         // Function signature
-        // Add noundef on primitive return types for stronger optimization
-        var fnRetPrefix = "define "
-        if returnType == "i64" or returnType == "double" or returnType == "i1" {
-            fnRetPrefix = "define noundef "
-        }
-        // Async functions return ptr (coroutine handle) instead of declared type
-        var actualLlvmReturnType = returnType
-        if fn.isAsync {
-            actualLlvmReturnType = "ptr"
-            fnRetPrefix = "define "
-        }
-        if hasDecorator(fn, "init") and fn.name == "__seen_internal_module_init__" {
-            fnRetPrefix = "define internal "
-        }
-        // @export("C"): add dso_local for C-compatible export
-        if hasDecorator(fn, "export") {
-            fnRetPrefix = fnRetPrefix + "dso_local "
-        }
         println("[irgen function] signature start: " + fnName)
-        let quotedFnName = quoteIdentIfNeeded(fnName)
-        let signaturePrefix = fnRetPrefix + actualLlvmReturnType + " @" + quotedFnName + "("
-
-        // Parameters
-        var paramDecls = Array<String>()
-        var paramIdx = 0
-        while paramIdx < fn.params.length() {
-            let param = fn.params[paramIdx]
-            var sigTypeName = normalizeDeclaredTypeNode(param.paramType)
-            sigTypeName = stripFunctionSignatureParameterTypeImpl(sigTypeName)
-            let paramType = mapTypeForParameter(sigTypeName)
-            let quotedParamArgName = quoteIdentIfNeeded(param.name + ".arg")
-            paramDecls.push(buildFunctionParameterDeclImpl(paramType,
-                quotedParamArgName, hasDecorator(fn, "no_alias")))
-            paramIdx = paramIdx + 1
-        }
-
+        let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
+            returnType)
+        let paramDecls = buildFunctionParameterDeclsImpl(fn,
+            hasDecorator(fn, "no_alias"), structNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_reprCClassNames)
         emitFunctionSignatureImpl(output, signaturePrefix, paramDecls, funcAttrs)
         println("[irgen function] signature done: " + fnName)
 
@@ -5072,37 +5027,11 @@ class LLVMIRGenerator {
         configureFunctionLoweringOptions(fn)
 
         // Emit prefetch intrinsic calls for pointer parameters
-        if currentFunctionPrefetchMode() > 0 {
-            var prefetchRW = "0"
-            if currentFunctionPrefetchMode() == 2 {
-                prefetchRW = "1"
-            }
-            var prefetchModeStr = "read"
-            if currentFunctionPrefetchMode() == 2 {
-                prefetchModeStr = "write"
-            }
-            output.append("  ; @prefetch(" + prefetchModeStr + ") instrumentation\n")
-            var pi = 0
-            while pi < fn.params.length() {
-                let param = fn.params[pi]
-                let paramTypeName = param.paramType.typeName
-                if paramTypeName == "Array<Int>" or paramTypeName == "Array<Float>" or contains(paramTypeName, "Array") {
-                    let allocaName = "%" + quoteIdentIfNeeded(param.name)
-                    let ptrReg = getNextReg()
-                    output.append("  " + ptrReg + " = load ptr, ptr " + allocaName + "\n")
-                    output.append("  call void @llvm.prefetch.p0(ptr " + ptrReg + ", i32 " + prefetchRW + ", i32 3, i32 1)\n")
-                }
-                pi = pi + 1
-            }
-        }
+        emitFunctionPrefetchHintsImpl(output, g_regBox, fn,
+            currentFunctionPrefetchMode())
 
-        if currentFunctionRegionSizeBytes() > 0 {
-            output.append("  ; @preallocate region allocator - create\n")
-            let regionReg = getNextReg()
-            output.append("  " + regionReg + " = call ptr @__seen_region_create(i64 " + currentFunctionRegionSizeBytes().toString() + ", i32 1)\n")
-            output.append("  %__region_ptr = alloca ptr\n")
-            output.append("  store ptr " + regionReg + ", ptr %__region_ptr\n")
-        }
+        emitRegionAllocatorSetupImpl(output, g_regBox,
+            currentFunctionRegionSizeBytes())
 
         // Generate function body
         generateBlock(fn.body)
