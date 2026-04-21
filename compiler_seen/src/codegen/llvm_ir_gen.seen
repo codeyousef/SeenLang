@@ -57,6 +57,7 @@ import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpaces
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
+import codegen.ir_string_emit.{escapeStringImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
@@ -4777,33 +4778,12 @@ class LLVMIRGenerator {
     }
 
     fun emitStringConstants() r: Void {
-        var i = 0
-        while i < stringConstants.length() {
-            let str = stringConstants[i]
-            let escaped = escapeString(str)
-            let len = str.length() + 1  // +1 for null terminator
-            output.append("@.str." + i.toString() + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escaped + "\\00\"\n")
-            i = i + 1
-        }
-        if stringConstants.length() > 0 {
-            output.append("\n")
-        }
+        emitStringConstantsImpl(output, stringConstants)
     }
 
     // Emit string constants with module prefix to avoid collisions in per-module compilation
     fun emitStringConstantsWithPrefix(moduleIndex: Int) r: Void {
-        var i = 0
-        while i < stringConstants.length() {
-            let str = stringConstants[i]
-            let escaped = escapeString(str)
-            let len = str.length() + 1  // +1 for null terminator
-            // Module-prefixed name: @.str.M0.0, @.str.M1.0, etc.
-            output.append("@.str.M" + moduleIndex.toString() + "." + i.toString() + " = private unnamed_addr constant [" + len.toString() + " x i8] c\"" + escaped + "\\00\"\n")
-            i = i + 1
-        }
-        if stringConstants.length() > 0 {
-            output.append("\n")
-        }
+        emitStringConstantsWithPrefixImpl(output, stringConstants, moduleIndex)
     }
 
     // Delegates to free functions in ir_decl_runtime/parser/features.seen
@@ -12487,57 +12467,8 @@ class LLVMIRGenerator {
         return "Int"
     }
 
-    // Escape string for LLVM IR. Uses byteAt() to avoid per-char substring allocation.
-    // ASCII: 92='\', 34='"', 10='\n', 9='\t', 13='\r'
-    // Escape a string for embedding in LLVM IR constant data. Replaces
-    // backslash, double-quote, newline, tab, and carriage-return with their
-    // LLVM hex escape sequences (\5C, \22, \0A, \09, \0D). Uses a fast
-    // path (byteAt scan) to skip allocation when no escaping is needed.
     fun escapeString(str: String) r: String {
-        // Fast path: check if any escaping is needed at all
-        var needsEscape = 0
-        var scanIdx = 0
-        while scanIdx < str.length() {
-            let sb = str.byteAt(scanIdx)
-            if sb == 92 or sb == 34 or sb == 10 or sb == 9 or sb == 13 {
-                needsEscape = 1
-                scanIdx = str.length()
-            }
-            scanIdx = scanIdx + 1
-        }
-        if needsEscape == 0 { return str }
-        // Slow path: build escaped string using byteAt
-        var result = ""
-        var i = 0
-        while i < str.length() {
-            let b = str.byteAt(i)
-            var charHandled = false
-            if b == 92 {
-                result = result + "\\\\"
-                charHandled = true
-            }
-            if not charHandled and b == 34 {
-                result = result + "\\22"
-                charHandled = true
-            }
-            if not charHandled and b == 10 {
-                result = result + "\\0A"
-                charHandled = true
-            }
-            if not charHandled and b == 9 {
-                result = result + "\\09"
-                charHandled = true
-            }
-            if not charHandled and b == 13 {
-                result = result + "\\0D"
-                charHandled = true
-            }
-            if not charHandled {
-                result = result + str.substring(i, i + 1)
-            }
-            i = i + 1
-        }
-        return result
+        return escapeStringImpl(str)
     }
 
     // Pre-scan all expressions in a program to collect string literal constants.

@@ -50,6 +50,7 @@ import codegen.ir_string_collect.{hexToDecimalImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
+import codegen.ir_string_emit.{escapeStringImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl}
 import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl}
@@ -1875,6 +1876,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_string_collect_state")
         modules.push("codegen.ir_string_interp_gen")
         modules.push("codegen.ir_string_interp_infer")
+        modules.push("codegen.ir_string_emit")
         modules.push("codegen.ir_nullish_gen")
         modules.push("codegen.ir_enum_ctor_gen")
         modules.push("codegen.ir_when_arm_gen")
