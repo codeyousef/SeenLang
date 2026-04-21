@@ -1,0 +1,32 @@
+// ir_enum_ctor_gen.seen -- Shared enum-constructor emission helpers
+// Extracted from llvm_ir_gen.seen to keep enum allocation/store IR thin.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun allocateEnumConstructorObjectImpl(output: StringBuilder, regBox: Array<Int>,
+    tag: Int, fieldCount: Int) r: String {
+
+    let totalSize = 8 + fieldCount * 8
+    let objReg = getNextRegFn(regBox)
+    output.append("  " + objReg + " = call ptr @malloc(i64 " +
+        totalSize.toString() + ")\n")
+    output.append("  store i64 " + tag.toString() + ", ptr " + objReg + "\n")
+    return objReg
+}
+
+fun emitEnumConstructorFieldStoresImpl(output: StringBuilder,
+    regBox: Array<Int>, objReg: String, fieldRegs: Array<String>,
+    fieldLlvmTypes: Array<String>) r: Void {
+
+    var fieldIdx = 0
+    while fieldIdx < fieldRegs.length() and fieldIdx < fieldLlvmTypes.length() {
+        let fieldOffset = 8 + fieldIdx * 8
+        let fieldPtrReg = getNextRegFn(regBox)
+        output.append("  " + fieldPtrReg + " = getelementptr i8, ptr " +
+            objReg + ", i64 " + fieldOffset.toString() + "\n")
+        output.append("  store " + fieldLlvmTypes[fieldIdx] + " " +
+            fieldRegs[fieldIdx] + ", ptr " + fieldPtrReg + "\n")
+        fieldIdx = fieldIdx + 1
+    }
+}

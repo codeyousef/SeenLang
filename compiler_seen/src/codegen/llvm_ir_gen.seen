@@ -58,6 +58,7 @@ import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collect
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, buildSafeNavigationMemberExprImpl}
+import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
 import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
@@ -12842,25 +12843,22 @@ class LLVMIRGenerator {
     // tag at offset 0, then 8 bytes per field at offsets 8, 16, 24, etc.
     // Returns the malloc'd pointer (data enums map to "ptr" in mapType).
     fun allocateEnumConstructorObject(tag: Int, fieldCount: Int) r: String {
-        let totalSize = 8 + fieldCount * 8
-        let objReg = getNextReg()
-        output.append("  " + objReg + " = call ptr @malloc(i64 " + totalSize.toString() + ")\n")
-        output.append("  store i64 " + tag.toString() + ", ptr " + objReg + "\n")
-        return objReg
+        return allocateEnumConstructorObjectImpl(output, g_regBox, tag,
+            fieldCount)
     }
 
     fun emitEnumConstructorFieldStores(variantName: String, expr: ParserExpressionNode, objReg: String, fieldCount: Int) r: Void {
+        let fieldRegs = Array<String>()
+        let fieldLlvmTypes = Array<String>()
         var fi = 0
         while fi < fieldCount and fi < expr.arguments.length() {
-            let fieldReg = generateExpression(expr.arguments[fi])
+            fieldRegs.push(generateExpression(expr.arguments[fi]))
             let fieldType = lookupEnumFieldType(variantName, fi)
-            let fieldLlvm = mapType(fieldType)
-            let fieldOffset = 8 + fi * 8
-            let fieldPtrReg = getNextReg()
-            output.append("  " + fieldPtrReg + " = getelementptr i8, ptr " + objReg + ", i64 " + fieldOffset.toString() + "\n")
-            output.append("  store " + fieldLlvm + " " + fieldReg + ", ptr " + fieldPtrReg + "\n")
+            fieldLlvmTypes.push(mapType(fieldType))
             fi = fi + 1
         }
+        emitEnumConstructorFieldStoresImpl(output, g_regBox, objReg, fieldRegs,
+            fieldLlvmTypes)
     }
 
     fun generateEnumConstructor(variantName: String, expr: ParserExpressionNode) r: String {
