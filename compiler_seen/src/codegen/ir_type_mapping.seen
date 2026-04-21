@@ -179,6 +179,101 @@ fun lookupComptimeStrVarImpl(name: String, comptimeStrNames: String, comptimeStr
     return "__EVAL_FAIL__"
 }
 
+fun ensureComptimeStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureComptimeIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun updateComptimeVarStateImpl(name: String, value: Int, comptimeNames: String,
+    comptimeValuesBox: Array<String>, comptimeCount: Int) r: Void {
+
+    ensureComptimeStringBoxValue(comptimeValuesBox)
+    if comptimeCount == 0 {
+        return
+    }
+    var newValues = ""
+    var searchPos = 0
+    var valPos = 0
+    var idx = 0
+    while idx < comptimeCount {
+        var curName = ""
+        var nextPipe = comptimeNames.indexOf("|", searchPos)
+        if nextPipe < 0 {
+            curName = comptimeNames.substring(searchPos, comptimeNames.length())
+        } else {
+            curName = comptimeNames.substring(searchPos, nextPipe)
+            searchPos = nextPipe + 1
+        }
+        var curVal = ""
+        var nextValPipe = comptimeValuesBox[0].indexOf("|", valPos)
+        if nextValPipe < 0 {
+            curVal = comptimeValuesBox[0].substring(valPos,
+                comptimeValuesBox[0].length())
+        } else {
+            curVal = comptimeValuesBox[0].substring(valPos, nextValPipe)
+            valPos = nextValPipe + 1
+        }
+        if idx > 0 {
+            newValues = newValues + "|"
+        }
+        if curName == name {
+            newValues = newValues + value.toString()
+        } else {
+            newValues = newValues + curVal
+        }
+        idx = idx + 1
+    }
+    comptimeValuesBox[0] = newValues
+}
+
+fun registerComptimeVarStateImpl(name: String, value: Int,
+    comptimeNamesBox: Array<String>, comptimeValuesBox: Array<String>,
+    comptimeCountBox: Array<Int>) r: Void {
+
+    ensureComptimeStringBoxValue(comptimeNamesBox)
+    ensureComptimeStringBoxValue(comptimeValuesBox)
+    ensureComptimeIntBoxValue(comptimeCountBox)
+
+    let existingVal = lookupComptimeVarImpl(name, comptimeNamesBox[0],
+        comptimeValuesBox[0], comptimeCountBox[0])
+    if existingVal != -9999999 {
+        updateComptimeVarStateImpl(name, value, comptimeNamesBox[0],
+            comptimeValuesBox, comptimeCountBox[0])
+        return
+    }
+    if comptimeCountBox[0] > 0 {
+        comptimeNamesBox[0] = comptimeNamesBox[0] + "|"
+        comptimeValuesBox[0] = comptimeValuesBox[0] + "|"
+    }
+    comptimeNamesBox[0] = comptimeNamesBox[0] + name
+    comptimeValuesBox[0] = comptimeValuesBox[0] + value.toString()
+    comptimeCountBox[0] = comptimeCountBox[0] + 1
+}
+
+fun registerComptimeStrVarStateImpl(name: String, value: String,
+    comptimeStrNamesBox: Array<String>, comptimeStrValuesBox: Array<String>,
+    comptimeStrCountBox: Array<Int>) r: Void {
+
+    ensureComptimeStringBoxValue(comptimeStrNamesBox)
+    ensureComptimeStringBoxValue(comptimeStrValuesBox)
+    ensureComptimeIntBoxValue(comptimeStrCountBox)
+
+    if comptimeStrCountBox[0] > 0 {
+        comptimeStrNamesBox[0] = comptimeStrNamesBox[0] + "|"
+        comptimeStrValuesBox[0] = comptimeStrValuesBox[0] + "|"
+    }
+    comptimeStrNamesBox[0] = comptimeStrNamesBox[0] + name
+    comptimeStrValuesBox[0] = comptimeStrValuesBox[0] + value
+    comptimeStrCountBox[0] = comptimeStrCountBox[0] + 1
+}
+
 // Comptime sizeof for common types
 fun comptimeSizeofImpl(typeName: String) r: Int {
     if typeName == "Int" or typeName == "Float" or typeName == "String" { return 8 }

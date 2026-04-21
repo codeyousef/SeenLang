@@ -65,6 +65,7 @@ import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIs
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{alignUpImpl, getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
+import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
@@ -5922,66 +5923,41 @@ class LLVMIRGenerator {
 
     // Register a new comptime integer variable
     fun registerComptimeVar(name: String, value: Int) r: Void {
-        // Check if already exists — update instead
-        let existingVal = lookupComptimeVar(name)
-        if existingVal != -9999999 {
-            updateComptimeVar(name, value)
-            return
-        }
-        if g_comptimeCount > 0 {
-            g_comptimeNames = g_comptimeNames + "|"
-            g_comptimeValues = g_comptimeValues + "|"
-        }
-        g_comptimeNames = g_comptimeNames + name
-        g_comptimeValues = g_comptimeValues + value.toString()
-        g_comptimeCount = g_comptimeCount + 1
+        let comptimeNamesBox = Array<String>()
+        comptimeNamesBox.push(g_comptimeNames)
+        let comptimeValuesBox = Array<String>()
+        comptimeValuesBox.push(g_comptimeValues)
+        let comptimeCountBox = Array<Int>()
+        comptimeCountBox.push(g_comptimeCount)
+        registerComptimeVarStateImpl(name, value, comptimeNamesBox,
+            comptimeValuesBox, comptimeCountBox)
+        g_comptimeNames = comptimeNamesBox[0]
+        g_comptimeValues = comptimeValuesBox[0]
+        g_comptimeCount = comptimeCountBox[0]
     }
 
     // Update an existing comptime integer variable
     fun updateComptimeVar(name: String, value: Int) r: Void {
-        if g_comptimeCount == 0 { return }
-        // Rebuild the values string with updated value
-        var newValues = ""
-        var searchPos = 0
-        var valPos = 0
-        var idx = 0
-        while idx < g_comptimeCount {
-            var curName = ""
-            var nextPipe = g_comptimeNames.indexOf("|", searchPos)
-            if nextPipe < 0 {
-                curName = g_comptimeNames.substring(searchPos, g_comptimeNames.length())
-            } else {
-                curName = g_comptimeNames.substring(searchPos, nextPipe)
-                searchPos = nextPipe + 1
-            }
-            var curVal = ""
-            var nextValPipe = g_comptimeValues.indexOf("|", valPos)
-            if nextValPipe < 0 {
-                curVal = g_comptimeValues.substring(valPos, g_comptimeValues.length())
-            } else {
-                curVal = g_comptimeValues.substring(valPos, nextValPipe)
-                valPos = nextValPipe + 1
-            }
-            if idx > 0 { newValues = newValues + "|" }
-            if curName == name {
-                newValues = newValues + value.toString()
-            } else {
-                newValues = newValues + curVal
-            }
-            idx = idx + 1
-        }
-        g_comptimeValues = newValues
+        let comptimeValuesBox = Array<String>()
+        comptimeValuesBox.push(g_comptimeValues)
+        updateComptimeVarStateImpl(name, value, g_comptimeNames,
+            comptimeValuesBox, g_comptimeCount)
+        g_comptimeValues = comptimeValuesBox[0]
     }
 
     // Register a comptime string variable
     fun registerComptimeStrVar(name: String, value: String) r: Void {
-        if g_comptimeStrCount > 0 {
-            g_comptimeStrNames = g_comptimeStrNames + "|"
-            g_comptimeStrValues = g_comptimeStrValues + "|"
-        }
-        g_comptimeStrNames = g_comptimeStrNames + name
-        g_comptimeStrValues = g_comptimeStrValues + value
-        g_comptimeStrCount = g_comptimeStrCount + 1
+        let comptimeStrNamesBox = Array<String>()
+        comptimeStrNamesBox.push(g_comptimeStrNames)
+        let comptimeStrValuesBox = Array<String>()
+        comptimeStrValuesBox.push(g_comptimeStrValues)
+        let comptimeStrCountBox = Array<Int>()
+        comptimeStrCountBox.push(g_comptimeStrCount)
+        registerComptimeStrVarStateImpl(name, value, comptimeStrNamesBox,
+            comptimeStrValuesBox, comptimeStrCountBox)
+        g_comptimeStrNames = comptimeStrNamesBox[0]
+        g_comptimeStrValues = comptimeStrValuesBox[0]
+        g_comptimeStrCount = comptimeStrCountBox[0]
     }
 
     // Look up a comptime string variable
