@@ -57,6 +57,30 @@ fun stripFunctionAllocaParameterTypeImpl(typeName: String,
     return strippedTypeName
 }
 
+fun prepareFunctionParameterStorageImpl(output: StringBuilder,
+    regBox: Array<Int>, isDataTypeParam: Bool, storageType: String,
+    quotedParamArgName: String) r: String {
+
+    if isDataTypeParam {
+        return "%" + quotedParamArgName
+    }
+    let reg = getNextRegFn(regBox)
+    output.append("  " + reg + " = alloca " + storageType + "\n")
+    output.append("  store " + storageType + " %" + quotedParamArgName +
+        ", ptr " + reg + "\n")
+    return reg
+}
+
+fun buildFunctionParameterDeclImpl(paramType: String,
+    quotedParamArgName: String, noAliasEnabled: Bool) r: String {
+
+    var paramAttr = ""
+    if paramType == "ptr" and noAliasEnabled {
+        paramAttr = "noalias "
+    }
+    return paramAttr + paramType + " %" + quotedParamArgName
+}
+
 fun emitBorrowParameterHandleImpl(output: StringBuilder, regBox: Array<Int>,
     paramName: String, quotedParamArgName: String) r: Void {
 
