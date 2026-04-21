@@ -1,0 +1,88 @@
+// ir_function_param_meta.seen — parameter metadata helpers extracted from
+// llvm_ir_gen.seen to keep function pre-registration bookkeeping localized.
+
+fun ensureFunctionParamMetaStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun ensureFunctionParamMetaIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
+    }
+}
+
+fun recordPreRegisteredComptimeParameterImpl(fnName: String,
+    paramName: String, paramIdx: Int, preTypeName: String,
+    comptimeParamFuncNamesBox: Array<String>,
+    comptimeParamCountBox: Array<Int>) r: String {
+
+    ensureFunctionParamMetaStringBoxValue(comptimeParamFuncNamesBox)
+    ensureFunctionParamMetaIntBoxValue(comptimeParamCountBox)
+
+    var effectivePreTypeName = preTypeName
+    if effectivePreTypeName.startsWith("comptime:") {
+        if comptimeParamCountBox[0] == 0 or
+            not comptimeParamFuncNamesBox[0].contains(fnName + "|") {
+
+            comptimeParamFuncNamesBox[0] = comptimeParamFuncNamesBox[0] +
+                fnName + ":" + paramIdx.toString() + ":" + paramName + "|"
+            comptimeParamCountBox[0] = comptimeParamCountBox[0] + 1
+        }
+        effectivePreTypeName = effectivePreTypeName.substring(9,
+            effectivePreTypeName.length())
+    }
+    return effectivePreTypeName
+}
+
+fun recordPreRegisteredDefaultParameterImpl(implFuncName: String,
+    paramIdx: Int, rawPreTypeName: String,
+    funcDefaultsArrBox: Array<String>) r: Void {
+
+    ensureFunctionParamMetaStringBoxValue(funcDefaultsArrBox)
+
+    var defaultTypeName = rawPreTypeName
+    if defaultTypeName.startsWith("move:") {
+        defaultTypeName = defaultTypeName.substring(5,
+            defaultTypeName.length())
+    }
+    if defaultTypeName.startsWith("borrow:") {
+        defaultTypeName = defaultTypeName.substring(7,
+            defaultTypeName.length())
+    }
+    if defaultTypeName.startsWith("comptime:") {
+        defaultTypeName = defaultTypeName.substring(9,
+            defaultTypeName.length())
+    }
+    if defaultTypeName.contains("~default~") {
+        let defSepPos = defaultTypeName.indexOf("~default~", 0)
+        let defValue = defaultTypeName.substring(defSepPos + 9,
+            defaultTypeName.length())
+        let rawDefTypeName = defaultTypeName.substring(0, defSepPos)
+        var defTypeName = rawDefTypeName
+        if defTypeName == "i1" {
+            defTypeName = "Bool"
+        }
+        if defTypeName == "i64" {
+            defTypeName = "Int"
+        }
+        if defTypeName == "%SeenString" {
+            defTypeName = "String"
+        }
+        funcDefaultsArrBox[0] = funcDefaultsArrBox[0] + implFuncName + ":" +
+            paramIdx.toString() + ":" + defValue + ":" + defTypeName + "|"
+    }
+}
+
+fun recordPreRegisteredDynParameterImpl(implFuncName: String, paramIdx: Int,
+    preTypeName: String, dynParamFuncsBox: Array<String>) r: Void {
+
+    ensureFunctionParamMetaStringBoxValue(dynParamFuncsBox)
+
+    if preTypeName.startsWith("dyn ") {
+        let dynTraitParam = preTypeName.substring(4, preTypeName.length())
+        dynParamFuncsBox[0] = dynParamFuncsBox[0] + implFuncName + ":" +
+            paramIdx.toString() + ":" + dynTraitParam + "|"
+    }
+}

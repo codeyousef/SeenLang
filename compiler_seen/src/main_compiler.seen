@@ -1899,6 +1899,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_infer_type")
         modules.push("codegen.ir_special_expr_infer")
         modules.push("codegen.ir_function_gen")
+        modules.push("codegen.ir_function_param_meta")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_variable_gen")
