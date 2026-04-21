@@ -72,8 +72,7 @@ fun snapshotNestedScratchStateImpl(state: CodegenState)
     return snapshot
 }
 
-fun beginNestedScratchStateImpl(state: CodegenState, returnType: String) r: Void {
-    state.output = StringBuilder.new()
+fun resetLocalCodegenStateImpl(state: CodegenState) r: Void {
     state.varNames = Array<String>()
     state.varRegs = Array<String>()
     state.varTypes = Array<String>()
@@ -85,6 +84,11 @@ fun beginNestedScratchStateImpl(state: CodegenState, returnType: String) r: Void
     state.activeVarCount = 0
     state.regBox[0] = 1
     state.blockTerminated = 0
+}
+
+fun beginNestedScratchStateImpl(state: CodegenState, returnType: String) r: Void {
+    state.output = StringBuilder.new()
+    resetLocalCodegenStateImpl(state)
     state.currentFunctionReturnType = returnType
 }
 
