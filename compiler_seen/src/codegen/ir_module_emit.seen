@@ -4,6 +4,7 @@
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, pipeGet}
+import codegen.ir_decl_items.{isRuntimeBackedStringCompatFunctionImpl}
 
 fun quoteModuleEmitIdentIfNeeded(name: String) r: String {
     var i = 0
@@ -221,6 +222,113 @@ fun emitTraitVtableConstantsImpl(output: StringBuilder, traitImplRegistry: Strin
             }
         }
         searchPos = nextPipe + 1
+    }
+}
+
+fun collectProgramDefinedSymbolsImpl(program: ProgramNode) r: Array<String> {
+    let definedSymbols = Array<String>()
+    var collectIdx = 0
+    while collectIdx < program.items.length() {
+        let collectItem = program.items[collectIdx]
+        if collectItem.itemType == "Function" {
+            let fnName = collectItem.function.name
+            if not isRuntimeBackedStringCompatFunctionImpl(fnName) {
+                definedSymbols.push(fnName)
+            }
+        }
+        if collectItem.itemType == "Class" {
+            let className = collectItem.classNode.name
+            var methodIdx = 0
+            while methodIdx < collectItem.classNode.methods.length() {
+                let method = collectItem.classNode.methods[methodIdx]
+                definedSymbols.push(className + "_" + method.name)
+                methodIdx = methodIdx + 1
+            }
+        }
+        if collectItem.itemType == "GlobalVar" {
+            definedSymbols.push(collectItem.name)
+        }
+        collectIdx = collectIdx + 1
+    }
+    return definedSymbols
+}
+
+fun emitGeneratedClosuresImpl(output: StringBuilder, closureDefs: String) r: Void {
+    if closureDefs.length() > 0 {
+        output.append(closureDefs)
+    }
+}
+
+fun emitOptimizationStatisticsSummaryImpl(output: StringBuilder, moduleIndex: Int,
+    printToStdout: Bool, branchesEliminated: Int,
+    deadStatementsEliminated: Int, constantsFolded: Int, cseHits: Int,
+    loopsOptimized: Int, deadStoresEliminated: Int,
+    reductionChainsDetected: Int) r: Void {
+
+    let hasAnyOpts = branchesEliminated > 0 or deadStatementsEliminated > 0 or
+        constantsFolded > 0 or cseHits > 0 or loopsOptimized > 0 or
+        deadStoresEliminated > 0 or reductionChainsDetected > 0
+    if not hasAnyOpts {
+        return
+    }
+
+    output.append("\n; --- Optimization Statistics ---\n")
+    if branchesEliminated > 0 {
+        output.append("; Branches eliminated: " +
+            branchesEliminated.toString() + "\n")
+    }
+    if deadStatementsEliminated > 0 {
+        output.append("; Dead statements eliminated: " +
+            deadStatementsEliminated.toString() + "\n")
+    }
+    if constantsFolded > 0 {
+        output.append("; Constants folded: " +
+            constantsFolded.toString() + "\n")
+    }
+    if cseHits > 0 {
+        output.append("; CSE hits: " + cseHits.toString() + "\n")
+    }
+    if loopsOptimized > 0 {
+        output.append("; Loops optimized: " + loopsOptimized.toString() +
+            "\n")
+    }
+    if deadStoresEliminated > 0 {
+        output.append("; Dead stores eliminated: " +
+            deadStoresEliminated.toString() + "\n")
+    }
+    if reductionChainsDetected > 0 {
+        output.append("; Reduction chains detected: " +
+            reductionChainsDetected.toString() + "\n")
+    }
+
+    if printToStdout {
+        println("  Optimization stats (module " + moduleIndex.toString() +
+            "):")
+        if branchesEliminated > 0 {
+            println("    Branches eliminated: " +
+                branchesEliminated.toString())
+        }
+        if deadStatementsEliminated > 0 {
+            println("    Dead statements eliminated: " +
+                deadStatementsEliminated.toString())
+        }
+        if constantsFolded > 0 {
+            println("    Constants folded: " + constantsFolded.toString())
+        }
+        if cseHits > 0 {
+            println("    CSE hits: " + cseHits.toString())
+        }
+        if loopsOptimized > 0 {
+            println("    Loops optimized: " + loopsOptimized.toString())
+        }
+        if deadStoresEliminated > 0 {
+            println("    Dead stores eliminated: " +
+                deadStoresEliminated.toString())
+        }
+        if reductionChainsDetected > 0 {
+            println("    Reduction chains detected: " +
+                reductionChainsDetected.toString())
+        }
     }
 }
 

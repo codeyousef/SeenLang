@@ -78,7 +78,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
-import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
@@ -3278,30 +3278,7 @@ class LLVMIRGenerator {
     }
 
     fun collectProgramDefinedSymbols(program: ProgramNode) r: Array<String> {
-        let definedSymbols = Array<String>()
-        var collectIdx = 0
-        while collectIdx < program.items.length() {
-            let collectItem = program.items[collectIdx]
-            if collectItem.itemType == "Function" {
-                if not isRuntimeBackedStringCompatFunction(collectItem.function.name) {
-                    definedSymbols.push(collectItem.function.name)
-                }
-            }
-            if collectItem.itemType == "Class" {
-                let className = collectItem.classNode.name
-                var methodIdx = 0
-                while methodIdx < collectItem.classNode.methods.length() {
-                    let method = collectItem.classNode.methods[methodIdx]
-                    definedSymbols.push(className + "_" + method.name)
-                    methodIdx = methodIdx + 1
-                }
-            }
-            if collectItem.itemType == "GlobalVar" {
-                definedSymbols.push(collectItem.name)
-            }
-            collectIdx = collectIdx + 1
-        }
-        return definedSymbols
+        return collectProgramDefinedSymbolsImpl(program)
     }
 
     fun emitAdditionalGeneratedStringConstants(startIndex: Int) r: Void {
@@ -3310,66 +3287,14 @@ class LLVMIRGenerator {
     }
 
     fun emitGeneratedClosures() r: Void {
-        if g_closureDefs.length() > 0 {
-            output.append(g_closureDefs)
-        }
+        emitGeneratedClosuresImpl(output, g_closureDefs)
     }
 
     fun emitOptimizationStatisticsSummary(moduleIndex: Int, printToStdout: Bool) r: Void {
-        let hasAnyOpts = g_branchesEliminated > 0 or g_deadStatementsEliminated > 0 or
-            g_constantsFolded > 0 or g_cseHits > 0 or g_loopsOptimized > 0 or
-            g_deadStoresEliminated > 0 or g_reductionChainsDetected > 0
-        if not hasAnyOpts {
-            return
-        }
-
-        output.append("\n; --- Optimization Statistics ---\n")
-        if g_branchesEliminated > 0 {
-            output.append("; Branches eliminated: " + g_branchesEliminated.toString() + "\n")
-        }
-        if g_deadStatementsEliminated > 0 {
-            output.append("; Dead statements eliminated: " + g_deadStatementsEliminated.toString() + "\n")
-        }
-        if g_constantsFolded > 0 {
-            output.append("; Constants folded: " + g_constantsFolded.toString() + "\n")
-        }
-        if g_cseHits > 0 {
-            output.append("; CSE hits: " + g_cseHits.toString() + "\n")
-        }
-        if g_loopsOptimized > 0 {
-            output.append("; Loops optimized: " + g_loopsOptimized.toString() + "\n")
-        }
-        if g_deadStoresEliminated > 0 {
-            output.append("; Dead stores eliminated: " + g_deadStoresEliminated.toString() + "\n")
-        }
-        if g_reductionChainsDetected > 0 {
-            output.append("; Reduction chains detected: " + g_reductionChainsDetected.toString() + "\n")
-        }
-
-        if printToStdout {
-            println("  Optimization stats (module " + moduleIndex.toString() + "):")
-            if g_branchesEliminated > 0 {
-                println("    Branches eliminated: " + g_branchesEliminated.toString())
-            }
-            if g_deadStatementsEliminated > 0 {
-                println("    Dead statements eliminated: " + g_deadStatementsEliminated.toString())
-            }
-            if g_constantsFolded > 0 {
-                println("    Constants folded: " + g_constantsFolded.toString())
-            }
-            if g_cseHits > 0 {
-                println("    CSE hits: " + g_cseHits.toString())
-            }
-            if g_loopsOptimized > 0 {
-                println("    Loops optimized: " + g_loopsOptimized.toString())
-            }
-            if g_deadStoresEliminated > 0 {
-                println("    Dead stores eliminated: " + g_deadStoresEliminated.toString())
-            }
-            if g_reductionChainsDetected > 0 {
-                println("    Reduction chains detected: " + g_reductionChainsDetected.toString())
-            }
-        }
+        emitOptimizationStatisticsSummaryImpl(output, moduleIndex,
+            printToStdout, g_branchesEliminated, g_deadStatementsEliminated,
+            g_constantsFolded, g_cseHits, g_loopsOptimized,
+            g_deadStoresEliminated, g_reductionChainsDetected)
     }
 
     // Multi-module monolithic entry point: generates a single .ll file
