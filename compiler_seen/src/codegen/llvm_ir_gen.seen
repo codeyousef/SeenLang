@@ -57,7 +57,7 @@ import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodRetur
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
-import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
+import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
@@ -12110,67 +12110,34 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun tryInferSimdReduceMethodType(methodName: String, receiverType: String) r: String {
-        if isSimdVectorType(receiverType) != 1 {
-            return ""
-        }
-        if methodName == "reduce_add" or methodName == "reduce_min" or
-            methodName == "reduce_max" {
-            if receiverType.startsWith("f32") or receiverType.startsWith("f64") {
-                return "Float"
-            }
-            return "Int"
-        }
-        return ""
-    }
-
     fun tryInferReceiverRegistryMethodCallType(expr: ParserExpressionNode, receiverType: String) r: String {
-        if receiverType == "" {
-            return ""
+        var simdFlag = 0
+        if isSimdVectorType(receiverType) == 1 {
+            simdFlag = 1
         }
-        let simdReduceType = tryInferSimdReduceMethodType(expr.callee,
-            receiverType)
-        if simdReduceType != "" {
-            return simdReduceType
-        }
-        return getMethodReturnType(receiverType, expr.callee)
-    }
-
-    fun tryInferMethodCallBoolSuffix(expr: ParserExpressionNode) r: String {
-        let boolSuffix = "_" + expr.callee
-        var boolScanIdx = funcNames.length() - 1
-        while boolScanIdx >= 0 {
-            if funcNames[boolScanIdx].endsWith(boolSuffix) {
-                if funcRetTypes[boolScanIdx] == "Bool" {
-                    return "Bool"
-                }
-                boolScanIdx = -1
-            }
-            boolScanIdx = boolScanIdx - 1
-        }
-        return ""
+        let registeredMethodRetType = getMethodReturnType(receiverType,
+            expr.callee)
+        return inferReceiverRegistryMethodCallTypeImpl(expr.callee,
+            receiverType, simdFlag, registeredMethodRetType)
     }
 
     fun tryInferLateMethodCallFallbackType(expr: ParserExpressionNode) r: String {
         let mcTable = inferMethodCallTypeTable(expr.callee)
-        if mcTable != "" {
-            return mcTable
-        }
+        var implicitMethodRetType = ""
         if currentClassName != "" {
-            let implicitMethodRetType = getMethodReturnType(currentClassName,
+            implicitMethodRetType = getMethodReturnType(currentClassName,
                 expr.callee)
-            if implicitMethodRetType != "" {
-                return implicitMethodRetType
-            }
         }
         let freeFuncRetType = getFunctionReturnType(expr.callee)
-        if freeFuncRetType != "" {
-            if isAsyncFunction(expr.callee) {
-                return "ptr"
-            }
-            return freeFuncRetType
+        var asyncFlag = 0
+        if isAsyncFunction(expr.callee) {
+            asyncFlag = 1
         }
-        return tryInferMethodCallBoolSuffix(expr)
+        let boolSuffixType = inferMethodCallBoolSuffixImpl(expr.callee,
+            funcNames, funcRetTypes)
+        return inferLateMethodCallFallbackTypeImpl(mcTable,
+            implicitMethodRetType, freeFuncRetType, asyncFlag,
+            boolSuffixType)
     }
 
     fun inferMethodCallExprTypeLocal(expr: ParserExpressionNode) r: String {
@@ -12198,65 +12165,70 @@ class LLVMIRGenerator {
     }
 
     fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
+        var simdFlag = 0
         if isSimdVectorType(expr.callee) == 1 {
-            return expr.callee
+            simdFlag = 1
         }
+        var newBaseType = ""
+        var newBaseTypeKnown = 0
         if expr.callee.endsWith("_new") {
-            let baseType = expr.callee.substring(0, expr.callee.length() - 4)
-            if isClassType(baseType) or isDataType(baseType) or
-                findStruct(baseType) >= 0 {
-                return baseType
+            newBaseType = expr.callee.substring(0, expr.callee.length() - 4)
+            if isClassType(newBaseType) or isDataType(newBaseType) or
+                findStruct(newBaseType) >= 0 {
+                newBaseTypeKnown = 1
             }
         }
+        var fromJsonBaseType = ""
+        var fromJsonRet = ""
+        var fromJsonBaseTypeKnown = 0
         if expr.callee.endsWith("_fromJson") {
-            let baseType = expr.callee.substring(0, expr.callee.length() - 9)
-            let fromJsonRet = getMethodReturnType(baseType, "fromJson")
-            if fromJsonRet != "" {
-                return fromJsonRet
-            }
-            if isClassType(baseType) or isDataType(baseType) or
-                findStruct(baseType) >= 0 {
-                return baseType + "?"
+            fromJsonBaseType = expr.callee.substring(0,
+                expr.callee.length() - 9)
+            fromJsonRet = getMethodReturnType(fromJsonBaseType, "fromJson")
+            if isClassType(fromJsonBaseType) or isDataType(fromJsonBaseType) or
+                findStruct(fromJsonBaseType) >= 0 {
+                fromJsonBaseTypeKnown = 1
             }
         }
-        return ""
+        return inferGeneratedCallTypeImpl(expr.callee, simdFlag, newBaseType,
+            newBaseTypeKnown, fromJsonBaseType, fromJsonRet,
+            fromJsonBaseTypeKnown)
     }
 
     fun tryInferBuiltinCallExprType(expr: ParserExpressionNode) r: String {
+        var selectedArgType = ""
         if expr.callee == "simd_select" or expr.callee == "simd_shuffle" {
             if expr.arguments.length() >= 2 {
-                return inferExpressionType(expr.arguments[1])
+                selectedArgType = inferExpressionType(expr.arguments[1])
             }
         }
         let builtinType = inferCallExprTypeImpl(expr.callee)
-        if builtinType != "" {
-            return builtinType
-        }
+        var enumParentType = ""
         if g_enumVariantCount > 0 and isEnumVariant(expr.callee) {
-            return lookupEnumParent(expr.callee)
+            enumParentType = lookupEnumParent(expr.callee)
         }
-        return ""
+        return inferBuiltinCallExprTypeStateImpl(expr.callee, selectedArgType,
+            builtinType, enumParentType)
     }
 
     fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
         let userRetType = getFunctionReturnType(expr.callee)
-        if userRetType != "" {
-            if isAsyncFunction(expr.callee) {
-                return "ptr"
-            }
-            return userRetType
+        var asyncFlag = 0
+        if isAsyncFunction(expr.callee) {
+            asyncFlag = 1
         }
         let callTable = inferCallTypeTable(expr.callee)
-        if callTable != "" {
-            return callTable
-        }
+        var classCall = 0
         if isClassType(expr.callee) {
-            return expr.callee
+            classCall = 1
         }
+        var implicitMethodRetType = ""
         if currentClassName != "" {
-            return getMethodReturnType(currentClassName, expr.callee)
+            implicitMethodRetType = getMethodReturnType(currentClassName,
+                expr.callee)
         }
-        return ""
+        return inferResolvedCallExprTypeImpl(expr.callee, userRetType,
+            asyncFlag, callTable, classCall, implicitMethodRetType)
     }
 
     fun inferCallExprTypeLocal(expr: ParserExpressionNode) r: String {

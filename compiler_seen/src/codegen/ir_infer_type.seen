@@ -177,6 +177,127 @@ fun inferStaticFromJsonMethodTypeImpl(callee: String, receiverLiteral: String,
     return "ptr"
 }
 
+fun inferLateMethodCallFallbackTypeImpl(methodTableType: String,
+    implicitMethodRetType: String, freeFuncRetType: String, isAsyncFunc: Int,
+    boolSuffixType: String) r: String {
+
+    if methodTableType != "" {
+        return methodTableType
+    }
+    if implicitMethodRetType != "" {
+        return implicitMethodRetType
+    }
+    if freeFuncRetType != "" {
+        if isAsyncFunc == 1 {
+            return "ptr"
+        }
+        return freeFuncRetType
+    }
+    return boolSuffixType
+}
+
+fun inferGeneratedCallTypeImpl(callee: String, isSimdCallee: Int,
+    newBaseType: String, newBaseTypeKnown: Int, fromJsonBaseType: String,
+    fromJsonRetType: String, fromJsonBaseTypeKnown: Int) r: String {
+
+    if isSimdCallee == 1 {
+        return callee
+    }
+    if callee.endsWith("_new") {
+        if newBaseTypeKnown == 1 {
+            return newBaseType
+        }
+        return ""
+    }
+    if callee.endsWith("_fromJson") {
+        if fromJsonRetType != "" {
+            return fromJsonRetType
+        }
+        if fromJsonBaseTypeKnown == 1 {
+            return fromJsonBaseType + "?"
+        }
+    }
+    return ""
+}
+
+fun inferBuiltinCallExprTypeStateImpl(callee: String, selectedArgType: String,
+    builtinType: String, enumParentType: String) r: String {
+
+    if callee == "simd_select" or callee == "simd_shuffle" {
+        return selectedArgType
+    }
+    if builtinType != "" {
+        return builtinType
+    }
+    return enumParentType
+}
+
+fun inferResolvedCallExprTypeImpl(callee: String, userRetType: String,
+    isAsyncFunc: Int, callTableType: String, isClassCall: Int,
+    implicitMethodRetType: String) r: String {
+
+    if userRetType != "" {
+        if isAsyncFunc == 1 {
+            return "ptr"
+        }
+        return userRetType
+    }
+    if callTableType != "" {
+        return callTableType
+    }
+    if isClassCall == 1 {
+        return callee
+    }
+    return implicitMethodRetType
+}
+
+fun inferSimdReduceMethodTypeImpl(methodName: String, receiverType: String,
+    isSimdReceiver: Int) r: String {
+
+    if isSimdReceiver != 1 {
+        return ""
+    }
+    if methodName == "reduce_add" or methodName == "reduce_min" or
+        methodName == "reduce_max" {
+        if receiverType.startsWith("f32") or receiverType.startsWith("f64") {
+            return "Float"
+        }
+        return "Int"
+    }
+    return ""
+}
+
+fun inferReceiverRegistryMethodCallTypeImpl(methodName: String,
+    receiverType: String, isSimdReceiver: Int, registeredMethodRetType: String) r: String {
+
+    if receiverType == "" {
+        return ""
+    }
+    let simdReduceType = inferSimdReduceMethodTypeImpl(methodName, receiverType,
+        isSimdReceiver)
+    if simdReduceType != "" {
+        return simdReduceType
+    }
+    return registeredMethodRetType
+}
+
+fun inferMethodCallBoolSuffixImpl(callee: String, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: String {
+
+    let boolSuffix = "_" + callee
+    var boolScanIdx = funcNames.length() - 1
+    while boolScanIdx >= 0 {
+        if funcNames[boolScanIdx].endsWith(boolSuffix) {
+            if funcRetTypes[boolScanIdx] == "Bool" {
+                return "Bool"
+            }
+            boolScanIdx = -1
+        }
+        boolScanIdx = boolScanIdx - 1
+    }
+    return ""
+}
+
 // inferReceiverMethodTypeImpl — Infer return type of receiver-sensitive methods
 // Returns the inferred type, or "" for fallthrough to other dispatch
 // callee: method name (e.g., "toUpperCase", "abs", "floor", "first")
