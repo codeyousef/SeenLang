@@ -57,7 +57,7 @@ import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodRetur
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
-import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
+import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
@@ -11906,71 +11906,8 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun isBoolBinaryOperator(operatorName: String) r: Int {
-        if operatorName == "==" or operatorName == "!=" or operatorName == "<" or
-            operatorName == ">" or operatorName == "<=" or operatorName == ">=" or
-            operatorName == "and" or operatorName == "or" {
-            return 1
-        }
-        return 0
-    }
-
-    fun tryInferArithmeticBinaryExprType(expr: ParserExpressionNode) r: String {
-        if expr.operator == "+" {
-            if expr.operands.length() < 2 {
-                return ""
-            }
-            let leftExpr = expr.operands[0]
-            let rightExpr = expr.operands[1]
-            if leftExpr.kind == "Literal" and leftExpr.literalType == "String" {
-                return "String"
-            }
-            if rightExpr.kind == "Literal" and rightExpr.literalType == "String" {
-                return "String"
-            }
-            let leftType = inferExpressionType(expr.operands[0])
-            if leftType == "String" {
-                return "String"
-            }
-            let rightType = inferExpressionType(expr.operands[1])
-            if rightType == "String" {
-                return "String"
-            }
-            if leftType == "Float" or rightType == "Float" {
-                return "Float"
-            }
-            return ""
-        }
-        if expr.operator == "-" or expr.operator == "*" or expr.operator == "/" or
-            expr.operator == "%" {
-            if expr.operands.length() >= 2 {
-                let leftType = inferExpressionType(expr.operands[0])
-                let rightType = inferExpressionType(expr.operands[1])
-                if leftType == "Float" or rightType == "Float" {
-                    return "Float"
-                }
-            }
-        }
-        return ""
-    }
-
-    fun resolveBinaryOperatorOverloadSuffix(operatorName: String) r: String {
-        if operatorName == "+" { return "operator_add" }
-        if operatorName == "-" { return "operator_sub" }
-        if operatorName == "*" { return "operator_mul" }
-        if operatorName == "/" { return "operator_div" }
-        if operatorName == "%" { return "operator_mod" }
-        if operatorName == "==" { return "operator_eq" }
-        if operatorName == "!=" { return "operator_neq" }
-        if operatorName == "<" { return "operator_lt" }
-        if operatorName == ">" { return "operator_gt" }
-        if operatorName == "<=" { return "operator_lte" }
-        if operatorName == ">=" { return "operator_gte" }
-        return ""
-    }
-
     fun tryInferOverloadedBinaryExprType(expr: ParserExpressionNode) r: String {
-        let opSuffix = resolveBinaryOperatorOverloadSuffix(expr.operator)
+        let opSuffix = inferOperatorOverloadSuffix(expr.operator)
         if opSuffix == "" or expr.operands.length() < 1 {
             return ""
         }
@@ -11984,12 +11921,18 @@ class LLVMIRGenerator {
         if simdType != "" {
             return simdType
         }
-        if isBoolBinaryOperator(expr.operator) == 1 {
-            return "Bool"
+        var leftType = ""
+        var rightType = ""
+        if expr.operands.length() > 0 {
+            leftType = inferExpressionType(expr.operands[0])
         }
-        let arithmeticType = tryInferArithmeticBinaryExprType(expr)
-        if arithmeticType != "" {
-            return arithmeticType
+        if expr.operands.length() > 1 {
+            rightType = inferExpressionType(expr.operands[1])
+        }
+        let inferredType = inferBinaryTypeImpl(expr.operator, leftType,
+            rightType)
+        if inferredType != "" {
+            return inferredType
         }
         let overloadType = tryInferOverloadedBinaryExprType(expr)
         if overloadType != "" {
@@ -12006,31 +11949,29 @@ class LLVMIRGenerator {
     }
 
     fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
-        if currentClassName != "" and expr.literalValue == "this" {
-            return getMethodReturnType(currentClassName, expr.callee)
+        var implicitMethodRetType = ""
+        if currentClassName != "" {
+            implicitMethodRetType = getMethodReturnType(currentClassName,
+                expr.callee)
         }
-        return ""
+        return inferExplicitThisMethodCallTypeImpl(currentClassName,
+            expr.literalValue, implicitMethodRetType)
     }
 
     fun tryInferBareMethodOrFunctionCallType(expr: ParserExpressionNode) r: String {
-        if expr.literalValue != "" or expr.operands.length() != 0 {
-            return ""
-        }
+        var implicitMethodRetType = ""
         if currentClassName != "" {
-            let implicitMethodRetType = getMethodReturnType(currentClassName,
+            implicitMethodRetType = getMethodReturnType(currentClassName,
                 expr.callee)
-            if implicitMethodRetType != "" {
-                return implicitMethodRetType
-            }
         }
         let freeFuncRetType = getFunctionReturnType(expr.callee)
-        if freeFuncRetType == "" {
-            return ""
-        }
+        var asyncFlag = 0
         if isAsyncFunction(expr.callee) {
-            return "ptr"
+            asyncFlag = 1
         }
-        return freeFuncRetType
+        return inferBareMethodOrFunctionCallTypeImpl(expr.literalValue,
+            expr.operands.length(), implicitMethodRetType, freeFuncRetType,
+            asyncFlag)
     }
 
     fun tryInferImplicitOrFreeMethodCallType(expr: ParserExpressionNode) r: String {
@@ -12042,49 +11983,38 @@ class LLVMIRGenerator {
     }
 
     fun tryInferDeclaredStaticMethodCallType(expr: ParserExpressionNode) r: String {
+        var receiverVarType = ""
+        var receiverMethodRetType = ""
+        var baseOwnerMethodRetType = ""
         if expr.literalValue != "" and expr.literalValue != "this" {
-            let recVarType = findVarType(expr.literalValue)
-            if recVarType == "" {
+            receiverVarType = findVarType(expr.literalValue)
+            if receiverVarType == "" {
+                receiverMethodRetType = getMethodReturnType(expr.literalValue,
+                    expr.callee)
                 let staticOwnerType = getBaseTypeName(expr.literalValue)
-                var staticRetType = getMethodReturnType(expr.literalValue, expr.callee)
-                if staticRetType == "" and staticOwnerType != expr.literalValue {
-                    staticRetType = getMethodReturnType(staticOwnerType, expr.callee)
-                }
-                if staticRetType != "" {
-                    return staticRetType
+                if staticOwnerType != expr.literalValue {
+                    baseOwnerMethodRetType = getMethodReturnType(
+                        staticOwnerType, expr.callee)
                 }
             }
         }
-        return ""
+        return inferDeclaredStaticMethodCallTypeImpl(expr.literalValue,
+            receiverVarType, receiverMethodRetType, baseOwnerMethodRetType)
     }
 
     fun tryInferStaticFactoryMethodType(expr: ParserExpressionNode) r: String {
-        if expr.callee == "new" {
-            return expr.literalValue
-        }
-        if expr.callee == "withCapacity" {
-            let capacityOwnerType = getBaseTypeName(expr.literalValue)
-            if capacityOwnerType == "Vec" or capacityOwnerType == "HashMap" or capacityOwnerType == "BTreeMap" or capacityOwnerType == "LinkedList" or capacityOwnerType == "StringHashMap" {
-                return expr.literalValue
-            }
-        }
-        if (expr.callee == "withLength" or expr.callee == "withCapacity") and expr.literalValue.startsWith("Array") {
-            return expr.literalValue
-        }
-        return ""
+        return inferStaticFactoryMethodTypeImpl(expr.callee,
+            expr.literalValue, getBaseTypeName(expr.literalValue))
     }
 
     fun tryInferStaticFromJsonMethodType(expr: ParserExpressionNode) r: String {
-        if expr.callee == "fromJson" {
-            if expr.literalValue != "" and expr.literalValue != "this" {
-                let staticRetType = getMethodReturnType(expr.literalValue, "fromJson")
-                if staticRetType != "" {
-                    return staticRetType
-                }
-            }
-            return "ptr"
+        var staticRetType = ""
+        if expr.callee == "fromJson" and expr.literalValue != "" and
+            expr.literalValue != "this" {
+            staticRetType = getMethodReturnType(expr.literalValue, "fromJson")
         }
-        return ""
+        return inferStaticFromJsonMethodTypeImpl(expr.callee,
+            expr.literalValue, staticRetType)
     }
 
     fun tryInferStaticMethodCallType(expr: ParserExpressionNode) r: String {
@@ -12463,44 +12393,8 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun tryInferDeclaredLiteralType(expr: ParserExpressionNode) r: String {
-        if expr.literalType == "Int" or expr.literalType == "Integer" {
-            return "Int"
-        }
-        if expr.literalType == "String" {
-            return "String"
-        }
-        if expr.literalType == "Char" {
-            return "Char"
-        }
-        if expr.literalType == "Bool" or expr.literalType == "Boolean" {
-            return "Bool"
-        }
-        if expr.literalType == "Float" {
-            return "Float"
-        }
-        if expr.literalType != "" {
-            return expr.literalType
-        }
-        return ""
-    }
-
-    fun inferLiteralValueFallbackType(expr: ParserExpressionNode) r: String {
-        if expr.literalValue.startsWith("\"") or expr.literalValue.startsWith("'") {
-            return "String"
-        }
-        if expr.literalValue.contains(".") {
-            return "Float"
-        }
-        return "Int"
-    }
-
     fun inferLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let declaredLiteralType = tryInferDeclaredLiteralType(expr)
-        if declaredLiteralType != "" {
-            return declaredLiteralType
-        }
-        return inferLiteralValueFallbackType(expr)
+        return inferLiteralTypeImpl(expr.literalType, expr.literalValue)
     }
 
     fun tryInferIndexedElementType(arrayType: String) r: String {

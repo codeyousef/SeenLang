@@ -2,8 +2,6 @@
 // Extracted from llvm_ir_gen.seen to follow SRP
 // Each impl function returns a Seen type string, or "" for fallthrough
 
-import str.string.{StringBuilder}
-
 // inferBinaryTypeImpl — infer result type from binary operator and operand types
 // Returns "" if neither operand type constrains the result (fallthrough to "Int")
 fun inferBinaryTypeImpl(operator: String, leftType: String, rightType: String) r: String {
@@ -98,6 +96,85 @@ fun inferOperatorOverloadSuffix(operator: String) r: String {
     if operator == "<=" { return "operator_lte" }
     if operator == ">=" { return "operator_gte" }
     return ""
+}
+
+fun inferExplicitThisMethodCallTypeImpl(currentClassName: String,
+    receiverLiteral: String, implicitMethodRetType: String) r: String {
+
+    if currentClassName != "" and receiverLiteral == "this" {
+        return implicitMethodRetType
+    }
+    return ""
+}
+
+fun inferBareMethodOrFunctionCallTypeImpl(receiverLiteral: String,
+    operandCount: Int, implicitMethodRetType: String, freeFuncRetType: String,
+    isAsyncFunc: Int) r: String {
+
+    if receiverLiteral != "" or operandCount != 0 {
+        return ""
+    }
+    if implicitMethodRetType != "" {
+        return implicitMethodRetType
+    }
+    if freeFuncRetType == "" {
+        return ""
+    }
+    if isAsyncFunc == 1 {
+        return "ptr"
+    }
+    return freeFuncRetType
+}
+
+fun inferDeclaredStaticMethodCallTypeImpl(receiverLiteral: String,
+    receiverVarType: String, receiverMethodRetType: String,
+    baseOwnerMethodRetType: String) r: String {
+
+    if receiverLiteral == "" or receiverLiteral == "this" {
+        return ""
+    }
+    if receiverVarType != "" {
+        return ""
+    }
+    if receiverMethodRetType != "" {
+        return receiverMethodRetType
+    }
+    return baseOwnerMethodRetType
+}
+
+fun inferStaticFactoryMethodTypeImpl(callee: String, receiverLiteral: String,
+    receiverBaseType: String) r: String {
+
+    if callee == "new" {
+        return receiverLiteral
+    }
+    if callee == "withCapacity" {
+        if receiverBaseType == "Vec" or receiverBaseType == "HashMap" or
+            receiverBaseType == "BTreeMap" or
+            receiverBaseType == "LinkedList" or
+            receiverBaseType == "StringHashMap" {
+            return receiverLiteral
+        }
+    }
+    if (callee == "withLength" or callee == "withCapacity") and
+        receiverLiteral.startsWith("Array") {
+        return receiverLiteral
+    }
+    return ""
+}
+
+fun inferStaticFromJsonMethodTypeImpl(callee: String, receiverLiteral: String,
+    staticRetType: String) r: String {
+
+    if callee != "fromJson" {
+        return ""
+    }
+    if receiverLiteral != "" and receiverLiteral != "this" {
+        if staticRetType != "" {
+            return staticRetType
+        }
+    }
+    return "ptr"
 }
 
 // inferReceiverMethodTypeImpl — Infer return type of receiver-sensitive methods
