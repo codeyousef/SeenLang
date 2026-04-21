@@ -1,0 +1,82 @@
+// ir_string_interp_gen.seen — Shared string-interpolation emission helpers
+// Extracted from llvm_ir_gen.seen to keep string-interpolation codegen thin.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun normalizeSeenStringValueRegImpl(valueReg: String) r: String {
+    if valueReg == "0" {
+        return "zeroinitializer"
+    }
+    return valueReg
+}
+
+fun emitSeenStringConcatImpl(output: StringBuilder, regBox: Array<Int>,
+    leftReg: String, rightReg: String) r: String {
+
+    let concatReg = getNextRegFn(regBox)
+    output.append("  " + concatReg +
+        " = call %SeenString @seen_str_concat_ss(%SeenString " +
+        normalizeSeenStringValueRegImpl(leftReg) + ", %SeenString " +
+        normalizeSeenStringValueRegImpl(rightReg) + ")\n")
+    return concatReg
+}
+
+fun convertInterpolatedValueToStringImpl(output: StringBuilder,
+    regBox: Array<Int>, exprReg: String, exprType: String) r: String {
+
+    if exprType == "String" {
+        return normalizeSeenStringValueRegImpl(exprReg)
+    }
+    if exprType == "Int" {
+        let strExprReg = getNextRegFn(regBox)
+        output.append("  " + strExprReg +
+            " = call %SeenString @seen_int_to_string(i64 " + exprReg + ")\n")
+        return strExprReg
+    }
+    if exprType == "Float" {
+        let strExprReg = getNextRegFn(regBox)
+        output.append("  " + strExprReg +
+            " = call %SeenString @seen_float_to_string(double " + exprReg +
+            ")\n")
+        return strExprReg
+    }
+    if exprType == "Bool" {
+        let strExprReg = getNextRegFn(regBox)
+        output.append("  " + strExprReg +
+            " = call %SeenString @seen_bool_to_string(i1 " + exprReg + ")\n")
+        return strExprReg
+    }
+    if exprType == "Char" {
+        let strExprReg = getNextRegFn(regBox)
+        output.append("  " + strExprReg +
+            " = call %SeenString @seen_char_to_str(i64 " + exprReg + ")\n")
+        return strExprReg
+    }
+    return exprReg
+}
+
+fun generateStringInterpolationFromPartsImpl(output: StringBuilder,
+    regBox: Array<Int>, partRegs: Array<String>, exprRegs: Array<String>,
+    exprTypes: Array<String>) r: String {
+
+    var resultReg = ""
+    var i = 0
+    while i < partRegs.length() {
+        let partReg = partRegs[i]
+        if resultReg == "" {
+            resultReg = partReg
+        } else {
+            resultReg = emitSeenStringConcatImpl(output, regBox, resultReg,
+                partReg)
+        }
+        if i < exprRegs.length() {
+            let exprStringReg = convertInterpolatedValueToStringImpl(output,
+                regBox, exprRegs[i], exprTypes[i])
+            resultReg = emitSeenStringConcatImpl(output, regBox, resultReg,
+                exprStringReg)
+        }
+        i = i + 1
+    }
+    return resultReg
+}

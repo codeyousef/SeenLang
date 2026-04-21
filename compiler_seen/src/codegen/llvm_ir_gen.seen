@@ -55,6 +55,7 @@ import codegen.ir_trait_registry.{appendDynTraitNameImpl, appendTraitImplEntryIm
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
+import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
@@ -12556,67 +12557,24 @@ class LLVMIRGenerator {
         collectStringConstantsFromExprImpl(expr, stringConstants, g_callCountNamesBox, g_callCountEntriesBox)
         syncCollectionBoxes()
     }
-    fun normalizeSeenStringValueReg(valueReg: String) r: String {
-        if valueReg == "0" {
-            return "zeroinitializer"
-        }
-        return valueReg
-    }
-
-    fun emitSeenStringConcat(leftReg: String, rightReg: String) r: String {
-        let concatReg = getNextReg()
-        output.append("  " + concatReg + " = call %SeenString @seen_str_concat_ss(%SeenString " + normalizeSeenStringValueReg(leftReg) + ", %SeenString " + normalizeSeenStringValueReg(rightReg) + ")\n")
-        return concatReg
-    }
-
-    fun convertInterpolatedExprToString(exprNode: ParserExpressionNode) r: String {
-        let exprType = inferExpressionType(exprNode)
-        let exprReg = generateExpression(exprNode)
-        if exprType == "String" {
-            return normalizeSeenStringValueReg(exprReg)
-        }
-        if exprType == "Int" {
-            let strExprReg = getNextReg()
-            output.append("  " + strExprReg + " = call %SeenString @seen_int_to_string(i64 " + exprReg + ")\n")
-            return strExprReg
-        }
-        if exprType == "Float" {
-            let strExprReg = getNextReg()
-            output.append("  " + strExprReg + " = call %SeenString @seen_float_to_string(double " + exprReg + ")\n")
-            return strExprReg
-        }
-        if exprType == "Bool" {
-            let strExprReg = getNextReg()
-            output.append("  " + strExprReg + " = call %SeenString @seen_bool_to_string(i1 " + exprReg + ")\n")
-            return strExprReg
-        }
-        if exprType == "Char" {
-            let strExprReg = getNextReg()
-            output.append("  " + strExprReg + " = call %SeenString @seen_char_to_str(i64 " + exprReg + ")\n")
-            return strExprReg
-        }
-        return exprReg
-    }
-
     fun generateStringInterpolation(expr: ParserExpressionNode) r: String {
-        var resultReg = ""
         let numParts = expr.arguments.length()
         let numExprs = expr.operands.length()
+        var partRegs = Array<String>()
+        var exprRegs = Array<String>()
+        var exprTypes = Array<String>()
         var i = 0
         while i < numParts {
-            let strPart = expr.arguments[i]
-            let partReg = generateLiteral(strPart)
-            if resultReg == "" {
-                resultReg = partReg
-            } else {
-                resultReg = emitSeenStringConcat(resultReg, partReg)
-            }
+            partRegs.push(generateLiteral(expr.arguments[i]))
             if i < numExprs {
-                resultReg = emitSeenStringConcat(resultReg, convertInterpolatedExprToString(expr.operands[i]))
+                let interpExpr = expr.operands[i]
+                exprTypes.push(inferExpressionType(interpExpr))
+                exprRegs.push(generateExpression(interpExpr))
             }
             i = i + 1
         }
-        return resultReg
+        return generateStringInterpolationFromPartsImpl(output, g_regBox,
+            partRegs, exprRegs, exprTypes)
     }
 
     // Elvis operator: a ?: b — returns a if non-zero/non-null, otherwise b
