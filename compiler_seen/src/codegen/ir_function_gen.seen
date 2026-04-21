@@ -258,6 +258,27 @@ fun tryHandleGpuShaderFunctionGenerationImpl(output: StringBuilder,
     return true
 }
 
+fun prepareExternFunctionGenerationImpl(output: StringBuilder,
+    fn: FunctionNode, externSymbolBox: Array<String>) r: Int {
+
+    if not fn.isExtern {
+        return 0
+    }
+    if fn.name.startsWith("__") {
+        output.append("; SKIPPED: " + fn.name +
+            " (extern runtime function - declared by ir_declarations)\n")
+        return 1
+    }
+    var externSymbol = fn.name
+    if externSymbol.startsWith("llvm_coro_") {
+        let suffix = externSymbol.substring(10, externSymbol.length())
+        externSymbol = "llvm.coro." + suffix
+    }
+    ensureFunctionStringBoxValue(externSymbolBox)
+    externSymbolBox[0] = externSymbol
+    return 2
+}
+
 fun shouldSkipFunctionByCfgImpl(output: StringBuilder, fn: FunctionNode,
     enabledFeatures: String) r: Bool {
 

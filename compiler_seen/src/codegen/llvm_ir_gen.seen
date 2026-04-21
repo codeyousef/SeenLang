@@ -93,7 +93,7 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentRece
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -4645,18 +4645,17 @@ class LLVMIRGenerator {
     }
 
     fun tryHandleExternFunctionGeneration(fn: FunctionNode) r: Bool {
-        if not fn.isExtern {
+        let externSymbolBox = Array<String>()
+        externSymbolBox.push("")
+        let externAction = prepareExternFunctionGenerationImpl(output, fn,
+            externSymbolBox)
+        if externAction == 0 {
             return false
         }
-        if fn.name.startsWith("__") {
-            output.append("; SKIPPED: " + fn.name + " (extern runtime function - declared by ir_declarations)\n")
-            registerFunction(fn.name, normalizeDeclaredTypeNode(fn.returnType))
+        let normalizedReturnType = normalizeDeclaredTypeNode(fn.returnType)
+        if externAction == 1 {
+            registerFunction(fn.name, normalizedReturnType)
             return true
-        }
-        var externSymbol = fn.name
-        if externSymbol.startsWith("llvm_coro_") {
-            let suffix = externSymbol.substring(10, externSymbol.length())
-            externSymbol = "llvm.coro." + suffix
         }
         var mappedPTypes = Array<String>()
         var mpIdx = 0
@@ -4667,11 +4666,12 @@ class LLVMIRGenerator {
             mappedPTypes.push(mapTypeForParameter(ptName))
             mpIdx = mpIdx + 1
         }
-        let externRetType = mapType(normalizeDeclaredTypeNode(fn.returnType))
+        let externRetType = mapType(normalizedReturnType)
         var isVariadic = 0
         if hasDecorator(fn, "variadic") { isVariadic = 1 }
-        emitExternDeclImpl(output, fn.name, externSymbol, mappedPTypes, fn.params.length(), externRetType, isVariadic)
-        registerFunction(fn.name, normalizeDeclaredTypeNode(fn.returnType))
+        emitExternDeclImpl(output, fn.name, externSymbolBox[0], mappedPTypes,
+            fn.params.length(), externRetType, isVariadic)
+        registerFunction(fn.name, normalizedReturnType)
         return true
     }
 
