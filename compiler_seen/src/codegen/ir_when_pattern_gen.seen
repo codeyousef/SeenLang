@@ -1,0 +1,71 @@
+// ir_when_pattern_gen.seen -- Shared when-pattern branch emission helpers
+// Extracted from llvm_ir_gen.seen to keep pattern dispatch thin.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun emitWhenLiteralPatternBranchImpl(output: StringBuilder, regBox: Array<Int>,
+    subjectReg: String, literalValue: String, literalType: String,
+    armBodyLabel: String, nextCheckLabel: String,
+    stringConstantIdx: Int) r: Void {
+
+    let cmpReg = getNextRegFn(regBox)
+    if literalType == "Bool" {
+        var boolVal = "0"
+        if literalValue == "true" {
+            boolVal = "1"
+        }
+        output.append("  " + cmpReg + " = icmp eq i1 " + subjectReg + ", " +
+            boolVal + "\n")
+    }
+    if literalType == "String" {
+        let litStrReg = getNextRegFn(regBox)
+        output.append("  " + litStrReg + " = load %SeenString, ptr @.str." +
+            stringConstantIdx.toString() + "\n")
+        let eqReg = getNextRegFn(regBox)
+        var subjectStrReg = subjectReg
+        if subjectReg == "0" {
+            subjectStrReg = "zeroinitializer"
+        }
+        output.append("  " + eqReg + " = call i1 @seen_str_eq(%SeenString " +
+            subjectStrReg + ", %SeenString " + litStrReg + ")\n")
+        output.append("  " + cmpReg + " = icmp eq i1 " + eqReg + ", 1\n")
+    }
+    if literalType != "Bool" and literalType != "String" {
+        output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " +
+            literalValue + "\n")
+    }
+    output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel +
+        ", label %" + nextCheckLabel + "\n")
+}
+
+fun emitWhenIsPatternBranchImpl(output: StringBuilder, regBox: Array<Int>,
+    subjectReg: String, subjectLlvm: String, armBodyLabel: String,
+    nextCheckLabel: String, variantTagIdx: Int) r: Void {
+
+    if subjectLlvm == "i64" {
+        let cmpReg = getNextRegFn(regBox)
+        output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " +
+            variantTagIdx.toString() + "\n")
+        output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel +
+            ", label %" + nextCheckLabel + "\n")
+        return
+    }
+    let tagLoadReg = getNextRegFn(regBox)
+    output.append("  " + tagLoadReg + " = load i64, ptr " + subjectReg + "\n")
+    let cmpReg = getNextRegFn(regBox)
+    output.append("  " + cmpReg + " = icmp eq i64 " + tagLoadReg + ", " +
+        variantTagIdx.toString() + "\n")
+    output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel +
+        ", label %" + nextCheckLabel + "\n")
+}
+
+fun emitWhenPatternBranchImpl(output: StringBuilder, patternKind: String,
+    armBodyLabel: String, nextCheckLabel: String) r: Void {
+
+    if patternKind == "Wildcard" or patternKind == "Variable" {
+        output.append("  br label %" + armBodyLabel + "\n")
+        return
+    }
+    output.append("  br label %" + nextCheckLabel + "\n")
+}

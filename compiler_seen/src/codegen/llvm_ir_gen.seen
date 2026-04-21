@@ -58,6 +58,9 @@ import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collect
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, buildSafeNavigationMemberExprImpl}
+import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
+import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
+import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
@@ -12650,63 +12653,35 @@ class LLVMIRGenerator {
     // comparison. All arms merge into a phi node that produces the result.
     // Supports integer, string, and enum variant patterns.
     fun emitWhenLiteralPatternBranch(subjectReg: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
-        let litVal = patternExpr.literalValue
-        let litType = patternExpr.literalType
-        let cmpReg = getNextReg()
-        if litType == "Bool" {
-            var boolVal = "0"
-            if litVal == "true" { boolVal = "1" }
-            output.append("  " + cmpReg + " = icmp eq i1 " + subjectReg + ", " + boolVal + "\n")
+        var stringConstantIdx = -1
+        if patternExpr.literalType == "String" {
+            stringConstantIdx = getStringConstantIndex(patternExpr.literalValue)
         }
-        if litType == "String" {
-            let litStrIdx = getStringConstantIndex(litVal)
-            let litStrReg = getNextReg()
-            output.append("  " + litStrReg + " = load %SeenString, ptr @.str." + litStrIdx.toString() + "\n")
-            let eqReg = getNextReg()
-            var subjectStrReg = subjectReg
-            if subjectReg == "0" {
-                subjectStrReg = "zeroinitializer"
-            }
-            output.append("  " + eqReg + " = call i1 @seen_str_eq(%SeenString " + subjectStrReg + ", %SeenString " + litStrReg + ")\n")
-            output.append("  " + cmpReg + " = icmp eq i1 " + eqReg + ", 1\n")
-        }
-        if litType != "Bool" and litType != "String" {
-            output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " + litVal + "\n")
-        }
-        output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
+        emitWhenLiteralPatternBranchImpl(output, g_regBox, subjectReg,
+            patternExpr.literalValue, patternExpr.literalType, armBodyLabel,
+            nextCheckLabel, stringConstantIdx)
     }
 
     fun emitWhenIsPatternBranch(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
-        let variantName = patternExpr.literalValue
-        let tagIdx = lookupEnumVariantTag(variantName)
-        if subjectLlvm == "i64" {
-            let cmpReg = getNextReg()
-            output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " + tagIdx.toString() + "\n")
-            output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
-            return
-        }
-        let tagLoadReg = getNextReg()
-        output.append("  " + tagLoadReg + " = load i64, ptr " + subjectReg + "\n")
-        let cmpReg = getNextReg()
-        output.append("  " + cmpReg + " = icmp eq i64 " + tagLoadReg + ", " + tagIdx.toString() + "\n")
-        output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel + ", label %" + nextCheckLabel + "\n")
+        let variantTagIdx = lookupEnumVariantTag(patternExpr.literalValue)
+        emitWhenIsPatternBranchImpl(output, g_regBox, subjectReg, subjectLlvm,
+            armBodyLabel, nextCheckLabel, variantTagIdx)
     }
 
     fun emitWhenPatternBranch(subjectReg: String, subjectLlvm: String, patternExpr: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
         let patternKind = patternExpr.variableName
         if patternKind == "Literal" {
-            emitWhenLiteralPatternBranch(subjectReg, patternExpr, armBodyLabel, nextCheckLabel)
+            emitWhenLiteralPatternBranch(subjectReg, patternExpr, armBodyLabel,
+                nextCheckLabel)
             return
         }
         if patternKind == "Is" {
-            emitWhenIsPatternBranch(subjectReg, subjectLlvm, patternExpr, armBodyLabel, nextCheckLabel)
+            emitWhenIsPatternBranch(subjectReg, subjectLlvm, patternExpr,
+                armBodyLabel, nextCheckLabel)
             return
         }
-        if patternKind == "Wildcard" or patternKind == "Variable" {
-            output.append("  br label %" + armBodyLabel + "\n")
-            return
-        }
-        output.append("  br label %" + nextCheckLabel + "\n")
+        emitWhenPatternBranchImpl(output, patternKind, armBodyLabel,
+            nextCheckLabel)
     }
 
     fun emitWhenArmGuard(arm: ParserExpressionNode, armBodyLabel: String, nextCheckLabel: String) r: Void {
@@ -12715,14 +12690,8 @@ class LLVMIRGenerator {
         }
         let guardReg = generateExpression(arm.operands[2])
         let guardType = inferExpressionType(arm.operands[2])
-        var guardCond = guardReg
-        if guardType != "Bool" {
-            guardCond = getNextReg()
-            output.append("  " + guardCond + " = icmp ne i64 " + guardReg + ", 0\n")
-        }
-        let guardedLabel = armBodyLabel + ".guarded"
-        output.append("  br i1 " + guardCond + ", label %" + guardedLabel + ", label %" + nextCheckLabel + "\n")
-        output.append(guardedLabel + ":\n")
+        emitWhenArmGuardImpl(output, g_regBox, guardReg, guardType,
+            armBodyLabel, nextCheckLabel)
         cseClear()
     }
 
@@ -12730,12 +12699,10 @@ class LLVMIRGenerator {
         if patternExpr.variableName != "Is" or patternExpr.operands.length() == 0 {
             return
         }
-        var destructPtrReg = subjectReg
-        if subjectLlvm != "ptr" {
-            destructPtrReg = getNextReg()
-            output.append("  " + destructPtrReg + " = inttoptr i64 " + subjectReg + " to ptr\n")
-        }
+        let destructPtrReg = ensureWhenPatternDestructPtrImpl(output, g_regBox,
+            subjectReg, subjectLlvm)
         var fieldIdx = 0
+        let variantName = patternExpr.literalValue
         while fieldIdx < patternExpr.operands.length() {
             let fieldBind = patternExpr.operands[fieldIdx]
             if fieldBind.kind == "PatternField" {
@@ -12745,16 +12712,12 @@ class LLVMIRGenerator {
                     continue
                 }
                 let fieldOffset = 8 + fieldIdx * 8
-                let fieldPtrReg = getNextReg()
-                output.append("  " + fieldPtrReg + " = getelementptr i8, ptr " + destructPtrReg + ", i64 " + fieldOffset.toString() + "\n")
-                let variantName = patternExpr.literalValue
                 let fType = lookupEnumFieldType(variantName, fieldIdx)
                 let fLlvm = mapType(fType)
-                let fLoadReg = getNextReg()
-                output.append("  " + fLoadReg + " = load " + fLlvm + ", ptr " + fieldPtrReg + "\n")
                 let bindIdx = findVar(bindingName)
                 if bindIdx >= 0 {
-                    output.append("  store " + fLlvm + " " + fLoadReg + ", ptr " + varRegs[bindIdx] + "\n")
+                    emitWhenPatternBindingStoreImpl(output, g_regBox,
+                        destructPtrReg, fieldOffset, fLlvm, varRegs[bindIdx])
                 }
             }
             fieldIdx = fieldIdx + 1
@@ -12762,12 +12725,8 @@ class LLVMIRGenerator {
     }
 
     fun normalizeWhenArmStoreValue(valueReg: String, valueType: String) r: String {
-        if valueType == "Bool" or valueType == "Boolean" {
-            let widenedReg = getNextReg()
-            output.append("  " + widenedReg + " = zext i1 " + valueReg + " to i64\n")
-            return widenedReg
-        }
-        return valueReg
+        return normalizeWhenArmStoreValueImpl(output, g_regBox, valueReg,
+            valueType)
     }
 
     fun emitWhenArmResult(arm: ParserExpressionNode, resultAlloca: String) r: Void {
@@ -12776,17 +12735,12 @@ class LLVMIRGenerator {
         }
         let armResult = arm.operands[1]
         if armResult.kind == "ReturnExpr" {
+            let retType = mapType(currentFunctionReturnType)
             if armResult.operands.length() > 0 {
                 let retValReg = generateExpression(armResult.operands[0])
-                let retType = mapType(currentFunctionReturnType)
-                output.append("  ret " + retType + " " + retValReg + "\n")
+                emitWhenArmReturnImpl(output, retType, retValReg, true)
             } else {
-                let retType = mapType(currentFunctionReturnType)
-                if retType == "void" {
-                    output.append("  ret void\n")
-                } else {
-                    output.append("  ret " + retType + " 0\n")
-                }
+                emitWhenArmReturnImpl(output, retType, "", false)
             }
             blockTerminated = true
             return
@@ -12795,7 +12749,7 @@ class LLVMIRGenerator {
         if not blockTerminated {
             let armResultType = inferExpressionType(armResult)
             let armStoreReg = normalizeWhenArmStoreValue(armResultReg, armResultType)
-            output.append("  store i64 " + armStoreReg + ", ptr " + resultAlloca + "\n")
+            emitWhenArmStoreImpl(output, resultAlloca, armStoreReg)
         }
     }
 
@@ -12810,10 +12764,7 @@ class LLVMIRGenerator {
         let subjectLlvm = mapType(subjectType)
 
         let endLabel = getNextBlockLabel()
-        // Result alloca — use i64 as universal result storage
-        let resultAlloca = getNextReg()
-        output.append("  " + resultAlloca + " = alloca i64, align 8\n")
-        output.append("  store i64 0, ptr " + resultAlloca + "\n")
+        let resultAlloca = allocateWhenResultSlotImpl(output, g_regBox)
 
         // Generate each arm
         var armIdx = 0
@@ -12851,11 +12802,9 @@ class LLVMIRGenerator {
         // After all arms, branch to end (fallthrough if no match)
         output.append("  br label %" + endLabel + "\n")
 
-        // End block
-        output.append(endLabel + ":\n")
         cseClear()
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = load i64, ptr " + resultAlloca + "\n")
+        let resultReg = finalizeWhenResultImpl(output, g_regBox, endLabel,
+            resultAlloca)
         return resultReg
     }
 

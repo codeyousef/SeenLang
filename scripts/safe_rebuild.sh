@@ -420,10 +420,31 @@ smoke_test_compiler() {
     local check_log="/tmp/safe_rebuild_${stage_slug}_hello_check.log"
     local compile_log="/tmp/safe_rebuild_${stage_slug}_hello_compile.log"
     local run_log="/tmp/safe_rebuild_${stage_slug}_hello_run.log"
+    local compiler_env=()
+    local check_cmd=("$compiler_path" check "$smoke_source")
+    local compile_cmd=("$compiler_path" compile "$smoke_source" "$smoke_bin" --fast --no-cache)
+
+    if [ "$LOW_MEMORY_MODE" = "1" ]; then
+        compiler_env+=("SEEN_LOW_MEMORY=${SEEN_LOW_MEMORY:-1}")
+        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
+            compiler_env+=("SEEN_MAIN_VMEM_KB=$MAIN_COMPILER_VMEM_KB")
+        fi
+        if [ -n "$OPT_VMEM_KB" ]; then
+            compiler_env+=("SEEN_OPT_VMEM_KB=$OPT_VMEM_KB")
+        fi
+        check_cmd+=(--no-fork)
+        compile_cmd+=(--no-fork)
+    fi
 
     cleanup_smoke_build_state
 
-    if ! (cd "$REPO_ROOT" && "$compiler_path" check "$smoke_source" > "$check_log" 2>&1); then
+    if ! (
+        cd "$REPO_ROOT" &&
+        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
+            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
+        fi
+        env "${compiler_env[@]}" "${check_cmd[@]}" > "$check_log" 2>&1
+    ); then
         echo -e "${YELLOW}${stage_label} failed hello-world check smoke test.${NC}"
         tail -20 "$check_log" 2>/dev/null || true
         cleanup_smoke_build_state
@@ -432,7 +453,13 @@ smoke_test_compiler() {
 
     cleanup_smoke_build_state
 
-    if ! (cd "$REPO_ROOT" && "$compiler_path" compile "$smoke_source" "$smoke_bin" --fast --no-cache > "$compile_log" 2>&1); then
+    if ! (
+        cd "$REPO_ROOT" &&
+        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
+            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
+        fi
+        env "${compiler_env[@]}" "${compile_cmd[@]}" > "$compile_log" 2>&1
+    ); then
         echo -e "${YELLOW}${stage_label} failed hello-world compile smoke test.${NC}"
         tail -20 "$compile_log" 2>/dev/null || true
         cleanup_smoke_build_state

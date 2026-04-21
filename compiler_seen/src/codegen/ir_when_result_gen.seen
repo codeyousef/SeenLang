@@ -1,0 +1,41 @@
+// ir_when_result_gen.seen -- Shared when-result emission helpers
+// Extracted from llvm_ir_gen.seen to keep when result handling thin.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun allocateWhenResultSlotImpl(output: StringBuilder, regBox: Array<Int>) r: String {
+    let resultAlloca = getNextRegFn(regBox)
+    output.append("  " + resultAlloca + " = alloca i64, align 8\n")
+    output.append("  store i64 0, ptr " + resultAlloca + "\n")
+    return resultAlloca
+}
+
+fun emitWhenArmReturnImpl(output: StringBuilder, returnType: String,
+    returnValueReg: String, hasReturnValue: Bool) r: Void {
+
+    if hasReturnValue {
+        output.append("  ret " + returnType + " " + returnValueReg + "\n")
+        return
+    }
+    if returnType == "void" {
+        output.append("  ret void\n")
+        return
+    }
+    output.append("  ret " + returnType + " 0\n")
+}
+
+fun emitWhenArmStoreImpl(output: StringBuilder, resultAlloca: String,
+    valueReg: String) r: Void {
+    output.append("  store i64 " + valueReg + ", ptr " + resultAlloca + "\n")
+}
+
+fun finalizeWhenResultImpl(output: StringBuilder, regBox: Array<Int>,
+    endLabel: String, resultAlloca: String) r: String {
+
+    output.append(endLabel + ":\n")
+    let resultReg = getNextRegFn(regBox)
+    output.append("  " + resultReg + " = load i64, ptr " + resultAlloca +
+        "\n")
+    return resultReg
+}
