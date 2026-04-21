@@ -56,6 +56,7 @@ import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl}
 import codegen.ir_when_pattern_gen.{emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl}
+import codegen.ir_type_layout.{alignUpImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, setComptimeTargetName}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
@@ -1882,6 +1883,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_when_arm_gen")
         modules.push("codegen.ir_when_pattern_gen")
         modules.push("codegen.ir_when_result_gen")
+        modules.push("codegen.ir_type_layout")
         modules.push("codegen.ir_type_dispatch")
         modules.push("codegen.ir_type_mapping")
         modules.push("codegen.ir_type_ops")
