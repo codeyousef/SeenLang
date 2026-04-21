@@ -72,7 +72,7 @@ import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFie
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
-import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
+import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
@@ -12243,97 +12243,6 @@ class LLVMIRGenerator {
         return tryInferResolvedCallExprType(expr)
     }
 
-    fun tryInferJsonValueMemberAccessType(expr: ParserExpressionNode, fieldName: String) r: String {
-        if fieldName != "kind" and fieldName != "boolValue" and fieldName != "numberValue" and
-            fieldName != "stringValue" and fieldName != "arrayValue" and
-            fieldName != "objectKeys" and fieldName != "objectValues" {
-            return ""
-        }
-
-        if expr.operands.length() > 0 {
-            if inferExpressionType(expr.operands[0]) == "JsonValue" {
-                return getSeenFieldType("JsonValue", fieldName)
-            }
-        }
-        if expr.literalValue == "this" and currentClassName == "JsonValue" {
-            return getSeenFieldType("JsonValue", fieldName)
-        }
-        if expr.literalValue != "" and expr.literalValue != "this" {
-            if findVarType(expr.literalValue) == "JsonValue" {
-                return getSeenFieldType("JsonValue", fieldName)
-            }
-        }
-        return ""
-    }
-
-    fun tryInferMemberFieldType(receiverType: String, fieldName: String) r: String {
-        if receiverType == "" {
-            return ""
-        }
-        let semanticFieldType = getSemanticFieldType(receiverType, fieldName)
-        if semanticFieldType != "" {
-            return semanticFieldType
-        }
-        return getSeenFieldType(receiverType, fieldName)
-    }
-
-    fun tryInferLiteralReceiverMemberAccessType(receiverName: String, fieldName: String) r: String {
-        if receiverName == "" or receiverName == "this" {
-            return ""
-        }
-
-        if receiverName.contains(".") {
-            let chainedFieldType = tryInferMemberFieldType(resolveChainedPathType(receiverName), fieldName)
-            if chainedFieldType != "" {
-                return chainedFieldType
-            }
-        }
-
-        let receiverVarType = findVarType(receiverName)
-        let directFieldType = tryInferMemberFieldType(receiverVarType, fieldName)
-        if directFieldType != "" {
-            return directFieldType
-        }
-
-        let thisIdx = findVar("this")
-        if thisIdx >= 0 {
-            let receiverFieldType = getSemanticFieldType(varTypes[thisIdx], receiverName)
-            let nestedFieldType = tryInferMemberFieldType(receiverFieldType, fieldName)
-            if nestedFieldType != "" {
-                return nestedFieldType
-            }
-        }
-        return ""
-    }
-
-    fun tryInferDirectMemberAccessType(expr: ParserExpressionNode,
-        fieldName: String) r: String {
-
-        if expr.literalValue == "this" and currentClassName != "" {
-            let implicitThisFieldType = tryInferMemberFieldType(currentClassName,
-                fieldName)
-            if implicitThisFieldType != "" {
-                return implicitThisFieldType
-            }
-        }
-        if expr.operands.length() > 0 {
-            let receiverFieldType = tryInferMemberFieldType(
-                inferExpressionType(expr.operands[0]), fieldName)
-            if receiverFieldType != "" {
-                return receiverFieldType
-            }
-        }
-        if expr.literalValue != "" and expr.literalValue != "this" {
-            let literalReceiverFieldType =
-                tryInferLiteralReceiverMemberAccessType(expr.literalValue,
-                    fieldName)
-            if literalReceiverFieldType != "" {
-                return literalReceiverFieldType
-            }
-        }
-        return ""
-    }
-
     fun inferMemberAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
         if expr.literalValue != "" {
             let swizzleType = inferSimdSwizzleMemberTypeImpl(
@@ -12351,12 +12260,39 @@ class LLVMIRGenerator {
             }
         }
         let fieldName = extractLastMemberFieldSegmentImpl(expr.variableName)
-
-        let jsonFieldType = tryInferJsonValueMemberAccessType(expr, fieldName)
+        var operandReceiverType = ""
+        if expr.operands.length() > 0 {
+            operandReceiverType = inferExpressionType(expr.operands[0])
+        }
+        var literalValueType = ""
+        if expr.literalValue != "" and expr.literalValue != "this" {
+            literalValueType = findVarType(expr.literalValue)
+        }
+        let jsonFieldType = inferJsonValueMemberAccessTypeImpl(fieldName,
+            operandReceiverType, expr.literalValue, currentClassName,
+            literalValueType, structNames, structFieldNames, structFieldTypes)
         if jsonFieldType != "" {
             return jsonFieldType
         }
-        let directFieldType = tryInferDirectMemberAccessType(expr, fieldName)
+        var literalReceiverFieldType = ""
+        if expr.literalValue != "" and expr.literalValue != "this" {
+            var chainedPathType = ""
+            if expr.literalValue.contains(".") {
+                chainedPathType = resolveChainedPathType(expr.literalValue)
+            }
+            var thisType = ""
+            let thisIdx = findVar("this")
+            if thisIdx >= 0 {
+                thisType = varTypes[thisIdx]
+            }
+            literalReceiverFieldType = inferLiteralReceiverMemberAccessTypeImpl(
+                expr.literalValue, fieldName, chainedPathType, literalValueType,
+                thisType, structNames, structFieldNames, structFieldTypes)
+        }
+        let directFieldType = inferDirectMemberAccessTypeImpl(fieldName,
+            expr.literalValue, currentClassName, operandReceiverType,
+            literalReceiverFieldType, structNames, structFieldNames,
+            structFieldTypes)
         if directFieldType != "" {
             return directFieldType
         }

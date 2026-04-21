@@ -3,7 +3,9 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_type_info.{getSeenFieldTypeImpl}
 import codegen.ir_type_mapping.{swizzleLaneIndexImpl, simdLaneCountImpl, isSwizzlePatternImpl}
+import codegen.ir_method_receiver.{getSemanticFieldTypeImpl}
 
 // emitSimdSwizzleMemberAccessImpl — emit vec.x / vec.xy / vec.xzyw swizzles.
 // Returns "" when the caller should fall through.
@@ -50,6 +52,95 @@ fun inferSimdSwizzleMemberTypeImpl(vectorSeenType: String, fieldName: String) r:
         return "Int"
     }
     return vectorSeenType
+}
+
+fun inferMemberFieldTypeImpl(receiverType: String, fieldName: String,
+    structNames: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: String {
+
+    if receiverType == "" {
+        return ""
+    }
+    let semanticFieldType = getSemanticFieldTypeImpl(receiverType, fieldName,
+        structNames, structFieldNames, structFieldTypes)
+    if semanticFieldType != "" {
+        return semanticFieldType
+    }
+    return getSeenFieldTypeImpl(receiverType, fieldName, structNames,
+        structFieldNames, structFieldTypes)
+}
+
+fun inferJsonValueMemberAccessTypeImpl(fieldName: String,
+    operandReceiverType: String, literalValue: String, currentClassName: String,
+    literalValueType: String, structNames: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+
+    if fieldName != "kind" and fieldName != "boolValue" and
+        fieldName != "numberValue" and fieldName != "stringValue" and
+        fieldName != "arrayValue" and fieldName != "objectKeys" and
+        fieldName != "objectValues" {
+        return ""
+    }
+    if operandReceiverType == "JsonValue" {
+        return getSeenFieldTypeImpl("JsonValue", fieldName, structNames,
+            structFieldNames, structFieldTypes)
+    }
+    if literalValue == "this" and currentClassName == "JsonValue" {
+        return getSeenFieldTypeImpl("JsonValue", fieldName, structNames,
+            structFieldNames, structFieldTypes)
+    }
+    if literalValue != "" and literalValue != "this" and
+        literalValueType == "JsonValue" {
+        return getSeenFieldTypeImpl("JsonValue", fieldName, structNames,
+            structFieldNames, structFieldTypes)
+    }
+    return ""
+}
+
+fun inferLiteralReceiverMemberAccessTypeImpl(receiverName: String,
+    fieldName: String, chainedPathType: String, directVarType: String,
+    thisType: String, structNames: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+
+    if receiverName == "" or receiverName == "this" {
+        return ""
+    }
+    if receiverName.contains(".") {
+        let chainedFieldType = inferMemberFieldTypeImpl(chainedPathType,
+            fieldName, structNames, structFieldNames, structFieldTypes)
+        if chainedFieldType != "" {
+            return chainedFieldType
+        }
+    }
+    let directFieldType = inferMemberFieldTypeImpl(directVarType, fieldName,
+        structNames, structFieldNames, structFieldTypes)
+    if directFieldType != "" {
+        return directFieldType
+    }
+    let receiverFieldType = getSemanticFieldTypeImpl(thisType, receiverName,
+        structNames, structFieldNames, structFieldTypes)
+    return inferMemberFieldTypeImpl(receiverFieldType, fieldName, structNames,
+        structFieldNames, structFieldTypes)
+}
+
+fun inferDirectMemberAccessTypeImpl(fieldName: String, literalValue: String,
+    currentClassName: String, operandReceiverType: String,
+    literalReceiverFieldType: String, structNames: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+
+    if literalValue == "this" and currentClassName != "" {
+        let implicitThisFieldType = inferMemberFieldTypeImpl(currentClassName,
+            fieldName, structNames, structFieldNames, structFieldTypes)
+        if implicitThisFieldType != "" {
+            return implicitThisFieldType
+        }
+    }
+    let receiverFieldType = inferMemberFieldTypeImpl(operandReceiverType,
+        fieldName, structNames, structFieldNames, structFieldTypes)
+    if receiverFieldType != "" {
+        return receiverFieldType
+    }
+    return literalReceiverFieldType
 }
 
 fun extractLastMemberFieldSegmentImpl(fieldName: String) r: String {
