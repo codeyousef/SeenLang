@@ -49,7 +49,8 @@ import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStat
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, mapModuleConstLlvmTypeToSeenTypeImpl, findModuleConstantStateImpl, unpackModuleConstFieldImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl}
+import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl, appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
@@ -11844,43 +11845,25 @@ class LLVMIRGenerator {
         return resolveFunctionReturnTypeImpl(declaredType, inferredType)
     }
 
-    fun mapSimpleLlvmTypeToSeenType(llvmType: String) r: String {
-        return mapModuleConstLlvmTypeToSeenTypeImpl(llvmType)
-    }
-
     fun tryInferModuleConstantVariableType(varName: String) r: String {
-        let constIdx = findModuleConstant(varName)
-        if constIdx < 0 {
-            return ""
-        }
-        let seenType = getModuleConstSeenType(constIdx)
-        if seenType != "" {
-            return seenType
-        }
-        return mapSimpleLlvmTypeToSeenType(moduleConstantTypes[constIdx])
+        let updated = tryInferModuleConstantVariableTypeStateImpl(varName,
+            moduleConstantNames, moduleConstantTypes, moduleConstantValues,
+            g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames,
+            g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes,
+            g_xmConstCount)
+        g_moduleConstMutable = unpackModuleConstFieldImpl(updated, 0)
+        g_moduleConstSeenTypes = unpackModuleConstFieldImpl(updated, 1)
+        return unpackModuleConstFieldImpl(updated, 2)
     }
 
     fun tryInferLLVMIRGeneratorThisFieldType(thisType: String, varName: String) r: String {
-        if thisType != "LLVMIRGenerator" {
-            return ""
-        }
-        let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
-        if idxCheck >= 0 {
-            return getSeenFieldType(thisType, varName)
-        }
-        return ""
+        return tryInferLLVMIRGeneratorThisFieldTypeImpl(thisType, varName,
+            structNames, structFieldNames, structFieldTypes)
     }
 
     fun tryInferStructThisFieldType(thisType: String, varName: String) r: String {
-        let structIdx = findStruct(thisType)
-        if structIdx < 0 {
-            return ""
-        }
-        let fieldIdx = getFieldInfo(thisType, varName)
-        if fieldIdx >= 0 {
-            return getSeenFieldType(thisType, varName)
-        }
-        return ""
+        return tryInferStructThisFieldTypeImpl(thisType, varName, structNames,
+            structFieldNames, structFieldTypes)
     }
 
     fun tryInferImplicitThisVariableType(varName: String) r: String {
@@ -11888,22 +11871,12 @@ class LLVMIRGenerator {
         if thisIdx < 0 {
             return ""
         }
-        let thisType = varTypes[thisIdx]
-        let generatorFieldType = tryInferLLVMIRGeneratorThisFieldType(thisType,
-            varName)
-        if generatorFieldType != "" {
-            return generatorFieldType
-        }
-        return tryInferStructThisFieldType(thisType, varName)
+        return tryInferImplicitThisVariableTypeImpl(varName, varTypes[thisIdx],
+            structNames, structFieldNames, structFieldTypes)
     }
 
     fun tryInferNamedPrimitiveVariableType(varName: String) r: String {
-        if varName == "Int8" or varName == "UInt8" or varName == "Int16" or
-            varName == "UInt16" or varName == "Int32" or varName == "UInt32" or
-            varName == "Int64" or varName == "UInt64" or varName == "Float32" {
-            return varName
-        }
-        return ""
+        return tryInferNamedPrimitiveVariableTypeImpl(varName)
     }
 
     fun inferVariableExprTypeLocal(expr: ParserExpressionNode) r: String {

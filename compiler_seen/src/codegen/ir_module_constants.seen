@@ -144,3 +144,28 @@ fun findModuleConstantStateImpl(name: String,
     let sep = moduleConstPackSepImpl()
     return updatedMutable + sep + updatedSeenTypes + sep + "-1"
 }
+
+fun tryInferModuleConstantVariableTypeStateImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, moduleConstMutable: String,
+    moduleConstSeenTypes: String, xmConstNames: String, xmConstTypes: String,
+    xmConstMutable: String, xmConstSeenTypes: String, xmConstCount: Int) r: String {
+
+    let updated = findModuleConstantStateImpl(name, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, moduleConstMutable,
+        moduleConstSeenTypes, xmConstNames, xmConstTypes, xmConstMutable,
+        xmConstSeenTypes, xmConstCount)
+    let updatedMutable = unpackModuleConstFieldImpl(updated, 0)
+    let updatedSeenTypes = unpackModuleConstFieldImpl(updated, 1)
+    let constIdx = unpackModuleConstFieldImpl(updated, 2).toInt()
+    let sep = moduleConstPackSepImpl()
+    if constIdx < 0 {
+        return updatedMutable + sep + updatedSeenTypes + sep
+    }
+    let seenType = getModuleConstSeenTypeImpl(constIdx, updatedSeenTypes)
+    if seenType != "" {
+        return updatedMutable + sep + updatedSeenTypes + sep + seenType
+    }
+    return updatedMutable + sep + updatedSeenTypes + sep +
+        mapModuleConstLlvmTypeToSeenTypeImpl(moduleConstantTypes[constIdx])
+}
