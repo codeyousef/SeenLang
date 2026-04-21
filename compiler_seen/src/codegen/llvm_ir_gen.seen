@@ -57,7 +57,7 @@ import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpaces
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
-import codegen.ir_string_emit.{escapeStringImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
+import codegen.ir_string_emit.{escapeStringImpl, addStringConstantTableImpl, getStringConstantIndexImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
@@ -4880,30 +4880,12 @@ class LLVMIRGenerator {
     // Add a string constant to the string constant table (deduplicating).
     // Returns the index, used to reference the global @.str.PREFIX.INDEX.
     fun addStringConstant(str: String) r: Int {
-        // Check if already exists
-        var idx = 0
-        while idx < stringConstants.length() {
-            if stringConstants[idx] == str {
-                return idx
-            }
-            idx = idx + 1
-        }
-        // Add new string constant
-        stringConstants.push(str)
-        return stringConstants.length() - 1
+        return addStringConstantTableImpl(stringConstants, str)
     }
 
     // Get the index of an existing string constant
     fun getStringConstantIndex(str: String) r: Int {
-        var idx = 0
-        while idx < stringConstants.length() {
-            if stringConstants[idx] == str {
-                return idx
-            }
-            idx = idx + 1
-        }
-        // Not found - add it
-        return addStringConstant(str)
+        return getStringConstantIndexImpl(stringConstants, str)
     }
 
     // Generate IR for a top-level (free) function. Handles decorators:

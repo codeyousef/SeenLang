@@ -54,6 +54,30 @@ fun escapeStringImpl(str: String) r: String {
     return result
 }
 
+fun findStringConstantIndexImpl(stringConstants: Array<String>, str: String) r: Int {
+    var idx = 0
+    while idx < stringConstants.length() {
+        if stringConstants[idx] == str {
+            return idx
+        }
+        idx = idx + 1
+    }
+    return -1
+}
+
+fun addStringConstantTableImpl(stringConstants: Array<String>, str: String) r: Int {
+    let existingIdx = findStringConstantIndexImpl(stringConstants, str)
+    if existingIdx >= 0 {
+        return existingIdx
+    }
+    stringConstants.push(str)
+    return stringConstants.length() - 1
+}
+
+fun getStringConstantIndexImpl(stringConstants: Array<String>, str: String) r: Int {
+    return addStringConstantTableImpl(stringConstants, str)
+}
+
 fun emitStringConstantsImpl(output: StringBuilder, stringConstants: Array<String>) r: Void {
     var i = 0
     while i < stringConstants.length() {
