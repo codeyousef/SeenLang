@@ -13,6 +13,47 @@ fun ensureFunctionParamMetaIntBoxValue(box: Array<Int>) r: Void {
     }
 }
 
+fun stripFunctionSignatureParameterTypeImpl(typeName: String) r: String {
+    var strippedTypeName = typeName
+    if strippedTypeName.startsWith("move:") {
+        strippedTypeName = strippedTypeName.substring(5,
+            strippedTypeName.length())
+    }
+    if strippedTypeName.startsWith("borrow:") {
+        strippedTypeName = strippedTypeName.substring(7,
+            strippedTypeName.length())
+    }
+    if strippedTypeName.contains("~default~") {
+        let defPos = strippedTypeName.indexOf("~default~", 0)
+        strippedTypeName = strippedTypeName.substring(0, defPos)
+    }
+    return strippedTypeName
+}
+
+fun stripFunctionAllocaParameterTypeImpl(typeName: String,
+    ownershipBox: Array<String>) r: String {
+
+    ensureFunctionParamMetaStringBoxValue(ownershipBox)
+    ownershipBox[0] = ""
+
+    var strippedTypeName = typeName
+    if strippedTypeName.startsWith("move:") {
+        ownershipBox[0] = "move"
+        strippedTypeName = strippedTypeName.substring(5,
+            strippedTypeName.length())
+    }
+    if strippedTypeName.startsWith("borrow:") {
+        ownershipBox[0] = "borrow"
+        strippedTypeName = strippedTypeName.substring(7,
+            strippedTypeName.length())
+    }
+    if strippedTypeName.contains("~default~") {
+        let defPos = strippedTypeName.indexOf("~default~", 0)
+        strippedTypeName = strippedTypeName.substring(0, defPos)
+    }
+    return strippedTypeName
+}
+
 fun recordPreRegisteredComptimeParameterImpl(fnName: String,
     paramName: String, paramIdx: Int, preTypeName: String,
     comptimeParamFuncNamesBox: Array<String>,

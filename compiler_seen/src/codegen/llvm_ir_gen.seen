@@ -94,7 +94,7 @@ import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTra
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl}
-import codegen.ir_function_param_meta.{recordPreRegisteredComptimeParameterImpl, recordPreRegisteredDefaultParameterImpl, recordPreRegisteredDynParameterImpl}
+import codegen.ir_function_param_meta.{stripFunctionSignatureParameterTypeImpl, stripFunctionAllocaParameterTypeImpl, recordPreRegisteredComptimeParameterImpl, recordPreRegisteredDefaultParameterImpl, recordPreRegisteredDynParameterImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -4773,19 +4773,11 @@ class LLVMIRGenerator {
         while paramIdx < fn.params.length() {
             let param = fn.params[paramIdx]
             var seenTypeName = normalizeDeclaredTypeNode(param.paramType)
-            var paramOwnership = ""
-            if seenTypeName.startsWith("move:") {
-                paramOwnership = "move"
-                seenTypeName = seenTypeName.substring(5, seenTypeName.length())
-            }
-            if seenTypeName.startsWith("borrow:") {
-                paramOwnership = "borrow"
-                seenTypeName = seenTypeName.substring(7, seenTypeName.length())
-            }
-            if seenTypeName.contains("~default~") {
-                let allocDefPos = seenTypeName.indexOf("~default~", 0)
-                seenTypeName = seenTypeName.substring(0, allocDefPos)
-            }
+            let ownershipBox = Array<String>()
+            ownershipBox.push("")
+            seenTypeName = stripFunctionAllocaParameterTypeImpl(seenTypeName,
+                ownershipBox)
+            let paramOwnership = ownershipBox[0]
             let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
             if isDataType(semanticSeenTypeName) {
                 storeVar(param.name, "%" + quoteIdentIfNeeded(param.name + ".arg"), semanticSeenTypeName)
@@ -5060,18 +5052,7 @@ class LLVMIRGenerator {
         while paramIdx < fn.params.length() {
             let param = fn.params[paramIdx]
             var sigTypeName = normalizeDeclaredTypeNode(param.paramType)
-            // Strip ownership qualifiers for IR type
-            if sigTypeName.startsWith("move:") {
-                sigTypeName = sigTypeName.substring(5, sigTypeName.length())
-            }
-            if sigTypeName.startsWith("borrow:") {
-                sigTypeName = sigTypeName.substring(7, sigTypeName.length())
-            }
-            // Strip default value suffix for IR type
-            if sigTypeName.contains("~default~") {
-                let sigDefPos = sigTypeName.indexOf("~default~", 0)
-                sigTypeName = sigTypeName.substring(0, sigDefPos)
-            }
+            sigTypeName = stripFunctionSignatureParameterTypeImpl(sigTypeName)
             let paramType = mapTypeForParameter(sigTypeName)
             // @no_alias decorator: add noalias on pointer params
             var paramAttr = ""
