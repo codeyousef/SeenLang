@@ -47,6 +47,7 @@ import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, recordCrossModuleDeclareStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerAsyncFunctionStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, hasCrossModuleDeclareStateImpl, hasLateUserDeclareStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
+import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl, appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
@@ -11853,48 +11854,8 @@ class LLVMIRGenerator {
             stringConstantPrefix, stringConstants)
     }
 
-    fun collectDefaultParamStringConstantsFromFunction(fn: FunctionNode) r: Void {
-        var paramIdx = 0
-        while paramIdx < fn.params.length() {
-            let param = fn.params[paramIdx]
-            let paramTypeName = param.paramType.typeName
-            if paramTypeName.contains("~default~") {
-                let defaultPos = paramTypeName.indexOf("~default~", 0)
-                let defaultValue = paramTypeName.substring(defaultPos + 9, paramTypeName.length())
-                if normalizeSeenTypeName(paramTypeName) == "String" {
-                    var exists = false
-                    var sci = 0
-                    while sci < stringConstants.length() {
-                        if stringConstants[sci] == defaultValue {
-                            exists = true
-                            sci = stringConstants.length()
-                        }
-                        sci = sci + 1
-                    }
-                    if not exists {
-                        stringConstants.push(defaultValue)
-                    }
-                }
-            }
-            paramIdx = paramIdx + 1
-        }
-    }
-
     fun collectDefaultParamStringConstants(program: ProgramNode) r: Void {
-        var itemIdx = 0
-        while itemIdx < program.items.length() {
-            let item = program.items[itemIdx]
-            if item.itemType == "Function" {
-                collectDefaultParamStringConstantsFromFunction(item.function)
-            } else if item.itemType == "Class" {
-                var methodIdx = 0
-                while methodIdx < item.classNode.methods.length() {
-                    collectDefaultParamStringConstantsFromFunction(item.classNode.methods[methodIdx])
-                    methodIdx = methodIdx + 1
-                }
-            }
-            itemIdx = itemIdx + 1
-        }
+        collectDefaultParamStringConstantsImpl(program, stringConstants)
     }
 
     fun inferReturnExprType(className: String, expr: ParserExpressionNode) r: String {

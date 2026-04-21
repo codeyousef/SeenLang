@@ -1,0 +1,45 @@
+// ir_decl_default_params.seen — declaration default-parameter helpers
+// Keeps default-parameter string-constant collection out of llvm_ir_gen.seen.
+
+import parser.real_parser.{ProgramNode, FunctionNode}
+import codegen.ir_decl_items.{normalizeSeenTypeNameImpl}
+import codegen.ir_declarations.{addStringConstantImpl}
+
+fun collectDefaultParamStringConstantsFromFunctionImpl(fn: FunctionNode,
+    stringConstants: Array<String>) r: Void {
+
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let paramTypeName = fn.params[paramIdx].paramType.typeName
+        if paramTypeName.contains("~default~") {
+            let defaultPos = paramTypeName.indexOf("~default~", 0)
+            let defaultValue = paramTypeName.substring(defaultPos + 9,
+                paramTypeName.length())
+            if normalizeSeenTypeNameImpl(paramTypeName) == "String" {
+                addStringConstantImpl(stringConstants, defaultValue)
+            }
+        }
+        paramIdx = paramIdx + 1
+    }
+}
+
+fun collectDefaultParamStringConstantsImpl(program: ProgramNode,
+    stringConstants: Array<String>) r: Void {
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Function" {
+            collectDefaultParamStringConstantsFromFunctionImpl(item.function,
+                stringConstants)
+        } else if item.itemType == "Class" {
+            var methodIdx = 0
+            while methodIdx < item.classNode.methods.length() {
+                collectDefaultParamStringConstantsFromFunctionImpl(
+                    item.classNode.methods[methodIdx], stringConstants)
+                methodIdx = methodIdx + 1
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+}

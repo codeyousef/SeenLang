@@ -38,6 +38,7 @@ import codegen.ir_decl_features.{emitFeatureDecls}
 import codegen.ir_decl_scan.{pipeContainsValueImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerMethodDeclarationStateImpl}
+import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
@@ -1851,6 +1852,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_decl_scan")
         modules.push("codegen.ir_decl_registry")
         modules.push("codegen.ir_decl_items")
+        modules.push("codegen.ir_decl_default_params")
         modules.push("codegen.ir_decl_return_types")
         modules.push("codegen.ir_async_registry")
         modules.push("codegen.ir_trait_registry")
