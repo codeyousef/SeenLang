@@ -67,7 +67,7 @@ import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{alignUpImpl, getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
-import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
+import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
@@ -6576,31 +6576,24 @@ class LLVMIRGenerator {
     }
 
     fun appendLoopTileHint(loopMetaId: Int, hintValue: Int) r: Void {
-        let metaIdx = loopMetaId - 202
-        let entry = metaIdx.toString() + ":" + hintValue.toString()
-        if g_loopTileHints == "" {
-            g_loopTileHints = entry
-        } else {
-            g_loopTileHints = g_loopTileHints + "|" + entry
-        }
+        let loopTileHintsBox = Array<String>()
+        loopTileHintsBox.push(g_loopTileHints)
+        appendLoopTileHintImpl(loopTileHintsBox, loopMetaId, hintValue)
+        g_loopTileHints = loopTileHintsBox[0]
     }
 
     fun appendNestedLoopMetadataId(loopMetaId: Int) r: Void {
-        let nestedMetaIdx = loopMetaId - 202
-        if g_nestedLoopIds == "" {
-            g_nestedLoopIds = nestedMetaIdx.toString()
-        } else {
-            g_nestedLoopIds = g_nestedLoopIds + "|" + nestedMetaIdx.toString()
-        }
+        let nestedLoopIdsBox = Array<String>()
+        nestedLoopIdsBox.push(g_nestedLoopIds)
+        appendLoopMetadataIdImpl(nestedLoopIdsBox, loopMetaId)
+        g_nestedLoopIds = nestedLoopIdsBox[0]
     }
 
     fun appendReductionLoopMetadataId(loopMetaId: Int) r: Void {
-        let reductionMetaIdx = loopMetaId - 202
-        if g_reductionLoopIds == "" {
-            g_reductionLoopIds = reductionMetaIdx.toString()
-        } else {
-            g_reductionLoopIds = g_reductionLoopIds + "|" + reductionMetaIdx.toString()
-        }
+        let reductionLoopIdsBox = Array<String>()
+        reductionLoopIdsBox.push(g_reductionLoopIds)
+        appendLoopMetadataIdImpl(reductionLoopIdsBox, loopMetaId)
+        g_reductionLoopIds = reductionLoopIdsBox[0]
     }
 
     fun enterLoopContext(condLabel: String, endLabel: String, loopMetaIdStr: String,
@@ -6687,20 +6680,15 @@ class LLVMIRGenerator {
     }
 
     fun emitWhileConditionBranch(condReg: String, breakFlagVar: String, bodyLabel: String, endLabel: String) r: Void {
+        var breakFlagPtrReg = ""
         if breakFlagVar != "" {
             let bfVarIdx = findVar(breakFlagVar)
             if bfVarIdx >= 0 {
-                let bfFlagReg = getNextReg()
-                output.append("  " + bfFlagReg + " = load i64, ptr " + varRegs[bfVarIdx] + "\n")
-                let bfNotFoundReg = getNextReg()
-                output.append("  " + bfNotFoundReg + " = icmp eq i64 " + bfFlagReg + ", 0\n")
-                let bfCombinedReg = getNextReg()
-                output.append("  " + bfCombinedReg + " = and i1 " + condReg + ", " + bfNotFoundReg + " ; early exit when flag set\n")
-                output.append("  br i1 " + bfCombinedReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
-                return
+                breakFlagPtrReg = varRegs[bfVarIdx]
             }
         }
-        output.append("  br i1 " + condReg + ", label %" + bodyLabel + ", label %" + endLabel + ", !prof !196\n")
+        emitWhileConditionBranchImpl(output, g_regBox, condReg,
+            breakFlagPtrReg, bodyLabel, endLabel)
     }
 
     fun tryEmitMemcpyOptimizedWhileLoop(stmt: StatementNode, condLabel: String, bodyLabel: String, endLabel: String, savedCondLabel: String, savedEndLabel: String) r: Bool {
@@ -6943,13 +6931,8 @@ class LLVMIRGenerator {
     }
 
     fun emitStringForInElement(arrReg: String, loadIdx: String, loopVarReg: String) r: Void {
-        var arrStrReg = arrReg
-        if arrReg == "0" {
-            arrStrReg = "zeroinitializer"
-        }
-        let charReg = getNextReg()
-        output.append("  " + charReg + " = call i64 @seen_char_at(%SeenString " + arrStrReg + ", i64 " + loadIdx + ")\n")
-        output.append("  store i64 " + charReg + ", ptr " + loopVarReg + ", align 8\n")
+        emitStringForInElementImpl(output, g_regBox, arrReg, loadIdx,
+            loopVarReg)
     }
 
     fun emitArrayLikeForInLoop(stmt: StatementNode, loopVarName: String, loopVarType: String, loopVarReg: String,

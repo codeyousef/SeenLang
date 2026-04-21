@@ -6,6 +6,72 @@ import parser.real_parser.{StatementNode, ParserExpressionNode, BlockNode}
 import codegen.ir_optimization.{parseIntManual, getNextRegFn, getNextBlockFn}
 import str.string.{StringBuilder}
 
+fun ensureControlFlowStringBoxValue(box: Array<String>) r: Void {
+    if box.length() == 0 {
+        box.push("")
+    }
+}
+
+fun appendLoopTileHintImpl(loopTileHintsBox: Array<String>, loopMetaId: Int,
+    hintValue: Int) r: Void {
+
+    ensureControlFlowStringBoxValue(loopTileHintsBox)
+    let metaIdx = loopMetaId - 202
+    let entry = metaIdx.toString() + ":" + hintValue.toString()
+    if loopTileHintsBox[0] == "" {
+        loopTileHintsBox[0] = entry
+    } else {
+        loopTileHintsBox[0] = loopTileHintsBox[0] + "|" + entry
+    }
+}
+
+fun appendLoopMetadataIdImpl(loopIdsBox: Array<String>, loopMetaId: Int) r: Void {
+    ensureControlFlowStringBoxValue(loopIdsBox)
+    let metaIdx = loopMetaId - 202
+    if loopIdsBox[0] == "" {
+        loopIdsBox[0] = metaIdx.toString()
+    } else {
+        loopIdsBox[0] = loopIdsBox[0] + "|" + metaIdx.toString()
+    }
+}
+
+fun emitWhileConditionBranchImpl(output: StringBuilder, regBox: Array<Int>,
+    condReg: String, breakFlagPtrReg: String, bodyLabel: String,
+    endLabel: String) r: Void {
+
+    if breakFlagPtrReg != "" {
+        let bfFlagReg = getNextRegFn(regBox)
+        output.append("  " + bfFlagReg + " = load i64, ptr " +
+            breakFlagPtrReg + "\n")
+        let bfNotFoundReg = getNextRegFn(regBox)
+        output.append("  " + bfNotFoundReg + " = icmp eq i64 " + bfFlagReg +
+            ", 0\n")
+        let bfCombinedReg = getNextRegFn(regBox)
+        output.append("  " + bfCombinedReg + " = and i1 " + condReg + ", " +
+            bfNotFoundReg + " ; early exit when flag set\n")
+        output.append("  br i1 " + bfCombinedReg + ", label %" + bodyLabel +
+            ", label %" + endLabel + ", !prof !196\n")
+        return
+    }
+    output.append("  br i1 " + condReg + ", label %" + bodyLabel +
+        ", label %" + endLabel + ", !prof !196\n")
+}
+
+fun emitStringForInElementImpl(output: StringBuilder, regBox: Array<Int>,
+    arrReg: String, loadIdx: String, loopVarReg: String) r: Void {
+
+    var arrStrReg = arrReg
+    if arrReg == "0" {
+        arrStrReg = "zeroinitializer"
+    }
+    let charReg = getNextRegFn(regBox)
+    output.append("  " + charReg +
+        " = call i64 @seen_char_at(%SeenString " + arrStrReg + ", i64 " +
+        loadIdx + ")\n")
+    output.append("  store i64 " + charReg + ", ptr " + loopVarReg +
+        ", align 8\n")
+}
+
 // detectMemcpyPattern — Check if a while loop is a memcpy or memmove pattern
 // Returns: 0 = no pattern, 1 = memcpy (dest[i]=src[i]), 2 = memmove (arr[i]=arr[i+1])
 // mcLHSArrName/mcRHSArrName/mcIncrVarName: output parameters (pipe-delimited single entry)
