@@ -2,6 +2,7 @@
 // Extracted from llvm_ir_gen.seen to keep string literal IR emission thin.
 
 import str.string.{StringBuilder}
+import io.file.{readText, exists}
 
 // Escape a string for embedding in LLVM IR constant data. Replaces
 // backslash, double-quote, newline, tab, and carriage-return with their
@@ -97,6 +98,22 @@ fun emitAdditionalGeneratedStringConstantsImpl(output: StringBuilder,
             " x i8] c\"" + escaped + "\\00\"\n")
         sci = sci + 1
     }
+}
+
+fun loadEmbeddedStringConstantInfoImpl(stringConstants: Array<String>,
+    path: String) r: Array<String> {
+
+    let info = Array<String>()
+    if path == "" or not exists(path) {
+        return info
+    }
+
+    let content = readText(path)
+    stringConstants.push(content)
+    info.push(content)
+    info.push(escapeStringImpl(content))
+    info.push((stringConstants.length() - 1).toString())
+    return info
 }
 
 fun emitStringConstantsImpl(output: StringBuilder, stringConstants: Array<String>) r: Void {

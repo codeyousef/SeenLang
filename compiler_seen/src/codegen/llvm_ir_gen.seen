@@ -57,7 +57,7 @@ import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpaces
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
-import codegen.ir_string_emit.{escapeStringImpl, addStringConstantTableImpl, getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
+import codegen.ir_string_emit.{escapeStringImpl, addStringConstantTableImpl, getStringConstantIndexImpl, emitAdditionalGeneratedStringConstantsImpl, loadEmbeddedStringConstantInfoImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
 import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
@@ -9784,12 +9784,12 @@ class LLVMIRGenerator {
         if funcName == "includeStr" {
             if expr.arguments.length() > 0 {
                 let inclPath = expr.arguments[0].literalValue
-                if inclPath != "" and exists(inclPath) {
-                    let inclContent = readText(inclPath)
-                    stringConstants.push(inclContent)
-                    let inclIdx = stringConstants.length() - 1
-                    let inclEscaped = escapeString(inclContent)
-                    return emitIncludeStrImpl(output, g_regBox, inclContent, inclEscaped, stringConstantPrefix, inclIdx)
+                let inclInfo = loadEmbeddedStringConstantInfoImpl(
+                    stringConstants, inclPath)
+                if inclInfo.length() >= 3 {
+                    return emitIncludeStrImpl(output, g_regBox, inclInfo[0],
+                        inclInfo[1], stringConstantPrefix,
+                        parseIntManual(inclInfo[2]))
                 }
                 output.append("  ; WARNING: includeStr file not found: " + inclPath + "\n")
             }
@@ -9802,12 +9802,12 @@ class LLVMIRGenerator {
         if funcName == "includeBytes" {
             if expr.arguments.length() > 0 {
                 let inclBPath = expr.arguments[0].literalValue
-                if inclBPath != "" and exists(inclBPath) {
-                    let inclBContent = readText(inclBPath)
-                    stringConstants.push(inclBContent)
-                    let inclBIdx = stringConstants.length() - 1
-                    let inclBEscaped = escapeString(inclBContent)
-                    return emitIncludeBytesImpl(output, g_regBox, inclBContent, inclBEscaped, stringConstantPrefix, inclBIdx)
+                let inclBInfo = loadEmbeddedStringConstantInfoImpl(
+                    stringConstants, inclBPath)
+                if inclBInfo.length() >= 3 {
+                    return emitIncludeBytesImpl(output, g_regBox,
+                        inclBInfo[0], inclBInfo[1], stringConstantPrefix,
+                        parseIntManual(inclBInfo[2]))
                 }
             }
             return "0"
