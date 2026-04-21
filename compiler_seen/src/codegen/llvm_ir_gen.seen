@@ -67,7 +67,7 @@ import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{alignUpImpl, getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
-import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl}
+import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl, emitContinueStatementImpl, emitBreakStatementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
@@ -5521,29 +5521,13 @@ class LLVMIRGenerator {
     }
 
     fun emitContinueStatement() r: Void {
-        if currentLoopCondLabel == "" {
-            output.append("  ; ERROR: continue used outside of loop\n")
-        }
-        if currentLoopCondLabel != "" {
-            let pipeIdx = currentLoopCondLabel.indexOf("|")
-            if pipeIdx >= 0 {
-                let actualLabel = currentLoopCondLabel.substring(0, pipeIdx)
-                let metaIdStr = currentLoopCondLabel.substring(pipeIdx + 1, currentLoopCondLabel.length())
-                output.append("  br label %" + actualLabel + ", !llvm.loop !" + metaIdStr + "\n")
-            }
-            if pipeIdx < 0 {
-                output.append("  br label %" + currentLoopCondLabel + ", !llvm.loop !202\n")
-            }
+        if emitContinueStatementImpl(output, currentLoopCondLabel) == 1 {
             blockTerminated = true
         }
     }
 
     fun emitBreakStatement() r: Void {
-        if currentLoopEndLabel == "" {
-            output.append("  ; ERROR: break used outside of loop\n")
-        }
-        if currentLoopEndLabel != "" {
-            output.append("  br label %" + currentLoopEndLabel + "\n")
+        if emitBreakStatementImpl(output, currentLoopEndLabel) == 1 {
             blockTerminated = true
         }
     }
@@ -6598,19 +6582,29 @@ class LLVMIRGenerator {
 
     fun enterLoopContext(condLabel: String, endLabel: String, loopMetaIdStr: String,
         savedCondBox: Array<String>, savedEndBox: Array<String>) r: Void {
-        savedCondBox.push(currentLoopCondLabel)
-        savedEndBox.push(currentLoopEndLabel)
-        currentLoopCondLabel = condLabel + "|" + loopMetaIdStr
-        currentLoopEndLabel = endLabel
+        let currentCondBox = Array<String>()
+        currentCondBox.push(currentLoopCondLabel)
+        let currentEndBox = Array<String>()
+        currentEndBox.push(currentLoopEndLabel)
+        enterLoopContextImpl(currentCondBox, currentEndBox, savedCondBox,
+            savedEndBox, condLabel, endLabel, loopMetaIdStr)
+        currentLoopCondLabel = currentCondBox[0]
+        currentLoopEndLabel = currentEndBox[0]
     }
 
     fun restoreLoopContext(savedCondLabel: String, savedEndLabel: String) r: Void {
-        currentLoopCondLabel = savedCondLabel
-        currentLoopEndLabel = savedEndLabel
+        let currentCondBox = Array<String>()
+        currentCondBox.push(currentLoopCondLabel)
+        let currentEndBox = Array<String>()
+        currentEndBox.push(currentLoopEndLabel)
+        restoreLoopContextImpl(currentCondBox, currentEndBox, savedCondLabel,
+            savedEndLabel)
+        currentLoopCondLabel = currentCondBox[0]
+        currentLoopEndLabel = currentEndBox[0]
     }
 
     fun emitLoopEndBlock(endLabel: String) r: Void {
-        output.append(endLabel + ":\n")
+        emitLoopEndLabelImpl(output, endLabel)
         cseClear()
         blockTerminated = false
     }
@@ -6759,14 +6753,8 @@ class LLVMIRGenerator {
             mlLogDecision("memmove", "applied", mcLHSArrName + "[i]<-[i+1]")
             g_loopsOptimized = g_loopsOptimized + 1
         }
-        output.append("  br label %" + endLabel + "\n")
-        output.append(condLabel + ":\n")
-        output.append("  br label %" + endLabel + "\n")
-        output.append(bodyLabel + ":\n")
-        output.append("  br label %" + endLabel + "\n")
-        output.append(endLabel + ":\n")
-        currentLoopCondLabel = savedCondLabel
-        currentLoopEndLabel = savedEndLabel
+        emitMemcpyLoopExitBlocksImpl(output, condLabel, bodyLabel, endLabel)
+        restoreLoopContext(savedCondLabel, savedEndLabel)
         return true
     }
 

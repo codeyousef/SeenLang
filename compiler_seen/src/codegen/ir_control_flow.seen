@@ -72,6 +72,76 @@ fun emitStringForInElementImpl(output: StringBuilder, regBox: Array<Int>,
         ", align 8\n")
 }
 
+fun enterLoopContextImpl(currentCondBox: Array<String>,
+    currentEndBox: Array<String>, savedCondBox: Array<String>,
+    savedEndBox: Array<String>, condLabel: String, endLabel: String,
+    loopMetaIdStr: String) r: Void {
+
+    ensureControlFlowStringBoxValue(currentCondBox)
+    ensureControlFlowStringBoxValue(currentEndBox)
+    savedCondBox.push(currentCondBox[0])
+    savedEndBox.push(currentEndBox[0])
+    currentCondBox[0] = condLabel + "|" + loopMetaIdStr
+    currentEndBox[0] = endLabel
+}
+
+fun restoreLoopContextImpl(currentCondBox: Array<String>,
+    currentEndBox: Array<String>, savedCondLabel: String,
+    savedEndLabel: String) r: Void {
+
+    ensureControlFlowStringBoxValue(currentCondBox)
+    ensureControlFlowStringBoxValue(currentEndBox)
+    currentCondBox[0] = savedCondLabel
+    currentEndBox[0] = savedEndLabel
+}
+
+fun emitLoopEndLabelImpl(output: StringBuilder, endLabel: String) r: Void {
+    output.append(endLabel + ":\n")
+}
+
+fun emitContinueStatementImpl(output: StringBuilder,
+    currentLoopCondLabel: String) r: Int {
+
+    if currentLoopCondLabel == "" {
+        output.append("  ; ERROR: continue used outside of loop\n")
+        return 0
+    }
+    let pipeIdx = currentLoopCondLabel.indexOf("|")
+    if pipeIdx >= 0 {
+        let actualLabel = currentLoopCondLabel.substring(0, pipeIdx)
+        let metaIdStr = currentLoopCondLabel.substring(pipeIdx + 1,
+            currentLoopCondLabel.length())
+        output.append("  br label %" + actualLabel + ", !llvm.loop !" +
+            metaIdStr + "\n")
+        return 1
+    }
+    output.append("  br label %" + currentLoopCondLabel +
+        ", !llvm.loop !202\n")
+    return 1
+}
+
+fun emitBreakStatementImpl(output: StringBuilder,
+    currentLoopEndLabel: String) r: Int {
+
+    if currentLoopEndLabel == "" {
+        output.append("  ; ERROR: break used outside of loop\n")
+        return 0
+    }
+    output.append("  br label %" + currentLoopEndLabel + "\n")
+    return 1
+}
+
+fun emitMemcpyLoopExitBlocksImpl(output: StringBuilder, condLabel: String,
+    bodyLabel: String, endLabel: String) r: Void {
+
+    output.append("  br label %" + endLabel + "\n")
+    output.append(condLabel + ":\n")
+    output.append("  br label %" + endLabel + "\n")
+    output.append(bodyLabel + ":\n")
+    output.append("  br label %" + endLabel + "\n")
+    output.append(endLabel + ":\n")
+}
+
 // detectMemcpyPattern — Check if a while loop is a memcpy or memmove pattern
 // Returns: 0 = no pattern, 1 = memcpy (dest[i]=src[i]), 2 = memmove (arr[i]=arr[i+1])
 // mcLHSArrName/mcRHSArrName/mcIncrVarName: output parameters (pipe-delimited single entry)
