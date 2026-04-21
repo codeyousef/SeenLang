@@ -1,0 +1,32 @@
+// ir_string_interp_infer.seen — Shared string-interpolation inference helpers
+// Extracted from llvm_ir_gen.seen to keep special-expression inference thin.
+
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_string_collect.{collectStringConstantsFromExprImpl}
+
+fun collectStringConstantsFromExprListImpl(exprs: Array<ParserExpressionNode>,
+    stringConstants: Array<String>, callCountNamesBox: Array<String>,
+    callCountEntriesBox: Array<Int>) r: Void {
+
+    var idx = 0
+    while idx < exprs.length() {
+        collectStringConstantsFromExprImpl(exprs[idx], stringConstants,
+            callCountNamesBox, callCountEntriesBox)
+        idx = idx + 1
+    }
+}
+
+fun inferStringInterpolationExprTypeStateImpl(exprKind: String,
+    arguments: Array<ParserExpressionNode>, operands: Array<ParserExpressionNode>,
+    stringConstants: Array<String>, callCountNamesBox: Array<String>,
+    callCountEntriesBox: Array<Int>) r: String {
+
+    if exprKind != "StringInterpolation" {
+        return ""
+    }
+    collectStringConstantsFromExprListImpl(arguments, stringConstants,
+        callCountNamesBox, callCountEntriesBox)
+    collectStringConstantsFromExprListImpl(operands, stringConstants,
+        callCountNamesBox, callCountEntriesBox)
+    return "String"
+}
