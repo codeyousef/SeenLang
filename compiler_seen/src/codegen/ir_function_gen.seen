@@ -7,6 +7,7 @@
 
 import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.type_registry.{CodegenState, csGetNextReg}
@@ -17,6 +18,12 @@ import str.string.{StringBuilder}
 fun ensureFunctionStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
         box.push("")
+    }
+}
+
+fun ensureFunctionIntBoxValue(box: Array<Int>) r: Void {
+    if box.length() == 0 {
+        box.push(0)
     }
 }
 
@@ -183,6 +190,72 @@ fun resolveImplementationFunctionNameImpl(fn: FunctionNode,
         }
     }
     return implFuncName
+}
+
+fun emitGpuDispatchWrapperImpl(output: StringBuilder, regBox: Array<Int>,
+    fnName: String) r: Void {
+
+    output.append("define void @" +
+        quoteIdentIfNeededImpl(fnName + "_gpu_dispatch") +
+        "(i64 %gpu_gx, i64 %gpu_gy, i64 %gpu_gz, ptr %gpu_bufs, i64 %gpu_nbufs) nounwind {\n")
+    output.append("entry:\n")
+    let dr = getNextRegFn(regBox)
+    output.append("  " + dr +
+        " = call i64 @seen_gpu_dispatch(i64 0, i64 %gpu_gx, i64 %gpu_gy, i64 %gpu_gz, ptr %gpu_bufs, i64 %gpu_nbufs)\n")
+    output.append("  ret void\n")
+    output.append("}\n\n")
+}
+
+fun tryHandleGpuShaderFunctionGenerationImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, gpuShaderNamesBox: Array<String>,
+    gpuShaderStagesBox: Array<String>,
+    gpuShaderWorkgroupsBox: Array<String>,
+    gpuShaderBindingsBox: Array<String>,
+    gpuShaderCountBox: Array<Int>) r: Bool {
+
+    if not (hasFunctionDecoratorImpl(fn, "compute") or
+        hasFunctionDecoratorImpl(fn, "vertex") or
+        hasFunctionDecoratorImpl(fn, "fragment")) {
+
+        return false
+    }
+
+    ensureFunctionStringBoxValue(gpuShaderNamesBox)
+    ensureFunctionStringBoxValue(gpuShaderStagesBox)
+    ensureFunctionStringBoxValue(gpuShaderWorkgroupsBox)
+    ensureFunctionStringBoxValue(gpuShaderBindingsBox)
+    ensureFunctionIntBoxValue(gpuShaderCountBox)
+
+    var gpuStage = 0
+    if hasFunctionDecoratorImpl(fn, "vertex") {
+        gpuStage = 1
+    }
+    if hasFunctionDecoratorImpl(fn, "fragment") {
+        gpuStage = 2
+    }
+    let gpuWgX = 64
+    let gpuWgY = 1
+    let gpuWgZ = 1
+    let gpuBindCount = fn.params.length()
+    if gpuShaderCountBox[0] > 0 {
+        gpuShaderNamesBox[0] = gpuShaderNamesBox[0] + "|"
+        gpuShaderStagesBox[0] = gpuShaderStagesBox[0] + "|"
+        gpuShaderWorkgroupsBox[0] = gpuShaderWorkgroupsBox[0] + "|"
+        gpuShaderBindingsBox[0] = gpuShaderBindingsBox[0] + "|"
+    }
+    gpuShaderNamesBox[0] = gpuShaderNamesBox[0] + fn.name
+    gpuShaderStagesBox[0] = gpuShaderStagesBox[0] + gpuStage.toString()
+    gpuShaderWorkgroupsBox[0] = gpuShaderWorkgroupsBox[0] +
+        gpuWgX.toString() + "," + gpuWgY.toString() + "," +
+        gpuWgZ.toString()
+    gpuShaderBindingsBox[0] = gpuShaderBindingsBox[0] +
+        gpuBindCount.toString()
+    gpuShaderCountBox[0] = gpuShaderCountBox[0] + 1
+    output.append("; GPU shader function: " + fn.name + " (stage=" +
+        gpuStage.toString() + ", bindings=" +
+        gpuBindCount.toString() + ")\n")
+    emitGpuDispatchWrapperImpl(output, regBox, fn.name)
+    return true
 }
 
 fun shouldSkipFunctionByCfgImpl(output: StringBuilder, fn: FunctionNode,
