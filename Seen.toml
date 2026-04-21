@@ -1,5 +1,12 @@
 [project]
-name = "test_println"
+name = "hearton"
 version = "0.1.0"
 language = "en"
-visibility = "caps"
+description = "vk_full"
+
+modules = [
+    "seen_vk/src/runtime.seen",     "seen_vk/src/runtime_barriers.seen",     "seen_vk/src/instance.seen",     "seen_vk/src/buffer.seen",     "seen_vk/src/image.seen",     "seen_vk/src/pipeline.seen",     "seen_vk/src/command.seen",     "seen_vk/src/swapchain.seen",     "seen_vk/src/render_pass.seen",     "hearton/src/testing/assert.seen"
+]
+
+[build]
+entry = "/mnt/Storage/Projects/seen/hearton/.tmp_vk_matrix_main.seen"
