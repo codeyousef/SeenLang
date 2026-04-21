@@ -1,0 +1,216 @@
+// ir_decl_registry.seen — declaration registry/state helpers
+// Extracted from llvm_ir_gen.seen so declaration plumbing and registry
+// ownership stay separate from the main Pass 1 orchestration.
+
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_decl_scan.{recordCrossModuleDeclareImpl, registerEnumVariantsImpl, registerCrossModuleConstantsImpl, buildLateUserDeclareStringImpl, recordLateUserDeclareImpl, emitLateUserDeclaresImpl, pipeContainsValueImpl, quoteDeclScanIdentIfNeeded}
+import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
+import codegen.type_registry.{ensureStructEntryReg, getFunctionReturnTypeReg}
+
+fun declRegistryPackSepImpl() r: String {
+    return "@@DECLREGSEP@@"
+}
+
+fun unpackDeclRegistryFieldImpl(data: String, idx: Int) r: String {
+    let sep = declRegistryPackSepImpl()
+    var start = 0
+    var curIdx = 0
+    while curIdx < idx {
+        let sepPos = data.indexOf(sep, start)
+        if sepPos < 0 {
+            return ""
+        }
+        start = sepPos + sep.length()
+        curIdx = curIdx + 1
+    }
+    let end = data.indexOf(sep, start)
+    if end < 0 {
+        return data.substring(start, data.length())
+    }
+    return data.substring(start, end)
+}
+
+fun preRegisterClassTypesImpl(program: ProgramNode, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>,
+    structSizes: Array<Int>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: Void {
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Class" {
+            ensureStructEntryReg(item.classNode.name, structNames, structLayouts,
+                structFieldNames, structFieldTypes, structLlvmFieldTypes,
+                structSizes, structMethodNames, structMethodRetTypes)
+        }
+        itemIdx = itemIdx + 1
+    }
+}
+
+fun registerFunctionStateImpl(name: String, retType: String,
+    funcNames: Array<String>, funcRetTypes: Array<String>) r: Void {
+    funcNames.push(name)
+    funcRetTypes.push(retType)
+}
+
+fun recordCrossModuleDeclareStateImpl(symbolName: String, declStr: String,
+    visibility: String, xmDeclareNames: String, xmDeclareStrs: String,
+    xmDeclareVis: String, xmDeclareCount: Int) r: String {
+
+    let namesBox = Array<String>()
+    namesBox.push(xmDeclareNames)
+    let declsBox = Array<String>()
+    declsBox.push(xmDeclareStrs)
+    let visBox = Array<String>()
+    visBox.push(xmDeclareVis)
+    let countBox = Array<Int>()
+    countBox.push(xmDeclareCount)
+    recordCrossModuleDeclareImpl(symbolName, declStr, visibility, namesBox,
+        declsBox, visBox, countBox)
+    let sep = declRegistryPackSepImpl()
+    return namesBox[0] + sep + declsBox[0] + sep + visBox[0] + sep + countBox[0].toString()
+}
+
+fun registerEnumVariantsStateImpl(enumName: String, variants: Array<String>,
+    enumTypeNames: String, enumVariantNames: String, enumVariantTags: String,
+    enumVariantFieldTypes: String, enumVariantFieldCounts: String,
+    enumVariantParent: String, enumTypeCount: Int, enumVariantCount: Int) r: String {
+
+    let enumTypeNamesBox = Array<String>()
+    enumTypeNamesBox.push(enumTypeNames)
+    let enumVariantNamesBox = Array<String>()
+    enumVariantNamesBox.push(enumVariantNames)
+    let enumVariantTagsBox = Array<String>()
+    enumVariantTagsBox.push(enumVariantTags)
+    let enumVariantFieldTypesBox = Array<String>()
+    enumVariantFieldTypesBox.push(enumVariantFieldTypes)
+    let enumVariantFieldCountsBox = Array<String>()
+    enumVariantFieldCountsBox.push(enumVariantFieldCounts)
+    let enumVariantParentBox = Array<String>()
+    enumVariantParentBox.push(enumVariantParent)
+    let enumTypeCountBox = Array<Int>()
+    enumTypeCountBox.push(enumTypeCount)
+    let enumVariantCountBox = Array<Int>()
+    enumVariantCountBox.push(enumVariantCount)
+    registerEnumVariantsImpl(enumName, variants, enumTypeNamesBox,
+        enumVariantNamesBox, enumVariantTagsBox, enumVariantFieldTypesBox,
+        enumVariantFieldCountsBox, enumVariantParentBox, enumTypeCountBox,
+        enumVariantCountBox)
+    let sep = declRegistryPackSepImpl()
+    return enumTypeNamesBox[0] + sep + enumVariantNamesBox[0] + sep +
+        enumVariantTagsBox[0] + sep + enumVariantFieldTypesBox[0] + sep +
+        enumVariantFieldCountsBox[0] + sep + enumVariantParentBox[0] +
+        sep + enumTypeCountBox[0].toString() + sep +
+        enumVariantCountBox[0].toString()
+}
+
+fun registerCrossModuleConstantsStateImpl(program: ProgramNode,
+    xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+    xmConstSeenTypes: String, xmConstCount: Int) r: String {
+
+    let namesBox = Array<String>()
+    namesBox.push(xmConstNames)
+    let typesBox = Array<String>()
+    typesBox.push(xmConstTypes)
+    let mutableBox = Array<String>()
+    mutableBox.push(xmConstMutable)
+    let seenTypesBox = Array<String>()
+    seenTypesBox.push(xmConstSeenTypes)
+    let countBox = Array<Int>()
+    countBox.push(xmConstCount)
+    registerCrossModuleConstantsImpl(program, namesBox, typesBox, mutableBox,
+        seenTypesBox, countBox)
+    let sep = declRegistryPackSepImpl()
+    return namesBox[0] + sep + typesBox[0] + sep + mutableBox[0] + sep +
+        seenTypesBox[0] + sep + countBox[0].toString()
+}
+
+fun registerAsyncFunctionStateImpl(name: String, declaredRetType: String,
+    asyncFuncNames: String, asyncFuncRetTypes: String, asyncFuncCount: Int) r: String {
+
+    let namesBox = Array<String>()
+    namesBox.push(asyncFuncNames)
+    let retTypesBox = Array<String>()
+    retTypesBox.push(asyncFuncRetTypes)
+    let countBox = Array<Int>()
+    countBox.push(asyncFuncCount)
+    registerAsyncFunctionImpl(name, declaredRetType, namesBox, retTypesBox, countBox)
+    let sep = declRegistryPackSepImpl()
+    return namesBox[0] + sep + retTypesBox[0] + sep + countBox[0].toString()
+}
+
+fun isAsyncFunctionStateImpl(name: String, asyncFuncNames: String,
+    asyncFuncCount: Int) r: Bool {
+    return isAsyncFunctionImpl(name, asyncFuncNames, asyncFuncCount)
+}
+
+fun getAsyncDeclaredRetTypeStateImpl(name: String, asyncFuncNames: String,
+    asyncFuncRetTypes: String, asyncFuncCount: Int) r: String {
+    return getAsyncDeclaredRetTypeImpl(name, asyncFuncNames, asyncFuncRetTypes,
+        asyncFuncCount)
+}
+
+fun getFunctionReturnTypeStateImpl(name: String, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: String {
+    return getFunctionReturnTypeReg(name, funcNames, funcRetTypes)
+}
+
+fun hasCrossModuleDeclareStateImpl(name: String, xmDeclareNames: String,
+    xmDeclareCount: Int) r: Bool {
+    return pipeContainsValueImpl(name, xmDeclareNames, xmDeclareCount)
+}
+
+fun hasLateUserDeclareStateImpl(name: String, lateXmDeclareNames: String,
+    lateXmDeclareCount: Int) r: Bool {
+    return pipeContainsValueImpl(name, lateXmDeclareNames, lateXmDeclareCount)
+}
+
+fun recordLateUserDeclareStateImpl(name: String, llvmReturnType: String,
+    argTypeStrs: Array<String>, hasImplicitThis: Int, funcNames: Array<String>,
+    funcRetTypes: Array<String>, xmDeclareNames: String, xmDeclareCount: Int,
+    lateXmDeclareNames: String, lateXmDeclareStrs: String,
+    lateXmDeclareCount: Int) r: String {
+
+    if name == "" {
+        let sep = declRegistryPackSepImpl()
+        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+    }
+    if name.startsWith("__") {
+        let sep = declRegistryPackSepImpl()
+        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+    }
+    if getFunctionReturnTypeStateImpl(name, funcNames, funcRetTypes) != "" {
+        let sep = declRegistryPackSepImpl()
+        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+    }
+    if hasCrossModuleDeclareStateImpl(name, xmDeclareNames, xmDeclareCount) {
+        let sep = declRegistryPackSepImpl()
+        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+    }
+    if hasLateUserDeclareStateImpl(name, lateXmDeclareNames, lateXmDeclareCount) {
+        let sep = declRegistryPackSepImpl()
+        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+    }
+
+    let decl = buildLateUserDeclareStringImpl(quoteDeclScanIdentIfNeeded(name),
+        llvmReturnType, argTypeStrs,
+        hasImplicitThis)
+    let namesBox = Array<String>()
+    namesBox.push(lateXmDeclareNames)
+    let declsBox = Array<String>()
+    declsBox.push(lateXmDeclareStrs)
+    let countBox = Array<Int>()
+    countBox.push(lateXmDeclareCount)
+    recordLateUserDeclareImpl(name, decl, namesBox, declsBox, countBox)
+    let sep = declRegistryPackSepImpl()
+    return namesBox[0] + sep + declsBox[0] + sep + countBox[0].toString()
+}
+
+fun emitLateUserDeclaresStateImpl(output: StringBuilder,
+    definedFuncs: Array<String>, lateXmDeclareNames: String,
+    lateXmDeclareStrs: String, lateXmDeclareCount: Int) r: Void {
+    emitLateUserDeclaresImpl(output, definedFuncs, lateXmDeclareNames,
+        lateXmDeclareStrs, lateXmDeclareCount)
+}
