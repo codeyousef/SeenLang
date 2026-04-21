@@ -631,6 +631,10 @@ class CodegenState {
     var currentLoopEndLabel: String
     var preAllocatedVars: Array<String>
     var preAllocatedTypes: Array<String>
+    var preAllocatedRegs: Array<String>
+    var declOrdinalNames: Array<String>
+    var declOrdinalCounts: Array<Int>
+    var activeVarCount: Int
     var stringConstantPrefix: String
     var generatedFunctions: Array<String>
     var generatedClasses: Array<String>
@@ -658,6 +662,10 @@ class CodegenState {
             currentLoopEndLabel: "",
             preAllocatedVars: Array<String>(),
             preAllocatedTypes: Array<String>(),
+            preAllocatedRegs: Array<String>(),
+            declOrdinalNames: Array<String>(),
+            declOrdinalCounts: Array<Int>(),
+            activeVarCount: 0,
             stringConstantPrefix: "",
             generatedFunctions: Array<String>(),
             generatedClasses: Array<String>(),

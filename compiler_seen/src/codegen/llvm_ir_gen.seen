@@ -93,7 +93,7 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentRece
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -1211,6 +1211,24 @@ class LLVMIRGenerator {
         return false
     }
 
+    fun beginNestedScratchState(returnType: String)
+        r: NestedScratchStateSnapshot {
+        syncState()
+        let state = getSharedCodegenState()
+        let savedState = snapshotNestedScratchStateImpl(state)
+        beginNestedScratchStateImpl(state, returnType)
+        writeBackState()
+        return savedState
+    }
+
+    fun restoreNestedScratchState(savedState: NestedScratchStateSnapshot)
+        r: Void {
+        syncState()
+        let state = getSharedCodegenState()
+        restoreNestedScratchStateImpl(state, savedState)
+        writeBackState()
+    }
+
     fun syncState() r: Void {
         let state = getSharedCodegenState()
         syncIndentFromFunctionOptions()
@@ -1246,6 +1264,10 @@ class LLVMIRGenerator {
         state.currentLoopEndLabel = currentLoopEndLabel
         state.preAllocatedVars = preAllocatedVars
         state.preAllocatedTypes = preAllocatedTypes
+        state.preAllocatedRegs = preAllocatedRegs
+        state.declOrdinalNames = declOrdinalNames
+        state.declOrdinalCounts = declOrdinalCounts
+        state.activeVarCount = activeVarCount
         state.stringConstantPrefix = stringConstantPrefix
         state.generatedFunctions = generatedFunctions
         state.generatedClasses = generatedClasses
@@ -1281,6 +1303,10 @@ class LLVMIRGenerator {
         currentLoopEndLabel = state.currentLoopEndLabel
         preAllocatedVars = state.preAllocatedVars
         preAllocatedTypes = state.preAllocatedTypes
+        preAllocatedRegs = state.preAllocatedRegs
+        declOrdinalNames = state.declOrdinalNames
+        declOrdinalCounts = state.declOrdinalCounts
+        activeVarCount = state.activeVarCount
         stringConstantPrefix = state.stringConstantPrefix
         generatedFunctions = state.generatedFunctions
         generatedClasses = state.generatedClasses
@@ -3829,30 +3855,7 @@ class LLVMIRGenerator {
     fun emitTraitDefaultMethod(className: String, traitMethod: FunctionNode, traitRetTypeName: String) r: Void {
         let defaultFuncName = className + "_" + traitMethod.name + "_default"
         output.append("; trait default method: " + defaultFuncName + "\n")
-        let savedRetType = currentFunctionReturnType
-        currentFunctionReturnType = traitRetTypeName
-        let savedVarNames = varNames
-        let savedVarRegs = varRegs
-        let savedVarTypes = varTypes
-        let savedPreAllocatedVars = preAllocatedVars
-        let savedPreAllocatedTypes = preAllocatedTypes
-        let savedPreAllocatedRegs = preAllocatedRegs
-        let savedDeclOrdinalNames = declOrdinalNames
-        let savedDeclOrdinalCounts = declOrdinalCounts
-        let savedActiveVarCount = activeVarCount
-        let savedNextReg = g_regBox[0]
-        let savedBlockTerm = blockTerminated
-        varNames = Array<String>()
-        varRegs = Array<String>()
-        varTypes = Array<String>()
-        preAllocatedVars = Array<String>()
-        preAllocatedTypes = Array<String>()
-        preAllocatedRegs = Array<String>()
-        declOrdinalNames = Array<String>()
-        declOrdinalCounts = Array<Int>()
-        activeVarCount = 0
-        g_regBox[0] = 1
-        blockTerminated = false
+        let savedNestedState = beginNestedScratchState(traitRetTypeName)
         cseClear()
         var defaultParamStr = ""
         var paramIdx = 0
@@ -3879,18 +3882,7 @@ class LLVMIRGenerator {
             }
         }
         output.append("}\n\n")
-        currentFunctionReturnType = savedRetType
-        varNames = savedVarNames
-        varRegs = savedVarRegs
-        varTypes = savedVarTypes
-        preAllocatedVars = savedPreAllocatedVars
-        preAllocatedTypes = savedPreAllocatedTypes
-        preAllocatedRegs = savedPreAllocatedRegs
-        declOrdinalNames = savedDeclOrdinalNames
-        declOrdinalCounts = savedDeclOrdinalCounts
-        activeVarCount = savedActiveVarCount
-        g_regBox[0] = savedNextReg
-        blockTerminated = savedBlockTerm
+        restoreNestedScratchState(savedNestedState)
         registerFunction(defaultFuncName, traitRetTypeName)
     }
 
@@ -5774,34 +5766,9 @@ class LLVMIRGenerator {
         let pforIdx = g_pforCount
         g_pforCount = g_pforCount + 1
         let bodyFuncName = "@__seen_pfor_body_" + pforIdx.toString()
+        let pforReturnType = currentFunctionReturnType
 
-        // Save current state
-        let savedOutput = output
-        let savedVarNames = varNames
-        let savedVarRegs = varRegs
-        let savedVarTypes = varTypes
-        let savedPreAllocatedVars = preAllocatedVars
-        let savedPreAllocatedTypes = preAllocatedTypes
-        let savedPreAllocatedRegs = preAllocatedRegs
-        let savedDeclOrdinalNames = declOrdinalNames
-        let savedDeclOrdinalCounts = declOrdinalCounts
-        let savedActiveVarCount = activeVarCount
-        let savedNextReg = g_regBox[0]
-        let savedBlockTerm = blockTerminated
-
-        // Generate body function in a new buffer
-        output = StringBuilder.new()
-        varNames = Array<String>()
-        varRegs = Array<String>()
-        varTypes = Array<String>()
-        preAllocatedVars = Array<String>()
-        preAllocatedTypes = Array<String>()
-        preAllocatedRegs = Array<String>()
-        declOrdinalNames = Array<String>()
-        declOrdinalCounts = Array<Int>()
-        activeVarCount = 0
-        g_regBox[0] = 1
-        blockTerminated = false
+        let savedNestedState = beginNestedScratchState(pforReturnType)
 
         output.append("define i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
         output.append("entry:\n")
@@ -5818,23 +5785,9 @@ class LLVMIRGenerator {
         let bodyFuncIR = output.toString()
         g_closureDefs = g_closureDefs + bodyFuncIR
 
-        // Restore state
-        output = savedOutput
-        varNames = savedVarNames
-        varRegs = savedVarRegs
-        varTypes = savedVarTypes
-        preAllocatedVars = savedPreAllocatedVars
-        preAllocatedTypes = savedPreAllocatedTypes
-        preAllocatedRegs = savedPreAllocatedRegs
-        declOrdinalNames = savedDeclOrdinalNames
-        declOrdinalCounts = savedDeclOrdinalCounts
-        activeVarCount = savedActiveVarCount
-        g_regBox[0] = savedNextReg
-        blockTerminated = savedBlockTerm
-
-        // Emit call to seen_parallel_for(start, end, body_fn_ptr, nthreads=0 for auto)
-        output.append("  ; parallel_for " + stmt.variableName + "\n")
-        output.append("  call void @seen_parallel_for(i64 " + startReg + ", i64 " + endReg + ", ptr " + bodyFuncName + ", i64 0)\n")
+        restoreNestedScratchState(savedNestedState)
+        emitParallelForCallImpl(output, stmt.variableName, startReg, endReg,
+            bodyFuncName)
     }
 
     // comptime { block } — evaluate let bindings at compile time, store in comptime registry
@@ -7626,35 +7579,7 @@ class LLVMIRGenerator {
             paramIdx = paramIdx + 1
         }
 
-        // Save codegen state
-        let clSavedOutput = output
-        let clSavedVarNames = varNames
-        let clSavedVarRegs = varRegs
-        let clSavedVarTypes = varTypes
-        let clSavedPreAllocatedVars = preAllocatedVars
-        let clSavedPreAllocatedTypes = preAllocatedTypes
-        let clSavedPreAllocatedRegs = preAllocatedRegs
-        let clSavedDeclOrdinalNames = declOrdinalNames
-        let clSavedDeclOrdinalCounts = declOrdinalCounts
-        let clSavedActiveVarCount = activeVarCount
-        let clSavedNextReg = g_regBox[0]
-        let clSavedBlockTerminated = blockTerminated
-        let clSavedReturnType = currentFunctionReturnType
-
-        // Generate closure function into a separate buffer
-        output = StringBuilder.new()
-        varNames = Array<String>()
-        varRegs = Array<String>()
-        varTypes = Array<String>()
-        preAllocatedVars = Array<String>()
-        preAllocatedTypes = Array<String>()
-        preAllocatedRegs = Array<String>()
-        declOrdinalNames = Array<String>()
-        declOrdinalCounts = Array<Int>()
-        activeVarCount = 0
-        g_regBox[0] = 1
-        blockTerminated = false
-        currentFunctionReturnType = "Int"
+        let clSavedState = beginNestedScratchState("Int")
 
         output.append("define i64 @" + quoteIdentIfNeeded(closureName) + "(" + paramList + ") {\n")
         output.append("entry:\n")
@@ -7681,20 +7606,7 @@ class LLVMIRGenerator {
         let closureDef = output.toString()
         g_closureDefs = g_closureDefs + closureDef
 
-        // Restore codegen state
-        output = clSavedOutput
-        varNames = clSavedVarNames
-        varRegs = clSavedVarRegs
-        varTypes = clSavedVarTypes
-        preAllocatedVars = clSavedPreAllocatedVars
-        preAllocatedTypes = clSavedPreAllocatedTypes
-        preAllocatedRegs = clSavedPreAllocatedRegs
-        declOrdinalNames = clSavedDeclOrdinalNames
-        declOrdinalCounts = clSavedDeclOrdinalCounts
-        activeVarCount = clSavedActiveVarCount
-        g_regBox[0] = clSavedNextReg
-        blockTerminated = clSavedBlockTerminated
-        currentFunctionReturnType = clSavedReturnType
+        restoreNestedScratchState(clSavedState)
 
         // Return function pointer as i64
         let clResultReg = getNextReg()
