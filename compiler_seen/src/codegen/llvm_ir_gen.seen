@@ -58,6 +58,7 @@ import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, 
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl}
 import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
+import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
@@ -10445,47 +10446,18 @@ class LLVMIRGenerator {
         return funcName
     }
 
-    fun emitPrintLikeCall(printName: String, argExpr: ParserExpressionNode) r: String {
-        let argType = inferExpressionType(argExpr)
-        let argReg = generateExpression(argExpr)
-        var strReg = argReg
-        if argType == "Int" {
-            strReg = getNextReg()
-            output.append("  " + strReg + " = call %SeenString @seen_int_to_string(i64 " + argReg + ")\n")
-        } else {
-            if argType == "Float" {
-                strReg = getNextReg()
-                output.append("  " + strReg + " = call %SeenString @seen_float_to_string(double " + argReg + ")\n")
-            } else {
-                if argType == "Bool" {
-                    strReg = getNextReg()
-                    output.append("  " + strReg + " = call %SeenString @seen_bool_to_string(i1 " + argReg + ")\n")
-                } else {
-                    if argType == "Char" {
-                        strReg = getNextReg()
-                        output.append("  " + strReg + " = call %SeenString @seen_char_to_str(i64 " + argReg + ")\n")
-                    }
-                }
-            }
-        }
-        output.append("  call void @" + printName + "(%SeenString " + strReg + ")\n")
-        return "0"
-    }
-
     fun tryGenerateOptionRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if funcName == "Some" {
+        if funcName == "Some" or funcName == "None" {
             var argReg = "0"
             var argType = "Int"
-            if expr.arguments.length() > 0 {
+            if funcName == "Some" and expr.arguments.length() > 0 {
                 argReg = generateExpression(expr.arguments[0])
                 argType = inferExpressionType(expr.arguments[0])
             }
             var isClassArg = 0
             if isClassType(argType) { isClassArg = 1 }
-            return emitSomeConstructorImpl(output, g_regBox, argReg, argType, isClassArg)
-        }
-        if funcName == "None" {
-            return emitNoneConstructorImpl(output, g_regBox)
+            return emitOptionRuntimeBuiltinCallImpl(output, g_regBox, funcName,
+                argReg, argType, isClassArg)
         }
         return ""
     }
@@ -10495,10 +10467,9 @@ class LLVMIRGenerator {
             if g_currentClassParentName != "" {
                 let thisIdx = findVar("this")
                 if thisIdx >= 0 {
-                    let thisAlloca = varRegs[thisIdx]
-                    let thisVal = getNextReg()
-                    output.append("  " + thisVal + " = load ptr, ptr " + thisAlloca + "\n")
-                    output.append("  call void @" + quoteIdentIfNeeded(g_currentClassParentName + "_init") + "(ptr " + thisVal + ")\n")
+                    return emitSuperRuntimeBuiltinCallImpl(output, g_regBox,
+                        quoteIdentIfNeeded(g_currentClassParentName + "_init"),
+                        varRegs[thisIdx])
                 }
             }
             return "0"
@@ -10521,13 +10492,17 @@ class LLVMIRGenerator {
     fun tryGeneratePrintRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
         if funcName == "println" {
             if expr.arguments.length() > 0 {
-                return emitPrintLikeCall("println", expr.arguments[0])
+                let argType = inferExpressionType(expr.arguments[0])
+                let argReg = generateExpression(expr.arguments[0])
+                return emitPrintLikeCallImpl(output, g_regBox, "println", argReg, argType)
             }
             return "0"
         }
         if funcName == "print" {
             if expr.arguments.length() > 0 {
-                return emitPrintLikeCall("print", expr.arguments[0])
+                let argType = inferExpressionType(expr.arguments[0])
+                let argReg = generateExpression(expr.arguments[0])
+                return emitPrintLikeCallImpl(output, g_regBox, "print", argReg, argType)
             }
             return "0"
         }
@@ -10539,9 +10514,7 @@ class LLVMIRGenerator {
         if funcName == "readText" {
             if expr.arguments.length() > 0 {
                 let argReg = generateExpression(expr.arguments[0])
-                let resultReg = getNextReg()
-                output.append("  " + resultReg + " = call %SeenString @readText(%SeenString " + argReg + ")\n")
-                return resultReg
+                return emitReadTextRuntimeCallImpl(output, g_regBox, argReg)
             }
             return "0"
         }
@@ -10550,17 +10523,13 @@ class LLVMIRGenerator {
             if expr.arguments.length() >= 2 {
                 let pathReg = generateExpression(expr.arguments[0])
                 let contentReg = generateExpression(expr.arguments[1])
-                let resultReg = getNextReg()
-                output.append("  " + resultReg + " = call i1 @writeText(%SeenString " + pathReg + ", %SeenString " + contentReg + ")\n")
-                return resultReg
+                return emitWriteTextRuntimeCallImpl(output, g_regBox, pathReg, contentReg)
             }
             return "0"
         }
 
         if funcName == "args" {
-            let resultReg = getNextReg()
-            output.append("  " + resultReg + " = call ptr @args()\n")
-            return resultReg
+            return emitArgsRuntimeCallImpl(output, g_regBox)
         }
         return ""
     }
@@ -10569,12 +10538,7 @@ class LLVMIRGenerator {
         if funcName == "panic" {
             if expr.arguments.length() > 0 {
                 let argReg = generateExpression(expr.arguments[0])
-                let lenReg = getNextReg()
-                let dataReg = getNextReg()
-                output.append("  " + lenReg + " = extractvalue %SeenString " + argReg + ", 0\n")
-                output.append("  " + dataReg + " = extractvalue %SeenString " + argReg + ", 1\n")
-                output.append("  call void @__panic(i64 " + lenReg + ", ptr " + dataReg + ") noreturn\n")
-                output.append("  unreachable\n")
+                return emitPanicRuntimeCallImpl(output, g_regBox, argReg)
             }
             return "0"
         }
@@ -10674,7 +10638,7 @@ class LLVMIRGenerator {
             var mArg1 = ""
             if expr.arguments.length() > 0 { mArg0 = generateExpression(expr.arguments[0]) }
             if expr.arguments.length() > 1 { mArg1 = generateExpression(expr.arguments[1]) }
-            let mResult = emitMathBuiltinImpl(output, g_regBox, funcName, mArg0, mArg1)
+            let mResult = emitMathBuiltinCallImpl(output, g_regBox, funcName, mArg0, mArg1)
             if mResult != "" { return mResult }
         }
         return ""
