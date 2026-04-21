@@ -58,6 +58,7 @@ import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpaces
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
+import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
@@ -12305,49 +12306,29 @@ class LLVMIRGenerator {
         return inferLiteralTypeImpl(expr.literalType, expr.literalValue)
     }
 
-    fun tryInferIndexedElementType(arrayType: String) r: String {
-        let elemType = inferIndexElementType(arrayType)
-        if elemType != "" {
-            return elemType
-        }
-        if arrayType.startsWith("Array<") and arrayType.endsWith(">") {
-            return arrayType.substring(6, arrayType.length() - 1)
-        }
-        return ""
-    }
-
     fun inferIndexAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.kind != "IndexAccess" {
+            return ""
+        }
+        if expr.operands.length() == 0 {
+            return "ptr"
+        }
         let arrayType = inferExpressionType(expr.operands[0])
-        let elemType = tryInferIndexedElementType(arrayType)
-        if elemType != "" {
-            return elemType
-        }
-        return "ptr"
-    }
-
-    fun tryInferKnownArrayLiteralType(firstElemType: String) r: String {
-        if firstElemType == "String" {
-            return "Array<String>"
-        }
-        if firstElemType == "Float" {
-            return "Array<Float>"
-        }
-        if firstElemType == "Bool" {
-            return "Array<Bool>"
-        }
-        return ""
+        let indexedElementType = inferIndexElementType(arrayType)
+        return inferIndexAccessExprTypeImpl(arrayType, indexedElementType)
     }
 
     fun inferArrayLiteralExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.arguments.length() == 0 {
-            return "Array"
+        if expr.kind != "ArrayLiteral" {
+            return ""
         }
-        let firstElemType = inferExpressionType(expr.arguments[0])
-        let knownArrayType = tryInferKnownArrayLiteralType(firstElemType)
-        if knownArrayType != "" {
-            return knownArrayType
+        var knownArrayType = ""
+        if expr.arguments.length() > 0 {
+            let firstElemType = inferExpressionType(expr.arguments[0])
+            knownArrayType = inferKnownArrayLiteralTypeImpl(firstElemType)
         }
-        return "Array<Int>"
+        return inferArrayLiteralExprTypeImpl(expr.arguments.length(),
+            knownArrayType)
     }
 
     fun collectStringConstantsFromExprList(exprs: Array<ParserExpressionNode>) r: Void {
@@ -12359,165 +12340,107 @@ class LLVMIRGenerator {
     }
 
     fun inferStringInterpolationExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.kind != "StringInterpolation" {
+            return ""
+        }
         collectStringConstantsFromExprList(expr.arguments)
         collectStringConstantsFromExprList(expr.operands)
         return "String"
     }
 
-    fun tryInferAddressUnaryType(expr: ParserExpressionNode) r: String {
-        if expr.operator != "&" or expr.operands.length() == 0 {
-            return ""
-        }
-        return "*" + inferExpressionType(expr.operands[0])
-    }
-
-    fun tryInferDereferenceUnaryType(expr: ParserExpressionNode) r: String {
-        if expr.operator != "*" or expr.operands.length() == 0 {
-            return ""
-        }
-        let ptrType = inferExpressionType(expr.operands[0])
-        if ptrType.startsWith("*") {
-            return ptrType.substring(1, ptrType.length())
-        }
-        return "Int"
-    }
-
     fun inferUnaryExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.operator == "!" or expr.operator == "not" {
-            return "Bool"
-        }
-        let addressType = tryInferAddressUnaryType(expr)
-        if addressType != "" {
-            return addressType
-        }
-        let dereferenceType = tryInferDereferenceUnaryType(expr)
-        if dereferenceType != "" {
-            return dereferenceType
-        }
-        if expr.operands.length() > 0 {
-            return inferExpressionType(expr.operands[0])
-        }
-        return "Int"
-    }
-
-    fun tryInferAwaitedCallType(inner: ParserExpressionNode) r: String {
-        if inner.kind != "Call" {
+        if expr.kind != "Unary" {
             return ""
         }
-        let asyncRet = getAsyncDeclaredRetType(inner.callee)
-        if asyncRet != "" {
-            return asyncRet
+        var operandType = ""
+        if expr.operands.length() > 0 {
+            operandType = inferExpressionType(expr.operands[0])
         }
-        return getFunctionReturnType(inner.callee)
+        return inferUnaryExprTypeImpl(expr.operator, expr.operands.length(),
+            operandType)
     }
 
     fun inferAwaitExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.operands.length() == 0 {
-            return "Void"
+        if expr.kind != "Await" {
+            return ""
         }
-        let inner = expr.operands[0]
-        let awaitedCallType = tryInferAwaitedCallType(inner)
-        if awaitedCallType != "" {
-            return awaitedCallType
+        var innerKind = ""
+        var innerType = ""
+        var asyncRetType = ""
+        var functionRetType = ""
+        if expr.operands.length() > 0 {
+            let inner = expr.operands[0]
+            innerKind = inner.kind
+            innerType = inferExpressionType(inner)
+            if inner.kind == "Call" {
+                asyncRetType = getAsyncDeclaredRetType(inner.callee)
+                functionRetType = getFunctionReturnType(inner.callee)
+            }
         }
-        return inferExpressionType(inner)
+        return inferAwaitExprTypeImpl(expr.operands.length(), innerKind,
+            asyncRetType, functionRetType, innerType)
     }
 
     fun inferTryPropagateExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.operands.length() == 0 {
+        if expr.kind != "TryPropagate" {
             return ""
         }
-        let tryInnerType = inferExpressionType(expr.operands[0])
-        let tryResult = resolveTryPropagateTypeImpl(tryInnerType)
-        if tryResult != "" {
-            return tryResult
+        var tryInnerType = ""
+        var tryResultType = ""
+        if expr.operands.length() > 0 {
+            tryInnerType = inferExpressionType(expr.operands[0])
+            tryResultType = resolveTryPropagateTypeImpl(tryInnerType)
         }
-        return tryInnerType
+        return inferTryPropagateExprTypeImpl(expr.operands.length(),
+            tryResultType, tryInnerType)
     }
 
     fun tryInferNullishSpecialExprType(expr: ParserExpressionNode) r: String {
-        if expr.kind == "Elvis" or expr.kind == "NullCoalesce" {
-            if expr.operands.length() > 0 {
-                return inferExpressionType(expr.operands[0])
-            }
-            return ""
+        var operandType = ""
+        if (expr.kind == "Elvis" or expr.kind == "NullCoalesce") and
+            expr.operands.length() > 0 {
+            operandType = inferExpressionType(expr.operands[0])
         }
-        if expr.kind == "SafeNavigation" {
-            return "Int"
-        }
-        return ""
+        return inferNullishSpecialExprTypeImpl(expr.kind, operandType)
     }
 
     fun tryInferBranchingSpecialExprType(expr: ParserExpressionNode) r: String {
+        var firstBranchType = ""
         if expr.kind == "WhenExpression" {
             if expr.arguments.length() > 0 {
                 let firstArm = expr.arguments[0]
                 if firstArm.operands.length() > 1 {
-                    return inferExpressionType(firstArm.operands[1])
+                    firstBranchType = inferExpressionType(firstArm.operands[1])
                 }
             }
-            return ""
         }
         if expr.kind == "IfExpression" {
             if expr.operands.length() > 1 {
-                return inferExpressionType(expr.operands[1])
+                firstBranchType = inferExpressionType(expr.operands[1])
             }
-            return ""
         }
-        return ""
+        return inferBranchingSpecialExprTypeImpl(expr.kind, firstBranchType)
     }
 
     fun tryInferFixedSpecialExprType(expr: ParserExpressionNode) r: String {
-        if expr.kind == "Range" {
-            return "Range"
-        }
-        if expr.kind == "IsExpression" {
-            return "Bool"
-        }
-        if expr.kind == "Closure" {
-            return "Int"
-        }
-        if expr.kind == "TryPropagate" {
-            return inferTryPropagateExprTypeLocal(expr)
-        }
-        if expr.kind == "Cast" {
-            return expr.literalValue
-        }
-        return ""
+        let tryPropagateType = inferTryPropagateExprTypeLocal(expr)
+        return inferFixedSpecialExprTypeImpl(expr.kind, expr.literalValue,
+            tryPropagateType)
     }
 
     fun inferSpecialExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.kind == "StructLiteral" {
-            return expr.literalType
-        }
-        if expr.kind == "IndexAccess" {
-            return inferIndexAccessExprTypeLocal(expr)
-        }
-        if expr.kind == "ArrayLiteral" {
-            return inferArrayLiteralExprTypeLocal(expr)
-        }
-        if expr.kind == "StringInterpolation" {
-            return inferStringInterpolationExprTypeLocal(expr)
-        }
-        if expr.kind == "Unary" {
-            return inferUnaryExprTypeLocal(expr)
-        }
-        if expr.kind == "Await" {
-            return inferAwaitExprTypeLocal(expr)
-        }
+        let indexType = inferIndexAccessExprTypeLocal(expr)
+        let arrayLiteralType = inferArrayLiteralExprTypeLocal(expr)
+        let stringInterpolationType = inferStringInterpolationExprTypeLocal(expr)
+        let unaryType = inferUnaryExprTypeLocal(expr)
+        let awaitType = inferAwaitExprTypeLocal(expr)
         let nullishSpecialType = tryInferNullishSpecialExprType(expr)
-        if nullishSpecialType != "" or expr.kind == "SafeNavigation" {
-            return nullishSpecialType
-        }
         let branchingSpecialType = tryInferBranchingSpecialExprType(expr)
-        if branchingSpecialType != "" or expr.kind == "WhenExpression" or expr.kind == "IfExpression" {
-            return branchingSpecialType
-        }
         let fixedSpecialType = tryInferFixedSpecialExprType(expr)
-        if fixedSpecialType != "" or expr.kind == "Cast" {
-            return fixedSpecialType
-        }
-        return ""
+        return inferSpecialExprTypeImpl(expr.kind, expr.literalType,
+            indexType, arrayLiteralType, stringInterpolationType, unaryType,
+            awaitType, nullishSpecialType, branchingSpecialType,
+            fixedSpecialType)
     }
 
     // Infer the Seen type of an expression for codegen decisions (operator
