@@ -3,6 +3,8 @@
 // Each impl function emits IR scaffolding (labels, branches, phi nodes)
 
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_function_gen.{emitDefaultReturnValueImpl}
+import codegen.ir_type_info.{charToCodeStr}
 import str.string.{StringBuilder}
 
 // emitConditionToI1Impl — convert a condition value to i1 based on its type
@@ -180,4 +182,62 @@ fun emitPrefetchImpl(output: StringBuilder, regBox: Array<Int>, dataPtrReg: Stri
     let nextElemPtr = getNextRegFn(regBox)
     output.append("  " + nextElemPtr + " = getelementptr inbounds i64, ptr " + dataPtrReg + ", i64 " + nextIdx + "\n")
     output.append("  call void @llvm.prefetch.p0(ptr " + nextElemPtr + ", i32 0, i32 3, i32 1)\n")
+}
+
+fun emitReturnRegionCleanupImpl(output: StringBuilder, regBox: Array<Int>) r: Void {
+    let regionLoadReg = getNextRegFn(regBox)
+    output.append("  " + regionLoadReg + " = load ptr, ptr %__region_ptr\n")
+    output.append("  call void @__seen_region_destroy(ptr " + regionLoadReg + ") ; @preallocate cleanup\n")
+}
+
+fun emitProfileExitOnReturnImpl(output: StringBuilder, strIdx: Int) r: Void {
+    output.append("  ; @profile instrumentation - exit (explicit return)\n")
+    output.append("  call void @__seen_profile_exit(ptr @.str." +
+        strIdx.toString() + ")\n")
+}
+
+fun emitAsyncReturnStoreAndBranchImpl(output: StringBuilder,
+    promiseType: String, valueReg: String, promisePtr: String,
+    finalLabel: String) r: Void {
+
+    output.append("  store " + promiseType + " " + valueReg + ", ptr " +
+        promisePtr + "\n")
+    output.append("  br label %" + finalLabel + "\n")
+}
+
+fun emitAsyncReturnBranchImpl(output: StringBuilder, finalLabel: String) r: Void {
+    output.append("  br label %" + finalLabel + "\n")
+}
+
+fun emitDefaultEmptyReturnStatementImpl(output: StringBuilder, llvmType: String,
+    isMainFunc: Int) r: Void {
+
+    if llvmType == "void" {
+        if isMainFunc == 1 {
+            output.append("  ret i32 0\n")
+            return
+        }
+    }
+    emitDefaultReturnValueImpl(output, llvmType)
+}
+
+fun emitCharLiteralReturnImpl(output: StringBuilder, charValue: String) r: Void {
+    let codeStr = charToCodeStr(charValue)
+    output.append("  ret i64 " + codeStr + "\n")
+}
+
+fun normalizeZeroReturnValueRegImpl(llvmType: String, valueReg: String) r: String {
+    if valueReg != "0" {
+        return valueReg
+    }
+    if llvmType == "ptr" {
+        return "null"
+    }
+    if llvmType == "%SeenString" or llvmType == "%SeenArray" {
+        return "zeroinitializer"
+    }
+    if llvmType == "i1" {
+        return "false"
+    }
+    return valueReg
 }

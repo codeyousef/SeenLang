@@ -88,7 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
@@ -6166,14 +6166,11 @@ class LLVMIRGenerator {
 
     fun emitReturnRegionAndProfileCleanup() r: Void {
         if currentFunctionRegionSizeBytes() > 0 {
-            let regionLoadReg = getNextReg()
-            output.append("  " + regionLoadReg + " = load ptr, ptr %__region_ptr\n")
-            output.append("  call void @__seen_region_destroy(ptr " + regionLoadReg + ") ; @preallocate cleanup\n")
+            emitReturnRegionCleanupImpl(output, g_regBox)
         }
         if g_currentFunctionIsProfiled {
             let strIdx = getStringConstantIndex(g_currentFunctionNameForProfile)
-            output.append("  ; @profile instrumentation - exit (explicit return)\n")
-            output.append("  call void @__seen_profile_exit(ptr @.str." + strIdx.toString() + ")\n")
+            emitProfileExitOnReturnImpl(output, strIdx)
         }
     }
 
@@ -6192,22 +6189,19 @@ class LLVMIRGenerator {
             let valueReg = generateExpression(stmt.returnValue)
             pendingArrayLiteralType = savedPendingType
             let promiseType = mapType(currentFunctionReturnType)
-            output.append("  store " + promiseType + " " + valueReg + ", ptr " + g_asyncFunctionPromise + "\n")
+            emitAsyncReturnStoreAndBranchImpl(output, promiseType, valueReg,
+                g_asyncFunctionPromise, g_asyncFinalLabel)
+            blockTerminated = true
+            return true
         }
-        output.append("  br label %" + g_asyncFinalLabel + "\n")
+        emitAsyncReturnBranchImpl(output, g_asyncFinalLabel)
         blockTerminated = true
         return true
     }
 
     fun emitDefaultEmptyReturnStatement() r: Void {
         let llvmType = mapType(currentFunctionReturnType)
-        if llvmType == "void" or currentFunctionReturnType == "" or currentFunctionReturnType == "Void" {
-            if g_isMainFunc == 1 {
-                output.append("  ret i32 0\n")
-                return
-            }
-        }
-        emitDefaultReturnValueImpl(output, llvmType)
+        emitDefaultEmptyReturnStatementImpl(output, llvmType, g_isMainFunc)
     }
 
     fun tryEmitCharLiteralReturnFastPath(stmt: StatementNode) r: Bool {
@@ -6221,8 +6215,7 @@ class LLVMIRGenerator {
         if charValue.length() != 1 {
             return false
         }
-        let codeStr = charToCodeStr(charValue)
-        output.append("  ret i64 " + codeStr + "\n")
+        emitCharLiteralReturnImpl(output, charValue)
         return true
     }
 
@@ -6250,25 +6243,7 @@ class LLVMIRGenerator {
             output.append("  " + loadReg + " = load " + llvmType + ", ptr " + normalizedValueReg + "\n")
             normalizedValueReg = loadReg
         }
-        if normalizedValueReg == "0" {
-            var fixedValue = false
-            if llvmType == "ptr" {
-                normalizedValueReg = "null"
-                fixedValue = true
-            }
-            if not fixedValue and llvmType == "%SeenString" {
-                normalizedValueReg = "zeroinitializer"
-                fixedValue = true
-            }
-            if not fixedValue and llvmType == "%SeenArray" {
-                normalizedValueReg = "zeroinitializer"
-                fixedValue = true
-            }
-            if not fixedValue and llvmType == "i1" {
-                normalizedValueReg = "false"
-            }
-        }
-        return normalizedValueReg
+        return normalizeZeroReturnValueRegImpl(llvmType, normalizedValueReg)
     }
 
     // Generate IR for a return statement. Emits pending defer expressions
