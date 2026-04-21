@@ -47,16 +47,17 @@ import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, recordCrossModuleDeclareStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerAsyncFunctionStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, hasCrossModuleDeclareStateImpl, hasLateUserDeclareStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
-import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl, appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
-import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, collectStringConstantsImpl, collectStringConstantsFromExprImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
+import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
+import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
+import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
@@ -11786,10 +11787,6 @@ class LLVMIRGenerator {
             stringConstantPrefix, stringConstants)
     }
 
-    fun collectDefaultParamStringConstants(program: ProgramNode) r: Void {
-        collectDefaultParamStringConstantsImpl(program, stringConstants)
-    }
-
     fun inferReturnExprType(className: String, expr: ParserExpressionNode) r: String {
         let inferred = inferExpressionType(expr)
         return inferReturnExprTypeImpl(className, expr.kind, expr.literalType,
@@ -12546,15 +12543,16 @@ class LLVMIRGenerator {
     // collectStringConstantsImpl in ir_string_collect.seen.
     fun collectStringConstants(program: ProgramNode) r: Void {
         initCollectionBoxes()
-        collectStringConstantsImpl(program, stringConstants, g_selfCallBox, g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox)
+        collectStringConstantsStateImpl(program, stringConstants, g_selfCallBox,
+            g_selfCallCountBox, g_callCountNamesBox, g_callCountEntriesBox)
         syncCollectionBoxes()
-        collectDefaultParamStringConstants(program)
     }
 
     // Thin wrapper for collectStringConstantsFromExpr (called from inferExpressionType)
     fun collectStringConstantsFromExpr(expr: ParserExpressionNode) r: Void {
         initCollectionBoxes()
-        collectStringConstantsFromExprImpl(expr, stringConstants, g_callCountNamesBox, g_callCountEntriesBox)
+        collectStringConstantsFromExprStateImpl(expr, stringConstants,
+            g_callCountNamesBox, g_callCountEntriesBox)
         syncCollectionBoxes()
     }
     fun generateStringInterpolation(expr: ParserExpressionNode) r: String {
@@ -12581,39 +12579,6 @@ class LLVMIRGenerator {
     // Generate IR for the elvis/null-coalesce operator (a ?? b).
     // Evaluates 'a', checks if null (icmp eq ptr, null), and returns 'b'
     // if null, otherwise 'a'. Uses a phi node to merge the two paths.
-    fun emitNullishCheckComparison(valueReg: String, llvmType: String) r: String {
-        let cmpReg = getNextReg()
-        if llvmType == "%SeenString" {
-            let lenReg = getNextReg()
-            output.append("  " + lenReg + " = extractvalue %SeenString " + valueReg + ", 0\n")
-            output.append("  " + cmpReg + " = icmp eq i64 " + lenReg + ", 0\n")
-            return cmpReg
-        }
-        if llvmType == "i1" {
-            output.append("  " + cmpReg + " = icmp eq i1 " + valueReg + ", 0\n")
-            return cmpReg
-        }
-        if llvmType == "double" {
-            output.append("  " + cmpReg + " = fcmp oeq double " + valueReg + ", 0.0\n")
-            return cmpReg
-        }
-        output.append("  " + cmpReg + " = icmp eq i64 " + valueReg + ", 0\n")
-        return cmpReg
-    }
-
-    fun defaultValueForLlvmType(llvmType: String) r: String {
-        if llvmType == "%SeenString" {
-            return "zeroinitializer"
-        }
-        if llvmType == "double" {
-            return "0.0"
-        }
-        if llvmType == "i1" {
-            return "false"
-        }
-        return "0"
-    }
-
     fun generateElvis(expr: ParserExpressionNode) r: String {
         let leftReg = generateExpression(expr.operands[0])
         let leftType = inferExpressionType(expr.operands[0])
@@ -12623,7 +12588,8 @@ class LLVMIRGenerator {
         let elseLabel = getNextBlockLabel()
         let endLabel = getNextBlockLabel()
 
-        let cmpReg = emitNullishCheckComparison(leftReg, llvmType)
+        let cmpReg = emitNullishCheckComparisonImpl(output, g_regBox, leftReg,
+            llvmType)
 
         output.append("  br i1 " + cmpReg + ", label %" + elseLabel + ", label %" + thenLabel + "\n")
 
@@ -12645,14 +12611,6 @@ class LLVMIRGenerator {
     // Generate IR for the safe navigation operator (a?.b).
     // Checks if 'a' is null — if so, short-circuits to null/0 without
     // accessing the field. Otherwise, proceeds with normal field access.
-    fun buildSafeNavigationMemberExpr(expr: ParserExpressionNode) r: ParserExpressionNode {
-        let memberExpr = ParserExpressionNode.new()
-        memberExpr.kind = "MemberAccess"
-        memberExpr.variableName = expr.variableName
-        memberExpr.operands.push(expr.operands[0])
-        return memberExpr
-    }
-
     fun generateSafeNavigation(expr: ParserExpressionNode) r: String {
         let recvReg = generateExpression(expr.operands[0])
         let recvType = inferExpressionType(expr.operands[0])
@@ -12661,13 +12619,15 @@ class LLVMIRGenerator {
         let elseLabel = getNextBlockLabel()
         let endLabel = getNextBlockLabel()
 
-        let cmpReg = emitNullishCheckComparison(recvReg, mapType(recvType))
+        let cmpReg = emitNullishCheckComparisonImpl(output, g_regBox, recvReg,
+            mapType(recvType))
 
         output.append("  br i1 " + cmpReg + ", label %" + elseLabel + ", label %" + thenLabel + "\n")
 
         // Then: non-null, access member
         output.append(thenLabel + ":\n")
-        let memberExpr = buildSafeNavigationMemberExpr(expr)
+        let memberExpr = buildSafeNavigationMemberExprImpl(expr.variableName,
+            expr.operands[0])
         let memberReg = generateMemberAccess(memberExpr)
         let memberType = inferExpressionType(memberExpr)
         let memberLlvm = mapType(memberType)
@@ -12675,7 +12635,7 @@ class LLVMIRGenerator {
 
         // Else: null, use default
         output.append(elseLabel + ":\n")
-        let defaultVal = defaultValueForLlvmType(memberLlvm)
+        let defaultVal = defaultValueForLlvmTypeImpl(memberLlvm)
         output.append("  br label %" + endLabel + "\n")
 
         // Merge

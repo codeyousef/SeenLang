@@ -47,8 +47,10 @@ import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
+import codegen.ir_string_collect_state.{collectStringConstantsStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
+import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, setComptimeTargetName}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
@@ -1866,8 +1868,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_module_emit")
         modules.push("codegen.ir_method_gen")
         modules.push("codegen.ir_string_collect")
+        modules.push("codegen.ir_string_collect_state")
         modules.push("codegen.ir_string_interp_gen")
         modules.push("codegen.ir_string_interp_infer")
+        modules.push("codegen.ir_nullish_gen")
         modules.push("codegen.ir_type_dispatch")
         modules.push("codegen.ir_type_mapping")
         modules.push("codegen.ir_type_ops")

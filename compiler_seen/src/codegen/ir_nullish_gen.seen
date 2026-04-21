@@ -1,0 +1,54 @@
+// ir_nullish_gen.seen — Shared nullish-expression generation helpers
+// Extracted from llvm_ir_gen.seen to keep Elvis/safe-navigation support thin.
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun emitNullishCheckComparisonImpl(output: StringBuilder, regBox: Array<Int>,
+    valueReg: String, llvmType: String) r: String {
+
+    let cmpReg = getNextRegFn(regBox)
+    if llvmType == "%SeenString" {
+        let lenReg = getNextRegFn(regBox)
+        output.append("  " + lenReg + " = extractvalue %SeenString " +
+            valueReg + ", 0\n")
+        output.append("  " + cmpReg + " = icmp eq i64 " + lenReg + ", 0\n")
+        return cmpReg
+    }
+    if llvmType == "i1" {
+        output.append("  " + cmpReg + " = icmp eq i1 " + valueReg +
+            ", 0\n")
+        return cmpReg
+    }
+    if llvmType == "double" {
+        output.append("  " + cmpReg + " = fcmp oeq double " + valueReg +
+            ", 0.0\n")
+        return cmpReg
+    }
+    output.append("  " + cmpReg + " = icmp eq i64 " + valueReg + ", 0\n")
+    return cmpReg
+}
+
+fun defaultValueForLlvmTypeImpl(llvmType: String) r: String {
+    if llvmType == "%SeenString" {
+        return "zeroinitializer"
+    }
+    if llvmType == "double" {
+        return "0.0"
+    }
+    if llvmType == "i1" {
+        return "false"
+    }
+    return "0"
+}
+
+fun buildSafeNavigationMemberExprImpl(variableName: String,
+    receiverExpr: ParserExpressionNode) r: ParserExpressionNode {
+
+    let memberExpr = ParserExpressionNode.new()
+    memberExpr.kind = "MemberAccess"
+    memberExpr.variableName = variableName
+    memberExpr.operands.push(receiverExpr)
+    return memberExpr
+}
