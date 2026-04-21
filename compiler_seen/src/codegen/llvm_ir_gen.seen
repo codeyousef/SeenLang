@@ -93,8 +93,8 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentRece
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, buildFunctionParameterDeclsImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
-import codegen.ir_function_param_meta.{stripFunctionAllocaParameterTypeImpl, prepareFunctionParameterStorageImpl, emitBorrowParameterHandleImpl, recordPreRegisteredComptimeParameterImpl, recordPreRegisteredDefaultParameterImpl, recordPreRegisteredDynParameterImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
+import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -2315,26 +2315,6 @@ class LLVMIRGenerator {
         }
     }
 
-    // Emit allocas for all pre-allocated variables at function entry
-    // This ensures all allocas are in the entry block, avoiding domination errors
-    fun emitPreAllocatedAllocas() r: Void {
-        preAllocatedRegs = Array<String>()
-        var i = 0
-        while i < preAllocatedVars.length() {
-            let varType = preAllocatedTypes[i]
-            let llvmType = mapType(varType)
-            let reg = getNextReg()
-            // Add explicit alignment for better SIMD codegen
-            if llvmType == "i64" or llvmType == "double" or llvmType == "ptr" {
-                output.append("  " + reg + " = alloca " + llvmType + ", align 8\n")
-            } else {
-                output.append("  " + reg + " = alloca " + llvmType + "\n")
-            }
-            preAllocatedRegs.push(reg)
-            i = i + 1
-        }
-    }
-
     // Get size of a Seen type in bytes when stored in a class/struct field
     // This is the STORAGE size, not the full object size
     // - Primitives: their natural size (aligned to 8)
@@ -4448,7 +4428,10 @@ class LLVMIRGenerator {
         emitClassMethodReceiverBinding(className, isStatic, explicitReceiverName)
         emitClassMethodParameterBindings(methods, methodIdx, explicitReceiverName,
             normalizedMethodParamTypes, quotedMethodArgNames)
-        emitPreAllocatedAllocas()
+        preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
+            preAllocatedTypes, structNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_reprCClassNames)
         emitClassMethodConstructorSetup(className, methodName)
 
         generateBlock(methods[methodIdx].body)
@@ -4724,47 +4707,6 @@ class LLVMIRGenerator {
         g_movedVarCount = 0
     }
 
-    fun preRegisterFunctionParameters(fn: FunctionNode, implFuncName: String) r: Void {
-        let comptimeNamesBox = Array<String>()
-        comptimeNamesBox.push(g_comptimeParamFuncNames)
-        let comptimeCountBox = Array<Int>()
-        comptimeCountBox.push(g_comptimeParamCount)
-        let funcDefaultsBox = Array<String>()
-        funcDefaultsBox.push(g_funcDefaultsArr)
-        let dynParamFuncsBox = Array<String>()
-        dynParamFuncsBox.push(g_dynParamFuncs)
-        var preParamIdx = 0
-        while preParamIdx < fn.params.length() {
-            let param = fn.params[preParamIdx]
-            let rawPreTypeName = param.paramType.typeName
-            var preTypeName = normalizeDeclaredTypeNode(param.paramType)
-            if preTypeName.startsWith("move:") {
-                preTypeName = preTypeName.substring(5, preTypeName.length())
-            }
-            if preTypeName.startsWith("borrow:") {
-                preTypeName = preTypeName.substring(7, preTypeName.length())
-            }
-            let effectivePreTypeName =
-                recordPreRegisteredComptimeParameterImpl(fn.name, param.name,
-                    preParamIdx, preTypeName, comptimeNamesBox,
-                    comptimeCountBox)
-            recordPreRegisteredDefaultParameterImpl(implFuncName,
-                preParamIdx, rawPreTypeName, funcDefaultsBox)
-            recordPreRegisteredDynParameterImpl(implFuncName, preParamIdx,
-                effectivePreTypeName, dynParamFuncsBox)
-            storeVar(param.name, "", normalizeSeenTypeName(preTypeName))
-            preParamIdx = preParamIdx + 1
-        }
-
-        g_comptimeParamFuncNames = comptimeNamesBox[0]
-        g_comptimeParamCount = comptimeCountBox[0]
-        g_funcDefaultsArr = funcDefaultsBox[0]
-        g_dynParamFuncs = dynParamFuncsBox[0]
-        if fn.params.length() > 0 {
-            g_funcParamCountArr = g_funcParamCountArr + implFuncName + ":" + fn.params.length().toString() + "|"
-        }
-    }
-
     fun tryEmitMainFunction(fn: FunctionNode, fnName: String, returnType: String) r: Bool {
         if not llvmIrGenIsMainFunctionName(fnName) {
             return false
@@ -4781,7 +4723,10 @@ class LLVMIRGenerator {
         output.append(mainRetPrefix + mainReturnType + " @main(i32 %argc, ptr %argv) #0 {\n")
         output.append("entry:\n")
         output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
-        emitPreAllocatedAllocas()
+        preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
+            preAllocatedTypes, structNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_reprCClassNames)
         println("[irgen function] block start: " + fnName)
         generateBlock(fn.body)
         println("[irgen function] block done: " + fnName)
@@ -4791,35 +4736,6 @@ class LLVMIRGenerator {
         output.append("}\n\n")
         g_isMainFunc = 0
         return true
-    }
-
-    fun emitFunctionParameterAllocas(fn: FunctionNode) r: Void {
-        var paramIdx = 0
-        while paramIdx < fn.params.length() {
-            let param = fn.params[paramIdx]
-            var seenTypeName = normalizeDeclaredTypeNode(param.paramType)
-            let ownershipBox = Array<String>()
-            ownershipBox.push("")
-            seenTypeName = stripFunctionAllocaParameterTypeImpl(seenTypeName,
-                ownershipBox)
-            let paramOwnership = ownershipBox[0]
-            let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
-            let quotedParamArgName = quoteIdentIfNeeded(param.name + ".arg")
-            let isParamDataType = isDataType(semanticSeenTypeName)
-            var paramStorageType = ""
-            if not isParamDataType {
-                paramStorageType = mapStorageTypeForParameter(seenTypeName)
-            }
-            let paramStorageReg = prepareFunctionParameterStorageImpl(output,
-                g_regBox, isParamDataType, paramStorageType,
-                quotedParamArgName)
-            storeVar(param.name, paramStorageReg, semanticSeenTypeName)
-            if paramOwnership == "borrow" {
-                emitBorrowParameterHandleImpl(output, g_regBox, param.name,
-                    quotedParamArgName)
-            }
-            paramIdx = paramIdx + 1
-        }
     }
 
     fun generateFunction(fn: FunctionNode) r: Void {
@@ -4878,7 +4794,28 @@ class LLVMIRGenerator {
         registerFunction(implFuncName, resolvedFunctionReturnType)
 
         resetFunctionGenerationState(resolvedFunctionReturnType)
-        preRegisterFunctionParameters(fn, implFuncName)
+        let preActiveVarCountBox = Array<Int>()
+        preActiveVarCountBox.push(activeVarCount)
+        let comptimeNamesBox = Array<String>()
+        comptimeNamesBox.push(g_comptimeParamFuncNames)
+        let comptimeCountBox = Array<Int>()
+        comptimeCountBox.push(g_comptimeParamCount)
+        let funcDefaultsBox = Array<String>()
+        funcDefaultsBox.push(g_funcDefaultsArr)
+        let dynParamFuncsBox = Array<String>()
+        dynParamFuncsBox.push(g_dynParamFuncs)
+        let funcParamCountBox = Array<String>()
+        funcParamCountBox.push(g_funcParamCountArr)
+        preRegisterFunctionParametersImpl(fn, implFuncName, varNames, varRegs,
+            varTypes, preActiveVarCountBox, comptimeNamesBox,
+            comptimeCountBox, funcDefaultsBox, dynParamFuncsBox,
+            funcParamCountBox)
+        activeVarCount = preActiveVarCountBox[0]
+        g_comptimeParamFuncNames = comptimeNamesBox[0]
+        g_comptimeParamCount = comptimeCountBox[0]
+        g_funcDefaultsArr = funcDefaultsBox[0]
+        g_dynParamFuncs = dynParamFuncsBox[0]
+        g_funcParamCountArr = funcParamCountBox[0]
 
         // Clear CSE cache at function boundaries
         cseClear()
@@ -4993,11 +4930,20 @@ class LLVMIRGenerator {
             g_asyncCleanupLabel = cleanupLabelBox[0]
         }
 
-        emitFunctionParameterAllocas(fn)
+        let paramActiveVarCountBox = Array<Int>()
+        paramActiveVarCountBox.push(activeVarCount)
+        emitFunctionParameterAllocasImpl(output, g_regBox, fn, varNames,
+            varRegs, varTypes, paramActiveVarCountBox, structNames,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+            g_enumTypeNames, g_reprCClassNames)
+        activeVarCount = paramActiveVarCountBox[0]
         println("[irgen function] params done: " + fnName)
 
         // Emit allocas for all local variables at entry (avoids domination errors)
-        emitPreAllocatedAllocas()
+        preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
+            preAllocatedTypes, structNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_reprCClassNames)
         println("[irgen function] allocas done: " + fnName)
 
         // Clear CSE cache at function boundary (safe to re-enable within function scope)

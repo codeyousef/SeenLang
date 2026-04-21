@@ -9,9 +9,7 @@ import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, Bl
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual, selfCallCheck}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
-import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
-import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
-import codegen.ir_function_param_meta.{stripFunctionSignatureParameterTypeImpl, buildFunctionParameterDeclImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}
 import codegen.type_registry.{CodegenState, csGetNextReg}
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeNameImpl}
 import codegen.ir_type_info.{charToCodeStr}
@@ -509,66 +507,48 @@ fun buildFunctionSignaturePrefixImpl(fn: FunctionNode, fnName: String,
     return fnRetPrefix + actualLlvmReturnType + " @" + quotedFnName + "("
 }
 
-fun mapFunctionParameterTypeImpl(seenType: String, structNames: Array<String>,
+fun mapFunctionEntryAllocaTypeImpl(seenType: String, structNames: Array<String>,
     typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
     enumTypeNames: String, reprCClassNames: String) r: String {
 
-    var cleanType = seenType
-    if cleanType.startsWith("comptime:") {
-        cleanType = cleanType.substring(9, cleanType.length())
+    if seenType.startsWith("dyn ") {
+        return "i64"
     }
-    if cleanType.contains("~default~") {
-        let defPos = cleanType.indexOf("~default~", 0)
-        cleanType = cleanType.substring(0, defPos)
+    if seenType.startsWith("*") {
+        return "i64"
     }
-    if isDataTypeImpl(cleanType) == 1 {
-        return "ptr noalias nonnull"
-    }
-    var mapped = ""
-    if cleanType.startsWith("dyn ") {
-        mapped = "i64"
-    } else {
-        if cleanType.startsWith("*") {
-            mapped = "i64"
-        } else {
-            if reprCClassNames != "" {
-                let baseT = getBaseTypeNameImpl(cleanType)
-                if reprCClassNames.contains(baseT + "|") {
-                    mapped = "%" + baseT
-                }
-            }
-            if mapped == "" {
-                mapped = mapTypeImpl(cleanType, structNames, typeAliasNames,
-                    typeAliasTargets, typeAliasCount, enumTypeNames)
-            }
+    if reprCClassNames != "" {
+        let baseT = getBaseTypeNameImpl(seenType)
+        if reprCClassNames.contains(baseT + "|") {
+            return "%" + baseT
         }
     }
-    if mapped == "ptr" {
-        return "ptr noalias nonnull"
-    }
-    return mapped
+    return mapTypeImpl(seenType, structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames)
 }
 
-fun buildFunctionParameterDeclsImpl(fn: FunctionNode, noAliasEnabled: Bool,
-    structNames: Array<String>, typeAliasNames: String,
-    typeAliasTargets: String, typeAliasCount: Int,
+fun emitPreAllocatedAllocasImpl(output: StringBuilder, regBox: Array<Int>,
+    preAllocatedTypes: Array<String>, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
     enumTypeNames: String, reprCClassNames: String) r: Array<String> {
 
-    let paramDecls = Array<String>()
-    var paramIdx = 0
-    while paramIdx < fn.params.length() {
-        let param = fn.params[paramIdx]
-        var sigTypeName = normalizeDeclaredTypeNodeImpl(param.paramType)
-        sigTypeName = stripFunctionSignatureParameterTypeImpl(sigTypeName)
-        let paramType = mapFunctionParameterTypeImpl(sigTypeName, structNames,
-            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
-            reprCClassNames)
-        let quotedParamArgName = quoteIdentIfNeededImpl(param.name + ".arg")
-        paramDecls.push(buildFunctionParameterDeclImpl(paramType,
-            quotedParamArgName, noAliasEnabled))
-        paramIdx = paramIdx + 1
+    let regs = Array<String>()
+    var i = 0
+    while i < preAllocatedTypes.length() {
+        let llvmType = mapFunctionEntryAllocaTypeImpl(preAllocatedTypes[i],
+            structNames, typeAliasNames, typeAliasTargets, typeAliasCount,
+            enumTypeNames, reprCClassNames)
+        let reg = getNextRegFn(regBox)
+        if llvmType == "i64" or llvmType == "double" or llvmType == "ptr" {
+            output.append("  " + reg + " = alloca " + llvmType +
+                ", align 8\n")
+        } else {
+            output.append("  " + reg + " = alloca " + llvmType + "\n")
+        }
+        regs.push(reg)
+        i = i + 1
     }
-    return paramDecls
+    return regs
 }
 
 fun emitFunctionPrefetchHintsImpl(output: StringBuilder, regBox: Array<Int>,
