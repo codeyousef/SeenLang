@@ -8,7 +8,7 @@
 import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual}
 import codegen.type_registry.{CodegenState, csGetNextReg}
-import codegen.ir_string_collect.{hexToDecimalImpl}
+import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import str.string.{StringBuilder}
 
@@ -123,6 +123,111 @@ fun emitParallelForCallImpl(output: StringBuilder, loopVarName: String,
     output.append("  ; parallel_for " + loopVarName + "\n")
     output.append("  call void @seen_parallel_for(i64 " + startReg +
         ", i64 " + endReg + ", ptr " + bodyFuncName + ", i64 0)\n")
+}
+
+fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String) r: Bool {
+    var i = 0
+    while i < fn.decorators.length() {
+        if fn.decorators[i].name == decoratorName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun shouldSkipFunctionByCfgImpl(output: StringBuilder, fn: FunctionNode,
+    enabledFeatures: String) r: Bool {
+
+    if not hasFunctionDecoratorImpl(fn, "cfg") {
+        return false
+    }
+    var cfgMatch = false
+    var cfgIdx = 0
+    while cfgIdx < fn.decorators.length() {
+        if fn.decorators[cfgIdx].name == "cfg" {
+            if fn.decorators[cfgIdx].arguments.length() > 0 {
+                let cfgPred = fn.decorators[cfgIdx].arguments[0]
+                if cfgPred == "linux" or cfgPred == "target_os_linux" {
+                    cfgMatch = true
+                }
+                if cfgPred == "unix" {
+                    cfgMatch = true
+                }
+                if cfgPred == "x86_64" or cfgPred == "target_arch_x86_64" {
+                    cfgMatch = true
+                }
+                if cfgPred == "debug" {
+                    cfgMatch = false
+                }
+                if cfgPred == "release" {
+                    cfgMatch = true
+                }
+                if cfgPred.startsWith("feature:") {
+                    let featureName = cfgPred.substring(8, cfgPred.length())
+                    let featureNameTrimmed = trimSpacesImpl(featureName)
+                    var featureClean = featureNameTrimmed
+                    if featureClean.startsWith("\"") {
+                        featureClean = featureClean.substring(1,
+                            featureClean.length())
+                    }
+                    if featureClean.endsWith("\"") {
+                        featureClean = featureClean.substring(0,
+                            featureClean.length() - 1)
+                    }
+                    if enabledFeatures.contains(featureClean + "|") {
+                        cfgMatch = true
+                    }
+                }
+            }
+        }
+        cfgIdx = cfgIdx + 1
+    }
+    if not cfgMatch {
+        output.append("; SKIPPED: " + fn.name +
+            " (@cfg predicate not met)\n")
+        return true
+    }
+    return false
+}
+
+fun emitFunctionDecoratorMetadataCommentsImpl(output: StringBuilder,
+    fn: FunctionNode, traitImplCount: Int) r: Void {
+
+    if hasFunctionDecoratorImpl(fn, "where_constraint") and
+        traitImplCount > 0 {
+
+        var wcIdx = 0
+        while wcIdx < fn.decorators.length() {
+            if fn.decorators[wcIdx].name == "where_constraint" {
+                if fn.decorators[wcIdx].arguments.length() > 0 {
+                    let wcText = fn.decorators[wcIdx].arguments[0]
+                    output.append("; where clause: " + wcText + "\n")
+                }
+            }
+            wcIdx = wcIdx + 1
+        }
+    }
+    if hasFunctionDecoratorImpl(fn, "region_bound") {
+        output.append("; @region_bound function: " + fn.name + "\n")
+    }
+}
+
+fun shouldSkipSpecialFunctionBodyImpl(output: StringBuilder,
+    fn: FunctionNode) r: Bool {
+
+    if fn.name == "new" {
+        output.append("; SKIPPED: new (class constructor)\n")
+        return true
+    }
+    if fn.name.startsWith("__") and fn.body.statements.length() == 0 and
+        not fn.isExtern {
+
+        output.append("; SKIPPED: " + fn.name +
+            " (extern C function - declared by runtime)\n")
+        return true
+    }
+    return false
 }
 
 // emitFunctionSignatureImpl — emit function header, parameters, and entry label

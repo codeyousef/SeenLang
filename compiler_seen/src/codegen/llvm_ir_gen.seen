@@ -93,7 +93,7 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentRece
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, scanUnusedParametersImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -4587,71 +4587,12 @@ class LLVMIRGenerator {
     // parameter stores -> body generation -> implicit void return.
     // ML-guided inlining decisions are logged when g_mlLogEnabled is set.
     fun shouldSkipFunctionByCfg(fn: FunctionNode) r: Bool {
-        if not hasDecorator(fn, "cfg") {
-            return false
-        }
-        var cfgMatch = false
-        var cfgIdx = 0
-        while cfgIdx < fn.decorators.length() {
-            if fn.decorators[cfgIdx].name == "cfg" {
-                if fn.decorators[cfgIdx].arguments.length() > 0 {
-                    let cfgPred = fn.decorators[cfgIdx].arguments[0]
-                    if cfgPred == "linux" or cfgPred == "target_os_linux" {
-                        cfgMatch = true
-                    }
-                    if cfgPred == "unix" {
-                        cfgMatch = true
-                    }
-                    if cfgPred == "x86_64" or cfgPred == "target_arch_x86_64" {
-                        cfgMatch = true
-                    }
-                    if cfgPred == "debug" {
-                        cfgMatch = false
-                    }
-                    if cfgPred == "release" {
-                        cfgMatch = true
-                    }
-                    if cfgPred.startsWith("feature:") {
-                        let featureName = cfgPred.substring(8, cfgPred.length())
-                        let featureNameTrimmed = trimSpaces(featureName)
-                        var featureClean = featureNameTrimmed
-                        if featureClean.startsWith("\"") {
-                            featureClean = featureClean.substring(1, featureClean.length())
-                        }
-                        if featureClean.endsWith("\"") {
-                            featureClean = featureClean.substring(0, featureClean.length() - 1)
-                        }
-                        if g_enabledFeatures.contains(featureClean + "|") {
-                            cfgMatch = true
-                        }
-                    }
-                }
-            }
-            cfgIdx = cfgIdx + 1
-        }
-        if not cfgMatch {
-            output.append("; SKIPPED: " + fn.name + " (@cfg predicate not met)\n")
-            return true
-        }
-        return false
+        return shouldSkipFunctionByCfgImpl(output, fn, g_enabledFeatures)
     }
 
     fun emitFunctionDecoratorMetadataComments(fn: FunctionNode) r: Void {
-        if hasDecorator(fn, "where_constraint") and g_traitImplCount > 0 {
-            var wcIdx = 0
-            while wcIdx < fn.decorators.length() {
-                if fn.decorators[wcIdx].name == "where_constraint" {
-                    if fn.decorators[wcIdx].arguments.length() > 0 {
-                        let wcText = fn.decorators[wcIdx].arguments[0]
-                        output.append("; where clause: " + wcText + "\n")
-                    }
-                }
-                wcIdx = wcIdx + 1
-            }
-        }
-        if hasDecorator(fn, "region_bound") {
-            output.append("; @region_bound function: " + fn.name + "\n")
-        }
+        emitFunctionDecoratorMetadataCommentsImpl(output, fn,
+            g_traitImplCount)
     }
 
     fun tryHandleIntrinsicFunctionGeneration(fn: FunctionNode) r: Bool {
@@ -4749,15 +4690,7 @@ class LLVMIRGenerator {
     }
 
     fun shouldSkipSpecialFunctionBody(fn: FunctionNode) r: Bool {
-        if fn.name == "new" {
-            output.append("; SKIPPED: new (class constructor)\n")
-            return true
-        }
-        if fn.name.startsWith("__") and fn.body.statements.length() == 0 and not fn.isExtern {
-            output.append("; SKIPPED: " + fn.name + " (extern C function - declared by runtime)\n")
-            return true
-        }
-        return false
+        return shouldSkipSpecialFunctionBodyImpl(output, fn)
     }
 
     fun tryHandleExternFunctionGeneration(fn: FunctionNode) r: Bool {
