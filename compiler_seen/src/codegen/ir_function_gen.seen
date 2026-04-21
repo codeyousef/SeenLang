@@ -620,6 +620,98 @@ fun emitRegionAllocatorSetupImpl(output: StringBuilder, regBox: Array<Int>,
     output.append("  store ptr " + regionReg + ", ptr %__region_ptr\n")
 }
 
+fun emitFunctionDiagnosticsAndProfileEntryImpl(output: StringBuilder,
+    fn: FunctionNode, fnName: String, profileStringIndex: Int,
+    profiledFlagBox: Array<Int>, profiledNameBox: Array<String>)
+    r: Array<String> {
+
+    ensureFunctionIntBoxValue(profiledFlagBox)
+    ensureFunctionStringBoxValue(profiledNameBox)
+    profiledFlagBox[0] = 0
+    profiledNameBox[0] = ""
+
+    let unusedParams = scanUnusedParametersImpl(fn)
+    var unusedIdx = 0
+    while unusedIdx < unusedParams.length() {
+        output.append("  ; WARNING: unused parameter: " +
+            unusedParams[unusedIdx] + " in " + fnName + "\n")
+        unusedIdx = unusedIdx + 1
+    }
+
+    if hasFunctionDecoratorImpl(fn, "profile") {
+        profiledFlagBox[0] = 1
+        profiledNameBox[0] = fnName
+        output.append("  ; @profile instrumentation - enter\n")
+        output.append("  call void @__seen_profile_enter(ptr @.str." +
+            profileStringIndex.toString() + ")\n")
+    }
+    return unusedParams
+}
+
+fun emitFunctionImplicitTerminationImpl(output: StringBuilder,
+    regBox: Array<Int>, blockBox: Array<Int>, blockTerminated: Bool,
+    isAsyncLowering: Bool, emitAsyncEpilogue: Bool, returnType: String,
+    asyncPromiseType: String,
+    asyncPromise: String, asyncFinalLabel: String, asyncCoroId: String,
+    asyncCoroHdl: String, asyncCleanupLabel: String, regionSizeBytes: Int,
+    profiledFlag: Int, profileStringIndex: Int) r: Void {
+
+    if not blockTerminated {
+        if regionSizeBytes > 0 {
+            let regionDefReg = getNextRegFn(regBox)
+            output.append("  " + regionDefReg +
+                " = load ptr, ptr %__region_ptr\n")
+            output.append("  call void @__seen_region_destroy(ptr " +
+                regionDefReg + ") ; @preallocate cleanup\n")
+        }
+        if profiledFlag == 1 {
+            output.append("  ; @profile instrumentation - exit (default return)\n")
+            output.append("  call void @__seen_profile_exit(ptr @.str." +
+                profileStringIndex.toString() + ")\n")
+        }
+        if isAsyncLowering {
+            if asyncPromiseType != "void" {
+                output.append("  store " + asyncPromiseType +
+                    " zeroinitializer, ptr " + asyncPromise + "\n")
+            }
+            output.append("  br label %" + asyncFinalLabel + "\n")
+        }
+        if not emitAsyncEpilogue {
+            emitDefaultReturnValueImpl(output, returnType)
+        }
+    }
+
+    if emitAsyncEpilogue {
+        emitAsyncCoroutineEpilogueImpl(output, regBox, blockBox, asyncCoroId,
+            asyncCoroHdl, asyncFinalLabel, asyncCleanupLabel)
+    }
+}
+
+fun resetFunctionRuntimeStateImpl(profiledFlagBox: Array<Int>,
+    profiledNameBox: Array<String>, highPressureBox: Array<Int>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncPromiseBox: Array<String>, asyncFinalLabelBox: Array<String>,
+    asyncCleanupLabelBox: Array<String>) r: Void {
+
+    ensureFunctionIntBoxValue(profiledFlagBox)
+    ensureFunctionStringBoxValue(profiledNameBox)
+    ensureFunctionIntBoxValue(highPressureBox)
+    ensureFunctionStringBoxValue(asyncCoroIdBox)
+    ensureFunctionStringBoxValue(asyncCoroHdlBox)
+    ensureFunctionStringBoxValue(asyncPromiseBox)
+    ensureFunctionStringBoxValue(asyncFinalLabelBox)
+    ensureFunctionStringBoxValue(asyncCleanupLabelBox)
+
+    profiledFlagBox[0] = 0
+    profiledNameBox[0] = ""
+    highPressureBox[0] = 0
+    asyncCoroIdBox[0] = ""
+    asyncCoroHdlBox[0] = ""
+    asyncPromiseBox[0] = ""
+    asyncFinalLabelBox[0] = ""
+    asyncCleanupLabelBox[0] = ""
+}
+
 // emitFunctionSignatureImpl — emit function header, parameters, and entry label
 fun emitFunctionSignatureImpl(output: StringBuilder, signaturePrefix: String,
     paramDecls: Array<String>, funcAttrs: String) r: Void {
