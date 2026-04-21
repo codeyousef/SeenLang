@@ -58,7 +58,7 @@ import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collect
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
 import codegen.ir_string_emit.{escapeStringImpl, emitStringConstantsImpl, emitStringConstantsWithPrefixImpl}
-import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, buildSafeNavigationMemberExprImpl}
+import codegen.ir_nullish_gen.{emitNullishCheckComparisonImpl, defaultValueForLlvmTypeImpl, emitNullishBranchingImpl, emitNullishBranchToEndImpl, enterNullishElseBranchImpl, finalizeNullishMergeImpl, buildSafeNavigationMemberExprImpl}
 import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl, emitEnumConstructorFieldStoresImpl}
 import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructPtrImpl, emitWhenPatternBindingStoreImpl, normalizeWhenArmStoreValueImpl}
 import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
@@ -12508,28 +12508,25 @@ class LLVMIRGenerator {
         let leftReg = generateExpression(expr.operands[0])
         let leftType = inferExpressionType(expr.operands[0])
         let llvmType = mapType(leftType)
-
-        let thenLabel = getNextBlockLabel()
-        let elseLabel = getNextBlockLabel()
-        let endLabel = getNextBlockLabel()
-
         let cmpReg = emitNullishCheckComparisonImpl(output, g_regBox, leftReg,
             llvmType)
-
-        output.append("  br i1 " + cmpReg + ", label %" + elseLabel + ", label %" + thenLabel + "\n")
+        let branchLabels = splitPipe(emitNullishBranchingImpl(output,
+            g_blockBox, cmpReg))
+        let thenLabel = branchLabels[0]
+        let elseLabel = branchLabels[1]
+        let endLabel = branchLabels[2]
 
         // Then: left is non-null, use left
-        output.append(thenLabel + ":\n")
-        output.append("  br label %" + endLabel + "\n")
+        emitNullishBranchToEndImpl(output, endLabel)
 
         // Else: left is null, compute right
-        output.append(elseLabel + ":\n")
+        enterNullishElseBranchImpl(output, elseLabel)
         let rightReg = generateExpression(expr.operands[1])
-        output.append("  br label %" + endLabel + "\n")
+        emitNullishBranchToEndImpl(output, endLabel)
 
         // Merge with phi
-        output.append(endLabel + ":\n")
-        return emitPhiMergeValue(llvmType, leftReg, thenLabel, rightReg, elseLabel)
+        return finalizeNullishMergeImpl(output, g_regBox, endLabel, llvmType,
+            leftReg, thenLabel, rightReg, elseLabel)
     }
 
     // Safe navigation: obj?.member — returns member if obj is non-null, else default
@@ -12539,33 +12536,30 @@ class LLVMIRGenerator {
     fun generateSafeNavigation(expr: ParserExpressionNode) r: String {
         let recvReg = generateExpression(expr.operands[0])
         let recvType = inferExpressionType(expr.operands[0])
-
-        let thenLabel = getNextBlockLabel()
-        let elseLabel = getNextBlockLabel()
-        let endLabel = getNextBlockLabel()
-
         let cmpReg = emitNullishCheckComparisonImpl(output, g_regBox, recvReg,
             mapType(recvType))
-
-        output.append("  br i1 " + cmpReg + ", label %" + elseLabel + ", label %" + thenLabel + "\n")
+        let branchLabels = splitPipe(emitNullishBranchingImpl(output,
+            g_blockBox, cmpReg))
+        let thenLabel = branchLabels[0]
+        let elseLabel = branchLabels[1]
+        let endLabel = branchLabels[2]
 
         // Then: non-null, access member
-        output.append(thenLabel + ":\n")
         let memberExpr = buildSafeNavigationMemberExprImpl(expr.variableName,
             expr.operands[0])
         let memberReg = generateMemberAccess(memberExpr)
         let memberType = inferExpressionType(memberExpr)
         let memberLlvm = mapType(memberType)
-        output.append("  br label %" + endLabel + "\n")
+        emitNullishBranchToEndImpl(output, endLabel)
 
         // Else: null, use default
-        output.append(elseLabel + ":\n")
+        enterNullishElseBranchImpl(output, elseLabel)
         let defaultVal = defaultValueForLlvmTypeImpl(memberLlvm)
-        output.append("  br label %" + endLabel + "\n")
+        emitNullishBranchToEndImpl(output, endLabel)
 
         // Merge
-        output.append(endLabel + ":\n")
-        return emitPhiMergeValue(memberLlvm, memberReg, thenLabel, defaultVal, elseLabel)
+        return finalizeNullishMergeImpl(output, g_regBox, endLabel,
+            memberLlvm, memberReg, thenLabel, defaultVal, elseLabel)
     }
 
     // When expression (pattern matching)
