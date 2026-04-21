@@ -86,6 +86,13 @@ fun resetLocalCodegenStateImpl(state: CodegenState) r: Void {
     state.blockTerminated = 0
 }
 
+fun clearActiveBindingsImpl(state: CodegenState) r: Void {
+    state.varNames = Array<String>()
+    state.varRegs = Array<String>()
+    state.varTypes = Array<String>()
+    state.activeVarCount = 0
+}
+
 fun beginNestedScratchStateImpl(state: CodegenState, returnType: String) r: Void {
     state.output = StringBuilder.new()
     resetLocalCodegenStateImpl(state)
