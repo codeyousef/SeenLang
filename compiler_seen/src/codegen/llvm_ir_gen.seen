@@ -49,6 +49,7 @@ import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStat
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, mapModuleConstLlvmTypeToSeenTypeImpl, findModuleConstantStateImpl, unpackModuleConstFieldImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl, appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
@@ -512,55 +513,12 @@ var g_enumTypeCount: Int = 0
 
 // Check if module constant at given index is mutable (from g_moduleConstMutable pipe-delimited string)
 fun isModuleConstMutable(idx: Int) r: Bool {
-    if g_moduleConstMutable == "" { return true }
-    var entryIdx = 0
-    var pos = 0
-    var segStart = 0
-    while pos <= g_moduleConstMutable.length() {
-        var atEnd = false
-        if pos == g_moduleConstMutable.length() { atEnd = true }
-        if not atEnd {
-            if g_moduleConstMutable.charAt(pos) == '|' { atEnd = true }
-        }
-        if atEnd {
-            if entryIdx == idx {
-                if pos > segStart {
-                    let val = g_moduleConstMutable.substring(segStart, pos)
-                    if val == "1" { return true }
-                    return false
-                }
-                return true
-            }
-            entryIdx = entryIdx + 1
-            segStart = pos + 1
-        }
-        pos = pos + 1
-    }
-    return true
+    return isModuleConstMutableImpl(idx, g_moduleConstMutable)
 }
 
 // Get the Seen type of module constant at given index
 fun getModuleConstSeenType(idx: Int) r: String {
-    if g_moduleConstSeenTypes == "" { return "" }
-    var entryIdx = 0
-    var pos = 0
-    var segStart = 0
-    while pos <= g_moduleConstSeenTypes.length() {
-        var atEnd = false
-        if pos == g_moduleConstSeenTypes.length() { atEnd = true }
-        if not atEnd {
-            if g_moduleConstSeenTypes.charAt(pos) == '|' { atEnd = true }
-        }
-        if atEnd {
-            if entryIdx == idx {
-                return g_moduleConstSeenTypes.substring(segStart, pos)
-            }
-            entryIdx = entryIdx + 1
-            segStart = pos + 1
-        }
-        pos = pos + 1
-    }
-    return ""
+    return getModuleConstSeenTypeImpl(idx, g_moduleConstSeenTypes)
 }
 
 // Uses Array<String> for O(1) indexed access. Searches backwards (most recent first).
@@ -2118,43 +2076,13 @@ class LLVMIRGenerator {
     // Helper to find module constant by name. Searches backwards.
     // Falls back to cross-module constant registry if not found in current module.
     fun findModuleConstant(name: String) r: Int {
-        var i = moduleConstantNames.length() - 1
-        while i >= 0 {
-            if moduleConstantNames[i] == name {
-                return i
-            }
-            i = i - 1
-        }
-        // Check cross-module constant registry (pipe-delimited)
-        if g_xmConstCount > 0 {
-            var xi = 0
-            while xi < g_xmConstCount {
-                let xcName = pipeGet(g_xmConstNames, xi)
-                let xcType = pipeGet(g_xmConstTypes, xi)
-                if isValidCrossModuleConstantEntryImpl(xcName, xcType) and xcName == name {
-                    // Promote into per-module arrays so subsequent lookups
-                    // and type/mutability access work at the returned index
-                    let xcMut = pipeGet(g_xmConstMutable, xi)
-                    let xcSeenType = pipeGet(g_xmConstSeenTypes, xi)
-                    moduleConstantNames.push(name)
-                    moduleConstantTypes.push(xcType)
-                    moduleConstantValues.push("0")
-                    if g_moduleConstMutable == "" {
-                        g_moduleConstMutable = xcMut
-                    } else {
-                        g_moduleConstMutable = g_moduleConstMutable + "|" + xcMut
-                    }
-                    if g_moduleConstSeenTypes == "" {
-                        g_moduleConstSeenTypes = xcSeenType
-                    } else {
-                        g_moduleConstSeenTypes = g_moduleConstSeenTypes + "|" + xcSeenType
-                    }
-                    return moduleConstantNames.length() - 1
-                }
-                xi = xi + 1
-            }
-        }
-        return -1
+        let updated = findModuleConstantStateImpl(name, moduleConstantNames,
+            moduleConstantTypes, moduleConstantValues, g_moduleConstMutable,
+            g_moduleConstSeenTypes, g_xmConstNames, g_xmConstTypes,
+            g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount)
+        g_moduleConstMutable = unpackModuleConstFieldImpl(updated, 0)
+        g_moduleConstSeenTypes = unpackModuleConstFieldImpl(updated, 1)
+        return parseIntManual(unpackModuleConstFieldImpl(updated, 2))
     }
 
     // Helper to get module constant value as LLVM IR reference
@@ -11917,19 +11845,7 @@ class LLVMIRGenerator {
     }
 
     fun mapSimpleLlvmTypeToSeenType(llvmType: String) r: String {
-        if llvmType == "i64" {
-            return "Int"
-        }
-        if llvmType == "double" {
-            return "Float"
-        }
-        if llvmType == "i1" {
-            return "Bool"
-        }
-        if llvmType == "%SeenString" {
-            return "String"
-        }
-        return "Int"
+        return mapModuleConstLlvmTypeToSeenTypeImpl(llvmType)
     }
 
     fun tryInferModuleConstantVariableType(varName: String) r: String {
