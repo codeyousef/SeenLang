@@ -7,6 +7,8 @@
 
 import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual}
+import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
+import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.type_registry.{CodegenState, csGetNextReg}
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl}
 import codegen.ir_type_info.{charToCodeStr}
@@ -134,6 +136,53 @@ fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String) r: Bool {
         i = i + 1
     }
     return false
+}
+
+fun registerFunctionTraitImplDecoratorsImpl(fn: FunctionNode,
+    traitImplRegistryBox: Array<String>,
+    traitImplCountBox: Array<Int>) r: Void {
+
+    if not hasFunctionDecoratorImpl(fn, "impl_trait") {
+        return
+    }
+    var itDecIdx = 0
+    while itDecIdx < fn.decorators.length() {
+        if fn.decorators[itDecIdx].name == "impl_trait" {
+            if fn.decorators[itDecIdx].arguments.length() > 0 {
+                let itInfo = fn.decorators[itDecIdx].arguments[0]
+                appendTraitImplEntryImpl(itInfo + ":" + fn.name,
+                    traitImplRegistryBox, traitImplCountBox)
+            }
+        }
+        itDecIdx = itDecIdx + 1
+    }
+}
+
+fun resolveImplementationFunctionNameImpl(fn: FunctionNode,
+    structNames: Array<String>, dynTraitNames: String,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    traitImplRegistryBox: Array<String>,
+    traitImplCountBox: Array<Int>) r: String {
+
+    var implFuncName = fn.name
+    let implFnParams = fn.params
+    if implFnParams.length() > 0 {
+        let implFirstP = implFnParams[0]
+        if implFirstP.name == "this" {
+            let implFirstPTN = implFirstP.paramType.typeName
+            if isClassTypeImpl(implFirstPTN, structNames) == 1 {
+                let implExpectedPrefix = implFirstPTN + "_"
+                if not implFuncName.startsWith(implExpectedPrefix) {
+                    implFuncName = implExpectedPrefix + implFuncName
+                }
+                autoRegisterTraitImplsImpl(fn.name, implFirstPTN,
+                    implFuncName, dynTraitNames, structNames,
+                    structMethodNames, structMethodRetTypes,
+                    traitImplRegistryBox, traitImplCountBox)
+            }
+        }
+    }
+    return implFuncName
 }
 
 fun shouldSkipFunctionByCfgImpl(output: StringBuilder, fn: FunctionNode,
