@@ -55,7 +55,9 @@ import codegen.ir_infer_type.{inferReceiverMethodTypeImpl, inferCallExprTypeImpl
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl, emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl}
+import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_args.{fillDefaultParamsImpl, hasFloatParamFuncImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
@@ -11973,74 +11975,9 @@ class LLVMIRGenerator {
     fun fillDefaultParamsLocal(funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>) r: Void {
         g_defaultFillArgRegs = argRegs
         g_defaultFillArgTypeStrs = argTypeStrs
-        if g_funcDefaultsArr == "" or g_funcParamCountArr == "" {
-            return
-        }
-        let funcLookup = funcName + ":"
-        let paramCountPos = g_funcParamCountArr.indexOf(funcLookup, 0)
-        if paramCountPos < 0 {
-            return
-        }
-        let paramCountStart = paramCountPos + funcLookup.length()
-        var paramCountEnd = g_funcParamCountArr.indexOf("|", paramCountStart)
-        if paramCountEnd < 0 {
-            paramCountEnd = g_funcParamCountArr.length()
-        }
-        let expectedCount = parseIntManual(g_funcParamCountArr.substring(paramCountStart, paramCountEnd))
-        var fillIdx = g_defaultFillArgRegs.length()
-        while fillIdx < expectedCount {
-            let defaultLookup = funcName + ":" + fillIdx.toString() + ":"
-            let defaultPos = g_funcDefaultsArr.indexOf(defaultLookup, 0)
-            if defaultPos >= 0 {
-                let defaultStart = defaultPos + defaultLookup.length()
-                var defaultEnd = g_funcDefaultsArr.indexOf("|", defaultStart)
-                if defaultEnd < 0 {
-                    defaultEnd = g_funcDefaultsArr.length()
-                }
-                let defaultEntry = g_funcDefaultsArr.substring(defaultStart, defaultEnd)
-                let typeSep = defaultEntry.indexOf(":", 0)
-                if typeSep > 0 {
-                    let defaultValue = defaultEntry.substring(0, typeSep)
-                    let defaultType = defaultEntry.substring(typeSep + 1, defaultEntry.length())
-                    if defaultType == "String" {
-                        var strIdx = -1
-                        var sci = 0
-                        while sci < stringConstants.length() {
-                            if stringConstants[sci] == defaultValue {
-                                strIdx = sci
-                                sci = stringConstants.length()
-                            }
-                            sci = sci + 1
-                        }
-                        if strIdx >= 0 {
-                            let strLen = defaultValue.length()
-                            let gepReg = getNextReg()
-                            output.append("  " + gepReg + " = getelementptr [" + (strLen + 1).toString() + " x i8], ptr @.str." + stringConstantPrefix + strIdx.toString() + ", i64 0, i64 0\n")
-                            let insertLenReg = getNextReg()
-                            output.append("  " + insertLenReg + " = insertvalue %SeenString undef, i64 " + strLen.toString() + ", 0\n")
-                            let strReg = getNextReg()
-                            output.append("  " + strReg + " = insertvalue %SeenString " + insertLenReg + ", ptr " + gepReg + ", 1\n")
-                            g_defaultFillArgRegs.push(strReg)
-                            g_defaultFillArgTypeStrs.push("%SeenString")
-                        }
-                    } else if defaultType == "Float" {
-                        g_defaultFillArgRegs.push(defaultValue)
-                        g_defaultFillArgTypeStrs.push("double")
-                    } else if defaultType == "Bool" {
-                        if defaultValue == "true" {
-                            g_defaultFillArgRegs.push("1")
-                        } else {
-                            g_defaultFillArgRegs.push("0")
-                        }
-                        g_defaultFillArgTypeStrs.push("i64")
-                    } else {
-                        g_defaultFillArgRegs.push(defaultValue)
-                        g_defaultFillArgTypeStrs.push("i64")
-                    }
-                }
-            }
-            fillIdx = fillIdx + 1
-        }
+        fillDefaultParamsImpl(output, g_regBox, funcName, g_defaultFillArgRegs,
+            g_defaultFillArgTypeStrs, g_funcParamCountArr, g_funcDefaultsArr,
+            stringConstantPrefix, stringConstants)
     }
 
     fun collectDefaultParamStringConstantsFromFunction(fn: FunctionNode) r: Void {

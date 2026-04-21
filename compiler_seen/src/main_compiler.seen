@@ -45,7 +45,9 @@ import codegen.ir_type_dispatch.{emitVecMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, setComptimeTargetName}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
-import codegen.ir_call_dispatch.{emitStaticCollectionNewImpl}
+import codegen.ir_call_constructors.{emitStaticCollectionNewImpl}
+import codegen.ir_call_args.{fillDefaultParamsImpl}
+import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
 import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
 import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
@@ -1852,6 +1854,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_type_mapping")
         modules.push("codegen.ir_type_ops")
         modules.push("codegen.ir_control_flow")
+        modules.push("codegen.ir_call_constructors")
+        modules.push("codegen.ir_call_args")
         modules.push("codegen.ir_call_dispatch")
         modules.push("codegen.ir_call_fixups")
         modules.push("codegen.ir_method_finalize")

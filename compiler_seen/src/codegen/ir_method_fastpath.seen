@@ -6,7 +6,8 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_ops.{emitOptionMethodImpl, emitJsonValueMethodImpl, emitStringMethodImpl, emitStringBuilderMethodImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitToFloatMethodImpl, emitNumericMethodImpl, emitLengthSizeMethodImpl}
-import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitStaticCollectionNewImpl, emitArrayWithLengthImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitSimdReductionVarImpl}
+import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitSimdReductionVarImpl}
+import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, emitArrayWithLengthImpl}
 import codegen.ir_type_dispatch.{dispatchCollectionMethodImpl}
 import codegen.ir_decl_scan.{recordLateUserDeclareImpl}
 import codegen.ir_variable_gen.{emitModuleConstantLoadImpl}
