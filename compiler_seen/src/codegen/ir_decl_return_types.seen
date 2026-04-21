@@ -1,0 +1,55 @@
+// ir_decl_return_types.seen — declaration return-type selection helpers
+// Keeps declaration-time return-type policy separate from llvm_ir_gen.seen
+// while leaving local block traversal and expression inference wrappers in place.
+
+fun inferReturnExprTypeImpl(className: String, exprKind: String,
+    exprLiteralType: String, exprLiteralValue: String, exprCallee: String,
+    inferredType: String) r: String {
+
+    if exprKind == "None" {
+        return "Void"
+    }
+    if exprKind == "StructLiteral" {
+        if exprLiteralType != "" and exprLiteralType != "Unknown" {
+            return exprLiteralType
+        }
+        return className
+    }
+    if exprKind == "MethodCall" and exprCallee == "new" {
+        if exprLiteralValue != "" {
+            return exprLiteralValue
+        }
+        return className
+    }
+    if inferredType != "" and inferredType != "Unknown" {
+        return inferredType
+    }
+    return ""
+}
+
+fun resolveMethodReturnTypeImpl(className: String, methodName: String,
+    declaredType: String, inferredType: String) r: String {
+
+    if declaredType != "" and declaredType != "Unknown" {
+        return declaredType
+    }
+    if methodName == "new" {
+        return className
+    }
+    if inferredType != "" and inferredType != "Unknown" {
+        return inferredType
+    }
+    return declaredType
+}
+
+fun resolveFunctionReturnTypeImpl(declaredType: String,
+    inferredType: String) r: String {
+
+    if declaredType != "" and declaredType != "Unknown" {
+        return declaredType
+    }
+    if inferredType != "" and inferredType != "Unknown" {
+        return inferredType
+    }
+    return declaredType
+}
