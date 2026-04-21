@@ -1,0 +1,177 @@
+// ir_special_top_level_emit.seen -- Special top-level emission helpers
+
+import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_decl_registry.{registerFunctionStateImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_module_emit.{resolveSpecialTopLevelFunctionActionImpl}
+import codegen.ir_optimization.{splitPipe}
+import process.process.{runCommand, CommandResult}
+
+fun mapCTypeToLlvmImpl(cType: String) r: String {
+    let ct = cType.trim()
+    if ct == "void" { return "void" }
+    if ct == "int" or ct == "int32_t" or ct == "signed int" { return "i32" }
+    if ct == "long" or ct == "int64_t" or ct == "long long" { return "i64" }
+    if ct == "short" or ct == "int16_t" { return "i16" }
+    if ct == "unsigned int" or ct == "uint32_t" { return "i32" }
+    if ct == "unsigned long" or ct == "uint64_t" or ct == "size_t" { return "i64" }
+    if ct == "char" or ct == "signed char" or ct == "unsigned char" { return "i8" }
+    if ct == "bool" or ct == "_Bool" { return "i1" }
+    if ct == "float" { return "float" }
+    if ct == "double" { return "double" }
+    if ct.endsWith("*") or ct.contains("*") { return "ptr" }
+    return "i64"
+}
+
+fun emitCImportHeaderDeclaresImpl(output: StringBuilder,
+    cImportHeaderPath: String, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: Void {
+
+    if cImportHeaderPath == "" {
+        return
+    }
+    output.append("; @cImport(\"" + cImportHeaderPath + "\")\n")
+    let ciCmd = "clang -Xclang -ast-dump -fsyntax-only " + cImportHeaderPath +
+        " 2>/dev/null"
+    let ciResult: CommandResult = runCommand(ciCmd)
+    if not ciResult.success {
+        return
+    }
+
+    let ciLines = ciResult.output.split("\n")
+    var ciLi = 0
+    while ciLi < ciLines.length() {
+        let ciLine = ciLines[ciLi]
+        if ciLine.contains("FunctionDecl") and not ciLine.contains("implicit") {
+            let ciQuoteStart = ciLine.indexOf("'")
+            let ciQuoteEnd = ciLine.lastIndexOf("'")
+            if ciQuoteStart >= 0 and ciQuoteEnd > ciQuoteStart {
+                let ciProto = ciLine.substring(ciQuoteStart + 1, ciQuoteEnd)
+                let ciParenStart = ciProto.indexOf("(")
+                if ciParenStart >= 0 {
+                    let ciRetType = ciProto.substring(0, ciParenStart).trim()
+                    let ciRetLlvm = mapCTypeToLlvmImpl(ciRetType)
+                    var ciFuncName = ""
+                    let ciBeforeQuote = ciLine.substring(0, ciQuoteStart).trim()
+                    let ciWords = ciBeforeQuote.split(" ")
+                    if ciWords.length() > 0 {
+                        ciFuncName = ciWords[ciWords.length() - 1]
+                    }
+                    if ciFuncName != "" and not ciFuncName.startsWith("__") {
+                        let ciParamPart = ciProto.substring(ciParenStart + 1,
+                            ciProto.length() - 1)
+                        var ciParamStr = ""
+                        var ciIsVariadic = false
+                        if ciParamPart != "void" and ciParamPart != "" {
+                            let ciParams = ciParamPart.split(",")
+                            var ciPi = 0
+                            while ciPi < ciParams.length() {
+                                let ciP = ciParams[ciPi].trim()
+                                if ciP == "..." {
+                                    ciIsVariadic = true
+                                } else {
+                                    if ciParamStr != "" {
+                                        ciParamStr = ciParamStr + ", "
+                                    }
+                                    ciParamStr = ciParamStr +
+                                        mapCTypeToLlvmImpl(ciP)
+                                }
+                                ciPi = ciPi + 1
+                            }
+                        }
+                        if ciIsVariadic {
+                            if ciParamStr != "" {
+                                ciParamStr = ciParamStr + ", "
+                            }
+                            ciParamStr = ciParamStr + "..."
+                        }
+                        output.append("declare " + ciRetLlvm + " @" +
+                            ciFuncName + "(" + ciParamStr + ") nounwind\n")
+                        registerFunctionStateImpl(ciFuncName, ciRetType,
+                            funcNames, funcRetTypes)
+                    }
+                }
+            }
+        }
+        ciLi = ciLi + 1
+    }
+}
+
+fun generateVariadicGenericExpansionImpl(output: StringBuilder,
+    funcNode: FunctionNode) r: Void {
+
+    var packName = "Ts"
+    var vgDecIdx = 0
+    while vgDecIdx < funcNode.decorators.length() {
+        if funcNode.decorators[vgDecIdx].name == "variadic_generic" {
+            if funcNode.decorators[vgDecIdx].arguments.length() > 0 {
+                packName = funcNode.decorators[vgDecIdx].arguments[0]
+            }
+        }
+        vgDecIdx = vgDecIdx + 1
+    }
+
+    output.append("; : variadic generic expansion for " + funcNode.name +
+        "<..." + packName + ">\n")
+    var arity = 1
+    while arity <= 8 {
+        let mangledName = funcNode.name + "_" + arity.toString()
+        var paramList = ""
+        var pi = 0
+        while pi < arity {
+            if pi > 0 {
+                paramList = paramList + ", "
+            }
+            paramList = paramList + "i64 %t" + pi.toString()
+            pi = pi + 1
+        }
+        output.append("define i64 @" + quoteIdentIfNeededImpl(mangledName) +
+            "(" + paramList + ") nounwind {\n")
+        output.append("entry:\n")
+        let tupleType = "%SeenTuple" + arity.toString()
+        let tupleReg = "%tuple"
+        output.append("  " + tupleReg + " = alloca " + tupleType + "\n")
+        var si = 0
+        while si < arity {
+            let gepReg = "%gep" + si.toString()
+            output.append("  " + gepReg + " = getelementptr " + tupleType +
+                ", ptr " + tupleReg + ", i32 0, i32 " + si.toString() + "\n")
+            output.append("  store i64 %t" + si.toString() + ", ptr " +
+                gepReg + "\n")
+            si = si + 1
+        }
+        let retReg = "%ret"
+        output.append("  " + retReg + " = ptrtoint ptr " + tupleReg +
+            " to i64\n")
+        output.append("  ret i64 " + retReg + "\n")
+        output.append("}\n\n")
+        arity = arity + 1
+    }
+}
+
+fun tryHandleSpecialTopLevelFunctionImpl(fn: FunctionNode,
+    output: StringBuilder, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: Bool {
+
+    let actionInfo = resolveSpecialTopLevelFunctionActionImpl(fn)
+    if actionInfo == "" {
+        return false
+    }
+    let actionParts = splitPipe(actionInfo)
+    let action = actionParts[0]
+    if action == "cImport" {
+        var cImportHeaderPath = ""
+        if actionParts.length() > 1 {
+            cImportHeaderPath = actionParts[1]
+        }
+        emitCImportHeaderDeclaresImpl(output, cImportHeaderPath, funcNames,
+            funcRetTypes)
+        return true
+    }
+    if action == "variadic_generic" {
+        generateVariadicGenericExpansionImpl(output, fn)
+        return true
+    }
+    return false
+}
