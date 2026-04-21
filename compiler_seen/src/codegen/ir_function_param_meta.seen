@@ -1,6 +1,9 @@
 // ir_function_param_meta.seen — parameter metadata helpers extracted from
 // llvm_ir_gen.seen to keep function pre-registration bookkeeping localized.
 
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
 fun ensureFunctionParamMetaStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
         box.push("")
@@ -52,6 +55,19 @@ fun stripFunctionAllocaParameterTypeImpl(typeName: String,
         strippedTypeName = strippedTypeName.substring(0, defPos)
     }
     return strippedTypeName
+}
+
+fun emitBorrowParameterHandleImpl(output: StringBuilder, regBox: Array<Int>,
+    paramName: String, quotedParamArgName: String) r: Void {
+
+    let currentRegion = getNextRegFn(regBox)
+    output.append("  " + currentRegion + " = call ptr @__seen_region_current()\n")
+    let handleReg = getNextRegFn(regBox)
+    output.append("  " + handleReg +
+        " = call i64 @__seen_region_alloc_handle(ptr " + currentRegion +
+        ", ptr %" + quotedParamArgName + ")\n")
+    output.append("  ; borrow handle for " + paramName + " = " +
+        handleReg + "\n")
 }
 
 fun recordPreRegisteredComptimeParameterImpl(fnName: String,
