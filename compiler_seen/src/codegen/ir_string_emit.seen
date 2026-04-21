@@ -78,6 +78,27 @@ fun getStringConstantIndexImpl(stringConstants: Array<String>, str: String) r: I
     return addStringConstantTableImpl(stringConstants, str)
 }
 
+fun emitAdditionalGeneratedStringConstantsImpl(output: StringBuilder,
+    stringConstants: Array<String>, stringConstantPrefix: String,
+    startIndex: Int) r: Void {
+
+    if stringConstants.length() <= startIndex {
+        return
+    }
+
+    output.append("\n; Additional string constants from derive/reflect codegen\n")
+    var sci = startIndex
+    while sci < stringConstants.length() {
+        let scStr = stringConstants[sci]
+        let escaped = escapeStringImpl(scStr)
+        let scLen = scStr.length() + 1
+        output.append("@.str." + stringConstantPrefix + sci.toString() +
+            " = private unnamed_addr constant [" + scLen.toString() +
+            " x i8] c\"" + escaped + "\\00\"\n")
+        sci = sci + 1
+    }
+}
+
 fun emitStringConstantsImpl(output: StringBuilder, stringConstants: Array<String>) r: Void {
     var i = 0
     while i < stringConstants.length() {
