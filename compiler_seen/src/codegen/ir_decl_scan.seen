@@ -5,7 +5,8 @@ import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, pipeGet}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, isValidCrossModuleConstantEntryImpl}
-import codegen.ir_type_mapping.{isDataTypeImpl}
+import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
+import codegen.type_registry.{getTypeSizeReg}
 
 fun ensureStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
@@ -61,6 +62,54 @@ fun recordConstGenericNumericParamsImpl(typeName: String,
         cgParamIdx = cgParamIdx + 1
         cgPos = cgNextComma + 1
     }
+}
+
+fun appendInheritedStructLayoutPrefixImpl(parentFieldNames: String,
+    parentFieldTypes: String, layoutBox: Array<String>,
+    fieldNamesBox: Array<String>, fieldTypesBox: Array<String>,
+    totalSizeBox: Array<Int>, structNames: Array<String>,
+    structSizes: Array<Int>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Int {
+
+    if parentFieldNames == "" {
+        return 0
+    }
+
+    var parentFieldCount = 1
+    var countPos = 0
+    while countPos < parentFieldNames.length() {
+        if parentFieldNames.byteAt(countPos) == 44 {
+            parentFieldCount = parentFieldCount + 1
+        }
+        countPos = countPos + 1
+    }
+
+    var parentFieldIdx = 0
+    var nameStart = 0
+    while parentFieldIdx < parentFieldCount {
+        var nameEnd = parentFieldNames.indexOf(",", nameStart)
+        if nameEnd < 0 {
+            nameEnd = parentFieldNames.length()
+        }
+        let parentFieldName = parentFieldNames.substring(nameStart, nameEnd)
+        let parentFieldType = pipeGet(parentFieldTypes, parentFieldIdx)
+        let parentLlvmType = mapTypeImpl(parentFieldType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        if parentFieldIdx > 0 {
+            layoutBox[0] = layoutBox[0] + ", "
+            fieldNamesBox[0] = fieldNamesBox[0] + ","
+            fieldTypesBox[0] = fieldTypesBox[0] + "|"
+        }
+        layoutBox[0] = layoutBox[0] + parentLlvmType
+        fieldNamesBox[0] = fieldNamesBox[0] + parentFieldName
+        fieldTypesBox[0] = fieldTypesBox[0] + parentFieldType
+        totalSizeBox[0] = totalSizeBox[0] + getTypeSizeReg(parentFieldType,
+            structNames, structSizes)
+        parentFieldIdx = parentFieldIdx + 1
+        nameStart = nameEnd + 1
+    }
+    return parentFieldCount
 }
 
 fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility: String,

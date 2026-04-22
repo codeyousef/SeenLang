@@ -43,7 +43,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl}
+import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
@@ -1776,24 +1776,22 @@ class LLVMIRGenerator {
             if parentIdx >= 0 {
                 let parentFN = structFieldNames[parentIdx]
                 let parentFT = structFieldTypes[parentIdx]
-                pfcount = countCommaFields(parentFN)
-                var pfi = 0
-                while pfi < pfcount {
-                    let pfn = commaGet(parentFN, pfi)
-                    let pft = pipeGet(parentFT, pfi)
-                    let pllvm = mapType(pft)
-                    if pfi > 0 {
-                        layout = layout + ", "
-                        fieldNames = fieldNames + ","
-                        fieldTypes = fieldTypes + "|"
-                    }
-                    layout = layout + pllvm
-                    fieldNames = fieldNames + pfn
-                    fieldTypes = fieldTypes + pft
-                    totalSize = totalSize + getTypeSizeReg(pft, structNames,
-                        structSizes)
-                    pfi = pfi + 1
-                }
+                let layoutBox = Array<String>()
+                layoutBox.push(layout)
+                let fieldNamesBox = Array<String>()
+                fieldNamesBox.push(fieldNames)
+                let fieldTypesBox = Array<String>()
+                fieldTypesBox.push(fieldTypes)
+                let totalSizeBox = Array<Int>()
+                totalSizeBox.push(totalSize)
+                pfcount = appendInheritedStructLayoutPrefixImpl(parentFN,
+                    parentFT, layoutBox, fieldNamesBox, fieldTypesBox,
+                    totalSizeBox, structNames, structSizes, g_typeAliasNames,
+                    g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+                layout = layoutBox[0]
+                fieldNames = fieldNamesBox[0]
+                fieldTypes = fieldTypesBox[0]
+                totalSize = totalSizeBox[0]
             }
         }
 
