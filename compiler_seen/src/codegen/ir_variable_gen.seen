@@ -11,6 +11,19 @@ fun getExprVariableNameImpl(variableName: String, literalValue: String) r: Strin
     return literalValue
 }
 
+fun findActiveVariableIndexImpl(varNames: Array<String>, activeVarCount: Int,
+    name: String) r: Int {
+
+    var i = activeVarCount - 1
+    while i >= 0 {
+        if varNames[i] == name {
+            return i
+        }
+        i = i - 1
+    }
+    return -1
+}
+
 fun emitMovedVariableUseTrapImpl(output: StringBuilder, varName: String) r: Void {
     output.append("  ; ERROR: use after move of '" + varName + "'\n")
     output.append("  call void @seen_use_after_move()\n")
