@@ -1,8 +1,10 @@
 // ir_module_constants.seen — module constant lookup and type helpers
 // Keeps module-constant lookup/promotion state separate from llvm_ir_gen.seen.
 
-import codegen.ir_optimization.{pipeGet}
-import codegen.ir_module_emit.{isValidCrossModuleConstantEntryImpl}
+import parser.real_parser.{ProgramNode}
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{pipeGet, parseIntManual}
+import codegen.ir_module_emit.{isValidCrossModuleConstantEntryImpl, emitGlobalVariablesImpl}
 
 fun moduleConstPackSepImpl() r: String {
     return "@@MODCONSTSEP@@"
@@ -25,6 +27,28 @@ fun unpackModuleConstFieldImpl(data: String, idx: Int) r: String {
         return data.substring(start, data.length())
     }
     return data.substring(start, end)
+}
+
+class ModuleConstantRegistryState {
+    var moduleConstMutable: String
+    var moduleConstSeenTypes: String
+
+    static fun new(moduleConstMutable: String, moduleConstSeenTypes: String)
+        r: ModuleConstantRegistryState {
+
+        return ModuleConstantRegistryState{
+            moduleConstMutable: moduleConstMutable,
+            moduleConstSeenTypes: moduleConstSeenTypes
+        }
+    }
+}
+
+fun applyModuleConstantUpdatedStateImpl(state: ModuleConstantRegistryState,
+    updated: String) r: String {
+
+    state.moduleConstMutable = unpackModuleConstFieldImpl(updated, 0)
+    state.moduleConstSeenTypes = unpackModuleConstFieldImpl(updated, 1)
+    return unpackModuleConstFieldImpl(updated, 2)
 }
 
 fun isModuleConstMutableImpl(idx: Int, moduleConstMutable: String) r: Bool {
@@ -217,4 +241,55 @@ fun tryInferModuleConstantVariableTypeStateImpl(name: String,
     }
     return updatedMutable + sep + updatedSeenTypes + sep +
         mapModuleConstLlvmTypeToSeenTypeImpl(moduleConstantTypes[constIdx])
+}
+
+fun tryInferModuleConstantVariableTypeIntoStateImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, state: ModuleConstantRegistryState,
+    xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+    xmConstSeenTypes: String, xmConstCount: Int) r: String {
+
+    let updated = tryInferModuleConstantVariableTypeStateImpl(name,
+        moduleConstantNames, moduleConstantTypes, moduleConstantValues,
+        state.moduleConstMutable, state.moduleConstSeenTypes, xmConstNames,
+        xmConstTypes, xmConstMutable, xmConstSeenTypes, xmConstCount)
+    return applyModuleConstantUpdatedStateImpl(state, updated)
+}
+
+fun findModuleConstantIntoStateImpl(name: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, state: ModuleConstantRegistryState,
+    xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+    xmConstSeenTypes: String, xmConstCount: Int) r: Int {
+
+    let updated = findModuleConstantStateImpl(name, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, state.moduleConstMutable,
+        state.moduleConstSeenTypes, xmConstNames, xmConstTypes,
+        xmConstMutable, xmConstSeenTypes, xmConstCount)
+    return parseIntManual(applyModuleConstantUpdatedStateImpl(state, updated))
+}
+
+fun emitGlobalVariablesIntoStateImpl(output: StringBuilder, program: ProgramNode,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>, state: ModuleConstantRegistryState)
+    r: Void {
+
+    let moduleConstMutableBox = Array<String>()
+    moduleConstMutableBox.push(state.moduleConstMutable)
+    let moduleConstSeenTypesBox = Array<String>()
+    moduleConstSeenTypesBox.push(state.moduleConstSeenTypes)
+    emitGlobalVariablesImpl(output, program, moduleConstantNames,
+        moduleConstantTypes, moduleConstantValues, moduleConstMutableBox,
+        moduleConstSeenTypesBox)
+    state.moduleConstMutable = moduleConstMutableBox[0]
+    state.moduleConstSeenTypes = moduleConstSeenTypesBox[0]
+}
+
+fun moduleConstantInvariantLoadSuffixImpl(idx: Int, moduleConstMutable: String)
+    r: String {
+
+    if isModuleConstMutableImpl(idx, moduleConstMutable) {
+        return ""
+    }
+    return ", !invariant.load !190"
 }

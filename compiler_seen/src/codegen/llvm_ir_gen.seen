@@ -48,7 +48,7 @@ import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl
 import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl}
+import codegen.ir_module_constants.{ModuleConstantRegistryState, isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeIntoStateImpl, findModuleConstantIntoStateImpl, emitGlobalVariablesIntoStateImpl, moduleConstantInvariantLoadSuffixImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
@@ -82,7 +82,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
-import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
+import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
@@ -1435,6 +1435,18 @@ class LLVMIRGenerator {
         g_xmConstCount = state.xmConstCount
     }
 
+    fun captureModuleConstantRegistryState() r: ModuleConstantRegistryState {
+        return ModuleConstantRegistryState.new(g_moduleConstMutable,
+            g_moduleConstSeenTypes)
+    }
+
+    fun syncModuleConstantRegistryState(state: ModuleConstantRegistryState)
+        r: Void {
+
+        g_moduleConstMutable = state.moduleConstMutable
+        g_moduleConstSeenTypes = state.moduleConstSeenTypes
+    }
+
     // Helper to find variable type (checks both varTypes and preAllocatedTypes)
     // Searches backwards for speed.
     fun findVarType(name: String) r: String {
@@ -1443,32 +1455,28 @@ class LLVMIRGenerator {
         if visibleVarType != "" {
             return visibleVarType
         }
-        let updated = tryInferModuleConstantVariableTypeStateImpl(name,
-            moduleConstantNames, moduleConstantTypes, moduleConstantValues,
-            g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames,
-            g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes,
-            g_xmConstCount)
-        let moduleConstType = applyModuleConstantUpdatedState(updated)
+        let moduleConstState = captureModuleConstantRegistryState()
+        let moduleConstType = tryInferModuleConstantVariableTypeIntoStateImpl(
+            name, moduleConstantNames, moduleConstantTypes, moduleConstantValues,
+            moduleConstState, g_xmConstNames, g_xmConstTypes, g_xmConstMutable,
+            g_xmConstSeenTypes, g_xmConstCount)
+        syncModuleConstantRegistryState(moduleConstState)
         if moduleConstType != "" {
             return moduleConstType
         }
         return ""
     }
 
-    fun applyModuleConstantUpdatedState(updated: String) r: String {
-        g_moduleConstMutable = unpackModuleConstFieldImpl(updated, 0)
-        g_moduleConstSeenTypes = unpackModuleConstFieldImpl(updated, 1)
-        return unpackModuleConstFieldImpl(updated, 2)
-    }
-
     // Helper to find module constant by name. Searches backwards.
     // Falls back to cross-module constant registry if not found in current module.
     fun findModuleConstant(name: String) r: Int {
-        let updated = findModuleConstantStateImpl(name, moduleConstantNames,
-            moduleConstantTypes, moduleConstantValues, g_moduleConstMutable,
-            g_moduleConstSeenTypes, g_xmConstNames, g_xmConstTypes,
-            g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount)
-        return parseIntManual(applyModuleConstantUpdatedState(updated))
+        let moduleConstState = captureModuleConstantRegistryState()
+        let constIdx = findModuleConstantIntoStateImpl(name, moduleConstantNames,
+            moduleConstantTypes, moduleConstantValues, moduleConstState,
+            g_xmConstNames, g_xmConstTypes, g_xmConstMutable,
+            g_xmConstSeenTypes, g_xmConstCount)
+        syncModuleConstantRegistryState(moduleConstState)
+        return constIdx
     }
 
     // Pre-scan a function's block to collect all variable declarations.
@@ -3666,13 +3674,10 @@ class LLVMIRGenerator {
     }
 
     fun emitProgramGlobalVariables(program: ProgramNode) r: Void {
-        let moduleConstMutableBox = Array<String>()
-        moduleConstMutableBox.push(g_moduleConstMutable)
-        let moduleConstSeenTypesBox = Array<String>()
-        moduleConstSeenTypesBox.push(g_moduleConstSeenTypes)
-        emitGlobalVariablesImpl(output, program, moduleConstantNames, moduleConstantTypes, moduleConstantValues, moduleConstMutableBox, moduleConstSeenTypesBox)
-        g_moduleConstMutable = moduleConstMutableBox[0]
-        g_moduleConstSeenTypes = moduleConstSeenTypesBox[0]
+        let moduleConstState = captureModuleConstantRegistryState()
+        emitGlobalVariablesIntoStateImpl(output, program, moduleConstantNames,
+            moduleConstantTypes, moduleConstantValues, moduleConstState)
+        syncModuleConstantRegistryState(moduleConstState)
     }
 
     fun emitCrossModuleConstantDeclares() r: Void {
@@ -5370,23 +5375,19 @@ class LLVMIRGenerator {
                 if licmStmt.expression.kind == "Variable" or licmStmt.expression.kind == "VarExpr" {
                     var licmVarName = licmStmt.expression.literalValue
                     if licmVarName == "" { licmVarName = licmStmt.expression.variableName }
-                    var mcIdx = 0
-                    while mcIdx < moduleConstantNames.length() {
-                        if moduleConstantNames[mcIdx] == licmVarName {
-                            var licmImmutable = true
-                            if isModuleConstMutableImpl(mcIdx,
-                                g_moduleConstMutable) { licmImmutable = false }
-                            if licmImmutable {
-                                output.append("  ; LICM: " + licmVarName + " is immutable module constant (!invariant.load applied)\n")
-                                mlLogDecision("licm", "applied", licmVarName)
-                            } else {
-                                output.append("  ; LICM candidate: " + licmVarName + " is mutable (var), skipped\n")
-                                mlLogDecision("licm", "skipped-mutable", licmVarName)
-                            }
-                            g_loopsOptimized = g_loopsOptimized + 1
-                            mcIdx = moduleConstantNames.length()
+                    let mcIdx = findModuleConstant(licmVarName)
+                    if mcIdx >= 0 {
+                        var licmImmutable = true
+                        if isModuleConstMutableImpl(mcIdx,
+                            g_moduleConstMutable) { licmImmutable = false }
+                        if licmImmutable {
+                            output.append("  ; LICM: " + licmVarName + " is immutable module constant (!invariant.load applied)\n")
+                            mlLogDecision("licm", "applied", licmVarName)
+                        } else {
+                            output.append("  ; LICM candidate: " + licmVarName + " is mutable (var), skipped\n")
+                            mlLogDecision("licm", "skipped-mutable", licmVarName)
                         }
-                        mcIdx = mcIdx + 1
+                        g_loopsOptimized = g_loopsOptimized + 1
                     }
                 }
             }
@@ -6791,10 +6792,8 @@ class LLVMIRGenerator {
         if constSeenType == "" {
             constSeenType = findVarType(receiverName)
         }
-        var invSuffix = ""
-        if not isModuleConstMutableImpl(constIdx, g_moduleConstMutable) {
-            invSuffix = ", !invariant.load !190"
-        }
+        let invSuffix = moduleConstantInvariantLoadSuffixImpl(constIdx,
+            g_moduleConstMutable)
         var constIsClass = 0
         if constSeenType != "" and isClassType(constSeenType) { constIsClass = 1 }
         var constIsData = 0
@@ -7412,10 +7411,8 @@ class LLVMIRGenerator {
     fun tryGenerateFallbackVariable(varName: String) r: String {
         let constIdx = findModuleConstant(varName)
         if constIdx >= 0 {
-            var invSuffix = ""
-            if not isModuleConstMutableImpl(constIdx, g_moduleConstMutable) {
-                invSuffix = ", !invariant.load !190"
-            }
+            let invSuffix = moduleConstantInvariantLoadSuffixImpl(constIdx,
+                g_moduleConstMutable)
             return emitModuleConstantLoadImpl(output, g_regBox,
                 "@" + varName, moduleConstantTypes[constIdx], invSuffix)
         }
@@ -9308,11 +9305,9 @@ class LLVMIRGenerator {
                     let gvMcIdx = findModuleConstant(varName)
                     if gvMcIdx >= 0 {
                         let gvMcType = moduleConstantTypes[gvMcIdx]
-                        var gvMcInvSuffix = ""
-                        if not isModuleConstMutableImpl(gvMcIdx,
-                            g_moduleConstMutable) {
-                            gvMcInvSuffix = ", !invariant.load !190"
-                        }
+                        let gvMcInvSuffix =
+                            moduleConstantInvariantLoadSuffixImpl(gvMcIdx,
+                            g_moduleConstMutable)
                         let moduleConstReceiverRegBox = Array<String>()
                         moduleConstReceiverRegBox.push(receiverReg)
                         let moduleConstReceiverTypeBox = Array<String>()
