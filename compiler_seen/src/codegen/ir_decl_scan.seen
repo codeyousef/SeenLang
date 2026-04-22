@@ -112,6 +112,47 @@ fun appendInheritedStructLayoutPrefixImpl(parentFieldNames: String,
     return parentFieldCount
 }
 
+fun stripBitfieldLayoutAnnotationImpl(fieldTypeName: String) r: String {
+    if fieldTypeName.contains(":bitfield(") {
+        let bitfieldPos = fieldTypeName.indexOf(":bitfield(", 0)
+        if bitfieldPos >= 0 {
+            return fieldTypeName.substring(0, bitfieldPos)
+        }
+    }
+    return fieldTypeName
+}
+
+fun registerBitfieldLayoutMetadataImpl(ownerTypeName: String, fieldName: String,
+    fieldTypeName: String, bitfieldKeysBox: Array<String>,
+    bitfieldWidthsBox: Array<String>, bitfieldOffsetsBox: Array<String>,
+    bitfieldCountBox: Array<Int>) r: String {
+
+    let strippedFieldType = stripBitfieldLayoutAnnotationImpl(fieldTypeName)
+    if strippedFieldType == fieldTypeName {
+        return fieldTypeName
+    }
+
+    let bitfieldPos = fieldTypeName.indexOf(":bitfield(", 0)
+    if bitfieldPos >= 0 {
+        let widthStart = bitfieldPos + 10
+        let widthEnd = fieldTypeName.indexOf(")", widthStart)
+        if widthEnd > widthStart {
+            let widthStr = fieldTypeName.substring(widthStart, widthEnd)
+            ensureStringBoxValue(bitfieldKeysBox)
+            ensureStringBoxValue(bitfieldWidthsBox)
+            ensureStringBoxValue(bitfieldOffsetsBox)
+            ensureIntBoxValue(bitfieldCountBox)
+            let bitfieldKey = ownerTypeName + "." + fieldName
+            bitfieldKeysBox[0] = bitfieldKeysBox[0] + bitfieldKey + "|"
+            bitfieldWidthsBox[0] = bitfieldWidthsBox[0] + widthStr + "|"
+            bitfieldOffsetsBox[0] = bitfieldOffsetsBox[0] + "0|"
+            bitfieldCountBox[0] = bitfieldCountBox[0] + 1
+        }
+    }
+
+    return strippedFieldType
+}
+
 fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility: String,
     xmDeclareNamesBox: Array<String>, xmDeclareStrsBox: Array<String>,
     xmDeclareVisBox: Array<String>, xmDeclareCountBox: Array<Int>) r: Void {

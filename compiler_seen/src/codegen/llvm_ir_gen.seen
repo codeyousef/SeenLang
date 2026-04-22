@@ -43,7 +43,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl}
+import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
@@ -1802,6 +1802,14 @@ class LLVMIRGenerator {
             layout = layout + "i8"
             totalSize = 1
         } else {
+            let bitfieldKeysBox = Array<String>()
+            bitfieldKeysBox.push(g_bitfieldKeys)
+            let bitfieldWidthsBox = Array<String>()
+            bitfieldWidthsBox.push(g_bitfieldWidths)
+            let bitfieldOffsetsBox = Array<String>()
+            bitfieldOffsetsBox.push(g_bitfieldOffsets)
+            let bitfieldCountBox = Array<Int>()
+            bitfieldCountBox.push(g_bitfieldCount)
             var i = 0
             var realOwnIdx = 0
             while i < classNode.fields.length() {
@@ -1819,26 +1827,12 @@ class LLVMIRGenerator {
                         fieldNames = fieldNames + ","
                         fieldTypes = fieldTypes + "|"  // Use | as separator for types (not comma, due to generics)
                     }
-                    // Strip :bitfield(N) annotation from type for layout, extract width
                     let fieldParamType = field.paramType
                     var fieldType = normalizeDeclaredTypeNode(fieldParamType)
-                    if fieldType.contains(":bitfield(") {
-                        let bfLayoutPos = fieldType.indexOf(":bitfield(", 0)
-                        if bfLayoutPos >= 0 {
-                            let bfWidthStart = bfLayoutPos + 10
-                            let bfWidthEnd = fieldType.indexOf(")", bfWidthStart)
-                            if bfWidthEnd > bfWidthStart {
-                                let bfWidthStr = fieldType.substring(bfWidthStart, bfWidthEnd)
-                                // Register bitfield metadata
-                                let bfKey = classNode.name + "." + fieldNameStr
-                                g_bitfieldKeys = g_bitfieldKeys + bfKey + "|"
-                                g_bitfieldWidths = g_bitfieldWidths + bfWidthStr + "|"
-                                g_bitfieldOffsets = g_bitfieldOffsets + "0|"
-                                g_bitfieldCount = g_bitfieldCount + 1
-                            }
-                            fieldType = fieldType.substring(0, bfLayoutPos)
-                        }
-                    }
+                    fieldType = registerBitfieldLayoutMetadataImpl(
+                        classNode.name, fieldNameStr, fieldType,
+                        bitfieldKeysBox, bitfieldWidthsBox,
+                        bitfieldOffsetsBox, bitfieldCountBox)
                     let llvmType = mapType(fieldType)
 
                     layout = layout + llvmType
@@ -1851,6 +1845,10 @@ class LLVMIRGenerator {
                     i = i + 1
                 }
             }
+            g_bitfieldKeys = bitfieldKeysBox[0]
+            g_bitfieldWidths = bitfieldWidthsBox[0]
+            g_bitfieldOffsets = bitfieldOffsetsBox[0]
+            g_bitfieldCount = bitfieldCountBox[0]
         }
 
         layout = layout + " }"
@@ -3052,13 +3050,8 @@ class LLVMIRGenerator {
     }
 
     fun resolveClassTypeFieldLlvmType(field: ParamNode) r: String {
-        var fieldTypeName = field.paramType.typeName
-        if fieldTypeName.contains(":bitfield(") {
-            let bitfieldPos = fieldTypeName.indexOf(":bitfield(", 0)
-            if bitfieldPos >= 0 {
-                fieldTypeName = fieldTypeName.substring(0, bitfieldPos)
-            }
-        }
+        let fieldTypeName = stripBitfieldLayoutAnnotationImpl(
+            field.paramType.typeName)
         return mapType(fieldTypeName)
     }
 
