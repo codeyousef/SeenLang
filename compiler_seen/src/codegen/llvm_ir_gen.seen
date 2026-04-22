@@ -4738,6 +4738,52 @@ class LLVMIRGenerator {
         return true
     }
 
+    fun prepareFunctionPreBodyAndTryEmitMain(fn: FunctionNode,
+        implFuncName: String, resolvedFunctionReturnType: String,
+        returnTypeBox: Array<String>) r: Bool {
+
+        resetFunctionGenerationState(resolvedFunctionReturnType)
+        let preActiveVarCountBox = Array<Int>()
+        preActiveVarCountBox.push(activeVarCount)
+        let comptimeNamesBox = Array<String>()
+        comptimeNamesBox.push(g_comptimeParamFuncNames)
+        let comptimeCountBox = Array<Int>()
+        comptimeCountBox.push(g_comptimeParamCount)
+        let funcDefaultsBox = Array<String>()
+        funcDefaultsBox.push(g_funcDefaultsArr)
+        let dynParamFuncsBox = Array<String>()
+        dynParamFuncsBox.push(g_dynParamFuncs)
+        let funcParamCountBox = Array<String>()
+        funcParamCountBox.push(g_funcParamCountArr)
+        preRegisterFunctionParametersImpl(fn, implFuncName, varNames, varRegs,
+            varTypes, preActiveVarCountBox, comptimeNamesBox,
+            comptimeCountBox, funcDefaultsBox, dynParamFuncsBox,
+            funcParamCountBox)
+        activeVarCount = preActiveVarCountBox[0]
+        g_comptimeParamFuncNames = comptimeNamesBox[0]
+        g_comptimeParamCount = comptimeCountBox[0]
+        g_funcDefaultsArr = funcDefaultsBox[0]
+        g_dynParamFuncs = dynParamFuncsBox[0]
+        g_funcParamCountArr = funcParamCountBox[0]
+
+        // Clear CSE cache at function boundaries
+        cseClear()
+
+        // Collect all variable declarations for hoisting allocas to entry block
+        println("[irgen function] collect vars start: " + implFuncName)
+        collectVariableDeclarations(fn.body)
+        println("[irgen function] collect vars done: " + implFuncName)
+
+        // Clear pre-registered parameters (will be re-added with proper registers)
+        clearActiveBindings()
+
+        println("[irgen function] return-type map start: " + implFuncName)
+        returnTypeBox[0] = mapType(currentFunctionReturnType)
+        println("[irgen function] return-type map done: " + implFuncName)
+
+        return tryEmitMainFunction(fn, implFuncName, returnTypeBox[0])
+    }
+
     fun generateFunction(fn: FunctionNode) r: Void {
         if shouldSkipFunctionByCfg(fn) {
             return
@@ -4793,50 +4839,14 @@ class LLVMIRGenerator {
         let resolvedFunctionReturnType = resolveFunctionReturnType(fn)
         registerFunction(implFuncName, resolvedFunctionReturnType)
 
-        resetFunctionGenerationState(resolvedFunctionReturnType)
-        let preActiveVarCountBox = Array<Int>()
-        preActiveVarCountBox.push(activeVarCount)
-        let comptimeNamesBox = Array<String>()
-        comptimeNamesBox.push(g_comptimeParamFuncNames)
-        let comptimeCountBox = Array<Int>()
-        comptimeCountBox.push(g_comptimeParamCount)
-        let funcDefaultsBox = Array<String>()
-        funcDefaultsBox.push(g_funcDefaultsArr)
-        let dynParamFuncsBox = Array<String>()
-        dynParamFuncsBox.push(g_dynParamFuncs)
-        let funcParamCountBox = Array<String>()
-        funcParamCountBox.push(g_funcParamCountArr)
-        preRegisterFunctionParametersImpl(fn, implFuncName, varNames, varRegs,
-            varTypes, preActiveVarCountBox, comptimeNamesBox,
-            comptimeCountBox, funcDefaultsBox, dynParamFuncsBox,
-            funcParamCountBox)
-        activeVarCount = preActiveVarCountBox[0]
-        g_comptimeParamFuncNames = comptimeNamesBox[0]
-        g_comptimeParamCount = comptimeCountBox[0]
-        g_funcDefaultsArr = funcDefaultsBox[0]
-        g_dynParamFuncs = dynParamFuncsBox[0]
-        g_funcParamCountArr = funcParamCountBox[0]
-
-        // Clear CSE cache at function boundaries
-        cseClear()
-
-        // Collect all variable declarations for hoisting allocas to entry block
-        println("[irgen function] collect vars start: " + implFuncName)
-        collectVariableDeclarations(fn.body)
-        println("[irgen function] collect vars done: " + implFuncName)
-
-        // Clear pre-registered parameters (will be re-added with proper registers)
-        clearActiveBindings()
-
-        let fnTypeName = currentFunctionReturnType
-        println("[irgen function] return-type map start: " + implFuncName)
-        let returnType = mapType(fnTypeName)
-        let fnName = implFuncName
-        println("[irgen function] return-type map done: " + fnName)
-
-        if tryEmitMainFunction(fn, fnName, returnType) {
+        let returnTypeBox = Array<String>()
+        returnTypeBox.push("")
+        if prepareFunctionPreBodyAndTryEmitMain(fn, implFuncName,
+            resolvedFunctionReturnType, returnTypeBox) {
             return
         }
+        let fnName = implFuncName
+        let returnType = returnTypeBox[0]
 
         // Build function attributes
         println("[irgen function] attrs start: " + fnName)
