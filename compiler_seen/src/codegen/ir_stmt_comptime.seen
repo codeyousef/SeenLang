@@ -61,6 +61,15 @@ fun emitComptimeAssertFailureNoteImpl(output: StringBuilder, msg: String)
     output.append("  ; COMPTIME ASSERT FAILED: " + msg + "\n")
 }
 
+fun emitComptimeAssertAbortImpl(output: StringBuilder, msgReg: String)
+    r: Void {
+
+    output.append("  " + msgReg +
+        " = call %SeenString @seen_cstr_to_str(ptr @.str.comptime_assert)\n")
+    output.append("  call void @println(%SeenString " + msgReg + ")\n")
+    output.append("  call void @exit(i64 1)\n")
+}
+
 fun emitComptimeAssertPassedNoteImpl(output: StringBuilder) r: Void {
     output.append("  ; comptime assert passed\n")
 }
