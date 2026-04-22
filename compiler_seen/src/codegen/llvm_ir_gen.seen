@@ -88,7 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
@@ -5054,71 +5054,41 @@ class LLVMIRGenerator {
     // Performs dead store elimination: scans for "var x = literal; x = expr"
     // patterns where x is not read between the two stores, and skips the
     // first literal initialization.
-    fun isReadModifyWriteDeadStore(varName: String, rhsExpr: ParserExpressionNode) r: Bool {
-        if rhsExpr.kind == "Variable" or rhsExpr.kind == "VarExpr" {
-            var rhsName = rhsExpr.literalValue
-            if rhsName == "" {
-                rhsName = rhsExpr.variableName
-            }
-            return rhsName == varName
-        }
-        if rhsExpr.kind == "Binary" and rhsExpr.operands.length() > 0 {
-            let lhsOp = rhsExpr.operands[0]
-            var lhsName = lhsOp.literalValue
-            if lhsName == "" {
-                lhsName = lhsOp.variableName
-            }
-            return lhsName == varName
-        }
-        return false
-    }
-
-    fun tryMarkDeadStoreElimination(stmt: StatementNode, nextStmt: StatementNode) r: Void {
-        if (stmt.kind != "Let" and stmt.kind != "Var") or nextStmt.kind != "Expression" {
-            return
-        }
-        if nextStmt.expression.kind != "Assignment" or nextStmt.expression.variableName != stmt.variableName {
-            return
-        }
-
-        var isReadModWrite = false
-        if nextStmt.expression.operands.length() > 0 {
-            isReadModWrite = isReadModifyWriteDeadStore(stmt.variableName, nextStmt.expression.operands[0])
-        }
-        if isReadModWrite {
-            return
-        }
-
-        g_deadStoresEliminated = g_deadStoresEliminated + 1
-        if stmt.initializer.kind == "Literal" {
-            output.append("  ; dead store eliminated: " + stmt.variableName + " literal init skipped\n")
-            if g_deadStoreSkipVars == "" {
-                g_deadStoreSkipVars = stmt.variableName
-            } else {
-                g_deadStoreSkipVars = g_deadStoreSkipVars + "|" + stmt.variableName
-            }
-            mlLogDecision("dead-store", "skip-init", stmt.variableName)
-            return
-        }
-
-        output.append("  ; dead store: " + stmt.variableName + " initialized then immediately overwritten\n")
-        mlLogDecision("dead-store", "detected", stmt.variableName)
-    }
-
     fun scanBlockDeadStorePatterns(block: BlockNode) r: Void {
-        var dsIdx = 0
-        while dsIdx < block.statements.length() - 1 {
-            tryMarkDeadStoreElimination(block.statements[dsIdx], block.statements[dsIdx + 1])
-            dsIdx = dsIdx + 1
+        let deadStoresEliminatedBox = Array<Int>()
+        deadStoresEliminatedBox.push(g_deadStoresEliminated)
+        let deadStoreSkipVarsBox = Array<String>()
+        deadStoreSkipVarsBox.push(g_deadStoreSkipVars)
+        let deadStoreLogBox = Array<String>()
+        deadStoreLogBox.push("")
+        scanBlockDeadStorePatternsImpl(output, block, deadStoresEliminatedBox,
+            deadStoreSkipVarsBox, deadStoreLogBox)
+        g_deadStoresEliminated = deadStoresEliminatedBox[0]
+        g_deadStoreSkipVars = deadStoreSkipVarsBox[0]
+
+        var dsLogIdx = 0
+        while dsLogIdx < deadStoreLogBox[0].length() {
+            let logEntry = pipeGet(deadStoreLogBox[0], dsLogIdx)
+            if logEntry == "" {
+                break
+            }
+            let actionSepPos = logEntry.indexOf(":", 0)
+            if actionSepPos > 0 {
+                let action = logEntry.substring(0, actionSepPos)
+                let detail = logEntry.substring(actionSepPos + 1,
+                    logEntry.length())
+                mlLogDecision("dead-store", action, detail)
+            }
+            dsLogIdx = dsLogIdx + 1
         }
     }
 
     fun emitTrailingDeadCodeNotice(block: BlockNode, startIndex: Int) r: Void {
-        let remaining = block.statements.length() - startIndex
-        if remaining > 0 {
-            g_deadStatementsEliminated = g_deadStatementsEliminated + remaining
-            output.append("  ; dead code eliminated: " + remaining.toString() + " statements\n")
-        }
+        let deadStatementsEliminatedBox = Array<Int>()
+        deadStatementsEliminatedBox.push(g_deadStatementsEliminated)
+        emitTrailingDeadCodeNoticeImpl(output, block.statements.length(),
+            startIndex, deadStatementsEliminatedBox)
+        g_deadStatementsEliminated = deadStatementsEliminatedBox[0]
     }
 
     fun emitBlockDeferredCleanup(savedDeferCount: Int) r: Void {
@@ -5698,29 +5668,11 @@ class LLVMIRGenerator {
         return reg
     }
 
-    fun shouldSkipDeadLiteralInitializer(stmt: StatementNode) r: Bool {
-        if g_deadStoreSkipVars == "" or stmt.initializer.kind != "Literal" {
-            return false
-        }
-        var dsScanIdx = 0
-        while dsScanIdx < g_deadStoreSkipVars.length() {
-            let dsEntry = pipeGet(g_deadStoreSkipVars, dsScanIdx)
-            if dsEntry == "" {
-                return false
-            }
-            if dsEntry == stmt.variableName {
-                return true
-            }
-            dsScanIdx = dsScanIdx + 1
-        }
-        return false
-    }
-
     fun emitLetStatementInitializer(stmt: StatementNode, reg: String, varType: String, llvmType: String) r: Void {
         if stmt.initializer.kind == "None" {
             return
         }
-        if shouldSkipDeadLiteralInitializer(stmt) {
+        if shouldSkipDeadLiteralInitializerImpl(g_deadStoreSkipVars, stmt) {
             output.append("  ; DSE: skipped dead literal init for " + stmt.variableName + "\n")
             return
         }
