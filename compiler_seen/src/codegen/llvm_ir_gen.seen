@@ -1570,13 +1570,6 @@ class LLVMIRGenerator {
             g_asyncFuncRetTypes, g_asyncFuncCount)
     }
 
-    // Look up a function's return type from the registry. Searches backwards
-    // because the same function name can be registered multiple times (e.g.,
-    // when a module re-exports it), and the last registration is canonical.
-    fun getFunctionReturnType(name: String) r: String {
-        return getFunctionReturnTypeStateImpl(name, funcNames, funcRetTypes)
-    }
-
     fun hasCrossModuleDeclare(name: String) r: Bool {
         return hasCrossModuleDeclareStateImpl(name, g_xmDeclareNames,
             g_xmDeclareCount)
@@ -5046,7 +5039,8 @@ class LLVMIRGenerator {
             return
         }
         let unusedCallName = expr.callee
-        let unusedRetType = getFunctionReturnType(unusedCallName)
+        let unusedRetType = getFunctionReturnTypeStateImpl(unusedCallName,
+            funcNames, funcRetTypes)
         if not unusedRetType.startsWith("Result<") and not unusedRetType.startsWith("Result ") {
             return
         }
@@ -6286,7 +6280,8 @@ class LLVMIRGenerator {
         loopVarReg: String, forInIterable: ParserExpressionNode, iterableType: String,
         condLabel: String, bodyLabel: String, endLabel: String) r: Bool {
         let iterFuncName = iterableType + "_iter"
-        let iterFuncRet = getFunctionReturnType(iterFuncName)
+        let iterFuncRet = getFunctionReturnTypeStateImpl(iterFuncName,
+            funcNames, funcRetTypes)
         if iterFuncRet == "" {
             return false
         }
@@ -6318,7 +6313,8 @@ class LLVMIRGenerator {
         cseClear()
         blockTerminated = false
         let nextFunc = iterFuncRet + "_next"
-        let nextRetType = getFunctionReturnType(nextFunc)
+        let nextRetType = getFunctionReturnTypeStateImpl(nextFunc, funcNames,
+            funcRetTypes)
         var nextRetLlvm = "i64"
         if nextRetType != "" {
             nextRetLlvm = mapType(nextRetType)
@@ -7208,7 +7204,8 @@ class LLVMIRGenerator {
         // Operator overloading: check for operator_index method on non-array types
         if not idxBaseType.startsWith("Array<") and not idxBaseType.startsWith("List<") and not idxBaseType.startsWith("Vec<") and idxBaseType != "String" {
             let idxOpFunc = idxBaseType + "_operator_index"
-            let idxOpRet = getFunctionReturnType(idxOpFunc)
+            let idxOpRet = getFunctionReturnTypeStateImpl(idxOpFunc, funcNames,
+                funcRetTypes)
             if idxOpRet != "" {
                 let idxBaseReg = generateExpression(expr.operands[0])
                 let idxIdxReg = generateExpression(expr.operands[1])
@@ -8096,7 +8093,8 @@ class LLVMIRGenerator {
             return implicitThisReg
         }
 
-        let fpRetType = getFunctionReturnType(varName)
+        let fpRetType = getFunctionReturnTypeStateImpl(varName, funcNames,
+            funcRetTypes)
         if fpRetType != "" {
             return emitFunctionPointerInteropLoadImpl(output, g_regBox,
                 "@" + quoteIdentIfNeeded(varName))
@@ -8441,7 +8439,8 @@ class LLVMIRGenerator {
         let opMethodSuffix = binaryOperatorMethodSuffixImpl(expr.operator)
         if opMethodSuffix != "" {
             let opFuncName = leftType + "_" + opMethodSuffix
-            let opRetType = getFunctionReturnType(opFuncName)
+            let opRetType = getFunctionReturnTypeStateImpl(opFuncName,
+                funcNames, funcRetTypes)
             if opRetType != "" {
                 let opRetLlvm = mapType(opRetType)
                 return emitOverloadedBinaryCallImpl(output, g_regBox,
@@ -10076,7 +10075,8 @@ class LLVMIRGenerator {
                     methodName)
             }
             if shouldLowerUnresolvedMethodAsCallImpl(currentClassName,
-                implicitMethodRetType, getFunctionReturnType(methodName)) {
+                implicitMethodRetType, getFunctionReturnTypeStateImpl(
+                methodName, funcNames, funcRetTypes)) {
                 return generateCall(expr)
             }
 
@@ -10328,7 +10328,8 @@ class LLVMIRGenerator {
             return ""
         }
         let unaryOpFuncName = unaryOpType + "_" + unaryOpMethod
-        let unaryOpRetType = getFunctionReturnType(unaryOpFuncName)
+        let unaryOpRetType = getFunctionReturnTypeStateImpl(unaryOpFuncName,
+            funcNames, funcRetTypes)
         if unaryOpRetType == "" {
             return ""
         }
@@ -10778,7 +10779,7 @@ class LLVMIRGenerator {
         }
         let leftOpType = inferExpressionType(expr.operands[0])
         let opFuncN = leftOpType + "_" + opSuffix
-        return getFunctionReturnType(opFuncN)
+        return getFunctionReturnTypeStateImpl(opFuncN, funcNames, funcRetTypes)
     }
 
     fun inferBinaryExprTypeLocal(expr: ParserExpressionNode) r: String {
@@ -10829,7 +10830,8 @@ class LLVMIRGenerator {
             implicitMethodRetType = getMethodReturnType(currentClassName,
                 expr.callee)
         }
-        let freeFuncRetType = getFunctionReturnType(expr.callee)
+        let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
+            funcNames, funcRetTypes)
         var asyncFlag = 0
         if isAsyncFunction(expr.callee) {
             asyncFlag = 1
@@ -10993,7 +10995,8 @@ class LLVMIRGenerator {
             implicitMethodRetType = getMethodReturnType(currentClassName,
                 expr.callee)
         }
-        let freeFuncRetType = getFunctionReturnType(expr.callee)
+        let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
+            funcNames, funcRetTypes)
         var asyncFlag = 0
         if isAsyncFunction(expr.callee) {
             asyncFlag = 1
@@ -11077,7 +11080,8 @@ class LLVMIRGenerator {
     }
 
     fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
-        let userRetType = getFunctionReturnType(expr.callee)
+        let userRetType = getFunctionReturnTypeStateImpl(expr.callee,
+            funcNames, funcRetTypes)
         var asyncFlag = 0
         if isAsyncFunction(expr.callee) {
             asyncFlag = 1
@@ -11230,7 +11234,8 @@ class LLVMIRGenerator {
             innerType = inferExpressionType(inner)
             if inner.kind == "Call" {
                 asyncRetType = getAsyncDeclaredRetType(inner.callee)
-                functionRetType = getFunctionReturnType(inner.callee)
+                functionRetType = getFunctionReturnTypeStateImpl(inner.callee,
+                    funcNames, funcRetTypes)
             }
         }
         return inferAwaitExprTypeImpl(expr.operands.length(), innerKind,
