@@ -299,6 +299,41 @@ fun emitAsyncReturnBranchImpl(output: StringBuilder, finalLabel: String) r: Void
     output.append("  br label %" + finalLabel + "\n")
 }
 
+fun emitErrdeferVoidCleanupIntroImpl(output: StringBuilder) r: Void {
+    output.append("  ; errdefer cleanup before void return (LIFO)\n")
+}
+
+fun emitErrdeferValueSetupImpl(output: StringBuilder, tempAllocaReg: String,
+    returnValueReg: String) r: Void {
+
+    output.append("  " + tempAllocaReg + " = alloca i64\n")
+    output.append("  store i64 " + returnValueReg + ", ptr " + tempAllocaReg +
+        "\n")
+}
+
+fun emitErrdeferErrorBranchImpl(output: StringBuilder, isErrReg: String,
+    returnValueReg: String, errLabel: String, okLabel: String) r: Void {
+
+    output.append("  " + isErrReg + " = icmp eq i64 " + returnValueReg +
+        ", 0 ; errdefer: check if error\n")
+    output.append("  br i1 " + isErrReg + ", label %" + errLabel +
+        ", label %" + okLabel + "\n")
+}
+
+fun emitErrdeferErrorPathIntroImpl(output: StringBuilder, errLabel: String)
+    r: Void {
+
+    output.append(errLabel + ":\n")
+    output.append("  ; errdefer cleanup (error path, LIFO)\n")
+}
+
+fun emitErrdeferResumeLabelImpl(output: StringBuilder, okLabel: String)
+    r: Void {
+
+    output.append("  br label %" + okLabel + "\n")
+    output.append(okLabel + ":\n")
+}
+
 fun emitDefaultEmptyReturnStatementImpl(output: StringBuilder, llvmType: String,
     isMainFunc: Int) r: Void {
 

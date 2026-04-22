@@ -88,7 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
@@ -5659,7 +5659,7 @@ class LLVMIRGenerator {
             return
         }
         if stmt.returnValue.kind == "None" {
-            output.append("  ; errdefer cleanup before void return (LIFO)\n")
+            emitErrdeferVoidCleanupIntroImpl(output)
             var voidErrdeferIdx = g_errdeferCount - 1
             while voidErrdeferIdx >= 0 {
                 generateExpression(g_errdeferExprs[voidErrdeferIdx])
@@ -5669,23 +5669,20 @@ class LLVMIRGenerator {
         }
 
         let tempAllocaReg = getNextReg()
-        output.append("  " + tempAllocaReg + " = alloca i64\n")
         let returnValueReg = generateExpression(stmt.returnValue)
-        output.append("  store i64 " + returnValueReg + ", ptr " + tempAllocaReg + "\n")
+        emitErrdeferValueSetupImpl(output, tempAllocaReg, returnValueReg)
         let isErrReg = getNextReg()
-        output.append("  " + isErrReg + " = icmp eq i64 " + returnValueReg + ", 0 ; errdefer: check if error\n")
         let errLabel = getNextBlockLabel()
         let okLabel = getNextBlockLabel()
-        output.append("  br i1 " + isErrReg + ", label %" + errLabel + ", label %" + okLabel + "\n")
-        output.append(errLabel + ":\n")
-        output.append("  ; errdefer cleanup (error path, LIFO)\n")
+        emitErrdeferErrorBranchImpl(output, isErrReg, returnValueReg,
+            errLabel, okLabel)
+        emitErrdeferErrorPathIntroImpl(output, errLabel)
         var errdeferIdx = g_errdeferCount - 1
         while errdeferIdx >= 0 {
             generateExpression(g_errdeferExprs[errdeferIdx])
             errdeferIdx = errdeferIdx - 1
         }
-        output.append("  br label %" + okLabel + "\n")
-        output.append(okLabel + ":\n")
+        emitErrdeferResumeLabelImpl(output, okLabel)
         g_errdeferTempAlloca = tempAllocaReg
     }
 
