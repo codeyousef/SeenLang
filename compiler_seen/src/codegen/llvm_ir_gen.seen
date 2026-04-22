@@ -94,7 +94,7 @@ import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeI
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
-import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
+import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, emitResolvedMemberAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
@@ -5780,46 +5780,13 @@ class LLVMIRGenerator {
     // converts the i64 handle to ptr via inttoptr before GEP.
     fun emitResolvedMemberAssignment(receiverPtrReg: String, receiverType: String, fieldName: String,
         value: ParserExpressionNode, valueReg: String, allowBitfield: Int) r: Int {
-
-        if receiverPtrReg == "" or receiverType == "" {
-            return 0
-        }
-
-        let fieldTypes = resolveAssignmentFieldTypesImpl(receiverType, fieldName,
-            structNames, structFieldNames, structFieldTypes, structLlvmFieldTypes,
-            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
-        if fieldTypes.length() < 2 or fieldTypes[1] == "" {
-            return 0
-        }
-
-        if g_unionTypes != "" and g_unionTypes.contains(receiverType + "|") {
-            emitUnionFieldStoreImpl(output, fieldTypes[0], valueReg, receiverPtrReg)
-            return 1
-        }
-
-        let fieldPtrReg = emitResolvedFieldAccessPtrImpl(output, g_regBox,
-            receiverPtrReg, receiverType, fieldName, structNames,
-            structLayouts, structFieldNames)
-
-        if allowBitfield == 1 and g_bitfieldCount > 0 and fieldTypes[0] == "i64" {
-            let bitfieldWidth = findBitfieldWidthImpl(receiverType + "." + fieldName, g_bitfieldKeys, g_bitfieldWidths)
-            if bitfieldWidth > 0 {
-                if tryEmitBitfieldAssignmentStoreImpl(output, g_regBox, fieldPtrReg, valueReg, bitfieldWidth) == 1 {
-                    return 1
-                }
-            }
-        }
-
-        var valueIsStructLit = 0
-        if value.kind == "StructLiteral" {
-            valueIsStructLit = 1
-        }
-        var isDataField = 0
-        if isDataType(fieldTypes[1]) {
-            isDataField = 1
-        }
-        emitFieldStoreImpl(output, g_regBox, valueReg, fieldTypes[0], fieldPtrReg, valueIsStructLit, isDataField)
-        return 1
+        return emitResolvedMemberAssignmentStoreImpl(output, g_regBox,
+            receiverPtrReg, receiverType, fieldName, valueReg, value.kind,
+            allowBitfield, structNames, structLayouts, structFieldNames,
+            structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+            g_enumTypeNames, g_unionTypes, g_bitfieldCount, g_bitfieldKeys,
+            g_bitfieldWidths)
     }
 
     fun tryGenerateExpressionReceiverMemberAssignment(receiverExpr: ParserExpressionNode,

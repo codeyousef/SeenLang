@@ -1,0 +1,41 @@
+// ir_bitfield_access.seen — Shared bitfield metadata helpers
+// Extracted from assignment/member-access paths so multiple helpers can share
+// lookup logic without introducing module cycles.
+
+import codegen.ir_type_mapping.{parseSimpleIntImpl}
+
+fun findBitfieldWidthImpl(bitfieldKey: String, bitfieldKeys: String,
+    bitfieldWidths: String) r: Int {
+
+    if bitfieldKey == "" or bitfieldKeys == "" or bitfieldWidths == "" {
+        return 0
+    }
+
+    var keySearchPos = 0
+    var bitfieldIdx = 0
+    while keySearchPos < bitfieldKeys.length() {
+        var nextPipe = bitfieldKeys.indexOf("|", keySearchPos)
+        if nextPipe < 0 { nextPipe = bitfieldKeys.length() }
+        let entry = bitfieldKeys.substring(keySearchPos, nextPipe)
+        if entry == bitfieldKey {
+            var widthSearchPos = 0
+            var widthIdx = 0
+            while widthSearchPos < bitfieldWidths.length() {
+                var widthPipe = bitfieldWidths.indexOf("|", widthSearchPos)
+                if widthPipe < 0 { widthPipe = bitfieldWidths.length() }
+                if widthIdx == bitfieldIdx {
+                    let widthStr = bitfieldWidths.substring(widthSearchPos,
+                        widthPipe)
+                    return parseSimpleIntImpl(widthStr)
+                }
+                widthIdx = widthIdx + 1
+                widthSearchPos = widthPipe + 1
+            }
+            return 0
+        }
+        bitfieldIdx = bitfieldIdx + 1
+        keySearchPos = nextPipe + 1
+    }
+
+    return 0
+}

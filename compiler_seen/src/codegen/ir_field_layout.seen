@@ -3,7 +3,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseIntManual, splitPipe}
-import codegen.ir_assignment_gen.{findBitfieldWidthImpl}
+import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_member_access.{emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl}
 import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl}
 import codegen.ir_type_mapping.{resolveKnownStructFieldImpl}
