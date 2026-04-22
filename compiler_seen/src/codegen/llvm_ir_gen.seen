@@ -88,7 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
@@ -5413,45 +5413,41 @@ class LLVMIRGenerator {
         var ctIdx = 0
         while ctIdx < block.statements.length() {
             let ctStmt = block.statements[ctIdx]
-            if ctStmt.kind == "Let" or ctStmt.kind == "Var" {
+            let ctAction = classifyComptimeStatementKindImpl(ctStmt.kind)
+            if ctAction == 1 {
                 // Try integer evaluation first
                 let ctVal = evaluateConstExpr(ctStmt.initializer)
                 if ctVal != -9999999 {
                     registerComptimeVar(ctStmt.variableName, ctVal)
-                    output.append("  ; comptime let " + ctStmt.variableName + " = " + ctVal.toString() + "\n")
+                    emitComptimeIntNoteImpl(output, "let ",
+                        ctStmt.variableName, ctVal)
                 } else {
                     // Try string evaluation
                     let ctStrVal = evaluateConstExprStr(ctStmt.initializer)
                     if ctStrVal != "__EVAL_FAIL__" {
                         registerComptimeStrVar(ctStmt.variableName, ctStrVal)
-                        output.append("  ; comptime let " + ctStmt.variableName + " = \"" + ctStrVal + "\"\n")
+                        emitComptimeStringNoteImpl(output, "let ",
+                            ctStmt.variableName, ctStrVal)
                     }
                 }
             }
             // comptime Assignment — update existing comptime variable
-            if ctStmt.kind == "Assignment" or ctStmt.kind == "Expression" {
+            if ctAction == 2 {
                 if ctStmt.expression.kind == "Assignment" {
-                    let ctAssignName = ctStmt.expression.variableName
-                    if ctAssignName == "" {
-                        let ctAssignName2 = ctStmt.expression.literalValue
-                        if ctAssignName2 != "" {
-                            let ctNewVal = evaluateConstExpr(ctStmt.expression.operands[0])
-                            if ctNewVal != -9999999 {
-                                updateComptimeVar(ctAssignName2, ctNewVal)
-                                output.append("  ; comptime " + ctAssignName2 + " = " + ctNewVal.toString() + "\n")
-                            }
-                        }
-                    } else {
+                    let ctAssignName = resolveComptimeAssignmentTargetImpl(
+                        ctStmt.expression)
+                    if ctAssignName != "" {
                         let ctNewVal = evaluateConstExpr(ctStmt.expression.operands[0])
                         if ctNewVal != -9999999 {
                             updateComptimeVar(ctAssignName, ctNewVal)
-                            output.append("  ; comptime " + ctAssignName + " = " + ctNewVal.toString() + "\n")
+                            emitComptimeIntNoteImpl(output, "",
+                                ctAssignName, ctNewVal)
                         }
                     }
                 }
             }
             // comptime While — unroll loop at compile time
-            if ctStmt.kind == "While" {
+            if ctAction == 3 {
                 var ctWhileIter = 0
                 while ctWhileIter < 1000 {
                     let ctWhileCond = evaluateConstExpr(ctStmt.expression)
@@ -5460,10 +5456,10 @@ class LLVMIRGenerator {
                     processComptimeStatements(ctStmt.thenBranch)
                     ctWhileIter = ctWhileIter + 1
                 }
-                output.append("  ; comptime while unrolled " + ctWhileIter.toString() + " iterations\n")
+                emitComptimeWhileUnrolledNoteImpl(output, ctWhileIter)
             }
             // Other statement kinds: emit as runtime code (code generation use case)
-            if ctStmt.kind != "Let" and ctStmt.kind != "Var" and ctStmt.kind != "Assignment" and ctStmt.kind != "Expression" and ctStmt.kind != "While" {
+            if ctAction == 0 {
                 generateStatement(ctStmt)
             }
             ctIdx = ctIdx + 1
