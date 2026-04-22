@@ -1039,6 +1039,52 @@ fun updateStructSizeFromHeaderReg(structName: String, sizeStr: String, structNam
     if sizeVal > 0 { structSizes[idx] = sizeVal }
 }
 
+fun applyTypeHeaderStructLineReg(trimmedLine: String, currentStruct: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: String {
+
+    var nextStruct = currentStruct
+    if trimmedLine.startsWith("%") and trimmedLine.contains("= type") {
+        var parseIdx = 1
+        var foundName = ""
+        var foundLayout = ""
+        while parseIdx < trimmedLine.length() - 7 {
+            if trimmedLine.substring(parseIdx, parseIdx + 9) ==
+                " = type {" {
+                foundName = trimmedLine.substring(1, parseIdx)
+                foundLayout = trimmedLine.substring(parseIdx + 8,
+                    trimmedLine.length())
+                parseIdx = trimmedLine.length()
+            }
+            parseIdx = parseIdx + 1
+        }
+        if foundName != "" {
+            nextStruct = foundName
+            updateStructLayoutFromHeaderReg(foundName, foundLayout,
+                structNames, structLayouts, structFieldNames, structFieldTypes,
+                structLlvmFieldTypes, structSizes, structMethodNames,
+                structMethodRetTypes)
+        }
+    }
+    if trimmedLine.startsWith("; Size:") and nextStruct != "" {
+        let sizePart = trimmedLine.substring(7, trimmedLine.length())
+        updateStructSizeFromHeaderReg(nextStruct, sizePart, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            structLlvmFieldTypes, structSizes, structMethodNames,
+            structMethodRetTypes)
+    }
+    if trimmedLine.startsWith("; Fields:") and nextStruct != "" {
+        let fieldsPart = trimmedLine.substring(9, trimmedLine.length())
+        updateStructFieldsFromHeaderReg(nextStruct, fieldsPart, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            structLlvmFieldTypes, structSizes, structMethodNames,
+            structMethodRetTypes)
+    }
+    return nextStruct
+}
+
 fun getFieldTypeFromListsReg(fieldNamesStr: String, fieldTypesStr: String, fieldName: String) r: String {
     var fieldIdx = 0
     var nameStart = 0

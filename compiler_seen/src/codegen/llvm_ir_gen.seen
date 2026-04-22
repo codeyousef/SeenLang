@@ -95,7 +95,7 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnP
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findActiveVariableTypeImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
-import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, computeMissingStructSizesReg}
+import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
@@ -1531,44 +1531,11 @@ class LLVMIRGenerator {
                 if trimmedLine.startsWith("; Runtime Function Declarations") or trimmedLine.startsWith("; End of auto-generated type declarations") {
                     return
                 }
-                if trimmedLine.startsWith("%") and trimmedLine.contains("= type") {
-                    // Parse "%NAME = type LAYOUT" by finding " = type " position
-                    // Since findSubstring is broken, find "=" and verify context
-                    var parseIdx = 1 // start after %
-                    var foundName = ""
-                    var foundLayout = ""
-                    while parseIdx < trimmedLine.length() - 7 {
-                        // Look for " = type {"
-                        if trimmedLine.substring(parseIdx, parseIdx + 9) == " = type {" {
-                            foundName = trimmedLine.substring(1, parseIdx)
-                            foundLayout = trimmedLine.substring(parseIdx + 8, trimmedLine.length())
-                            parseIdx = trimmedLine.length() // break
-                        }
-                        parseIdx = parseIdx + 1
-                    }
-                    if foundName != "" {
-                        currentStruct = foundName
-                        updateStructLayoutFromHeaderReg(foundName, foundLayout,
-                            structNames, structLayouts, structFieldNames,
-                            structFieldTypes, structLlvmFieldTypes,
-                            structSizes, structMethodNames,
-                            structMethodRetTypes)
-                    }
-                }
-                if trimmedLine.startsWith("; Size:") and currentStruct != "" {
-                    let sizePart = trimmedLine.substring(7, trimmedLine.length())
-                    updateStructSizeFromHeaderReg(currentStruct, sizePart,
-                        structNames, structLayouts, structFieldNames,
-                        structFieldTypes, structLlvmFieldTypes, structSizes,
-                        structMethodNames, structMethodRetTypes)
-                }
-                if trimmedLine.startsWith("; Fields:") and currentStruct != "" {
-                    let fieldsPart = trimmedLine.substring(9, trimmedLine.length())
-                    updateStructFieldsFromHeaderReg(currentStruct, fieldsPart,
-                        structNames, structLayouts, structFieldNames,
-                        structFieldTypes, structLlvmFieldTypes, structSizes,
-                        structMethodNames, structMethodRetTypes)
-                }
+                currentStruct = applyTypeHeaderStructLineReg(trimmedLine,
+                    currentStruct, structNames, structLayouts,
+                    structFieldNames, structFieldTypes,
+                    structLlvmFieldTypes, structSizes, structMethodNames,
+                    structMethodRetTypes)
                 appendParsedHeaderModuleConstantImpl(trimmedLine,
                     moduleConstantNames, moduleConstantTypes,
                     moduleConstantValues)
