@@ -88,7 +88,8 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_scope.{classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
@@ -5289,61 +5290,6 @@ class LLVMIRGenerator {
         return false
     }
 
-    fun tryGenerateScopedStatement(stmt: StatementNode) r: Bool {
-        if stmt.kind == "Defer" {
-            generateDeferredStatement(stmt, false)
-            return true
-        }
-        if stmt.kind == "Errdefer" {
-            generateDeferredStatement(stmt, true)
-            return true
-        }
-        if stmt.kind == "Block" {
-            if stmt.thenBranch.statements.length() > 0 {
-                generateBlock(stmt.thenBranch)
-            }
-            return true
-        }
-        if stmt.kind == "Unsafe" {
-            let insideUnsafeBox = Array<Int>()
-            insideUnsafeBox.push(g_insideUnsafe)
-            enterUnsafeStatementImpl(output, insideUnsafeBox)
-            g_insideUnsafe = insideUnsafeBox[0]
-            if stmt.thenBranch.statements.length() > 0 {
-                generateBlock(stmt.thenBranch)
-            }
-            insideUnsafeBox[0] = g_insideUnsafe
-            exitUnsafeStatementImpl(output, insideUnsafeBox)
-            g_insideUnsafe = insideUnsafeBox[0]
-            return true
-        }
-        if stmt.kind == "TryCatch" {
-            generateTryCatchStatement(stmt)
-            return true
-        }
-        return false
-    }
-
-    fun tryGenerateMetaStatement(stmt: StatementNode) r: Bool {
-        if stmt.kind == "ParallelFor" {
-            generateParallelForStatement(stmt)
-            return true
-        }
-        if stmt.kind == "ComptimeBlock" {
-            generateComptimeBlock(stmt)
-            return true
-        }
-        if stmt.kind == "ComptimeAssert" {
-            generateComptimeAssert(stmt)
-            return true
-        }
-        if stmt.kind == "ComptimeIf" {
-            generateComptimeIf(stmt)
-            return true
-        }
-        return false
-    }
-
     // Top-level statement dispatch. Routes each statement kind to its
     // specialized generator: Let/Var, Return, If, IfLet, While, ForIn,
     // Match, Expression (which may be Assignment, MemberAssignment,
@@ -5359,10 +5305,57 @@ class LLVMIRGenerator {
             handled = tryGenerateLoopControlStatement(stmt)
         }
         if not handled {
-            handled = tryGenerateScopedStatement(stmt)
+            let scopedAction = classifyScopedStatementKindImpl(stmt.kind)
+            if scopedAction == 1 {
+                generateDeferredStatement(stmt, false)
+                handled = true
+            }
+            if scopedAction == 2 {
+                generateDeferredStatement(stmt, true)
+                handled = true
+            }
+            if scopedAction == 3 {
+                if stmt.thenBranch.statements.length() > 0 {
+                    generateBlock(stmt.thenBranch)
+                }
+                handled = true
+            }
+            if scopedAction == 4 {
+                let insideUnsafeBox = Array<Int>()
+                insideUnsafeBox.push(g_insideUnsafe)
+                enterUnsafeStatementImpl(output, insideUnsafeBox)
+                g_insideUnsafe = insideUnsafeBox[0]
+                if stmt.thenBranch.statements.length() > 0 {
+                    generateBlock(stmt.thenBranch)
+                }
+                insideUnsafeBox[0] = g_insideUnsafe
+                exitUnsafeStatementImpl(output, insideUnsafeBox)
+                g_insideUnsafe = insideUnsafeBox[0]
+                handled = true
+            }
+            if scopedAction == 5 {
+                generateTryCatchStatement(stmt)
+                handled = true
+            }
         }
         if not handled {
-            handled = tryGenerateMetaStatement(stmt)
+            let metaAction = classifyMetaStatementKindImpl(stmt.kind)
+            if metaAction == 1 {
+                generateParallelForStatement(stmt)
+                handled = true
+            }
+            if metaAction == 2 {
+                generateComptimeBlock(stmt)
+                handled = true
+            }
+            if metaAction == 3 {
+                generateComptimeAssert(stmt)
+                handled = true
+            }
+            if metaAction == 4 {
+                generateComptimeIf(stmt)
+                handled = true
+            }
         }
     }
 
