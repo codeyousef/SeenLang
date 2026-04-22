@@ -141,6 +141,39 @@ fun registerAsyncFunctionStateImpl(name: String, declaredRetType: String,
     return namesBox[0] + sep + retTypesBox[0] + sep + countBox[0].toString()
 }
 
+fun registerParentClassStateImpl(childName: String, parentName: String,
+    inheritanceChildNames: String, inheritanceParentNames: String,
+    inheritanceCount: Int) r: String {
+
+    var updatedChildNames = inheritanceChildNames
+    var updatedParentNames = inheritanceParentNames
+    var updatedCount = inheritanceCount
+    if updatedCount > 0 {
+        updatedChildNames = updatedChildNames + "|"
+        updatedParentNames = updatedParentNames + "|"
+    }
+    updatedChildNames = updatedChildNames + childName
+    updatedParentNames = updatedParentNames + parentName
+    updatedCount = updatedCount + 1
+    let sep = declRegistryPackSepImpl()
+    return updatedChildNames + sep + updatedParentNames + sep +
+        updatedCount.toString()
+}
+
+fun lookupParentClassStateImpl(childName: String, inheritanceChildNames: String,
+    inheritanceParentNames: String, inheritanceCount: Int) r: String {
+
+    var idx = 0
+    while idx < inheritanceCount {
+        let child = pipeGet(inheritanceChildNames, idx)
+        if child == childName {
+            return pipeGet(inheritanceParentNames, idx)
+        }
+        idx = idx + 1
+    }
+    return ""
+}
+
 fun isAsyncFunctionStateImpl(name: String, asyncFuncNames: String,
     asyncFuncCount: Int) r: Bool {
     return isAsyncFunctionImpl(name, asyncFuncNames, asyncFuncCount)
