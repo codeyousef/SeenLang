@@ -45,7 +45,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl, collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, applyDeclarationItemStateImpl, registerEnumDeclarationStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerClassMethodDeclarationsStateImpl, registerTopLevelFunctionDeclarationStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl, appendParsedHeaderModuleConstantImpl}
@@ -1342,7 +1342,10 @@ class LLVMIRGenerator {
             structFieldTypes, structLlvmFieldTypes, structSizes,
             structMethodNames, structMethodRetTypes)
 
-        preRegisterClassTypes(program)
+        let declState = captureDeclarationPassState()
+        preRegisterClassTypesImpl(program, structNames, structLayouts,
+            structFieldNames, structFieldTypes, structLlvmFieldTypes,
+            structSizes, structMethodNames, structMethodRetTypes)
 
         var i = 0
         while i < program.items.length() {
@@ -1365,36 +1368,24 @@ class LLVMIRGenerator {
                     item.classNode.name, item.classNode.methods,
                     methodRetTypeNames, item.visibility, structNames,
                     g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-                    g_enumTypeNames, g_reprCClassNames, g_floatParamFuncNames,
+                    declState.enumTypeNames, g_reprCClassNames,
+                    g_floatParamFuncNames,
                     g_floatParamParamIdxs, funcNames, funcRetTypes,
-                    g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount,
-                    g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareVis,
-                    g_xmDeclareCount)
-                applyDeclarationItemUpdatedState(updated)
+                    declState.asyncFuncNames, declState.asyncFuncRetTypes,
+                    declState.asyncFuncCount, declState.xmDeclareNames,
+                    declState.xmDeclareStrs, declState.xmDeclareVis,
+                    declState.xmDeclareCount)
+                applyDeclarationItemStateImpl(declState, updated)
+                syncDeclarationPassState(declState)
             }
 
             // Register enum variants for codegen
             // EnumNode.variants is Array<String> (just variant names)
             if item.itemType == "Enum" {
                 let enumNode = item.enumNode
-                let enumName = enumNode.name
-                let updated = registerEnumVariantsStateImpl(enumName,
-                    enumNode.variants, g_enumTypeNames, g_enumVariantNames,
-                    g_enumVariantTags, g_enumVariantFieldTypes,
-                    g_enumVariantFieldCounts, g_enumVariantParent,
-                    g_enumTypeCount, g_enumVariantCount)
-                g_enumTypeNames = unpackDeclRegistryFieldImpl(updated, 0)
-                g_enumVariantNames = unpackDeclRegistryFieldImpl(updated, 1)
-                g_enumVariantTags = unpackDeclRegistryFieldImpl(updated, 2)
-                g_enumVariantFieldTypes = unpackDeclRegistryFieldImpl(
-                    updated, 3)
-                g_enumVariantFieldCounts = unpackDeclRegistryFieldImpl(
-                    updated, 4)
-                g_enumVariantParent = unpackDeclRegistryFieldImpl(updated, 5)
-                g_enumTypeCount = parseIntManual(
-                    unpackDeclRegistryFieldImpl(updated, 6))
-                g_enumVariantCount = parseIntManual(
-                    unpackDeclRegistryFieldImpl(updated, 7))
+                registerEnumDeclarationStateImpl(enumNode.name,
+                    enumNode.variants, declState)
+                syncDeclarationPassState(declState)
             }
 
             if item.itemType == "Function" {
@@ -1402,44 +1393,55 @@ class LLVMIRGenerator {
                 let updated = registerTopLevelFunctionDeclarationStateImpl(
                     item.function, item.visibility, funcRetTypeName,
                     structNames, g_typeAliasNames, g_typeAliasTargets,
-                    g_typeAliasCount, g_enumTypeNames, g_reprCClassNames,
+                    g_typeAliasCount, declState.enumTypeNames,
+                    g_reprCClassNames,
                     g_floatParamFuncNames, g_floatParamParamIdxs, funcNames,
-                    funcRetTypes, g_asyncFuncNames, g_asyncFuncRetTypes,
-                    g_asyncFuncCount, g_xmDeclareNames, g_xmDeclareStrs,
-                    g_xmDeclareVis, g_xmDeclareCount)
-                applyDeclarationItemUpdatedState(updated)
+                    funcRetTypes, declState.asyncFuncNames,
+                    declState.asyncFuncRetTypes, declState.asyncFuncCount,
+                    declState.xmDeclareNames, declState.xmDeclareStrs,
+                    declState.xmDeclareVis, declState.xmDeclareCount)
+                applyDeclarationItemStateImpl(declState, updated)
+                syncDeclarationPassState(declState)
             }
 
             i = i + 1
         }
 
-        let updated = registerCrossModuleConstantsStateImpl(program,
-            g_xmConstNames, g_xmConstTypes, g_xmConstMutable,
-            g_xmConstSeenTypes, g_xmConstCount)
-        g_xmConstNames = unpackDeclRegistryFieldImpl(updated, 0)
-        g_xmConstTypes = unpackDeclRegistryFieldImpl(updated, 1)
-        g_xmConstMutable = unpackDeclRegistryFieldImpl(updated, 2)
-        g_xmConstSeenTypes = unpackDeclRegistryFieldImpl(updated, 3)
-        g_xmConstCount = parseIntManual(unpackDeclRegistryFieldImpl(updated,
-            4))
+        registerCrossModuleConstantsIntoStateImpl(program, declState)
+        syncDeclarationPassState(declState)
     }
 
-    fun preRegisterClassTypes(program: ProgramNode) r: Void {
-        preRegisterClassTypesImpl(program, structNames, structLayouts,
-            structFieldNames, structFieldTypes, structLlvmFieldTypes,
-            structSizes, structMethodNames, structMethodRetTypes)
+    fun captureDeclarationPassState() r: DeclarationPassState {
+        return DeclarationPassState.new(g_asyncFuncNames, g_asyncFuncRetTypes,
+            g_asyncFuncCount, g_xmDeclareNames, g_xmDeclareStrs,
+            g_xmDeclareVis, g_xmDeclareCount, g_enumTypeNames,
+            g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes,
+            g_enumVariantFieldCounts, g_enumVariantParent, g_enumTypeCount,
+            g_enumVariantCount, g_xmConstNames, g_xmConstTypes,
+            g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount)
     }
 
-    fun applyDeclarationItemUpdatedState(updated: String) r: Void {
-        g_asyncFuncNames = unpackDeclRegistryFieldImpl(updated, 0)
-        g_asyncFuncRetTypes = unpackDeclRegistryFieldImpl(updated, 1)
-        g_asyncFuncCount = parseIntManual(unpackDeclRegistryFieldImpl(updated,
-            2))
-        g_xmDeclareNames = unpackDeclRegistryFieldImpl(updated, 3)
-        g_xmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 4)
-        g_xmDeclareVis = unpackDeclRegistryFieldImpl(updated, 5)
-        g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated,
-            6))
+    fun syncDeclarationPassState(state: DeclarationPassState) r: Void {
+        g_asyncFuncNames = state.asyncFuncNames
+        g_asyncFuncRetTypes = state.asyncFuncRetTypes
+        g_asyncFuncCount = state.asyncFuncCount
+        g_xmDeclareNames = state.xmDeclareNames
+        g_xmDeclareStrs = state.xmDeclareStrs
+        g_xmDeclareVis = state.xmDeclareVis
+        g_xmDeclareCount = state.xmDeclareCount
+        g_enumTypeNames = state.enumTypeNames
+        g_enumVariantNames = state.enumVariantNames
+        g_enumVariantTags = state.enumVariantTags
+        g_enumVariantFieldTypes = state.enumVariantFieldTypes
+        g_enumVariantFieldCounts = state.enumVariantFieldCounts
+        g_enumVariantParent = state.enumVariantParent
+        g_enumTypeCount = state.enumTypeCount
+        g_enumVariantCount = state.enumVariantCount
+        g_xmConstNames = state.xmConstNames
+        g_xmConstTypes = state.xmConstTypes
+        g_xmConstMutable = state.xmConstMutable
+        g_xmConstSeenTypes = state.xmConstSeenTypes
+        g_xmConstCount = state.xmConstCount
     }
 
     fun applyTypeHeader(headerContent: String) r: Void {

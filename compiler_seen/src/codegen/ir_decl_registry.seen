@@ -31,6 +31,97 @@ fun unpackDeclRegistryFieldImpl(data: String, idx: Int) r: String {
     return data.substring(start, end)
 }
 
+class DeclarationPassState {
+    var asyncFuncNames: String
+    var asyncFuncRetTypes: String
+    var asyncFuncCount: Int
+    var xmDeclareNames: String
+    var xmDeclareStrs: String
+    var xmDeclareVis: String
+    var xmDeclareCount: Int
+    var enumTypeNames: String
+    var enumVariantNames: String
+    var enumVariantTags: String
+    var enumVariantFieldTypes: String
+    var enumVariantFieldCounts: String
+    var enumVariantParent: String
+    var enumTypeCount: Int
+    var enumVariantCount: Int
+    var xmConstNames: String
+    var xmConstTypes: String
+    var xmConstMutable: String
+    var xmConstSeenTypes: String
+    var xmConstCount: Int
+
+    static fun new(asyncFuncNames: String, asyncFuncRetTypes: String,
+        asyncFuncCount: Int, xmDeclareNames: String, xmDeclareStrs: String,
+        xmDeclareVis: String, xmDeclareCount: Int, enumTypeNames: String,
+        enumVariantNames: String, enumVariantTags: String,
+        enumVariantFieldTypes: String, enumVariantFieldCounts: String,
+        enumVariantParent: String, enumTypeCount: Int, enumVariantCount: Int,
+        xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
+        xmConstSeenTypes: String, xmConstCount: Int) r: DeclarationPassState {
+
+        return DeclarationPassState{
+            asyncFuncNames: asyncFuncNames,
+            asyncFuncRetTypes: asyncFuncRetTypes,
+            asyncFuncCount: asyncFuncCount,
+            xmDeclareNames: xmDeclareNames,
+            xmDeclareStrs: xmDeclareStrs,
+            xmDeclareVis: xmDeclareVis,
+            xmDeclareCount: xmDeclareCount,
+            enumTypeNames: enumTypeNames,
+            enumVariantNames: enumVariantNames,
+            enumVariantTags: enumVariantTags,
+            enumVariantFieldTypes: enumVariantFieldTypes,
+            enumVariantFieldCounts: enumVariantFieldCounts,
+            enumVariantParent: enumVariantParent,
+            enumTypeCount: enumTypeCount,
+            enumVariantCount: enumVariantCount,
+            xmConstNames: xmConstNames,
+            xmConstTypes: xmConstTypes,
+            xmConstMutable: xmConstMutable,
+            xmConstSeenTypes: xmConstSeenTypes,
+            xmConstCount: xmConstCount
+        }
+    }
+}
+
+fun applyDeclarationItemStateImpl(state: DeclarationPassState, updated: String)
+    r: Void {
+
+    state.asyncFuncNames = unpackDeclRegistryFieldImpl(updated, 0)
+    state.asyncFuncRetTypes = unpackDeclRegistryFieldImpl(updated, 1)
+    state.asyncFuncCount = unpackDeclRegistryFieldImpl(updated, 2).toInt()
+    state.xmDeclareNames = unpackDeclRegistryFieldImpl(updated, 3)
+    state.xmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 4)
+    state.xmDeclareVis = unpackDeclRegistryFieldImpl(updated, 5)
+    state.xmDeclareCount = unpackDeclRegistryFieldImpl(updated, 6).toInt()
+}
+
+fun applyEnumDeclarationStateImpl(state: DeclarationPassState, updated: String)
+    r: Void {
+
+    state.enumTypeNames = unpackDeclRegistryFieldImpl(updated, 0)
+    state.enumVariantNames = unpackDeclRegistryFieldImpl(updated, 1)
+    state.enumVariantTags = unpackDeclRegistryFieldImpl(updated, 2)
+    state.enumVariantFieldTypes = unpackDeclRegistryFieldImpl(updated, 3)
+    state.enumVariantFieldCounts = unpackDeclRegistryFieldImpl(updated, 4)
+    state.enumVariantParent = unpackDeclRegistryFieldImpl(updated, 5)
+    state.enumTypeCount = unpackDeclRegistryFieldImpl(updated, 6).toInt()
+    state.enumVariantCount = unpackDeclRegistryFieldImpl(updated, 7).toInt()
+}
+
+fun applyCrossModuleConstantsStateImpl(state: DeclarationPassState,
+    updated: String) r: Void {
+
+    state.xmConstNames = unpackDeclRegistryFieldImpl(updated, 0)
+    state.xmConstTypes = unpackDeclRegistryFieldImpl(updated, 1)
+    state.xmConstMutable = unpackDeclRegistryFieldImpl(updated, 2)
+    state.xmConstSeenTypes = unpackDeclRegistryFieldImpl(updated, 3)
+    state.xmConstCount = unpackDeclRegistryFieldImpl(updated, 4).toInt()
+}
+
 fun preRegisterClassTypesImpl(program: ProgramNode, structNames: Array<String>,
     structLayouts: Array<String>, structFieldNames: Array<String>,
     structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>,
@@ -106,6 +197,16 @@ fun registerEnumVariantsStateImpl(enumName: String, variants: Array<String>,
         enumVariantCountBox[0].toString()
 }
 
+fun registerEnumDeclarationStateImpl(enumName: String, variants: Array<String>,
+    state: DeclarationPassState) r: Void {
+
+    let updated = registerEnumVariantsStateImpl(enumName, variants,
+        state.enumTypeNames, state.enumVariantNames, state.enumVariantTags,
+        state.enumVariantFieldTypes, state.enumVariantFieldCounts,
+        state.enumVariantParent, state.enumTypeCount, state.enumVariantCount)
+    applyEnumDeclarationStateImpl(state, updated)
+}
+
 fun registerCrossModuleConstantsStateImpl(program: ProgramNode,
     xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
     xmConstSeenTypes: String, xmConstCount: Int) r: String {
@@ -125,6 +226,15 @@ fun registerCrossModuleConstantsStateImpl(program: ProgramNode,
     let sep = declRegistryPackSepImpl()
     return namesBox[0] + sep + typesBox[0] + sep + mutableBox[0] + sep +
         seenTypesBox[0] + sep + countBox[0].toString()
+}
+
+fun registerCrossModuleConstantsIntoStateImpl(program: ProgramNode,
+    state: DeclarationPassState) r: Void {
+
+    let updated = registerCrossModuleConstantsStateImpl(program,
+        state.xmConstNames, state.xmConstTypes, state.xmConstMutable,
+        state.xmConstSeenTypes, state.xmConstCount)
+    applyCrossModuleConstantsStateImpl(state, updated)
 }
 
 fun registerAsyncFunctionStateImpl(name: String, declaredRetType: String,
