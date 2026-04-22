@@ -1510,21 +1510,6 @@ class LLVMIRGenerator {
         g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
     }
 
-    fun getLlvmTypeAlign(typeName: String) r: Int {
-        return getLlvmTypeAlignImpl(typeName, structNames, structLayouts,
-            structSizes)
-    }
-
-    fun getLlvmTypeSize(typeName: String) r: Int {
-        return getLlvmTypeSizeImpl(typeName, structNames, structLayouts,
-            structSizes)
-    }
-
-    fun computeStructSizeFromLayout(layout: String) r: Int {
-        return computeStructSizeFromLayoutImpl(layout, structNames,
-            structLayouts, structSizes)
-    }
-
     fun computeMissingStructSizes() r: Void {
         var changed = true
         var pass = 0
@@ -1541,7 +1526,8 @@ class LLVMIRGenerator {
                     traceGen("computeMissingStructSizes: " + structName)
                     let layout = structLayouts[i]
                     if layout != "" {
-                        let sizeVal = computeStructSizeFromLayout(layout)
+                        let sizeVal = computeStructSizeFromLayoutImpl(layout,
+                            structNames, structLayouts, structSizes)
                         if sizeVal > 0 {
                             structSizes[i] = sizeVal
                             changed = true
@@ -2107,7 +2093,8 @@ class LLVMIRGenerator {
             let arrayLen = parseSeenStaticArrayLengthImpl(typeName)
             let elementSeenType = parseSeenStaticArrayElementTypeImpl(typeName)
             if arrayLen > 0 and elementSeenType != "" {
-                let elementSize = getLlvmTypeSize(mapType(elementSeenType))
+                let elementSize = getLlvmTypeSizeImpl(mapType(elementSeenType),
+                    structNames, structLayouts, structSizes)
                 if elementSize > 0 {
                     return arrayLen * elementSize
                 }
@@ -2281,7 +2268,8 @@ class LLVMIRGenerator {
                     layout = layout + llvmType
                     fieldNames = fieldNames + fieldNameStr
                     fieldTypes = fieldTypes + fieldType
-                    totalSize = totalSize + getLlvmTypeSize(llvmType)
+                    totalSize = totalSize + getLlvmTypeSizeImpl(llvmType,
+                        structNames, structLayouts, structSizes)
 
                     realOwnIdx = realOwnIdx + 1
                     i = i + 1
@@ -3419,7 +3407,8 @@ class LLVMIRGenerator {
         while fieldIdx < classNode.fields.length() {
             let unionField = classNode.fields[fieldIdx]
             let unionFieldType = mapType(normalizeDeclaredTypeNode(unionField.paramType))
-            let unionFieldSize = getLlvmTypeSize(unionFieldType)
+            let unionFieldSize = getLlvmTypeSizeImpl(unionFieldType,
+                structNames, structLayouts, structSizes)
             if unionFieldSize > maxFieldSize {
                 maxFieldSize = unionFieldSize
                 maxFieldType = unionFieldType
@@ -7796,7 +7785,8 @@ class LLVMIRGenerator {
         }
         let knownLitLayout = resolveKnownStructFieldImpl(structName, "")
         if knownLitLayout != "" {
-            var knownStructSize = getLlvmTypeSize(knownLitLayout)
+            var knownStructSize = getLlvmTypeSizeImpl(knownLitLayout,
+                structNames, structLayouts, structSizes)
             if knownStructSize < 8 {
                 knownStructSize = 8
             }
@@ -8537,7 +8527,8 @@ class LLVMIRGenerator {
                 let sizeTypeName = inferExpressionType(expr.arguments[0])
                 if sizeTypeName != "" {
                     let llvmT = mapType(sizeTypeName)
-                    let sz = getLlvmTypeSize(llvmT)
+                    let sz = getLlvmTypeSizeImpl(llvmT, structNames,
+                        structLayouts, structSizes)
                     if sz > 0 {
                         return sz.toString()
                     }
@@ -8552,7 +8543,8 @@ class LLVMIRGenerator {
                 let alignTypeName = inferExpressionType(expr.arguments[0])
                 if alignTypeName != "" {
                     let llvmT = mapType(alignTypeName)
-                    let al = getLlvmTypeAlign(llvmT)
+                    let al = getLlvmTypeAlignImpl(llvmT, structNames,
+                        structLayouts, structSizes)
                     if al > 0 {
                         return al.toString()
                     }
@@ -8584,8 +8576,11 @@ class LLVMIRGenerator {
                             if offTComma < 0 { offTComma = fTypesCsv.length() }
                             let offFt = fTypesCsv.substring(offTPos, offTComma)
                             offFieldNamesArr.push(offFn)
-                            offFieldAlignsArr.push(getLlvmTypeAlign(offFt))
-                            offFieldSizesArr.push(getLlvmTypeSize(offFt))
+                            offFieldAlignsArr.push(getLlvmTypeAlignImpl(
+                                offFt, structNames, structLayouts,
+                                structSizes))
+                            offFieldSizesArr.push(getLlvmTypeSizeImpl(offFt,
+                                structNames, structLayouts, structSizes))
                             offPos = offComma + 1
                             offTPos = offTComma + 1
                         }
