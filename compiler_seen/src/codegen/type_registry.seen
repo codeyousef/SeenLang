@@ -780,6 +780,23 @@ fun registerStructMethodReg(className: String, methodName: String, retType: Stri
     funcRetTypes.push(retType)
 }
 
+fun applyStructLayoutRegistrationReg(structIdx: Int, className: String,
+    layout: String, fieldNames: String, fieldTypes: String, totalSize: Int,
+    methodNames: String, methodRetTypes: String, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structSizes: Array<Int>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: Void {
+
+    structLayouts[structIdx] = layout
+    structFieldNames[structIdx] = fieldNames
+    structFieldTypes[structIdx] = fieldTypes
+    if structSizes[structIdx] == 0 or isDataTypeImpl(className) == 0 {
+        structSizes[structIdx] = totalSize
+    }
+    structMethodNames[structIdx] = methodNames
+    structMethodRetTypes[structIdx] = methodRetTypes
+}
+
 fun registerKnownDataTypesReg(structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: Void {
     traceGen("registerKnownDataTypes: start structNames len=" + structNames.length().toString())
     if structNames.length() > 0 {

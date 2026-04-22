@@ -95,7 +95,7 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnP
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
-import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
+import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyTypeHeaderStructLineReg, computeMissingStructSizesReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
@@ -1741,7 +1741,6 @@ class LLVMIRGenerator {
             structLayouts, structFieldNames, structFieldTypes,
             structLlvmFieldTypes, structSizes, structMethodNames,
             structMethodRetTypes)
-        let hasLayout = structLayouts[structIdx] != ""
         traceGen("registerStructLayout: " + classNode.name + " structIdx=" + structIdx.toString() + " namesLen=" + structNames.length().toString() + " fieldNamesLen=" + structFieldNames.length().toString())
         traceGen("registerStructLayout: " + classNode.name + " fields=" + classNode.fields.length().toString())
 
@@ -1871,18 +1870,13 @@ class LLVMIRGenerator {
         // Store in registry - always overwrite layout from classNode.fields
         // because it is authoritative (matches emitClassType output)
         traceGen("registerStructLayout: " + classNode.name + " updating registry")
-        structLayouts[structIdx] = layout
         traceGen("registerStructLayout: " + classNode.name + " updating field types")
         traceGen("registerStructLayout: " + classNode.name + " fieldNamesLen(before)=" + structFieldNames.length().toString())
-        structFieldNames[structIdx] = fieldNames
-        structFieldTypes[structIdx] = fieldTypes
-        // Only update size if not already set (preserve hardcoded sizes for data types)
-        // Class types always compute size from fields since their layout can vary
-        if structSizes[structIdx] == 0 or not isDataType(classNode.name) {
-            structSizes[structIdx] = totalSize
-        }
-        structMethodNames[structIdx] = methodNamesBox[0]
-        structMethodRetTypes[structIdx] = methodRetTypesBox[0]
+        applyStructLayoutRegistrationReg(structIdx, classNode.name, layout,
+            fieldNames, fieldTypes, totalSize, methodNamesBox[0],
+            methodRetTypesBox[0], structLayouts, structFieldNames,
+            structFieldTypes, structSizes, structMethodNames,
+            structMethodRetTypes)
     }
 
     // Get field index and type from registered struct
