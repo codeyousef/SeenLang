@@ -530,11 +530,6 @@ fun isModuleConstMutable(idx: Int) r: Bool {
     return isModuleConstMutableImpl(idx, g_moduleConstMutable)
 }
 
-// Get the Seen type of module constant at given index
-fun getModuleConstSeenType(idx: Int) r: String {
-    return getModuleConstSeenTypeImpl(idx, g_moduleConstSeenTypes)
-}
-
 // Uses Array<String> for O(1) indexed access. Searches backwards (most recent first).
 // CSE (Common Subexpression Elimination) cache lookup.
 // Searches backwards through g_cseKeysArr so the most recent entry wins,
@@ -1970,7 +1965,14 @@ class LLVMIRGenerator {
         if preAllocatedType != "" {
             return preAllocatedType
         }
-        let moduleConstType = tryInferModuleConstantVariableType(name)
+        let updated = tryInferModuleConstantVariableTypeStateImpl(name,
+            moduleConstantNames, moduleConstantTypes, moduleConstantValues,
+            g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames,
+            g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes,
+            g_xmConstCount)
+        g_moduleConstMutable = unpackModuleConstFieldImpl(updated, 0)
+        g_moduleConstSeenTypes = unpackModuleConstFieldImpl(updated, 1)
+        let moduleConstType = unpackModuleConstFieldImpl(updated, 2)
         if moduleConstType != "" {
             return moduleConstType
         }
@@ -7485,7 +7487,8 @@ class LLVMIRGenerator {
             return ""
         }
         let constType = moduleConstantTypes[constIdx]
-        var constSeenType = getModuleConstSeenType(constIdx)
+        var constSeenType = getModuleConstSeenTypeImpl(constIdx,
+            g_moduleConstSeenTypes)
         if constSeenType == "" {
             constSeenType = findVarType(receiverName)
         }
@@ -10747,17 +10750,6 @@ class LLVMIRGenerator {
         let declaredType = normalizeDeclaredTypeNode(fn.returnType)
         let inferredType = inferBlockReturnType("", fn.body)
         return resolveFunctionReturnTypeImpl(declaredType, inferredType)
-    }
-
-    fun tryInferModuleConstantVariableType(varName: String) r: String {
-        let updated = tryInferModuleConstantVariableTypeStateImpl(varName,
-            moduleConstantNames, moduleConstantTypes, moduleConstantValues,
-            g_moduleConstMutable, g_moduleConstSeenTypes, g_xmConstNames,
-            g_xmConstTypes, g_xmConstMutable, g_xmConstSeenTypes,
-            g_xmConstCount)
-        g_moduleConstMutable = unpackModuleConstFieldImpl(updated, 0)
-        g_moduleConstSeenTypes = unpackModuleConstFieldImpl(updated, 1)
-        return unpackModuleConstFieldImpl(updated, 2)
     }
 
     fun tryInferLLVMIRGeneratorThisFieldType(thisType: String, varName: String) r: String {
