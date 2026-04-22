@@ -88,7 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
@@ -5092,13 +5092,15 @@ class LLVMIRGenerator {
     }
 
     fun emitBlockDeferredCleanup(savedDeferCount: Int) r: Void {
-        if g_deferCount > savedDeferCount and not blockTerminated {
-            output.append("  ; defer cleanup (LIFO)\n")
-            var dIdx = g_deferCount - 1
-            while dIdx >= savedDeferCount {
-                generateExpression(g_deferExprs[dIdx])
-                dIdx = dIdx - 1
-            }
+        let dIdxStart = beginBlockDeferredCleanupImpl(output, savedDeferCount,
+            g_deferCount, blockTerminated)
+        if dIdxStart < 0 {
+            return
+        }
+        var dIdx = dIdxStart
+        while dIdx >= savedDeferCount {
+            generateExpression(g_deferExprs[dIdx])
+            dIdx = dIdx - 1
         }
     }
 
@@ -5183,55 +5185,37 @@ class LLVMIRGenerator {
     }
 
     fun generateDeferredStatement(stmt: StatementNode, isErrdefer: Bool) r: Void {
-        if stmt.expression.kind != "" {
-            if isErrdefer {
-                g_errdeferExprs.push(stmt.expression)
-                g_errdeferCount = g_errdeferCount + 1
-            } else {
-                g_deferExprs.push(stmt.expression)
-                g_deferCount = g_deferCount + 1
-            }
-        }
-    }
-
-    fun generateInlineBlockStatement(stmt: StatementNode) r: Void {
-        if stmt.thenBranch.statements.length() > 0 {
-            generateBlock(stmt.thenBranch)
-        }
-    }
-
-    fun generateUnsafeStatement(stmt: StatementNode) r: Void {
-        output.append("  ; unsafe {\n")
-        g_insideUnsafe = g_insideUnsafe + 1
-        if stmt.thenBranch.statements.length() > 0 {
-            generateBlock(stmt.thenBranch)
-        }
-        g_insideUnsafe = g_insideUnsafe - 1
-        output.append("  ; } // end unsafe\n")
+        let deferCountBox = Array<Int>()
+        deferCountBox.push(g_deferCount)
+        let errdeferCountBox = Array<Int>()
+        errdeferCountBox.push(g_errdeferCount)
+        recordDeferredStatementImpl(stmt, isErrdefer, g_deferExprs,
+            deferCountBox, g_errdeferExprs, errdeferCountBox)
+        g_deferCount = deferCountBox[0]
+        g_errdeferCount = errdeferCountBox[0]
     }
 
     fun generateTryCatchStatement(stmt: StatementNode) r: Void {
-        let tryCatchLabel = "catch." + g_blockBox[0].toString()
-        g_blockBox[0] = g_blockBox[0] + 1
-        let tryEndLabel = "try.end." + g_blockBox[0].toString()
-        g_blockBox[0] = g_blockBox[0] + 1
-
-        let savedTryCatchLabel = g_tryCatchLabel
-        let savedTryCatchEndLabel = g_tryCatchEndLabel
-        g_tryCatchLabel = tryCatchLabel
-        g_tryCatchEndLabel = tryEndLabel
-
-        output.append("  ; try {\n")
+        let currentTryCatchLabelBox = Array<String>()
+        currentTryCatchLabelBox.push(g_tryCatchLabel)
+        let currentTryCatchEndLabelBox = Array<String>()
+        currentTryCatchEndLabelBox.push(g_tryCatchEndLabel)
+        let savedTryCatchLabelBox = Array<String>()
+        let savedTryCatchEndLabelBox = Array<String>()
+        let tryCatchLabelBox = Array<String>()
+        let tryEndLabelBox = Array<String>()
+        beginTryCatchStatementImpl(output, g_blockBox, currentTryCatchLabelBox,
+            currentTryCatchEndLabelBox, savedTryCatchLabelBox,
+            savedTryCatchEndLabelBox, tryCatchLabelBox, tryEndLabelBox)
+        g_tryCatchLabel = currentTryCatchLabelBox[0]
+        g_tryCatchEndLabel = currentTryCatchEndLabelBox[0]
         if stmt.thenBranch.statements.length() > 0 {
             generateBlock(stmt.thenBranch)
         }
-        if not blockTerminated {
-            output.append("  br label %" + tryEndLabel + "\n")
-        }
-        blockTerminated = false
+        blockTerminated = finalizeTryCatchArmImpl(output, blockTerminated,
+            tryEndLabelBox[0])
 
-        output.append(tryCatchLabel + ":\n")
-        output.append("  ; catch {\n")
+        emitTryCatchCatchHeaderImpl(output, tryCatchLabelBox[0])
         let savedCatchVarCount = activeVarCount
         if stmt.variableName != "" {
             let catchVarReg = getNextReg()
@@ -5242,15 +5226,15 @@ class LLVMIRGenerator {
             generateBlock(stmt.elseBranch)
         }
         activeVarCount = savedCatchVarCount
-        if not blockTerminated {
-            output.append("  br label %" + tryEndLabel + "\n")
-        }
-        blockTerminated = false
-        output.append(tryEndLabel + ":\n")
-        output.append("  ; } // end try/catch\n")
+        blockTerminated = finalizeTryCatchArmImpl(output, blockTerminated,
+            tryEndLabelBox[0])
+        emitTryCatchFooterImpl(output, tryEndLabelBox[0])
 
-        g_tryCatchLabel = savedTryCatchLabel
-        g_tryCatchEndLabel = savedTryCatchEndLabel
+        restoreTryCatchStatementContextImpl(currentTryCatchLabelBox,
+            currentTryCatchEndLabelBox, savedTryCatchLabelBox[0],
+            savedTryCatchEndLabelBox[0])
+        g_tryCatchLabel = currentTryCatchLabelBox[0]
+        g_tryCatchEndLabel = currentTryCatchEndLabelBox[0]
     }
 
     fun tryGenerateBasicStatement(stmt: StatementNode) r: Bool {
@@ -5315,11 +5299,22 @@ class LLVMIRGenerator {
             return true
         }
         if stmt.kind == "Block" {
-            generateInlineBlockStatement(stmt)
+            if stmt.thenBranch.statements.length() > 0 {
+                generateBlock(stmt.thenBranch)
+            }
             return true
         }
         if stmt.kind == "Unsafe" {
-            generateUnsafeStatement(stmt)
+            let insideUnsafeBox = Array<Int>()
+            insideUnsafeBox.push(g_insideUnsafe)
+            enterUnsafeStatementImpl(output, insideUnsafeBox)
+            g_insideUnsafe = insideUnsafeBox[0]
+            if stmt.thenBranch.statements.length() > 0 {
+                generateBlock(stmt.thenBranch)
+            }
+            insideUnsafeBox[0] = g_insideUnsafe
+            exitUnsafeStatementImpl(output, insideUnsafeBox)
+            g_insideUnsafe = insideUnsafeBox[0]
             return true
         }
         if stmt.kind == "TryCatch" {
