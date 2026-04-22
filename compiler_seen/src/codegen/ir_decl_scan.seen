@@ -1,9 +1,10 @@
 // ir_decl_scan.seen — Pass 1 declaration-scan helpers
 // Shared registry mutation helpers extracted from llvm_ir_gen.seen registerDeclarations().
 
-import parser.real_parser.{ProgramNode}
+import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, pipeGet}
+import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, isValidCrossModuleConstantEntryImpl}
 import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
@@ -175,6 +176,37 @@ fun appendOwnStructLayoutFieldImpl(fieldName: String, fieldType: String,
     fieldTypesBox[0] = fieldTypesBox[0] + fieldType
     totalSizeBox[0] = totalSizeBox[0] + getLlvmTypeSizeImpl(llvmType,
         structNames, structLayouts, structSizes)
+}
+
+fun collectStructMethodSignaturesImpl(className: String,
+    methods: Array<FunctionNode>, methodNamesBox: Array<String>,
+    methodRetTypesBox: Array<String>, classMethodBaseNames: Array<String>)
+    r: Void {
+
+    var methodIdx = 0
+    while methodIdx < methods.length() {
+        if methodIdx > 0 {
+            methodNamesBox[0] = methodNamesBox[0] + ","
+            methodRetTypesBox[0] = methodRetTypesBox[0] + "|"
+        }
+        let method = methods[methodIdx]
+        methodNamesBox[0] = methodNamesBox[0] + method.name
+        methodRetTypesBox[0] = methodRetTypesBox[0] +
+            resolveMethodReturnTypeImpl(className, method)
+
+        var alreadyRegistered = false
+        var baseNameIdx = 0
+        while baseNameIdx < classMethodBaseNames.length() {
+            if classMethodBaseNames[baseNameIdx] == method.name {
+                alreadyRegistered = true
+            }
+            baseNameIdx = baseNameIdx + 1
+        }
+        if not alreadyRegistered {
+            classMethodBaseNames.push(method.name)
+        }
+        methodIdx = methodIdx + 1
+    }
 }
 
 fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility: String,

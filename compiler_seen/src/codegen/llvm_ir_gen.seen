@@ -43,7 +43,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl}
+import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl, collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
@@ -1860,33 +1860,13 @@ class LLVMIRGenerator {
         traceGen("registerStructLayout: " + classNode.name + " layout built")
 
         // Collect method signatures
-        var methodNames = ""
-        var methodRetTypes = ""
-        var mi = 0
+        let methodNamesBox = Array<String>()
+        methodNamesBox.push("")
+        let methodRetTypesBox = Array<String>()
+        methodRetTypesBox.push("")
         traceGen("registerStructLayout: " + classNode.name + " methods len=" + classNode.methods.length().toString())
-        while mi < classNode.methods.length() {
-            if mi > 0 {
-                methodNames = methodNames + ","
-                methodRetTypes = methodRetTypes + "|"
-            }
-            let method = classNode.methods[mi]
-            methodNames = methodNames + method.name
-            methodRetTypes = methodRetTypes + resolveMethodReturnType(classNode.name, method)
-            // Register base method name for generic class method skip detection
-            // Check if already registered to avoid duplicates
-            var alreadyRegistered = false
-            var cri = 0
-            while cri < classMethodBaseNames.length() {
-                if classMethodBaseNames[cri] == method.name {
-                    alreadyRegistered = true
-                }
-                cri = cri + 1
-            }
-            if not alreadyRegistered {
-                classMethodBaseNames.push(method.name)
-            }
-            mi = mi + 1
-        }
+        collectStructMethodSignaturesImpl(classNode.name, classNode.methods,
+            methodNamesBox, methodRetTypesBox, classMethodBaseNames)
 
         // Store in registry - always overwrite layout from classNode.fields
         // because it is authoritative (matches emitClassType output)
@@ -1901,8 +1881,8 @@ class LLVMIRGenerator {
         if structSizes[structIdx] == 0 or not isDataType(classNode.name) {
             structSizes[structIdx] = totalSize
         }
-        structMethodNames[structIdx] = methodNames
-        structMethodRetTypes[structIdx] = methodRetTypes
+        structMethodNames[structIdx] = methodNamesBox[0]
+        structMethodRetTypes[structIdx] = methodRetTypesBox[0]
     }
 
     // Get field index and type from registered struct
