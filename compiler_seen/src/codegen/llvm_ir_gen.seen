@@ -88,6 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
+import codegen.ir_stmt_decl.{declarationTypeNeedsFallbackImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
@@ -2104,13 +2105,9 @@ class LLVMIRGenerator {
         return inferExpressionType(expr)
     }
 
-    fun declarationTypeNeedsFallback(typeName: String) r: Bool {
-        return typeName == "" or typeName == "Unknown" or typeName == "Void"
-    }
-
     fun resolveDeclarationBaseType(stmt: StatementNode) r: String {
         var varType = normalizeDeclaredTypeNode(stmt.variableType)
-        if declarationTypeNeedsFallback(varType) and stmt.initializer.kind != "None" {
+        if declarationTypeNeedsFallbackImpl(varType) != 0 and stmt.initializer.kind != "None" {
             varType = inferDeclarationInitializerType(stmt.initializer)
         }
         return varType
@@ -2121,7 +2118,7 @@ class LLVMIRGenerator {
         // Handle Let/Var declarations
         if stmt.kind == "Let" or stmt.kind == "Var" {
             var varType = resolveDeclarationBaseType(stmt)
-            if declarationTypeNeedsFallback(varType) {
+            if declarationTypeNeedsFallbackImpl(varType) != 0 {
                 varType = "Int"
             }
             // Debug: trace VNode-related variable types
@@ -2197,36 +2194,6 @@ class LLVMIRGenerator {
             i = i + 1
         }
         return -1
-    }
-
-    fun findPreAllocatedOccurrence(name: String, ordinal: Int) r: Int {
-        var seen = 0
-        var i = 0
-        while i < preAllocatedVars.length() {
-            if preAllocatedVars[i] == name {
-                seen = seen + 1
-                if seen == ordinal {
-                    return i
-                }
-            }
-            i = i + 1
-        }
-        return -1
-    }
-
-    fun nextDeclarationOrdinal(name: String) r: Int {
-        var i = 0
-        while i < declOrdinalNames.length() {
-            if declOrdinalNames[i] == name {
-                let nextOrdinal = declOrdinalCounts[i] + 1
-                declOrdinalCounts[i] = nextOrdinal
-                return nextOrdinal
-            }
-            i = i + 1
-        }
-        declOrdinalNames.push(name)
-        declOrdinalCounts.push(1)
-        return 1
     }
 
     // Emit pool_free calls for all local class-type variables before a return
@@ -5587,59 +5554,44 @@ class LLVMIRGenerator {
         return parseSimpleIntImpl(s)
     }
 
-    // Generate IR for a let/var declaration. Resolves the variable type from
-    // the explicit annotation, falling back to inferExpressionType on the
-    // initializer, then preAllocatedTypes, then "Int" as final fallback.
-    // If the variable was pre-allocated at function entry (by
-    // collectVariableDeclarations), reuses the existing alloca register.
-    // Supports dead store elimination: skips literal initializers that are
-    // immediately overwritten (tracked in g_deadStoreSkipVars).
-    fun resolveLetStatementType(stmt: StatementNode, preIdx: Int) r: String {
-        var varType = resolveDeclarationBaseType(stmt)
-        if declarationTypeNeedsFallback(varType) and preIdx >= 0 {
-            varType = preAllocatedTypes[preIdx]
-        }
-        if declarationTypeNeedsFallback(varType) {
-            varType = "Int"
-        }
-        return varType
-    }
-
-    fun resolveLetStatementAlloca(preIdx: Int, llvmType: String) r: String {
-        if preIdx >= 0 and preIdx < preAllocatedRegs.length() {
-            let existingLlvmType = mapType(preAllocatedTypes[preIdx])
-            if existingLlvmType == llvmType {
-                return preAllocatedRegs[preIdx]
-            }
-        }
-        let reg = getNextReg()
-        output.append("  " + reg + " = alloca " + llvmType + "\n")
-        return reg
-    }
-
     fun emitLetStatementInitializer(stmt: StatementNode, reg: String, varType: String, llvmType: String) r: Void {
         if stmt.initializer.kind == "None" {
             return
         }
         if shouldSkipDeadLiteralInitializerImpl(g_deadStoreSkipVars, stmt) {
-            output.append("  ; DSE: skipped dead literal init for " + stmt.variableName + "\n")
+            emitDeadLiteralInitializerSkipNoteImpl(output, stmt.variableName)
             return
         }
         let savedPendingType = pendingArrayLiteralType
-        if stmt.initializer.kind == "ArrayLiteral" and (varType.startsWith("Array") or varType.startsWith("List")) {
+        if shouldSeedDeclarationPendingArrayLiteralTypeImpl(
+            stmt.initializer.kind, varType) != 0 {
             pendingArrayLiteralType = varType
         }
         let valueReg = generateExpression(stmt.initializer)
         pendingArrayLiteralType = savedPendingType
-        output.append("  store " + llvmType + " " + valueReg + ", ptr " + reg + "\n")
+        emitDeclarationInitializerStoreImpl(output, llvmType, valueReg, reg)
     }
 
     fun generateLetStatement(stmt: StatementNode) r: Void {
-        let declOrdinal = nextDeclarationOrdinal(stmt.variableName)
-        let preIdx = findPreAllocatedOccurrence(stmt.variableName, declOrdinal)
-        let varType = resolveLetStatementType(stmt, preIdx)
+        let declOrdinal = nextDeclarationOrdinalImpl(declOrdinalNames,
+            declOrdinalCounts, stmt.variableName)
+        let preIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+            stmt.variableName, declOrdinal)
+        var preAllocatedType = ""
+        if preIdx >= 0 and preIdx < preAllocatedTypes.length() {
+            preAllocatedType = preAllocatedTypes[preIdx]
+        }
+        let varType = resolveLetStatementTypeImpl(
+            resolveDeclarationBaseType(stmt), preAllocatedType)
         let llvmType = mapType(varType)
-        let reg = resolveLetStatementAlloca(preIdx, llvmType)
+        var preAllocatedReg = ""
+        var preAllocatedLlvmType = ""
+        if preIdx >= 0 and preIdx < preAllocatedRegs.length() {
+            preAllocatedReg = preAllocatedRegs[preIdx]
+            preAllocatedLlvmType = mapType(preAllocatedType)
+        }
+        let reg = resolveLetStatementAllocaImpl(output, g_regBox,
+            preAllocatedReg, preAllocatedLlvmType, llvmType)
         storeVar(stmt.variableName, reg, varType)
         emitLetStatementInitializer(stmt, reg, varType, llvmType)
     }
@@ -6355,8 +6307,10 @@ class LLVMIRGenerator {
         if loopVarType == "" {
             loopVarType = "Int"
         }
-        let loopVarOrdinal = nextDeclarationOrdinal(loopVarName)
-        let loopVarPreIdx = findPreAllocatedOccurrence(loopVarName, loopVarOrdinal)
+        let loopVarOrdinal = nextDeclarationOrdinalImpl(declOrdinalNames,
+            declOrdinalCounts, loopVarName)
+        let loopVarPreIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+            loopVarName, loopVarOrdinal)
         var loopVarReg = ""
         if loopVarPreIdx >= 0 and loopVarPreIdx < preAllocatedRegs.length() {
             loopVarReg = preAllocatedRegs[loopVarPreIdx]
@@ -6375,7 +6329,8 @@ class LLVMIRGenerator {
 
     fun resolveForInIndexAlloca(idxName: String) r: String {
         var idxReg = ""
-        let idxPreIdx = findPreAllocatedOccurrence(idxName, 1)
+        let idxPreIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+            idxName, 1)
         if idxPreIdx >= 0 and idxPreIdx < preAllocatedRegs.length() {
             idxReg = preAllocatedRegs[idxPreIdx]
         }

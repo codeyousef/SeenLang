@@ -1,0 +1,95 @@
+// ir_stmt_decl.seen - declaration statement helper utilities
+
+import codegen.ir_optimization.{getNextRegFn}
+import str.string.{StringBuilder}
+
+fun declarationTypeNeedsFallbackImpl(typeName: String) r: Int {
+    if typeName == "" or typeName == "Unknown" or typeName == "Void" {
+        return 1
+    }
+    return 0
+}
+
+fun resolveLetStatementTypeImpl(baseType: String, preAllocatedType: String)
+    r: String {
+
+    var varType = baseType
+    if declarationTypeNeedsFallbackImpl(varType) != 0 and
+        preAllocatedType != "" {
+        varType = preAllocatedType
+    }
+    if declarationTypeNeedsFallbackImpl(varType) != 0 {
+        return "Int"
+    }
+    return varType
+}
+
+fun resolveLetStatementAllocaImpl(output: StringBuilder, regBox: Array<Int>,
+    preAllocatedReg: String, preAllocatedLlvmType: String, llvmType: String)
+    r: String {
+
+    if preAllocatedReg != "" and preAllocatedLlvmType == llvmType {
+        return preAllocatedReg
+    }
+    let reg = getNextRegFn(regBox)
+    output.append("  " + reg + " = alloca " + llvmType + "\n")
+    return reg
+}
+
+fun findPreAllocatedOccurrenceImpl(preAllocatedVars: Array<String>,
+    name: String, ordinal: Int) r: Int {
+
+    var seen = 0
+    var i = 0
+    while i < preAllocatedVars.length() {
+        if preAllocatedVars[i] == name {
+            seen = seen + 1
+            if seen == ordinal {
+                return i
+            }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fun nextDeclarationOrdinalImpl(declOrdinalNames: Array<String>,
+    declOrdinalCounts: Array<Int>, name: String) r: Int {
+
+    var i = 0
+    while i < declOrdinalNames.length() {
+        if declOrdinalNames[i] == name {
+            let nextOrdinal = declOrdinalCounts[i] + 1
+            declOrdinalCounts[i] = nextOrdinal
+            return nextOrdinal
+        }
+        i = i + 1
+    }
+    declOrdinalNames.push(name)
+    declOrdinalCounts.push(1)
+    return 1
+}
+
+fun shouldSeedDeclarationPendingArrayLiteralTypeImpl(initializerKind: String,
+    varType: String) r: Int {
+
+    if initializerKind == "ArrayLiteral" and
+        (varType.startsWith("Array") or varType.startsWith("List")) {
+        return 1
+    }
+    return 0
+}
+
+fun emitDeadLiteralInitializerSkipNoteImpl(output: StringBuilder,
+    variableName: String) r: Void {
+
+    output.append("  ; DSE: skipped dead literal init for " + variableName +
+        "\n")
+}
+
+fun emitDeclarationInitializerStoreImpl(output: StringBuilder, llvmType: String,
+    valueReg: String, reg: String) r: Void {
+
+    output.append("  store " + llvmType + " " + valueReg + ", ptr " + reg +
+        "\n")
+}
