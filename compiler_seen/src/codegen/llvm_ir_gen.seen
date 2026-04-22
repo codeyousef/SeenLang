@@ -1522,18 +1522,6 @@ class LLVMIRGenerator {
         g_xmConstCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 4))
     }
 
-    // Check if a function is async (simple contains check with pipe delimiters)
-    fun isAsyncFunction(name: String) r: Bool {
-        return isAsyncFunctionStateImpl(name, g_asyncFuncNames, g_asyncFuncCount)
-    }
-
-    // Get the declared return type of an async function
-    // Uses byteAt() for scanning (124 = '|')
-    fun getAsyncDeclaredRetType(name: String) r: String {
-        return getAsyncDeclaredRetTypeStateImpl(name, g_asyncFuncNames,
-            g_asyncFuncRetTypes, g_asyncFuncCount)
-    }
-
     fun recordLateUserDeclare(name: String, llvmReturnType: String, argTypeStrs: Array<String>, hasImplicitThis: Int) r: Void {
         let updated = recordLateUserDeclareStateImpl(name, llvmReturnType,
             argTypeStrs, hasImplicitThis, funcNames, funcRetTypes,
@@ -9420,7 +9408,8 @@ class LLVMIRGenerator {
 
         let returnType = inferExpressionType(expr)
         var llvmReturnType = mapType(returnType)
-        if isAsyncFunction(funcName) {
+        if isAsyncFunctionStateImpl(funcName, g_asyncFuncNames,
+            g_asyncFuncCount) {
             llvmReturnType = "ptr"
         }
 
@@ -10224,7 +10213,9 @@ class LLVMIRGenerator {
     // functions CRASH due to calling convention mismatch (fastcc vs ccc).
     fun resolveAwaitExpressionResultLlvmType(futureExpr: ParserExpressionNode) r: String {
         if futureExpr.kind == "Call" {
-            let declType = getAsyncDeclaredRetType(futureExpr.callee)
+            let declType = getAsyncDeclaredRetTypeStateImpl(
+                futureExpr.callee, g_asyncFuncNames, g_asyncFuncRetTypes,
+                g_asyncFuncCount)
             if declType != "" {
                 return mapType(declType)
             }
@@ -10794,7 +10785,8 @@ class LLVMIRGenerator {
         let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
             funcNames, funcRetTypes)
         var asyncFlag = 0
-        if isAsyncFunction(expr.callee) {
+        if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
+            g_asyncFuncCount) {
             asyncFlag = 1
         }
         return inferBareMethodOrFunctionCallTypeImpl(expr.literalValue,
@@ -10959,7 +10951,8 @@ class LLVMIRGenerator {
         let freeFuncRetType = getFunctionReturnTypeStateImpl(expr.callee,
             funcNames, funcRetTypes)
         var asyncFlag = 0
-        if isAsyncFunction(expr.callee) {
+        if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
+            g_asyncFuncCount) {
             asyncFlag = 1
         }
         let boolSuffixType = inferMethodCallBoolSuffixImpl(expr.callee,
@@ -11044,7 +11037,8 @@ class LLVMIRGenerator {
         let userRetType = getFunctionReturnTypeStateImpl(expr.callee,
             funcNames, funcRetTypes)
         var asyncFlag = 0
-        if isAsyncFunction(expr.callee) {
+        if isAsyncFunctionStateImpl(expr.callee, g_asyncFuncNames,
+            g_asyncFuncCount) {
             asyncFlag = 1
         }
         let callTable = inferCallTypeTable(expr.callee)
@@ -11194,7 +11188,9 @@ class LLVMIRGenerator {
             innerKind = inner.kind
             innerType = inferExpressionType(inner)
             if inner.kind == "Call" {
-                asyncRetType = getAsyncDeclaredRetType(inner.callee)
+                asyncRetType = getAsyncDeclaredRetTypeStateImpl(inner.callee,
+                    g_asyncFuncNames, g_asyncFuncRetTypes,
+                    g_asyncFuncCount)
                 functionRetType = getFunctionReturnTypeStateImpl(inner.callee,
                     funcNames, funcRetTypes)
             }
