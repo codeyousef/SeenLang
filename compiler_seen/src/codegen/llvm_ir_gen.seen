@@ -6591,6 +6591,17 @@ class LLVMIRGenerator {
         return generateFieldAccess(elementPtrReg, elementType, fieldName)
     }
 
+    fun resolveMemberAccessFieldReceiverPtr(basePtrReg: String, baseType: String,
+        fieldName: String, fieldType: String) r: String {
+        if isClassType(fieldType) {
+            let loadedVal = generateFieldAccess(basePtrReg, baseType, fieldName)
+            let ptrConvReg = getNextReg()
+            output.append("  " + ptrConvReg + " = inttoptr i64 " + loadedVal + " to ptr\n")
+            return ptrConvReg
+        }
+        return generateFieldAccessPtr(basePtrReg, baseType, fieldName)
+    }
+
     fun walkMemberAccessChainPointer(startPtrReg: String, startType: String, path: String) r: String {
         if path == "" {
             return startPtrReg
@@ -6603,14 +6614,8 @@ class LLVMIRGenerator {
             let chainField = pathSegments[chainIdx]
             let chainFieldType = getSeenFieldType(chainType, chainField)
             output.append("; DEBUG chained ptr access: chainType=" + chainType + " chainField=" + chainField + " chainFieldType=" + chainFieldType + "\n")
-            if isClassType(chainFieldType) {
-                let loadedVal = generateFieldAccess(chainPtr, chainType, chainField)
-                let convPtr = getNextReg()
-                output.append("  " + convPtr + " = inttoptr i64 " + loadedVal + " to ptr\n")
-                chainPtr = convPtr
-            } else {
-                chainPtr = generateFieldAccessPtr(chainPtr, chainType, chainField)
-            }
+            chainPtr = resolveMemberAccessFieldReceiverPtr(chainPtr, chainType,
+                chainField, chainFieldType)
             chainType = chainFieldType
             chainIdx = chainIdx + 1
         }
@@ -6678,15 +6683,8 @@ class LLVMIRGenerator {
         let intermediateType = getSeenFieldType(thisType, receiverName)
         output.append("; DEBUG this field access: thisType=" + thisType + " receiverName=" + receiverName + " intermediateType=" + intermediateType + " fieldName=" + fieldName + "\n")
 
-        var accessReg = ""
-        if isClassType(intermediateType) {
-            let intermediateReg = generateFieldAccess(thisPtrReg, thisType, receiverName)
-            let ptrConvReg = getNextReg()
-            output.append("  " + ptrConvReg + " = inttoptr i64 " + intermediateReg + " to ptr\n")
-            accessReg = ptrConvReg
-        } else {
-            accessReg = generateFieldAccessPtr(thisPtrReg, thisType, receiverName)
-        }
+        let accessReg = resolveMemberAccessFieldReceiverPtr(thisPtrReg, thisType,
+            receiverName, intermediateType)
 
         return generateFieldAccess(accessReg, intermediateType, fieldName)
     }
@@ -6796,15 +6794,8 @@ class LLVMIRGenerator {
         let firstType = getSeenFieldType(structType, firstField)
         output.append("; DEBUG chained access: structType=" + structType + " firstField=" + firstField + " firstType=" + firstType + " restFields=" + restFields + "\n")
 
-        var actualFirstReg = ""
-        if isClassType(firstType) {
-            let firstReg = generateFieldAccess(ptrReg, structType, firstField)
-            let ptrConvReg = getNextReg()
-            output.append("  " + ptrConvReg + " = inttoptr i64 " + firstReg + " to ptr\n")
-            actualFirstReg = ptrConvReg
-        } else {
-            actualFirstReg = generateFieldAccessPtr(ptrReg, structType, firstField)
-        }
+        let actualFirstReg = resolveMemberAccessFieldReceiverPtr(ptrReg,
+            structType, firstField, firstType)
         return generateFieldAccess(actualFirstReg, firstType, restFields)
     }
 
