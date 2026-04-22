@@ -1510,12 +1510,6 @@ class LLVMIRGenerator {
         g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
     }
 
-    fun parseArrayElementType(typeName: String) r: String { return parseArrayElementTypeImpl(typeName) }
-    fun extractArrayLiteralElementType(arrayType: String) r: String { return extractArrayLiteralElementTypeImpl(arrayType) }
-    fun parseSeenStaticArrayLength(typeName: String) r: Int { return parseSeenStaticArrayLengthImpl(typeName) }
-    fun parseSeenStaticArrayElementType(typeName: String) r: String { return parseSeenStaticArrayElementTypeImpl(typeName) }
-    fun isSeenStaticArrayType(typeName: String) r: Bool { return isSeenStaticArrayTypeImpl(typeName) }
-
     fun getLlvmTypeAlign(typeName: String) r: Int {
         return getLlvmTypeAlignImpl(typeName, structNames, structLayouts,
             structSizes)
@@ -2109,9 +2103,9 @@ class LLVMIRGenerator {
     // - Classes: 8 bytes (i64 pointer-as-int)
     // - Data types: their full inline size
     fun getTypeSize(typeName: String) r: Int {
-        if isSeenStaticArrayType(typeName) {
-            let arrayLen = parseSeenStaticArrayLength(typeName)
-            let elementSeenType = parseSeenStaticArrayElementType(typeName)
+        if isSeenStaticArrayTypeImpl(typeName) {
+            let arrayLen = parseSeenStaticArrayLengthImpl(typeName)
+            let elementSeenType = parseSeenStaticArrayElementTypeImpl(typeName)
             if arrayLen > 0 and elementSeenType != "" {
                 let elementSize = getLlvmTypeSize(mapType(elementSeenType))
                 if elementSize > 0 {
@@ -7004,7 +6998,8 @@ class LLVMIRGenerator {
 
     fun resolveArrayLiteralElementType(expr: ParserExpressionNode) r: String {
         if pendingArrayLiteralType != "" {
-            let pendingElementType = extractArrayLiteralElementType(pendingArrayLiteralType)
+            let pendingElementType = extractArrayLiteralElementTypeImpl(
+                pendingArrayLiteralType)
             if pendingElementType != "" {
                 return pendingElementType
             }
@@ -7425,7 +7420,7 @@ class LLVMIRGenerator {
         let arrayType = getSeenFieldType(baseType, arrayField)
         output.append("; DEBUG array access: arrayReg=" + arrayReg + " arrayType=" + arrayType + "\n")
 
-        var elementType = parseArrayElementType(arrayType)
+        var elementType = parseArrayElementTypeImpl(arrayType)
         if elementType == "" and arrayType.startsWith("Array<") and arrayType.endsWith(">") {
             elementType = arrayType.substring(6, arrayType.length() - 1)
         }
