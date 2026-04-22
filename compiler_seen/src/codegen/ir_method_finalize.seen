@@ -457,18 +457,28 @@ fun emitArraySwapMutationImpl(output: StringBuilder, regBox: Array<Int>,
     return "0"
 }
 
-fun emitClassFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
-    valueSlotReg: String, classSize: Int) r: String {
+fun emitPoolFreeFromValueSlotImpl(output: StringBuilder, regBox: Array<Int>,
+    valueSlotReg: String, classSize: Int) r: Void {
 
     let valReg = getNextRegFn(regBox)
     output.append("  " + valReg + " = load i64, ptr " + valueSlotReg + "\n")
     let ptrReg = getNextRegFn(regBox)
     output.append("  " + ptrReg + " = inttoptr i64 " + valReg + " to ptr\n")
+    output.append("  call void @seen_pool_free(ptr " + ptrReg + ", i64 " +
+        classSize.toString() + ")\n")
+}
+
+fun emitClassFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
+    valueSlotReg: String, classSize: Int) r: String {
+
     if classSize > 0 and classSize <= 80 {
-        output.append("  call void @seen_pool_free(ptr " + ptrReg + ", i64 " +
-            classSize.toString() + ")\n")
+        emitPoolFreeFromValueSlotImpl(output, regBox, valueSlotReg, classSize)
     }
     if classSize == 0 or classSize > 80 {
+        let valReg = getNextRegFn(regBox)
+        output.append("  " + valReg + " = load i64, ptr " + valueSlotReg + "\n")
+        let ptrReg = getNextRegFn(regBox)
+        output.append("  " + ptrReg + " = inttoptr i64 " + valReg + " to ptr\n")
         output.append("  call void @free(ptr " + ptrReg + ")\n")
     }
     return "0"
