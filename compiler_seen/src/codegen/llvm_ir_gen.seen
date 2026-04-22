@@ -90,6 +90,7 @@ import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryEx
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
@@ -5744,13 +5745,15 @@ class LLVMIRGenerator {
     fun resolveReturnStatementValueReg(stmt: StatementNode) r: String {
         if g_errdeferTempAlloca != "" {
             let loadReg = getNextReg()
-            output.append("  " + loadReg + " = load i64, ptr " + g_errdeferTempAlloca + "\n")
+            emitErrdeferTempReturnLoadImpl(output, loadReg,
+                g_errdeferTempAlloca)
             g_errdeferTempAlloca = ""
             return loadReg
         }
 
         let savedPendingType = pendingArrayLiteralType
-        if stmt.returnValue.kind == "ArrayLiteral" and (currentFunctionReturnType.startsWith("Array") or currentFunctionReturnType.startsWith("List")) {
+        if shouldSeedReturnPendingArrayLiteralTypeImpl(stmt.returnValue.kind,
+            currentFunctionReturnType) == 1 {
             pendingArrayLiteralType = currentFunctionReturnType
         }
         let valueReg = generateExpression(stmt.returnValue)
@@ -5760,9 +5763,11 @@ class LLVMIRGenerator {
 
     fun normalizeReturnStatementValueReg(stmt: StatementNode, llvmType: String, valueReg: String) r: String {
         var normalizedValueReg = valueReg
-        if isDataType(currentFunctionReturnType) and stmt.returnValue.kind == "StructLiteral" {
+        if shouldLoadStructLiteralReturnValueImpl(
+            isDataType(currentFunctionReturnType), stmt.returnValue.kind) == 1 {
             let loadReg = getNextReg()
-            output.append("  " + loadReg + " = load " + llvmType + ", ptr " + normalizedValueReg + "\n")
+            emitStructLiteralReturnLoadImpl(output, loadReg, llvmType,
+                normalizedValueReg)
             normalizedValueReg = loadReg
         }
         return normalizeZeroReturnValueRegImpl(llvmType, normalizedValueReg)

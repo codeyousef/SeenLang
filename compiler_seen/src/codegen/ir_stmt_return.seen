@@ -1,0 +1,35 @@
+// ir_stmt_return.seen - return statement helper utilities
+
+import str.string.{StringBuilder}
+
+fun emitErrdeferTempReturnLoadImpl(output: StringBuilder, loadReg: String,
+    tempAllocaReg: String) r: Void {
+
+    output.append("  " + loadReg + " = load i64, ptr " + tempAllocaReg + "\n")
+}
+
+fun shouldSeedReturnPendingArrayLiteralTypeImpl(returnKind: String,
+    returnType: String) r: Int {
+
+    if returnKind == "ArrayLiteral" and
+        (returnType.startsWith("Array") or returnType.startsWith("List")) {
+        return 1
+    }
+    return 0
+}
+
+fun shouldLoadStructLiteralReturnValueImpl(isDataReturnType: Bool,
+    returnKind: String) r: Int {
+
+    if isDataReturnType and returnKind == "StructLiteral" {
+        return 1
+    }
+    return 0
+}
+
+fun emitStructLiteralReturnLoadImpl(output: StringBuilder, loadReg: String,
+    llvmType: String, valueReg: String) r: Void {
+
+    output.append("  " + loadReg + " = load " + llvmType + ", ptr " + valueReg +
+        "\n")
+}
