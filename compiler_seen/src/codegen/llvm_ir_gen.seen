@@ -90,7 +90,7 @@ import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryEx
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
-import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
@@ -5703,10 +5703,11 @@ class LLVMIRGenerator {
         }
         if stmt.returnValue.kind != "None" {
             let savedPendingType = pendingArrayLiteralType
-            if stmt.returnValue.kind == "ArrayLiteral" and (currentFunctionReturnType.startsWith("Array") or currentFunctionReturnType.startsWith("List")) {
+            if shouldSeedReturnPendingArrayLiteralTypeImpl(stmt.returnValue.kind,
+                currentFunctionReturnType) == 1 {
                 pendingArrayLiteralType = currentFunctionReturnType
             }
-            if stmt.returnValue.kind == "Call" {
+            if shouldMarkReturnTailCallImpl(stmt.returnValue.kind) == 1 {
                 markTailCallPosition()
             }
             let valueReg = generateExpression(stmt.returnValue)
@@ -5728,14 +5729,10 @@ class LLVMIRGenerator {
     }
 
     fun tryEmitCharLiteralReturnFastPath(stmt: StatementNode) r: Bool {
-        if currentFunctionReturnType != "Char" {
-            return false
-        }
-        if stmt.returnValue.kind != "Literal" or stmt.returnValue.literalType != "String" {
-            return false
-        }
-        let charValue = stmt.returnValue.literalValue
-        if charValue.length() != 1 {
+        let charValue = resolveCharLiteralReturnValueImpl(
+            currentFunctionReturnType, stmt.returnValue.kind,
+            stmt.returnValue.literalType, stmt.returnValue.literalValue)
+        if charValue == "" {
             return false
         }
         emitCharLiteralReturnImpl(output, charValue)
@@ -5793,7 +5790,7 @@ class LLVMIRGenerator {
             return
         }
 
-        if stmt.returnValue.kind == "Call" {
+        if shouldMarkReturnTailCallImpl(stmt.returnValue.kind) == 1 {
             markTailCallPosition()
         }
         if tryEmitCharLiteralReturnFastPath(stmt) {

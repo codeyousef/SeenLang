@@ -27,6 +27,28 @@ fun shouldLoadStructLiteralReturnValueImpl(isDataReturnType: Bool,
     return 0
 }
 
+fun shouldMarkReturnTailCallImpl(returnKind: String) r: Int {
+    if returnKind == "Call" {
+        return 1
+    }
+    return 0
+}
+
+fun resolveCharLiteralReturnValueImpl(returnType: String, returnKind: String,
+    literalType: String, literalValue: String) r: String {
+
+    if returnType != "Char" {
+        return ""
+    }
+    if returnKind != "Literal" or literalType != "String" {
+        return ""
+    }
+    if literalValue.length() != 1 {
+        return ""
+    }
+    return literalValue
+}
+
 fun emitStructLiteralReturnLoadImpl(output: StringBuilder, loadReg: String,
     llvmType: String, valueReg: String) r: Void {
 
