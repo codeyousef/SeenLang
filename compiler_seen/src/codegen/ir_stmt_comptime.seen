@@ -1,0 +1,90 @@
+// ir_stmt_comptime.seen - comptime statement helper utilities
+
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+
+fun classifyComptimeStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Let" or stmtKind == "Var" {
+        return 1
+    }
+    if stmtKind == "Assignment" or stmtKind == "Expression" {
+        return 2
+    }
+    if stmtKind == "While" {
+        return 3
+    }
+    return 0
+}
+
+fun resolveComptimeAssignmentTargetImpl(assignExpr: ParserExpressionNode)
+    r: String {
+
+    if assignExpr.variableName != "" {
+        return assignExpr.variableName
+    }
+    return assignExpr.literalValue
+}
+
+fun emitComptimeIntNoteImpl(output: StringBuilder, prefix: String, name: String,
+    value: Int) r: Void {
+
+    output.append("  ; comptime " + prefix + name + " = " + value.toString() +
+        "\n")
+}
+
+fun emitComptimeStringNoteImpl(output: StringBuilder, prefix: String,
+    name: String, value: String) r: Void {
+
+    output.append("  ; comptime " + prefix + name + " = \"" + value + "\"\n")
+}
+
+fun emitComptimeWhileUnrolledNoteImpl(output: StringBuilder, iterCount: Int)
+    r: Void {
+
+    output.append("  ; comptime while unrolled " + iterCount.toString() +
+        " iterations\n")
+}
+
+fun resolveComptimeAssertMessageImpl(conditionExpr: ParserExpressionNode)
+    r: String {
+
+    if conditionExpr.kind == "Literal" and
+        conditionExpr.literalType == "String" {
+        return conditionExpr.literalValue
+    }
+    return "comptime assertion failed"
+}
+
+fun emitComptimeAssertFailureNoteImpl(output: StringBuilder, msg: String)
+    r: Void {
+
+    output.append("  ; COMPTIME ASSERT FAILED: " + msg + "\n")
+}
+
+fun emitComptimeAssertPassedNoteImpl(output: StringBuilder) r: Void {
+    output.append("  ; comptime assert passed\n")
+}
+
+fun classifyComptimeIfBranchImpl(condVal: Int, elseStatementCount: Int) r: Int {
+    if condVal != 0 {
+        return 1
+    }
+    if elseStatementCount > 0 {
+        return 2
+    }
+    return 3
+}
+
+fun emitComptimeIfBranchNoteImpl(output: StringBuilder, branchKind: Int)
+    r: Void {
+
+    if branchKind == 1 {
+        output.append("  ; comptime if: true branch\n")
+        return
+    }
+    if branchKind == 2 {
+        output.append("  ; comptime if: false branch (else)\n")
+        return
+    }
+    output.append("  ; comptime if: false, no else branch — eliminated\n")
+}

@@ -88,7 +88,8 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
@@ -5520,35 +5521,34 @@ class LLVMIRGenerator {
         let condVal = evaluateConstExpr(stmt.expression)
         if condVal == 0 {
             // Assertion failed
-            var msg = "comptime assertion failed"
-            if stmt.condition.kind == "Literal" and stmt.condition.literalType == "String" {
-                msg = stmt.condition.literalValue
-            }
-            output.append("  ; COMPTIME ASSERT FAILED: " + msg + "\n")
+            let msg = resolveComptimeAssertMessageImpl(stmt.condition)
+            emitComptimeAssertFailureNoteImpl(output, msg)
             // Emit compile error via runtime abort
             let msgReg = getNextReg()
             output.append("  " + msgReg + " = call %SeenString @seen_cstr_to_str(ptr @.str.comptime_assert)\n")
             output.append("  call void @println(%SeenString " + msgReg + ")\n")
             output.append("  call void @exit(i64 1)\n")
         } else {
-            output.append("  ; comptime assert passed\n")
+            emitComptimeAssertPassedNoteImpl(output)
         }
     }
 
-    // comptime if (cond) { then } else { else } — dead code elimination
+    // comptime if (cond) { then } else { else } - dead code elimination
     fun generateComptimeIf(stmt: StatementNode) r: Void {
         let condVal = evaluateConstExpr(stmt.expression)
-        if condVal != 0 {
-            // Condition is true — generate then branch only
-            output.append("  ; comptime if: true branch\n")
+        let branchAction = classifyComptimeIfBranchImpl(condVal,
+            stmt.elseBranch.statements.length())
+        if branchAction == 1 {
+            // Condition is true - generate then branch only
+            emitComptimeIfBranchNoteImpl(output, branchAction)
             generateBlock(stmt.thenBranch)
         } else {
-            // Condition is false — generate else branch only (if present)
-            if stmt.elseBranch.statements.length() > 0 {
-                output.append("  ; comptime if: false branch (else)\n")
+            // Condition is false - generate else branch only (if present)
+            if branchAction == 2 {
+                emitComptimeIfBranchNoteImpl(output, branchAction)
                 generateBlock(stmt.elseBranch)
             } else {
-                output.append("  ; comptime if: false, no else branch — eliminated\n")
+                emitComptimeIfBranchNoteImpl(output, branchAction)
             }
         }
     }

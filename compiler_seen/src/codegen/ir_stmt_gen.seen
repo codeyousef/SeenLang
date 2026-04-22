@@ -280,48 +280,6 @@ fun finalizeParallelForBodyImpl(output: StringBuilder, blockTerminated: Bool)
     return output.toString()
 }
 
-fun classifyComptimeStatementKindImpl(stmtKind: String) r: Int {
-    if stmtKind == "Let" or stmtKind == "Var" {
-        return 1
-    }
-    if stmtKind == "Assignment" or stmtKind == "Expression" {
-        return 2
-    }
-    if stmtKind == "While" {
-        return 3
-    }
-    return 0
-}
-
-fun resolveComptimeAssignmentTargetImpl(assignExpr: ParserExpressionNode)
-    r: String {
-
-    if assignExpr.variableName != "" {
-        return assignExpr.variableName
-    }
-    return assignExpr.literalValue
-}
-
-fun emitComptimeIntNoteImpl(output: StringBuilder, prefix: String, name: String,
-    value: Int) r: Void {
-
-    output.append("  ; comptime " + prefix + name + " = " + value.toString() +
-        "\n")
-}
-
-fun emitComptimeStringNoteImpl(output: StringBuilder, prefix: String,
-    name: String, value: String) r: Void {
-
-    output.append("  ; comptime " + prefix + name + " = \"" + value + "\"\n")
-}
-
-fun emitComptimeWhileUnrolledNoteImpl(output: StringBuilder, iterCount: Int)
-    r: Void {
-
-    output.append("  ; comptime while unrolled " + iterCount.toString() +
-        " iterations\n")
-}
-
 fun emitProfileExitOnReturnImpl(output: StringBuilder, strIdx: Int) r: Void {
     output.append("  ; @profile instrumentation - exit (explicit return)\n")
     output.append("  call void @__seen_profile_exit(ptr @.str." +

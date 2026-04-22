@@ -82,6 +82,7 @@ import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl}
 import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl}
+import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl}
 import codegen.ir_stmt_scope.{classifyScopedStatementKindImpl}
 import codegen.type_registry.{findStructReg}
 import tools.translator.{translateSource}
@@ -1913,6 +1914,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_class_method_gen")
         modules.push("codegen.ir_stmt_scope")
         modules.push("codegen.ir_stmt_gen")
+        modules.push("codegen.ir_stmt_comptime")
         modules.push("codegen.type_registry")
         // Scan the main generator after extracted helpers so their
         // declarations are available during bootstrap registration.
