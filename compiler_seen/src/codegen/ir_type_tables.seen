@@ -4,6 +4,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_string_collect.{parseSeenStaticArrayElementTypeImpl}
+import codegen.ir_type_info.{getLLVMIRGeneratorFieldLlvmTypeImpl}
 // Note: getNextRegFn, getNextBlockFn, charToCodeStr, mapTypeImpl, SIMD helpers
 // moved to ir_type_dispatch.seen and ir_type_ops.seen
 
@@ -882,6 +883,14 @@ fun getFieldTypeForKnownStruct(structName: String, fieldName: String) r: String 
         if fieldName == "data" { return "ptr" }
     }
     return ""
+}
+
+fun getHardcodedFieldLlvmTypeImpl(structName: String, fieldName: String) r: String {
+    if structName == "LLVMIRGenerator" {
+        let llvmGenType = getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName)
+        if llvmGenType != "" { return llvmGenType }
+    }
+    return getFieldTypeForKnownStruct(structName, fieldName)
 }
 
 // Register all known data types - populates struct arrays with hardcoded layouts

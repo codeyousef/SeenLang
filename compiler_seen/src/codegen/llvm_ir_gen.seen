@@ -52,7 +52,7 @@ import codegen.ir_module_constants.{ModuleConstantRegistryState, isModuleConstMu
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
-import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getKnownFieldIndexPrimaryImpl, getKnownFieldIndexFallbackImpl, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorFieldLlvmTypeImpl}
+import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getKnownFieldIndexPrimaryImpl, getKnownFieldIndexFallbackImpl, getLLVMIRGeneratorFieldIndexImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
@@ -67,7 +67,7 @@ import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturn
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
-import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getFieldTypeForKnownStruct, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
+import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getHardcodedFieldLlvmTypeImpl, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl, emitContinueStatementImpl, emitBreakStatementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
@@ -1856,11 +1856,7 @@ class LLVMIRGenerator {
     fun getFieldType(structName: String, fieldName: String) r: String {
         let idx = findStructReg(structName, structNames)
         if idx < 0 {
-            if structName == "LLVMIRGenerator" {
-                let llvmGenType = getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName)
-                if llvmGenType != "" { return llvmGenType }
-            }
-            let knownType = getFieldTypeForKnownStruct(structName, fieldName)
+            let knownType = getHardcodedFieldLlvmTypeImpl(structName, fieldName)
             if knownType != "" { return knownType }
             return "i64"  // Default
         }
@@ -1899,11 +1895,7 @@ class LLVMIRGenerator {
 
         // Hardcoded fallbacks for known structs (avoid string parsing bugs)
         // NOTE: Check these BEFORE returning default i64 for unknown fields
-        if structName == "LLVMIRGenerator" {
-            let llvmGenType = getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName)
-            if llvmGenType != "" { return llvmGenType }
-        }
-        let knownType = getFieldTypeForKnownStruct(structName, fieldName)
+        let knownType = getHardcodedFieldLlvmTypeImpl(structName, fieldName)
         if knownType != "" { return knownType }
 
         // If field wasn't found in the field names list, return default
@@ -6910,21 +6902,9 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun resolveFieldAccessLayoutInfo(structType: String, fieldName: String) r: String {
-        let lb = "{"
-        let rb = "}"
-        if structType == "LLVMIRGenerator" {
-            var idx = getLLVMIRGeneratorFieldIndexImpl(fieldName)
-            if idx < 0 {
-                idx = 0
-            }
-            return lb + " i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr " + rb + "|" + idx.toString()
-        }
-        return resolveFieldAccessLayoutImpl(structType, fieldName, structNames, structLayouts, structFieldNames)
-    }
-
     fun emitResolvedFieldAccessLoad(ptrReg: String, structType: String, fieldName: String) r: String {
-        let layoutParts = splitPipe(resolveFieldAccessLayoutInfo(structType, fieldName))
+        let layoutParts = splitPipe(resolveFieldAccessLayoutImpl(structType,
+            fieldName, structNames, structLayouts, structFieldNames))
         var structLayout = "{ i64 }"
         var fieldIndex = 0
         if layoutParts.length() >= 2 {
@@ -6975,10 +6955,6 @@ class LLVMIRGenerator {
         return emitResolvedFieldAccessLoad(ptrReg, structType, fieldName)
     }
 
-    fun resolveFieldAccessPtrLayoutInfo(structType: String, fieldName: String) r: String {
-        return resolveFieldAccessLayoutInfo(structType, fieldName)
-    }
-
     // Same as generateFieldAccess but returns the GEP pointer without loading
     // Used for methods like push that need to modify the field in place
     fun generateFieldAccessPtr(ptrReg: String, structType: String, fieldName: String) r: String {
@@ -6986,7 +6962,8 @@ class LLVMIRGenerator {
             return ptrReg
         }
 
-        let layoutParts = splitPipe(resolveFieldAccessPtrLayoutInfo(structType, fieldName))
+        let layoutParts = splitPipe(resolveFieldAccessLayoutImpl(structType,
+            fieldName, structNames, structLayouts, structFieldNames))
         var structLayout = "{ i64 }"
         var fieldIndex = 0
         if layoutParts.length() >= 2 {

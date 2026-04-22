@@ -217,6 +217,10 @@ fun getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName: String) r: String {
     return ""
 }
 
+fun getLLVMIRGeneratorStructLayoutImpl() r: String {
+    return "{ i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64, %SeenString, %SeenString, i1, %SeenString, %SeenString, ptr, ptr, %SeenString, ptr, ptr, i1, i1, %SeenString, ptr, ptr, ptr }"
+}
+
 // Character to ASCII code string conversion
 fun charToCodeStr(val: String) r: String {
     if val.length() == 0 { return "0" }
