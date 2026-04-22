@@ -212,6 +212,46 @@ fun emitReturnRegionCleanupImpl(output: StringBuilder, regBox: Array<Int>) r: Vo
     output.append("  call void @__seen_region_destroy(ptr " + regionLoadReg + ") ; @preallocate cleanup\n")
 }
 
+fun encodeRegionStrategyImpl(strategy: String) r: String {
+    if strategy == "bump" { return "1" }
+    if strategy == "stack" { return "2" }
+    if strategy == "cxl_near" { return "3" }
+    if strategy == "cxl_far" { return "4" }
+    if strategy == "gpu" { return "5" }
+    return "0"
+}
+
+fun emitRegionStatementPreambleImpl(output: StringBuilder, regBox: Array<Int>,
+    strategy: String, regionName: String) r: String {
+
+    let strategyInt = encodeRegionStrategyImpl(strategy)
+    output.append("  ; region block")
+    if strategy != "" { output.append(" strategy=" + strategy) }
+    if regionName != "" { output.append(" name=" + regionName) }
+    output.append("\n")
+
+    let regionReg = getNextRegFn(regBox)
+    output.append("  " + regionReg +
+        " = call ptr @__seen_region_create(i64 65536, i32 " + strategyInt +
+        ")\n")
+    output.append("  call void @__seen_region_push(ptr " + regionReg + ")\n")
+
+    let regionSlot = getNextRegFn(regBox)
+    output.append("  " + regionSlot + " = alloca ptr\n")
+    output.append("  store ptr " + regionReg + ", ptr " + regionSlot + "\n")
+    return regionSlot
+}
+
+fun emitRegionStatementCleanupImpl(output: StringBuilder, regBox: Array<Int>,
+    regionSlot: String) r: Void {
+
+    let popReg = getNextRegFn(regBox)
+    output.append("  " + popReg + " = call ptr @__seen_region_pop()\n")
+    let loadReg = getNextRegFn(regBox)
+    output.append("  " + loadReg + " = load ptr, ptr " + regionSlot + "\n")
+    output.append("  call void @__seen_region_destroy(ptr " + loadReg + ")\n")
+}
+
 fun emitProfileExitOnReturnImpl(output: StringBuilder, strIdx: Int) r: Void {
     output.append("  ; @profile instrumentation - exit (explicit return)\n")
     output.append("  call void @__seen_profile_exit(ptr @.str." +

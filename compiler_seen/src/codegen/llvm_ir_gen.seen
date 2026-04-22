@@ -88,7 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
@@ -5354,36 +5354,14 @@ class LLVMIRGenerator {
 
     fun generateRegionStatement(stmt: StatementNode) r: Void {
         // region [strategy] [name] { body }
-        // Strategy: 0=auto, 1=bump, 2=stack, 3=cxl_near, 4=cxl_far, 5=gpu
-        var strategyInt = "0"
         let strategy = normalizeDeclaredTypeNode(stmt.variableType)
-        if strategy == "bump" { strategyInt = "1" }
-        if strategy == "stack" { strategyInt = "2" }
-        if strategy == "cxl_near" { strategyInt = "3" }
-        if strategy == "cxl_far" { strategyInt = "4" }
-        if strategy == "gpu" { strategyInt = "5" }
         let regionName = stmt.variableName
-        output.append("  ; region block")
-        if strategy != "" { output.append(" strategy=" + strategy) }
-        if regionName != "" { output.append(" name=" + regionName) }
-        output.append("\n")
-        // Create region (64KB default)
-        let regionReg = getNextReg()
-        output.append("  " + regionReg + " = call ptr @__seen_region_create(i64 65536, i32 " + strategyInt + ")\n")
-        // Push region onto stack
-        output.append("  call void @__seen_region_push(ptr " + regionReg + ")\n")
-        // Store region ptr for cleanup
-        let regionSlot = getNextReg()
-        output.append("  " + regionSlot + " = alloca ptr\n")
-        output.append("  store ptr " + regionReg + ", ptr " + regionSlot + "\n")
+        let regionSlot = emitRegionStatementPreambleImpl(output, g_regBox,
+            strategy, regionName)
         // Generate body
         generateBlock(stmt.thenBranch)
         // Pop and destroy region
-        let popReg = getNextReg()
-        output.append("  " + popReg + " = call ptr @__seen_region_pop()\n")
-        let loadReg = getNextReg()
-        output.append("  " + loadReg + " = load ptr, ptr " + regionSlot + "\n")
-        output.append("  call void @__seen_region_destroy(ptr " + loadReg + ")\n")
+        emitRegionStatementCleanupImpl(output, g_regBox, regionSlot)
     }
 
     // parallel_for i in start..end { body } → extract closure, call seen_parallel_for
