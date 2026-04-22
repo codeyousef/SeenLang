@@ -89,7 +89,7 @@ import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFiel
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
-import codegen.ir_stmt_scope.{classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
+import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, getFieldTypeFromListsReg, reorderFieldTypesReg}
@@ -5238,58 +5238,6 @@ class LLVMIRGenerator {
         g_tryCatchEndLabel = currentTryCatchEndLabelBox[0]
     }
 
-    fun tryGenerateBasicStatement(stmt: StatementNode) r: Bool {
-        if stmt.kind == "Let" or stmt.kind == "Var" {
-            generateLetStatement(stmt)
-            return true
-        }
-        if stmt.kind == "Return" {
-            generateReturnStatement(stmt)
-            return true
-        }
-        if stmt.kind == "Expression" {
-            generateExpressionStatement(stmt)
-            return true
-        }
-        if stmt.kind == "If" {
-            generateIfStatement(stmt)
-            return true
-        }
-        if stmt.kind == "IfLet" {
-            generateIfLetStatement(stmt)
-            return true
-        }
-        if stmt.kind == "While" {
-            generateWhileStatement(stmt)
-            return true
-        }
-        if stmt.kind == "Assignment" {
-            generateAssignment(stmt)
-            return true
-        }
-        if stmt.kind == "ForIn" {
-            generateForInStatement(stmt)
-            return true
-        }
-        if stmt.kind == "Region" {
-            generateRegionStatement(stmt)
-            return true
-        }
-        return false
-    }
-
-    fun tryGenerateLoopControlStatement(stmt: StatementNode) r: Bool {
-        if stmt.kind == "Continue" {
-            emitContinueStatement()
-            return true
-        }
-        if stmt.kind == "Break" {
-            emitBreakStatement()
-            return true
-        }
-        return false
-    }
-
     // Top-level statement dispatch. Routes each statement kind to its
     // specialized generator: Let/Var, Return, If, IfLet, While, ForIn,
     // Match, Expression (which may be Assignment, MemberAssignment,
@@ -5299,10 +5247,55 @@ class LLVMIRGenerator {
     fun generateStatement(stmt: StatementNode) r: Void {
         var handled = false
         if not handled {
-            handled = tryGenerateBasicStatement(stmt)
+            let basicAction = classifyBasicStatementKindImpl(stmt.kind)
+            if basicAction == 1 {
+                generateLetStatement(stmt)
+                handled = true
+            }
+            if basicAction == 2 {
+                generateReturnStatement(stmt)
+                handled = true
+            }
+            if basicAction == 3 {
+                generateExpressionStatement(stmt)
+                handled = true
+            }
+            if basicAction == 4 {
+                generateIfStatement(stmt)
+                handled = true
+            }
+            if basicAction == 5 {
+                generateIfLetStatement(stmt)
+                handled = true
+            }
+            if basicAction == 6 {
+                generateWhileStatement(stmt)
+                handled = true
+            }
+            if basicAction == 7 {
+                generateAssignment(stmt)
+                handled = true
+            }
+            if basicAction == 8 {
+                generateForInStatement(stmt)
+                handled = true
+            }
+            if basicAction == 9 {
+                generateRegionStatement(stmt)
+                handled = true
+            }
         }
         if not handled {
-            handled = tryGenerateLoopControlStatement(stmt)
+            let loopControlAction = classifyLoopControlStatementKindImpl(
+                stmt.kind)
+            if loopControlAction == 1 {
+                emitContinueStatement()
+                handled = true
+            }
+            if loopControlAction == 2 {
+                emitBreakStatement()
+                handled = true
+            }
         }
         if not handled {
             let scopedAction = classifyScopedStatementKindImpl(stmt.kind)

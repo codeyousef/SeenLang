@@ -34,6 +34,47 @@ fun classifyScopedStatementKindImpl(stmtKind: String) r: Int {
     return 0
 }
 
+fun classifyBasicStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Let" or stmtKind == "Var" {
+        return 1
+    }
+    if stmtKind == "Return" {
+        return 2
+    }
+    if stmtKind == "Expression" {
+        return 3
+    }
+    if stmtKind == "If" {
+        return 4
+    }
+    if stmtKind == "IfLet" {
+        return 5
+    }
+    if stmtKind == "While" {
+        return 6
+    }
+    if stmtKind == "Assignment" {
+        return 7
+    }
+    if stmtKind == "ForIn" {
+        return 8
+    }
+    if stmtKind == "Region" {
+        return 9
+    }
+    return 0
+}
+
+fun classifyLoopControlStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Continue" {
+        return 1
+    }
+    if stmtKind == "Break" {
+        return 2
+    }
+    return 0
+}
+
 fun classifyMetaStatementKindImpl(stmtKind: String) r: Int {
     if stmtKind == "ParallelFor" {
         return 1
