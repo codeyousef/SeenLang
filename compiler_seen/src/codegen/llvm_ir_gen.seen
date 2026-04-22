@@ -94,7 +94,7 @@ import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeI
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
-import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, emitResolvedMemberAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
+import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
@@ -5773,83 +5773,6 @@ class LLVMIRGenerator {
         emitTriviallyCopyableAssignmentNote(varType)
     }
 
-    // Generate member assignment: a.b = value or a.b = value
-    // Generate IR for a member assignment (obj.field = expr). Resolves the
-    // receiver to a pointer, computes the GEP index for the field, generates
-    // the value expression, and emits a store. For class-type receivers,
-    // converts the i64 handle to ptr via inttoptr before GEP.
-    fun emitResolvedMemberAssignment(receiverPtrReg: String, receiverType: String, fieldName: String,
-        value: ParserExpressionNode, valueReg: String, allowBitfield: Int) r: Int {
-        return emitResolvedMemberAssignmentStoreImpl(output, g_regBox,
-            receiverPtrReg, receiverType, fieldName, valueReg, value.kind,
-            allowBitfield, structNames, structLayouts, structFieldNames,
-            structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
-            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-            g_enumTypeNames, g_unionTypes, g_bitfieldCount, g_bitfieldKeys,
-            g_bitfieldWidths)
-    }
-
-    fun tryGenerateExpressionReceiverMemberAssignment(receiverExpr: ParserExpressionNode,
-        fieldName: String, value: ParserExpressionNode, valueReg: String) r: Int {
-
-        let receiverReg = generateExpression(receiverExpr)
-        let receiverType = inferExpressionType(receiverExpr)
-        if receiverType == "" or receiverType == "Unknown" {
-            return 0
-        }
-
-        let receiverPtrReg = prepareValueAssignmentReceiverPtrImpl(output, g_regBox,
-            receiverReg, receiverType, g_reprCClassNames, structNames)
-        return emitResolvedMemberAssignment(receiverPtrReg, receiverType, fieldName, value, valueReg, 0)
-    }
-
-    fun tryGenerateSimpleReceiverMemberAssignment(receiverName: String, fieldName: String,
-        value: ParserExpressionNode, valueReg: String) r: Int {
-
-        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, receiverName)
-        output.append("; DEBUG generateMemberAssignment: varIdx=" + varIdx.toString() + "\n")
-        if varIdx < 0 {
-            return 0
-        }
-
-        let varReg = varRegs[varIdx]
-        let varType = varTypes[varIdx]
-        output.append("; DEBUG generateMemberAssignment: varType=" + varType + "\n")
-        let receiverPtrReg = prepareVariableAssignmentReceiverPtrImpl(output, g_regBox, varReg, varType, structNames)
-        return emitResolvedMemberAssignment(receiverPtrReg, varType, fieldName, value, valueReg, 1)
-    }
-
-    fun tryGenerateImplicitThisMemberAssignment(receiverName: String, fieldName: String,
-        value: ParserExpressionNode, valueReg: String) r: Int {
-
-        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
-        if thisIdx < 0 {
-            return 0
-        }
-
-        let thisReg = varRegs[thisIdx]
-        let thisType = varTypes[thisIdx]
-        let firstFieldType = getSeenFieldType(thisType, receiverName)
-        if firstFieldType == "" {
-            return 0
-        }
-
-        let thisPtrReg = getNextReg()
-        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
-
-        var nestedPtrReg = ""
-        if isClassType(firstFieldType) {
-            let firstFieldValReg = generateFieldAccess(thisPtrReg, thisType, receiverName)
-            let ptrConvReg = getNextReg()
-            output.append("  " + ptrConvReg + " = inttoptr i64 " + firstFieldValReg + " to ptr\n")
-            nestedPtrReg = ptrConvReg
-        } else {
-            nestedPtrReg = generateFieldAccessPtr(thisPtrReg, thisType, receiverName)
-        }
-
-        return emitResolvedMemberAssignment(nestedPtrReg, firstFieldType, fieldName, value, valueReg, 0)
-    }
-
     fun generateMemberAssignment(expr: ParserExpressionNode) r: Void {
         let memberAccess = expr.operands[0]
         let value = expr.operands[1]
@@ -5861,7 +5784,15 @@ class LLVMIRGenerator {
 
         if memberAccess.operands.length() > 0 and memberAccess.literalValue == "" {
             let receiverExpr = memberAccess.operands[0]
-            if tryGenerateExpressionReceiverMemberAssignment(receiverExpr, fieldName, value, valueReg) == 1 {
+            let receiverReg = generateExpression(receiverExpr)
+            let receiverType = inferExpressionType(receiverExpr)
+            if emitValueReceiverMemberAssignmentImpl(output, g_regBox,
+                receiverReg, receiverType, fieldName, valueReg, value.kind,
+                structNames, structLayouts, structFieldNames,
+                structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
+                g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+                g_enumTypeNames, g_unionTypes, g_bitfieldCount,
+                g_bitfieldKeys, g_bitfieldWidths) == 1 {
                 return
             }
             return
@@ -5870,16 +5801,37 @@ class LLVMIRGenerator {
         if receiverName.contains(".") {
             let receiverExpr = buildChainedPathExprImpl(receiverName)
             if receiverExpr.kind != "" {
-                if tryGenerateExpressionReceiverMemberAssignment(receiverExpr, fieldName, value, valueReg) == 1 {
+                let receiverReg = generateExpression(receiverExpr)
+                let receiverType = inferExpressionType(receiverExpr)
+                if emitValueReceiverMemberAssignmentImpl(output, g_regBox,
+                    receiverReg, receiverType, fieldName, valueReg,
+                    value.kind, structNames, structLayouts,
+                    structFieldNames, structFieldTypes,
+                    structLlvmFieldTypes, g_reprCClassNames,
+                    g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+                    g_enumTypeNames, g_unionTypes, g_bitfieldCount,
+                    g_bitfieldKeys, g_bitfieldWidths) == 1 {
                     return
                 }
             }
         }
 
-        if tryGenerateSimpleReceiverMemberAssignment(receiverName, fieldName, value, valueReg) == 1 {
+        if emitVariableReceiverMemberAssignmentImpl(output, g_regBox,
+            receiverName, fieldName, valueReg, value.kind, varNames,
+            activeVarCount, varRegs, varTypes, structNames, structLayouts,
+            structFieldNames, structFieldTypes, structLlvmFieldTypes,
+            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames, g_unionTypes,
+            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths) == 1 {
             return
         }
-        tryGenerateImplicitThisMemberAssignment(receiverName, fieldName, value, valueReg)
+        emitImplicitThisMemberAssignmentImpl(output, g_regBox, receiverName,
+            fieldName, valueReg, value.kind, varNames, activeVarCount,
+            varRegs, varTypes, structNames, structLayouts, structFieldNames,
+            structFieldTypes, structLlvmFieldTypes, g_reprCClassNames,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+            g_enumTypeNames, g_unionTypes, g_bitfieldCount, g_bitfieldKeys,
+            g_bitfieldWidths)
     }
 
     // Generate index assignment: a[i] = value

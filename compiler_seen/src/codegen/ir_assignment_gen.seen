@@ -8,7 +8,8 @@ import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_info.{findStructIdx, getSeenFieldTypeImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
-import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl}
+import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
 import codegen.type_registry.{getFieldInfoReg}
 import str.string.{StringBuilder}
 
@@ -213,6 +214,115 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
     emitFieldStoreImpl(output, regBox, valueReg, fieldTypes[0], fieldPtrReg,
         valueIsStructLit, isDataField)
     return 1
+}
+
+fun emitValueReceiverMemberAssignmentImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverReg: String, receiverType: String,
+    fieldName: String, valueReg: String, valueKind: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, unionTypes: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: Int {
+
+    if receiverType == "" or receiverType == "Unknown" {
+        return 0
+    }
+
+    let receiverPtrReg = prepareValueAssignmentReceiverPtrImpl(output, regBox,
+        receiverReg, receiverType, reprCClassNames, structNames)
+    return emitResolvedMemberAssignmentStoreImpl(output, regBox,
+        receiverPtrReg, receiverType, fieldName, valueReg, valueKind, 0,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, unionTypes,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitVariableReceiverMemberAssignmentImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverName: String, fieldName: String,
+    valueReg: String, valueKind: String, varNames: Array<String>,
+    activeVarCount: Int, varRegs: Array<String>, varTypes: Array<String>,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, unionTypes: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: Int {
+
+    let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        receiverName)
+    output.append("; DEBUG generateMemberAssignment: varIdx=" + varIdx.toString() + "\n")
+    if varIdx < 0 {
+        return 0
+    }
+
+    let varReg = varRegs[varIdx]
+    let varType = varTypes[varIdx]
+    output.append("; DEBUG generateMemberAssignment: varType=" + varType + "\n")
+    let receiverPtrReg = prepareVariableAssignmentReceiverPtrImpl(output,
+        regBox, varReg, varType, structNames)
+    return emitResolvedMemberAssignmentStoreImpl(output, regBox,
+        receiverPtrReg, varType, fieldName, valueReg, valueKind, 1,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, unionTypes,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitImplicitThisMemberAssignmentImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverName: String, fieldName: String,
+    valueReg: String, valueKind: String, varNames: Array<String>,
+    activeVarCount: Int, varRegs: Array<String>, varTypes: Array<String>,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, reprCClassNames: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, unionTypes: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: Int {
+
+    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        "this")
+    if thisIdx < 0 {
+        return 0
+    }
+
+    let thisReg = varRegs[thisIdx]
+    let thisType = varTypes[thisIdx]
+    let firstFieldTypes = resolveAssignmentFieldTypesImpl(thisType,
+        receiverName, structNames, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+    if firstFieldTypes.length() < 2 or firstFieldTypes[1] == "" {
+        return 0
+    }
+
+    let thisPtrReg = getNextRegFn(regBox)
+    output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
+
+    let firstFieldType = firstFieldTypes[1]
+    var nestedPtrReg = ""
+    if isClassTypeImpl(firstFieldType, structNames) == 1 {
+        let firstFieldValReg = emitResolvedFieldAccessLoadImpl(output, regBox,
+            thisPtrReg, thisType, receiverName, firstFieldTypes[0],
+            structNames, structLayouts, structFieldNames, 0, "", "")
+        let ptrConvReg = getNextRegFn(regBox)
+        output.append("  " + ptrConvReg + " = inttoptr i64 " +
+            firstFieldValReg + " to ptr\n")
+        nestedPtrReg = ptrConvReg
+    } else {
+        nestedPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox,
+            thisPtrReg, thisType, receiverName, structNames, structLayouts,
+            structFieldNames)
+    }
+
+    return emitResolvedMemberAssignmentStoreImpl(output, regBox,
+        nestedPtrReg, firstFieldType, fieldName, valueReg, valueKind, 0,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, reprCClassNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, unionTypes,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
 }
 
 fun emitIndexAssignmentBoundsCheckImpl(output: StringBuilder, regBox: Array<Int>,
