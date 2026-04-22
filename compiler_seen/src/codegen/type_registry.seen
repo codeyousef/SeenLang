@@ -810,6 +810,17 @@ fun isDataTypeReg(seenType: String) r: Bool {
 }
 
 fun getTypeSizeReg(typeName: String, structNames: Array<String>, structSizes: Array<Int>) r: Int {
+    if isSeenStaticArrayTypeImpl(typeName) {
+        let arrayLen = parseSeenStaticArrayLengthImpl(typeName)
+        let elementSeenType = parseSeenStaticArrayElementTypeImpl(typeName)
+        if arrayLen > 0 and elementSeenType != "" {
+            let elementSize = getTypeSizeReg(elementSeenType, structNames,
+                structSizes)
+            if elementSize > 0 {
+                return arrayLen * elementSize
+            }
+        }
+    }
     if typeName == "Int" { return 8 }
     if typeName == "Bool" or typeName == "Boolean" { return 8 }
     if typeName == "Float" { return 8 }

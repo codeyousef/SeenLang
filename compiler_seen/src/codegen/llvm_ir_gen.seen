@@ -53,7 +53,7 @@ import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl,
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
-import codegen.ir_string_collect.{trimSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
+import codegen.ir_string_collect.{trimSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
@@ -1767,51 +1767,6 @@ class LLVMIRGenerator {
         }
     }
 
-    // Get size of a Seen type in bytes when stored in a class/struct field
-    // This is the STORAGE size, not the full object size
-    // - Primitives: their natural size (aligned to 8)
-    // - String: 16 bytes (inline %SeenString struct)
-    // - Array: 8 bytes (ptr to heap-allocated SeenArray)
-    // - Classes: 8 bytes (i64 pointer-as-int)
-    // - Data types: their full inline size
-    fun getTypeSize(typeName: String) r: Int {
-        if isSeenStaticArrayTypeImpl(typeName) {
-            let arrayLen = parseSeenStaticArrayLengthImpl(typeName)
-            let elementSeenType = parseSeenStaticArrayElementTypeImpl(typeName)
-            if arrayLen > 0 and elementSeenType != "" {
-                let elementSize = getLlvmTypeSizeImpl(mapType(elementSeenType),
-                    structNames, structLayouts, structSizes)
-                if elementSize > 0 {
-                    return arrayLen * elementSize
-                }
-            }
-        }
-        if typeName == "Int" {
-            return 8
-        }
-        if typeName == "Bool" or typeName == "Boolean" {
-            // Bool is i1 but takes 8 bytes in struct layout due to alignment
-            // (next field will be aligned to 8 bytes anyway)
-            return 8
-        }
-        if typeName == "Float" {
-            return 8
-        }
-        if typeName == "String" {
-            return 16  // %SeenString = { i64, ptr } = 8 + 8 (stored inline)
-        }
-        if typeName.startsWith("Array<") or typeName.startsWith("List<") {
-            // Arrays are stored as ptr to heap-allocated SeenArray (NOT inline!)
-            return 8
-        }
-        // Check if this is a data type (stored inline)
-        if isDataType(typeName) {
-            return getDataTypeSize(typeName)
-        }
-        // All other types (classes) are stored as i64 (pointer-as-int) = 8 bytes
-        return 8
-    }
-
     // Register a struct layout from a ClassNode
     // Build and register the LLVM struct layout for a class/data type.
     // Computes the layout string (e.g., "{ %SeenString, i64, ptr }"), field
@@ -1895,7 +1850,8 @@ class LLVMIRGenerator {
                     layout = layout + pllvm
                     fieldNames = fieldNames + pfn
                     fieldTypes = fieldTypes + pft
-                    totalSize = totalSize + getTypeSize(pft)
+                    totalSize = totalSize + getTypeSizeReg(pft, structNames,
+                        structSizes)
                     pfi = pfi + 1
                 }
             }
@@ -8702,7 +8658,8 @@ class LLVMIRGenerator {
                 }
                 output.append("  store ptr " + arrInitReg + ", ptr " + fieldPtrReg + "\n")
             }
-            byteOffset = byteOffset + getTypeSize(fieldSeenType)
+            byteOffset = byteOffset + getTypeSizeReg(fieldSeenType,
+                structNames, structSizes)
             if nameEnd < fieldNamesStr.length() {
                 namePos = nameEnd + 1
                 typePos = typeEnd + 1
@@ -8747,7 +8704,8 @@ class LLVMIRGenerator {
                 }
                 output.append("  store " + ctorFieldLlvmType + " " + ctorStoreReg + ", ptr " + ctorFieldPtrReg + "\n")
             }
-            ctorByteOffset = ctorByteOffset + getTypeSize(ctorFieldSeenType)
+            ctorByteOffset = ctorByteOffset + getTypeSizeReg(
+                ctorFieldSeenType, structNames, structSizes)
             ctorArgIdx = ctorArgIdx + 1
             if ctorTypeEnd < ctorFieldTypesStr.length() {
                 ctorTypePos = ctorTypeEnd + 1
