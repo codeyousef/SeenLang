@@ -9,50 +9,10 @@ import codegen.ir_type_info.{findStructIdx, getSeenFieldTypeImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, mapTypeImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
+import codegen.ir_member_access.{prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
 import codegen.type_registry.{getFieldInfoReg}
 import str.string.{StringBuilder}
-
-fun prepareValueAssignmentReceiverPtrImpl(output: StringBuilder, regBox: Array<Int>,
-    receiverReg: String, receiverType: String, reprCClassNames: String,
-    structNames: Array<String>) r: String {
-
-    if reprCClassNames != "" {
-        if reprCClassNames.contains(receiverType + "|") {
-            return receiverReg
-        }
-    }
-    if isDataTypeImpl(receiverType) == 1 {
-        let tmpReg = getNextRegFn(regBox)
-        output.append("  " + tmpReg + " = alloca %" + receiverType + "\n")
-        output.append("  store %" + receiverType + " " + receiverReg + ", ptr " + tmpReg + "\n")
-        return tmpReg
-    }
-    if isClassTypeImpl(receiverType, structNames) == 1 {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
-        return ptrReg
-    }
-    return receiverReg
-}
-
-fun prepareVariableAssignmentReceiverPtrImpl(output: StringBuilder, regBox: Array<Int>,
-    varReg: String, varType: String, structNames: Array<String>) r: String {
-
-    if isClassTypeImpl(varType, structNames) == 1 {
-        let loadReg = getNextRegFn(regBox)
-        output.append("  " + loadReg + " = load i64, ptr " + varReg + "\n")
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = inttoptr i64 " + loadReg + " to ptr\n")
-        return ptrReg
-    }
-    if isDataTypeImpl(varType) == 1 {
-        return varReg
-    }
-    let ptrReg = getNextRegFn(regBox)
-    output.append("  " + ptrReg + " = load ptr, ptr " + varReg + "\n")
-    return ptrReg
-}
 
 fun getPipeValueAtIndexImpl(values: String, wantedIdx: Int) r: String {
     var currentIdx = 0
@@ -230,8 +190,17 @@ fun emitValueReceiverMemberAssignmentImpl(output: StringBuilder,
         return 0
     }
 
-    let receiverPtrReg = prepareValueAssignmentReceiverPtrImpl(output, regBox,
-        receiverReg, receiverType, reprCClassNames, structNames)
+    var isClassReceiver = 0
+    if isClassTypeImpl(receiverType, structNames) == 1 {
+        isClassReceiver = 1
+    }
+    var isDataReceiver = 0
+    if isDataTypeImpl(receiverType) == 1 {
+        isDataReceiver = 1
+    }
+    let receiverPtrReg = prepareExpressionMemberReceiverImpl(output, regBox,
+        receiverReg, receiverType, reprCClassNames, isClassReceiver,
+        isDataReceiver)
     return emitResolvedMemberAssignmentStoreImpl(output, regBox,
         receiverPtrReg, receiverType, fieldName, valueReg, valueKind, 0,
         structNames, structLayouts, structFieldNames, structFieldTypes,
@@ -261,8 +230,16 @@ fun emitVariableReceiverMemberAssignmentImpl(output: StringBuilder,
     let varReg = varRegs[varIdx]
     let varType = varTypes[varIdx]
     output.append("; DEBUG generateMemberAssignment: varType=" + varType + "\n")
-    let receiverPtrReg = prepareVariableAssignmentReceiverPtrImpl(output,
-        regBox, varReg, varType, structNames)
+    var isClassReceiver = 0
+    if isClassTypeImpl(varType, structNames) == 1 {
+        isClassReceiver = 1
+    }
+    var isDataReceiver = 0
+    if isDataTypeImpl(varType) == 1 {
+        isDataReceiver = 1
+    }
+    let receiverPtrReg = prepareVariableMemberReceiverImpl(output, regBox,
+        varReg, varType, "", isClassReceiver, isDataReceiver)
     return emitResolvedMemberAssignmentStoreImpl(output, regBox,
         receiverPtrReg, varType, fieldName, valueReg, valueKind, 1,
         structNames, structLayouts, structFieldNames, structFieldTypes,
