@@ -52,7 +52,7 @@ import codegen.ir_module_constants.{ModuleConstantRegistryState, isModuleConstMu
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
-import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
+import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getKnownFieldIndexPrimaryImpl, getKnownFieldIndexFallbackImpl, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorFieldLlvmTypeImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
@@ -1806,82 +1806,11 @@ class LLVMIRGenerator {
         // CRITICAL: Check hardcoded field indices FIRST for known AST types
         // This ensures correct indices even when registry is partially populated
         // (e.g., when type header is loaded but source hasn't been fully parsed)
-        if structName == "FunctionNode" {
-            if fieldName == "name" { cacheIrgenFieldIndex(cacheKey, 0); return 0 }
-            if fieldName == "params" { cacheIrgenFieldIndex(cacheKey, 1); return 1 }
-            if fieldName == "returnType" { cacheIrgenFieldIndex(cacheKey, 2); return 2 }
-            if fieldName == "body" { cacheIrgenFieldIndex(cacheKey, 3); return 3 }
-            if fieldName == "isAsync" { cacheIrgenFieldIndex(cacheKey, 4); return 4 }
-            if fieldName == "isInline" { cacheIrgenFieldIndex(cacheKey, 5); return 5 }
-            if fieldName == "isStatic" { cacheIrgenFieldIndex(cacheKey, 6); return 6 }
-            if fieldName == "isExtern" { cacheIrgenFieldIndex(cacheKey, 7); return 7 }
-            if fieldName == "isDeterministic" { cacheIrgenFieldIndex(cacheKey, 8); return 8 }
-            if fieldName == "isNondeterministic" { cacheIrgenFieldIndex(cacheKey, 9); return 9 }
-            if fieldName == "decorators" { cacheIrgenFieldIndex(cacheKey, 10); return 10 }
-            if fieldName == "line" { cacheIrgenFieldIndex(cacheKey, 11); return 11 }
-            if fieldName == "column" { cacheIrgenFieldIndex(cacheKey, 12); return 12 }
-            if fieldName == "isOverride" { cacheIrgenFieldIndex(cacheKey, 13); return 13 }
-        }
-        if structName == "ClassNode" {
-            if fieldName == "name" { return 0 }
-            if fieldName == "fields" { return 1 }
-            if fieldName == "methods" { return 2 }
-            if fieldName == "decorators" { return 3 }
-            if fieldName == "isNondeterministic" { return 4 }
-            if fieldName == "parentName" { return 5 }
-        }
-        if structName == "TypeNode" {
-            if fieldName == "typeName" { return 0 }
-            if fieldName == "isNullable" { return 1 }
-        }
-        if structName == "ParamNode" {
-            if fieldName == "name" { return 0 }
-            if fieldName == "paramType" { return 1 }
-            if fieldName == "isMutable" { return 2 }
-        }
-        if structName == "ItemNode" {
-            if fieldName == "itemType" { return 0 }
-            if fieldName == "name" { return 1 }
-            if fieldName == "visibility" { return 2 }
-            if fieldName == "importPath" { return 3 }
-            if fieldName == "importSymbols" { return 4 }
-            if fieldName == "function" { return 5 }
-            if fieldName == "classNode" { return 6 }
-            if fieldName == "enumNode" { return 7 }
-        }
-        if structName == "ProgramNode" {
-            if fieldName == "items" { return 0 }
-        }
-        if structName == "BlockNode" {
-            if fieldName == "statements" { return 0 }
-        }
-        if structName == "FrontendResult" {
-            if fieldName == "success" { return 0 }
-            if fieldName == "diagnostics" { return 1 }
-            if fieldName == "program" { return 2 }
-        }
-        if structName == "StatementNode" {
-            if fieldName == "kind" { return 0 }
-            if fieldName == "variableName" { return 1 }
-            if fieldName == "variableType" { return 2 }
-            if fieldName == "initializer" { return 3 }
-            if fieldName == "expression" { return 4 }
-            if fieldName == "condition" { return 5 }
-            if fieldName == "thenBranch" { return 6 }
-            if fieldName == "elseBranch" { return 7 }
-            if fieldName == "loopCondition" { return 8 }
-            if fieldName == "loopBody" { return 9 }
-            if fieldName == "returnValue" { return 10 }
-        }
-        if structName == "ParserExpressionNode" {
-            if fieldName == "kind" { return 0 }
-            if fieldName == "operands" { return 1 }
-            if fieldName == "operator" { return 2 }
-            if fieldName == "literalValue" { return 3 }
-            if fieldName == "literalType" { return 4 }
-            if fieldName == "variableName" { return 5 }
-            if fieldName == "callee" { return 6 }
-            if fieldName == "arguments" { return 7 }
+        let primaryKnownFieldIdx = getKnownFieldIndexPrimaryImpl(structName,
+            fieldName)
+        if primaryKnownFieldIdx >= 0 {
+            cacheIrgenFieldIndex(cacheKey, primaryKnownFieldIdx)
+            return primaryKnownFieldIdx
         }
 
         let idx = findStructReg(structName, structNames)
@@ -1913,25 +1842,11 @@ class LLVMIRGenerator {
         }
 
         // Fallback hardcoded field indices for less common types (not covered above)
-        if structName == "FrontendDiagnostic" {
-            if fieldName == "file" { cacheIrgenFieldIndex(cacheKey, 0); return 0 }
-            if fieldName == "line" { cacheIrgenFieldIndex(cacheKey, 1); return 1 }
-            if fieldName == "column" { cacheIrgenFieldIndex(cacheKey, 2); return 2 }
-            if fieldName == "severity" { cacheIrgenFieldIndex(cacheKey, 3); return 3 }
-            if fieldName == "message" { cacheIrgenFieldIndex(cacheKey, 4); return 4 }
-        }
-        if structName == "Token" {
-            if fieldName == "tokenType" { cacheIrgenFieldIndex(cacheKey, 0); return 0 }
-            if fieldName == "value" { cacheIrgenFieldIndex(cacheKey, 1); return 1 }
-            if fieldName == "line" { cacheIrgenFieldIndex(cacheKey, 2); return 2 }
-            if fieldName == "column" { cacheIrgenFieldIndex(cacheKey, 3); return 3 }
-        }
-        if structName == "FieldNode" {
-            if fieldName == "name" { cacheIrgenFieldIndex(cacheKey, 0); return 0 }
-            if fieldName == "fieldType" { cacheIrgenFieldIndex(cacheKey, 1); return 1 }
-            if fieldName == "isMutable" { cacheIrgenFieldIndex(cacheKey, 2); return 2 }
-            if fieldName == "defaultValue" { cacheIrgenFieldIndex(cacheKey, 3); return 3 }
-            if fieldName == "visibility" { cacheIrgenFieldIndex(cacheKey, 4); return 4 }
+        let fallbackKnownFieldIdx = getKnownFieldIndexFallbackImpl(structName,
+            fieldName)
+        if fallbackKnownFieldIdx >= 0 {
+            cacheIrgenFieldIndex(cacheKey, fallbackKnownFieldIdx)
+            return fallbackKnownFieldIdx
         }
         return -1  // Field not found
     }
@@ -1942,7 +1857,7 @@ class LLVMIRGenerator {
         let idx = findStructReg(structName, structNames)
         if idx < 0 {
             if structName == "LLVMIRGenerator" {
-                let llvmGenType = getLLVMIRGeneratorFieldType(fieldName)
+                let llvmGenType = getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName)
                 if llvmGenType != "" { return llvmGenType }
             }
             let knownType = getFieldTypeForKnownStruct(structName, fieldName)
@@ -1985,7 +1900,7 @@ class LLVMIRGenerator {
         // Hardcoded fallbacks for known structs (avoid string parsing bugs)
         // NOTE: Check these BEFORE returning default i64 for unknown fields
         if structName == "LLVMIRGenerator" {
-            let llvmGenType = getLLVMIRGeneratorFieldType(fieldName)
+            let llvmGenType = getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName)
             if llvmGenType != "" { return llvmGenType }
         }
         let knownType = getFieldTypeForKnownStruct(structName, fieldName)
@@ -2032,88 +1947,6 @@ class LLVMIRGenerator {
 
         return "i64"  // Default
     }
-
-    fun getLLVMIRGeneratorFieldIndex(fieldName: String) r: Int {
-        if fieldName == "output" { return 0 }
-        if fieldName == "stringConstants" { return 1 }
-        if fieldName == "nextReg" { return 2 }
-        if fieldName == "nextBlock" { return 3 }
-        if fieldName == "varNames" { return 4 }
-        if fieldName == "varRegs" { return 5 }
-        if fieldName == "varTypes" { return 6 }
-        if fieldName == "indent" { return 7 }
-        if fieldName == "structNames" { return 8 }
-        if fieldName == "structLayouts" { return 9 }
-        if fieldName == "structFieldNames" { return 10 }
-        if fieldName == "structFieldTypes" { return 11 }
-        if fieldName == "structLlvmFieldTypes" { return 12 }
-        if fieldName == "structSizes" { return 13 }
-        if fieldName == "structMethodNames" { return 14 }
-        if fieldName == "structMethodRetTypes" { return 15 }
-        if fieldName == "funcNames" { return 16 }
-        if fieldName == "funcRetTypes" { return 17 }
-        if fieldName == "classMethodBaseNames" { return 18 }
-        if fieldName == "typeHeaderPath" { return 19 }
-        if fieldName == "currentFunctionReturnType" { return 20 }
-        if fieldName == "currentClassName" { return 21 }
-        if fieldName == "blockTerminated" { return 22 }
-        if fieldName == "currentLoopCondLabel" { return 23 }
-        if fieldName == "currentLoopEndLabel" { return 24 }
-        if fieldName == "preAllocatedVars" { return 25 }
-        if fieldName == "preAllocatedTypes" { return 26 }
-        if fieldName == "stringConstantPrefix" { return 27 }
-        if fieldName == "generatedFunctions" { return 28 }
-        if fieldName == "generatedClasses" { return 29 }
-        if fieldName == "typesLoadedFromHeader" { return 30 }
-        if fieldName == "runtimeDeclsLoaded" { return 31 }
-        if fieldName == "pendingArrayLiteralType" { return 32 }
-        if fieldName == "moduleConstantNames" { return 33 }
-        if fieldName == "moduleConstantValues" { return 34 }
-        if fieldName == "moduleConstantTypes" { return 35 }
-        return -1
-    }
-
-
-    fun getLLVMIRGeneratorFieldType(fieldName: String) r: String {
-        if fieldName == "output" { return "i64" }
-        if fieldName == "stringConstants" { return "ptr" }
-        if fieldName == "nextReg" { return "i64" }
-        if fieldName == "nextBlock" { return "i64" }
-        if fieldName == "varNames" { return "ptr" }
-        if fieldName == "varRegs" { return "ptr" }
-        if fieldName == "varTypes" { return "ptr" }
-        if fieldName == "indent" { return "i64" }
-        if fieldName == "structNames" { return "ptr" }
-        if fieldName == "structLayouts" { return "ptr" }
-        if fieldName == "structFieldNames" { return "ptr" }
-        if fieldName == "structFieldTypes" { return "ptr" }
-        if fieldName == "structLlvmFieldTypes" { return "ptr" }
-        if fieldName == "structSizes" { return "ptr" }
-        if fieldName == "structMethodNames" { return "ptr" }
-        if fieldName == "structMethodRetTypes" { return "ptr" }
-        if fieldName == "funcNames" { return "ptr" }
-        if fieldName == "funcRetTypes" { return "ptr" }
-        if fieldName == "classMethodBaseNames" { return "ptr" }
-        if fieldName == "typeHeaderPath" { return "%SeenString" }
-        if fieldName == "currentFunctionReturnType" { return "%SeenString" }
-        if fieldName == "currentClassName" { return "%SeenString" }
-        if fieldName == "blockTerminated" { return "i1" }
-        if fieldName == "currentLoopCondLabel" { return "%SeenString" }
-        if fieldName == "currentLoopEndLabel" { return "%SeenString" }
-        if fieldName == "preAllocatedVars" { return "ptr" }
-        if fieldName == "preAllocatedTypes" { return "ptr" }
-        if fieldName == "stringConstantPrefix" { return "%SeenString" }
-        if fieldName == "generatedFunctions" { return "ptr" }
-        if fieldName == "generatedClasses" { return "ptr" }
-        if fieldName == "typesLoadedFromHeader" { return "i1" }
-        if fieldName == "runtimeDeclsLoaded" { return "i1" }
-        if fieldName == "pendingArrayLiteralType" { return "%SeenString" }
-        if fieldName == "moduleConstantNames" { return "ptr" }
-        if fieldName == "moduleConstantValues" { return "ptr" }
-        if fieldName == "moduleConstantTypes" { return "ptr" }
-        return ""
-    }
-
 
     fun getSeenTokenTypeValue(memberName: String) r: Int { return getSeenTokenTypeValueImpl(memberName) }
 
@@ -7081,7 +6914,7 @@ class LLVMIRGenerator {
         let lb = "{"
         let rb = "}"
         if structType == "LLVMIRGenerator" {
-            var idx = getLLVMIRGeneratorFieldIndex(fieldName)
+            var idx = getLLVMIRGeneratorFieldIndexImpl(fieldName)
             if idx < 0 {
                 idx = 0
             }
@@ -7387,7 +7220,7 @@ class LLVMIRGenerator {
         let thisReg = varRegs[thisIdx]
         let thisType = varTypes[thisIdx]
         if thisType == "LLVMIRGenerator" {
-            let idxCheck = getLLVMIRGeneratorFieldIndex(varName)
+            let idxCheck = getLLVMIRGeneratorFieldIndexImpl(varName)
             if idxCheck >= 0 {
                 let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, thisReg)
                 return generateFieldAccess(thisPtrReg, thisType, varName)
@@ -9327,7 +9160,7 @@ class LLVMIRGenerator {
                             let thisType = varTypes[thisIdx]
                             if thisType == "LLVMIRGenerator" {
                                 let idxCheck =
-                                    getLLVMIRGeneratorFieldIndex(varName)
+                                    getLLVMIRGeneratorFieldIndexImpl(varName)
                                 if idxCheck >= 0 {
                                     let thisPtrReg =
                                         emitImplicitThisPointerLoadImpl(

@@ -32,6 +32,191 @@ fun findStructIdx(structNames: Array<String>, name: String) r: Int {
     return -1
 }
 
+fun getKnownFieldIndexPrimaryImpl(structName: String, fieldName: String) r: Int {
+    if structName == "FunctionNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "params" { return 1 }
+        if fieldName == "returnType" { return 2 }
+        if fieldName == "body" { return 3 }
+        if fieldName == "isAsync" { return 4 }
+        if fieldName == "isInline" { return 5 }
+        if fieldName == "isStatic" { return 6 }
+        if fieldName == "isExtern" { return 7 }
+        if fieldName == "isDeterministic" { return 8 }
+        if fieldName == "isNondeterministic" { return 9 }
+        if fieldName == "decorators" { return 10 }
+        if fieldName == "line" { return 11 }
+        if fieldName == "column" { return 12 }
+        if fieldName == "isOverride" { return 13 }
+    }
+    if structName == "ClassNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "fields" { return 1 }
+        if fieldName == "methods" { return 2 }
+        if fieldName == "decorators" { return 3 }
+        if fieldName == "isNondeterministic" { return 4 }
+        if fieldName == "parentName" { return 5 }
+    }
+    if structName == "TypeNode" {
+        if fieldName == "typeName" { return 0 }
+        if fieldName == "isNullable" { return 1 }
+    }
+    if structName == "ParamNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "paramType" { return 1 }
+        if fieldName == "isMutable" { return 2 }
+    }
+    if structName == "ItemNode" {
+        if fieldName == "itemType" { return 0 }
+        if fieldName == "name" { return 1 }
+        if fieldName == "visibility" { return 2 }
+        if fieldName == "importPath" { return 3 }
+        if fieldName == "importSymbols" { return 4 }
+        if fieldName == "function" { return 5 }
+        if fieldName == "classNode" { return 6 }
+        if fieldName == "enumNode" { return 7 }
+    }
+    if structName == "ProgramNode" {
+        if fieldName == "items" { return 0 }
+    }
+    if structName == "BlockNode" {
+        if fieldName == "statements" { return 0 }
+    }
+    if structName == "FrontendResult" {
+        if fieldName == "success" { return 0 }
+        if fieldName == "diagnostics" { return 1 }
+        if fieldName == "program" { return 2 }
+    }
+    if structName == "StatementNode" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "variableName" { return 1 }
+        if fieldName == "variableType" { return 2 }
+        if fieldName == "initializer" { return 3 }
+        if fieldName == "expression" { return 4 }
+        if fieldName == "condition" { return 5 }
+        if fieldName == "thenBranch" { return 6 }
+        if fieldName == "elseBranch" { return 7 }
+        if fieldName == "loopCondition" { return 8 }
+        if fieldName == "loopBody" { return 9 }
+        if fieldName == "returnValue" { return 10 }
+    }
+    if structName == "ParserExpressionNode" {
+        if fieldName == "kind" { return 0 }
+        if fieldName == "operands" { return 1 }
+        if fieldName == "operator" { return 2 }
+        if fieldName == "literalValue" { return 3 }
+        if fieldName == "literalType" { return 4 }
+        if fieldName == "variableName" { return 5 }
+        if fieldName == "callee" { return 6 }
+        if fieldName == "arguments" { return 7 }
+    }
+    return -1
+}
+
+fun getKnownFieldIndexFallbackImpl(structName: String, fieldName: String) r: Int {
+    if structName == "FrontendDiagnostic" {
+        if fieldName == "file" { return 0 }
+        if fieldName == "line" { return 1 }
+        if fieldName == "column" { return 2 }
+        if fieldName == "severity" { return 3 }
+        if fieldName == "message" { return 4 }
+    }
+    if structName == "Token" {
+        if fieldName == "tokenType" { return 0 }
+        if fieldName == "value" { return 1 }
+        if fieldName == "line" { return 2 }
+        if fieldName == "column" { return 3 }
+    }
+    if structName == "FieldNode" {
+        if fieldName == "name" { return 0 }
+        if fieldName == "fieldType" { return 1 }
+        if fieldName == "isMutable" { return 2 }
+        if fieldName == "defaultValue" { return 3 }
+        if fieldName == "visibility" { return 4 }
+    }
+    return -1
+}
+
+fun getLLVMIRGeneratorFieldIndexImpl(fieldName: String) r: Int {
+    if fieldName == "output" { return 0 }
+    if fieldName == "stringConstants" { return 1 }
+    if fieldName == "nextReg" { return 2 }
+    if fieldName == "nextBlock" { return 3 }
+    if fieldName == "varNames" { return 4 }
+    if fieldName == "varRegs" { return 5 }
+    if fieldName == "varTypes" { return 6 }
+    if fieldName == "indent" { return 7 }
+    if fieldName == "structNames" { return 8 }
+    if fieldName == "structLayouts" { return 9 }
+    if fieldName == "structFieldNames" { return 10 }
+    if fieldName == "structFieldTypes" { return 11 }
+    if fieldName == "structLlvmFieldTypes" { return 12 }
+    if fieldName == "structSizes" { return 13 }
+    if fieldName == "structMethodNames" { return 14 }
+    if fieldName == "structMethodRetTypes" { return 15 }
+    if fieldName == "funcNames" { return 16 }
+    if fieldName == "funcRetTypes" { return 17 }
+    if fieldName == "classMethodBaseNames" { return 18 }
+    if fieldName == "typeHeaderPath" { return 19 }
+    if fieldName == "currentFunctionReturnType" { return 20 }
+    if fieldName == "currentClassName" { return 21 }
+    if fieldName == "blockTerminated" { return 22 }
+    if fieldName == "currentLoopCondLabel" { return 23 }
+    if fieldName == "currentLoopEndLabel" { return 24 }
+    if fieldName == "preAllocatedVars" { return 25 }
+    if fieldName == "preAllocatedTypes" { return 26 }
+    if fieldName == "stringConstantPrefix" { return 27 }
+    if fieldName == "generatedFunctions" { return 28 }
+    if fieldName == "generatedClasses" { return 29 }
+    if fieldName == "typesLoadedFromHeader" { return 30 }
+    if fieldName == "runtimeDeclsLoaded" { return 31 }
+    if fieldName == "pendingArrayLiteralType" { return 32 }
+    if fieldName == "moduleConstantNames" { return 33 }
+    if fieldName == "moduleConstantValues" { return 34 }
+    if fieldName == "moduleConstantTypes" { return 35 }
+    return -1
+}
+
+fun getLLVMIRGeneratorFieldLlvmTypeImpl(fieldName: String) r: String {
+    if fieldName == "output" { return "i64" }
+    if fieldName == "stringConstants" { return "ptr" }
+    if fieldName == "nextReg" { return "i64" }
+    if fieldName == "nextBlock" { return "i64" }
+    if fieldName == "varNames" { return "ptr" }
+    if fieldName == "varRegs" { return "ptr" }
+    if fieldName == "varTypes" { return "ptr" }
+    if fieldName == "indent" { return "i64" }
+    if fieldName == "structNames" { return "ptr" }
+    if fieldName == "structLayouts" { return "ptr" }
+    if fieldName == "structFieldNames" { return "ptr" }
+    if fieldName == "structFieldTypes" { return "ptr" }
+    if fieldName == "structLlvmFieldTypes" { return "ptr" }
+    if fieldName == "structSizes" { return "ptr" }
+    if fieldName == "structMethodNames" { return "ptr" }
+    if fieldName == "structMethodRetTypes" { return "ptr" }
+    if fieldName == "funcNames" { return "ptr" }
+    if fieldName == "funcRetTypes" { return "ptr" }
+    if fieldName == "classMethodBaseNames" { return "ptr" }
+    if fieldName == "typeHeaderPath" { return "%SeenString" }
+    if fieldName == "currentFunctionReturnType" { return "%SeenString" }
+    if fieldName == "currentClassName" { return "%SeenString" }
+    if fieldName == "blockTerminated" { return "i1" }
+    if fieldName == "currentLoopCondLabel" { return "%SeenString" }
+    if fieldName == "currentLoopEndLabel" { return "%SeenString" }
+    if fieldName == "preAllocatedVars" { return "ptr" }
+    if fieldName == "preAllocatedTypes" { return "ptr" }
+    if fieldName == "stringConstantPrefix" { return "%SeenString" }
+    if fieldName == "generatedFunctions" { return "ptr" }
+    if fieldName == "generatedClasses" { return "ptr" }
+    if fieldName == "typesLoadedFromHeader" { return "i1" }
+    if fieldName == "runtimeDeclsLoaded" { return "i1" }
+    if fieldName == "pendingArrayLiteralType" { return "%SeenString" }
+    if fieldName == "moduleConstantNames" { return "ptr" }
+    if fieldName == "moduleConstantValues" { return "ptr" }
+    if fieldName == "moduleConstantTypes" { return "ptr" }
+    return ""
+}
+
 // Character to ASCII code string conversion
 fun charToCodeStr(val: String) r: String {
     if val.length() == 0 { return "0" }
