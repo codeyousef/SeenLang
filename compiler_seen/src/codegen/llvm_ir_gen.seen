@@ -83,7 +83,7 @@ import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGen
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
-import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
+import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
@@ -94,7 +94,7 @@ import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeI
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
-import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
+import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
@@ -5797,15 +5797,9 @@ class LLVMIRGenerator {
             return 1
         }
 
-        let layoutInfo = resolveFieldAccessLayoutImpl(receiverType, fieldName, structNames, structLayouts, structFieldNames)
-        let layoutParts = splitAssignmentLayoutInfoImpl(layoutInfo)
-        let fieldIdx = parseSimpleInt(layoutParts[1])
-        if fieldIdx < 0 {
-            return 0
-        }
-
-        let fieldPtrReg = getNextReg()
-        output.append("  " + fieldPtrReg + " = getelementptr inbounds " + layoutParts[0] + ", ptr " + receiverPtrReg + ", i32 0, i32 " + fieldIdx.toString() + "\n")
+        let fieldPtrReg = emitResolvedFieldAccessPtrImpl(output, g_regBox,
+            receiverPtrReg, receiverType, fieldName, structNames,
+            structLayouts, structFieldNames)
 
         if allowBitfield == 1 and g_bitfieldCount > 0 and fieldTypes[0] == "i64" {
             let bitfieldWidth = findBitfieldWidthImpl(receiverType + "." + fieldName, g_bitfieldKeys, g_bitfieldWidths)
@@ -6902,26 +6896,6 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun emitResolvedFieldAccessLoad(ptrReg: String, structType: String, fieldName: String) r: String {
-        let layoutParts = splitPipe(resolveFieldAccessLayoutImpl(structType,
-            fieldName, structNames, structLayouts, structFieldNames))
-        var structLayout = "{ i64 }"
-        var fieldIndex = 0
-        if layoutParts.length() >= 2 {
-            structLayout = layoutParts[0]
-            fieldIndex = parseIntManual(layoutParts[1])
-        }
-        let fieldPtrReg = emitFieldAccessPtrImpl(output, g_regBox, ptrReg, structLayout, fieldIndex)
-        var resultReg = emitFieldAccessLoadImpl(output, g_regBox, getFieldType(structType, fieldName), fieldPtrReg)
-        if g_bitfieldCount > 0 {
-            let bitfieldWidth = findBitfieldWidthImpl(structType + "." + fieldName, g_bitfieldKeys, g_bitfieldWidths)
-            if bitfieldWidth > 0 and bitfieldWidth < 64 {
-                resultReg = emitBitfieldMaskLoadImpl(output, g_regBox, resultReg, bitfieldWidth)
-            }
-        }
-        return resultReg
-    }
-
     // Generate a struct field load via GEP (getelementptr). For simple fields,
     // emits: getelementptr %StructType, ptr %ptrReg, i32 0, i32 <fieldIdx>
     // followed by a load. For chained field access (e.g., "a.b.c"), recursively
@@ -6952,7 +6926,10 @@ class LLVMIRGenerator {
             return unionResult
         }
 
-        return emitResolvedFieldAccessLoad(ptrReg, structType, fieldName)
+        return emitResolvedFieldAccessLoadImpl(output, g_regBox, ptrReg,
+            structType, fieldName, getFieldType(structType, fieldName),
+            structNames, structLayouts, structFieldNames, g_bitfieldCount,
+            g_bitfieldKeys, g_bitfieldWidths)
     }
 
     // Same as generateFieldAccess but returns the GEP pointer without loading
@@ -6962,15 +6939,9 @@ class LLVMIRGenerator {
             return ptrReg
         }
 
-        let layoutParts = splitPipe(resolveFieldAccessLayoutImpl(structType,
-            fieldName, structNames, structLayouts, structFieldNames))
-        var structLayout = "{ i64 }"
-        var fieldIndex = 0
-        if layoutParts.length() >= 2 {
-            structLayout = layoutParts[0]
-            fieldIndex = parseIntManual(layoutParts[1])
-        }
-        return emitFieldAccessPtrImpl(output, g_regBox, ptrReg, structLayout, fieldIndex)
+        return emitResolvedFieldAccessPtrImpl(output, g_regBox, ptrReg,
+            structType, fieldName, structNames, structLayouts,
+            structFieldNames)
     }
 
     // Generate IR for a struct literal expression (StructName { field: val, ... }).

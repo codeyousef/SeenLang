@@ -1,6 +1,10 @@
 // ir_field_layout.seen — Shared struct field layout resolution helpers
 // Extracted from llvm_ir_gen.seen field access paths to reduce duplication.
 
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{parseIntManual, splitPipe}
+import codegen.ir_assignment_gen.{findBitfieldWidthImpl}
+import codegen.ir_member_access.{emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl}
 import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl}
 import codegen.ir_type_mapping.{resolveKnownStructFieldImpl}
 import codegen.type_registry.{getFieldInfoReg}
@@ -40,4 +44,42 @@ fun resolveFieldAccessLayoutImpl(structType: String, fieldName: String,
     }
 
     return defaultLayout + "|0"
+}
+
+fun emitResolvedFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>) r: String {
+
+    let layoutParts = splitPipe(resolveFieldAccessLayoutImpl(structType,
+        fieldName, structNames, structLayouts, structFieldNames))
+    var structLayout = "{ i64 }"
+    var fieldIndex = 0
+    if layoutParts.length() >= 2 {
+        structLayout = layoutParts[0]
+        fieldIndex = parseIntManual(layoutParts[1])
+    }
+    return emitFieldAccessPtrImpl(output, regBox, ptrReg, structLayout,
+        fieldIndex)
+}
+
+fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String, fieldType: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    let fieldPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox, ptrReg,
+        structType, fieldName, structNames, structLayouts, structFieldNames)
+    var resultReg = emitFieldAccessLoadImpl(output, regBox, fieldType,
+        fieldPtrReg)
+    if bitfieldCount > 0 {
+        let bitfieldWidth = findBitfieldWidthImpl(structType + "." + fieldName,
+            bitfieldKeys, bitfieldWidths)
+        if bitfieldWidth > 0 and bitfieldWidth < 64 {
+            resultReg = emitBitfieldMaskLoadImpl(output, regBox, resultReg,
+                bitfieldWidth)
+        }
+    }
+    return resultReg
 }
