@@ -94,7 +94,7 @@ import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveCompt
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
-import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findActiveVariableTypeImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findActiveVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
@@ -1541,21 +1541,6 @@ class LLVMIRGenerator {
             }
             pos = pos + 1
         }
-    }
-
-    // Helper to store variable
-    // Push or reactivate a variable binding in the current lexical scope.
-    fun storeVar(name: String, reg: String, varType: String) r: Void {
-        if activeVarCount < varNames.length() {
-            varNames[activeVarCount] = name
-            varRegs[activeVarCount] = reg
-            varTypes[activeVarCount] = varType
-        } else {
-            varNames.push(name)
-            varRegs.push(reg)
-            varTypes.push(varType)
-        }
-        activeVarCount = activeVarCount + 1
     }
 
     // Helper to find variable. Searches backwards (newest variable first) since
@@ -3372,7 +3357,9 @@ class LLVMIRGenerator {
             let defaultParamType = mapType(normalizeDeclaredTypeNode(defaultParam.paramType))
             let defaultParamReg = "%" + quoteIdentIfNeeded(defaultParam.name)
             defaultParamStr = defaultParamStr + defaultParamType + " " + defaultParamReg
-            storeVar(defaultParam.name, defaultParamReg, normalizeDeclaredTypeNode(defaultParam.paramType))
+            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+                varTypes, activeVarCount, defaultParam.name, defaultParamReg,
+                normalizeDeclaredTypeNode(defaultParam.paramType))
             paramIdx = paramIdx + 1
         }
         let defaultRetType = mapType(traitRetTypeName)
@@ -3795,12 +3782,15 @@ class LLVMIRGenerator {
         normalizedMethodParamTypes: Array<String>) r: Void {
 
         if not methods[methodIdx].isStatic {
-            storeVar("this", "", className)
+            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+                varTypes, activeVarCount, "this", "", className)
         }
         var paramIdx = 0
         while paramIdx < methods[methodIdx].params.length() {
             let param = methods[methodIdx].params[paramIdx]
-            storeVar(param.name, "", normalizedMethodParamTypes[paramIdx])
+            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+                varTypes, activeVarCount, param.name, "",
+                normalizedMethodParamTypes[paramIdx])
             paramIdx = paramIdx + 1
         }
         collectVariableDeclarations(methods[methodIdx].body)
@@ -3849,10 +3839,13 @@ class LLVMIRGenerator {
         let thisReg = getNextReg()
         output.append("  " + thisReg + " = alloca ptr\n")
         output.append("  store ptr %this, ptr " + thisReg + "\n")
-        storeVar("this", thisReg, className)
+        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+            varTypes, activeVarCount, "this", thisReg, className)
         if explicitReceiverName != "this" {
             if explicitReceiverName != "" {
-                storeVar(explicitReceiverName, thisReg, className)
+                activeVarCount = storeActiveVariableBindingImpl(varNames,
+                    varRegs, varTypes, activeVarCount, explicitReceiverName,
+                    thisReg, className)
             }
         }
     }
@@ -3873,13 +3866,18 @@ class LLVMIRGenerator {
                 let seenTypeName = normalizedMethodParamTypes[paramIdx]
                 let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
                 if isDataType(semanticSeenTypeName) {
-                    storeVar(param.name, "%" + quotedMethodArgNames[paramIdx], semanticSeenTypeName)
+                    activeVarCount = storeActiveVariableBindingImpl(varNames,
+                        varRegs, varTypes, activeVarCount, param.name,
+                        "%" + quotedMethodArgNames[paramIdx],
+                        semanticSeenTypeName)
                 } else {
                     let paramType = mapStorageTypeForParameter(seenTypeName)
                     let reg = getNextReg()
                     output.append("  " + reg + " = alloca " + paramType + "\n")
                     output.append("  store " + paramType + " %" + quotedMethodArgNames[paramIdx] + ", ptr " + reg + "\n")
-                    storeVar(param.name, reg, semanticSeenTypeName)
+                    activeVarCount = storeActiveVariableBindingImpl(varNames,
+                        varRegs, varTypes, activeVarCount, param.name, reg,
+                        semanticSeenTypeName)
                 }
             }
             paramIdx = paramIdx + 1
@@ -3892,7 +3890,8 @@ class LLVMIRGenerator {
         }
         let thisReg = emitConstructorAllocationImpl(output, g_regBox, className,
             structNames, structSizes, structFieldNames, structFieldTypes)
-        storeVar("this", thisReg, className)
+        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+            varTypes, activeVarCount, "this", thisReg, className)
     }
 
     fun tryEmitClassMethodConstructorReturn(methodName: String) r: Bool {
@@ -4737,7 +4736,9 @@ class LLVMIRGenerator {
         let savedCatchVarCount = activeVarCount
         if stmt.variableName != "" {
             let catchVarReg = getNextReg()
-            storeVar(stmt.variableName, catchVarReg, "Int")
+            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+                varTypes, activeVarCount, stmt.variableName, catchVarReg,
+                "Int")
             output.append("  " + catchVarReg + " = add i64 0, 0 ; catch binding\n")
         }
         if stmt.elseBranch.statements.length() > 0 {
@@ -4906,7 +4907,8 @@ class LLVMIRGenerator {
 
         emitParallelForBodyHeaderImpl(output, bodyFuncName)
         // Bind loop variable to %0
-        storeVar(stmt.variableName, "%0", "Int")
+        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+            varTypes, activeVarCount, stmt.variableName, "%0", "Int")
         // Generate body block
         generateBlock(stmt.loopBody)
 
@@ -5140,7 +5142,8 @@ class LLVMIRGenerator {
         }
         let reg = resolveLetStatementAllocaImpl(output, g_regBox,
             preAllocatedReg, preAllocatedLlvmType, llvmType)
-        storeVar(stmt.variableName, reg, varType)
+        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+            varTypes, activeVarCount, stmt.variableName, reg, varType)
         emitLetStatementInitializer(stmt, reg, varType, llvmType)
     }
 
@@ -5552,7 +5555,8 @@ class LLVMIRGenerator {
         output.append("  " + bindReg + " = alloca i64, align 8\n")
         output.append("  store i64 " + exprReg + ", ptr " + bindReg + "\n")
         let savedIfLetVarCount = activeVarCount
-        storeVar(bindName, bindReg, "Int")
+        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+            varTypes, activeVarCount, bindName, bindReg, "Int")
         return savedIfLetVarCount
     }
 
@@ -5896,7 +5900,8 @@ class LLVMIRGenerator {
         let startReg = generateExpression(forInIterable.operands[0])
         let endReg = generateExpression(forInIterable.operands[1])
         let idxReg = resolveForInIndexAlloca("__forin_idx_" + loopVarName)
-        storeVar(loopVarName, loopVarReg, loopVarType)
+        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+            varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
         cseClear()
         emitIndexedForLoopHeaderImpl(output, g_regBox, startReg, endReg, loopVarReg, idxReg, condLabel, bodyLabel, endLabel)
         cseClear()
@@ -5927,7 +5932,8 @@ class LLVMIRGenerator {
         let iterStoreReg = getNextReg()
         output.append("  " + iterStoreReg + " = alloca i64, align 8\n")
         output.append("  store i64 " + iterObjReg + ", ptr " + iterStoreReg + "\n")
-        storeVar(loopVarName, loopVarReg, loopVarType)
+        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+            varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
 
         output.append("  br label %" + condLabel + "\n")
         output.append(condLabel + ":\n")
@@ -6000,7 +6006,8 @@ class LLVMIRGenerator {
         }
 
         let idxReg = resolveForInIndexAlloca("__forin_idx_" + loopVarName)
-        storeVar(loopVarName, loopVarReg, loopVarType)
+        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+            varTypes, activeVarCount, loopVarName, loopVarReg, loopVarType)
         cseClear()
         let loadIdx = emitIndexedForLoopHeaderImpl(output, g_regBox, "0", lenReg, "", idxReg, condLabel, bodyLabel, endLabel)
         cseClear()
@@ -6685,7 +6692,8 @@ class LLVMIRGenerator {
             let cpLocal = getNextReg()
             output.append("  " + cpLocal + " = alloca i64\n")
             output.append("  store i64 " + cpReg + ", ptr " + cpLocal + "\n")
-            storeVar(cpName, cpLocal, "Int")
+            activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+                varTypes, activeVarCount, cpName, cpLocal, "Int")
             paramIdx = paramIdx + 1
         }
 

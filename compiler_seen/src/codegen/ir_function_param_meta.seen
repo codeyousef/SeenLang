@@ -8,6 +8,7 @@ import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 
 fun ensureFunctionParamMetaStringBoxValue(box: Array<String>) r: Void {
     if box.length() == 0 {
@@ -91,16 +92,8 @@ fun storeFunctionBindingImpl(varNames: Array<String>, varRegs: Array<String>,
     reg: String, varType: String) r: Void {
 
     ensureFunctionParamMetaIntBoxValue(activeVarCountBox)
-    if activeVarCountBox[0] < varNames.length() {
-        varNames[activeVarCountBox[0]] = name
-        varRegs[activeVarCountBox[0]] = reg
-        varTypes[activeVarCountBox[0]] = varType
-    } else {
-        varNames.push(name)
-        varRegs.push(reg)
-        varTypes.push(varType)
-    }
-    activeVarCountBox[0] = activeVarCountBox[0] + 1
+    activeVarCountBox[0] = storeActiveVariableBindingImpl(varNames, varRegs,
+        varTypes, activeVarCountBox[0], name, reg, varType)
 }
 
 fun mapFunctionParameterTypeImpl(seenType: String, structNames: Array<String>,

@@ -34,6 +34,22 @@ fun findActiveVariableTypeImpl(varNames: Array<String>, varTypes: Array<String>,
     return ""
 }
 
+fun storeActiveVariableBindingImpl(varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>, activeVarCount: Int,
+    name: String, reg: String, varType: String) r: Int {
+
+    if activeVarCount < varNames.length() {
+        varNames[activeVarCount] = name
+        varRegs[activeVarCount] = reg
+        varTypes[activeVarCount] = varType
+    } else {
+        varNames.push(name)
+        varRegs.push(reg)
+        varTypes.push(varType)
+    }
+    return activeVarCount + 1
+}
+
 fun emitMovedVariableUseTrapImpl(output: StringBuilder, varName: String) r: Void {
     output.append("  ; ERROR: use after move of '" + varName + "'\n")
     output.append("  call void @seen_use_after_move()\n")
