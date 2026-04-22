@@ -2166,18 +2166,6 @@ class LLVMIRGenerator {
         return
     }
 
-    // Check if a variable has been pre-allocated, return its index or -1
-    fun findPreAllocated(name: String) r: Int {
-        var i = 0
-        while i < preAllocatedVars.length() {
-            if preAllocatedVars[i] == name {
-                return i
-            }
-            i = i + 1
-        }
-        return -1
-    }
-
     // Emit pool_free calls for all local class-type variables before a return
     // skipVar: name of the variable being returned (should not be freed)
     // Emit free calls for all heap-allocated local variables at function exit.
