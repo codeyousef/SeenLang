@@ -53,7 +53,7 @@ import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl,
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
-import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, removeSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
+import codegen.ir_string_collect.{trimSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, extractStructFieldTypesImpl, parseArrayLengthImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, findSubstringImpl, getSeenTokenTypeValueImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
@@ -1510,9 +1510,7 @@ class LLVMIRGenerator {
         g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
     }
 
-    fun hexToDecimal(value: String) r: String { return hexToDecimalImpl(value) }
     fun trimSpaces(value: String) r: String { return trimSpacesImpl(value) }
-    fun removeSpaces(value: String) r: String { return removeSpacesImpl(value) }
     fun getBaseTypeName(typeName: String) r: String { return getBaseTypeNameImpl(typeName) }
     fun normalizeHeaderType(typeName: String) r: String { return normalizeHeaderTypeImpl(typeName) }
 
