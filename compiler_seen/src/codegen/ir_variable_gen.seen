@@ -45,6 +45,18 @@ fun isModuleConstantImpl(moduleConstIdx: Int) r: Bool {
     return moduleConstIdx >= 0
 }
 
+fun resolveModuleConstantTypeImpl(seenType: String, fallbackType: String)
+    r: String {
+
+    if seenType != "" {
+        return seenType
+    }
+    if fallbackType != "" {
+        return fallbackType
+    }
+    return "Int"
+}
+
 fun emitMovedVariableUseTrapImpl(output: StringBuilder, varName: String) r: Void {
     output.append("  ; ERROR: use after move of '" + varName + "'\n")
     output.append("  call void @seen_use_after_move()\n")
