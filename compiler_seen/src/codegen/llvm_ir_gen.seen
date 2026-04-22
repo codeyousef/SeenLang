@@ -525,11 +525,6 @@ var g_enumVariantParent: String = ""
 var g_enumVariantCount: Int = 0
 var g_enumTypeCount: Int = 0
 
-// Check if module constant at given index is mutable (from g_moduleConstMutable pipe-delimited string)
-fun isModuleConstMutable(idx: Int) r: Bool {
-    return isModuleConstMutableImpl(idx, g_moduleConstMutable)
-}
-
 // Uses Array<String> for O(1) indexed access. Searches backwards (most recent first).
 // CSE (Common Subexpression Elimination) cache lookup.
 // Searches backwards through g_cseKeysArr so the most recent entry wins,
@@ -6084,7 +6079,8 @@ class LLVMIRGenerator {
                     while mcIdx < moduleConstantNames.length() {
                         if moduleConstantNames[mcIdx] == licmVarName {
                             var licmImmutable = true
-                            if isModuleConstMutable(mcIdx) { licmImmutable = false }
+                            if isModuleConstMutableImpl(mcIdx,
+                                g_moduleConstMutable) { licmImmutable = false }
                             if licmImmutable {
                                 output.append("  ; LICM: " + licmVarName + " is immutable module constant (!invariant.load applied)\n")
                                 mlLogDecision("licm", "applied", licmVarName)
@@ -7493,7 +7489,7 @@ class LLVMIRGenerator {
             constSeenType = findVarType(receiverName)
         }
         var invSuffix = ""
-        if not isModuleConstMutable(constIdx) {
+        if not isModuleConstMutableImpl(constIdx, g_moduleConstMutable) {
             invSuffix = ", !invariant.load !190"
         }
         var constIsClass = 0
@@ -8113,7 +8109,7 @@ class LLVMIRGenerator {
         let constIdx = findModuleConstant(varName)
         if constIdx >= 0 {
             var invSuffix = ""
-            if not isModuleConstMutable(constIdx) {
+            if not isModuleConstMutableImpl(constIdx, g_moduleConstMutable) {
                 invSuffix = ", !invariant.load !190"
             }
             return emitModuleConstantLoadImpl(output, g_regBox,
@@ -9992,7 +9988,8 @@ class LLVMIRGenerator {
                     if gvMcIdx >= 0 {
                         let gvMcType = moduleConstantTypes[gvMcIdx]
                         var gvMcInvSuffix = ""
-                        if not isModuleConstMutable(gvMcIdx) {
+                        if not isModuleConstMutableImpl(gvMcIdx,
+                            g_moduleConstMutable) {
                             gvMcInvSuffix = ", !invariant.load !190"
                         }
                         let moduleConstReceiverRegBox = Array<String>()
