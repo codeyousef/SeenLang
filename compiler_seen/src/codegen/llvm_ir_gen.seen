@@ -88,7 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
@@ -5370,7 +5370,7 @@ class LLVMIRGenerator {
         let rangeExpr = stmt.expression
         var startReg = ""
         var endReg = ""
-        if rangeExpr.kind == "Binary" and rangeExpr.operator == ".." {
+        if classifyParallelForRangeExprImpl(rangeExpr) == 1 {
             startReg = generateExpression(rangeExpr.operands[0])
             endReg = generateExpression(rangeExpr.operands[1])
         } else {
@@ -5382,24 +5382,19 @@ class LLVMIRGenerator {
         // Generate the loop body as an anonymous function
         let pforIdx = g_pforCount
         g_pforCount = g_pforCount + 1
-        let bodyFuncName = "@__seen_pfor_body_" + pforIdx.toString()
+        let bodyFuncName = buildParallelForBodyFunctionNameImpl(pforIdx)
         let pforReturnType = currentFunctionReturnType
 
         let savedNestedState = beginNestedScratchState(pforReturnType)
 
-        output.append("define i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
-        output.append("entry:\n")
+        emitParallelForBodyHeaderImpl(output, bodyFuncName)
         // Bind loop variable to %0
         storeVar(stmt.variableName, "%0", "Int")
         // Generate body block
         generateBlock(stmt.loopBody)
-        if not blockTerminated {
-            output.append("  ret i64 0\n")
-        }
-        output.append("}\n\n")
 
         // Store generated body function in closures list
-        let bodyFuncIR = output.toString()
+        let bodyFuncIR = finalizeParallelForBodyImpl(output, blockTerminated)
         g_closureDefs = g_closureDefs + bodyFuncIR
 
         restoreNestedScratchState(savedNestedState)

@@ -252,6 +252,34 @@ fun emitRegionStatementCleanupImpl(output: StringBuilder, regBox: Array<Int>,
     output.append("  call void @__seen_region_destroy(ptr " + loadReg + ")\n")
 }
 
+fun classifyParallelForRangeExprImpl(rangeExpr: ParserExpressionNode) r: Int {
+    if rangeExpr.kind == "Binary" and rangeExpr.operator == ".." {
+        return 1
+    }
+    return 0
+}
+
+fun buildParallelForBodyFunctionNameImpl(pforIdx: Int) r: String {
+    return "@__seen_pfor_body_" + pforIdx.toString()
+}
+
+fun emitParallelForBodyHeaderImpl(output: StringBuilder, bodyFuncName: String)
+    r: Void {
+
+    output.append("define i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
+    output.append("entry:\n")
+}
+
+fun finalizeParallelForBodyImpl(output: StringBuilder, blockTerminated: Bool)
+    r: String {
+
+    if not blockTerminated {
+        output.append("  ret i64 0\n")
+    }
+    output.append("}\n\n")
+    return output.toString()
+}
+
 fun emitProfileExitOnReturnImpl(output: StringBuilder, strIdx: Int) r: Void {
     output.append("  ; @profile instrumentation - exit (explicit return)\n")
     output.append("  call void @__seen_profile_exit(ptr @.str." +
