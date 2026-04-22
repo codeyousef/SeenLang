@@ -88,7 +88,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_decl.{declarationTypeNeedsFallbackImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
+import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
@@ -2106,78 +2106,60 @@ class LLVMIRGenerator {
     }
 
     fun resolveDeclarationBaseType(stmt: StatementNode) r: String {
-        var varType = normalizeDeclaredTypeNode(stmt.variableType)
-        if declarationTypeNeedsFallbackImpl(varType) != 0 and stmt.initializer.kind != "None" {
-            varType = inferDeclarationInitializerType(stmt.initializer)
+        let declaredType = normalizeDeclaredTypeNode(stmt.variableType)
+        var initializerType = ""
+        if shouldInferDeclarationInitializerTypeImpl(declaredType,
+            stmt.initializer.kind) != 0 {
+            initializerType = inferDeclarationInitializerType(stmt.initializer)
         }
-        return varType
+        return resolveDeclarationBaseTypeImpl(declaredType, initializerType)
+    }
+
+    fun resolveCollectedForInElementType(expr: ParserExpressionNode) r: String {
+        let exprKind = expr.kind
+        var iterType = ""
+        var firstElementType = ""
+        if exprKind != "Range" {
+            iterType = inferExpressionType(expr)
+            if exprKind == "ArrayLiteral" and expr.arguments.length() > 0 {
+                firstElementType = inferExpressionType(expr.arguments[0])
+            }
+        }
+        return resolveCollectedForInElementTypeImpl(exprKind, iterType,
+            firstElementType)
     }
 
     // Helper to collect variables from a single statement - separate method to avoid merging
     fun collectStmtVars(stmt: StatementNode) r: Void {
-        // Handle Let/Var declarations
-        if stmt.kind == "Let" or stmt.kind == "Var" {
-            var varType = resolveDeclarationBaseType(stmt)
-            if declarationTypeNeedsFallbackImpl(varType) != 0 {
-                varType = "Int"
-            }
+        let collectedStmtKind = classifyCollectedStatementKindImpl(stmt.kind)
+        if collectedStmtKind == 1 {
+            let varType = resolveLetStatementTypeImpl(
+                resolveDeclarationBaseType(stmt), "")
             // Debug: trace VNode-related variable types
-            if varType.contains("VNode") or varType.contains("Vec<") or stmt.variableName == "div" or stmt.variableName == "spanChild" or stmt.variableName == "span" {
+            if shouldTraceCollectedDeclarationTypeImpl(varType,
+                stmt.variableName) != 0 {
                 traceGen("collectStmtVars: " + stmt.variableName + " -> " + varType)
             }
-            preAllocatedVars.push(stmt.variableName)
-            preAllocatedTypes.push(varType)
+            appendCollectedDeclarationImpl(preAllocatedVars, preAllocatedTypes,
+                stmt.variableName, varType)
         }
-        // Handle If statements
-        if stmt.kind == "If" {
+        if collectedStmtKind == 2 {
             collectVariableDeclarations(stmt.thenBranch)
             collectVariableDeclarations(stmt.elseBranch)
         }
-        // Handle While statements
-        if stmt.kind == "While" {
+        if collectedStmtKind == 3 {
             collectVariableDeclarations(stmt.loopBody)
         }
-        // Handle For statements
-        if stmt.kind == "For" {
-            collectVariableDeclarations(stmt.loopBody)
-        }
-        // Handle ForIn statements - pre-allocate loop variable and collect body vars
-        // ForIn stores: variableName=loop var, expression=iterable, loopBody=body
-        if stmt.kind == "ForIn" {
+        if collectedStmtKind == 4 {
             if stmt.variableName != "" {
-                preAllocatedVars.push(stmt.variableName)
-                // Infer element type from iterable
-                var forInElemType = "Int"
-                let forInExpr = stmt.expression
-                let forInExprKind = forInExpr.kind
-                if forInExprKind != "Range" {
-                    // Try direct inference first
-                    let iterType = inferExpressionType(forInExpr)
-                    var iterTypeResolved = false
-                    if iterType.startsWith("Array<") {
-                        forInElemType = iterType.substring(6, iterType.length() - 1)
-                        iterTypeResolved = true
-                    }
-                    if not iterTypeResolved and iterType == "String" {
-                        forInElemType = "Char"
-                        iterTypeResolved = true
-                    }
-                    // If iterable is ArrayLiteral, infer from first element
-                    if not iterTypeResolved and forInExprKind == "ArrayLiteral" {
-                        if forInExpr.arguments.length() > 0 {
-                            let firstElem = forInExpr.arguments[0]
-                            let firstType = inferExpressionType(firstElem)
-                            if firstType != "" {
-                                forInElemType = firstType
-                            }
-                        }
-                    }
-                }
-                preAllocatedTypes.push(forInElemType)
+                let forInElemType = resolveCollectedForInElementType(
+                    stmt.expression)
+                appendCollectedDeclarationImpl(preAllocatedVars,
+                    preAllocatedTypes, stmt.variableName, forInElemType)
                 // Pre-allocate index counter in entry block (allows LLVM mem2reg promotion)
-                let forInIdxName = "__forin_idx_" + stmt.variableName
-                preAllocatedVars.push(forInIdxName)
-                preAllocatedTypes.push("Int")
+                let forInIdxName = buildForInIndexNameImpl(stmt.variableName)
+                appendCollectedDeclarationImpl(preAllocatedVars,
+                    preAllocatedTypes, forInIdxName, "Int")
             }
             collectVariableDeclarations(stmt.loopBody)
         }

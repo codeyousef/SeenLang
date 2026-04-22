@@ -10,6 +10,26 @@ fun declarationTypeNeedsFallbackImpl(typeName: String) r: Int {
     return 0
 }
 
+fun shouldInferDeclarationInitializerTypeImpl(typeName: String,
+    initializerKind: String) r: Int {
+
+    if declarationTypeNeedsFallbackImpl(typeName) != 0 and
+        initializerKind != "None" {
+        return 1
+    }
+    return 0
+}
+
+fun resolveDeclarationBaseTypeImpl(declaredType: String, initializerType: String)
+    r: String {
+
+    if declarationTypeNeedsFallbackImpl(declaredType) != 0 and
+        initializerType != "" {
+        return initializerType
+    }
+    return declaredType
+}
+
 fun resolveLetStatementTypeImpl(baseType: String, preAllocatedType: String)
     r: String {
 
@@ -68,6 +88,63 @@ fun nextDeclarationOrdinalImpl(declOrdinalNames: Array<String>,
     declOrdinalNames.push(name)
     declOrdinalCounts.push(1)
     return 1
+}
+
+fun classifyCollectedStatementKindImpl(stmtKind: String) r: Int {
+    if stmtKind == "Let" or stmtKind == "Var" {
+        return 1
+    }
+    if stmtKind == "If" {
+        return 2
+    }
+    if stmtKind == "While" or stmtKind == "For" {
+        return 3
+    }
+    if stmtKind == "ForIn" {
+        return 4
+    }
+    return 0
+}
+
+fun shouldTraceCollectedDeclarationTypeImpl(varType: String, variableName: String)
+    r: Int {
+
+    if varType.contains("VNode") or varType.contains("Vec<") or
+        variableName == "div" or variableName == "spanChild" or
+        variableName == "span" {
+        return 1
+    }
+    return 0
+}
+
+fun appendCollectedDeclarationImpl(preAllocatedVars: Array<String>,
+    preAllocatedTypes: Array<String>, variableName: String, varType: String)
+    r: Void {
+
+    preAllocatedVars.push(variableName)
+    preAllocatedTypes.push(varType)
+}
+
+fun resolveCollectedForInElementTypeImpl(iterableKind: String, iterableType: String,
+    firstElementType: String) r: String {
+
+    if iterableKind == "Range" {
+        return "Int"
+    }
+    if iterableType.startsWith("Array<") {
+        return iterableType.substring(6, iterableType.length() - 1)
+    }
+    if iterableType == "String" {
+        return "Char"
+    }
+    if iterableKind == "ArrayLiteral" and firstElementType != "" {
+        return firstElementType
+    }
+    return "Int"
+}
+
+fun buildForInIndexNameImpl(loopVarName: String) r: String {
+    return "__forin_idx_" + loopVarName
 }
 
 fun shouldSeedDeclarationPendingArrayLiteralTypeImpl(initializerKind: String,
