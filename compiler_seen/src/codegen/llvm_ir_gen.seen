@@ -1510,9 +1510,7 @@ class LLVMIRGenerator {
         g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
     }
 
-    fun trimSpaces(value: String) r: String { return trimSpacesImpl(value) }
     fun getBaseTypeName(typeName: String) r: String { return getBaseTypeNameImpl(typeName) }
-    fun normalizeHeaderType(typeName: String) r: String { return normalizeHeaderTypeImpl(typeName) }
 
     fun alignUp(value: Int, align: Int) r: Int {
         return alignUpImpl(value, align)
@@ -1662,7 +1660,7 @@ class LLVMIRGenerator {
         }
         let existingNames = structFieldNames[idx]
         let existingTypes = structFieldTypes[idx]
-        let trimmedFields = trimSpaces(fieldsStr)
+        let trimmedFields = trimSpacesImpl(fieldsStr)
         if trimmedFields == "" {
             return
         }
@@ -1697,9 +1695,11 @@ class LLVMIRGenerator {
                     scan = scan + 1
                 }
                 if colonIdx >= 0 {
-                    let rawName = trimSpaces(entry.substring(0, colonIdx))
-                    let rawType = trimSpaces(entry.substring(colonIdx + 1, entry.length()))
-                    let normalizedType = normalizeHeaderType(rawType)
+                    let rawName = trimSpacesImpl(
+                        entry.substring(0, colonIdx))
+                    let rawType = trimSpacesImpl(
+                        entry.substring(colonIdx + 1, entry.length()))
+                    let normalizedType = normalizeHeaderTypeImpl(rawType)
                     if rawName != "" {
                         if namesOut != "" {
                             namesOut = namesOut + ","
@@ -1736,7 +1736,7 @@ class LLVMIRGenerator {
                 structFieldNames, structFieldTypes, structLlvmFieldTypes,
                 structSizes, structMethodNames, structMethodRetTypes)
         }
-        let trimmed = trimSpaces(sizeStr)
+        let trimmed = trimSpacesImpl(sizeStr)
         if trimmed == "" {
             return
         }
@@ -1762,7 +1762,7 @@ class LLVMIRGenerator {
             }
             if isEnd or c == '\n' {
                 let line = headerContent.substring(lineStart, pos)
-                let trimmedLine = trimSpaces(line)
+                let trimmedLine = trimSpacesImpl(line)
                 lineCount = lineCount + 1
                 if trimmedLine.startsWith("; Runtime Function Declarations") or trimmedLine.startsWith("; End of auto-generated type declarations") {
                     return
