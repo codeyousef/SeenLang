@@ -95,7 +95,7 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnP
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findActiveVariableTypeImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
-import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg}
+import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, computeMissingStructSizesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
@@ -1508,36 +1508,6 @@ class LLVMIRGenerator {
         g_xmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 4)
         g_xmDeclareVis = unpackDeclRegistryFieldImpl(updated, 5)
         g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
-    }
-
-    fun computeMissingStructSizes() r: Void {
-        var changed = true
-        var pass = 0
-        while changed and pass < 8 {
-            changed = false
-            var i = 0
-            while i < structNames.length() {
-                if structSizes[i] == 0 {
-                    let structName = structNames[i]
-                    if not isDataType(structName) {
-                        i = i + 1
-                        continue
-                    }
-                    traceGen("computeMissingStructSizes: " + structName)
-                    let layout = structLayouts[i]
-                    if layout != "" {
-                        let sizeVal = computeStructSizeFromLayoutImpl(layout,
-                            structNames, structLayouts, structSizes)
-                        if sizeVal > 0 {
-                            structSizes[i] = sizeVal
-                            changed = true
-                        }
-                    }
-                }
-                i = i + 1
-            }
-            pass = pass + 1
-        }
     }
 
     fun applyTypeHeader(headerContent: String) r: Void {
@@ -2994,7 +2964,8 @@ class LLVMIRGenerator {
                 output.append("\n")
                 typesLoadedFromHeader = true
                 applyTypeHeader(headerContent)
-                computeMissingStructSizes()
+                computeMissingStructSizesReg(structNames, structLayouts,
+                    structSizes)
                 // Check if header also contains runtime function declarations
                 if headerContent.contains("; Runtime Function Declarations") {
                     runtimeDeclsLoaded = true

@@ -1088,3 +1088,35 @@ fun reorderFieldTypesReg(existingNames: String, existingTypes: String, newNames:
     }
     return result
 }
+
+fun computeMissingStructSizesReg(structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>) r: Void {
+
+    var changed = true
+    var pass = 0
+    while changed and pass < 8 {
+        changed = false
+        var i = 0
+        while i < structNames.length() {
+            if structSizes[i] == 0 {
+                let structName = structNames[i]
+                if not isDataTypeReg(structName) {
+                    i = i + 1
+                    continue
+                }
+                traceGen("computeMissingStructSizes: " + structName)
+                let layout = structLayouts[i]
+                if layout != "" {
+                    let sizeVal = computeStructSizeFromLayoutImpl(layout,
+                        structNames, structLayouts, structSizes)
+                    if sizeVal > 0 {
+                        structSizes[i] = sizeVal
+                        changed = true
+                    }
+                }
+            }
+            i = i + 1
+        }
+        pass = pass + 1
+    }
+}
