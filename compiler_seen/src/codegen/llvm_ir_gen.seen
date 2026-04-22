@@ -1510,8 +1510,6 @@ class LLVMIRGenerator {
         g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
     }
 
-    fun getBaseTypeName(typeName: String) r: String { return getBaseTypeNameImpl(typeName) }
-
     fun alignUp(value: Int, align: Int) r: Int {
         return alignUpImpl(value, align)
     }
@@ -2041,7 +2039,7 @@ class LLVMIRGenerator {
             }
             if isClassType(varType) and varName != skipVar and not isReprCLocal {
                 // Look up struct size for pool_free
-                let baseType = getBaseTypeName(varType)
+                let baseType = getBaseTypeNameImpl(varType)
                 let sIdx = findStructReg(baseType, structNames)
                 var sSize = 0
                 if sIdx >= 0 {
@@ -9623,7 +9621,7 @@ class LLVMIRGenerator {
                 }
                 let freeVarIdx = findVar(freeVarName)
                 if freeVarIdx >= 0 {
-                    let baseType = getBaseTypeName(freeReceiverType)
+                    let baseType = getBaseTypeNameImpl(freeReceiverType)
                     let sIdx = findStructReg(baseType, structNames)
                     var sSize = 0
                     if sIdx >= 0 {
@@ -10456,7 +10454,7 @@ class LLVMIRGenerator {
         }
         // @repr(C) classes are value types (stack-allocated struct), not heap handles
         if g_reprCClassNames != "" {
-            let baseT = getBaseTypeName(seenType)
+            let baseT = getBaseTypeNameImpl(seenType)
             if g_reprCClassNames.contains(baseT + "|") {
                 return "%" + baseT
             }
@@ -10789,7 +10787,7 @@ class LLVMIRGenerator {
             if receiverVarType == "" {
                 receiverMethodRetType = getMethodReturnType(expr.literalValue,
                     expr.callee)
-                let staticOwnerType = getBaseTypeName(expr.literalValue)
+                let staticOwnerType = getBaseTypeNameImpl(expr.literalValue)
                 if staticOwnerType != expr.literalValue {
                     baseOwnerMethodRetType = getMethodReturnType(
                         staticOwnerType, expr.callee)
@@ -10802,7 +10800,7 @@ class LLVMIRGenerator {
 
     fun tryInferStaticFactoryMethodType(expr: ParserExpressionNode) r: String {
         return inferStaticFactoryMethodTypeImpl(expr.callee,
-            expr.literalValue, getBaseTypeName(expr.literalValue))
+            expr.literalValue, getBaseTypeNameImpl(expr.literalValue))
     }
 
     fun tryInferStaticFromJsonMethodType(expr: ParserExpressionNode) r: String {
