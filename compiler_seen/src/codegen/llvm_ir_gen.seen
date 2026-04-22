@@ -43,10 +43,10 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl, collectStructMethodSignaturesImpl}
+import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl, collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
-import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
+import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerClassMethodDeclarationsStateImpl, registerTopLevelFunctionDeclarationStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl, appendParsedHeaderModuleConstantImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
@@ -1326,28 +1326,6 @@ class LLVMIRGenerator {
         syncIndentFromFunctionOptions()
     }
 
-    fun getFloatParamRegistryName(fn: FunctionNode) r: String {
-        var registryName = fn.name
-        if fn.params.length() > 0 {
-            let firstParam = fn.params[0]
-            if firstParam.name == "this" {
-                let firstParamType = firstParam.paramType.typeName
-                if isClassType(firstParamType) {
-                    let expectedPrefix = firstParamType + "_"
-                    if not registryName.startsWith(expectedPrefix) {
-                        registryName = expectedPrefix + registryName
-                    }
-                }
-            }
-        }
-        return registryName
-    }
-
-    fun registerFloatParamMetadata(funcName: String, params: Array<ParamNode>) r: Void {
-        registerFloatParamMetadataImpl(funcName, params, g_floatParamFuncNames,
-            g_floatParamParamIdxs)
-    }
-
     // Pass 1 entry point: scan a ProgramNode and register all declarations
     // without generating any IR. This populates:
     //   - Struct layouts (structFieldNames/Types/Layouts via registerStructLayout)
@@ -1370,13 +1348,29 @@ class LLVMIRGenerator {
         while i < program.items.length() {
             let item = program.items[i]
 
-            if item.itemType == "Class" {
-                registerClassDeclarationItem(item)
+            // Data types use the same ClassNode structure for their fields.
+            if item.itemType == "Class" or item.itemType == "Data" {
+                registerStructLayout(item.classNode)
             }
 
-            // Data types use the same ClassNode structure for their fields
-            if item.itemType == "Data" {
-                registerDataDeclarationItem(item)
+            if item.itemType == "Class" {
+                let methodRetTypeNames = Array<String>()
+                var methodIdx = 0
+                while methodIdx < item.classNode.methods.length() {
+                    methodRetTypeNames.push(resolveMethodReturnType(
+                        item.classNode.name, item.classNode.methods[methodIdx]))
+                    methodIdx = methodIdx + 1
+                }
+                let updated = registerClassMethodDeclarationsStateImpl(
+                    item.classNode.name, item.classNode.methods,
+                    methodRetTypeNames, item.visibility, structNames,
+                    g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+                    g_enumTypeNames, g_reprCClassNames, g_floatParamFuncNames,
+                    g_floatParamParamIdxs, funcNames, funcRetTypes,
+                    g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount,
+                    g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareVis,
+                    g_xmDeclareCount)
+                applyDeclarationItemUpdatedState(updated)
             }
 
             // Register enum variants for codegen
@@ -1404,7 +1398,16 @@ class LLVMIRGenerator {
             }
 
             if item.itemType == "Function" {
-                registerFunctionDeclarationItem(item)
+                let funcRetTypeName = resolveFunctionReturnType(item.function)
+                let updated = registerTopLevelFunctionDeclarationStateImpl(
+                    item.function, item.visibility, funcRetTypeName,
+                    structNames, g_typeAliasNames, g_typeAliasTargets,
+                    g_typeAliasCount, g_enumTypeNames, g_reprCClassNames,
+                    g_floatParamFuncNames, g_floatParamParamIdxs, funcNames,
+                    funcRetTypes, g_asyncFuncNames, g_asyncFuncRetTypes,
+                    g_asyncFuncCount, g_xmDeclareNames, g_xmDeclareStrs,
+                    g_xmDeclareVis, g_xmDeclareCount)
+                applyDeclarationItemUpdatedState(updated)
             }
 
             i = i + 1
@@ -1427,87 +1430,16 @@ class LLVMIRGenerator {
             structSizes, structMethodNames, structMethodRetTypes)
     }
 
-    fun collectDeclaredParamTypeInfo(params: Array<ParamNode>, paramSeenTypes: Array<String>,
-        paramLlvmTypes: Array<String>) r: Void {
-        collectDeclaredParamTypeInfoImpl(params, paramSeenTypes, paramLlvmTypes,
-            structNames, g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-            g_enumTypeNames, g_reprCClassNames)
-    }
-
-    fun registerClassDeclarationItem(item: ItemNode) r: Void {
-        registerStructLayout(item.classNode)
-
-        let isStringBuilder = item.classNode.name == "StringBuilder"
-        var methodIdx = 0
-        while methodIdx < item.classNode.methods.length() {
-            let method = item.classNode.methods[methodIdx]
-            if isStringBuilder and shouldSkipStringBuilderMethodDeclImpl(method.name) {
-                methodIdx = methodIdx + 1
-                continue
-            }
-
-            let mangledName = item.classNode.name + "_" + method.name
-            let methodRetTypeName = resolveMethodReturnType(item.classNode.name, method)
-            registerFloatParamMetadata(mangledName, method.params)
-
-            var methodRetLlvm = mapType(methodRetTypeName)
-            if method.isAsync {
-                methodRetLlvm = "ptr"
-            }
-            let methodSeenParamTypes = Array<String>()
-            let methodLlvmParamTypes = Array<String>()
-            collectDeclaredParamTypeInfo(method.params, methodSeenParamTypes, methodLlvmParamTypes)
-            let updated = registerMethodDeclarationStateImpl(mangledName,
-                methodRetTypeName, methodRetLlvm, method.isAsync, method.isStatic,
-                item.visibility, methodSeenParamTypes, methodLlvmParamTypes,
-                funcNames, funcRetTypes, g_asyncFuncNames, g_asyncFuncRetTypes,
-                g_asyncFuncCount, g_xmDeclareNames, g_xmDeclareStrs,
-                g_xmDeclareVis, g_xmDeclareCount)
-            g_asyncFuncNames = unpackDeclRegistryFieldImpl(updated, 0)
-            g_asyncFuncRetTypes = unpackDeclRegistryFieldImpl(updated, 1)
-            g_asyncFuncCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 2))
-            g_xmDeclareNames = unpackDeclRegistryFieldImpl(updated, 3)
-            g_xmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 4)
-            g_xmDeclareVis = unpackDeclRegistryFieldImpl(updated, 5)
-            g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
-            methodIdx = methodIdx + 1
-        }
-    }
-
-    fun registerDataDeclarationItem(item: ItemNode) r: Void {
-        registerStructLayout(item.classNode)
-    }
-
-    fun registerFunctionDeclarationItem(item: ItemNode) r: Void {
-        let funcObj = item.function
-        let isRuntimeStringCompat = isRuntimeBackedStringCompatFunctionImpl(
-            funcObj.name)
-        let floatRegistryFuncName = getFloatParamRegistryName(funcObj)
-        let funcRetTypeName = resolveFunctionReturnType(funcObj)
-        registerFloatParamMetadata(floatRegistryFuncName, funcObj.params)
-
-        let bodyStmtCount = funcObj.body.statements.length()
-        var declRetLlvm = mapType(funcRetTypeName)
-        if funcObj.isAsync {
-            declRetLlvm = "ptr"
-        }
-        let declSeenParamTypes = Array<String>()
-        let declLlvmParamTypes = Array<String>()
-        collectDeclaredParamTypeInfo(funcObj.params, declSeenParamTypes, declLlvmParamTypes)
-        let updated = registerFunctionDeclarationStateImpl(funcObj.name,
-            funcRetTypeName, declRetLlvm, funcObj.isAsync, funcObj.isExtern,
-            bodyStmtCount, item.visibility, isRuntimeStringCompat,
-            declSeenParamTypes, declLlvmParamTypes, funcNames, funcRetTypes,
-            g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount,
-            g_xmDeclareNames, g_xmDeclareStrs, g_xmDeclareVis,
-            g_xmDeclareCount)
+    fun applyDeclarationItemUpdatedState(updated: String) r: Void {
         g_asyncFuncNames = unpackDeclRegistryFieldImpl(updated, 0)
         g_asyncFuncRetTypes = unpackDeclRegistryFieldImpl(updated, 1)
-        g_asyncFuncCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 2))
+        g_asyncFuncCount = parseIntManual(unpackDeclRegistryFieldImpl(updated,
+            2))
         g_xmDeclareNames = unpackDeclRegistryFieldImpl(updated, 3)
         g_xmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 4)
         g_xmDeclareVis = unpackDeclRegistryFieldImpl(updated, 5)
-        g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 6))
+        g_xmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated,
+            6))
     }
 
     fun applyTypeHeader(headerContent: String) r: Void {
