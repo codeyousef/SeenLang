@@ -1522,22 +1522,6 @@ class LLVMIRGenerator {
         g_xmConstCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 4))
     }
 
-    fun recordLateUserDeclare(name: String, llvmReturnType: String, argTypeStrs: Array<String>, hasImplicitThis: Int) r: Void {
-        let updated = recordLateUserDeclareStateImpl(name, llvmReturnType,
-            argTypeStrs, hasImplicitThis, funcNames, funcRetTypes,
-            g_xmDeclareNames, g_xmDeclareCount, g_lateXmDeclareNames,
-            g_lateXmDeclareStrs, g_lateXmDeclareCount)
-        g_lateXmDeclareNames = unpackDeclRegistryFieldImpl(updated, 0)
-        g_lateXmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 1)
-        g_lateXmDeclareCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 2))
-    }
-
-    fun emitLateUserDeclares(definedFuncs: Array<String>) r: Void {
-        emitLateUserDeclaresStateImpl(output, definedFuncs, g_lateXmDeclareNames,
-            g_lateXmDeclareStrs, g_lateXmDeclareCount)
-    }
-
-
     fun hexToDecimal(value: String) r: String { return hexToDecimalImpl(value) }
     fun trimSpaces(value: String) r: String { return trimSpacesImpl(value) }
     fun removeSpaces(value: String) r: String { return removeSpacesImpl(value) }
@@ -3116,7 +3100,8 @@ class LLVMIRGenerator {
         let functionsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] functions done in " + (functionsEndTime - functionsStartTime).toString() + "s")
 
-        emitLateUserDeclares(definedFuncs)
+        emitLateUserDeclaresStateImpl(output, definedFuncs,
+            g_lateXmDeclareNames, g_lateXmDeclareStrs, g_lateXmDeclareCount)
 
         // Emit vtable constants for trait implementations found in this module
         // Must be AFTER generateFunction so g_traitImplRegistry is populated
@@ -9413,7 +9398,14 @@ class LLVMIRGenerator {
             llvmReturnType = "ptr"
         }
 
-        recordLateUserDeclare(funcName, llvmReturnType, argTypeStrs, 0)
+        let updated = recordLateUserDeclareStateImpl(funcName, llvmReturnType,
+            argTypeStrs, 0, funcNames, funcRetTypes, g_xmDeclareNames,
+            g_xmDeclareCount, g_lateXmDeclareNames, g_lateXmDeclareStrs,
+            g_lateXmDeclareCount)
+        g_lateXmDeclareNames = unpackDeclRegistryFieldImpl(updated, 0)
+        g_lateXmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 1)
+        g_lateXmDeclareCount = parseIntManual(
+            unpackDeclRegistryFieldImpl(updated, 2))
         var freeCallTail = 0
         if takeTailCallPosition() {
             freeCallTail = 1
