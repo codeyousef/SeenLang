@@ -91,6 +91,9 @@ fun mapModuleConstLlvmTypeToSeenTypeImpl(llvmType: String) r: String {
     if llvmType == "%SeenString" {
         return "String"
     }
+    if llvmType == "ptr" {
+        return "ptr"
+    }
     return "Int"
 }
 
