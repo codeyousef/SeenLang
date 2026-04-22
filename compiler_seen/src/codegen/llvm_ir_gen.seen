@@ -85,10 +85,10 @@ import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitGlobalVariablesImpl
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
-import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
+import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, findCollectedDeclarationTypeImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
@@ -1971,12 +1971,10 @@ class LLVMIRGenerator {
             return varTypes[idx]
         }
         // Then check pre-allocated variables (during collection phase)
-        var i = preAllocatedVars.length() - 1
-        while i >= 0 {
-            if preAllocatedVars[i] == name {
-                return preAllocatedTypes[i]
-            }
-            i = i - 1
+        let preAllocatedType = findCollectedDeclarationTypeImpl(
+            preAllocatedVars, preAllocatedTypes, name)
+        if preAllocatedType != "" {
+            return preAllocatedType
         }
         let constIdx = findModuleConstant(name)
         if constIdx >= 0 {
@@ -1985,10 +1983,11 @@ class LLVMIRGenerator {
                 return seenType
             }
             let constType = moduleConstantTypes[constIdx]
-            if constType == "double" { return "Float" }
-            if constType == "i1" { return "Bool" }
-            if constType == "%SeenString" { return "String" }
-            if constType == "ptr" { return "ptr" }
+            let fallbackConstType = fallbackModuleConstantMethodReceiverTypeImpl(
+                constType, "")
+            if fallbackConstType != "" {
+                return fallbackConstType
+            }
             return "Int"
         }
         return ""

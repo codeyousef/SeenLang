@@ -90,6 +90,19 @@ fun nextDeclarationOrdinalImpl(declOrdinalNames: Array<String>,
     return 1
 }
 
+fun findCollectedDeclarationTypeImpl(preAllocatedVars: Array<String>,
+    preAllocatedTypes: Array<String>, name: String) r: String {
+
+    var i = preAllocatedVars.length() - 1
+    while i >= 0 {
+        if preAllocatedVars[i] == name {
+            return preAllocatedTypes[i]
+        }
+        i = i - 1
+    }
+    return ""
+}
+
 fun classifyCollectedStatementKindImpl(stmtKind: String) r: Int {
     if stmtKind == "Let" or stmtKind == "Var" {
         return 1
