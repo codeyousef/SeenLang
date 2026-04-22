@@ -24,6 +24,27 @@ fun findActiveVariableIndexImpl(varNames: Array<String>, activeVarCount: Int,
     return -1
 }
 
+fun findActiveVariableTypeImpl(varNames: Array<String>, varTypes: Array<String>,
+    activeVarCount: Int, name: String) r: String {
+
+    let idx = findActiveVariableIndexImpl(varNames, activeVarCount, name)
+    if idx >= 0 {
+        return varTypes[idx]
+    }
+    return ""
+}
+
+fun getModuleConstantRefImpl(moduleConstIdx: Int, quotedName: String) r: String {
+    if moduleConstIdx >= 0 {
+        return "@" + quotedName
+    }
+    return ""
+}
+
+fun isModuleConstantImpl(moduleConstIdx: Int) r: Bool {
+    return moduleConstIdx >= 0
+}
+
 fun emitMovedVariableUseTrapImpl(output: StringBuilder, varName: String) r: Void {
     output.append("  ; ERROR: use after move of '" + varName + "'\n")
     output.append("  call void @seen_use_after_move()\n")
