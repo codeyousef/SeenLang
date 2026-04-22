@@ -6599,6 +6599,9 @@ class LLVMIRGenerator {
             output.append("  " + ptrConvReg + " = inttoptr i64 " + loadedVal + " to ptr\n")
             return ptrConvReg
         }
+        if fieldName.contains(".") {
+            return walkMemberAccessChainPointer(basePtrReg, baseType, fieldName)
+        }
         return generateFieldAccessPtr(basePtrReg, baseType, fieldName)
     }
 
@@ -6653,17 +6656,8 @@ class LLVMIRGenerator {
             intermediateType = "ProgramNode"
         }
 
-        var actualIntermediateReg = ""
-        if isClassType(intermediateType) {
-            let intermediateReg = generateFieldAccess(basePtrReg, baseType, restPath)
-            let ptrConvReg = getNextReg()
-            output.append("  " + ptrConvReg + " = inttoptr i64 " + intermediateReg + " to ptr\n")
-            actualIntermediateReg = ptrConvReg
-        } else if restPath.contains(".") {
-            actualIntermediateReg = walkMemberAccessChainPointer(basePtrReg, baseType, restPath)
-        } else {
-            actualIntermediateReg = generateFieldAccessPtr(basePtrReg, baseType, restPath)
-        }
+        let actualIntermediateReg = resolveMemberAccessFieldReceiverPtr(
+            basePtrReg, baseType, restPath, intermediateType)
 
         return generateFieldAccess(actualIntermediateReg, intermediateType, fieldName)
     }
@@ -6763,15 +6757,13 @@ class LLVMIRGenerator {
 
     fun tryGenerateSpecialFieldAccessChain(ptrReg: String, structType: String, fieldName: String) r: String {
         if fieldName == "program.items" {
-            let progReg = generateFieldAccess(ptrReg, structType, "program")
-            let progPtrReg = getNextReg()
-            output.append("  " + progPtrReg + " = inttoptr i64 " + progReg + " to ptr\n")
+            let progPtrReg = resolveMemberAccessFieldReceiverPtr(ptrReg,
+                structType, "program", "ProgramNode")
             return generateFieldAccess(progPtrReg, "ProgramNode", "items")
         }
         if fieldName == "program.items.length" {
-            let progReg = generateFieldAccess(ptrReg, structType, "program")
-            let progPtrReg = getNextReg()
-            output.append("  " + progPtrReg + " = inttoptr i64 " + progReg + " to ptr\n")
+            let progPtrReg = resolveMemberAccessFieldReceiverPtr(ptrReg,
+                structType, "program", "ProgramNode")
             let itemsReg = generateFieldAccess(progPtrReg, "ProgramNode", "items")
             let lenPtrReg = emitFieldAccessPtrImpl(output, g_regBox, itemsReg, "%SeenArray", 0)
             return emitFieldAccessLoadImpl(output, g_regBox, "i64", lenPtrReg)
