@@ -3,6 +3,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_stmt_decl.{findCollectedDeclarationTypeImpl}
 
 fun getExprVariableNameImpl(variableName: String, literalValue: String) r: String {
     if variableName != "" {
@@ -32,6 +33,19 @@ fun findActiveVariableTypeImpl(varNames: Array<String>, varTypes: Array<String>,
         return varTypes[idx]
     }
     return ""
+}
+
+fun findVisibleVariableTypeImpl(varNames: Array<String>, varTypes: Array<String>,
+    activeVarCount: Int, preAllocatedVars: Array<String>,
+    preAllocatedTypes: Array<String>, name: String) r: String {
+
+    let activeVarType = findActiveVariableTypeImpl(varNames, varTypes,
+        activeVarCount, name)
+    if activeVarType != "" {
+        return activeVarType
+    }
+    return findCollectedDeclarationTypeImpl(preAllocatedVars,
+        preAllocatedTypes, name)
 }
 
 fun storeActiveVariableBindingImpl(varNames: Array<String>,

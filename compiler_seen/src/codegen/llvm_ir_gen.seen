@@ -88,13 +88,13 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
-import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, findCollectedDeclarationTypeImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
+import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
-import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findActiveVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
+import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
@@ -1543,26 +1543,13 @@ class LLVMIRGenerator {
         }
     }
 
-    // Helper to find variable. Searches backwards (newest variable first) since
-    // most references are to recently declared variables.
-    fun findVar(name: String) r: Int {
-        return findActiveVariableIndexImpl(varNames, activeVarCount, name)
-    }
-
     // Helper to find variable type (checks both varTypes and preAllocatedTypes)
     // Searches backwards for speed.
     fun findVarType(name: String) r: String {
-        // First check active variables
-        let activeVarType = findActiveVariableTypeImpl(varNames, varTypes,
-            activeVarCount, name)
-        if activeVarType != "" {
-            return activeVarType
-        }
-        // Then check pre-allocated variables (during collection phase)
-        let preAllocatedType = findCollectedDeclarationTypeImpl(
-            preAllocatedVars, preAllocatedTypes, name)
-        if preAllocatedType != "" {
-            return preAllocatedType
+        let visibleVarType = findVisibleVariableTypeImpl(varNames, varTypes,
+            activeVarCount, preAllocatedVars, preAllocatedTypes, name)
+        if visibleVarType != "" {
+            return visibleVarType
         }
         let updated = tryInferModuleConstantVariableTypeStateImpl(name,
             moduleConstantNames, moduleConstantTypes, moduleConstantValues,
@@ -1742,7 +1729,7 @@ class LLVMIRGenerator {
                 }
                 // Only free if we know the size and it fits in pool
                 if sSize > 0 and sSize <= 80 {
-                    let vidx = findVar(varName)
+                    let vidx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
                     if vidx >= 0 {
                         let varReg = varRegs[vidx]
                         let loadReg = getNextReg()
@@ -1789,7 +1776,7 @@ class LLVMIRGenerator {
                         crIdx = crIdx + 1
                         crSearchPos = crNextPipe + 1
                     }
-                    let crVarIdx = findVar(crVarName)
+                    let crVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, crVarName)
                     if crVarIdx >= 0 {
                         let crVarReg = varRegs[crVarIdx]
                         let crLoadReg = getNextReg()
@@ -3901,7 +3888,7 @@ class LLVMIRGenerator {
         if methodName != "new" {
             return false
         }
-        let thisVarIdx = findVar("this")
+        let thisVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
         if thisVarIdx < 0 {
             return false
         }
@@ -5372,7 +5359,7 @@ class LLVMIRGenerator {
             return false
         }
 
-        let varIdx = findVar(thenAssignName)
+        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, thenAssignName)
         if varIdx < 0 {
             return false
         }
@@ -5440,7 +5427,7 @@ class LLVMIRGenerator {
             return false
         }
 
-        let varIdx = findVar(assignName)
+        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, assignName)
         if varIdx < 0 {
             return false
         }
@@ -5721,7 +5708,7 @@ class LLVMIRGenerator {
     fun emitWhileConditionBranch(condReg: String, breakFlagVar: String, bodyLabel: String, endLabel: String) r: Void {
         var breakFlagPtrReg = ""
         if breakFlagVar != "" {
-            let bfVarIdx = findVar(breakFlagVar)
+            let bfVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, breakFlagVar)
             if bfVarIdx >= 0 {
                 breakFlagPtrReg = varRegs[bfVarIdx]
             }
@@ -5745,8 +5732,8 @@ class LLVMIRGenerator {
         if memcpyKind == 1 {
             let mcDstType = findVarType(mcLHSArrName)
             let mcSrcType = findVarType(mcRHSArrName)
-            let mcDstIdx = findVar(mcLHSArrName)
-            let mcSrcIdx = findVar(mcRHSArrName)
+            let mcDstIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcLHSArrName)
+            let mcSrcIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcRHSArrName)
             if mcDstType != "Array<Int>" or mcSrcType != "Array<Int>" or mcDstIdx < 0 or mcSrcIdx < 0 {
                 return false
             }
@@ -5765,7 +5752,7 @@ class LLVMIRGenerator {
             let mcByteCount = getNextReg()
             output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
             output.append("  call void @llvm.memcpy.p0.p0.i64(ptr " + mcDstData + ", ptr " + mcSrcData + ", i64 " + mcByteCount + ", i1 false)\n")
-            let mcLoopVarIdx = findVar(mcIncrVarName)
+            let mcLoopVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcIncrVarName)
             if mcLoopVarIdx >= 0 {
                 output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
             }
@@ -5775,7 +5762,7 @@ class LLVMIRGenerator {
         }
         if memcpyKind == 2 {
             let mcArrType = findVarType(mcLHSArrName)
-            let mcArrIdx = findVar(mcLHSArrName)
+            let mcArrIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcLHSArrName)
             if mcArrType != "Array<Int>" or mcArrIdx < 0 {
                 return false
             }
@@ -5790,7 +5777,7 @@ class LLVMIRGenerator {
             let mcByteCount = getNextReg()
             output.append("  " + mcByteCount + " = shl nsw i64 " + mcBoundReg + ", 3\n")
             output.append("  call void @llvm.memmove.p0.p0.i64(ptr " + mcData + ", ptr " + mcSrc + ", i64 " + mcByteCount + ", i1 false)\n")
-            let mcLoopVarIdx = findVar(mcIncrVarName)
+            let mcLoopVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, mcIncrVarName)
             if mcLoopVarIdx >= 0 {
                 output.append("  store i64 " + mcBoundReg + ", ptr " + varRegs[mcLoopVarIdx] + "\n")
             }
@@ -6142,7 +6129,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisFieldAssignment(varName: String, valueExpr: ParserExpressionNode) r: Int {
-        let thisIdx = findVar("this")
+        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return 0
         }
@@ -6203,7 +6190,7 @@ class LLVMIRGenerator {
             return
         }
 
-        let rhsIdx = findVar(rhsVarName)
+        let rhsIdx = findActiveVariableIndexImpl(varNames, activeVarCount, rhsVarName)
         if rhsIdx < 0 {
             return
         }
@@ -6227,7 +6214,7 @@ class LLVMIRGenerator {
     // Handle assignment expression (from parser)
     fun generateAssignmentExpr(expr: ParserExpressionNode) r: Void {
         let varName = expr.variableName
-        let idx = findVar(varName)
+        let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
 
         if idx < 0 {
             tryGenerateFallbackAssignmentTarget(varName, expr.operands[0])
@@ -6243,7 +6230,7 @@ class LLVMIRGenerator {
     // by loading the current value, performing the operation, and storing back.
     fun generateAssignment(stmt: StatementNode) r: Void {
         let varName = stmt.variableName
-        let idx = findVar(varName)
+        let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
 
         if idx < 0 {
             tryGenerateFallbackAssignmentTarget(varName, stmt.initializer)
@@ -6329,7 +6316,7 @@ class LLVMIRGenerator {
     fun tryGenerateSimpleReceiverMemberAssignment(receiverName: String, fieldName: String,
         value: ParserExpressionNode, valueReg: String) r: Int {
 
-        let varIdx = findVar(receiverName)
+        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, receiverName)
         output.append("; DEBUG generateMemberAssignment: varIdx=" + varIdx.toString() + "\n")
         if varIdx < 0 {
             return 0
@@ -6345,7 +6332,7 @@ class LLVMIRGenerator {
     fun tryGenerateImplicitThisMemberAssignment(receiverName: String, fieldName: String,
         value: ParserExpressionNode, valueReg: String) r: Int {
 
-        let thisIdx = findVar("this")
+        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return 0
         }
@@ -7056,7 +7043,7 @@ class LLVMIRGenerator {
         if swizzleType == "" {
             return ""
         }
-        let swzIdx = findVar(receiverName)
+        let swzIdx = findActiveVariableIndexImpl(varNames, activeVarCount, receiverName)
         if swzIdx < 0 {
             return ""
         }
@@ -7076,7 +7063,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateVariableReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
-        let idx = findVar(receiverName)
+        let idx = findActiveVariableIndexImpl(varNames, activeVarCount, receiverName)
         if idx < 0 {
             return ""
         }
@@ -7138,7 +7125,7 @@ class LLVMIRGenerator {
         let arrayField = pathParts[1]
         output.append("; DEBUG array path split: baseVar=" + baseVar + " arrayField=" + arrayField + "\n")
 
-        let baseIdx = findVar(baseVar)
+        let baseIdx = findActiveVariableIndexImpl(varNames, activeVarCount, baseVar)
         if baseIdx < 0 {
             return ""
         }
@@ -7201,7 +7188,7 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let baseIdx = findVar(baseVarName)
+        let baseIdx = findActiveVariableIndexImpl(varNames, activeVarCount, baseVarName)
         if baseIdx < 0 {
             return ""
         }
@@ -7237,7 +7224,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
-        let thisIdx = findVar("this")
+        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
@@ -7690,7 +7677,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisVariable(varName: String) r: String {
-        let thisIdx = findVar("this")
+        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
@@ -7759,7 +7746,7 @@ class LLVMIRGenerator {
             return ctReg
         }
 
-        let idx = findVar(varName)
+        let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
         if idx < 0 {
             let fallbackReg = tryGenerateFallbackVariable(varName)
             if fallbackReg != "" {
@@ -8861,7 +8848,7 @@ class LLVMIRGenerator {
     fun tryGenerateSuperRuntimeBuiltinCall(funcName: String) r: String {
         if funcName == "super" {
             if g_currentClassParentName != "" {
-                let thisIdx = findVar("this")
+                let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
                 if thisIdx >= 0 {
                     return emitSuperRuntimeBuiltinCallImpl(output, g_regBox,
                         quoteIdentIfNeeded(g_currentClassParentName + "_init"),
@@ -8971,7 +8958,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateImplicitThisCall(expr: ParserExpressionNode, funcName: String) r: String {
-        let thisIdx = findVar("this")
+        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
@@ -9203,8 +9190,8 @@ class LLVMIRGenerator {
         let classNames = splitPipe(resolveStaticMethodClassNamesImpl(expr.literalValue))
         let potentialClassName = classNames[0]
         let fullClassName = classNames[1]
-        if not isStaticMethodReceiverReferenceImpl(findVar(expr.literalValue),
-            findVar(potentialClassName)) {
+        if not isStaticMethodReceiverReferenceImpl(findActiveVariableIndexImpl(varNames, activeVarCount, expr.literalValue),
+            findActiveVariableIndexImpl(varNames, activeVarCount, potentialClassName)) {
             return ""
         }
 
@@ -9303,7 +9290,7 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let varIdx = findVar(varName)
+        let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
         if varIdx >= 0 {
             return emitLocalVariableLoadImpl(output, g_regBox, "ptr",
                 varRegs[varIdx])
@@ -9326,7 +9313,7 @@ class LLVMIRGenerator {
         if methodName == "free" {
             var freeReceiverType = receiverType
             if (freeReceiverType == "String" or freeReceiverType == "") and expr.literalValue != "" {
-                let freeTypeIdx = findVar(expr.literalValue)
+                let freeTypeIdx = findActiveVariableIndexImpl(varNames, activeVarCount, expr.literalValue)
                 if freeTypeIdx >= 0 {
                     freeReceiverType = varTypes[freeTypeIdx]
                 }
@@ -9348,7 +9335,7 @@ class LLVMIRGenerator {
                 if freeVarName == "" {
                     freeVarName = expr.variableName
                 }
-                let freeVarIdx = findVar(freeVarName)
+                let freeVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, freeVarName)
                 if freeVarIdx >= 0 {
                     let baseType = getBaseTypeNameImpl(freeReceiverType)
                     let sIdx = findStructReg(baseType, structNames)
@@ -9443,7 +9430,7 @@ class LLVMIRGenerator {
             return directVarType
         }
 
-        let thisIdx = findVar("this")
+        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
@@ -9554,7 +9541,7 @@ class LLVMIRGenerator {
                     receiverType = enumReceiverTypeBox[0]
                 } else {
                     let pathParts = splitFirstPathDotImpl(expr.literalValue)
-                    let thisIdx = findVar("this")
+                    let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
                     if thisIdx >= 0 {
                         let thisType = varTypes[thisIdx]
                         let firstFieldType = resolveMethodFieldPathTypeImpl(
@@ -9590,7 +9577,7 @@ class LLVMIRGenerator {
         } else {
             if expr.literalValue != "" {
                 let varName = expr.literalValue
-                let idx = findVar(varName)
+                let idx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
                 if idx >= 0 {
                     let varReg = varRegs[idx]
                     let varType = varTypes[idx]
@@ -9634,7 +9621,7 @@ class LLVMIRGenerator {
                         receiverType = moduleConstReceiverTypeBox[0]
                     }
                     if receiverReg == "" {
-                        let thisIdx = findVar("this")
+                        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
                         if thisIdx >= 0 {
                             let thisReg = varRegs[thisIdx]
                             let thisType = varTypes[thisIdx]
@@ -10065,7 +10052,7 @@ class LLVMIRGenerator {
         if addrOperand.kind == "Variable" or addrOperand.kind == "VarExpr" {
             var addrVarName = addrOperand.variableName
             if addrVarName == "" { addrVarName = addrOperand.literalValue }
-            let addrIdx = findVar(addrVarName)
+            let addrIdx = findActiveVariableIndexImpl(varNames, activeVarCount, addrVarName)
             if addrIdx >= 0 {
                 let addrVarReg = varRegs[addrIdx]
                 if isClassType(addrType) {
@@ -10290,7 +10277,7 @@ class LLVMIRGenerator {
                     var moveVarName = argExpr.variableName
                     if moveVarName == "" { moveVarName = argExpr.literalValue }
                     if moveVarName != "" {
-                        let moveVarIdx = findVar(moveVarName)
+                        let moveVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, moveVarName)
                         if moveVarIdx >= 0 {
                             let moveSrcReg = varRegs[moveVarIdx]
                             output.append("  store i64 0, ptr " + moveSrcReg + " ; @move: nullify source (" + moveContext + ")\n")
@@ -10394,7 +10381,7 @@ class LLVMIRGenerator {
     }
 
     fun tryInferImplicitThisVariableType(varName: String) r: String {
-        let thisIdx = findVar("this")
+        let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
         if thisIdx < 0 {
             return ""
         }
@@ -10810,7 +10797,7 @@ class LLVMIRGenerator {
                 chainedPathType = resolveChainedPathType(expr.literalValue)
             }
             var thisType = ""
-            let thisIdx = findVar("this")
+            let thisIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
             if thisIdx >= 0 {
                 thisType = varTypes[thisIdx]
             }
@@ -11188,7 +11175,7 @@ class LLVMIRGenerator {
                 let fieldOffset = 8 + fieldIdx * 8
                 let fType = lookupEnumFieldType(variantName, fieldIdx)
                 let fLlvm = mapType(fType)
-                let bindIdx = findVar(bindingName)
+                let bindIdx = findActiveVariableIndexImpl(varNames, activeVarCount, bindingName)
                 if bindIdx >= 0 {
                     emitWhenPatternBindingStoreImpl(output, g_regBox,
                         destructPtrReg, fieldOffset, fLlvm, varRegs[bindIdx])
