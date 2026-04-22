@@ -45,7 +45,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl, appendParsedHeaderModuleConstantImpl}
@@ -1726,40 +1726,17 @@ class LLVMIRGenerator {
             while i < preAllocatedVars.length() {
                 let crVarName = preAllocatedVars[i]
                 let crVarType = preAllocatedTypes[i]
-                if crVarName != skipVar and g_cResourceClasses.contains(crVarType + "|") {
-                    // Find destructor by matching pipe index in g_cResourceClasses/g_cResourceDestructors
-                    var crDestructor = "free"
-                    var crSearchPos = 0
-                    var crIdx = 0
-                    while crSearchPos < g_cResourceClasses.length() {
-                        var crNextPipe = g_cResourceClasses.indexOf("|", crSearchPos)
-                        if crNextPipe < 0 { crNextPipe = g_cResourceClasses.length() }
-                        let crEntry = g_cResourceClasses.substring(crSearchPos, crNextPipe)
-                        if crEntry == crVarType {
-                            // Found matching index, extract destructor at same index
-                            var dSearchPos = 0
-                            var dIdx = 0
-                            while dSearchPos < g_cResourceDestructors.length() {
-                                var dNextPipe = g_cResourceDestructors.indexOf("|", dSearchPos)
-                                if dNextPipe < 0 { dNextPipe = g_cResourceDestructors.length() }
-                                if dIdx == crIdx {
-                                    crDestructor = g_cResourceDestructors.substring(dSearchPos, dNextPipe)
-                                    dSearchPos = g_cResourceDestructors.length()
-                                }
-                                dIdx = dIdx + 1
-                                dSearchPos = dNextPipe + 1
-                            }
-                            crSearchPos = g_cResourceClasses.length()
+                if crVarName != skipVar {
+                    let crDestructor = lookupCResourceDestructorStateImpl(
+                        crVarType, g_cResourceClasses, g_cResourceDestructors)
+                    if crDestructor != "" {
+                        let crVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, crVarName)
+                        if crVarIdx >= 0 {
+                            let crVarReg = varRegs[crVarIdx]
+                            let crLoadReg = getNextReg()
+                            output.append("  " + crLoadReg + " = load i64, ptr " + crVarReg + "\n")
+                            output.append("  call void @" + crDestructor + "(i64 " + crLoadReg + ") ; @c_resource destructor\n")
                         }
-                        crIdx = crIdx + 1
-                        crSearchPos = crNextPipe + 1
-                    }
-                    let crVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, crVarName)
-                    if crVarIdx >= 0 {
-                        let crVarReg = varRegs[crVarIdx]
-                        let crLoadReg = getNextReg()
-                        output.append("  " + crLoadReg + " = load i64, ptr " + crVarReg + "\n")
-                        output.append("  call void @" + crDestructor + "(i64 " + crLoadReg + ") ; @c_resource destructor\n")
                     }
                 }
                 i = i + 1
