@@ -1797,17 +1797,7 @@ class LLVMIRGenerator {
             }
         }
 
-        // Count own fields, skipping @type_alias: synthetic fields
-        var ownCount = 0
-        var ownScanI = 0
-        while ownScanI < classNode.fields.length() {
-            let ownScanField = classNode.fields[ownScanI]
-            let ownScanName = ownScanField.name
-            if not ownScanName.startsWith("@type_alias:") {
-                ownCount = ownCount + 1
-            }
-            ownScanI = ownScanI + 1
-        }
+        let ownCount = countRealClassTypeFields(classNode)
         var totalFieldCount = pfcount + ownCount
         if totalFieldCount == 0 {
             // Empty struct - add dummy i8 byte for LLVM validity
