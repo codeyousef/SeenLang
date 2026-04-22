@@ -832,6 +832,33 @@ fun getTypeSizeReg(typeName: String, structNames: Array<String>, structSizes: Ar
     return 8
 }
 
+fun getPoolEligibleClassSizeReg(typeName: String, reprCClassNames: String,
+    structNames: Array<String>, structSizes: Array<Int>) r: Int {
+
+    if not isClassTypeReg(typeName, structNames) {
+        return 0
+    }
+    var reprCPos = 0
+    while reprCPos < reprCClassNames.length() {
+        var reprCNextPipe = reprCClassNames.indexOf("|", reprCPos)
+        if reprCNextPipe < 0 { reprCNextPipe = reprCClassNames.length() }
+        let reprCEntry = reprCClassNames.substring(reprCPos, reprCNextPipe)
+        if reprCEntry == typeName {
+            return 0
+        }
+        reprCPos = reprCNextPipe + 1
+    }
+    let baseType = getBaseTypeNameImpl(typeName)
+    let idx = findStructReg(baseType, structNames)
+    if idx >= 0 {
+        let sizeVal = structSizes[idx]
+        if sizeVal > 0 and sizeVal <= 80 {
+            return sizeVal
+        }
+    }
+    return 0
+}
+
 fun getDataTypeSizeReg(seenType: String, structNames: Array<String>, structSizes: Array<Int>) r: Int {
     let baseType = getBaseTypeNameImpl(seenType)
     let idx = findStructReg(baseType, structNames)
