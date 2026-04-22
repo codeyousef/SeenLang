@@ -1735,7 +1735,7 @@ class LLVMIRGenerator {
     }
 
     fun updateStructLayoutFromHeader(structName: String, structLayout: String) r: Void {
-        var idx = findStruct(structName)
+        var idx = findStructReg(structName, structNames)
         if idx < 0 {
             idx = ensureStructEntryReg(structName, structNames, structLayouts,
                 structFieldNames, structFieldTypes, structLlvmFieldTypes,
@@ -1749,7 +1749,7 @@ class LLVMIRGenerator {
     }
 
     fun updateStructFieldsFromHeader(structName: String, fieldsStr: String) r: Void {
-        var idx = findStruct(structName)
+        var idx = findStructReg(structName, structNames)
         if idx < 0 {
             idx = ensureStructEntryReg(structName, structNames, structLayouts,
                 structFieldNames, structFieldTypes, structLlvmFieldTypes,
@@ -1825,7 +1825,7 @@ class LLVMIRGenerator {
     }
 
     fun updateStructSizeFromHeader(structName: String, sizeStr: String) r: Void {
-        var idx = findStruct(structName)
+        var idx = findStructReg(structName, structNames)
         if idx < 0 {
             idx = ensureStructEntryReg(structName, structNames, structLayouts,
                 structFieldNames, structFieldTypes, structLlvmFieldTypes,
@@ -1994,15 +1994,6 @@ class LLVMIRGenerator {
         return parseIntManual(applyModuleConstantUpdatedState(updated))
     }
 
-    // Look up a struct/class by name in the struct registry, returning its
-    // index or -1 if not found. Searches backwards because recently registered
-    // structs (from the current module) are more likely to be referenced than
-    // early ones (from the standard library), giving O(1) for local types.
-    fun findStruct(name: String) r: Int {
-        return findStructReg(name, structNames)
-    }
-
-
     // Register a child→parent inheritance relationship
     fun registerParentClass(childName: String, parentName: String) r: Void {
         let updated = registerParentClassStateImpl(childName, parentName,
@@ -2054,7 +2045,8 @@ class LLVMIRGenerator {
                 if staticReturnType != "" {
                     return staticReturnType
                 }
-                if expr.callee == "new" and findStruct(receiverName) >= 0 {
+                if expr.callee == "new" and findStructReg(receiverName,
+                    structNames) >= 0 {
                     return receiverName
                 }
             }
@@ -2145,7 +2137,7 @@ class LLVMIRGenerator {
             if isClassType(varType) and varName != skipVar and not isReprCLocal {
                 // Look up struct size for pool_free
                 let baseType = getBaseTypeName(varType)
-                let sIdx = findStruct(baseType)
+                let sIdx = findStructReg(baseType, structNames)
                 var sSize = 0
                 if sIdx >= 0 {
                     sSize = structSizes[sIdx]
@@ -2315,7 +2307,7 @@ class LLVMIRGenerator {
         let pnLen = classNode.parentName.length()
         if pnLen > 0 {
             registerParentClass(classNode.name, classNode.parentName)
-            let parentIdx = findStruct(classNode.parentName)
+            let parentIdx = findStructReg(classNode.parentName, structNames)
             if parentIdx >= 0 {
                 let parentFN = structFieldNames[parentIdx]
                 let parentFT = structFieldTypes[parentIdx]
@@ -2473,7 +2465,7 @@ class LLVMIRGenerator {
         }
         traceGen("getFieldInfo: " + structName + "." + fieldName)
         if structName == "FrontendResult" {
-            let idxCheck = findStruct(structName)
+            let idxCheck = findStructReg(structName, structNames)
             if idxCheck >= 0 {
                 traceGen("FrontendResult fields=" + structFieldNames[idxCheck])
             }
@@ -2560,7 +2552,7 @@ class LLVMIRGenerator {
             if fieldName == "arguments" { return 7 }
         }
 
-        let idx = findStruct(structName)
+        let idx = findStructReg(structName, structNames)
         if idx < 0 {
             return -1  // Struct not found
         }
@@ -2615,7 +2607,7 @@ class LLVMIRGenerator {
     // Get field type from registered struct
     // Note: fieldTypes uses | as separator (not comma) to handle generic types like Map<K,V>
     fun getFieldType(structName: String, fieldName: String) r: String {
-        let idx = findStruct(structName)
+        let idx = findStructReg(structName, structNames)
         if idx < 0 {
             if structName == "LLVMIRGenerator" {
                 let llvmGenType = getLLVMIRGeneratorFieldType(fieldName)
@@ -3372,7 +3364,7 @@ class LLVMIRGenerator {
         if not typesLoadedFromHeader {
             return false
         }
-        let structIdx = findStruct(classNode.name)
+        let structIdx = findStructReg(classNode.name, structNames)
         if structIdx < 0 {
             return false
         }
@@ -3947,7 +3939,7 @@ class LLVMIRGenerator {
         if parentNameLen == 0 {
             return
         }
-        let parentIdx = findStruct(classNode.parentName)
+        let parentIdx = findStructReg(classNode.parentName, structNames)
         if parentIdx < 0 {
             return
         }
@@ -6521,7 +6513,7 @@ class LLVMIRGenerator {
         }
 
         let thisType = varTypes[thisIdx]
-        let structIdx = findStruct(thisType)
+        let structIdx = findStructReg(thisType, structNames)
         if structIdx < 0 {
             return 0
         }
@@ -7693,7 +7685,7 @@ class LLVMIRGenerator {
 
     fun tryGenerateReprCFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
         if g_reprCClassNames != "" and g_reprCClassNames.contains(structType + "|") {
-            let structIdx = findStruct(structType)
+            let structIdx = findStructReg(structType, structNames)
             if structIdx >= 0 {
                 let regFieldIdx = getFieldInfo(structType, fieldName)
                 if regFieldIdx >= 0 {
@@ -7981,7 +7973,7 @@ class LLVMIRGenerator {
 
     fun generateStructLiteral(expr: ParserExpressionNode) r: String {
         let structName = expr.literalType
-        let structIdx = findStruct(structName)
+        let structIdx = findStructReg(structName, structNames)
         let layoutInfo = splitPipe(resolveStructLiteralLayoutInfo(expr, structName, structIdx))
         let structSize = layoutInfo[0].toInt()
         let structLayout = layoutInfo[1]
@@ -8074,7 +8066,7 @@ class LLVMIRGenerator {
             }
         }
 
-        let structIdx = findStruct(thisType)
+        let structIdx = findStructReg(thisType, structNames)
         if structIdx < 0 {
             return ""
         }
@@ -8669,7 +8661,7 @@ class LLVMIRGenerator {
                 let offTypeName = inferExpressionType(expr.arguments[0])
                 let offFieldName = inferExpressionType(expr.arguments[1])
                 if offTypeName != "" and offFieldName != "" {
-                    let sIdx = findStruct(offTypeName)
+                    let sIdx = findStructReg(offTypeName, structNames)
                     if sIdx >= 0 {
                         let fNamesCsv = structFieldNames[sIdx]
                         let fTypesCsv = structFieldTypes[sIdx]
@@ -9159,7 +9151,7 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let structIdx = findStruct(funcName)
+        let structIdx = findStructReg(funcName, structNames)
         let reprCResult = tryGenerateReprCClassConstructorCall(expr, funcName, structIdx)
         if reprCResult != "" {
             return reprCResult
@@ -9705,7 +9697,7 @@ class LLVMIRGenerator {
                 let freeVarIdx = findVar(freeVarName)
                 if freeVarIdx >= 0 {
                     let baseType = getBaseTypeName(freeReceiverType)
-                    let sIdx = findStruct(baseType)
+                    let sIdx = findStructReg(baseType, structNames)
                     var sSize = 0
                     if sIdx >= 0 {
                         sSize = structSizes[sIdx]
@@ -10008,7 +10000,8 @@ class LLVMIRGenerator {
                                 }
                             }
                             if receiverReg == "" {
-                                let structIdx = findStruct(thisType)
+                                let structIdx = findStructReg(thisType,
+                                    structNames)
                                 output.append("; DEBUG methodCall: varName=" +
                                     varName + " thisType=" + thisType +
                                     " structIdx=" + structIdx.toString() +
@@ -11046,7 +11039,7 @@ class LLVMIRGenerator {
         if expr.callee.endsWith("_new") {
             newBaseType = expr.callee.substring(0, expr.callee.length() - 4)
             if isClassType(newBaseType) or isDataType(newBaseType) or
-                findStruct(newBaseType) >= 0 {
+                findStructReg(newBaseType, structNames) >= 0 {
                 newBaseTypeKnown = 1
             }
         }
@@ -11058,7 +11051,7 @@ class LLVMIRGenerator {
                 expr.callee.length() - 9)
             fromJsonRet = getMethodReturnType(fromJsonBaseType, "fromJson")
             if isClassType(fromJsonBaseType) or isDataType(fromJsonBaseType) or
-                findStruct(fromJsonBaseType) >= 0 {
+                findStructReg(fromJsonBaseType, structNames) >= 0 {
                 fromJsonBaseTypeKnown = 1
             }
         }
