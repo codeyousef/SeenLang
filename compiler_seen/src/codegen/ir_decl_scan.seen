@@ -28,6 +28,41 @@ fun appendPipeValue(box: Array<String>, value: String) r: Void {
     }
 }
 
+fun recordConstGenericNumericParamsImpl(typeName: String,
+    constGenericNamesBox: Array<String>, constGenericValuesBox: Array<String>)
+    r: Void {
+
+    if not typeName.contains("<") {
+        return
+    }
+    let cgLt = typeName.indexOf("<", 0)
+    let cgGt = typeName.indexOf(">", cgLt)
+    if cgLt <= 0 or cgGt <= cgLt {
+        return
+    }
+    let cgInner = typeName.substring(cgLt + 1, cgGt)
+    var cgPos = 0
+    var cgParamIdx = 0
+    while cgPos <= cgInner.length() {
+        var cgNextComma = cgInner.indexOf(",", cgPos)
+        if cgNextComma < 0 { cgNextComma = cgInner.length() }
+        let cgParam = cgInner.substring(cgPos, cgNextComma)
+        if cgParam.length() > 0 {
+            let cgFirstChar = cgParam.byteAt(0)
+            if cgFirstChar >= 48 and cgFirstChar <= 57 {
+                ensureStringBoxValue(constGenericNamesBox)
+                ensureStringBoxValue(constGenericValuesBox)
+                constGenericNamesBox[0] = constGenericNamesBox[0] +
+                    typeName + ":param" + cgParamIdx.toString() + "|"
+                constGenericValuesBox[0] = constGenericValuesBox[0] +
+                    cgParam + "|"
+            }
+        }
+        cgParamIdx = cgParamIdx + 1
+        cgPos = cgNextComma + 1
+    }
+}
+
 fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility: String,
     xmDeclareNamesBox: Array<String>, xmDeclareStrsBox: Array<String>,
     xmDeclareVisBox: Array<String>, xmDeclareCountBox: Array<Int>) r: Void {

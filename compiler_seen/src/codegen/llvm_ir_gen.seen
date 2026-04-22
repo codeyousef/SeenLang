@@ -43,7 +43,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl}
+import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
@@ -1746,33 +1746,14 @@ class LLVMIRGenerator {
         traceGen("registerStructLayout: " + classNode.name + " fields=" + classNode.fields.length().toString())
 
         // Const generics: extract numeric values from type name (e.g., "Grid<Int,8,8>")
-        let cgName = classNode.name
-        if cgName.contains("<") {
-            let cgLt = cgName.indexOf("<", 0)
-            let cgGt = cgName.indexOf(">", cgLt)
-            if cgLt > 0 and cgGt > cgLt {
-                let cgInner = cgName.substring(cgLt + 1, cgGt)
-                // Parse comma-separated params, register numeric ones
-                var cgPos = 0
-                var cgParamIdx = 0
-                while cgPos <= cgInner.length() {
-                    var cgNextComma = cgInner.indexOf(",", cgPos)
-                    if cgNextComma < 0 { cgNextComma = cgInner.length() }
-                    let cgParam = cgInner.substring(cgPos, cgNextComma)
-                    // Check if param is numeric (starts with digit)
-                    if cgParam.length() > 0 {
-                        let cgFirstChar = cgParam.byteAt(0)
-                        if cgFirstChar >= 48 and cgFirstChar <= 57 {
-                            let cgKey = cgName + ":param" + cgParamIdx.toString()
-                            g_constGenericNames = g_constGenericNames + cgKey + "|"
-                            g_constGenericValues = g_constGenericValues + cgParam + "|"
-                        }
-                    }
-                    cgParamIdx = cgParamIdx + 1
-                    cgPos = cgNextComma + 1
-                }
-            }
-        }
+        let constGenericNamesBox = Array<String>()
+        constGenericNamesBox.push(g_constGenericNames)
+        let constGenericValuesBox = Array<String>()
+        constGenericValuesBox.push(g_constGenericValues)
+        recordConstGenericNumericParamsImpl(classNode.name, constGenericNamesBox,
+            constGenericValuesBox)
+        g_constGenericNames = constGenericNamesBox[0]
+        g_constGenericValues = constGenericValuesBox[0]
 
         // Build the layout from fields
         var layout = "{ "
