@@ -45,7 +45,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, recordCrossModuleDeclareStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerAsyncFunctionStateImpl, registerParentClassStateImpl, lookupParentClassStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, recordCrossModuleDeclareStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupParentClassStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl}
@@ -1520,15 +1520,6 @@ class LLVMIRGenerator {
         g_xmConstMutable = unpackDeclRegistryFieldImpl(updated, 2)
         g_xmConstSeenTypes = unpackDeclRegistryFieldImpl(updated, 3)
         g_xmConstCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 4))
-    }
-
-    // Register an async function and its declared return type (pipe-delimited globals)
-    fun registerAsyncFunction(name: String, declaredRetType: String) r: Void {
-        let updated = registerAsyncFunctionStateImpl(name, declaredRetType,
-            g_asyncFuncNames, g_asyncFuncRetTypes, g_asyncFuncCount)
-        g_asyncFuncNames = unpackDeclRegistryFieldImpl(updated, 0)
-        g_asyncFuncRetTypes = unpackDeclRegistryFieldImpl(updated, 1)
-        g_asyncFuncCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 2))
     }
 
     // Check if a function is async (simple contains check with pipe delimiters)
