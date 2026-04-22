@@ -1,0 +1,134 @@
+// ir_type_header.seen — type-header loading and registry scan helpers
+// Keeps imported LLVM type-header parsing out of llvm_ir_gen.seen.
+
+import str.string.{StringBuilder}
+import io.file.{readText, exists}
+import codegen.ir_string_collect.{trimSpacesImpl}
+import codegen.ir_module_constants.{appendParsedHeaderModuleConstantImpl}
+import codegen.type_registry.{applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
+
+class TypeHeaderLoadResult {
+    var loaded: Bool
+    var runtimeDeclsLoaded: Bool
+
+    static fun new(loaded: Bool, runtimeDeclsLoaded: Bool)
+        r: TypeHeaderLoadResult {
+
+        return TypeHeaderLoadResult{
+            loaded: loaded,
+            runtimeDeclsLoaded: runtimeDeclsLoaded
+        }
+    }
+}
+
+fun scanTypeHeaderIntoRegistryImpl(headerContent: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>) r: Bool {
+
+    var currentStruct = ""
+    var lineStart = 0
+    var pos = 0
+    while pos <= headerContent.length() {
+        var atEnd = false
+        var c = '\0'
+        if pos == headerContent.length() {
+            atEnd = true
+        }
+        if not atEnd {
+            c = headerContent.charAt(pos)
+        }
+        if atEnd or c == '\n' {
+            let line = headerContent.substring(lineStart, pos)
+            let trimmedLine = trimSpacesImpl(line)
+            if trimmedLine.startsWith("; Runtime Function Declarations") {
+                return true
+            }
+            if trimmedLine.startsWith("; End of auto-generated type declarations") {
+                return false
+            }
+            currentStruct = applyTypeHeaderStructLineReg(trimmedLine,
+                currentStruct, structNames, structLayouts, structFieldNames,
+                structFieldTypes, structLlvmFieldTypes, structSizes,
+                structMethodNames, structMethodRetTypes)
+            appendParsedHeaderModuleConstantImpl(trimmedLine,
+                moduleConstantNames, moduleConstantTypes, moduleConstantValues)
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return false
+}
+
+fun tryLoadTypeHeaderIntoOutputImpl(output: StringBuilder, typeHeaderPath: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>) r: TypeHeaderLoadResult {
+
+    if typeHeaderPath == "" or not exists(typeHeaderPath) {
+        return TypeHeaderLoadResult.new(false, false)
+    }
+
+    let headerContent = readText(typeHeaderPath)
+    if headerContent == "" {
+        return TypeHeaderLoadResult.new(false, false)
+    }
+
+    output.append("; Type declarations loaded from: " + typeHeaderPath + "\n")
+    output.append(headerContent)
+    output.append("\n")
+
+    var runtimeDeclsLoaded = scanTypeHeaderIntoRegistryImpl(headerContent,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        structLlvmFieldTypes, structSizes, structMethodNames,
+        structMethodRetTypes, moduleConstantNames, moduleConstantTypes,
+        moduleConstantValues)
+    if not runtimeDeclsLoaded and
+        headerContent.contains("; Runtime Function Declarations") {
+        runtimeDeclsLoaded = true
+    }
+
+    computeMissingStructSizesReg(structNames, structLayouts, structSizes)
+    return TypeHeaderLoadResult.new(true, runtimeDeclsLoaded)
+}
+
+fun emitBuiltinTypeHeaderImpl(output: StringBuilder,
+    generatedClasses: Array<String>) r: Void {
+
+    output.append("; Using built-in type definitions (no type header file)\n")
+    output.append("%SeenString = type { i64, ptr }\n")
+    // SeenArray: { len: i64, cap: i64, element_size: i64, data: ptr }
+    output.append("%SeenArray = type { i64, i64, i64, ptr }\n")
+    // TypeNode: { typeName: %SeenString, isNullable: i1 } - inline data type
+    output.append("%TypeNode = type { %SeenString, i1 }\n")
+    // ParamNode: { name: %SeenString, paramType: %TypeNode, isMutable: i1 } - inline data type
+    output.append("%ParamNode = type { %SeenString, %TypeNode, i1 }\n")
+    // ImportPathInfo: { text: %SeenString, segments: ptr (to SeenArray) } - inline data type
+    output.append("%ImportPathInfo = type { %SeenString, ptr }\n")
+    // ImportSymbolNode: { name: %SeenString, alias: %SeenString } - inline data type
+    output.append("%ImportSymbolNode = type { %SeenString, %SeenString }\n")
+    // AnnotationNode: { name: %SeenString, arguments: ptr (to SeenArray) } - inline data type for decorators
+    output.append("%AnnotationNode = type { %SeenString, ptr }\n")
+    // ItemNode: { itemType, name, visibility: %SeenString, importPath, importSymbols: ptr, function, classNode, enumNode: i64 }
+    output.append("%ItemNode = type { %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64 }\n")
+    // CommandResult: { success: Bool, output: String } - from process.seen
+    output.append("%CommandResult = type { i1, %SeenString }\n")
+    // RemovalResult: { success: Bool, message: String, files_removed: Array, directories_removed: Array }
+    output.append("%RemovalResult = type { i1, %SeenString, %SeenArray, %SeenArray }\n\n")
+
+    // Mark built-in types as generated to prevent re-emission
+    generatedClasses.push("TypeNode")
+    generatedClasses.push("ParamNode")
+    generatedClasses.push("ImportPathInfo")
+    generatedClasses.push("ImportSymbolNode")
+    generatedClasses.push("AnnotationNode")
+    generatedClasses.push("ItemNode")
+    generatedClasses.push("CommandResult")
+    generatedClasses.push("RemovalResult")
+}

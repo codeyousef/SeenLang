@@ -48,12 +48,13 @@ import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl
 import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl, appendParsedHeaderModuleConstantImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl}
+import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
 
-import codegen.ir_string_collect.{trimSpacesImpl, getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
 import codegen.ir_string_interp_infer.{inferStringInterpolationExprTypeStateImpl}
@@ -95,7 +96,7 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnP
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
-import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyTypeHeaderStructLineReg, computeMissingStructSizesReg, applyStructLayoutRegistrationReg}
+import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
@@ -1434,39 +1435,6 @@ class LLVMIRGenerator {
         g_xmConstCount = state.xmConstCount
     }
 
-    fun applyTypeHeader(headerContent: String) r: Void {
-        var currentStruct = ""
-        var lineStart = 0
-        var pos = 0
-        while pos <= headerContent.length() {
-            var isEnd = false
-            var c = '\0'
-            if pos == headerContent.length() {
-                isEnd = true
-            }
-            if not isEnd {
-                c = headerContent.charAt(pos)
-            }
-            if isEnd or c == '\n' {
-                let line = headerContent.substring(lineStart, pos)
-                let trimmedLine = trimSpacesImpl(line)
-                if trimmedLine.startsWith("; Runtime Function Declarations") or trimmedLine.startsWith("; End of auto-generated type declarations") {
-                    return
-                }
-                currentStruct = applyTypeHeaderStructLineReg(trimmedLine,
-                    currentStruct, structNames, structLayouts,
-                    structFieldNames, structFieldTypes,
-                    structLlvmFieldTypes, structSizes, structMethodNames,
-                    structMethodRetTypes)
-                appendParsedHeaderModuleConstantImpl(trimmedLine,
-                    moduleConstantNames, moduleConstantTypes,
-                    moduleConstantValues)
-                lineStart = pos + 1
-            }
-            pos = pos + 1
-        }
-    }
-
     // Helper to find variable type (checks both varTypes and preAllocatedTypes)
     // Searches backwards for speed.
     fun findVarType(name: String) r: String {
@@ -2631,54 +2599,18 @@ class LLVMIRGenerator {
 
         // Try to read type declarations from header file (generated by Rust bootstrap compiler)
         // This ensures ABI compatibility between Rust and Seen compilers
-        if typeHeaderPath != "" and exists(typeHeaderPath) {
-            let headerContent = readText(typeHeaderPath)
-            if headerContent != "" {
-                output.append("; Type declarations loaded from: " + typeHeaderPath + "\n")
-                output.append(headerContent)
-                output.append("\n")
-                typesLoadedFromHeader = true
-                applyTypeHeader(headerContent)
-                computeMissingStructSizesReg(structNames, structLayouts,
-                    structSizes)
-                // Check if header also contains runtime function declarations
-                if headerContent.contains("; Runtime Function Declarations") {
-                    runtimeDeclsLoaded = true
-                }
-                return
-            }
+        let headerLoadResult = tryLoadTypeHeaderIntoOutputImpl(output,
+            typeHeaderPath, structNames, structLayouts, structFieldNames,
+            structFieldTypes, structLlvmFieldTypes, structSizes,
+            structMethodNames, structMethodRetTypes, moduleConstantNames,
+            moduleConstantTypes, moduleConstantValues)
+        if headerLoadResult.loaded {
+            typesLoadedFromHeader = true
+            runtimeDeclsLoaded = headerLoadResult.runtimeDeclsLoaded
+            return
         }
 
-        // Fallback: emit hardcoded type definitions if no header file
-        output.append("; Using built-in type definitions (no type header file)\n")
-        output.append("%SeenString = type { i64, ptr }\n")
-        // SeenArray: { len: i64, cap: i64, element_size: i64, data: ptr }
-        output.append("%SeenArray = type { i64, i64, i64, ptr }\n")
-        // TypeNode: { typeName: %SeenString, isNullable: i1 } - inline data type used in AST
-        output.append("%TypeNode = type { %SeenString, i1 }\n")
-        // ParamNode: { name: %SeenString, paramType: %TypeNode, isMutable: i1 } - inline data type
-        output.append("%ParamNode = type { %SeenString, %TypeNode, i1 }\n")
-        // ImportPathInfo: { text: %SeenString, segments: ptr (to SeenArray) } - inline data type
-        output.append("%ImportPathInfo = type { %SeenString, ptr }\n")
-        // ImportSymbolNode: { name: %SeenString, alias: %SeenString } - inline data type
-        output.append("%ImportSymbolNode = type { %SeenString, %SeenString }\n")
-        // AnnotationNode: { name: %SeenString, arguments: ptr (to SeenArray) } - inline data type for decorators
-        output.append("%AnnotationNode = type { %SeenString, ptr }\n")
-        // ItemNode: { itemType, name, visibility: %SeenString, importPath, importSymbols: ptr, function, classNode, enumNode: i64 }
-        output.append("%ItemNode = type { %SeenString, %SeenString, %SeenString, ptr, ptr, i64, i64, i64 }\n")
-        // CommandResult: { success: Bool, output: String } - from process.seen
-        output.append("%CommandResult = type { i1, %SeenString }\n")
-        // RemovalResult: { success: Bool, message: String, files_removed: Array, directories_removed: Array }
-        output.append("%RemovalResult = type { i1, %SeenString, %SeenArray, %SeenArray }\n\n")
-        // Mark built-in types as generated to prevent re-emission
-        generatedClasses.push("TypeNode")
-        generatedClasses.push("ParamNode")
-        generatedClasses.push("ImportPathInfo")
-        generatedClasses.push("ImportSymbolNode")
-        generatedClasses.push("AnnotationNode")
-        generatedClasses.push("ItemNode")
-        generatedClasses.push("CommandResult")
-        generatedClasses.push("RemovalResult")
+        emitBuiltinTypeHeaderImpl(output, generatedClasses)
     }
 
     fun emitTBAAMetadata() r: Void {
