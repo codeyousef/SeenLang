@@ -45,7 +45,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupParentClassStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl, appendParsedHeaderModuleConstantImpl}
@@ -1579,23 +1579,6 @@ class LLVMIRGenerator {
         return parseIntManual(applyModuleConstantUpdatedState(updated))
     }
 
-    // Register a child→parent inheritance relationship
-    fun registerParentClass(childName: String, parentName: String) r: Void {
-        let updated = registerParentClassStateImpl(childName, parentName,
-            g_inheritanceChildNames, g_inheritanceParentNames,
-            g_inheritanceCount)
-        g_inheritanceChildNames = unpackDeclRegistryFieldImpl(updated, 0)
-        g_inheritanceParentNames = unpackDeclRegistryFieldImpl(updated, 1)
-        g_inheritanceCount = parseIntManual(
-            unpackDeclRegistryFieldImpl(updated, 2))
-    }
-
-    // Look up the parent class name for a given child class (returns "" if none)
-    fun lookupParentClass(childName: String) r: String {
-        return lookupParentClassStateImpl(childName, g_inheritanceChildNames,
-            g_inheritanceParentNames, g_inheritanceCount)
-    }
-
     // Pre-scan a function's block to collect all variable declarations.
     // This enables alloca hoisting: all allocas are emitted in the entry
     // block (before any branches), which is required by LLVM for correct
@@ -1892,7 +1875,13 @@ class LLVMIRGenerator {
         var pfcount = 0
         let pnLen = classNode.parentName.length()
         if pnLen > 0 {
-            registerParentClass(classNode.name, classNode.parentName)
+            let updated = registerParentClassStateImpl(classNode.name,
+                classNode.parentName, g_inheritanceChildNames,
+                g_inheritanceParentNames, g_inheritanceCount)
+            g_inheritanceChildNames = unpackDeclRegistryFieldImpl(updated, 0)
+            g_inheritanceParentNames = unpackDeclRegistryFieldImpl(updated, 1)
+            g_inheritanceCount = parseIntManual(
+                unpackDeclRegistryFieldImpl(updated, 2))
             let parentIdx = findStructReg(classNode.parentName, structNames)
             if parentIdx >= 0 {
                 let parentFN = structFieldNames[parentIdx]
