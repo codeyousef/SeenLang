@@ -44,6 +44,20 @@ class DeclarationItemContext {
     }
 }
 
+class PreparedDeclarationItem {
+    var item: ItemNode
+    var classMethodRetTypeNames: Array<String>
+    var funcRetTypeName: String
+
+    static fun new(item: ItemNode) r: PreparedDeclarationItem {
+        return PreparedDeclarationItem{
+            item: item,
+            classMethodRetTypeNames: Array<String>(),
+            funcRetTypeName: ""
+        }
+    }
+}
+
 fun normalizeSeenTypeNameImpl(seenType: String) r: String {
     var normalized = seenType
     if normalized.startsWith("move:") {
@@ -410,5 +424,19 @@ fun registerPreparedDeclarationItemIntoStateImpl(item: ItemNode,
     if item.itemType == "Function" {
         registerTopLevelFunctionDeclarationIntoStateImpl(item.function,
             item.visibility, funcRetTypeName, ctx)
+    }
+}
+
+fun registerPreparedDeclarationItemsIntoStateImpl(
+    items: Array<PreparedDeclarationItem>, ctx: DeclarationItemContext)
+    r: Void {
+
+    var itemIdx = 0
+    while itemIdx < items.length() {
+        let preparedItem = items[itemIdx]
+        registerPreparedDeclarationItemIntoStateImpl(preparedItem.item,
+            preparedItem.classMethodRetTypeNames, preparedItem.funcRetTypeName,
+            ctx)
+        itemIdx = itemIdx + 1
     }
 }
