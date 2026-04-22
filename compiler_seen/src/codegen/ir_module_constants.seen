@@ -97,6 +97,52 @@ fun mapModuleConstLlvmTypeToSeenTypeImpl(llvmType: String) r: String {
     return "Int"
 }
 
+fun appendParsedHeaderModuleConstantImpl(trimmedLine: String,
+    moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
+    moduleConstantValues: Array<String>) r: Void {
+
+    if not trimmedLine.startsWith("@") or
+        not trimmedLine.contains("= constant") {
+        return
+    }
+
+    var nameEnd = 1
+    while nameEnd < trimmedLine.length() and trimmedLine.charAt(nameEnd) != ' ' {
+        nameEnd = nameEnd + 1
+    }
+    let constName = trimmedLine.substring(1, nameEnd)
+    if constName == "" {
+        return
+    }
+
+    var constIdx = 0
+    while constIdx < trimmedLine.length() - 9 {
+        if trimmedLine.substring(constIdx, constIdx + 9) == "constant " {
+            let remainder = trimmedLine.substring(constIdx + 9,
+                trimmedLine.length())
+            var spaceIdx = 0
+            while spaceIdx < remainder.length() and
+                remainder.charAt(spaceIdx) != ' ' {
+                spaceIdx = spaceIdx + 1
+            }
+            if spaceIdx >= remainder.length() {
+                return
+            }
+            let constType = remainder.substring(0, spaceIdx)
+            let constValue = remainder.substring(spaceIdx + 1,
+                remainder.length())
+            if constType == "" or constValue == "" {
+                return
+            }
+            moduleConstantNames.push(constName)
+            moduleConstantTypes.push(constType)
+            moduleConstantValues.push(constValue)
+            return
+        }
+        constIdx = constIdx + 1
+    }
+}
+
 fun findModuleConstantStateImpl(name: String,
     moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
     moduleConstantValues: Array<String>, moduleConstMutable: String,

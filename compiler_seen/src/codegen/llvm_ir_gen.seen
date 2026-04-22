@@ -48,7 +48,7 @@ import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupParentClassStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl, appendParsedHeaderModuleConstantImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx}
@@ -1569,40 +1569,9 @@ class LLVMIRGenerator {
                         structFieldTypes, structLlvmFieldTypes, structSizes,
                         structMethodNames, structMethodRetTypes)
                 }
-                // Parse module-level constants: @NAME = constant i64 VALUE
-                if trimmedLine.startsWith("@") and trimmedLine.contains("= constant") {
-                    // Extract name (between @ and first space)
-                    var nameEnd = 1
-                    while nameEnd < trimmedLine.length() and trimmedLine.charAt(nameEnd) != ' ' {
-                        nameEnd = nameEnd + 1
-                    }
-                    let constName = trimmedLine.substring(1, nameEnd)
-
-                    // Find "constant " and extract type and value
-                    // Format: @NAME = constant TYPE VALUE
-                    var constIdx = 0
-                    var foundConst = false
-                    while constIdx < trimmedLine.length() - 9 {
-                        if trimmedLine.substring(constIdx, constIdx + 9) == "constant " {
-                            foundConst = true
-                            // After "constant " comes type and value
-                            let remainder = trimmedLine.substring(constIdx + 9, trimmedLine.length())
-                            // Find space between type and value
-                            var spaceIdx = 0
-                            while spaceIdx < remainder.length() and remainder.charAt(spaceIdx) != ' ' {
-                                spaceIdx = spaceIdx + 1
-                            }
-                            let constType = remainder.substring(0, spaceIdx)
-                            let constValue = remainder.substring(spaceIdx + 1, remainder.length())
-
-                            moduleConstantNames.push(constName)
-                            moduleConstantTypes.push(constType)
-                            moduleConstantValues.push(constValue)
-                            break
-                        }
-                        constIdx = constIdx + 1
-                    }
-                }
+                appendParsedHeaderModuleConstantImpl(trimmedLine,
+                    moduleConstantNames, moduleConstantTypes,
+                    moduleConstantValues)
                 lineStart = pos + 1
             }
             pos = pos + 1
