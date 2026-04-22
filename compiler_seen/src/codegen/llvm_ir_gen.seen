@@ -1348,14 +1348,6 @@ class LLVMIRGenerator {
             g_floatParamParamIdxs)
     }
 
-    // Register known data types from the parser that are used as value types
-    // These need to be manually registered because 'data' definitions aren't
-    // captured as program items like 'class' definitions
-    fun registerKnownDataTypes() r: Void {
-        registerKnownDataTypesReg(structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes)
-    }
-
-
     // Pass 1 entry point: scan a ProgramNode and register all declarations
     // without generating any IR. This populates:
     //   - Struct layouts (structFieldNames/Types/Layouts via registerStructLayout)
@@ -1372,7 +1364,9 @@ class LLVMIRGenerator {
 
     fun registerDeclarations(program: ProgramNode) r: Void {
         // First, register known data types
-        registerKnownDataTypes()
+        registerKnownDataTypesReg(structNames, structLayouts, structFieldNames,
+            structFieldTypes, structLlvmFieldTypes, structSizes,
+            structMethodNames, structMethodRetTypes)
 
         preRegisterClassTypes(program)
 
@@ -1530,24 +1524,6 @@ class LLVMIRGenerator {
         g_xmConstSeenTypes = unpackDeclRegistryFieldImpl(updated, 3)
         g_xmConstCount = parseIntManual(unpackDeclRegistryFieldImpl(updated, 4))
     }
-
-    // Register a function's return type in the function registry.
-    // Used by inferExpressionType/getFunctionReturnType during codegen
-    // to determine the result type of function calls.
-    fun registerFunction(name: String, retType: String) r: Void {
-        registerFunctionStateImpl(name, retType, funcNames, funcRetTypes)
-    }
-
-
-    // Register a method on an existing struct (adds to structMethodNames/RetTypes).
-    // Called by @derive/@reflect/@binary/@packet codegen during generateClass()
-    // to make synthesized method return types available to inferExpressionType.
-    // NOTE: structMethodNames uses comma separator, structMethodRetTypes uses
-    // pipe separator — this asymmetry is intentional and must be preserved.
-    fun registerStructMethod(className: String, methodName: String, retType: String) r: Void {
-        registerStructMethodReg(className, methodName, retType, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
-    }
-
 
     // Register an async function and its declared return type (pipe-delimited globals)
     fun registerAsyncFunction(name: String, declaredRetType: String) r: Void {
@@ -3763,7 +3739,8 @@ class LLVMIRGenerator {
         }
         output.append("}\n\n")
         restoreNestedScratchState(savedNestedState)
-        registerFunction(defaultFuncName, traitRetTypeName)
+        registerFunctionStateImpl(defaultFuncName, traitRetTypeName, funcNames,
+            funcRetTypes)
     }
 
     fun tryGenerateTraitClass(classNode: ClassNode) r: Bool {
@@ -3778,8 +3755,11 @@ class LLVMIRGenerator {
             let traitMethod = classNode.methods[traitMethodIdx]
             let traitFuncName = className + "_" + traitMethod.name
             let traitRetTypeName = resolveMethodReturnType(className, traitMethod)
-            registerFunction(traitFuncName, traitRetTypeName)
-            registerStructMethod(className, traitMethod.name, traitRetTypeName)
+            registerFunctionStateImpl(traitFuncName, traitRetTypeName,
+                funcNames, funcRetTypes)
+            registerStructMethodReg(className, traitMethod.name,
+                traitRetTypeName, structNames, structMethodNames,
+                structMethodRetTypes, funcNames, funcRetTypes)
             if traitMethod.body.statements.length() > 0 {
                 emitTraitDefaultMethod(className, traitMethod, traitRetTypeName)
             }
@@ -4548,7 +4528,8 @@ class LLVMIRGenerator {
         }
         let normalizedReturnType = normalizeDeclaredTypeNode(fn.returnType)
         if externAction == 1 {
-            registerFunction(fn.name, normalizedReturnType)
+            registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+                funcRetTypes)
             return true
         }
         var mappedPTypes = Array<String>()
@@ -4565,7 +4546,8 @@ class LLVMIRGenerator {
         if hasDecorator(fn, "variadic") { isVariadic = 1 }
         emitExternDeclImpl(output, fn.name, externSymbolBox[0], mappedPTypes,
             fn.params.length(), externRetType, isVariadic)
-        registerFunction(fn.name, normalizedReturnType)
+        registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+            funcRetTypes)
         return true
     }
 
@@ -4722,7 +4704,8 @@ class LLVMIRGenerator {
         // Register this function's return type for later call site inference
         // (may already be registered from registerDeclarations, but that's OK)
         let resolvedFunctionReturnType = resolveFunctionReturnType(fn)
-        registerFunction(implFuncName, resolvedFunctionReturnType)
+        registerFunctionStateImpl(implFuncName, resolvedFunctionReturnType,
+            funcNames, funcRetTypes)
 
         let returnTypeBox = Array<String>()
         returnTypeBox.push("")
