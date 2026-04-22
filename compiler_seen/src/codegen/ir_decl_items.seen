@@ -272,23 +272,10 @@ fun getFloatParamRegistryNameImpl(fn: FunctionNode, structNames: Array<String>)
     return registryName
 }
 
-fun registerClassMethodDeclarationsStateImpl(className: String,
+fun registerClassMethodDeclarationsIntoStateImpl(className: String,
     methods: Array<FunctionNode>, methodRetTypeNames: Array<String>,
-    visibility: String, structNames: Array<String>, typeAliasNames: String,
-    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
-    reprCClassNames: String, floatParamFuncNames: Array<String>,
-    floatParamParamIdxs: Array<Int>, funcNames: Array<String>,
-    funcRetTypes: Array<String>, asyncFuncNames: String,
-    asyncFuncRetTypes: String, asyncFuncCount: Int, xmDeclareNames: String,
-    xmDeclareStrs: String, xmDeclareVis: String, xmDeclareCount: Int) r: String {
+    visibility: String, ctx: DeclarationItemContext) r: Void {
 
-    var updatedAsyncFuncNames = asyncFuncNames
-    var updatedAsyncFuncRetTypes = asyncFuncRetTypes
-    var updatedAsyncFuncCount = asyncFuncCount
-    var updatedXmDeclareNames = xmDeclareNames
-    var updatedXmDeclareStrs = xmDeclareStrs
-    var updatedXmDeclareVis = xmDeclareVis
-    var updatedXmDeclareCount = xmDeclareCount
     let isStringBuilder = className == "StringBuilder"
     var methodIdx = 0
     while methodIdx < methods.length() {
@@ -302,103 +289,61 @@ fun registerClassMethodDeclarationsStateImpl(className: String,
         let mangledName = className + "_" + method.name
         let methodRetTypeName = methodRetTypeNames[methodIdx]
         registerFloatParamMetadataImpl(mangledName, method.params,
-            floatParamFuncNames, floatParamParamIdxs)
+            ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
 
-        var methodRetLlvm = mapDeclaredTypeImpl(methodRetTypeName, structNames,
-            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
-            reprCClassNames)
+        var methodRetLlvm = mapDeclaredTypeImpl(methodRetTypeName,
+            ctx.structNames, ctx.typeAliasNames, ctx.typeAliasTargets,
+            ctx.typeAliasCount, ctx.state.enumTypeNames,
+            ctx.reprCClassNames)
         if method.isAsync {
             methodRetLlvm = "ptr"
         }
         let methodSeenParamTypes = Array<String>()
         let methodLlvmParamTypes = Array<String>()
         collectDeclaredParamTypeInfoImpl(method.params, methodSeenParamTypes,
-            methodLlvmParamTypes, structNames, typeAliasNames,
-            typeAliasTargets, typeAliasCount, enumTypeNames,
-            reprCClassNames)
+            methodLlvmParamTypes, ctx.structNames, ctx.typeAliasNames,
+            ctx.typeAliasTargets, ctx.typeAliasCount,
+            ctx.state.enumTypeNames, ctx.reprCClassNames)
         let updated = registerMethodDeclarationStateImpl(mangledName,
             methodRetTypeName, methodRetLlvm, method.isAsync, method.isStatic,
-            visibility, methodSeenParamTypes, methodLlvmParamTypes, funcNames,
-            funcRetTypes, updatedAsyncFuncNames, updatedAsyncFuncRetTypes,
-            updatedAsyncFuncCount, updatedXmDeclareNames, updatedXmDeclareStrs,
-            updatedXmDeclareVis, updatedXmDeclareCount)
-        updatedAsyncFuncNames = unpackDeclRegistryFieldImpl(updated, 0)
-        updatedAsyncFuncRetTypes = unpackDeclRegistryFieldImpl(updated, 1)
-        updatedAsyncFuncCount = unpackDeclRegistryFieldImpl(updated, 2).toInt()
-        updatedXmDeclareNames = unpackDeclRegistryFieldImpl(updated, 3)
-        updatedXmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 4)
-        updatedXmDeclareVis = unpackDeclRegistryFieldImpl(updated, 5)
-        updatedXmDeclareCount = unpackDeclRegistryFieldImpl(updated, 6).toInt()
+            visibility, methodSeenParamTypes, methodLlvmParamTypes,
+            ctx.funcNames, ctx.funcRetTypes, ctx.state.asyncFuncNames,
+            ctx.state.asyncFuncRetTypes, ctx.state.asyncFuncCount,
+            ctx.state.xmDeclareNames, ctx.state.xmDeclareStrs,
+            ctx.state.xmDeclareVis, ctx.state.xmDeclareCount)
+        applyDeclarationItemStateImpl(ctx.state, updated)
         methodIdx = methodIdx + 1
     }
-
-    return packDeclarationItemStateImpl(updatedAsyncFuncNames,
-        updatedAsyncFuncRetTypes, updatedAsyncFuncCount,
-        updatedXmDeclareNames, updatedXmDeclareStrs, updatedXmDeclareVis,
-        updatedXmDeclareCount)
-}
-
-fun registerTopLevelFunctionDeclarationStateImpl(funcObj: FunctionNode,
-    visibility: String, funcRetTypeName: String, structNames: Array<String>,
-    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String, reprCClassNames: String,
-    floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>,
-    funcNames: Array<String>, funcRetTypes: Array<String>,
-    asyncFuncNames: String, asyncFuncRetTypes: String, asyncFuncCount: Int,
-    xmDeclareNames: String, xmDeclareStrs: String, xmDeclareVis: String,
-    xmDeclareCount: Int) r: String {
-
-    let isRuntimeStringCompat = isRuntimeBackedStringCompatFunctionImpl(
-        funcObj.name)
-    let floatRegistryFuncName = getFloatParamRegistryNameImpl(funcObj,
-        structNames)
-    registerFloatParamMetadataImpl(floatRegistryFuncName, funcObj.params,
-        floatParamFuncNames, floatParamParamIdxs)
-
-    let bodyStmtCount = funcObj.body.statements.length()
-    var declRetLlvm = mapDeclaredTypeImpl(funcRetTypeName, structNames,
-        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
-        reprCClassNames)
-    if funcObj.isAsync {
-        declRetLlvm = "ptr"
-    }
-    let declSeenParamTypes = Array<String>()
-    let declLlvmParamTypes = Array<String>()
-    collectDeclaredParamTypeInfoImpl(funcObj.params, declSeenParamTypes,
-        declLlvmParamTypes, structNames, typeAliasNames, typeAliasTargets,
-        typeAliasCount, enumTypeNames, reprCClassNames)
-    return registerFunctionDeclarationStateImpl(funcObj.name, funcRetTypeName,
-        declRetLlvm, funcObj.isAsync, funcObj.isExtern, bodyStmtCount,
-        visibility, isRuntimeStringCompat, declSeenParamTypes,
-        declLlvmParamTypes, funcNames, funcRetTypes, asyncFuncNames,
-        asyncFuncRetTypes, asyncFuncCount, xmDeclareNames, xmDeclareStrs,
-        xmDeclareVis, xmDeclareCount)
-}
-
-fun registerClassMethodDeclarationsIntoStateImpl(className: String,
-    methods: Array<FunctionNode>, methodRetTypeNames: Array<String>,
-    visibility: String, ctx: DeclarationItemContext) r: Void {
-
-    let updated = registerClassMethodDeclarationsStateImpl(className, methods,
-        methodRetTypeNames, visibility, ctx.structNames, ctx.typeAliasNames,
-        ctx.typeAliasTargets, ctx.typeAliasCount, ctx.state.enumTypeNames,
-        ctx.reprCClassNames, ctx.floatParamFuncNames, ctx.floatParamParamIdxs,
-        ctx.funcNames, ctx.funcRetTypes, ctx.state.asyncFuncNames,
-        ctx.state.asyncFuncRetTypes, ctx.state.asyncFuncCount,
-        ctx.state.xmDeclareNames, ctx.state.xmDeclareStrs,
-        ctx.state.xmDeclareVis, ctx.state.xmDeclareCount)
-    applyDeclarationItemStateImpl(ctx.state, updated)
 }
 
 fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
     visibility: String, funcRetTypeName: String, ctx: DeclarationItemContext)
     r: Void {
 
-    let updated = registerTopLevelFunctionDeclarationStateImpl(funcObj,
-        visibility, funcRetTypeName, ctx.structNames, ctx.typeAliasNames,
+    let isRuntimeStringCompat = isRuntimeBackedStringCompatFunctionImpl(
+        funcObj.name)
+    let floatRegistryFuncName = getFloatParamRegistryNameImpl(funcObj,
+        ctx.structNames)
+    registerFloatParamMetadataImpl(floatRegistryFuncName, funcObj.params,
+        ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
+
+    let bodyStmtCount = funcObj.body.statements.length()
+    var declRetLlvm = mapDeclaredTypeImpl(funcRetTypeName, ctx.structNames,
+        ctx.typeAliasNames, ctx.typeAliasTargets, ctx.typeAliasCount,
+        ctx.state.enumTypeNames, ctx.reprCClassNames)
+    if funcObj.isAsync {
+        declRetLlvm = "ptr"
+    }
+    let declSeenParamTypes = Array<String>()
+    let declLlvmParamTypes = Array<String>()
+    collectDeclaredParamTypeInfoImpl(funcObj.params, declSeenParamTypes,
+        declLlvmParamTypes, ctx.structNames, ctx.typeAliasNames,
         ctx.typeAliasTargets, ctx.typeAliasCount, ctx.state.enumTypeNames,
-        ctx.reprCClassNames, ctx.floatParamFuncNames,
-        ctx.floatParamParamIdxs, ctx.funcNames, ctx.funcRetTypes,
+        ctx.reprCClassNames)
+    let updated = registerFunctionDeclarationStateImpl(funcObj.name,
+        funcRetTypeName, declRetLlvm, funcObj.isAsync, funcObj.isExtern,
+        bodyStmtCount, visibility, isRuntimeStringCompat, declSeenParamTypes,
+        declLlvmParamTypes, ctx.funcNames, ctx.funcRetTypes,
         ctx.state.asyncFuncNames, ctx.state.asyncFuncRetTypes,
         ctx.state.asyncFuncCount, ctx.state.xmDeclareNames,
         ctx.state.xmDeclareStrs, ctx.state.xmDeclareVis,
