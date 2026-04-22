@@ -5515,10 +5515,7 @@ class LLVMIRGenerator {
             }
             output.append("  " + lenReg + " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
         } else {
-            let lenPtrReg = getNextReg()
-            lenReg = getNextReg()
-            output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
-            output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + ", !tbaa !108, !range !188\n")
+            lenReg = emitSeenArrayLengthLoad(arrReg, ", !tbaa !108, !range !188")
         }
 
         let idxReg = resolveForInIndexAlloca("__forin_idx_" + loopVarName)
@@ -6319,10 +6316,7 @@ class LLVMIRGenerator {
             let bcFailLabel = "bounds_fail_" + g_boundsCheckLabelCount.toString()
             let bcOkLabel = "bounds_ok_" + g_boundsCheckLabelCount.toString()
             g_boundsCheckLabelCount = g_boundsCheckLabelCount + 1
-            let lenPtrReg = getNextReg()
-            output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 0\n")
-            let lenReg = getNextReg()
-            output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
+            let lenReg = emitSeenArrayLengthLoad(arrayReg, "")
             let oobReg = getNextReg()
             output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " + lenReg + "\n")
             output.append("  br i1 " + oobReg + ", label %" + bcFailLabel + ", label %" + bcOkLabel + "\n")
@@ -6755,18 +6749,28 @@ class LLVMIRGenerator {
         return ""
     }
 
+    fun resolveProgramItemsArrayReg(ptrReg: String, structType: String) r: String {
+        let progPtrReg = resolveMemberAccessFieldReceiverPtr(ptrReg,
+            structType, "program", "ProgramNode")
+        return generateFieldAccess(progPtrReg, "ProgramNode", "items")
+    }
+
+    fun emitSeenArrayLengthLoad(arrayReg: String, loadSuffix: String) r: String {
+        let lenPtrReg = emitFieldAccessPtrImpl(output, g_regBox, arrayReg,
+            "%SeenArray", 0)
+        let lenReg = getNextReg()
+        output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg +
+            loadSuffix + "\n")
+        return lenReg
+    }
+
     fun tryGenerateSpecialFieldAccessChain(ptrReg: String, structType: String, fieldName: String) r: String {
         if fieldName == "program.items" {
-            let progPtrReg = resolveMemberAccessFieldReceiverPtr(ptrReg,
-                structType, "program", "ProgramNode")
-            return generateFieldAccess(progPtrReg, "ProgramNode", "items")
+            return resolveProgramItemsArrayReg(ptrReg, structType)
         }
         if fieldName == "program.items.length" {
-            let progPtrReg = resolveMemberAccessFieldReceiverPtr(ptrReg,
-                structType, "program", "ProgramNode")
-            let itemsReg = generateFieldAccess(progPtrReg, "ProgramNode", "items")
-            let lenPtrReg = emitFieldAccessPtrImpl(output, g_regBox, itemsReg, "%SeenArray", 0)
-            return emitFieldAccessLoadImpl(output, g_regBox, "i64", lenPtrReg)
+            let itemsReg = resolveProgramItemsArrayReg(ptrReg, structType)
+            return emitSeenArrayLengthLoad(itemsReg, "")
         }
         return ""
     }
