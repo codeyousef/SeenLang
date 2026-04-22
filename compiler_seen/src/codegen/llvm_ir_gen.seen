@@ -1737,7 +1737,9 @@ class LLVMIRGenerator {
     fun updateStructLayoutFromHeader(structName: String, structLayout: String) r: Void {
         var idx = findStruct(structName)
         if idx < 0 {
-            idx = ensureStructEntry(structName)
+            idx = ensureStructEntryReg(structName, structNames, structLayouts,
+                structFieldNames, structFieldTypes, structLlvmFieldTypes,
+                structSizes, structMethodNames, structMethodRetTypes)
         }
         if structLayout != "" {
             structLayouts[idx] = structLayout + ""
@@ -1749,7 +1751,9 @@ class LLVMIRGenerator {
     fun updateStructFieldsFromHeader(structName: String, fieldsStr: String) r: Void {
         var idx = findStruct(structName)
         if idx < 0 {
-            idx = ensureStructEntry(structName)
+            idx = ensureStructEntryReg(structName, structNames, structLayouts,
+                structFieldNames, structFieldTypes, structLlvmFieldTypes,
+                structSizes, structMethodNames, structMethodRetTypes)
         }
         let existingNames = structFieldNames[idx]
         let existingTypes = structFieldTypes[idx]
@@ -1823,7 +1827,9 @@ class LLVMIRGenerator {
     fun updateStructSizeFromHeader(structName: String, sizeStr: String) r: Void {
         var idx = findStruct(structName)
         if idx < 0 {
-            idx = ensureStructEntry(structName)
+            idx = ensureStructEntryReg(structName, structNames, structLayouts,
+                structFieldNames, structFieldTypes, structLlvmFieldTypes,
+                structSizes, structMethodNames, structMethodRetTypes)
         }
         let trimmed = trimSpaces(sizeStr)
         if trimmed == "" {
@@ -2013,14 +2019,6 @@ class LLVMIRGenerator {
         return lookupParentClassStateImpl(childName, g_inheritanceChildNames,
             g_inheritanceParentNames, g_inheritanceCount)
     }
-
-    // Get or create a placeholder struct registry entry. Returns the index.
-    // Used during registerDeclarations to pre-register class names before
-    // their full layout is known, enabling self-referential struct fields.
-    fun ensureStructEntry(name: String) r: Int {
-        return ensureStructEntryReg(name, structNames, structLayouts, structFieldNames, structFieldTypes, structLlvmFieldTypes, structSizes, structMethodNames, structMethodRetTypes)
-    }
-
 
     // Pre-scan a function's block to collect all variable declarations.
     // This enables alloca hoisting: all allocas are emitted in the entry
@@ -2269,7 +2267,10 @@ class LLVMIRGenerator {
     // mismatch causes "out of bounds" crashes at runtime.
     fun registerStructLayout(classNode: ClassNode) r: Void {
         // Ensure entry exists (supports self-references during layout)
-        let structIdx = ensureStructEntry(classNode.name)
+        let structIdx = ensureStructEntryReg(classNode.name, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            structLlvmFieldTypes, structSizes, structMethodNames,
+            structMethodRetTypes)
         let hasLayout = structLayouts[structIdx] != ""
         traceGen("registerStructLayout: " + classNode.name + " structIdx=" + structIdx.toString() + " namesLen=" + structNames.length().toString() + " fieldNamesLen=" + structFieldNames.length().toString())
         traceGen("registerStructLayout: " + classNode.name + " fields=" + classNode.fields.length().toString())
