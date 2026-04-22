@@ -5,6 +5,7 @@ import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, pipeGet}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, isValidCrossModuleConstantEntryImpl}
+import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
 import codegen.type_registry.{getTypeSizeReg}
 
@@ -151,6 +152,29 @@ fun registerBitfieldLayoutMetadataImpl(ownerTypeName: String, fieldName: String,
     }
 
     return strippedFieldType
+}
+
+fun appendOwnStructLayoutFieldImpl(fieldName: String, fieldType: String,
+    fieldIdx: Int, layoutBox: Array<String>, fieldNamesBox: Array<String>,
+    fieldTypesBox: Array<String>, totalSizeBox: Array<Int>,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Void {
+
+    if fieldIdx > 0 {
+        layoutBox[0] = layoutBox[0] + ", "
+        fieldNamesBox[0] = fieldNamesBox[0] + ","
+        fieldTypesBox[0] = fieldTypesBox[0] + "|"
+    }
+
+    let llvmType = mapTypeImpl(fieldType, structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+    layoutBox[0] = layoutBox[0] + llvmType
+    fieldNamesBox[0] = fieldNamesBox[0] + fieldName
+    fieldTypesBox[0] = fieldTypesBox[0] + fieldType
+    totalSizeBox[0] = totalSizeBox[0] + getLlvmTypeSizeImpl(llvmType,
+        structNames, structLayouts, structSizes)
 }
 
 fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility: String,

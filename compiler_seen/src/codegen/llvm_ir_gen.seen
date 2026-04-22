@@ -43,7 +43,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl}
+import codegen.ir_decl_scan.{shouldSkipStringBuilderMethodDeclImpl, recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerEnumVariantsStateImpl, registerCrossModuleConstantsStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerFloatParamMetadataImpl, collectDeclaredParamTypeInfoImpl, isRuntimeBackedStringCompatFunctionImpl, registerMethodDeclarationStateImpl, registerFunctionDeclarationStateImpl}
@@ -1802,6 +1802,14 @@ class LLVMIRGenerator {
             layout = layout + "i8"
             totalSize = 1
         } else {
+            let layoutBox = Array<String>()
+            layoutBox.push(layout)
+            let fieldNamesBox = Array<String>()
+            fieldNamesBox.push(fieldNames)
+            let fieldTypesBox = Array<String>()
+            fieldTypesBox.push(fieldTypes)
+            let totalSizeBox = Array<Int>()
+            totalSizeBox.push(totalSize)
             let bitfieldKeysBox = Array<String>()
             bitfieldKeysBox.push(g_bitfieldKeys)
             let bitfieldWidthsBox = Array<String>()
@@ -1822,29 +1830,26 @@ class LLVMIRGenerator {
                 } else {
                     traceGen("registerStructLayout: " + classNode.name + " field idx=" + realOwnIdx.toString())
                     let sepIdx = pfcount + realOwnIdx
-                    if sepIdx > 0 {
-                        layout = layout + ", "
-                        fieldNames = fieldNames + ","
-                        fieldTypes = fieldTypes + "|"  // Use | as separator for types (not comma, due to generics)
-                    }
                     let fieldParamType = field.paramType
                     var fieldType = normalizeDeclaredTypeNode(fieldParamType)
                     fieldType = registerBitfieldLayoutMetadataImpl(
                         classNode.name, fieldNameStr, fieldType,
                         bitfieldKeysBox, bitfieldWidthsBox,
                         bitfieldOffsetsBox, bitfieldCountBox)
-                    let llvmType = mapType(fieldType)
-
-                    layout = layout + llvmType
-                    fieldNames = fieldNames + fieldNameStr
-                    fieldTypes = fieldTypes + fieldType
-                    totalSize = totalSize + getLlvmTypeSizeImpl(llvmType,
-                        structNames, structLayouts, structSizes)
+                    appendOwnStructLayoutFieldImpl(fieldNameStr, fieldType,
+                        sepIdx, layoutBox, fieldNamesBox, fieldTypesBox,
+                        totalSizeBox, structNames, structLayouts, structSizes,
+                        g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+                        g_enumTypeNames)
 
                     realOwnIdx = realOwnIdx + 1
                     i = i + 1
                 }
             }
+            layout = layoutBox[0]
+            fieldNames = fieldNamesBox[0]
+            fieldTypes = fieldTypesBox[0]
+            totalSize = totalSizeBox[0]
             g_bitfieldKeys = bitfieldKeysBox[0]
             g_bitfieldWidths = bitfieldWidthsBox[0]
             g_bitfieldOffsets = bitfieldOffsetsBox[0]
