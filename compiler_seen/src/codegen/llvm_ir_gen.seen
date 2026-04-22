@@ -45,8 +45,8 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
 import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl, collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, applyDeclarationItemStateImpl, registerEnumDeclarationStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
-import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerClassMethodDeclarationsStateImpl, registerTopLevelFunctionDeclarationStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_decl_items.{DeclarationItemContext, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerPreparedDeclarationItemIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, findModuleConstantStateImpl, tryInferModuleConstantVariableTypeStateImpl, unpackModuleConstFieldImpl, appendParsedHeaderModuleConstantImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
@@ -1343,6 +1343,10 @@ class LLVMIRGenerator {
             structMethodNames, structMethodRetTypes)
 
         let declState = captureDeclarationPassState()
+        let declItemContext = DeclarationItemContext.new(structNames,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+            g_reprCClassNames, g_floatParamFuncNames, g_floatParamParamIdxs,
+            funcNames, funcRetTypes, declState)
         preRegisterClassTypesImpl(program, structNames, structLayouts,
             structFieldNames, structFieldTypes, structLlvmFieldTypes,
             structSizes, structMethodNames, structMethodRetTypes)
@@ -1356,53 +1360,19 @@ class LLVMIRGenerator {
                 registerStructLayout(item.classNode)
             }
 
+            var methodRetTypeNames = Array<String>()
             if item.itemType == "Class" {
-                let methodRetTypeNames = Array<String>()
-                var methodIdx = 0
-                while methodIdx < item.classNode.methods.length() {
-                    methodRetTypeNames.push(resolveMethodReturnType(
-                        item.classNode.name, item.classNode.methods[methodIdx]))
-                    methodIdx = methodIdx + 1
-                }
-                let updated = registerClassMethodDeclarationsStateImpl(
-                    item.classNode.name, item.classNode.methods,
-                    methodRetTypeNames, item.visibility, structNames,
-                    g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-                    declState.enumTypeNames, g_reprCClassNames,
-                    g_floatParamFuncNames,
-                    g_floatParamParamIdxs, funcNames, funcRetTypes,
-                    declState.asyncFuncNames, declState.asyncFuncRetTypes,
-                    declState.asyncFuncCount, declState.xmDeclareNames,
-                    declState.xmDeclareStrs, declState.xmDeclareVis,
-                    declState.xmDeclareCount)
-                applyDeclarationItemStateImpl(declState, updated)
-                syncDeclarationPassState(declState)
+                methodRetTypeNames = collectClassMethodDeclarationReturnTypes(
+                    item.classNode)
             }
 
-            // Register enum variants for codegen
-            // EnumNode.variants is Array<String> (just variant names)
-            if item.itemType == "Enum" {
-                let enumNode = item.enumNode
-                registerEnumDeclarationStateImpl(enumNode.name,
-                    enumNode.variants, declState)
-                syncDeclarationPassState(declState)
-            }
-
+            var funcRetTypeName = ""
             if item.itemType == "Function" {
-                let funcRetTypeName = resolveFunctionReturnType(item.function)
-                let updated = registerTopLevelFunctionDeclarationStateImpl(
-                    item.function, item.visibility, funcRetTypeName,
-                    structNames, g_typeAliasNames, g_typeAliasTargets,
-                    g_typeAliasCount, declState.enumTypeNames,
-                    g_reprCClassNames,
-                    g_floatParamFuncNames, g_floatParamParamIdxs, funcNames,
-                    funcRetTypes, declState.asyncFuncNames,
-                    declState.asyncFuncRetTypes, declState.asyncFuncCount,
-                    declState.xmDeclareNames, declState.xmDeclareStrs,
-                    declState.xmDeclareVis, declState.xmDeclareCount)
-                applyDeclarationItemStateImpl(declState, updated)
-                syncDeclarationPassState(declState)
+                funcRetTypeName = resolveFunctionReturnType(item.function)
             }
+            registerPreparedDeclarationItemIntoStateImpl(item,
+                methodRetTypeNames, funcRetTypeName, declItemContext)
+            syncDeclarationPassState(declState)
 
             i = i + 1
         }
@@ -1419,6 +1389,19 @@ class LLVMIRGenerator {
             g_enumVariantFieldCounts, g_enumVariantParent, g_enumTypeCount,
             g_enumVariantCount, g_xmConstNames, g_xmConstTypes,
             g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount)
+    }
+
+    fun collectClassMethodDeclarationReturnTypes(classNode: ClassNode)
+        r: Array<String> {
+
+        let methodRetTypeNames = Array<String>()
+        var methodIdx = 0
+        while methodIdx < classNode.methods.length() {
+            methodRetTypeNames.push(resolveMethodReturnTypeFromList(
+                classNode.name, classNode.methods, methodIdx))
+            methodIdx = methodIdx + 1
+        }
+        return methodRetTypeNames
     }
 
     fun syncDeclarationPassState(state: DeclarationPassState) r: Void {

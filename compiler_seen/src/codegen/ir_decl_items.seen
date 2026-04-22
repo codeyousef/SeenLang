@@ -2,13 +2,47 @@
 // Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen while
 // preserving the existing registry and cross-module declare behavior.
 
-import parser.real_parser.{FunctionNode, ParamNode, TypeNode}
+import parser.real_parser.{FunctionNode, ItemNode, ParamNode, TypeNode}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl}
 import codegen.ir_call_args.{hasFloatParamFuncImpl}
 import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl}
-import codegen.ir_decl_registry.{declRegistryPackSepImpl, unpackDeclRegistryFieldImpl, registerFunctionStateImpl, registerAsyncFunctionStateImpl, recordCrossModuleDeclareStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, declRegistryPackSepImpl, unpackDeclRegistryFieldImpl, registerFunctionStateImpl, registerAsyncFunctionStateImpl, recordCrossModuleDeclareStateImpl, applyDeclarationItemStateImpl, registerEnumDeclarationStateImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+
+class DeclarationItemContext {
+    var structNames: Array<String>
+    var typeAliasNames: String
+    var typeAliasTargets: String
+    var typeAliasCount: Int
+    var reprCClassNames: String
+    var floatParamFuncNames: Array<String>
+    var floatParamParamIdxs: Array<Int>
+    var funcNames: Array<String>
+    var funcRetTypes: Array<String>
+    var state: DeclarationPassState
+
+    static fun new(structNames: Array<String>, typeAliasNames: String,
+        typeAliasTargets: String, typeAliasCount: Int,
+        reprCClassNames: String, floatParamFuncNames: Array<String>,
+        floatParamParamIdxs: Array<Int>, funcNames: Array<String>,
+        funcRetTypes: Array<String>, state: DeclarationPassState)
+        r: DeclarationItemContext {
+
+        return DeclarationItemContext{
+            structNames: structNames,
+            typeAliasNames: typeAliasNames,
+            typeAliasTargets: typeAliasTargets,
+            typeAliasCount: typeAliasCount,
+            reprCClassNames: reprCClassNames,
+            floatParamFuncNames: floatParamFuncNames,
+            floatParamParamIdxs: floatParamParamIdxs,
+            funcNames: funcNames,
+            funcRetTypes: funcRetTypes,
+            state: state
+        }
+    }
+}
 
 fun normalizeSeenTypeNameImpl(seenType: String) r: String {
     var normalized = seenType
@@ -325,4 +359,56 @@ fun registerTopLevelFunctionDeclarationStateImpl(funcObj: FunctionNode,
         declLlvmParamTypes, funcNames, funcRetTypes, asyncFuncNames,
         asyncFuncRetTypes, asyncFuncCount, xmDeclareNames, xmDeclareStrs,
         xmDeclareVis, xmDeclareCount)
+}
+
+fun registerClassMethodDeclarationsIntoStateImpl(className: String,
+    methods: Array<FunctionNode>, methodRetTypeNames: Array<String>,
+    visibility: String, ctx: DeclarationItemContext) r: Void {
+
+    let updated = registerClassMethodDeclarationsStateImpl(className, methods,
+        methodRetTypeNames, visibility, ctx.structNames, ctx.typeAliasNames,
+        ctx.typeAliasTargets, ctx.typeAliasCount, ctx.state.enumTypeNames,
+        ctx.reprCClassNames, ctx.floatParamFuncNames, ctx.floatParamParamIdxs,
+        ctx.funcNames, ctx.funcRetTypes, ctx.state.asyncFuncNames,
+        ctx.state.asyncFuncRetTypes, ctx.state.asyncFuncCount,
+        ctx.state.xmDeclareNames, ctx.state.xmDeclareStrs,
+        ctx.state.xmDeclareVis, ctx.state.xmDeclareCount)
+    applyDeclarationItemStateImpl(ctx.state, updated)
+}
+
+fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
+    visibility: String, funcRetTypeName: String, ctx: DeclarationItemContext)
+    r: Void {
+
+    let updated = registerTopLevelFunctionDeclarationStateImpl(funcObj,
+        visibility, funcRetTypeName, ctx.structNames, ctx.typeAliasNames,
+        ctx.typeAliasTargets, ctx.typeAliasCount, ctx.state.enumTypeNames,
+        ctx.reprCClassNames, ctx.floatParamFuncNames,
+        ctx.floatParamParamIdxs, ctx.funcNames, ctx.funcRetTypes,
+        ctx.state.asyncFuncNames, ctx.state.asyncFuncRetTypes,
+        ctx.state.asyncFuncCount, ctx.state.xmDeclareNames,
+        ctx.state.xmDeclareStrs, ctx.state.xmDeclareVis,
+        ctx.state.xmDeclareCount)
+    applyDeclarationItemStateImpl(ctx.state, updated)
+}
+
+fun registerPreparedDeclarationItemIntoStateImpl(item: ItemNode,
+    classMethodRetTypeNames: Array<String>, funcRetTypeName: String,
+    ctx: DeclarationItemContext) r: Void {
+
+    if item.itemType == "Class" {
+        registerClassMethodDeclarationsIntoStateImpl(item.classNode.name,
+            item.classNode.methods, classMethodRetTypeNames, item.visibility,
+            ctx)
+        return
+    }
+    if item.itemType == "Enum" {
+        registerEnumDeclarationStateImpl(item.enumNode.name,
+            item.enumNode.variants, ctx.state)
+        return
+    }
+    if item.itemType == "Function" {
+        registerTopLevelFunctionDeclarationIntoStateImpl(item.function,
+            item.visibility, funcRetTypeName, ctx)
+    }
 }
