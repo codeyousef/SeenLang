@@ -1622,36 +1622,20 @@ class LLVMIRGenerator {
         return inferExpressionType(expr)
     }
 
-    fun resolveDeclarationBaseType(stmt: StatementNode) r: String {
-        let declaredType = normalizeDeclaredTypeNode(stmt.variableType)
-        var initializerType = ""
-        if shouldInferDeclarationInitializerTypeImpl(declaredType,
-            stmt.initializer.kind) != 0 {
-            initializerType = inferDeclarationInitializerType(stmt.initializer)
-        }
-        return resolveDeclarationBaseTypeImpl(declaredType, initializerType)
-    }
-
-    fun resolveCollectedForInElementType(expr: ParserExpressionNode) r: String {
-        let exprKind = expr.kind
-        var iterType = ""
-        var firstElementType = ""
-        if exprKind != "Range" {
-            iterType = inferExpressionType(expr)
-            if exprKind == "ArrayLiteral" and expr.arguments.length() > 0 {
-                firstElementType = inferExpressionType(expr.arguments[0])
-            }
-        }
-        return resolveCollectedForInElementTypeImpl(exprKind, iterType,
-            firstElementType)
-    }
-
     // Helper to collect variables from a single statement - separate method to avoid merging
     fun collectStmtVars(stmt: StatementNode) r: Void {
         let collectedStmtKind = classifyCollectedStatementKindImpl(stmt.kind)
         if collectedStmtKind == 1 {
+            let declaredType = normalizeDeclaredTypeNode(stmt.variableType)
+            var initializerType = ""
+            if shouldInferDeclarationInitializerTypeImpl(declaredType,
+                stmt.initializer.kind) != 0 {
+                initializerType = inferDeclarationInitializerType(
+                    stmt.initializer)
+            }
             let varType = resolveLetStatementTypeImpl(
-                resolveDeclarationBaseType(stmt), "")
+                resolveDeclarationBaseTypeImpl(declaredType, initializerType),
+                "")
             // Debug: trace VNode-related variable types
             if shouldTraceCollectedDeclarationTypeImpl(varType,
                 stmt.variableName) != 0 {
@@ -1669,8 +1653,19 @@ class LLVMIRGenerator {
         }
         if collectedStmtKind == 4 {
             if stmt.variableName != "" {
-                let forInElemType = resolveCollectedForInElementType(
-                    stmt.expression)
+                let forInExprKind = stmt.expression.kind
+                var forInIterType = ""
+                var forInFirstElementType = ""
+                if forInExprKind != "Range" {
+                    forInIterType = inferExpressionType(stmt.expression)
+                    if forInExprKind == "ArrayLiteral" and
+                        stmt.expression.arguments.length() > 0 {
+                        forInFirstElementType = inferExpressionType(
+                            stmt.expression.arguments[0])
+                    }
+                }
+                let forInElemType = resolveCollectedForInElementTypeImpl(
+                    forInExprKind, forInIterType, forInFirstElementType)
                 appendCollectedDeclarationImpl(preAllocatedVars,
                     preAllocatedTypes, stmt.variableName, forInElemType)
                 // Pre-allocate index counter in entry block (allows LLVM mem2reg promotion)
@@ -5107,8 +5102,15 @@ class LLVMIRGenerator {
         if preIdx >= 0 and preIdx < preAllocatedTypes.length() {
             preAllocatedType = preAllocatedTypes[preIdx]
         }
+        let declaredType = normalizeDeclaredTypeNode(stmt.variableType)
+        var initializerType = ""
+        if shouldInferDeclarationInitializerTypeImpl(declaredType,
+            stmt.initializer.kind) != 0 {
+            initializerType = inferDeclarationInitializerType(stmt.initializer)
+        }
         let varType = resolveLetStatementTypeImpl(
-            resolveDeclarationBaseType(stmt), preAllocatedType)
+            resolveDeclarationBaseTypeImpl(declaredType, initializerType),
+            preAllocatedType)
         let llvmType = mapType(varType)
         var preAllocatedReg = ""
         var preAllocatedLlvmType = ""
