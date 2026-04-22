@@ -95,7 +95,7 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnP
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, prepareValueAssignmentReceiverPtrImpl, prepareVariableAssignmentReceiverPtrImpl, splitAssignmentLayoutInfoImpl, resolveAssignmentFieldTypesImpl, emitUnionFieldStoreImpl, findBitfieldWidthImpl, tryEmitBitfieldAssignmentStoreImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findActiveVariableTypeImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
-import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, updateStructLayoutFromHeaderReg, updateStructFieldsFromHeaderReg, updateStructSizeFromHeaderReg, applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
+import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyTypeHeaderStructLineReg, computeMissingStructSizesReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, emitIntrinsicWrapperImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, resolveImplementationFunctionNameImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareExternFunctionGenerationImpl, prepareFunctionAttributesImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
@@ -1514,7 +1514,6 @@ class LLVMIRGenerator {
         var currentStruct = ""
         var lineStart = 0
         var pos = 0
-        var lineCount = 0
         while pos <= headerContent.length() {
             var isEnd = false
             var c = '\0'
@@ -1527,7 +1526,6 @@ class LLVMIRGenerator {
             if isEnd or c == '\n' {
                 let line = headerContent.substring(lineStart, pos)
                 let trimmedLine = trimSpacesImpl(line)
-                lineCount = lineCount + 1
                 if trimmedLine.startsWith("; Runtime Function Declarations") or trimmedLine.startsWith("; End of auto-generated type declarations") {
                     return
                 }
