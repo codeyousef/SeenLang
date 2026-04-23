@@ -86,7 +86,7 @@ import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGenera
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
 import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl, emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl}
-import codegen.ir_class_type_special.{tryEmitSpecialClassTypeDecoratorImpl}
+import codegen.ir_class_type_decorators.{ClassTypeDecoratorState, scanClassTypeDecoratorsImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
@@ -2438,118 +2438,6 @@ class LLVMIRGenerator {
         return false
     }
 
-    fun registerClassTypeDecoratorMetadata(className: String, decorator: AnnotationNode, typeFlags: Array<Int>) r: Void {
-        if decorator.name == "derive" {
-            output.append("; @derive detected on " + className + "\n")
-        }
-        if decorator.name == "repr" {
-            typeFlags[0] = 1
-            g_reprCClassNames = g_reprCClassNames + className + "|"
-        }
-        if decorator.name == "packed" {
-            typeFlags[1] = 1
-        }
-        if decorator.name == "cache_line" {
-            typeFlags[2] = 1
-            g_cacheLineClasses = g_cacheLineClasses + className + "|"
-        }
-        if decorator.name == "send" {
-            g_sendTypes = g_sendTypes + className + "|"
-            output.append("; @send type: " + className + "\n")
-        }
-        if decorator.name == "sync" {
-            g_syncTypes = g_syncTypes + className + "|"
-            output.append("; @sync type: " + className + "\n")
-        }
-        if decorator.name == "layout" {
-            if decorator.arguments.length() > 0 {
-                if decorator.arguments[0] == "soa" {
-                    g_soaClassNames = g_soaClassNames + className + "|"
-                    g_soaClassCount = g_soaClassCount + 1
-                    output.append("; @layout(soa) type: " + className + "\n")
-                }
-                if decorator.arguments[0] == "aos" {
-                    output.append("; @layout(aos) type: " + className + " (default layout)\n")
-                }
-            }
-        }
-        if decorator.name == "trivially_copyable" {
-            g_triviallyCopyableClasses = g_triviallyCopyableClasses + className + "|"
-            output.append("; @trivially_copyable type: " + className + "\n")
-        }
-        if decorator.name == "move" {
-            g_moveOnlyClasses = g_moveOnlyClasses + className + "|"
-            output.append("; @move (non-copyable) type: " + className + "\n")
-        }
-        if decorator.name == "c_resource" {
-            g_cResourceClasses = g_cResourceClasses + className + "|"
-            if decorator.arguments.length() > 0 {
-                g_cResourceDestructors = g_cResourceDestructors + decorator.arguments[0] + "|"
-            } else {
-                g_cResourceDestructors = g_cResourceDestructors + "free|"
-            }
-            output.append("; @c_resource type: " + className + "\n")
-        }
-        if decorator.name == "reflect" {
-            g_reflectClassNames = g_reflectClassNames + className + "|"
-            g_reflectClassCount = g_reflectClassCount + 1
-            output.append("; @reflect type: " + className + "\n")
-        }
-        if decorator.name == "binary" {
-            var binEndian = "le"
-            var binVersion = "1"
-            if decorator.arguments.length() > 0 {
-                binEndian = decorator.arguments[0]
-            }
-            if decorator.arguments.length() > 1 {
-                binVersion = decorator.arguments[1]
-            }
-            g_binaryClassNames = g_binaryClassNames + className + "|"
-            g_binaryEndianness = g_binaryEndianness + binEndian + "|"
-            g_binaryVersions = g_binaryVersions + binVersion + "|"
-            g_binaryClassCount = g_binaryClassCount + 1
-            output.append("; @binary type: " + className + " (endian=" + binEndian + ", version=" + binVersion + ")\n")
-        }
-        if decorator.name == "packet" {
-            var pktId = "0"
-            if decorator.arguments.length() > 0 {
-                pktId = decorator.arguments[0]
-            }
-            g_packetClassNames = g_packetClassNames + className + "|"
-            g_packetClassIds = g_packetClassIds + pktId + "|"
-            g_packetCount = g_packetCount + 1
-            output.append("; @packet type: " + className + " (id=" + pktId + ")\n")
-        }
-    }
-
-    fun scanClassTypeDecorators(classNode: ClassNode, typeFlags: Array<Int>) r: Bool {
-        let className = classNode.name
-        var decoratorIdx = 0
-        while decoratorIdx < classNode.decorators.length() {
-            let decorator = classNode.decorators[decoratorIdx]
-            registerClassTypeDecoratorMetadata(className, decorator, typeFlags)
-            let gpuBufferClassesBox = Array<String>()
-            gpuBufferClassesBox.push(g_gpuBufferClasses)
-            let gpuBufferLayoutsBox = Array<String>()
-            gpuBufferLayoutsBox.push(g_gpuBufferLayouts)
-            let unionTypesBox = Array<String>()
-            unionTypesBox.push(g_unionTypes)
-            let emittedSpecial = tryEmitSpecialClassTypeDecoratorImpl(output,
-                classNode, decorator, gpuBufferClassesBox, gpuBufferLayoutsBox,
-                unionTypesBox, g_reprCClassNames, structNames, structLayouts,
-                structSizes, g_typeAliasNames, g_typeAliasTargets,
-                g_typeAliasCount, g_enumTypeNames)
-            g_gpuBufferClasses = gpuBufferClassesBox[0]
-            g_gpuBufferLayouts = gpuBufferLayoutsBox[0]
-            g_unionTypes = unionTypesBox[0]
-            if emittedSpecial {
-                return true
-            }
-            decoratorIdx = decoratorIdx + 1
-        }
-        return false
-    }
-
     // Emit a named LLVM struct type definition (e.g., %MyClass = type { i64, ptr }).
     // Deduplicates by tracking emitted classes in generatedClasses[].
     // If types were loaded from a header file (typesLoadedFromHeader), skips
@@ -2571,7 +2459,42 @@ class LLVMIRGenerator {
         typeFlags.push(0)
         typeFlags.push(0)
         typeFlags.push(0)
-        if scanClassTypeDecorators(classNode, typeFlags) {
+        let decoratorState = ClassTypeDecoratorState.new(g_reprCClassNames,
+            g_cacheLineClasses, g_sendTypes, g_syncTypes, g_soaClassNames,
+            g_soaClassCount, g_triviallyCopyableClasses, g_moveOnlyClasses,
+            g_cResourceClasses, g_cResourceDestructors, g_reflectClassNames,
+            g_reflectClassCount, g_binaryClassNames, g_binaryEndianness,
+            g_binaryVersions, g_binaryClassCount, g_packetClassNames,
+            g_packetClassIds, g_packetCount, g_gpuBufferClasses,
+            g_gpuBufferLayouts, g_unionTypes, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
+        let emittedSpecialClassType = scanClassTypeDecoratorsImpl(output,
+            classNode, typeFlags, decoratorState, structNames, structLayouts,
+            structSizes)
+        g_reprCClassNames = decoratorState.reprCClassNames
+        g_cacheLineClasses = decoratorState.cacheLineClasses
+        g_sendTypes = decoratorState.sendTypes
+        g_syncTypes = decoratorState.syncTypes
+        g_soaClassNames = decoratorState.soaClassNames
+        g_soaClassCount = decoratorState.soaClassCount
+        g_triviallyCopyableClasses =
+            decoratorState.triviallyCopyableClasses
+        g_moveOnlyClasses = decoratorState.moveOnlyClasses
+        g_cResourceClasses = decoratorState.cResourceClasses
+        g_cResourceDestructors = decoratorState.cResourceDestructors
+        g_reflectClassNames = decoratorState.reflectClassNames
+        g_reflectClassCount = decoratorState.reflectClassCount
+        g_binaryClassNames = decoratorState.binaryClassNames
+        g_binaryEndianness = decoratorState.binaryEndianness
+        g_binaryVersions = decoratorState.binaryVersions
+        g_binaryClassCount = decoratorState.binaryClassCount
+        g_packetClassNames = decoratorState.packetClassNames
+        g_packetClassIds = decoratorState.packetClassIds
+        g_packetCount = decoratorState.packetCount
+        g_gpuBufferClasses = decoratorState.gpuBufferClasses
+        g_gpuBufferLayouts = decoratorState.gpuBufferLayouts
+        g_unionTypes = decoratorState.unionTypes
+        if emittedSpecialClassType {
             return
         }
 
