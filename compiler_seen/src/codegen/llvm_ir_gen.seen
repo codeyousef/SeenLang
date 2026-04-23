@@ -107,7 +107,7 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, emitPreAllocatedAllocasImpl, analyzeFunctionInlineHeuristicsImpl, analyzeFunctionRegisterPressureImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
@@ -2783,46 +2783,35 @@ class LLVMIRGenerator {
                 fnCallCount = callCountLookup(fnName)
             }
         }
-        let inlineAnalysis = analyzeFunctionInlineHeuristicsImpl(fn, funcAttrs,
-            replayInline, fnCallCount)
-        funcAttrs = inlineAnalysis.funcAttrs
-        if inlineAnalysis.applied == 1 and replayInline == "yes" {
+        println("[irgen function] recursion flags start: " + fnName)
+        println("[irgen function] reg-pressure start: " + fnName)
+        let preludeAnalysis = prepareFunctionPreludeAnalysisSnapshotImpl(
+            output, fn, fnName, funcAttrs, replayInline, fnCallCount,
+            g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
+        funcAttrs = preludeAnalysis.funcAttrs
+        if preludeAnalysis.inlineReplayDecision == 1 {
             mlLogDecision("inline", "yes", fnName + ":replay")
         }
-        if inlineAnalysis.applied == 1 and replayInline == "" {
-            mlLogFeatures("inline", fnName, inlineAnalysis.bodySize,
-                fnCallCount, inlineAnalysis.hasLoopsFlag,
-                inlineAnalysis.nestDepth, 0)
-            if inlineAnalysis.inlineDecision == "always" {
-                mlLogDecision("inline", "yes", fnName + ":sz=" +
-                    inlineAnalysis.bodySize.toString())
-            }
-            if inlineAnalysis.inlineDecision == "hint" {
-                mlLogDecision("inline", "hint", fnName + ":sz=" +
-                    inlineAnalysis.bodySize.toString())
-            }
-            if inlineAnalysis.inlineDecision == "noinline" {
-                mlLogDecision("inline", "no", fnName + ":sz=" +
-                    inlineAnalysis.bodySize.toString())
+        if preludeAnalysis.inlineFeatureLog == 1 {
+            mlLogFeatures("inline", fnName, preludeAnalysis.inlineBodySize,
+                preludeAnalysis.inlineCallCount,
+                preludeAnalysis.inlineHasLoopsFlag,
+                preludeAnalysis.inlineNestDepth, 0)
+            if preludeAnalysis.inlineDecisionAction != "" {
+                mlLogDecision("inline",
+                    preludeAnalysis.inlineDecisionAction,
+                    preludeAnalysis.inlineDecisionDetail)
             }
         }
         println("[irgen function] inline-analysis done: " + fnName)
 
-        // norecurse / noinline for recursive functions
-        println("[irgen function] recursion flags start: " + fnName)
-        funcAttrs = normalizeRecursiveFunctionAttrsImpl(fnName, funcAttrs,
-            g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
-        println("[irgen function] recursion flags done: " + fnName)
-
         // ML register pressure estimation (9.7): count unique variables
-        println("[irgen function] reg-pressure start: " + fnName)
-        let regPressureAnalysis = analyzeFunctionRegisterPressureImpl(output,
-            fn)
-        if regPressureAnalysis.highPressure == 1 {
+        println("[irgen function] recursion flags done: " + fnName)
+        if preludeAnalysis.highPressure == 1 {
             g_currentFunctionHighPressure = true
             getCurrentFunctionOptions().highPressure = true
-            mlLogDecision("reg-pressure", "high", fnName + ":" +
-                regPressureAnalysis.regPressureCount.toString())
+            mlLogDecision("reg-pressure", "high",
+                preludeAnalysis.regPressureDetail)
         }
         println("[irgen function] reg-pressure done: " + fnName)
 

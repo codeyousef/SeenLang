@@ -145,6 +145,38 @@ class FunctionRuntimeStateSnapshot {
     }
 }
 
+class FunctionPreludeAnalysisSnapshot {
+    var funcAttrs: String
+    var inlineReplayDecision: Int
+    var inlineFeatureLog: Int
+    var inlineBodySize: Int
+    var inlineCallCount: Int
+    var inlineHasLoopsFlag: Int
+    var inlineNestDepth: Int
+    var inlineDecisionAction: String
+    var inlineDecisionDetail: String
+    var highPressure: Int
+    var regPressureCount: Int
+    var regPressureDetail: String
+
+    static fun new() r: FunctionPreludeAnalysisSnapshot {
+        return FunctionPreludeAnalysisSnapshot{
+            funcAttrs: "",
+            inlineReplayDecision: 0,
+            inlineFeatureLog: 0,
+            inlineBodySize: 0,
+            inlineCallCount: 0,
+            inlineHasLoopsFlag: 0,
+            inlineNestDepth: 0,
+            inlineDecisionAction: "",
+            inlineDecisionDetail: "",
+            highPressure: 0,
+            regPressureCount: 0,
+            regPressureDetail: ""
+        }
+    }
+}
+
 fun snapshotNestedScratchStateImpl(state: CodegenState)
     r: NestedScratchStateSnapshot {
 
@@ -262,6 +294,54 @@ fun analyzeFunctionRegisterPressureImpl(output: StringBuilder,
         analysis.highPressure = 1
     }
     return analysis
+}
+
+fun prepareFunctionPreludeAnalysisSnapshotImpl(output: StringBuilder,
+    fn: FunctionNode, fnName: String, funcAttrs: String, replayInline: String,
+    fnCallCount: Int, selfCallFuncs: String, selfCallNames: String,
+    selfCallCount: Int) r: FunctionPreludeAnalysisSnapshot {
+
+    let snapshot = FunctionPreludeAnalysisSnapshot.new()
+    snapshot.funcAttrs = funcAttrs
+
+    let inlineAnalysis = analyzeFunctionInlineHeuristicsImpl(fn, funcAttrs,
+        replayInline, fnCallCount)
+    snapshot.funcAttrs = inlineAnalysis.funcAttrs
+    snapshot.inlineBodySize = inlineAnalysis.bodySize
+    snapshot.inlineCallCount = fnCallCount
+    snapshot.inlineHasLoopsFlag = inlineAnalysis.hasLoopsFlag
+    snapshot.inlineNestDepth = inlineAnalysis.nestDepth
+    if inlineAnalysis.applied == 1 and replayInline == "yes" {
+        snapshot.inlineReplayDecision = 1
+    }
+    if inlineAnalysis.applied == 1 and replayInline == "" {
+        snapshot.inlineFeatureLog = 1
+        if inlineAnalysis.inlineDecision == "always" {
+            snapshot.inlineDecisionAction = "yes"
+        }
+        if inlineAnalysis.inlineDecision == "hint" {
+            snapshot.inlineDecisionAction = "hint"
+        }
+        if inlineAnalysis.inlineDecision == "noinline" {
+            snapshot.inlineDecisionAction = "no"
+        }
+        if snapshot.inlineDecisionAction != "" {
+            snapshot.inlineDecisionDetail = fnName + ":sz=" +
+                inlineAnalysis.bodySize.toString()
+        }
+    }
+
+    snapshot.funcAttrs = normalizeRecursiveFunctionAttrsImpl(fnName,
+        snapshot.funcAttrs, selfCallFuncs, selfCallNames, selfCallCount)
+
+    let regPressureAnalysis = analyzeFunctionRegisterPressureImpl(output, fn)
+    snapshot.regPressureCount = regPressureAnalysis.regPressureCount
+    if regPressureAnalysis.highPressure == 1 {
+        snapshot.highPressure = 1
+        snapshot.regPressureDetail = fnName + ":" +
+            regPressureAnalysis.regPressureCount.toString()
+    }
+    return snapshot
 }
 
 fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String) r: Bool {
