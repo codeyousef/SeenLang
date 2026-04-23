@@ -42,7 +42,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, mlShouldInline, mlShouldInlineWeighted, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitLoopMetadataImpl, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
-import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
+import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
 import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
@@ -88,6 +88,7 @@ import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayout
 import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl, emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl}
 import codegen.ir_class_type_decorators.{ClassTypeDecoratorState, scanClassTypeDecoratorsImpl}
 import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl, hasHotReloadMarkerMethodImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
+import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
@@ -2537,42 +2538,6 @@ class LLVMIRGenerator {
         }
     }
 
-    fun emitGeneratedClassDecoratorMethods(classNode: ClassNode, decoratorFlags: Array<Int>, packetIdStr: String) r: Void {
-        if decoratorFlags[0] == 1 {
-            generateDeriveSerialize(classNode)
-        }
-        if decoratorFlags[1] == 1 {
-            generateDeriveDeserialize(classNode)
-        }
-        if decoratorFlags[2] == 1 {
-            generateDeriveClone(classNode)
-        }
-        if decoratorFlags[3] == 1 {
-            generateDeriveHash(classNode)
-        }
-        if decoratorFlags[4] == 1 {
-            generateDeriveEq(classNode)
-        }
-        if decoratorFlags[5] == 1 {
-            generateDeriveDebug(classNode)
-        }
-        if decoratorFlags[6] == 1 {
-            generateJsonSerialize(classNode)
-            generateJsonDeserialize(classNode)
-        }
-        if decoratorFlags[8] == 1 {
-            generateReflect(classNode)
-        }
-        if decoratorFlags[7] == 1 {
-            generateBinarySerializer(classNode)
-            generateBinaryDeserializer(classNode)
-        }
-        if decoratorFlags[9] == 1 {
-            generatePacketWriter(classNode, packetIdStr)
-            generatePacketReader(classNode, packetIdStr)
-        }
-    }
-
     fun generatePlainLargeClass(className: String, parentName: String, methods: Array<FunctionNode>) r: Void {
         if className == "" {
             return
@@ -2648,78 +2613,17 @@ class LLVMIRGenerator {
             generateHotReloadMethods(classNode)
         }
 
-        emitGeneratedClassDecoratorMethods(classNode, decoratorFlags, packetIdBox[0])
+        emitGeneratedClassDecoratorMethodsImpl(output, classNode,
+            decoratorFlags, packetIdBox[0], structNames, structSizes,
+            structMethodNames, structMethodRetTypes, funcNames, funcRetTypes,
+            stringConstants, stringConstantPrefix, g_binaryClassNames,
+            g_binaryVersions, g_binaryEndianness, g_binaryClassCount)
         emitInheritedClassMethodThunksImpl(output, g_regBox, classNode,
             structNames, structMethodNames, structMethodRetTypes,
             g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames)
 
         g_currentClassParentName = ""
-    }
-
-    // Generate toBytes() method for @derive(Serialize)
-    fun generateDeriveSerialize(classNode: ClassNode) r: Void {
-        generateDeriveSerializeImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
-    }
-
-    // Generate fromBytes() method for @derive(Deserialize)
-    fun generateDeriveDeserialize(classNode: ClassNode) r: Void {
-        generateDeriveDeserializeImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
-    }
-
-    // P2 : @derive(Clone) — deep copy all fields
-    fun generateDeriveClone(classNode: ClassNode) r: Void {
-        generateDeriveCloneImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
-    }
-
-    // P2 : @derive(Hash) — FNV-1a hash combining all fields
-    fun generateDeriveHash(classNode: ClassNode) r: Void {
-        generateDeriveHashImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
-    }
-
-    // P2 : @derive(Eq) — pairwise field comparison
-    fun generateDeriveEq(classNode: ClassNode) r: Void {
-        generateDeriveEqImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
-    }
-
-    // P2 : @derive(Debug) — string representation
-    fun generateDeriveDebug(classNode: ClassNode) r: Void {
-        generateDeriveDebugImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, stringConstants, stringConstantPrefix)
-    }
-
-    // P2 : @reflect — RTTI methods
-    fun generateReflect(classNode: ClassNode) r: Void {
-        generateReflectImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, stringConstants, stringConstantPrefix)
-    }
-
-    // P2 : @binary serialization
-    fun generateBinarySerializer(classNode: ClassNode) r: Void {
-        generateBinarySerializerImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, g_binaryClassNames, g_binaryVersions, g_binaryEndianness, g_binaryClassCount)
-    }
-
-    // P2 : @binary deserialization
-    fun generateBinaryDeserializer(classNode: ClassNode) r: Void {
-        generateBinaryDeserializerImpl(output, classNode, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, g_binaryClassNames, g_binaryVersions, g_binaryEndianness, g_binaryClassCount)
-    }
-
-    // P2 : JSON serialization
-    fun generateJsonSerialize(classNode: ClassNode) r: Void {
-        generateJsonSerializeImpl(output, classNode, structNames, structSizes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, stringConstants, stringConstantPrefix)
-    }
-
-    // P2 : JSON deserialization
-    fun generateJsonDeserialize(classNode: ClassNode) r: Void {
-        generateJsonDeserializeImpl(output, classNode, structNames, structSizes, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes, stringConstants, stringConstantPrefix)
-    }
-
-    // P2 : Packet writer
-    fun generatePacketWriter(classNode: ClassNode, packetIdStr: String) r: Void {
-        generatePacketWriterImpl(output, classNode, packetIdStr, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
-    }
-
-    // P2 : Packet reader
-    fun generatePacketReader(classNode: ClassNode, packetIdStr: String) r: Void {
-        generatePacketReaderImpl(output, classNode, packetIdStr, structNames, structMethodNames, structMethodRetTypes, funcNames, funcRetTypes)
     }
 
     // Generate IR for a single class method. The method name is mangled as

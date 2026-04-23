@@ -80,6 +80,7 @@ import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl}
 import codegen.ir_class_type_decorators.{ClassTypeDecoratorState}
 import codegen.ir_class_type_special.{tryEmitSpecialClassTypeDecoratorImpl}
 import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl}
+import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl}
@@ -1921,6 +1922,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_class_type_decorators")
         modules.push("codegen.ir_class_type_special")
         modules.push("codegen.ir_class_gen_support")
+        modules.push("codegen.ir_class_generated_features")
         modules.push("codegen.ir_field_registry")
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_variable_gen")
