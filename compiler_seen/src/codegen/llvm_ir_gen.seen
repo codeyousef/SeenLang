@@ -2719,7 +2719,10 @@ class LLVMIRGenerator {
     // Function bodies are wrapped in: entry block -> alloca hoisting ->
     // parameter stores -> body generation -> implicit void return.
     // ML-guided inlining decisions are logged when g_mlLogEnabled is set.
-    fun resetFunctionGenerationState(resolvedFunctionReturnType: String) r: Void {
+    fun prepareFunctionPreBodyAndTryEmitMain(fn: FunctionNode,
+        implFuncName: String, resolvedFunctionReturnType: String,
+        returnTypeBox: Array<String>) r: Bool {
+
         resetLocalCodegenState()
         currentFunctionReturnType = resolvedFunctionReturnType
         currentClassName = ""
@@ -2727,44 +2730,6 @@ class LLVMIRGenerator {
         resetFunctionLoweringOptionsState()
         g_movedVarNames = ""
         g_movedVarCount = 0
-    }
-
-    fun tryEmitMainFunction(fn: FunctionNode, fnName: String, returnType: String) r: Bool {
-        if not llvmIrGenIsMainFunctionName(fnName) {
-            return false
-        }
-        g_isMainFunc = 1
-        var mainReturnType = returnType
-        if mainReturnType == "void" {
-            mainReturnType = "i32"
-        }
-        var mainRetPrefix = "define "
-        if mainReturnType == "i64" or mainReturnType == "double" or mainReturnType == "i1" {
-            mainRetPrefix = "define noundef "
-        }
-        output.append(mainRetPrefix + mainReturnType + " @main(i32 %argc, ptr %argv) #0 {\n")
-        output.append("entry:\n")
-        output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
-        preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
-            preAllocatedTypes, structNames, g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_reprCClassNames)
-        println("[irgen function] block start: " + fnName)
-        generateBlock(fn.body)
-        println("[irgen function] block done: " + fnName)
-        if not blockTerminated {
-            emitDefaultReturnValueImpl(output, mainReturnType)
-        }
-        output.append("}\n\n")
-        g_isMainFunc = 0
-        return true
-    }
-
-    fun prepareFunctionPreBodyAndTryEmitMain(fn: FunctionNode,
-        implFuncName: String, resolvedFunctionReturnType: String,
-        returnTypeBox: Array<String>) r: Bool {
-
-        resetFunctionGenerationState(resolvedFunctionReturnType)
         let preActiveVarCountBox = Array<Int>()
         preActiveVarCountBox.push(activeVarCount)
         let comptimeNamesBox = Array<String>()
@@ -2803,7 +2768,37 @@ class LLVMIRGenerator {
         returnTypeBox[0] = mapType(currentFunctionReturnType)
         println("[irgen function] return-type map done: " + implFuncName)
 
-        return tryEmitMainFunction(fn, implFuncName, returnTypeBox[0])
+        if not llvmIrGenIsMainFunctionName(implFuncName) {
+            return false
+        }
+        g_isMainFunc = 1
+        var mainReturnType = returnTypeBox[0]
+        if mainReturnType == "void" {
+            mainReturnType = "i32"
+        }
+        var mainRetPrefix = "define "
+        if mainReturnType == "i64" or mainReturnType == "double" or
+            mainReturnType == "i1" {
+
+            mainRetPrefix = "define noundef "
+        }
+        output.append(mainRetPrefix + mainReturnType +
+            " @main(i32 %argc, ptr %argv) #0 {\n")
+        output.append("entry:\n")
+        output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
+        preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
+            preAllocatedTypes, structNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_reprCClassNames)
+        println("[irgen function] block start: " + implFuncName)
+        generateBlock(fn.body)
+        println("[irgen function] block done: " + implFuncName)
+        if not blockTerminated {
+            emitDefaultReturnValueImpl(output, mainReturnType)
+        }
+        output.append("}\n\n")
+        g_isMainFunc = 0
+        return true
     }
 
     fun generateFunction(fn: FunctionNode) r: Void {
