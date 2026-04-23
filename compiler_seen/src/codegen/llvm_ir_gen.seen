@@ -72,13 +72,14 @@ import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
-import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitSimdBuiltinImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
-import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl, emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
-import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitOffsetofImpl, emitIncludeStrImpl, emitIncludeBytesImpl, emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl}
+import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
+import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl}
+import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitIncludeStrImpl, emitIncludeBytesImpl}
 import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
+import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
@@ -7590,28 +7591,19 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateLowLevelBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        // ptr operations — delegated to ir_method_gen.seen emitPtrOpsImpl
-        if funcName == "ptr_deref" or funcName == "ptr_deref_f64" or funcName == "ptr_store" or funcName == "ptr_store_f64" or funcName == "ptr_is_null" or funcName == "ptr_add" or funcName == "ptr_deref_i32" or funcName == "ptr_store_i32" or funcName == "ptr_deref_i16" or funcName == "ptr_store_i16" or funcName == "ptr_deref_i8" or funcName == "ptr_store_i8" or funcName == "ptr_deref_f32" or funcName == "ptr_store_f32" or funcName == "ptr_alloc_i32" or funcName == "ptr_alloc_i16" or funcName == "ptr_alloc_i8" {
-            if g_insideUnsafe == 0 {
-                if funcName.startsWith("ptr_deref") or funcName.startsWith("ptr_store") {
-                    output.append("  ; WARNING: " + funcName + " requires unsafe block\n")
-                }
-            }
+        if isPtrBuiltinCallImpl(funcName) == 1 {
             var ptArg0 = ""
             var ptArg1 = ""
             var ptArg2 = ""
             if expr.arguments.length() > 0 { ptArg0 = generateExpression(expr.arguments[0]) }
             if expr.arguments.length() > 1 { ptArg1 = generateExpression(expr.arguments[1]) }
             if expr.arguments.length() > 2 { ptArg2 = generateExpression(expr.arguments[2]) }
-            let ptResult = emitPtrOpsImpl(output, g_regBox, funcName, ptArg0, ptArg1, ptArg2)
-            if ptResult != "" { return ptResult }
-            if funcName == "ptr_is_null" { return "1" }
-            return "0"
+            return emitPtrBuiltinCallImpl(output, g_regBox, funcName,
+                g_insideUnsafe, ptArg0, ptArg1, ptArg2)
         }
 
         if funcName == "barrier" {
-            output.append("  call void @seen_barrier()\n")
-            return "0"
+            return emitBarrierBuiltinCallImpl(output)
         }
 
         if funcName == "stackAlloc" or funcName.startsWith("stackAlloc<") {
@@ -7619,35 +7611,38 @@ class LLVMIRGenerator {
             if expr.arguments.length() > 0 {
                 allocCount = generateExpression(expr.arguments[0])
             }
-            return emitStackAllocImpl(output, g_regBox, allocCount)
+            return emitStackAllocBuiltinCallImpl(output, g_regBox, allocCount)
         }
 
         if funcName == "constructAt" {
             if expr.arguments.length() >= 1 {
                 let caPtr = generateExpression(expr.arguments[0])
-                return emitConstructAtImpl(output, g_regBox, caPtr)
+                return emitConstructAtBuiltinCallImpl(output, g_regBox, caPtr)
             }
             return "0"
         }
 
         if funcName == "debug_assert" {
-            if g_boundsCheckEnabled == 1 {
-                if expr.arguments.length() > 0 {
-                    let condVal = generateExpression(expr.arguments[0])
-                    var boundsCountBox = Array<Int>()
-                    boundsCountBox.push(g_boundsCheckLabelCount)
-                    emitDebugAssertCallImpl(output, g_regBox, boundsCountBox, condVal)
-                    g_boundsCheckLabelCount = boundsCountBox[0]
-                    cseClear()
-                }
+            var condVal = ""
+            if expr.arguments.length() > 0 {
+                condVal = generateExpression(expr.arguments[0])
             }
-            return "0"
+            var boundsCountBox = Array<Int>()
+            boundsCountBox.push(g_boundsCheckLabelCount)
+            let debugResult = emitDebugAssertBuiltinCallStateImpl(output,
+                g_regBox, g_boundsCheckEnabled, condVal, boundsCountBox)
+            g_boundsCheckLabelCount = boundsCountBox[0]
+            if g_boundsCheckEnabled == 1 and condVal != "" {
+                cseClear()
+            }
+            return debugResult
         }
 
         if funcName == "str_to_cstr" {
             if expr.arguments.length() > 0 {
                 let strArg = generateExpression(expr.arguments[0])
-                return emitCStrConversionImpl(output, g_regBox, "str_to_cstr", strArg)
+                return emitCStringBuiltinCallImpl(output, g_regBox,
+                    "str_to_cstr", strArg)
             }
             return "0"
         }
@@ -7655,15 +7650,18 @@ class LLVMIRGenerator {
             if expr.arguments.length() >= 2 {
                 let textArg = generateExpression(expr.arguments[0])
                 let delimArg = generateExpression(expr.arguments[1])
-                let splitReg = getNextReg()
-                output.append("  " + splitReg + " = call ptr @String_split(%SeenString " + textArg + ", %SeenString " + delimArg + ")\n")
-                return splitReg
+                let splitReg = emitSplitBuiltinCallImpl(output, g_regBox,
+                    textArg, delimArg)
+                if splitReg != "" {
+                    return splitReg
+                }
             }
         }
         if funcName == "cstr_to_str" {
             if expr.arguments.length() > 0 {
                 let ptrArg = generateExpression(expr.arguments[0])
-                return emitCStrConversionImpl(output, g_regBox, "cstr_to_str", ptrArg)
+                return emitCStringBuiltinCallImpl(output, g_regBox,
+                    "cstr_to_str", ptrArg)
             }
             return "0"
         }
@@ -7673,21 +7671,15 @@ class LLVMIRGenerator {
         }
 
         if funcName == "async_yield" {
-            var isInsideAsync = 0
-            if g_asyncFunctionCoroHdl != "" {
-                isInsideAsync = 1
-            }
-            if isInsideAsync == 1 {
-                var yieldCounterBox = Array<Int>()
-                yieldCounterBox.push(g_yieldCounter)
-                emitAsyncYieldCallImpl(output, g_regBox, yieldCounterBox, g_asyncCleanupLabel)
-                g_yieldCounter = yieldCounterBox[0]
-            }
-            return "0"
+            var yieldCounterBox = Array<Int>()
+            yieldCounterBox.push(g_yieldCounter)
+            let yieldResult = emitAsyncYieldBuiltinStateImpl(output, g_regBox,
+                g_asyncFunctionCoroHdl, g_asyncCleanupLabel, yieldCounterBox)
+            g_yieldCounter = yieldCounterBox[0]
+            return yieldResult
         }
 
-        let isSimdBuiltin = isSimdVectorType(funcName) == 1 or funcName.startsWith("simd_load_") or funcName.startsWith("simd_store_") or funcName == "simd_select" or funcName == "simd_shuffle" or funcName.startsWith("simd_gather_") or funcName.startsWith("simd_scatter_")
-        if isSimdBuiltin {
+        if isSimdBuiltinCallImpl(funcName, isSimdVectorType(funcName)) == 1 {
             var simdArgs = Array<String>()
             var simdArgTypes = Array<String>()
             var simdConstIndices = Array<Int>()
@@ -7705,7 +7697,8 @@ class LLVMIRGenerator {
                 }
                 simdPreArgIdx = simdPreArgIdx + 1
             }
-            let simdResult = emitSimdBuiltinImpl(output, g_regBox, funcName, simdArgs, simdArgs.length(), simdArgTypes, simdConstIndices, simdConstIndices.length())
+            let simdResult = emitPreparedSimdBuiltinCallImpl(output, g_regBox,
+                funcName, simdArgs, simdArgTypes, simdConstIndices)
             if simdResult != "" {
                 return simdResult
             }
@@ -7721,21 +7714,15 @@ class LLVMIRGenerator {
             icVarIdx = icVarIdx + 1
         }
         if icIsIndirect {
-            let icFnPtrReg = getNextReg()
-            output.append("  " + icFnPtrReg + " = load i64, ptr " + varRegs[icVarIdx] + "\n")
-            let icFnPtrCast = getNextReg()
-            output.append("  " + icFnPtrCast + " = inttoptr i64 " + icFnPtrReg + " to ptr\n")
-            var icCallArgs = ""
+            var icArgRegs = Array<String>()
             var icArgIdx = 0
             while icArgIdx < expr.arguments.length() {
                 let icArgReg = generateExpression(expr.arguments[icArgIdx])
-                if icArgIdx > 0 { icCallArgs = icCallArgs + ", " }
-                icCallArgs = icCallArgs + "i64 " + icArgReg
+                icArgRegs.push(icArgReg)
                 icArgIdx = icArgIdx + 1
             }
-            let icResultReg = getNextReg()
-            output.append("  " + icResultReg + " = call i64 " + icFnPtrCast + "(" + icCallArgs + ")\n")
-            return icResultReg
+            return emitIndirectBuiltinCallImpl(output, g_regBox,
+                varRegs[icVarIdx], icArgRegs)
         }
 
         if g_enumVariantCount > 0 {
