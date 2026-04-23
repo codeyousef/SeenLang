@@ -107,11 +107,11 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupStateImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl, tryHandleExternFunctionGenerationStateImpl}
-import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
+import codegen.ir_function_lowering.{shouldApplyFunctionInlineHeuristicsImpl, countFunctionInlineLoopKindsImpl, appendInlineDecisionAttrImpl, isHighRegisterPressureImpl, emitHighRegisterPressureNoteImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
-import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
+import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -1062,21 +1062,12 @@ class LLVMIRGenerator {
         syncIndentFromFunctionOptions()
     }
 
-    fun configureFunctionLoweringOptions(fn: FunctionNode) r: Void {
-        configureFunctionLoweringOptionsImpl(fn, getCurrentFunctionOptions())
-        syncIndentFromFunctionOptions()
-    }
-
     fun currentFunctionAlignTo() r: Int {
         return getCurrentFunctionOptions().alignTo
     }
 
     fun currentFunctionRegionSizeBytes() r: Int {
         return getCurrentFunctionOptions().regionSizeBytes
-    }
-
-    fun currentFunctionPrefetchMode() r: Int {
-        return getCurrentFunctionOptions().prefetchMode
     }
 
     fun isCurrentFunctionAsyncLowering() r: Bool {
@@ -2839,41 +2830,36 @@ class LLVMIRGenerator {
 
         // ML-guided inline decision
         println("[irgen function] inline-analysis start: " + fnName)
-        if not fn.isInline and not hasFunctionDecoratorImpl(fn, "noinline") {
+        if shouldApplyFunctionInlineHeuristicsImpl(fn) {
             let bodySize = fn.body.statements.length()
             // Check for replay first
             let replayInline = mlReplayLookup("inline", fnName)
             if replayInline == "yes" {
-                funcAttrs = funcAttrs + " alwaysinline"
+                funcAttrs = appendInlineDecisionAttrImpl(funcAttrs, "always")
                 mlLogDecision("inline", "yes", fnName + ":replay")
             }
             if replayInline == "" {
                 // Use mlShouldInline with call count from string-constants pre-pass
                 let fnCallCount = callCountLookup(fnName)
                 // Compute extra features for weighted model
+                let inlineLoopCount = countFunctionInlineLoopKindsImpl(fn)
                 var hasLoopsFlag = 0
-                var loopScanIdx = 0
-                while loopScanIdx < fn.body.statements.length() {
-                    let loopScanStmt = fn.body.statements[loopScanIdx]
-                    if loopScanStmt.kind == "While" or loopScanStmt.kind == "ForIn" {
-                        hasLoopsFlag = 1
-                    }
-                    loopScanIdx = loopScanIdx + 1
+                if inlineLoopCount > 0 {
+                    hasLoopsFlag = 1
                 }
                 let nestDepth = fn.params.length()
                 // Log features for ML training data
                 mlLogFeatures("inline", fnName, bodySize, fnCallCount, hasLoopsFlag, nestDepth, 0)
                 let inlineDecision = mlShouldInlineWeighted(bodySize, fnCallCount, hasLoopsFlag, nestDepth)
+                funcAttrs = appendInlineDecisionAttrImpl(funcAttrs,
+                    inlineDecision)
                 if inlineDecision == "always" {
-                    funcAttrs = funcAttrs + " alwaysinline"
                     mlLogDecision("inline", "yes", fnName + ":sz=" + bodySize.toString())
                 }
                 if inlineDecision == "hint" {
-                    funcAttrs = funcAttrs + " inlinehint"
                     mlLogDecision("inline", "hint", fnName + ":sz=" + bodySize.toString())
                 }
                 if inlineDecision == "noinline" {
-                    funcAttrs = funcAttrs + " noinline"
                     mlLogDecision("inline", "no", fnName + ":sz=" + bodySize.toString())
                 }
             }
@@ -2889,91 +2875,55 @@ class LLVMIRGenerator {
         // ML register pressure estimation (9.7): count unique variables
         println("[irgen function] reg-pressure start: " + fnName)
         let regPressureCount = countFunctionRegisterPressureImpl(fn)
-        if regPressureCount > 14 {
-            output.append("; register pressure high: " + regPressureCount.toString() + " vars — capping unroll/vectorize\n")
+        if isHighRegisterPressureImpl(regPressureCount) {
+            emitHighRegisterPressureNoteImpl(output, regPressureCount)
             g_currentFunctionHighPressure = true
             getCurrentFunctionOptions().highPressure = true
             mlLogDecision("reg-pressure", "high", fnName + ":" + regPressureCount.toString())
         }
         println("[irgen function] reg-pressure done: " + fnName)
 
-        // Function signature
-        println("[irgen function] signature start: " + fnName)
-        let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
-            returnType)
-        let paramDecls = buildFunctionParameterDeclsImpl(fn,
-            hasFunctionDecoratorImpl(fn, "no_alias"), structNames,
-            g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_reprCClassNames)
-        emitFunctionSignatureImpl(output, signaturePrefix, paramDecls, funcAttrs)
-        println("[irgen function] signature done: " + fnName)
-
-        // Coroutine preamble for async functions
-        if fn.isAsync {
-            let promiseType = mapType(currentFunctionReturnType)
-            let promiseBox = Array<String>()
-            let coroIdBox = Array<String>()
-            let coroHdlBox = Array<String>()
-            let finalLabelBox = Array<String>()
-            let cleanupLabelBox = Array<String>()
-            emitAsyncCoroutinePreambleImpl(output, g_regBox, g_blockBox, promiseType, promiseBox, coroIdBox, coroHdlBox, finalLabelBox, cleanupLabelBox)
-            g_asyncFunctionPromise = promiseBox[0]
-            g_asyncFunctionCoroId = coroIdBox[0]
-            g_asyncFunctionCoroHdl = coroHdlBox[0]
-            g_asyncFinalLabel = finalLabelBox[0]
-            g_asyncCleanupLabel = cleanupLabelBox[0]
-        }
-
-        let paramActiveVarCountBox = Array<Int>()
-        paramActiveVarCountBox.push(activeVarCount)
-        emitFunctionParameterAllocasImpl(output, g_regBox, fn, varNames,
-            varRegs, varTypes, paramActiveVarCountBox, structNames,
-            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-            g_enumTypeNames, g_reprCClassNames)
-        activeVarCount = paramActiveVarCountBox[0]
-        println("[irgen function] params done: " + fnName)
-
-        // Emit allocas for all local variables at entry (avoids domination errors)
-        preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
-            preAllocatedTypes, structNames, g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
-            g_reprCClassNames)
-        println("[irgen function] allocas done: " + fnName)
-
         // Clear CSE cache at function boundary (safe to re-enable within function scope)
         cseClear()
 
-        // Dead argument detection (9.10e): warn about unused parameters
-        println("[irgen function] dead-arg scan start: " + fnName)
+        syncState()
+        let state = getSharedCodegenState()
         let profiledFlagBox = Array<Int>()
         profiledFlagBox.push(0)
         let profiledNameBox = Array<String>()
         profiledNameBox.push("")
-        var profileStringIndex = -1
-        if hasFunctionDecoratorImpl(fn, "profile") {
-            profileStringIndex = addStringConstant(fnName)
-        }
-        let unusedParams = emitFunctionDiagnosticsAndProfileEntryImpl(output,
-            fn, fnName, profileStringIndex, profiledFlagBox,
-            profiledNameBox)
+        let profileStringIndexBox = Array<Int>()
+        profileStringIndexBox.push(-1)
+        let promiseBox = Array<String>()
+        promiseBox.push(g_asyncFunctionPromise)
+        let coroIdBox = Array<String>()
+        coroIdBox.push(g_asyncFunctionCoroId)
+        let coroHdlBox = Array<String>()
+        coroHdlBox.push(g_asyncFunctionCoroHdl)
+        let finalLabelBox = Array<String>()
+        finalLabelBox.push(g_asyncFinalLabel)
+        let cleanupLabelBox = Array<String>()
+        cleanupLabelBox.push(g_asyncCleanupLabel)
+        let unusedParams = emitFunctionEntrySetupStateImpl(state, fn, fnName,
+            returnType, funcAttrs, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames, g_reprCClassNames,
+            profiledFlagBox, profiledNameBox, profileStringIndexBox,
+            promiseBox, coroIdBox, coroHdlBox, finalLabelBox,
+            cleanupLabelBox)
+        writeBackState()
         g_currentFunctionIsProfiled = profiledFlagBox[0] == 1
         g_currentFunctionNameForProfile = profiledNameBox[0]
+        let profileStringIndex = profileStringIndexBox[0]
+        g_asyncFunctionPromise = promiseBox[0]
+        g_asyncFunctionCoroId = coroIdBox[0]
+        g_asyncFunctionCoroHdl = coroHdlBox[0]
+        g_asyncFinalLabel = finalLabelBox[0]
+        g_asyncCleanupLabel = cleanupLabelBox[0]
         var unusedIdx = 0
         while unusedIdx < unusedParams.length() {
             mlLogDecision("dead-arg", "unused", unusedParams[unusedIdx] + ":" + fnName)
             unusedIdx = unusedIdx + 1
         }
-        println("[irgen function] dead-arg scan done: " + fnName)
-
-        configureFunctionLoweringOptions(fn)
-
-        // Emit prefetch intrinsic calls for pointer parameters
-        emitFunctionPrefetchHintsImpl(output, g_regBox, fn,
-            currentFunctionPrefetchMode())
-
-        emitRegionAllocatorSetupImpl(output, g_regBox,
-            currentFunctionRegionSizeBytes())
 
         // Generate function body
         generateBlock(fn.body)

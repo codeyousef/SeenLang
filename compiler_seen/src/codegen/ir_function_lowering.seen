@@ -3,6 +3,7 @@
 // separate from the main IR generation orchestration.
 
 import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
 import codegen.type_registry.{FunctionLoweringOptions, resetFunctionLoweringOptions}
 
 fun hasFunctionLoweringDecoratorImpl(fn: FunctionNode, decoratorName: String)
@@ -88,4 +89,49 @@ fun configureFunctionLoweringOptionsImpl(fn: FunctionNode,
     }
 
     opts.isAsync = fn.isAsync
+}
+
+fun shouldApplyFunctionInlineHeuristicsImpl(fn: FunctionNode) r: Bool {
+    return not fn.isInline and
+        not hasFunctionLoweringDecoratorImpl(fn, "noinline")
+}
+
+fun countFunctionInlineLoopKindsImpl(fn: FunctionNode) r: Int {
+    var loopCount = 0
+    var loopScanIdx = 0
+    while loopScanIdx < fn.body.statements.length() {
+        let loopScanStmt = fn.body.statements[loopScanIdx]
+        if loopScanStmt.kind == "While" or loopScanStmt.kind == "ForIn" {
+            loopCount = loopCount + 1
+        }
+        loopScanIdx = loopScanIdx + 1
+    }
+    return loopCount
+}
+
+fun appendInlineDecisionAttrImpl(funcAttrs: String, inlineDecision: String)
+    r: String {
+
+    if inlineDecision == "always" {
+        return funcAttrs + " alwaysinline"
+    }
+    if inlineDecision == "hint" {
+        return funcAttrs + " inlinehint"
+    }
+    if inlineDecision == "noinline" {
+        return funcAttrs + " noinline"
+    }
+    return funcAttrs
+}
+
+fun isHighRegisterPressureImpl(regPressureCount: Int) r: Bool {
+    return regPressureCount > 14
+}
+
+fun emitHighRegisterPressureNoteImpl(output: StringBuilder,
+    regPressureCount: Int) r: Void {
+
+    output.append("; register pressure high: " +
+        regPressureCount.toString() +
+        " vars — capping unroll/vectorize\n")
 }

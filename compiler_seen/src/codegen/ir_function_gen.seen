@@ -12,6 +12,9 @@ import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImp
 import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}
 import codegen.type_registry.{CodegenState, csGetNextReg}
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeNameImpl}
+import codegen.ir_string_emit.{addStringConstantTableImpl}
+import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, emitFunctionParameterAllocasImpl}
+import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import str.string.{StringBuilder}
 
@@ -598,6 +601,72 @@ fun emitRegionAllocatorSetupImpl(output: StringBuilder, regBox: Array<Int>,
         regionSizeBytes.toString() + ", i32 1)\n")
     output.append("  %__region_ptr = alloca ptr\n")
     output.append("  store ptr " + regionReg + ", ptr %__region_ptr\n")
+}
+
+fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
+    fnName: String, returnType: String, funcAttrs: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, reprCClassNames: String,
+    profiledFlagBox: Array<Int>, profiledNameBox: Array<String>,
+    profileStringIndexBox: Array<Int>, asyncPromiseBox: Array<String>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncFinalLabelBox: Array<String>, asyncCleanupLabelBox: Array<String>)
+    r: Array<String> {
+
+    ensureFunctionIntBoxValue(profileStringIndexBox)
+
+    println("[irgen function] signature start: " + fnName)
+    let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
+        returnType)
+    let paramDecls = buildFunctionParameterDeclsImpl(fn,
+        hasFunctionDecoratorImpl(fn, "no_alias"),
+        state.registry.structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, reprCClassNames)
+    emitFunctionSignatureImpl(state.output, signaturePrefix, paramDecls,
+        funcAttrs)
+    println("[irgen function] signature done: " + fnName)
+
+    if fn.isAsync {
+        let promiseType = mapTypeImpl(state.currentFunctionReturnType,
+            state.registry.structNames, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames)
+        emitAsyncCoroutinePreambleImpl(state.output, state.regBox,
+            state.blockBox, promiseType, asyncPromiseBox, asyncCoroIdBox,
+            asyncCoroHdlBox, asyncFinalLabelBox, asyncCleanupLabelBox)
+    }
+
+    let paramActiveVarCountBox = Array<Int>()
+    paramActiveVarCountBox.push(state.activeVarCount)
+    emitFunctionParameterAllocasImpl(state.output, state.regBox, fn,
+        state.varNames, state.varRegs, state.varTypes,
+        paramActiveVarCountBox, state.registry.structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, reprCClassNames)
+    state.activeVarCount = paramActiveVarCountBox[0]
+    println("[irgen function] params done: " + fnName)
+
+    state.preAllocatedRegs = emitPreAllocatedAllocasImpl(state.output,
+        state.regBox, state.preAllocatedTypes, state.registry.structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        reprCClassNames)
+    println("[irgen function] allocas done: " + fnName)
+
+    println("[irgen function] dead-arg scan start: " + fnName)
+    profileStringIndexBox[0] = -1
+    if hasFunctionDecoratorImpl(fn, "profile") {
+        profileStringIndexBox[0] = addStringConstantTableImpl(
+            state.stringConstants, fnName)
+    }
+    let unusedParams = emitFunctionDiagnosticsAndProfileEntryImpl(
+        state.output, fn, fnName, profileStringIndexBox[0], profiledFlagBox,
+        profiledNameBox)
+    println("[irgen function] dead-arg scan done: " + fnName)
+
+    configureFunctionLoweringOptionsImpl(fn, state.functionOptions)
+    emitFunctionPrefetchHintsImpl(state.output, state.regBox, fn,
+        state.functionOptions.prefetchMode)
+    emitRegionAllocatorSetupImpl(state.output, state.regBox,
+        state.functionOptions.regionSizeBytes)
+    return unusedParams
 }
 
 fun emitFunctionDiagnosticsAndProfileEntryImpl(output: StringBuilder,
