@@ -9,6 +9,22 @@ import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl}
 
+class ClassTypeAliasStateSnapshot {
+    var realFieldCount: Int
+    var typeAliasNames: String
+    var typeAliasTargets: String
+    var typeAliasCount: Int
+
+    static fun new() r: ClassTypeAliasStateSnapshot {
+        return ClassTypeAliasStateSnapshot{
+            realFieldCount: 0,
+            typeAliasNames: "",
+            typeAliasTargets: "",
+            typeAliasCount: 0
+        }
+    }
+}
+
 fun appendAssociatedTypeAliasMappingImpl(typeAliasNamesBox: Array<String>,
     typeAliasTargetsBox: Array<String>, typeAliasCountBox: Array<Int>,
     aliasName: String, aliasTarget: String) r: Void {
@@ -45,6 +61,25 @@ fun countRealClassTypeFieldsImpl(classNode: ClassNode,
         fieldIdx = fieldIdx + 1
     }
     return realFieldCount
+}
+
+fun prepareClassTypeAliasStateSnapshotImpl(classNode: ClassNode,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int)
+    r: ClassTypeAliasStateSnapshot {
+
+    let snapshot = ClassTypeAliasStateSnapshot.new()
+    let typeAliasNamesBox = Array<String>()
+    typeAliasNamesBox.push(typeAliasNames)
+    let typeAliasTargetsBox = Array<String>()
+    typeAliasTargetsBox.push(typeAliasTargets)
+    let typeAliasCountBox = Array<Int>()
+    typeAliasCountBox.push(typeAliasCount)
+    snapshot.realFieldCount = countRealClassTypeFieldsImpl(classNode,
+        typeAliasNamesBox, typeAliasTargetsBox, typeAliasCountBox)
+    snapshot.typeAliasNames = typeAliasNamesBox[0]
+    snapshot.typeAliasTargets = typeAliasTargetsBox[0]
+    snapshot.typeAliasCount = typeAliasCountBox[0]
+    return snapshot
 }
 
 fun resolveClassTypeFieldLlvmTypeImpl(field: ParamNode, reprCClassNames: String,

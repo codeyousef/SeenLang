@@ -85,7 +85,7 @@ import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGen
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
-import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl, emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl}
+import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_class_type_decorators.{ClassTypeDecoratorState, scanClassTypeDecoratorsImpl}
 import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl, hasHotReloadMarkerMethodImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
@@ -1531,17 +1531,12 @@ class LLVMIRGenerator {
         g_constGenericValues = constGenericValuesBox[0]
 
         // Build the layout from fields
-        let typeAliasNamesBox = Array<String>()
-        typeAliasNamesBox.push(g_typeAliasNames)
-        let typeAliasTargetsBox = Array<String>()
-        typeAliasTargetsBox.push(g_typeAliasTargets)
-        let typeAliasCountBox = Array<Int>()
-        typeAliasCountBox.push(g_typeAliasCount)
-        let ownCount = countRealClassTypeFieldsImpl(classNode,
-            typeAliasNamesBox, typeAliasTargetsBox, typeAliasCountBox)
-        g_typeAliasNames = typeAliasNamesBox[0]
-        g_typeAliasTargets = typeAliasTargetsBox[0]
-        g_typeAliasCount = typeAliasCountBox[0]
+        let typeAliasState = prepareClassTypeAliasStateSnapshotImpl(classNode,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount)
+        let ownCount = typeAliasState.realFieldCount
+        g_typeAliasNames = typeAliasState.typeAliasNames
+        g_typeAliasTargets = typeAliasState.typeAliasTargets
+        g_typeAliasCount = typeAliasState.typeAliasCount
         let layoutState = StructLayoutBuildState.new("{ ", "", "", 0,
             g_inheritanceChildNames, g_inheritanceParentNames,
             g_inheritanceCount, g_bitfieldKeys, g_bitfieldWidths,
@@ -2188,17 +2183,12 @@ class LLVMIRGenerator {
         }
 
         emitClassTypeHeaderImpl(output, className, typeFlags)
-        let typeAliasNamesBox = Array<String>()
-        typeAliasNamesBox.push(g_typeAliasNames)
-        let typeAliasTargetsBox = Array<String>()
-        typeAliasTargetsBox.push(g_typeAliasTargets)
-        let typeAliasCountBox = Array<Int>()
-        typeAliasCountBox.push(g_typeAliasCount)
-        let realFieldCount = countRealClassTypeFieldsImpl(classNode,
-            typeAliasNamesBox, typeAliasTargetsBox, typeAliasCountBox)
-        g_typeAliasNames = typeAliasNamesBox[0]
-        g_typeAliasTargets = typeAliasTargetsBox[0]
-        g_typeAliasCount = typeAliasCountBox[0]
+        let typeAliasState = prepareClassTypeAliasStateSnapshotImpl(classNode,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount)
+        let realFieldCount = typeAliasState.realFieldCount
+        g_typeAliasNames = typeAliasState.typeAliasNames
+        g_typeAliasTargets = typeAliasState.typeAliasTargets
+        g_typeAliasCount = typeAliasState.typeAliasCount
         if realFieldCount == 0 {
             output.append("i8")
         } else {
