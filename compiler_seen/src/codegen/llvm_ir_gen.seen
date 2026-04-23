@@ -37,13 +37,13 @@
 //     cache mapping expression keys to register names. Searched backwards
 //     for most-recent-scope-first semantics.
 
-import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, ParamNode, TypeNode, AnnotationNode}
+import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, TypeNode, AnnotationNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, mlShouldInline, mlShouldInlineWeighted, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitLoopMetadataImpl, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl, generateDeriveSerializeImpl, generateDeriveDeserializeImpl, generateDeriveCloneImpl, generateDeriveHashImpl, generateDeriveEqImpl, generateDeriveDebugImpl, generateReflectImpl, generateBinarySerializerImpl, generateBinaryDeserializerImpl, generateJsonSerializeImpl, generateJsonDeserializeImpl, generatePacketWriterImpl, generatePacketReaderImpl}
-import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, stripBitfieldLayoutAnnotationImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl, collectStructMethodSignaturesImpl}
+import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerPreparedDeclarationItemsIntoStateImpl}
@@ -85,6 +85,7 @@ import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGen
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
+import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl, emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
@@ -1659,7 +1660,17 @@ class LLVMIRGenerator {
         g_constGenericValues = constGenericValuesBox[0]
 
         // Build the layout from fields
-        let ownCount = countRealClassTypeFields(classNode)
+        let typeAliasNamesBox = Array<String>()
+        typeAliasNamesBox.push(g_typeAliasNames)
+        let typeAliasTargetsBox = Array<String>()
+        typeAliasTargetsBox.push(g_typeAliasTargets)
+        let typeAliasCountBox = Array<Int>()
+        typeAliasCountBox.push(g_typeAliasCount)
+        let ownCount = countRealClassTypeFieldsImpl(classNode,
+            typeAliasNamesBox, typeAliasTargetsBox, typeAliasCountBox)
+        g_typeAliasNames = typeAliasNamesBox[0]
+        g_typeAliasTargets = typeAliasTargetsBox[0]
+        g_typeAliasCount = typeAliasCountBox[0]
         let layoutState = StructLayoutBuildState.new("{ ", "", "", 0,
             g_inheritanceChildNames, g_inheritanceParentNames,
             g_inheritanceCount, g_bitfieldKeys, g_bitfieldWidths,
@@ -2615,79 +2626,6 @@ class LLVMIRGenerator {
         return false
     }
 
-    fun appendAssociatedTypeAliasMapping(aliasName: String, aliasTarget: String) r: Void {
-        g_typeAliasNames = g_typeAliasNames + aliasName + "|"
-        g_typeAliasTargets = g_typeAliasTargets + aliasTarget + "|"
-        g_typeAliasCount = g_typeAliasCount + 1
-    }
-
-    fun registerAssociatedTypeAliasField(className: String, field: ParamNode) r: Void {
-        let aliasName = field.name.substring(12, field.name.length())
-        appendAssociatedTypeAliasMapping(className + "." + aliasName, field.paramType.typeName)
-    }
-
-    fun countRealClassTypeFields(classNode: ClassNode) r: Int {
-        var realFieldCount = 0
-        var fieldIdx = 0
-        while fieldIdx < classNode.fields.length() {
-            let field = classNode.fields[fieldIdx]
-            if not field.name.startsWith("@type_alias:") {
-                realFieldCount = realFieldCount + 1
-            } else {
-                registerAssociatedTypeAliasField(classNode.name, field)
-            }
-            fieldIdx = fieldIdx + 1
-        }
-        return realFieldCount
-    }
-
-    fun resolveClassTypeFieldLlvmType(field: ParamNode) r: String {
-        let fieldTypeName = stripBitfieldLayoutAnnotationImpl(
-            field.paramType.typeName)
-        return mapType(fieldTypeName)
-    }
-
-    fun emitClassTypeFields(classNode: ClassNode) r: Void {
-        var fieldIdx = 0
-        var emittedFirst = false
-        while fieldIdx < classNode.fields.length() {
-            let field = classNode.fields[fieldIdx]
-            if not field.name.startsWith("@type_alias:") {
-                if emittedFirst {
-                    output.append(", ")
-                }
-                output.append(resolveClassTypeFieldLlvmType(field))
-                emittedFirst = true
-            }
-            fieldIdx = fieldIdx + 1
-        }
-    }
-
-    fun emitClassTypeHeader(className: String, typeFlags: Array<Int>) r: Void {
-        if typeFlags[0] == 1 {
-            output.append("; @repr(C) — sequential C-compatible layout\n")
-        }
-        if typeFlags[1] == 1 {
-            output.append("; @packed — no padding between fields\n")
-        }
-        if typeFlags[2] == 1 {
-            output.append("; @cache_line — 64-byte aligned allocation\n")
-        }
-        if typeFlags[1] == 1 {
-            output.append("%" + quoteIdentIfNeeded(className) + " = type <{ ")
-        } else {
-            output.append("%" + quoteIdentIfNeeded(className) + " = type { ")
-        }
-    }
-
-    fun emitClassTypeFooter(typeFlags: Array<Int>) r: Void {
-        if typeFlags[1] == 1 {
-            output.append(" }>\n")
-        } else {
-            output.append(" }\n")
-        }
-    }
-
     // Emit a named LLVM struct type definition (e.g., %MyClass = type { i64, ptr }).
     // Deduplicates by tracking emitted classes in generatedClasses[].
     // If types were loaded from a header file (typesLoadedFromHeader), skips
@@ -2713,14 +2651,26 @@ class LLVMIRGenerator {
             return
         }
 
-        emitClassTypeHeader(className, typeFlags)
-        let realFieldCount = countRealClassTypeFields(classNode)
+        emitClassTypeHeaderImpl(output, className, typeFlags)
+        let typeAliasNamesBox = Array<String>()
+        typeAliasNamesBox.push(g_typeAliasNames)
+        let typeAliasTargetsBox = Array<String>()
+        typeAliasTargetsBox.push(g_typeAliasTargets)
+        let typeAliasCountBox = Array<Int>()
+        typeAliasCountBox.push(g_typeAliasCount)
+        let realFieldCount = countRealClassTypeFieldsImpl(classNode,
+            typeAliasNamesBox, typeAliasTargetsBox, typeAliasCountBox)
+        g_typeAliasNames = typeAliasNamesBox[0]
+        g_typeAliasTargets = typeAliasTargetsBox[0]
+        g_typeAliasCount = typeAliasCountBox[0]
         if realFieldCount == 0 {
             output.append("i8")
         } else {
-            emitClassTypeFields(classNode)
+            emitClassTypeFieldsImpl(output, classNode, g_reprCClassNames,
+                structNames, g_typeAliasNames, g_typeAliasTargets,
+                g_typeAliasCount, g_enumTypeNames)
         }
-        emitClassTypeFooter(typeFlags)
+        emitClassTypeFooterImpl(output, typeFlags)
     }
 
     fun generateHotReloadMethods(classNode: ClassNode) r: Void {

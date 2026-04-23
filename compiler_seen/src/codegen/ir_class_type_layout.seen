@@ -1,0 +1,122 @@
+// ir_class_type_layout.seen — shared plain class-type layout helpers
+// Extracted from llvm_ir_gen.seen to keep alias-field accounting and
+// non-decorator class-type emission out of the main file.
+
+import parser.real_parser.{ClassNode, ParamNode}
+import str.string.{StringBuilder}
+import codegen.ir_decl_scan.{stripBitfieldLayoutAnnotationImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
+
+fun appendAssociatedTypeAliasMappingImpl(typeAliasNamesBox: Array<String>,
+    typeAliasTargetsBox: Array<String>, typeAliasCountBox: Array<Int>,
+    aliasName: String, aliasTarget: String) r: Void {
+
+    typeAliasNamesBox[0] = typeAliasNamesBox[0] + aliasName + "|"
+    typeAliasTargetsBox[0] = typeAliasTargetsBox[0] + aliasTarget + "|"
+    typeAliasCountBox[0] = typeAliasCountBox[0] + 1
+}
+
+fun registerAssociatedTypeAliasFieldImpl(className: String, field: ParamNode,
+    typeAliasNamesBox: Array<String>, typeAliasTargetsBox: Array<String>,
+    typeAliasCountBox: Array<Int>) r: Void {
+
+    let aliasName = field.name.substring(12, field.name.length())
+    appendAssociatedTypeAliasMappingImpl(typeAliasNamesBox, typeAliasTargetsBox,
+        typeAliasCountBox, className + "." + aliasName,
+        field.paramType.typeName)
+}
+
+fun countRealClassTypeFieldsImpl(classNode: ClassNode,
+    typeAliasNamesBox: Array<String>, typeAliasTargetsBox: Array<String>,
+    typeAliasCountBox: Array<Int>) r: Int {
+
+    var realFieldCount = 0
+    var fieldIdx = 0
+    while fieldIdx < classNode.fields.length() {
+        let field = classNode.fields[fieldIdx]
+        if not field.name.startsWith("@type_alias:") {
+            realFieldCount = realFieldCount + 1
+        } else {
+            registerAssociatedTypeAliasFieldImpl(classNode.name, field,
+                typeAliasNamesBox, typeAliasTargetsBox, typeAliasCountBox)
+        }
+        fieldIdx = fieldIdx + 1
+    }
+    return realFieldCount
+}
+
+fun resolveClassTypeFieldLlvmTypeImpl(field: ParamNode, reprCClassNames: String,
+    structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: String {
+
+    let fieldTypeName = stripBitfieldLayoutAnnotationImpl(
+        field.paramType.typeName)
+    if fieldTypeName.startsWith("dyn ") {
+        return "i64"
+    }
+    if fieldTypeName.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseType = getBaseTypeNameImpl(fieldTypeName)
+        if reprCClassNames.contains(baseType + "|") {
+            return "%" + baseType
+        }
+    }
+    return mapTypeImpl(fieldTypeName, structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+}
+
+fun emitClassTypeFieldsImpl(output: StringBuilder, classNode: ClassNode,
+    reprCClassNames: String, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Void {
+
+    var fieldIdx = 0
+    var emittedFirst = false
+    while fieldIdx < classNode.fields.length() {
+        let field = classNode.fields[fieldIdx]
+        if not field.name.startsWith("@type_alias:") {
+            if emittedFirst {
+                output.append(", ")
+            }
+            output.append(resolveClassTypeFieldLlvmTypeImpl(field,
+                reprCClassNames, structNames, typeAliasNames,
+                typeAliasTargets, typeAliasCount, enumTypeNames))
+            emittedFirst = true
+        }
+        fieldIdx = fieldIdx + 1
+    }
+}
+
+fun emitClassTypeHeaderImpl(output: StringBuilder, className: String,
+    typeFlags: Array<Int>) r: Void {
+
+    if typeFlags[0] == 1 {
+        output.append("; @repr(C) — sequential C-compatible layout\n")
+    }
+    if typeFlags[1] == 1 {
+        output.append("; @packed — no padding between fields\n")
+    }
+    if typeFlags[2] == 1 {
+        output.append("; @cache_line — 64-byte aligned allocation\n")
+    }
+    if typeFlags[1] == 1 {
+        output.append("%" + quoteIdentIfNeededImpl(className) + " = type <{ ")
+    } else {
+        output.append("%" + quoteIdentIfNeededImpl(className) + " = type { ")
+    }
+}
+
+fun emitClassTypeFooterImpl(output: StringBuilder, typeFlags: Array<Int>)
+    r: Void {
+
+    if typeFlags[1] == 1 {
+        output.append(" }>\n")
+    } else {
+        output.append(" }\n")
+    }
+}
