@@ -9,6 +9,31 @@ import codegen.ir_field_registry.{mapRegistryFieldTypeImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.type_registry.{findStructReg}
 
+class GeneratedClassDecoratorSnapshot {
+    var decoratorFlags: Array<Int>
+    var packetId: String
+    var isHotReload: Int
+
+    static fun new() r: GeneratedClassDecoratorSnapshot {
+        let decoratorFlags = Array<Int>()
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        decoratorFlags.push(0)
+        return GeneratedClassDecoratorSnapshot{
+            decoratorFlags: decoratorFlags,
+            packetId: "0",
+            isHotReload: 0
+        }
+    }
+}
+
 fun scanGeneratedClassDecoratorsImpl(classNode: ClassNode,
     decoratorFlags: Array<Int>, packetIdBox: Array<String>) r: Void {
 
@@ -38,6 +63,21 @@ fun scanGeneratedClassDecoratorsImpl(classNode: ClassNode,
         }
         decoratorIdx = decoratorIdx + 1
     }
+}
+
+fun prepareGeneratedClassDecoratorSnapshotImpl(classNode: ClassNode)
+    r: GeneratedClassDecoratorSnapshot {
+
+    let snapshot = GeneratedClassDecoratorSnapshot.new()
+    let packetIdBox = Array<String>()
+    packetIdBox.push(snapshot.packetId)
+    scanGeneratedClassDecoratorsImpl(classNode, snapshot.decoratorFlags,
+        packetIdBox)
+    snapshot.packetId = packetIdBox[0]
+    if hasHotReloadMarkerMethodImpl(classNode) {
+        snapshot.isHotReload = 1
+    }
+    return snapshot
 }
 
 fun hasHotReloadMarkerMethodImpl(classNode: ClassNode) r: Bool {

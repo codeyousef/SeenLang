@@ -87,7 +87,7 @@ import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFie
 import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
-import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl, hasHotReloadMarkerMethodImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
+import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
@@ -2426,32 +2426,18 @@ class LLVMIRGenerator {
         // the source class because call sites already dispatch to the C runtime ABI.
         let isStringBuilder = className == "StringBuilder"
 
-        let decoratorFlags = Array<Int>()
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        decoratorFlags.push(0)
-        let packetIdBox = Array<String>()
-        packetIdBox.push("0")
-        scanGeneratedClassDecoratorsImpl(classNode, decoratorFlags,
-            packetIdBox)
-
-        let isHotReload = hasHotReloadMarkerMethodImpl(classNode)
+        let decoratorSnapshot =
+            prepareGeneratedClassDecoratorSnapshotImpl(classNode)
         generateRegularClassMethods(classNode, isStringBuilder)
 
         // Generate @hot_reload synthesized methods if class has the decorator
-        if isHotReload {
+        if decoratorSnapshot.isHotReload == 1 {
             generateHotReloadMethods(classNode)
         }
 
         emitGeneratedClassDecoratorMethodsImpl(output, classNode,
-            decoratorFlags, packetIdBox[0], structNames, structSizes,
+            decoratorSnapshot.decoratorFlags, decoratorSnapshot.packetId,
+            structNames, structSizes,
             structMethodNames, structMethodRetTypes, funcNames, funcRetTypes,
             stringConstants, stringConstantPrefix, g_binaryClassNames,
             g_binaryVersions, g_binaryEndianness, g_binaryClassCount)
