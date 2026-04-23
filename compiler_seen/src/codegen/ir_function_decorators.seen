@@ -4,9 +4,13 @@
 
 import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}
-import codegen.ir_function_gen.{emitIntrinsicWrapperImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareFunctionAttributesImpl}
+import codegen.ir_function_gen.{emitIntrinsicWrapperImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareFunctionAttributesImpl, prepareExternFunctionGenerationImpl}
 import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl, mapDeclaredTypeImpl}
+import codegen.ir_function_param_meta.{mapFunctionParameterTypeImpl}
+import codegen.ir_declarations.{emitExternDeclImpl}
+import codegen.ir_decl_registry.{registerFunctionStateImpl}
 
 fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String)
     r: Bool {
@@ -132,4 +136,49 @@ fun prepareFunctionAttributesStateImpl(output: StringBuilder, fn: FunctionNode,
         initFuncNamesBox, initFuncCountBox, trustedFuncNamesBox,
         specializationNamesBox, specializationCountBox)
     return funcAttrsBox[0]
+}
+
+fun tryHandleExternFunctionGenerationStateImpl(output: StringBuilder,
+    fn: FunctionNode, structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    reprCClassNames: String, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: Bool {
+
+    let externSymbolBox = Array<String>()
+    externSymbolBox.push("")
+    let externAction = prepareExternFunctionGenerationImpl(output, fn,
+        externSymbolBox)
+    if externAction == 0 {
+        return false
+    }
+
+    let normalizedReturnType = normalizeDeclaredTypeNodeImpl(fn.returnType)
+    if externAction == 1 {
+        registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+            funcRetTypes)
+        return true
+    }
+
+    let mappedPTypes = Array<String>()
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let ptName = normalizeDeclaredTypeNodeImpl(fn.params[paramIdx].paramType)
+        mappedPTypes.push(mapFunctionParameterTypeImpl(ptName, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            reprCClassNames))
+        paramIdx = paramIdx + 1
+    }
+
+    let externRetType = mapDeclaredTypeImpl(normalizedReturnType, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        reprCClassNames)
+    var isVariadic = 0
+    if hasFunctionDecoratorImpl(fn, "variadic") {
+        isVariadic = 1
+    }
+    emitExternDeclImpl(output, fn.name, externSymbolBox[0], mappedPTypes,
+        fn.params.length(), externRetType, isVariadic)
+    registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+        funcRetTypes)
+    return true
 }

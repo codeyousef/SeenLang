@@ -107,8 +107,8 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, prepareExternFunctionGenerationImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
-import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
+import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
@@ -2869,33 +2869,9 @@ class LLVMIRGenerator {
             return
         }
 
-        let externSymbolBox = Array<String>()
-        externSymbolBox.push("")
-        let externAction = prepareExternFunctionGenerationImpl(output, fn,
-            externSymbolBox)
-        if externAction != 0 {
-            let normalizedReturnType = normalizeDeclaredTypeNode(fn.returnType)
-            if externAction == 1 {
-                registerFunctionStateImpl(fn.name, normalizedReturnType,
-                    funcNames, funcRetTypes)
-                return
-            }
-            var mappedPTypes = Array<String>()
-            var mpIdx = 0
-            while mpIdx < fn.params.length() {
-                let param = fn.params[mpIdx]
-                let ptn = param.paramType
-                let ptName = normalizeDeclaredTypeNode(ptn)
-                mappedPTypes.push(mapTypeForParameter(ptName))
-                mpIdx = mpIdx + 1
-            }
-            let externRetType = mapType(normalizedReturnType)
-            var isVariadic = 0
-            if hasDecorator(fn, "variadic") { isVariadic = 1 }
-            emitExternDeclImpl(output, fn.name, externSymbolBox[0],
-                mappedPTypes, fn.params.length(), externRetType, isVariadic)
-            registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
-                funcRetTypes)
+        if tryHandleExternFunctionGenerationStateImpl(output, fn, structNames,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+            g_enumTypeNames, g_reprCClassNames, funcNames, funcRetTypes) {
             return
         }
 
