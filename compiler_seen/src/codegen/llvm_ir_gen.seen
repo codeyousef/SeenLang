@@ -109,6 +109,7 @@ import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStruc
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, prepareExternFunctionGenerationImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
 import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl}
+import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
@@ -2103,50 +2104,14 @@ class LLVMIRGenerator {
         emitGeneratedClosuresImpl(output, g_closureDefs)
 
         // Unused function pruning warnings (9.10c)
-        // AST-level check: scan all function bodies for Call expressions that reference each function
-        // Only check small modules (< 20 functions) to avoid O(n^2) cost on large modules
-        if program.items.length() < 20 {
-            var i = 0
-            i = 0
-            while i < program.items.length() {
-                let ufItem = program.items[i]
-                if ufItem.itemType == "Function" {
-                    let ufName = ufItem.function.name
-                    if ufName != "main" and not ufName.startsWith("__") and not ufItem.function.isExtern {
-                        // Check if any other function calls this one
-                        var ufCalled = false
-                        var ufJ = 0
-                        while ufJ < program.items.length() {
-                            let ufCaller = program.items[ufJ]
-                            if ufCaller.itemType == "Function" and ufCaller.function.name != ufName {
-                                // Scan caller's body statements for Call to ufName
-                                var ufK = 0
-                                while ufK < ufCaller.function.body.statements.length() {
-                                    let ufStmt = ufCaller.function.body.statements[ufK]
-                                    if ufStmt.kind == "Expression" and ufStmt.expression.kind == "Call" {
-                                        if ufStmt.expression.callee == ufName { ufCalled = true }
-                                    }
-                                    // Check return with call
-                                    if ufStmt.kind == "Return" and ufStmt.expression.kind == "Call" {
-                                        if ufStmt.expression.callee == ufName { ufCalled = true }
-                                    }
-                                    // Check let/var init with call
-                                    if (ufStmt.kind == "Let" or ufStmt.kind == "Var") and ufStmt.expression.kind == "Call" {
-                                        if ufStmt.expression.callee == ufName { ufCalled = true }
-                                    }
-                                    ufK = ufK + 1
-                                }
-                            }
-                            ufJ = ufJ + 1
-                        }
-                        if not ufCalled {
-                            output.append("; WARNING: unused function: " + ufName + "\n")
-                            mlLogDecision("dead-func", "unused", ufName)
-                        }
-                    }
-                }
-                i = i + 1
-            }
+        let unusedTopLevelFunctions = scanUnusedTopLevelFunctionNamesImpl(
+            program)
+        var unusedIdx = 0
+        while unusedIdx < unusedTopLevelFunctions.length() {
+            let unusedName = unusedTopLevelFunctions[unusedIdx]
+            output.append("; WARNING: unused function: " + unusedName + "\n")
+            mlLogDecision("dead-func", "unused", unusedName)
+            unusedIdx = unusedIdx + 1
         }
 
         emitOptimizationStatisticsSummaryImpl(output, moduleIndex, true,

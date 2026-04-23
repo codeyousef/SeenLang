@@ -1,0 +1,85 @@
+// ir_function_usage.seen — top-level function usage analysis helpers
+// Extracted from llvm_ir_gen.seen to keep module-level warning scans separate
+// from the main IR generation orchestration.
+
+import parser.real_parser.{ProgramNode, ItemNode, StatementNode, ParserExpressionNode}
+
+fun shouldTrackUnusedTopLevelFunctionImpl(item: ItemNode) r: Bool {
+    if item.itemType != "Function" {
+        return false
+    }
+    let fn = item.function
+    if fn.name == "main" {
+        return false
+    }
+    if fn.name.startsWith("__") {
+        return false
+    }
+    if fn.isExtern {
+        return false
+    }
+    return true
+}
+
+fun statementHasDirectCallToFunctionImpl(stmt: StatementNode,
+    functionName: String) r: Bool {
+
+    if stmt.kind == "Expression" and stmt.expression.kind == "Call" {
+        return stmt.expression.callee == functionName
+    }
+    if stmt.kind == "Return" and stmt.expression.kind == "Call" {
+        return stmt.expression.callee == functionName
+    }
+    if (stmt.kind == "Let" or stmt.kind == "Var") and
+        stmt.expression.kind == "Call" {
+
+        return stmt.expression.callee == functionName
+    }
+    return false
+}
+
+fun isUnusedTopLevelFunctionImpl(program: ProgramNode, functionName: String)
+    r: Bool {
+
+    var callerIdx = 0
+    while callerIdx < program.items.length() {
+        let callerItem = program.items[callerIdx]
+        if callerItem.itemType == "Function" and
+            callerItem.function.name != functionName {
+
+            var stmtIdx = 0
+            while stmtIdx < callerItem.function.body.statements.length() {
+                if statementHasDirectCallToFunctionImpl(
+                    callerItem.function.body.statements[stmtIdx],
+                    functionName) {
+
+                    return false
+                }
+                stmtIdx = stmtIdx + 1
+            }
+        }
+        callerIdx = callerIdx + 1
+    }
+    return true
+}
+
+fun scanUnusedTopLevelFunctionNamesImpl(program: ProgramNode)
+    r: Array<String> {
+
+    let unusedNames = Array<String>()
+    if program.items.length() >= 20 {
+        return unusedNames
+    }
+
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if shouldTrackUnusedTopLevelFunctionImpl(item) and
+            isUnusedTopLevelFunctionImpl(program, item.function.name) {
+
+            unusedNames.push(item.function.name)
+        }
+        itemIdx = itemIdx + 1
+    }
+    return unusedNames
+}
