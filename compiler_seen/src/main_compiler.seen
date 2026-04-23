@@ -65,6 +65,7 @@ import codegen.ir_control_flow.{detectMemcpyPatternImpl}
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl}
+import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
 import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
 import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
@@ -1898,6 +1899,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_call_constructors")
         modules.push("codegen.ir_call_args")
         modules.push("codegen.ir_call_runtime")
+        modules.push("codegen.ir_call_meta")
         modules.push("codegen.ir_call_dispatch")
         modules.push("codegen.ir_call_fixups")
         modules.push("codegen.ir_method_finalize")

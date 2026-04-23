@@ -1,0 +1,80 @@
+// ir_call_meta.seen — compile-time/meta builtin helpers
+// Extracted from llvm_ir_gen.seen to keep meta call computation separate
+// from higher-level builtin dispatch.
+
+import codegen.ir_call_dispatch.{emitOffsetofImpl}
+import codegen.ir_type_layout.{getLlvmTypeSizeImpl, getLlvmTypeAlignImpl}
+import codegen.type_registry.{findStructReg}
+
+fun resolveSizeofBuiltinValueImpl(llvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>) r: String {
+
+    if llvmType == "" {
+        return "0"
+    }
+    let sz = getLlvmTypeSizeImpl(llvmType, structNames, structLayouts,
+        structSizes)
+    if sz > 0 {
+        return sz.toString()
+    }
+    return "0"
+}
+
+fun resolveAlignofBuiltinValueImpl(llvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structSizes: Array<Int>) r: String {
+
+    if llvmType == "" {
+        return "0"
+    }
+    let al = getLlvmTypeAlignImpl(llvmType, structNames, structLayouts,
+        structSizes)
+    if al > 0 {
+        return al.toString()
+    }
+    return "0"
+}
+
+fun resolveOffsetofBuiltinValueImpl(offTypeName: String, offFieldName: String,
+    structNames: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>) r: String {
+
+    if offTypeName == "" or offFieldName == "" {
+        return "0"
+    }
+
+    let sIdx = findStructReg(offTypeName, structNames)
+    if sIdx < 0 {
+        return "0"
+    }
+
+    let fNamesCsv = structFieldNames[sIdx]
+    let fTypesCsv = structFieldTypes[sIdx]
+    var offFieldNamesArr = Array<String>()
+    var offFieldAlignsArr = Array<Int>()
+    var offFieldSizesArr = Array<Int>()
+    var offPos = 0
+    var offTPos = 0
+    while offPos < fNamesCsv.length() {
+        var offComma = fNamesCsv.indexOf(",", offPos)
+        if offComma < 0 { offComma = fNamesCsv.length() }
+        let offFn = fNamesCsv.substring(offPos, offComma)
+        var offTComma = fTypesCsv.indexOf(",", offTPos)
+        if offTComma < 0 { offTComma = fTypesCsv.length() }
+        let offFt = fTypesCsv.substring(offTPos, offTComma)
+        offFieldNamesArr.push(offFn)
+        offFieldAlignsArr.push(getLlvmTypeAlignImpl(offFt, structNames,
+            structLayouts, structSizes))
+        offFieldSizesArr.push(getLlvmTypeSizeImpl(offFt, structNames,
+            structLayouts, structSizes))
+        offPos = offComma + 1
+        offTPos = offTComma + 1
+    }
+
+    let offResult = emitOffsetofImpl(offFieldNamesArr, offFieldAlignsArr,
+        offFieldSizesArr, offFieldName)
+    if offResult >= 0 {
+        return offResult.toString()
+    }
+    return "0"
+}

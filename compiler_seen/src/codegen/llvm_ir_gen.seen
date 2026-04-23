@@ -78,6 +78,7 @@ import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImp
 import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
+import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
@@ -7504,14 +7505,8 @@ class LLVMIRGenerator {
                     return ctSize.toString()
                 }
                 let sizeTypeName = inferExpressionType(expr.arguments[0])
-                if sizeTypeName != "" {
-                    let llvmT = mapType(sizeTypeName)
-                    let sz = getLlvmTypeSizeImpl(llvmT, structNames,
-                        structLayouts, structSizes)
-                    if sz > 0 {
-                        return sz.toString()
-                    }
-                }
+                return resolveSizeofBuiltinValueImpl(mapType(sizeTypeName),
+                    structNames, structLayouts, structSizes)
             }
             return "0"
         }
@@ -7520,14 +7515,8 @@ class LLVMIRGenerator {
         if funcName == "alignof" {
             if expr.arguments.length() > 0 {
                 let alignTypeName = inferExpressionType(expr.arguments[0])
-                if alignTypeName != "" {
-                    let llvmT = mapType(alignTypeName)
-                    let al = getLlvmTypeAlignImpl(llvmT, structNames,
-                        structLayouts, structSizes)
-                    if al > 0 {
-                        return al.toString()
-                    }
-                }
+                return resolveAlignofBuiltinValueImpl(mapType(alignTypeName),
+                    structNames, structLayouts, structSizes)
             }
             return "0"
         }
@@ -7537,38 +7526,9 @@ class LLVMIRGenerator {
             if expr.arguments.length() >= 2 {
                 let offTypeName = inferExpressionType(expr.arguments[0])
                 let offFieldName = inferExpressionType(expr.arguments[1])
-                if offTypeName != "" and offFieldName != "" {
-                    let sIdx = findStructReg(offTypeName, structNames)
-                    if sIdx >= 0 {
-                        let fNamesCsv = structFieldNames[sIdx]
-                        let fTypesCsv = structFieldTypes[sIdx]
-                        var offFieldNamesArr = Array<String>()
-                        var offFieldAlignsArr = Array<Int>()
-                        var offFieldSizesArr = Array<Int>()
-                        var offPos = 0
-                        var offTPos = 0
-                        while offPos < fNamesCsv.length() {
-                            var offComma = fNamesCsv.indexOf(",", offPos)
-                            if offComma < 0 { offComma = fNamesCsv.length() }
-                            let offFn = fNamesCsv.substring(offPos, offComma)
-                            var offTComma = fTypesCsv.indexOf(",", offTPos)
-                            if offTComma < 0 { offTComma = fTypesCsv.length() }
-                            let offFt = fTypesCsv.substring(offTPos, offTComma)
-                            offFieldNamesArr.push(offFn)
-                            offFieldAlignsArr.push(getLlvmTypeAlignImpl(
-                                offFt, structNames, structLayouts,
-                                structSizes))
-                            offFieldSizesArr.push(getLlvmTypeSizeImpl(offFt,
-                                structNames, structLayouts, structSizes))
-                            offPos = offComma + 1
-                            offTPos = offTComma + 1
-                        }
-                        let offResult = emitOffsetofImpl(offFieldNamesArr, offFieldAlignsArr, offFieldSizesArr, offFieldName)
-                        if offResult >= 0 {
-                            return offResult.toString()
-                        }
-                    }
-                }
+                return resolveOffsetofBuiltinValueImpl(offTypeName,
+                    offFieldName, structNames, structFieldNames,
+                    structFieldTypes, structLayouts, structSizes)
             }
             return "0"
         }
