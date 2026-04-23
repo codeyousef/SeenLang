@@ -2,12 +2,13 @@
 // Extracted from llvm_ir_gen.seen field access paths to reduce duplication.
 
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{parseIntManual, splitPipe}
+import codegen.ir_optimization.{parseIntManual, splitPipe, getNextRegFn}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_member_access.{emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl}
-import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl}
-import codegen.ir_type_mapping.{resolveKnownStructFieldImpl}
-import codegen.type_registry.{getFieldInfoReg}
+import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl, getSeenFieldTypeImpl}
+import codegen.ir_type_mapping.{resolveKnownStructFieldImpl, mapTypeImpl}
+import codegen.ir_path_expr.{splitFirstPathDotImpl, splitChainedPathImpl}
+import codegen.type_registry.{getFieldInfoReg, isClassTypeReg}
 
 // resolveFieldAccessLayoutImpl — resolve the LLVM layout string plus field index
 // for a struct field access. Returns "layout|fieldIndex".
@@ -82,4 +83,330 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
         }
     }
     return resultReg
+}
+
+fun emitSeenArrayLengthLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    arrayReg: String, loadSuffix: String) r: String {
+
+    let lenPtrReg = emitFieldAccessPtrImpl(output, regBox, arrayReg,
+        "%SeenArray", 0)
+    let lenReg = getNextRegFn(regBox)
+    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg +
+        loadSuffix + "\n")
+    return lenReg
+}
+
+fun emitProgramItemsArrayAccessImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>) r: String {
+
+    let programFieldPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox,
+        ptrReg, structType, "program", structNames, structLayouts,
+        structFieldNames)
+    let programValueReg = emitFieldAccessLoadImpl(output, regBox, "i64",
+        programFieldPtrReg)
+    let programPtrReg = getNextRegFn(regBox)
+    output.append("  " + programPtrReg + " = inttoptr i64 " +
+        programValueReg + " to ptr\n")
+    let itemsFieldPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox,
+        programPtrReg, "ProgramNode", "items", structNames, structLayouts,
+        structFieldNames)
+    return emitFieldAccessLoadImpl(output, regBox, "ptr", itemsFieldPtrReg)
+}
+
+fun tryEmitSpecialFieldAccessChainImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>) r: String {
+
+    if fieldName == "program.items" {
+        return emitProgramItemsArrayAccessImpl(output, regBox, ptrReg,
+            structType, structNames, structLayouts, structFieldNames)
+    }
+    if fieldName == "program.items.length" {
+        let itemsReg = emitProgramItemsArrayAccessImpl(output, regBox, ptrReg,
+            structType, structNames, structLayouts, structFieldNames)
+        return emitSeenArrayLengthLoadImpl(output, regBox, itemsReg, "")
+    }
+    return ""
+}
+
+fun emitSimpleFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String, fieldSeenType: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    let llvmFieldType = mapTypeImpl(fieldSeenType, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    if reprCClassNames != "" and reprCClassNames.contains(structType + "|") {
+        let fieldIdx = getFieldInfoReg(structType, fieldName, structNames,
+            structFieldNames)
+        if fieldIdx >= 0 {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = extractvalue %" + structType +
+                " " + ptrReg + ", " + fieldIdx.toString() + "\n")
+            return resultReg
+        }
+    }
+    if unionTypes != "" and unionTypes.contains(structType + "|") {
+        return emitFieldAccessLoadImpl(output, regBox, llvmFieldType, ptrReg)
+    }
+    return emitResolvedFieldAccessLoadImpl(output, regBox, ptrReg, structType,
+        fieldName, llvmFieldType, structNames, structLayouts,
+        structFieldNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitDirectFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String, llvmFieldType: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, reprCClassNames: String,
+    unionTypes: String, bitfieldCount: Int, bitfieldKeys: String,
+    bitfieldWidths: String) r: String {
+
+    if reprCClassNames != "" and reprCClassNames.contains(structType + "|") {
+        let fieldIdx = getFieldInfoReg(structType, fieldName, structNames,
+            structFieldNames)
+        if fieldIdx >= 0 {
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = extractvalue %" + structType +
+                " " + ptrReg + ", " + fieldIdx.toString() + "\n")
+            return resultReg
+        }
+    }
+    if unionTypes != "" and unionTypes.contains(structType + "|") {
+        return emitFieldAccessLoadImpl(output, regBox, llvmFieldType, ptrReg)
+    }
+    return emitResolvedFieldAccessLoadImpl(output, regBox, ptrReg, structType,
+        fieldName, llvmFieldType, structNames, structLayouts,
+        structFieldNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitSimpleFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, reprCClassNames: String,
+    unionTypes: String) r: String {
+
+    if unionTypes != "" and unionTypes.contains(structType + "|") {
+        return ptrReg
+    }
+    if reprCClassNames != "" and reprCClassNames.contains(structType + "|") {
+        let tempPtrReg = getNextRegFn(regBox)
+        output.append("  " + tempPtrReg + " = alloca %" + structType + "\n")
+        output.append("  store %" + structType + " " + ptrReg + ", ptr " +
+            tempPtrReg + "\n")
+        return emitResolvedFieldAccessPtrImpl(output, regBox, tempPtrReg,
+            structType, fieldName, structNames, structLayouts,
+            structFieldNames)
+    }
+    return emitResolvedFieldAccessPtrImpl(output, regBox, ptrReg, structType,
+        fieldName, structNames, structLayouts, structFieldNames)
+}
+
+fun emitDirectFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, unionTypes: String) r: String {
+
+    if unionTypes != "" and unionTypes.contains(structType + "|") {
+        return ptrReg
+    }
+    return emitResolvedFieldAccessPtrImpl(output, regBox, ptrReg, structType,
+        fieldName, structNames, structLayouts, structFieldNames)
+}
+
+fun emitChainedFieldReceiverPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String, fieldSeenType: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    if isClassTypeReg(fieldSeenType, structNames) {
+        let fieldValueReg = emitSimpleFieldAccessLoadImpl(output, regBox,
+            ptrReg, structType, fieldName, fieldSeenType, structNames,
+            structLayouts, structFieldNames, reprCClassNames, unionTypes,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            bitfieldCount, bitfieldKeys, bitfieldWidths)
+        let fieldPtrReg = getNextRegFn(regBox)
+        output.append("  " + fieldPtrReg + " = inttoptr i64 " + fieldValueReg +
+            " to ptr\n")
+        return fieldPtrReg
+    }
+    return emitSimpleFieldAccessPtrImpl(output, regBox, ptrReg, structType,
+        fieldName, structNames, structLayouts, structFieldNames,
+        reprCClassNames, unionTypes)
+}
+
+fun emitChainedFieldAccessTailImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    if fieldName.contains(".") {
+        return tryEmitChainedFieldAccessImpl(output, regBox, ptrReg,
+            structType, fieldName, structNames, structLayouts,
+            structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+            bitfieldCount, bitfieldKeys, bitfieldWidths)
+    }
+    let fieldSeenType = getSeenFieldTypeImpl(structType, fieldName, structNames,
+        structFieldNames, structFieldTypes)
+    return emitSimpleFieldAccessLoadImpl(output, regBox, ptrReg, structType,
+        fieldName, fieldSeenType, structNames, structLayouts,
+        structFieldNames, reprCClassNames, unionTypes, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
+}
+
+fun tryEmitChainedFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    let specialChainResult = tryEmitSpecialFieldAccessChainImpl(output, regBox,
+        ptrReg, structType, fieldName, structNames, structLayouts,
+        structFieldNames)
+    if specialChainResult != "" {
+        return specialChainResult
+    }
+    if not fieldName.contains(".") {
+        return ""
+    }
+
+    let fieldParts = splitFirstPathDotImpl(fieldName)
+    let firstField = fieldParts[0]
+    let restFields = fieldParts[1]
+    if restFields == "" {
+        output.append("; ERROR: Unknown chained field access: " + fieldName +
+            "\n")
+        return "0"
+    }
+
+    let firstType = getSeenFieldTypeImpl(structType, firstField, structNames,
+        structFieldNames, structFieldTypes)
+    output.append("; DEBUG chained access: structType=" + structType +
+        " firstField=" + firstField + " firstType=" + firstType +
+        " restFields=" + restFields + "\n")
+
+    let firstPtrReg = emitChainedFieldReceiverPtrImpl(output, regBox, ptrReg,
+        structType, firstField, firstType, structNames, structLayouts,
+        structFieldNames, reprCClassNames, unionTypes, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
+    return emitChainedFieldAccessTailImpl(output, regBox, firstPtrReg,
+        firstType, restFields, structNames, structLayouts, structFieldNames,
+        structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
+}
+
+fun generateFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String, llvmFieldType: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
+    r: String {
+
+    let chainedResult = tryEmitChainedFieldAccessImpl(output, regBox, ptrReg,
+        structType, fieldName, structNames, structLayouts, structFieldNames,
+        structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
+    if chainedResult != "" {
+        return chainedResult
+    }
+    return emitDirectFieldAccessLoadImpl(output, regBox, ptrReg, structType,
+        fieldName, llvmFieldType, structNames, structLayouts,
+        structFieldNames, reprCClassNames, unionTypes, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
+}
+
+fun generateFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
+    ptrReg: String, structType: String, fieldName: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, unionTypes: String) r: String {
+
+    return emitDirectFieldAccessPtrImpl(output, regBox, ptrReg, structType,
+        fieldName, structNames, structLayouts, structFieldNames, unionTypes)
+}
+
+fun resolveMemberAccessFieldReceiverPtrImpl(output: StringBuilder,
+    regBox: Array<Int>, basePtrReg: String, baseType: String,
+    fieldName: String, fieldType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    if isClassTypeReg(fieldType, structNames) {
+        let loadedVal = generateFieldAccessImpl(output, regBox, basePtrReg,
+            baseType, fieldName, mapTypeImpl(fieldType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount,
+            enumTypeNames), structNames, structLayouts, structFieldNames,
+            structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
+            typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+            bitfieldKeys, bitfieldWidths)
+        let ptrConvReg = getNextRegFn(regBox)
+        output.append("  " + ptrConvReg + " = inttoptr i64 " + loadedVal +
+            " to ptr\n")
+        return ptrConvReg
+    }
+    if fieldName.contains(".") {
+        return walkMemberAccessChainPointerImpl(output, regBox, basePtrReg,
+            baseType, fieldName, structNames, structLayouts, structFieldNames,
+            structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
+            typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+            bitfieldKeys, bitfieldWidths)
+    }
+    return generateFieldAccessPtrImpl(output, regBox, basePtrReg, baseType,
+        fieldName, structNames, structLayouts, structFieldNames, unionTypes)
+}
+
+fun walkMemberAccessChainPointerImpl(output: StringBuilder, regBox: Array<Int>,
+    startPtrReg: String, startType: String, path: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
+    r: String {
+
+    if path == "" {
+        return startPtrReg
+    }
+    var chainPtr = startPtrReg
+    var chainType = startType
+    let pathSegments = splitChainedPathImpl(path)
+    var chainIdx = 0
+    while chainIdx < pathSegments.length() {
+        let chainField = pathSegments[chainIdx]
+        let chainFieldType = getSeenFieldTypeImpl(chainType, chainField,
+            structNames, structFieldNames, structFieldTypes)
+        output.append("; DEBUG chained ptr access: chainType=" + chainType +
+            " chainField=" + chainField + " chainFieldType=" +
+            chainFieldType + "\n")
+        chainPtr = resolveMemberAccessFieldReceiverPtrImpl(output, regBox,
+            chainPtr, chainType, chainField, chainFieldType, structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+            bitfieldWidths)
+        chainType = chainFieldType
+        chainIdx = chainIdx + 1
+    }
+    return chainPtr
 }

@@ -83,7 +83,7 @@ import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGen
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
-import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl, emitResolvedFieldAccessLoadImpl}
+import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl, resolveMemberAccessFieldReceiverPtrImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
@@ -5515,7 +5515,8 @@ class LLVMIRGenerator {
             }
             output.append("  " + lenReg + " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
         } else {
-            lenReg = emitSeenArrayLengthLoad(arrReg, ", !tbaa !108, !range !188")
+            lenReg = emitSeenArrayLengthLoadImpl(output, g_regBox, arrReg,
+                ", !tbaa !108, !range !188")
         }
 
         let idxReg = resolveForInIndexAlloca("__forin_idx_" + loopVarName)
@@ -6316,7 +6317,8 @@ class LLVMIRGenerator {
             let bcFailLabel = "bounds_fail_" + g_boundsCheckLabelCount.toString()
             let bcOkLabel = "bounds_ok_" + g_boundsCheckLabelCount.toString()
             g_boundsCheckLabelCount = g_boundsCheckLabelCount + 1
-            let lenReg = emitSeenArrayLengthLoad(arrayReg, "")
+            let lenReg = emitSeenArrayLengthLoadImpl(output, g_regBox,
+                arrayReg, "")
             let oobReg = getNextReg()
             output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " + lenReg + "\n")
             output.append("  br i1 " + oobReg + ", label %" + bcFailLabel + ", label %" + bcOkLabel + "\n")
@@ -6585,40 +6587,6 @@ class LLVMIRGenerator {
         return generateFieldAccess(elementPtrReg, elementType, fieldName)
     }
 
-    fun resolveMemberAccessFieldReceiverPtr(basePtrReg: String, baseType: String,
-        fieldName: String, fieldType: String) r: String {
-        if isClassType(fieldType) {
-            let loadedVal = generateFieldAccess(basePtrReg, baseType, fieldName)
-            let ptrConvReg = getNextReg()
-            output.append("  " + ptrConvReg + " = inttoptr i64 " + loadedVal + " to ptr\n")
-            return ptrConvReg
-        }
-        if fieldName.contains(".") {
-            return walkMemberAccessChainPointer(basePtrReg, baseType, fieldName)
-        }
-        return generateFieldAccessPtr(basePtrReg, baseType, fieldName)
-    }
-
-    fun walkMemberAccessChainPointer(startPtrReg: String, startType: String, path: String) r: String {
-        if path == "" {
-            return startPtrReg
-        }
-        var chainPtr = startPtrReg
-        var chainType = startType
-        let pathSegments = splitChainedPathImpl(path)
-        var chainIdx = 0
-        while chainIdx < pathSegments.length() {
-            let chainField = pathSegments[chainIdx]
-            let chainFieldType = getSeenFieldType(chainType, chainField)
-            output.append("; DEBUG chained ptr access: chainType=" + chainType + " chainField=" + chainField + " chainFieldType=" + chainFieldType + "\n")
-            chainPtr = resolveMemberAccessFieldReceiverPtr(chainPtr, chainType,
-                chainField, chainFieldType)
-            chainType = chainFieldType
-            chainIdx = chainIdx + 1
-        }
-        return chainPtr
-    }
-
     fun tryGenerateChainedReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
         if not receiverName.contains(".") {
             return ""
@@ -6650,8 +6618,13 @@ class LLVMIRGenerator {
             intermediateType = "ProgramNode"
         }
 
-        let actualIntermediateReg = resolveMemberAccessFieldReceiverPtr(
-            basePtrReg, baseType, restPath, intermediateType)
+        let actualIntermediateReg = resolveMemberAccessFieldReceiverPtrImpl(
+            output, g_regBox, basePtrReg, baseType, restPath,
+            intermediateType, structNames, structLayouts, structFieldNames,
+            structFieldTypes, g_reprCClassNames, g_unionTypes,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+            g_enumTypeNames, g_bitfieldCount, g_bitfieldKeys,
+            g_bitfieldWidths)
 
         return generateFieldAccess(actualIntermediateReg, intermediateType, fieldName)
     }
@@ -6671,8 +6644,12 @@ class LLVMIRGenerator {
         let intermediateType = getSeenFieldType(thisType, receiverName)
         output.append("; DEBUG this field access: thisType=" + thisType + " receiverName=" + receiverName + " intermediateType=" + intermediateType + " fieldName=" + fieldName + "\n")
 
-        let accessReg = resolveMemberAccessFieldReceiverPtr(thisPtrReg, thisType,
-            receiverName, intermediateType)
+        let accessReg = resolveMemberAccessFieldReceiverPtrImpl(output,
+            g_regBox, thisPtrReg, thisType, receiverName, intermediateType,
+            structNames, structLayouts, structFieldNames, structFieldTypes,
+            g_reprCClassNames, g_unionTypes, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
 
         return generateFieldAccess(accessReg, intermediateType, fieldName)
     }
@@ -6734,74 +6711,6 @@ class LLVMIRGenerator {
         return "0"
     }
 
-    fun tryGenerateReprCFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
-        if g_reprCClassNames != "" and g_reprCClassNames.contains(structType + "|") {
-            let structIdx = findStructReg(structType, structNames)
-            if structIdx >= 0 {
-                let regFieldIdx = getFieldInfo(structType, fieldName)
-                if regFieldIdx >= 0 {
-                    let evReg = getNextReg()
-                    output.append("  " + evReg + " = extractvalue %" + structType + " " + ptrReg + ", " + regFieldIdx.toString() + "\n")
-                    return evReg
-                }
-            }
-        }
-        return ""
-    }
-
-    fun resolveProgramItemsArrayReg(ptrReg: String, structType: String) r: String {
-        let progPtrReg = resolveMemberAccessFieldReceiverPtr(ptrReg,
-            structType, "program", "ProgramNode")
-        return generateFieldAccess(progPtrReg, "ProgramNode", "items")
-    }
-
-    fun emitSeenArrayLengthLoad(arrayReg: String, loadSuffix: String) r: String {
-        let lenPtrReg = emitFieldAccessPtrImpl(output, g_regBox, arrayReg,
-            "%SeenArray", 0)
-        let lenReg = getNextReg()
-        output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg +
-            loadSuffix + "\n")
-        return lenReg
-    }
-
-    fun tryGenerateSpecialFieldAccessChain(ptrReg: String, structType: String, fieldName: String) r: String {
-        if fieldName == "program.items" {
-            return resolveProgramItemsArrayReg(ptrReg, structType)
-        }
-        if fieldName == "program.items.length" {
-            let itemsReg = resolveProgramItemsArrayReg(ptrReg, structType)
-            return emitSeenArrayLengthLoad(itemsReg, "")
-        }
-        return ""
-    }
-
-    fun tryGenerateChainedFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
-        if not fieldName.contains(".") {
-            return ""
-        }
-        let fieldParts = splitFirstPathDotImpl(fieldName)
-        let firstField = fieldParts[0]
-        let restFields = fieldParts[1]
-        if restFields == "" {
-            output.append("; ERROR: Unknown chained field access: " + fieldName + "\n")
-            return "0"
-        }
-
-        let firstType = getSeenFieldType(structType, firstField)
-        output.append("; DEBUG chained access: structType=" + structType + " firstField=" + firstField + " firstType=" + firstType + " restFields=" + restFields + "\n")
-
-        let actualFirstReg = resolveMemberAccessFieldReceiverPtr(ptrReg,
-            structType, firstField, firstType)
-        return generateFieldAccess(actualFirstReg, firstType, restFields)
-    }
-
-    fun tryGenerateUnionFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
-        if g_unionTypes != "" and g_unionTypes.contains(structType + "|") {
-            return emitFieldAccessLoadImpl(output, g_regBox, getFieldType(structType, fieldName), ptrReg)
-        }
-        return ""
-    }
-
     // Generate a struct field load via GEP (getelementptr). For simple fields,
     // emits: getelementptr %StructType, ptr %ptrReg, i32 0, i32 <fieldIdx>
     // followed by a load. For chained field access (e.g., "a.b.c"), recursively
@@ -6812,42 +6721,20 @@ class LLVMIRGenerator {
     // data changes on push/resize, so the invariant annotation would be
     // incorrect and could cause LLVM to cache stale pointers.
     fun generateFieldAccess(ptrReg: String, structType: String, fieldName: String) r: String {
-        let reprCResult = tryGenerateReprCFieldAccess(ptrReg, structType, fieldName)
-        if reprCResult != "" {
-            return reprCResult
-        }
-
-        let specialChainResult = tryGenerateSpecialFieldAccessChain(ptrReg, structType, fieldName)
-        if specialChainResult != "" {
-            return specialChainResult
-        }
-
-        let chainedResult = tryGenerateChainedFieldAccess(ptrReg, structType, fieldName)
-        if chainedResult != "" {
-            return chainedResult
-        }
-
-        let unionResult = tryGenerateUnionFieldAccess(ptrReg, structType, fieldName)
-        if unionResult != "" {
-            return unionResult
-        }
-
-        return emitResolvedFieldAccessLoadImpl(output, g_regBox, ptrReg,
-            structType, fieldName, getFieldType(structType, fieldName),
-            structNames, structLayouts, structFieldNames, g_bitfieldCount,
-            g_bitfieldKeys, g_bitfieldWidths)
+        return generateFieldAccessImpl(output, g_regBox, ptrReg, structType,
+            fieldName, getFieldType(structType, fieldName), structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            g_reprCClassNames, g_unionTypes, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
     }
 
     // Same as generateFieldAccess but returns the GEP pointer without loading
     // Used for methods like push that need to modify the field in place
     fun generateFieldAccessPtr(ptrReg: String, structType: String, fieldName: String) r: String {
-        if g_unionTypes != "" and g_unionTypes.contains(structType + "|") {
-            return ptrReg
-        }
-
-        return emitResolvedFieldAccessPtrImpl(output, g_regBox, ptrReg,
+        return generateFieldAccessPtrImpl(output, g_regBox, ptrReg,
             structType, fieldName, structNames, structLayouts,
-            structFieldNames)
+            structFieldNames, g_unionTypes)
     }
 
     // Generate IR for a struct literal expression (StructName { field: val, ... }).
