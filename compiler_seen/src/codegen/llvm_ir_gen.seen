@@ -107,7 +107,7 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupStateImpl, emitFunctionExitAndResetStateImpl, analyzeFunctionInlineHeuristicsImpl, analyzeFunctionRegisterPressureImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, emitPreAllocatedAllocasImpl, analyzeFunctionInlineHeuristicsImpl, analyzeFunctionRegisterPressureImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
@@ -2870,40 +2870,24 @@ class LLVMIRGenerator {
 
         syncState()
         let state = getSharedCodegenState()
-        let profiledFlagBox = Array<Int>()
-        profiledFlagBox.push(0)
-        let profiledNameBox = Array<String>()
-        profiledNameBox.push("")
-        let profileStringIndexBox = Array<Int>()
-        profileStringIndexBox.push(-1)
-        let promiseBox = Array<String>()
-        promiseBox.push(g_asyncFunctionPromise)
-        let coroIdBox = Array<String>()
-        coroIdBox.push(g_asyncFunctionCoroId)
-        let coroHdlBox = Array<String>()
-        coroHdlBox.push(g_asyncFunctionCoroHdl)
-        let finalLabelBox = Array<String>()
-        finalLabelBox.push(g_asyncFinalLabel)
-        let cleanupLabelBox = Array<String>()
-        cleanupLabelBox.push(g_asyncCleanupLabel)
-        let unusedParams = emitFunctionEntrySetupStateImpl(state, fn, fnName,
+        let entrySetup = emitFunctionEntrySetupSnapshotImpl(state, fn, fnName,
             returnType, funcAttrs, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames, g_reprCClassNames,
-            profiledFlagBox, profiledNameBox, profileStringIndexBox,
-            promiseBox, coroIdBox, coroHdlBox, finalLabelBox,
-            cleanupLabelBox)
+            g_asyncFunctionPromise, g_asyncFunctionCoroId,
+            g_asyncFunctionCoroHdl, g_asyncFinalLabel,
+            g_asyncCleanupLabel)
         writeBackState()
-        g_currentFunctionIsProfiled = profiledFlagBox[0] == 1
-        g_currentFunctionNameForProfile = profiledNameBox[0]
-        let profileStringIndex = profileStringIndexBox[0]
-        g_asyncFunctionPromise = promiseBox[0]
-        g_asyncFunctionCoroId = coroIdBox[0]
-        g_asyncFunctionCoroHdl = coroHdlBox[0]
-        g_asyncFinalLabel = finalLabelBox[0]
-        g_asyncCleanupLabel = cleanupLabelBox[0]
+        g_currentFunctionIsProfiled = entrySetup.profiledFlag == 1
+        g_currentFunctionNameForProfile = entrySetup.profiledName
+        g_asyncFunctionPromise = entrySetup.asyncPromise
+        g_asyncFunctionCoroId = entrySetup.asyncCoroId
+        g_asyncFunctionCoroHdl = entrySetup.asyncCoroHdl
+        g_asyncFinalLabel = entrySetup.asyncFinalLabel
+        g_asyncCleanupLabel = entrySetup.asyncCleanupLabel
         var unusedIdx = 0
-        while unusedIdx < unusedParams.length() {
-            mlLogDecision("dead-arg", "unused", unusedParams[unusedIdx] + ":" + fnName)
+        while unusedIdx < entrySetup.unusedParams.length() {
+            mlLogDecision("dead-arg", "unused",
+                entrySetup.unusedParams[unusedIdx] + ":" + fnName)
             unusedIdx = unusedIdx + 1
         }
 
@@ -2911,45 +2895,31 @@ class LLVMIRGenerator {
         generateBlock(fn.body)
 
         syncState()
-        let resetProfiledFlagBox = Array<Int>()
+        var currentProfiledFlag = 0
         if g_currentFunctionIsProfiled {
-            resetProfiledFlagBox.push(1)
-        } else {
-            resetProfiledFlagBox.push(0)
+            currentProfiledFlag = 1
         }
-        let resetProfiledNameBox = Array<String>()
-        resetProfiledNameBox.push(g_currentFunctionNameForProfile)
-        let resetHighPressureBox = Array<Int>()
+        var currentHighPressure = 0
         if g_currentFunctionHighPressure {
-            resetHighPressureBox.push(1)
-        } else {
-            resetHighPressureBox.push(0)
+            currentHighPressure = 1
         }
-        let resetAsyncCoroIdBox = Array<String>()
-        resetAsyncCoroIdBox.push(g_asyncFunctionCoroId)
-        let resetAsyncCoroHdlBox = Array<String>()
-        resetAsyncCoroHdlBox.push(g_asyncFunctionCoroHdl)
-        let resetAsyncPromiseBox = Array<String>()
-        resetAsyncPromiseBox.push(g_asyncFunctionPromise)
-        let resetAsyncFinalLabelBox = Array<String>()
-        resetAsyncFinalLabelBox.push(g_asyncFinalLabel)
-        let resetAsyncCleanupLabelBox = Array<String>()
-        resetAsyncCleanupLabelBox.push(g_asyncCleanupLabel)
-        emitFunctionExitAndResetStateImpl(state, fn, returnType,
-            resetProfiledFlagBox, resetProfiledNameBox, resetHighPressureBox,
-            resetAsyncCoroIdBox, resetAsyncCoroHdlBox, resetAsyncPromiseBox,
-            resetAsyncFinalLabelBox, resetAsyncCleanupLabelBox,
+        let exitState = emitFunctionExitResetSnapshotImpl(state, fn,
+            returnType, currentProfiledFlag,
+            g_currentFunctionNameForProfile, currentHighPressure,
+            g_asyncFunctionCoroId, g_asyncFunctionCoroHdl,
+            g_asyncFunctionPromise, g_asyncFinalLabel,
+            g_asyncCleanupLabel,
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_enumTypeNames)
         writeBackState()
-        g_currentFunctionIsProfiled = resetProfiledFlagBox[0] == 1
-        g_currentFunctionNameForProfile = resetProfiledNameBox[0]
-        g_currentFunctionHighPressure = resetHighPressureBox[0] == 1
-        g_asyncFunctionCoroId = resetAsyncCoroIdBox[0]
-        g_asyncFunctionCoroHdl = resetAsyncCoroHdlBox[0]
-        g_asyncFunctionPromise = resetAsyncPromiseBox[0]
-        g_asyncFinalLabel = resetAsyncFinalLabelBox[0]
-        g_asyncCleanupLabel = resetAsyncCleanupLabelBox[0]
+        g_currentFunctionIsProfiled = exitState.profiledFlag == 1
+        g_currentFunctionNameForProfile = exitState.profiledName
+        g_currentFunctionHighPressure = exitState.highPressure == 1
+        g_asyncFunctionCoroId = exitState.asyncCoroId
+        g_asyncFunctionCoroHdl = exitState.asyncCoroHdl
+        g_asyncFunctionPromise = exitState.asyncPromise
+        g_asyncFinalLabel = exitState.asyncFinalLabel
+        g_asyncCleanupLabel = exitState.asyncCleanupLabel
     }
 
     // Generate IR for a block of statements. Manages the defer stack depth
