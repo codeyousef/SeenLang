@@ -97,7 +97,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
-import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
+import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
@@ -2668,39 +2668,6 @@ class LLVMIRGenerator {
         clearActiveBindings()
     }
 
-    fun emitClassMethodConstructorSetup(className: String, methodName: String) r: Void {
-        if methodName != "new" {
-            return
-        }
-        let thisReg = emitConstructorAllocationImpl(output, g_regBox, className,
-            structNames, structSizes, structFieldNames, structFieldTypes)
-        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-            varTypes, activeVarCount, "this", thisReg, className)
-    }
-
-    fun tryEmitClassMethodConstructorReturn(methodName: String) r: Bool {
-        if blockTerminated {
-            return false
-        }
-        if methodName != "new" {
-            return false
-        }
-        let thisVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, "this")
-        if thisVarIdx < 0 {
-            return false
-        }
-        emitConstructorReturnImpl(output, g_regBox, varRegs[thisVarIdx])
-        blockTerminated = true
-        return true
-    }
-
-    fun emitClassMethodDefaultReturn(returnType: String) r: Void {
-        if blockTerminated {
-            return
-        }
-        emitDefaultReturnValueImpl(output, returnType)
-    }
-
     fun generateClassMethodFromList(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
         let methodName = methods[methodIdx].name
         if shouldTraceClassMethodStartImpl(className) {
@@ -2739,11 +2706,17 @@ class LLVMIRGenerator {
             preAllocatedTypes, structNames, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
             g_reprCClassNames)
-        emitClassMethodConstructorSetup(className, methodName)
+        activeVarCount = emitClassMethodConstructorSetupStateImpl(output,
+            g_regBox, varNames, varRegs, varTypes, activeVarCount, className,
+            methodName, structNames, structSizes, structFieldNames,
+            structFieldTypes)
 
         generateBlock(methods[methodIdx].body)
-        tryEmitClassMethodConstructorReturn(methodName)
-        emitClassMethodDefaultReturn(returnType)
+        blockTerminated = tryEmitClassMethodConstructorReturnStateImpl(output,
+            g_regBox, varNames, varRegs, activeVarCount, methodName,
+            blockTerminated)
+        emitClassMethodDefaultReturnStateImpl(output, returnType,
+            blockTerminated)
         output.append("}\n\n")
     }
 

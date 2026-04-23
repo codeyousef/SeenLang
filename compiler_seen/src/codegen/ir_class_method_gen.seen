@@ -7,7 +7,8 @@ import codegen.ir_optimization.{selfCallCheck, getNextRegFn}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
 import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
-import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+import codegen.ir_function_gen.{emitDefaultReturnValueImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl, findActiveVariableIndexImpl}
 import codegen.type_registry.{findStructReg, isDataTypeReg, getDataTypeSizeReg, getTypeSizeReg}
 
 fun methodHasDecoratorImpl(methods: Array<FunctionNode>, methodIdx: Int, decoratorName: String) r: Int {
@@ -283,6 +284,51 @@ fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
         paramIdx = paramIdx + 1
     }
     return nextActiveVarCount
+}
+
+fun emitClassMethodConstructorSetupStateImpl(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, className: String,
+    methodName: String, structNames: Array<String>, structSizes: Array<Int>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>)
+    r: Int {
+
+    if methodName != "new" {
+        return activeVarCount
+    }
+    let thisReg = emitConstructorAllocationImpl(output, regBox, className,
+        structNames, structSizes, structFieldNames, structFieldTypes)
+    return storeActiveVariableBindingImpl(varNames, varRegs, varTypes,
+        activeVarCount, "this", thisReg, className)
+}
+
+fun tryEmitClassMethodConstructorReturnStateImpl(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    activeVarCount: Int, methodName: String, blockTerminated: Bool)
+    r: Bool {
+
+    if blockTerminated {
+        return true
+    }
+    if methodName != "new" {
+        return false
+    }
+    let thisVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount,
+        "this")
+    if thisVarIdx < 0 {
+        return false
+    }
+    emitConstructorReturnImpl(output, regBox, varRegs[thisVarIdx])
+    return true
+}
+
+fun emitClassMethodDefaultReturnStateImpl(output: StringBuilder,
+    returnType: String, blockTerminated: Bool) r: Void {
+
+    if blockTerminated {
+        return
+    }
+    emitDefaultReturnValueImpl(output, returnType)
 }
 
 // tryEmitOptionClassMethodShimImpl — emit builtin Option method shims.
