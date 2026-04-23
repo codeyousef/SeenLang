@@ -1825,7 +1825,11 @@ class LLVMIRGenerator {
     fun emitProgramsGlobalVariables(programs: Array<ProgramNode>) r: Void {
         var pi = 0
         while pi < programs.length() {
-            emitProgramGlobalVariables(programs[pi])
+            let moduleConstState = captureModuleConstantRegistryState()
+            emitGlobalVariablesIntoStateImpl(output, programs[pi],
+                moduleConstantNames, moduleConstantTypes,
+                moduleConstantValues, moduleConstState)
+            syncModuleConstantRegistryState(moduleConstState)
             pi = pi + 1
         }
     }
@@ -1951,7 +1955,7 @@ class LLVMIRGenerator {
         emitProgramsGlobalVariables(programs)
 
         // Emit string constants
-        emitStringConstants()
+        emitStringConstantsImpl(output, stringConstants)
         let stringConstCountBeforeGen = stringConstants.length()
 
         // Emit runtime declarations
@@ -1974,7 +1978,8 @@ class LLVMIRGenerator {
         emitProgramsTopLevelFunctions(programs)
 
         // Emit vtable constants for trait implementations
-        emitTraitVtableConstants()
+        emitTraitVtableConstantsImpl(output, g_traitImplRegistry,
+            g_traitImplCount, g_dynTraitNames)
 
         emitAdditionalGeneratedStringConstants(stringConstCountBeforeGen)
         emitGeneratedClosures()
@@ -1982,7 +1987,7 @@ class LLVMIRGenerator {
         emitOptimizationStatisticsSummary(0, false)
 
         // Emit @llvm.global_ctors for @init functions
-        emitGlobalConstructors()
+        emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
 
         // Emit TBAA metadata at end of module
         emitTBAAMetadata()
@@ -2054,17 +2059,23 @@ class LLVMIRGenerator {
         // Emit global variable declarations for THIS module
         println("[irgen module " + moduleIndex.toString() + "] globals start")
         let globalsStartTime = getIrgenTraceTimeSeconds()
-        emitProgramGlobalVariables(program)
+        let moduleConstState = captureModuleConstantRegistryState()
+        emitGlobalVariablesIntoStateImpl(output, program,
+            moduleConstantNames, moduleConstantTypes, moduleConstantValues,
+            moduleConstState)
+        syncModuleConstantRegistryState(moduleConstState)
         let globalsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] globals done in " + (globalsEndTime - globalsStartTime).toString() + "s")
 
         // Emit external declarations for cross-module constants not defined in this module
-        emitCrossModuleConstantDeclares()
+        emitCrossModuleConstantDeclaresImpl(output, moduleConstantNames,
+            g_xmConstNames, g_xmConstTypes, g_xmConstCount)
 
         // Emit string constants with module prefix
         println("[irgen module " + moduleIndex.toString() + "] string constants start")
         let stringConstantsStartTime = getIrgenTraceTimeSeconds()
-        emitStringConstantsWithPrefix(moduleIndex)
+        emitStringConstantsWithPrefixImpl(output, stringConstants,
+            moduleIndex)
         let stringConstantsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] string constants done in " + (stringConstantsEndTime - stringConstantsStartTime).toString() + "s")
         // Track how many string constants exist before class/function generation
@@ -2123,7 +2134,8 @@ class LLVMIRGenerator {
 
         // Emit vtable constants for trait implementations found in this module
         // Must be AFTER generateFunction so g_traitImplRegistry is populated
-        emitTraitVtableConstants()
+        emitTraitVtableConstantsImpl(output, g_traitImplRegistry,
+            g_traitImplCount, g_dynTraitNames)
 
         emitAdditionalGeneratedStringConstants(stringConstCountBeforeGen)
 
@@ -2189,7 +2201,7 @@ class LLVMIRGenerator {
         }
 
         // Emit @llvm.global_ctors for @init functions (multi-module path)
-        emitGlobalConstructors()
+        emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
 
         // Emit TBAA metadata at end of module
         emitTBAAMetadata()
@@ -2390,7 +2402,10 @@ class LLVMIRGenerator {
 
     fun emitTraitVtableType(classNode: ClassNode) r: Void {
         let className = classNode.name
-        registerDynTraitName(className)
+        let dynTraitNamesBox = Array<String>()
+        dynTraitNamesBox.push(g_dynTraitNames)
+        appendDynTraitNameImpl(className, dynTraitNamesBox)
+        g_dynTraitNames = dynTraitNamesBox[0]
         output.append("; dyn " + className + " vtable type\n")
         output.append("%" + quoteIdentIfNeeded(className + "_vtable") + " = type { ")
         var methodIdx = 0
@@ -2534,7 +2549,8 @@ class LLVMIRGenerator {
                 methodIdx = methodIdx + 1
                 continue
             }
-            generateClassMethodByIndex(classNode, methodIdx)
+            generateClassMethodFromList(classNode.name, classNode.parentName,
+                classNode.methods, methodIdx)
             methodIdx = methodIdx + 1
         }
     }
@@ -2720,19 +2736,6 @@ class LLVMIRGenerator {
         output.append("}\n\n")
     }
 
-    fun generateClassMethodByIndex(classNode: ClassNode, methodIdx: Int) r: Void {
-        generateClassMethodFromList(classNode.name, classNode.parentName, classNode.methods, methodIdx)
-    }
-
-    fun emitStringConstants() r: Void {
-        emitStringConstantsImpl(output, stringConstants)
-    }
-
-    // Emit string constants with module prefix to avoid collisions in per-module compilation
-    fun emitStringConstantsWithPrefix(moduleIndex: Int) r: Void {
-        emitStringConstantsWithPrefixImpl(output, stringConstants, moduleIndex)
-    }
-
     // Delegates to free functions in ir_decl_runtime/parser/features.seen
     // Emit `declare` statements for all runtime C functions (seen_runtime.c)
     // and standard library functions that might be called from user code.
@@ -2747,32 +2750,6 @@ class LLVMIRGenerator {
         emitTypecheckerDecls(output, runtimeDeclsLoaded, definedFuncs)
         emitMacroAndLspDecls(output, definedFuncs)
         emitFeatureDecls(output, definedFuncs)
-    }
-
-    fun emitProgramGlobalVariables(program: ProgramNode) r: Void {
-        let moduleConstState = captureModuleConstantRegistryState()
-        emitGlobalVariablesIntoStateImpl(output, program, moduleConstantNames,
-            moduleConstantTypes, moduleConstantValues, moduleConstState)
-        syncModuleConstantRegistryState(moduleConstState)
-    }
-
-    fun emitCrossModuleConstantDeclares() r: Void {
-        emitCrossModuleConstantDeclaresImpl(output, moduleConstantNames, g_xmConstNames, g_xmConstTypes, g_xmConstCount)
-    }
-
-    fun emitTraitVtableConstants() r: Void {
-        emitTraitVtableConstantsImpl(output, g_traitImplRegistry, g_traitImplCount, g_dynTraitNames)
-    }
-
-    fun registerDynTraitName(name: String) r: Void {
-        let namesBox = Array<String>()
-        namesBox.push(g_dynTraitNames)
-        appendDynTraitNameImpl(name, namesBox)
-        g_dynTraitNames = namesBox[0]
-    }
-
-    fun emitGlobalConstructors() r: Void {
-        emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
     }
 
     // Helper to check if a function has a specific decorator
