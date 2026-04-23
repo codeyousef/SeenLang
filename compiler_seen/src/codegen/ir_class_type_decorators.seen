@@ -79,6 +79,26 @@ class ClassTypeDecoratorState {
     }
 }
 
+class ClassTypeDecoratorScanSnapshot {
+    var typeFlags: Array<Int>
+    var decoratorState: ClassTypeDecoratorState
+    var emittedSpecialClassType: Int
+
+    static fun new(decoratorState: ClassTypeDecoratorState)
+        r: ClassTypeDecoratorScanSnapshot {
+
+        let typeFlags = Array<Int>()
+        typeFlags.push(0)
+        typeFlags.push(0)
+        typeFlags.push(0)
+        return ClassTypeDecoratorScanSnapshot{
+            typeFlags: typeFlags,
+            decoratorState: decoratorState,
+            emittedSpecialClassType: 0
+        }
+    }
+}
+
 fun registerClassTypeDecoratorMetadataImpl(output: StringBuilder,
     className: String, decorator: AnnotationNode, typeFlags: Array<Int>,
     state: ClassTypeDecoratorState) r: Void {
@@ -202,4 +222,38 @@ fun scanClassTypeDecoratorsImpl(output: StringBuilder, classNode: ClassNode,
         decoratorIdx = decoratorIdx + 1
     }
     return false
+}
+
+fun prepareClassTypeDecoratorScanSnapshotImpl(output: StringBuilder,
+    classNode: ClassNode, reprCClassNames: String,
+    cacheLineClasses: String, sendTypes: String, syncTypes: String,
+    soaClassNames: String, soaClassCount: Int,
+    triviallyCopyableClasses: String, moveOnlyClasses: String,
+    cResourceClasses: String, cResourceDestructors: String,
+    reflectClassNames: String, reflectClassCount: Int,
+    binaryClassNames: String, binaryEndianness: String,
+    binaryVersions: String, binaryClassCount: Int,
+    packetClassNames: String, packetClassIds: String, packetCount: Int,
+    gpuBufferClasses: String, gpuBufferLayouts: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>) r: ClassTypeDecoratorScanSnapshot {
+
+    let decoratorState = ClassTypeDecoratorState.new(reprCClassNames,
+        cacheLineClasses, sendTypes, syncTypes, soaClassNames,
+        soaClassCount, triviallyCopyableClasses, moveOnlyClasses,
+        cResourceClasses, cResourceDestructors, reflectClassNames,
+        reflectClassCount, binaryClassNames, binaryEndianness,
+        binaryVersions, binaryClassCount, packetClassNames,
+        packetClassIds, packetCount, gpuBufferClasses, gpuBufferLayouts,
+        unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames)
+    let snapshot = ClassTypeDecoratorScanSnapshot.new(decoratorState)
+    if scanClassTypeDecoratorsImpl(output, classNode, snapshot.typeFlags,
+        snapshot.decoratorState, structNames, structLayouts, structSizes) {
+
+        snapshot.emittedSpecialClassType = 1
+    }
+    return snapshot
 }

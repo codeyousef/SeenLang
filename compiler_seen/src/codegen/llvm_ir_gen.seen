@@ -86,7 +86,7 @@ import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGenera
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
-import codegen.ir_class_type_decorators.{ClassTypeDecoratorState, scanClassTypeDecoratorsImpl}
+import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
 import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl, hasHotReloadMarkerMethodImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
@@ -2139,11 +2139,8 @@ class LLVMIRGenerator {
         generatedClasses.push(className)
         registerStructLayout(classNode)
 
-        let typeFlags = Array<Int>()
-        typeFlags.push(0)
-        typeFlags.push(0)
-        typeFlags.push(0)
-        let decoratorState = ClassTypeDecoratorState.new(g_reprCClassNames,
+        let decoratorSnapshot = prepareClassTypeDecoratorScanSnapshotImpl(
+            output, classNode, g_reprCClassNames,
             g_cacheLineClasses, g_sendTypes, g_syncTypes, g_soaClassNames,
             g_soaClassCount, g_triviallyCopyableClasses, g_moveOnlyClasses,
             g_cResourceClasses, g_cResourceDestructors, g_reflectClassNames,
@@ -2151,10 +2148,10 @@ class LLVMIRGenerator {
             g_binaryVersions, g_binaryClassCount, g_packetClassNames,
             g_packetClassIds, g_packetCount, g_gpuBufferClasses,
             g_gpuBufferLayouts, g_unionTypes, g_typeAliasNames,
-            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
-        let emittedSpecialClassType = scanClassTypeDecoratorsImpl(output,
-            classNode, typeFlags, decoratorState, structNames, structLayouts,
-            structSizes)
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            structNames, structLayouts, structSizes)
+        let typeFlags = decoratorSnapshot.typeFlags
+        let decoratorState = decoratorSnapshot.decoratorState
         g_reprCClassNames = decoratorState.reprCClassNames
         g_cacheLineClasses = decoratorState.cacheLineClasses
         g_sendTypes = decoratorState.sendTypes
@@ -2178,7 +2175,7 @@ class LLVMIRGenerator {
         g_gpuBufferClasses = decoratorState.gpuBufferClasses
         g_gpuBufferLayouts = decoratorState.gpuBufferLayouts
         g_unionTypes = decoratorState.unionTypes
-        if emittedSpecialClassType {
+        if decoratorSnapshot.emittedSpecialClassType == 1 {
             return
         }
 
