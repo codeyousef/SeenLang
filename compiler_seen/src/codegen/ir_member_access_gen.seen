@@ -1,0 +1,205 @@
+// ir_member_access_gen.seen — Shared member-access emission helpers
+// Extracted from llvm_ir_gen.seen to keep receiver staging out of the facade.
+
+import str.string.{StringBuilder}
+import codegen.ir_type_mapping.{isDataTypeImpl}
+import codegen.ir_field_layout.{generateFieldAccessImpl, resolveMemberAccessFieldReceiverPtrImpl}
+import codegen.ir_member_access.{emitMemberArrayElementPtrImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
+import codegen.ir_variable_gen.{emitImplicitThisPointerLoadImpl}
+import codegen.type_registry.{isClassTypeReg}
+
+fun emitPreparedReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, preparedReceiverReg: String, receiverType: String,
+    fieldName: String, fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    return generateFieldAccessImpl(output, regBox, preparedReceiverReg,
+        receiverType, fieldName, fieldLlvmType, structNames, structLayouts,
+        structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitExpressionReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverReg: String, receiverType: String,
+    fieldName: String, fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    var exprIsClass = 0
+    if isClassTypeReg(receiverType, structNames) { exprIsClass = 1 }
+    var exprIsData = 0
+    if isDataTypeImpl(receiverType) == 1 { exprIsData = 1 }
+    let actualReceiverReg = prepareExpressionMemberReceiverImpl(output, regBox,
+        receiverReg, receiverType, reprCClassNames, exprIsClass, exprIsData)
+    return emitPreparedReceiverMemberAccessImpl(output, regBox,
+        actualReceiverReg, receiverType, fieldName, fieldLlvmType,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+        bitfieldWidths)
+}
+
+fun emitVariableReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, varReg: String, varType: String, fieldName: String,
+    fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    var varIsClass = 0
+    if isClassTypeReg(varType, structNames) { varIsClass = 1 }
+    var varIsData = 0
+    if isDataTypeImpl(varType) == 1 { varIsData = 1 }
+    let actualVarReg = prepareVariableMemberReceiverImpl(output, regBox,
+        varReg, varType, reprCClassNames, varIsClass, varIsData)
+    return emitPreparedReceiverMemberAccessImpl(output, regBox, actualVarReg,
+        varType, fieldName, fieldLlvmType, structNames, structLayouts,
+        structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitModuleConstReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, quotedGlobalName: String, constType: String,
+    constSeenType: String, invariantSuffix: String, fieldName: String,
+    fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    var constIsClass = 0
+    if constSeenType != "" and isClassTypeReg(constSeenType, structNames) {
+        constIsClass = 1
+    }
+    var constIsData = 0
+    if constSeenType != "" and isDataTypeImpl(constSeenType) == 1 {
+        constIsData = 1
+    }
+    let actualConstReg = prepareModuleConstMemberReceiverImpl(output, regBox,
+        quotedGlobalName, constType, constSeenType, invariantSuffix,
+        constIsClass, constIsData)
+    if actualConstReg == "" {
+        return ""
+    }
+    return emitPreparedReceiverMemberAccessImpl(output, regBox, actualConstReg,
+        constSeenType, fieldName, fieldLlvmType, structNames, structLayouts,
+        structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitBracketPathMemberAccessImpl(output: StringBuilder, regBox: Array<Int>,
+    receiverName: String, fieldName: String, baseVarName: String,
+    baseVarReg: String, baseType: String, arrayField: String,
+    arrayFieldLlvmType: String, indexStr: String, elementType: String,
+    fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    output.append("; DEBUG generateMemberAccess: handling array path=" +
+        receiverName + " fieldName=" + fieldName + "\n")
+    output.append("; DEBUG array path split: baseVar=" + baseVarName +
+        " arrayField=" + arrayField + "\n")
+
+    var baseIsClass = 0
+    if isClassTypeReg(baseType, structNames) { baseIsClass = 1 }
+    var baseIsData = 0
+    if isDataTypeImpl(baseType) == 1 { baseIsData = 1 }
+    let basePtrReg = prepareVariableMemberReceiverImpl(output, regBox,
+        baseVarReg, baseType, reprCClassNames, baseIsClass, baseIsData)
+    let arrayReg = generateFieldAccessImpl(output, regBox, basePtrReg,
+        baseType, arrayField, arrayFieldLlvmType, structNames, structLayouts,
+        structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+    output.append("; DEBUG array access: arrayReg=" + arrayReg +
+        " arrayType=" + elementType + "\n")
+
+    let elementPtrReg = emitMemberArrayElementPtrImpl(output, regBox, arrayReg,
+        indexStr)
+    output.append("; DEBUG element access: elementPtrReg=" + elementPtrReg +
+        " elementType=" + elementType + "\n")
+    return emitPreparedReceiverMemberAccessImpl(output, regBox, elementPtrReg,
+        elementType, fieldName, fieldLlvmType, structNames, structLayouts,
+        structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitChainedReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, fieldName: String, baseVarReg: String,
+    baseType: String, restPath: String, intermediateType: String,
+    fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    var baseIsClass = 0
+    if isClassTypeReg(baseType, structNames) { baseIsClass = 1 }
+    var baseIsData = 0
+    if isDataTypeImpl(baseType) == 1 { baseIsData = 1 }
+    let basePtrReg = prepareVariableMemberReceiverImpl(output, regBox,
+        baseVarReg, baseType, reprCClassNames, baseIsClass, baseIsData)
+
+    output.append("; DEBUG generateMemberAccess: baseType=" + baseType +
+        " restPath=" + restPath + " fieldName=" + fieldName + "\n")
+    output.append("; DEBUG chained type final: intermediateType=" +
+        intermediateType + "\n")
+
+    let actualIntermediateReg = resolveMemberAccessFieldReceiverPtrImpl(
+        output, regBox, basePtrReg, baseType, restPath, intermediateType,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+        bitfieldWidths)
+    return emitPreparedReceiverMemberAccessImpl(output, regBox,
+        actualIntermediateReg, intermediateType, fieldName, fieldLlvmType,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+        bitfieldWidths)
+}
+
+fun emitImplicitThisReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverName: String, fieldName: String, thisReg: String,
+    thisType: String, intermediateType: String, fieldLlvmType: String,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    reprCClassNames: String, unionTypes: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
+    r: String {
+
+    let thisPtrReg = emitImplicitThisPointerLoadImpl(output, regBox, thisReg)
+    output.append("; DEBUG this field access: thisType=" + thisType +
+        " receiverName=" + receiverName + " intermediateType=" +
+        intermediateType + " fieldName=" + fieldName + "\n")
+
+    let accessReg = resolveMemberAccessFieldReceiverPtrImpl(output, regBox,
+        thisPtrReg, thisType, receiverName, intermediateType, structNames,
+        structLayouts, structFieldNames, structFieldTypes, reprCClassNames,
+        unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+    return emitPreparedReceiverMemberAccessImpl(output, regBox, accessReg,
+        intermediateType, fieldName, fieldLlvmType, structNames,
+        structLayouts, structFieldNames, structFieldTypes, reprCClassNames,
+        unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+}

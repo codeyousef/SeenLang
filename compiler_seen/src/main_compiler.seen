@@ -78,6 +78,7 @@ import codegen.ir_variable_gen.{getExprVariableNameImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl}
 import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
+import codegen.ir_member_access_gen.{emitVariableReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl}
 import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
@@ -1910,6 +1911,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_field_layout")
         modules.push("codegen.ir_path_expr")
         modules.push("codegen.ir_member_access")
+        modules.push("codegen.ir_member_access_gen")
         modules.push("codegen.ir_method_receiver")
         modules.push("codegen.ir_method_fastpath")
         modules.push("codegen.ir_binary_expr")

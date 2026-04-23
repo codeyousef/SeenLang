@@ -83,9 +83,10 @@ import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGen
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
-import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl, resolveMemberAccessFieldReceiverPtrImpl}
+import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
-import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl, emitMemberArrayElementPtrImpl, emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl, prepareExpressionMemberReceiverImpl, prepareVariableMemberReceiverImpl, prepareModuleConstMemberReceiverImpl}
+import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
+import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
@@ -6491,13 +6492,13 @@ class LLVMIRGenerator {
     fun tryGenerateExpressionReceiverMemberAccess(receiverExpr: ParserExpressionNode, fieldName: String) r: String {
         let receiverReg = generateExpression(receiverExpr)
         let receiverType = inferExpressionType(receiverExpr)
-        var exprIsClass = 0
-        if isClassType(receiverType) { exprIsClass = 1 }
-        var exprIsData = 0
-        if isDataType(receiverType) { exprIsData = 1 }
-        let actualReceiverReg = prepareExpressionMemberReceiverImpl(output, g_regBox,
-            receiverReg, receiverType, g_reprCClassNames, exprIsClass, exprIsData)
-        return generateFieldAccess(actualReceiverReg, receiverType, fieldName)
+        return emitExpressionReceiverMemberAccessImpl(output, g_regBox,
+            receiverReg, receiverType, fieldName,
+            getFieldType(receiverType, fieldName), structNames, structLayouts,
+            structFieldNames, structFieldTypes, g_reprCClassNames,
+            g_unionTypes, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames, g_bitfieldCount,
+            g_bitfieldKeys, g_bitfieldWidths)
     }
 
     fun tryGenerateVariableReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
@@ -6506,13 +6507,12 @@ class LLVMIRGenerator {
             return ""
         }
         let varType = varTypes[idx]
-        var varIsClass = 0
-        if isClassType(varType) { varIsClass = 1 }
-        var varIsData = 0
-        if isDataType(varType) { varIsData = 1 }
-        let actualVarReg = prepareVariableMemberReceiverImpl(output, g_regBox,
-            varRegs[idx], varType, g_reprCClassNames, varIsClass, varIsData)
-        return generateFieldAccess(actualVarReg, varType, fieldName)
+        return emitVariableReceiverMemberAccessImpl(output, g_regBox,
+            varRegs[idx], varType, fieldName, getFieldType(varType, fieldName),
+            structNames, structLayouts, structFieldNames, structFieldTypes,
+            g_reprCClassNames, g_unionTypes, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
     }
 
     fun tryGenerateModuleConstReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
@@ -6528,30 +6528,25 @@ class LLVMIRGenerator {
         }
         let invSuffix = moduleConstantInvariantLoadSuffixImpl(constIdx,
             g_moduleConstMutable)
-        var constIsClass = 0
-        if constSeenType != "" and isClassType(constSeenType) { constIsClass = 1 }
-        var constIsData = 0
-        if constSeenType != "" and isDataType(constSeenType) { constIsData = 1 }
-        let actualConstReg = prepareModuleConstMemberReceiverImpl(output, g_regBox,
-            "@" + quoteIdentIfNeeded(receiverName), constType, constSeenType, invSuffix, constIsClass, constIsData)
-        if actualConstReg == "" {
-            return ""
-        }
-        return generateFieldAccess(actualConstReg, constSeenType, fieldName)
+        return emitModuleConstReceiverMemberAccessImpl(output, g_regBox,
+            "@" + quoteIdentIfNeeded(receiverName), constType, constSeenType,
+            invSuffix, fieldName, getFieldType(constSeenType, fieldName),
+            structNames, structLayouts, structFieldNames, structFieldTypes,
+            g_reprCClassNames, g_unionTypes, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
     }
 
     fun tryGenerateBracketPathMemberAccess(receiverName: String, fieldName: String) r: String {
         if not receiverName.contains("[") {
             return ""
         }
-        output.append("; DEBUG generateMemberAccess: handling array path=" + receiverName + " fieldName=" + fieldName + "\n")
         let bracketParts = splitBracketPathImpl(receiverName)
         if bracketParts.length() < 2 {
             return ""
         }
         let pathBeforeBracket = bracketParts[0]
         let indexStr = bracketParts[1]
-        output.append("; DEBUG array path: pathBeforeBracket=" + pathBeforeBracket + " indexStr=" + indexStr + "\n")
         if not pathBeforeBracket.contains(".") {
             return ""
         }
@@ -6559,7 +6554,6 @@ class LLVMIRGenerator {
         let pathParts = splitFirstPathDotImpl(pathBeforeBracket)
         let baseVar = pathParts[0]
         let arrayField = pathParts[1]
-        output.append("; DEBUG array path split: baseVar=" + baseVar + " arrayField=" + arrayField + "\n")
 
         let baseIdx = findActiveVariableIndexImpl(varNames, activeVarCount, baseVar)
         if baseIdx < 0 {
@@ -6567,24 +6561,19 @@ class LLVMIRGenerator {
         }
 
         let baseType = varTypes[baseIdx]
-        var baseIsClass = 0
-        if isClassType(baseType) { baseIsClass = 1 }
-        var baseIsData = 0
-        if isDataType(baseType) { baseIsData = 1 }
-        let basePtrReg = prepareVariableMemberReceiverImpl(output, g_regBox,
-            varRegs[baseIdx], baseType, g_reprCClassNames, baseIsClass, baseIsData)
-        let arrayReg = generateFieldAccess(basePtrReg, baseType, arrayField)
         let arrayType = getSeenFieldType(baseType, arrayField)
-        output.append("; DEBUG array access: arrayReg=" + arrayReg + " arrayType=" + arrayType + "\n")
-
         var elementType = parseArrayElementTypeImpl(arrayType)
         if elementType == "" and arrayType.startsWith("Array<") and arrayType.endsWith(">") {
             elementType = arrayType.substring(6, arrayType.length() - 1)
         }
-
-        let elementPtrReg = emitMemberArrayElementPtrImpl(output, g_regBox, arrayReg, indexStr)
-        output.append("; DEBUG element access: elementPtrReg=" + elementPtrReg + " elementType=" + elementType + "\n")
-        return generateFieldAccess(elementPtrReg, elementType, fieldName)
+        return emitBracketPathMemberAccessImpl(output, g_regBox, receiverName,
+            fieldName, baseVar, varRegs[baseIdx], baseType, arrayField,
+            getFieldType(baseType, arrayField), indexStr, elementType,
+            getFieldType(elementType, fieldName), structNames, structLayouts,
+            structFieldNames, structFieldTypes, g_reprCClassNames,
+            g_unionTypes, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames, g_bitfieldCount,
+            g_bitfieldKeys, g_bitfieldWidths)
     }
 
     fun tryGenerateChainedReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
@@ -6603,30 +6592,18 @@ class LLVMIRGenerator {
             return ""
         }
         let baseType = varTypes[baseIdx]
-        var baseIsClass = 0
-        if isClassType(baseType) { baseIsClass = 1 }
-        var baseIsData = 0
-        if isDataType(baseType) { baseIsData = 1 }
-        let basePtrReg = prepareVariableMemberReceiverImpl(output, g_regBox,
-            varRegs[baseIdx], baseType, g_reprCClassNames, baseIsClass, baseIsData)
-
-        output.append("; DEBUG generateMemberAccess: baseType=" + baseType + " restPath=" + restPath + " fieldName=" + fieldName + "\n")
         var intermediateType = resolveChainedPathSuffixTypeImpl(baseType, restPath,
             structNames, structFieldNames, structFieldTypes, structMethodNames, structMethodRetTypes)
-        output.append("; DEBUG chained type final: intermediateType=" + intermediateType + "\n")
         if intermediateType == "" {
             intermediateType = "ProgramNode"
         }
-
-        let actualIntermediateReg = resolveMemberAccessFieldReceiverPtrImpl(
-            output, g_regBox, basePtrReg, baseType, restPath,
-            intermediateType, structNames, structLayouts, structFieldNames,
-            structFieldTypes, g_reprCClassNames, g_unionTypes,
-            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-            g_enumTypeNames, g_bitfieldCount, g_bitfieldKeys,
-            g_bitfieldWidths)
-
-        return generateFieldAccess(actualIntermediateReg, intermediateType, fieldName)
+        return emitChainedReceiverMemberAccessImpl(output, g_regBox,
+            fieldName, varRegs[baseIdx], baseType, restPath, intermediateType,
+            getFieldType(intermediateType, fieldName), structNames,
+            structLayouts, structFieldNames, structFieldTypes,
+            g_reprCClassNames, g_unionTypes, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
     }
 
     fun tryGenerateImplicitThisReceiverMemberAccess(receiverName: String, fieldName: String) r: String {
@@ -6640,18 +6617,14 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let thisPtrReg = emitImplicitThisPointerLoadImpl(output, g_regBox, varRegs[thisIdx])
         let intermediateType = getSeenFieldType(thisType, receiverName)
-        output.append("; DEBUG this field access: thisType=" + thisType + " receiverName=" + receiverName + " intermediateType=" + intermediateType + " fieldName=" + fieldName + "\n")
-
-        let accessReg = resolveMemberAccessFieldReceiverPtrImpl(output,
-            g_regBox, thisPtrReg, thisType, receiverName, intermediateType,
+        return emitImplicitThisReceiverMemberAccessImpl(output, g_regBox,
+            receiverName, fieldName, varRegs[thisIdx], thisType,
+            intermediateType, getFieldType(intermediateType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
             g_bitfieldCount, g_bitfieldKeys, g_bitfieldWidths)
-
-        return generateFieldAccess(accessReg, intermediateType, fieldName)
     }
 
     // Generate IR for member access (expr.field). Handles:
