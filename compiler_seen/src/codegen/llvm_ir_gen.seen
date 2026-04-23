@@ -43,7 +43,7 @@ import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parse
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
-import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, collectStructMethodSignaturesImpl}
+import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerPreparedDeclarationItemsIntoStateImpl}
@@ -84,7 +84,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
-import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
+import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
 import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
@@ -1520,43 +1520,31 @@ class LLVMIRGenerator {
         traceGen("registerStructLayout: " + classNode.name + " structIdx=" + structIdx.toString() + " namesLen=" + structNames.length().toString() + " fieldNamesLen=" + structFieldNames.length().toString())
         traceGen("registerStructLayout: " + classNode.name + " fields=" + classNode.fields.length().toString())
 
-        // Const generics: extract numeric values from type name (e.g., "Grid<Int,8,8>")
-        let constGenericNamesBox = Array<String>()
-        constGenericNamesBox.push(g_constGenericNames)
-        let constGenericValuesBox = Array<String>()
-        constGenericValuesBox.push(g_constGenericValues)
-        recordConstGenericNumericParamsImpl(classNode.name, constGenericNamesBox,
-            constGenericValuesBox)
-        g_constGenericNames = constGenericNamesBox[0]
-        g_constGenericValues = constGenericValuesBox[0]
-
-        // Build the layout from fields
-        let typeAliasState = prepareClassTypeAliasStateSnapshotImpl(classNode,
-            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount)
-        let ownCount = typeAliasState.realFieldCount
-        g_typeAliasNames = typeAliasState.typeAliasNames
-        g_typeAliasTargets = typeAliasState.typeAliasTargets
-        g_typeAliasCount = typeAliasState.typeAliasCount
-        let layoutState = StructLayoutBuildState.new("{ ", "", "", 0,
+        let layoutSnapshot = prepareStructLayoutRegistrationSnapshotImpl(
+            classNode, g_constGenericNames, g_constGenericValues,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_inheritanceChildNames, g_inheritanceParentNames,
             g_inheritanceCount, g_bitfieldKeys, g_bitfieldWidths,
-            g_bitfieldOffsets, g_bitfieldCount)
-        buildStructLayoutStateImpl(classNode, ownCount, layoutState,
-            structNames, structLayouts, structFieldNames, structFieldTypes,
-            structSizes, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames)
-        g_inheritanceChildNames = layoutState.inheritanceChildNames
-        g_inheritanceParentNames = layoutState.inheritanceParentNames
-        g_inheritanceCount = layoutState.inheritanceCount
-        g_bitfieldKeys = layoutState.bitfieldKeys
-        g_bitfieldWidths = layoutState.bitfieldWidths
-        g_bitfieldOffsets = layoutState.bitfieldOffsets
-        g_bitfieldCount = layoutState.bitfieldCount
+            g_bitfieldOffsets, g_bitfieldCount, structNames, structLayouts,
+            structFieldNames, structFieldTypes, structSizes,
+            g_enumTypeNames)
+        g_constGenericNames = layoutSnapshot.constGenericNames
+        g_constGenericValues = layoutSnapshot.constGenericValues
+        g_typeAliasNames = layoutSnapshot.typeAliasNames
+        g_typeAliasTargets = layoutSnapshot.typeAliasTargets
+        g_typeAliasCount = layoutSnapshot.typeAliasCount
+        g_inheritanceChildNames = layoutSnapshot.inheritanceChildNames
+        g_inheritanceParentNames = layoutSnapshot.inheritanceParentNames
+        g_inheritanceCount = layoutSnapshot.inheritanceCount
+        g_bitfieldKeys = layoutSnapshot.bitfieldKeys
+        g_bitfieldWidths = layoutSnapshot.bitfieldWidths
+        g_bitfieldOffsets = layoutSnapshot.bitfieldOffsets
+        g_bitfieldCount = layoutSnapshot.bitfieldCount
 
-        let layout = layoutState.layout + " }"
-        let fieldNames = layoutState.fieldNames
-        let fieldTypes = layoutState.fieldTypes
-        let totalSize = layoutState.totalSize
+        let layout = layoutSnapshot.layout
+        let fieldNames = layoutSnapshot.fieldNames
+        let fieldTypes = layoutSnapshot.fieldTypes
+        let totalSize = layoutSnapshot.totalSize
         traceGen("registerStructLayout: " + classNode.name + " layout built")
 
         // Collect method signatures

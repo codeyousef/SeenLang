@@ -5,8 +5,9 @@
 import parser.real_parser.{ClassNode}
 import codegen.ir_optimization.{parseIntManual}
 import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
-import codegen.ir_decl_scan.{appendInheritedStructLayoutPrefixImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl}
+import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl}
 import codegen.ir_decl_registry.{registerParentClassStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_class_type_layout.{prepareClassTypeAliasStateSnapshotImpl}
 import codegen.type_registry.{findStructReg}
 
 class StructLayoutBuildState {
@@ -41,6 +42,46 @@ class StructLayoutBuildState {
             bitfieldWidths: bitfieldWidths,
             bitfieldOffsets: bitfieldOffsets,
             bitfieldCount: bitfieldCount
+        }
+    }
+}
+
+class StructLayoutRegistrationSnapshot {
+    var constGenericNames: String
+    var constGenericValues: String
+    var typeAliasNames: String
+    var typeAliasTargets: String
+    var typeAliasCount: Int
+    var inheritanceChildNames: String
+    var inheritanceParentNames: String
+    var inheritanceCount: Int
+    var bitfieldKeys: String
+    var bitfieldWidths: String
+    var bitfieldOffsets: String
+    var bitfieldCount: Int
+    var layout: String
+    var fieldNames: String
+    var fieldTypes: String
+    var totalSize: Int
+
+    static fun new() r: StructLayoutRegistrationSnapshot {
+        return StructLayoutRegistrationSnapshot{
+            constGenericNames: "",
+            constGenericValues: "",
+            typeAliasNames: "",
+            typeAliasTargets: "",
+            typeAliasCount: 0,
+            inheritanceChildNames: "",
+            inheritanceParentNames: "",
+            inheritanceCount: 0,
+            bitfieldKeys: "",
+            bitfieldWidths: "",
+            bitfieldOffsets: "",
+            bitfieldCount: 0,
+            layout: "",
+            fieldNames: "",
+            fieldTypes: "",
+            totalSize: 0
         }
     }
 }
@@ -151,4 +192,52 @@ fun buildStructLayoutStateImpl(classNode: ClassNode, ownCount: Int,
     state.bitfieldWidths = bitfieldWidthsBox[0]
     state.bitfieldOffsets = bitfieldOffsetsBox[0]
     state.bitfieldCount = bitfieldCountBox[0]
+}
+
+fun prepareStructLayoutRegistrationSnapshotImpl(classNode: ClassNode,
+    constGenericNames: String, constGenericValues: String,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    inheritanceChildNames: String, inheritanceParentNames: String,
+    inheritanceCount: Int, bitfieldKeys: String, bitfieldWidths: String,
+    bitfieldOffsets: String, bitfieldCount: Int, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, structSizes: Array<Int>,
+    enumTypeNames: String) r: StructLayoutRegistrationSnapshot {
+
+    let snapshot = StructLayoutRegistrationSnapshot.new()
+
+    let constGenericNamesBox = Array<String>()
+    constGenericNamesBox.push(constGenericNames)
+    let constGenericValuesBox = Array<String>()
+    constGenericValuesBox.push(constGenericValues)
+    recordConstGenericNumericParamsImpl(classNode.name, constGenericNamesBox,
+        constGenericValuesBox)
+    snapshot.constGenericNames = constGenericNamesBox[0]
+    snapshot.constGenericValues = constGenericValuesBox[0]
+
+    let typeAliasState = prepareClassTypeAliasStateSnapshotImpl(classNode,
+        typeAliasNames, typeAliasTargets, typeAliasCount)
+    snapshot.typeAliasNames = typeAliasState.typeAliasNames
+    snapshot.typeAliasTargets = typeAliasState.typeAliasTargets
+    snapshot.typeAliasCount = typeAliasState.typeAliasCount
+
+    let layoutState = StructLayoutBuildState.new("{ ", "", "", 0,
+        inheritanceChildNames, inheritanceParentNames, inheritanceCount,
+        bitfieldKeys, bitfieldWidths, bitfieldOffsets, bitfieldCount)
+    buildStructLayoutStateImpl(classNode, typeAliasState.realFieldCount,
+        layoutState, structNames, structLayouts, structFieldNames,
+        structFieldTypes, structSizes, snapshot.typeAliasNames,
+        snapshot.typeAliasTargets, snapshot.typeAliasCount, enumTypeNames)
+    snapshot.inheritanceChildNames = layoutState.inheritanceChildNames
+    snapshot.inheritanceParentNames = layoutState.inheritanceParentNames
+    snapshot.inheritanceCount = layoutState.inheritanceCount
+    snapshot.bitfieldKeys = layoutState.bitfieldKeys
+    snapshot.bitfieldWidths = layoutState.bitfieldWidths
+    snapshot.bitfieldOffsets = layoutState.bitfieldOffsets
+    snapshot.bitfieldCount = layoutState.bitfieldCount
+    snapshot.layout = layoutState.layout + " }"
+    snapshot.fieldNames = layoutState.fieldNames
+    snapshot.fieldTypes = layoutState.fieldTypes
+    snapshot.totalSize = layoutState.totalSize
+    return snapshot
 }
