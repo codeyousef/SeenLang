@@ -12,6 +12,26 @@ import codegen.ir_function_param_meta.{mapFunctionParameterTypeImpl}
 import codegen.ir_declarations.{emitExternDeclImpl}
 import codegen.ir_decl_registry.{registerFunctionStateImpl}
 
+class FunctionAttributeStateSnapshot {
+    var funcAttrs: String
+    var initFuncNames: String
+    var initFuncCount: Int
+    var trustedFuncNames: String
+    var specializationNames: String
+    var specializationCount: Int
+
+    static fun new() r: FunctionAttributeStateSnapshot {
+        return FunctionAttributeStateSnapshot{
+            funcAttrs: "",
+            initFuncNames: "",
+            initFuncCount: 0,
+            trustedFuncNames: "",
+            specializationNames: "",
+            specializationCount: 0
+        }
+    }
+}
+
 fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String)
     r: Bool {
 
@@ -136,6 +156,34 @@ fun prepareFunctionAttributesStateImpl(output: StringBuilder, fn: FunctionNode,
         initFuncNamesBox, initFuncCountBox, trustedFuncNamesBox,
         specializationNamesBox, specializationCountBox)
     return funcAttrsBox[0]
+}
+
+fun prepareFunctionAttributeStateSnapshotImpl(output: StringBuilder,
+    fn: FunctionNode, sanitizerMode: String, initFuncNames: String,
+    initFuncCount: Int, trustedFuncNames: String,
+    specializationNames: String, specializationCount: Int)
+    r: FunctionAttributeStateSnapshot {
+
+    let snapshot = FunctionAttributeStateSnapshot.new()
+    let initFuncNamesBox = Array<String>()
+    initFuncNamesBox.push(initFuncNames)
+    let initFuncCountBox = Array<Int>()
+    initFuncCountBox.push(initFuncCount)
+    let trustedFuncNamesBox = Array<String>()
+    trustedFuncNamesBox.push(trustedFuncNames)
+    let specializationNamesBox = Array<String>()
+    specializationNamesBox.push(specializationNames)
+    let specializationCountBox = Array<Int>()
+    specializationCountBox.push(specializationCount)
+    snapshot.funcAttrs = prepareFunctionAttributesStateImpl(output, fn,
+        sanitizerMode, initFuncNamesBox, initFuncCountBox,
+        trustedFuncNamesBox, specializationNamesBox, specializationCountBox)
+    snapshot.initFuncNames = initFuncNamesBox[0]
+    snapshot.initFuncCount = initFuncCountBox[0]
+    snapshot.trustedFuncNames = trustedFuncNamesBox[0]
+    snapshot.specializationNames = specializationNamesBox[0]
+    snapshot.specializationCount = specializationCountBox[0]
+    return snapshot
 }
 
 fun tryHandleExternFunctionGenerationStateImpl(output: StringBuilder,

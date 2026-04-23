@@ -108,7 +108,7 @@ import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndex
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupStateImpl, emitFunctionExitAndResetStateImpl, analyzeFunctionInlineHeuristicsImpl, analyzeFunctionRegisterPressureImpl}
-import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl, tryHandleExternFunctionGenerationStateImpl}
+import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
@@ -2800,25 +2800,16 @@ class LLVMIRGenerator {
 
         // Build function attributes
         println("[irgen function] attrs start: " + fnName)
-        let initFuncNamesBox = Array<String>()
-        initFuncNamesBox.push(g_initFuncNames)
-        let initFuncCountBox = Array<Int>()
-        initFuncCountBox.push(g_initFuncCount)
-        let trustedFuncNamesBox = Array<String>()
-        trustedFuncNamesBox.push(g_trustedFuncNames)
-        let specializationNamesBox = Array<String>()
-        specializationNamesBox.push(g_specializationNames)
-        let specializationCountBox = Array<Int>()
-        specializationCountBox.push(g_specializationCount)
-        var funcAttrs = prepareFunctionAttributesStateImpl(output, fn,
-            g_sanitizerMode, initFuncNamesBox, initFuncCountBox,
-            trustedFuncNamesBox, specializationNamesBox,
-            specializationCountBox)
-        g_initFuncNames = initFuncNamesBox[0]
-        g_initFuncCount = initFuncCountBox[0]
-        g_trustedFuncNames = trustedFuncNamesBox[0]
-        g_specializationNames = specializationNamesBox[0]
-        g_specializationCount = specializationCountBox[0]
+        let funcAttrState = prepareFunctionAttributeStateSnapshotImpl(output,
+            fn, g_sanitizerMode, g_initFuncNames, g_initFuncCount,
+            g_trustedFuncNames, g_specializationNames,
+            g_specializationCount)
+        var funcAttrs = funcAttrState.funcAttrs
+        g_initFuncNames = funcAttrState.initFuncNames
+        g_initFuncCount = funcAttrState.initFuncCount
+        g_trustedFuncNames = funcAttrState.trustedFuncNames
+        g_specializationNames = funcAttrState.specializationNames
+        g_specializationCount = funcAttrState.specializationCount
         println("[irgen function] attrs done: " + fnName)
 
         // ML-guided inline decision
