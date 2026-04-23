@@ -1,0 +1,91 @@
+// ir_function_lowering.seen — function lowering option helpers
+// Extracted from llvm_ir_gen.seen to keep per-function decorator scans
+// separate from the main IR generation orchestration.
+
+import parser.real_parser.{FunctionNode}
+import codegen.type_registry.{FunctionLoweringOptions, resetFunctionLoweringOptions}
+
+fun hasFunctionLoweringDecoratorImpl(fn: FunctionNode, decoratorName: String)
+    r: Bool {
+
+    var decoratorIdx = 0
+    while decoratorIdx < fn.decorators.length() {
+        if fn.decorators[decoratorIdx].name == decoratorName {
+            return true
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    return false
+}
+
+fun configureFunctionLoweringOptionsImpl(fn: FunctionNode,
+    opts: FunctionLoweringOptions) r: Void {
+
+    resetFunctionLoweringOptions(opts)
+    if hasFunctionLoweringDecoratorImpl(fn, "no_vectorize") {
+        opts.vectorizeEnabled = false
+    }
+
+    var decIdx = 0
+    while decIdx < fn.decorators.length() {
+        let dec = fn.decorators[decIdx]
+        let decName = dec.name
+        let decArgs = dec.arguments
+        let decArgCount = decArgs.length()
+        if decName == "prefetch" {
+            if decArgCount > 0 {
+                let prefetchArg = decArgs[0]
+                if prefetchArg == "write" {
+                    opts.prefetchMode = 2
+                } else {
+                    opts.prefetchMode = 1
+                }
+            } else {
+                opts.prefetchMode = 1
+            }
+        }
+        if decName == "unroll" {
+            var unrollVal = 4
+            if decArgCount > 0 {
+                let unrollStr = decArgs[0]
+                if unrollStr == "2" { unrollVal = 2 }
+                if unrollStr == "4" { unrollVal = 4 }
+                if unrollStr == "8" { unrollVal = 8 }
+                if unrollStr == "16" { unrollVal = 16 }
+                if unrollStr == "32" { unrollVal = 32 }
+            }
+            opts.unrollCount = unrollVal
+        }
+        if decName == "align_to" {
+            if decArgCount > 0 {
+                let alignStr = decArgs[0]
+                var alignVal = 0
+                if alignStr == "16" { alignVal = 16 }
+                if alignStr == "32" { alignVal = 32 }
+                if alignStr == "64" { alignVal = 64 }
+                if alignStr == "128" { alignVal = 128 }
+                if alignStr == "256" { alignVal = 256 }
+                if alignVal > 0 {
+                    opts.alignTo = alignVal
+                }
+            }
+        }
+        if decName == "preallocate" {
+            var regionSizeBytes = 65536
+            if decArgCount > 0 {
+                let sizeArg = decArgs[0]
+                if sizeArg == "1024" { regionSizeBytes = 1024 }
+                if sizeArg == "2048" { regionSizeBytes = 2048 }
+                if sizeArg == "4096" { regionSizeBytes = 4096 }
+                if sizeArg == "8192" { regionSizeBytes = 8192 }
+                if sizeArg == "16384" { regionSizeBytes = 16384 }
+                if sizeArg == "32768" { regionSizeBytes = 32768 }
+                if sizeArg == "65536" { regionSizeBytes = 65536 }
+            }
+            opts.regionSizeBytes = regionSizeBytes
+        }
+        decIdx = decIdx + 1
+    }
+
+    opts.isAsync = fn.isAsync
+}

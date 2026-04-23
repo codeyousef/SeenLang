@@ -108,7 +108,8 @@ import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndex
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitFunctionSignatureImpl, emitDefaultReturnValueImpl, emitAsyncCoroutinePreambleImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, buildFunctionSignaturePrefixImpl, emitPreAllocatedAllocasImpl, emitFunctionPrefetchHintsImpl, emitRegionAllocatorSetupImpl, emitFunctionDiagnosticsAndProfileEntryImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
-import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl, tryHandleExternFunctionGenerationStateImpl}
+import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl, tryHandleExternFunctionGenerationStateImpl}
+import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, preRegisterFunctionParametersImpl, emitFunctionParameterAllocasImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
@@ -183,20 +184,6 @@ var g_g_currentFunctionIsProfiled: Bool = false
 var g_g_currentFunctionNameForProfile: String = ""
 // Panic on overflow flag - module-level to avoid changing class struct layout during bootstrap
 var g_panicOnOverflow: Bool = false
-// Vectorization decorator state (per-function, reset after each function)
-var g_currentFunctionNoVectorize: Bool = false
-var g_currentFunctionLaneWidth: Int = 0
-// Prefetch decorator state: 0=none, 1=read, 2=write
-var g_currentFunctionPrefetchMode: Int = 0
-// @unroll(N) decorator state
-var g_currentFunctionUnrollCount: Int = 0
-// @align_to(N) decorator state
-var g_currentFunctionAlignTo: Int = 0
-// @preallocate region allocator state
-var g_currentFunctionRegionSize: Int = 0
-var g_currentFunctionUseRegion: Bool = false
-// Tail call: flag set before generating return expression that is in tail position
-var g_emitTailCall: Bool = false
 // Async function coroutine state (per-function, set during preamble, used in cleanup)
 var g_asyncFunctionCoroId: String = ""
 var g_asyncFunctionCoroHdl: String = ""
@@ -1076,74 +1063,7 @@ class LLVMIRGenerator {
     }
 
     fun configureFunctionLoweringOptions(fn: FunctionNode) r: Void {
-        let opts = getCurrentFunctionOptions()
-        resetFunctionLoweringOptions(opts)
-        if hasDecorator(fn, "no_vectorize") {
-            opts.vectorizeEnabled = false
-        }
-
-        var decIdx = 0
-        while decIdx < fn.decorators.length() {
-            let dec = fn.decorators[decIdx]
-            let decName = dec.name
-            let decArgs = dec.arguments
-            let decArgCount = decArgs.length()
-            if decName == "prefetch" {
-                if decArgCount > 0 {
-                    let prefetchArg = decArgs[0]
-                    if prefetchArg == "write" {
-                        opts.prefetchMode = 2
-                    } else {
-                        opts.prefetchMode = 1
-                    }
-                } else {
-                    opts.prefetchMode = 1
-                }
-            }
-            if decName == "unroll" {
-                var unrollVal = 4
-                if decArgCount > 0 {
-                    let unrollStr = decArgs[0]
-                    if unrollStr == "2" { unrollVal = 2 }
-                    if unrollStr == "4" { unrollVal = 4 }
-                    if unrollStr == "8" { unrollVal = 8 }
-                    if unrollStr == "16" { unrollVal = 16 }
-                    if unrollStr == "32" { unrollVal = 32 }
-                }
-                opts.unrollCount = unrollVal
-            }
-            if decName == "align_to" {
-                if decArgCount > 0 {
-                    let alignStr = decArgs[0]
-                    var alignVal = 0
-                    if alignStr == "16" { alignVal = 16 }
-                    if alignStr == "32" { alignVal = 32 }
-                    if alignStr == "64" { alignVal = 64 }
-                    if alignStr == "128" { alignVal = 128 }
-                    if alignStr == "256" { alignVal = 256 }
-                    if alignVal > 0 {
-                        opts.alignTo = alignVal
-                    }
-                }
-            }
-            if decName == "preallocate" {
-                var regionSizeBytes = 65536
-                if decArgCount > 0 {
-                    let sizeArg = decArgs[0]
-                    if sizeArg == "1024" { regionSizeBytes = 1024 }
-                    if sizeArg == "2048" { regionSizeBytes = 2048 }
-                    if sizeArg == "4096" { regionSizeBytes = 4096 }
-                    if sizeArg == "8192" { regionSizeBytes = 8192 }
-                    if sizeArg == "16384" { regionSizeBytes = 16384 }
-                    if sizeArg == "32768" { regionSizeBytes = 32768 }
-                    if sizeArg == "65536" { regionSizeBytes = 65536 }
-                }
-                opts.regionSizeBytes = regionSizeBytes
-            }
-            decIdx = decIdx + 1
-        }
-
-        opts.isAsync = fn.isAsync
+        configureFunctionLoweringOptionsImpl(fn, getCurrentFunctionOptions())
         syncIndentFromFunctionOptions()
     }
 
@@ -2681,18 +2601,6 @@ class LLVMIRGenerator {
         emitFeatureDecls(output, definedFuncs)
     }
 
-    // Helper to check if a function has a specific decorator
-    fun hasDecorator(fn: FunctionNode, decoratorName: String) r: Bool {
-        var i = 0
-        while i < fn.decorators.length() {
-            if fn.decorators[i].name == decoratorName {
-                return true
-            }
-            i = i + 1
-        }
-        return false
-    }
-
     // Add a string constant to the string constant table (deduplicating).
     // Returns the index, used to reference the global @.str.PREFIX.INDEX.
     fun addStringConstant(str: String) r: Int {
@@ -2931,7 +2839,7 @@ class LLVMIRGenerator {
 
         // ML-guided inline decision
         println("[irgen function] inline-analysis start: " + fnName)
-        if not fn.isInline and not hasDecorator(fn, "noinline") {
+        if not fn.isInline and not hasFunctionDecoratorImpl(fn, "noinline") {
             let bodySize = fn.body.statements.length()
             // Check for replay first
             let replayInline = mlReplayLookup("inline", fnName)
@@ -2994,7 +2902,8 @@ class LLVMIRGenerator {
         let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
             returnType)
         let paramDecls = buildFunctionParameterDeclsImpl(fn,
-            hasDecorator(fn, "no_alias"), structNames, g_typeAliasNames,
+            hasFunctionDecoratorImpl(fn, "no_alias"), structNames,
+            g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
             g_reprCClassNames)
         emitFunctionSignatureImpl(output, signaturePrefix, paramDecls, funcAttrs)
@@ -3042,7 +2951,7 @@ class LLVMIRGenerator {
         let profiledNameBox = Array<String>()
         profiledNameBox.push("")
         var profileStringIndex = -1
-        if hasDecorator(fn, "profile") {
+        if hasFunctionDecoratorImpl(fn, "profile") {
             profileStringIndex = addStringConstant(fnName)
         }
         let unusedParams = emitFunctionDiagnosticsAndProfileEntryImpl(output,
