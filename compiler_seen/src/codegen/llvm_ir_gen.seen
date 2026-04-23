@@ -97,7 +97,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
-import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, buildMethodAttrsImpl, detectExplicitReceiverNameImpl, emitMethodSignatureParamsImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
+import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsImpl, emitTrailingDeadCodeNoticeImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
@@ -2640,10 +2640,6 @@ class LLVMIRGenerator {
     // could match the same register numbers in method B (since each method
     // resets nextReg to 1), producing self-referential IR that causes LLVM
     // verification failures.
-    fun shouldTraceClassMethodStart(className: String) r: Bool {
-        return className == "JsonParseResult" or className == "JsonParser" or className == "LLVMIRGenerator"
-    }
-
     fun resetClassMethodGenerationState(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
         resetLocalCodegenState()
         currentFunctionReturnType = resolveMethodReturnTypeFromList(className, methods, methodIdx)
@@ -2651,21 +2647,6 @@ class LLVMIRGenerator {
         g_currentClassParentName = parentName
         resetFunctionLoweringOptionsState()
         cseClear()
-    }
-
-    fun collectClassMethodParameterInfo(methods: Array<FunctionNode>, methodIdx: Int,
-        normalizedMethodParamTypes: Array<String>, mappedMethodParamTypes: Array<String>,
-        quotedMethodArgNames: Array<String>) r: Void {
-
-        var paramInfoIdx = 0
-        while paramInfoIdx < methods[methodIdx].params.length() {
-            let methodParam = methods[methodIdx].params[paramInfoIdx]
-            let normalizedParamType = normalizeDeclaredTypeNode(methodParam.paramType)
-            normalizedMethodParamTypes.push(normalizedParamType)
-            mappedMethodParamTypes.push(mapTypeForParameter(normalizedParamType))
-            quotedMethodArgNames.push(quoteIdentIfNeeded(methodParam.name + ".arg"))
-            paramInfoIdx = paramInfoIdx + 1
-        }
     }
 
     fun prepareClassMethodVariableCollection(className: String, methods: Array<FunctionNode>, methodIdx: Int,
@@ -2685,93 +2666,6 @@ class LLVMIRGenerator {
         }
         collectVariableDeclarations(methods[methodIdx].body)
         clearActiveBindings()
-    }
-
-    fun emitClassMethodSignature(className: String, methodName: String, methods: Array<FunctionNode>,
-        methodIdx: Int, isStatic: Bool, returnType: String, mappedMethodParamTypes: Array<String>,
-        quotedMethodArgNames: Array<String>) r: String {
-
-        let methodAttrs = buildMethodAttrsImpl(methods, methodIdx, className, methodName,
-            g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
-        var methodRetPrefix = "define "
-        if returnType == "i64" or returnType == "double" or returnType == "i1" {
-            methodRetPrefix = "define noundef "
-        }
-        output.append(methodRetPrefix + returnType + " @" + quoteIdentIfNeeded(className + "_" + methodName) + "(")
-
-        var hasThis = false
-        if not isStatic {
-            output.append("ptr %this")
-            hasThis = true
-        }
-
-        var isStaticInt = 0
-        if isStatic {
-            isStaticInt = 1
-        }
-        let explicitReceiverName = detectExplicitReceiverNameImpl(className, isStaticInt, methods, methodIdx)
-        var hasThisInt = 0
-        if hasThis {
-            hasThisInt = 1
-        }
-        emitMethodSignatureParamsImpl(output, methods, methodIdx, explicitReceiverName,
-            hasThisInt, mappedMethodParamTypes, quotedMethodArgNames)
-
-        output.append(")" + methodAttrs + " #0 {\n")
-        output.append("entry:\n")
-        return explicitReceiverName
-    }
-
-    fun emitClassMethodReceiverBinding(className: String, isStatic: Bool, explicitReceiverName: String) r: Void {
-        if isStatic {
-            return
-        }
-        let thisReg = getNextReg()
-        output.append("  " + thisReg + " = alloca ptr\n")
-        output.append("  store ptr %this, ptr " + thisReg + "\n")
-        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-            varTypes, activeVarCount, "this", thisReg, className)
-        if explicitReceiverName != "this" {
-            if explicitReceiverName != "" {
-                activeVarCount = storeActiveVariableBindingImpl(varNames,
-                    varRegs, varTypes, activeVarCount, explicitReceiverName,
-                    thisReg, className)
-            }
-        }
-    }
-
-    fun emitClassMethodParameterBindings(methods: Array<FunctionNode>, methodIdx: Int, explicitReceiverName: String,
-        normalizedMethodParamTypes: Array<String>, quotedMethodArgNames: Array<String>) r: Void {
-
-        var paramIdx = 0
-        while paramIdx < methods[methodIdx].params.length() {
-            let param = methods[methodIdx].params[paramIdx]
-            var isExplicitReceiver = 0
-            if param.name == explicitReceiverName {
-                if explicitReceiverName != "" {
-                    isExplicitReceiver = 1
-                }
-            }
-            if isExplicitReceiver == 0 {
-                let seenTypeName = normalizedMethodParamTypes[paramIdx]
-                let semanticSeenTypeName = normalizeSeenTypeName(seenTypeName)
-                if isDataType(semanticSeenTypeName) {
-                    activeVarCount = storeActiveVariableBindingImpl(varNames,
-                        varRegs, varTypes, activeVarCount, param.name,
-                        "%" + quotedMethodArgNames[paramIdx],
-                        semanticSeenTypeName)
-                } else {
-                    let paramType = mapStorageTypeForParameter(seenTypeName)
-                    let reg = getNextReg()
-                    output.append("  " + reg + " = alloca " + paramType + "\n")
-                    output.append("  store " + paramType + " %" + quotedMethodArgNames[paramIdx] + ", ptr " + reg + "\n")
-                    activeVarCount = storeActiveVariableBindingImpl(varNames,
-                        varRegs, varTypes, activeVarCount, param.name, reg,
-                        semanticSeenTypeName)
-                }
-            }
-            paramIdx = paramIdx + 1
-        }
     }
 
     fun emitClassMethodConstructorSetup(className: String, methodName: String) r: Void {
@@ -2809,7 +2703,7 @@ class LLVMIRGenerator {
 
     fun generateClassMethodFromList(className: String, parentName: String, methods: Array<FunctionNode>, methodIdx: Int) r: Void {
         let methodName = methods[methodIdx].name
-        if shouldTraceClassMethodStart(className) {
+        if shouldTraceClassMethodStartImpl(className) {
             println("[irgen class method start] " + className + "." + methodName)
         }
         if tryEmitOptionClassMethodShimImpl(output, className, methodName) == 1 {
@@ -2821,16 +2715,26 @@ class LLVMIRGenerator {
         let normalizedMethodParamTypes = Array<String>()
         let mappedMethodParamTypes = Array<String>()
         let quotedMethodArgNames = Array<String>()
-        collectClassMethodParameterInfo(methods, methodIdx, normalizedMethodParamTypes, mappedMethodParamTypes, quotedMethodArgNames)
+        collectClassMethodParameterInfoImpl(methods, methodIdx,
+            normalizedMethodParamTypes, mappedMethodParamTypes,
+            quotedMethodArgNames, structNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
         prepareClassMethodVariableCollection(className, methods, methodIdx, normalizedMethodParamTypes)
 
         let returnType = mapType(currentFunctionReturnType)
         let isStatic = methods[methodIdx].isStatic or methodName == "new"
-        let explicitReceiverName = emitClassMethodSignature(className, methodName, methods, methodIdx,
-            isStatic, returnType, mappedMethodParamTypes, quotedMethodArgNames)
-        emitClassMethodReceiverBinding(className, isStatic, explicitReceiverName)
-        emitClassMethodParameterBindings(methods, methodIdx, explicitReceiverName,
-            normalizedMethodParamTypes, quotedMethodArgNames)
+        let explicitReceiverName = emitClassMethodSignatureStateImpl(output,
+            methods, methodIdx, className, methodName, isStatic, returnType,
+            mappedMethodParamTypes, quotedMethodArgNames, g_selfCallFuncs,
+            g_selfCallNames, g_selfCallCount)
+        activeVarCount = emitClassMethodReceiverBindingStateImpl(output,
+            g_regBox, varNames, varRegs, varTypes, activeVarCount, className,
+            isStatic, explicitReceiverName)
+        activeVarCount = emitClassMethodParameterBindingsStateImpl(output,
+            g_regBox, varNames, varRegs, varTypes, activeVarCount, methods,
+            methodIdx, explicitReceiverName, normalizedMethodParamTypes,
+            quotedMethodArgNames, structNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
         preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
             preAllocatedTypes, structNames, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,

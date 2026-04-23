@@ -4,6 +4,10 @@
 import parser.real_parser.{FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{selfCallCheck, getNextRegFn}
+import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
+import codegen.ir_type_mapping.{isDataTypeImpl, mapTypeImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 import codegen.type_registry.{findStructReg, isDataTypeReg, getDataTypeSizeReg, getTypeSizeReg}
 
 fun methodHasDecoratorImpl(methods: Array<FunctionNode>, methodIdx: Int, decoratorName: String) r: Int {
@@ -107,6 +111,178 @@ fun emitMethodSignatureParamsImpl(output: StringBuilder,
         }
         paramIdx = paramIdx + 1
     }
+}
+
+fun shouldTraceClassMethodStartImpl(className: String) r: Bool {
+    return className == "JsonParseResult" or className == "JsonParser" or
+        className == "LLVMIRGenerator"
+}
+
+fun mapMethodParameterTypeImpl(seenType: String, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: String {
+
+    var cleanType = seenType
+    if cleanType.startsWith("comptime:") {
+        cleanType = cleanType.substring(9, cleanType.length())
+    }
+    if cleanType.contains("~default~") {
+        let defaultPos = cleanType.indexOf("~default~", 0)
+        cleanType = cleanType.substring(0, defaultPos)
+    }
+    if isDataTypeImpl(cleanType) == 1 {
+        return "ptr noalias nonnull"
+    }
+    let mapped = mapTypeImpl(cleanType, structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+    if mapped == "ptr" {
+        return "ptr noalias nonnull"
+    }
+    return mapped
+}
+
+fun mapMethodParameterStorageTypeImpl(seenType: String,
+    structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: String {
+
+    let mapped = mapMethodParameterTypeImpl(seenType, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    if mapped == "ptr noalias nonnull" {
+        return "ptr"
+    }
+    return mapped
+}
+
+fun collectClassMethodParameterInfoImpl(methods: Array<FunctionNode>,
+    methodIdx: Int, normalizedMethodParamTypes: Array<String>,
+    mappedMethodParamTypes: Array<String>,
+    quotedMethodArgNames: Array<String>, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Void {
+
+    var paramInfoIdx = 0
+    while paramInfoIdx < methods[methodIdx].params.length() {
+        let methodParam = methods[methodIdx].params[paramInfoIdx]
+        let normalizedParamType = normalizeDeclaredTypeNodeImpl(
+            methodParam.paramType)
+        normalizedMethodParamTypes.push(normalizedParamType)
+        mappedMethodParamTypes.push(mapMethodParameterTypeImpl(
+            normalizedParamType, structNames, typeAliasNames,
+            typeAliasTargets, typeAliasCount, enumTypeNames))
+        quotedMethodArgNames.push(quoteIdentIfNeededImpl(
+            methodParam.name + ".arg"))
+        paramInfoIdx = paramInfoIdx + 1
+    }
+}
+
+fun emitClassMethodSignatureStateImpl(output: StringBuilder,
+    methods: Array<FunctionNode>, methodIdx: Int, className: String,
+    methodName: String, isStatic: Bool, returnType: String,
+    mappedMethodParamTypes: Array<String>, quotedMethodArgNames: Array<String>,
+    selfCallFuncs: String, selfCallNames: String, selfCallCount: Int)
+    r: String {
+
+    let methodAttrs = buildMethodAttrsImpl(methods, methodIdx, className,
+        methodName, selfCallFuncs, selfCallNames, selfCallCount)
+    var methodRetPrefix = "define "
+    if returnType == "i64" or returnType == "double" or returnType == "i1" {
+        methodRetPrefix = "define noundef "
+    }
+    output.append(methodRetPrefix + returnType + " @" +
+        quoteIdentIfNeededImpl(className + "_" + methodName) + "(")
+
+    var hasThis = false
+    if not isStatic {
+        output.append("ptr %this")
+        hasThis = true
+    }
+
+    var isStaticInt = 0
+    if isStatic {
+        isStaticInt = 1
+    }
+    let explicitReceiverName = detectExplicitReceiverNameImpl(className,
+        isStaticInt, methods, methodIdx)
+    var hasThisInt = 0
+    if hasThis {
+        hasThisInt = 1
+    }
+    emitMethodSignatureParamsImpl(output, methods, methodIdx,
+        explicitReceiverName, hasThisInt, mappedMethodParamTypes,
+        quotedMethodArgNames)
+
+    output.append(")" + methodAttrs + " #0 {\n")
+    output.append("entry:\n")
+    return explicitReceiverName
+}
+
+fun emitClassMethodReceiverBindingStateImpl(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, className: String,
+    isStatic: Bool, explicitReceiverName: String) r: Int {
+
+    if isStatic {
+        return activeVarCount
+    }
+    let thisReg = getNextRegFn(regBox)
+    output.append("  " + thisReg + " = alloca ptr\n")
+    output.append("  store ptr %this, ptr " + thisReg + "\n")
+    var nextActiveVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
+        varTypes, activeVarCount, "this", thisReg, className)
+    if explicitReceiverName != "this" {
+        if explicitReceiverName != "" {
+            nextActiveVarCount = storeActiveVariableBindingImpl(varNames,
+                varRegs, varTypes, nextActiveVarCount, explicitReceiverName,
+                thisReg, className)
+        }
+    }
+    return nextActiveVarCount
+}
+
+fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
+    regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, methods: Array<FunctionNode>,
+    methodIdx: Int, explicitReceiverName: String,
+    normalizedMethodParamTypes: Array<String>,
+    quotedMethodArgNames: Array<String>, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String) r: Int {
+
+    var nextActiveVarCount = activeVarCount
+    var paramIdx = 0
+    while paramIdx < methods[methodIdx].params.length() {
+        let param = methods[methodIdx].params[paramIdx]
+        var isExplicitReceiver = 0
+        if param.name == explicitReceiverName {
+            if explicitReceiverName != "" {
+                isExplicitReceiver = 1
+            }
+        }
+        if isExplicitReceiver == 0 {
+            let seenTypeName = normalizedMethodParamTypes[paramIdx]
+            let semanticSeenTypeName = normalizeSeenTypeNameImpl(seenTypeName)
+            if isDataTypeImpl(semanticSeenTypeName) == 1 {
+                nextActiveVarCount = storeActiveVariableBindingImpl(varNames,
+                    varRegs, varTypes, nextActiveVarCount, param.name,
+                    "%" + quotedMethodArgNames[paramIdx],
+                    semanticSeenTypeName)
+            } else {
+                let paramType = mapMethodParameterStorageTypeImpl(seenTypeName,
+                    structNames, typeAliasNames, typeAliasTargets,
+                    typeAliasCount, enumTypeNames)
+                let reg = getNextRegFn(regBox)
+                output.append("  " + reg + " = alloca " + paramType + "\n")
+                output.append("  store " + paramType + " %" +
+                    quotedMethodArgNames[paramIdx] + ", ptr " + reg + "\n")
+                nextActiveVarCount = storeActiveVariableBindingImpl(varNames,
+                    varRegs, varTypes, nextActiveVarCount, param.name, reg,
+                    semanticSeenTypeName)
+            }
+        }
+        paramIdx = paramIdx + 1
+    }
+    return nextActiveVarCount
 }
 
 // tryEmitOptionClassMethodShimImpl — emit builtin Option method shims.
