@@ -87,6 +87,7 @@ import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFie
 import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
 import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl, emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl}
 import codegen.ir_class_type_decorators.{ClassTypeDecoratorState, scanClassTypeDecoratorsImpl}
+import codegen.ir_class_gen_support.{scanGeneratedClassDecoratorsImpl, hasHotReloadMarkerMethodImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
@@ -810,45 +811,6 @@ fun mlReplayLookup(category: String, detail: String) r: String {
         pos = pos + 1
     }
     return ""
-}
-
-// Find Nth comma-delimited entry in a string. Returns "" if not found.
-// Uses byteAt() to avoid per-byte string allocation (44 = ',')
-fun commaGet(data: String, idx: Int) r: String {
-    var pos = 0
-    var count = 0
-    var start = 0
-    while pos < data.length() {
-        if data.byteAt(pos) == 44 {
-            if count == idx {
-                return data.substring(start, pos)
-            }
-            count = count + 1
-            start = pos + 1
-        }
-        pos = pos + 1
-    }
-    if count == idx {
-        return data.substring(start, data.length())
-    }
-    return ""
-}
-
-// Count comma-delimited fields in a string (0 if empty, else count(,)+1).
-// Uses byteAt() to avoid per-byte string allocation (44 = ',')
-fun countCommaFields(data: String) r: Int {
-    if data == "" {
-        return 0
-    }
-    var count = 1
-    var pos = 0
-    while pos < data.length() {
-        if data.byteAt(pos) == 44 {
-            count = count + 1
-        }
-        pos = pos + 1
-    }
-    return count
 }
 
 // Quote LLVM IR identifiers that contain non-ASCII bytes.
@@ -2424,11 +2386,6 @@ class LLVMIRGenerator {
         return true
     }
 
-    fun isRuntimeBackedStringBuilderMethod(methodName: String) r: Bool {
-        return methodName == "new" or methodName == "append" or methodName == "appendChar" or
-            methodName == "toString" or methodName == "clear" or methodName == "length"
-    }
-
     fun emitTraitVtableType(classNode: ClassNode) r: Void {
         let className = classNode.name
         registerDynTraitName(className)
@@ -2567,55 +2524,11 @@ class LLVMIRGenerator {
         return true
     }
 
-    fun scanGeneratedClassDecorators(classNode: ClassNode, decoratorFlags: Array<Int>, packetIdBox: Array<String>) r: Void {
-        var decoratorIdx = 0
-        while decoratorIdx < classNode.decorators.length() {
-            let decorator = classNode.decorators[decoratorIdx]
-            if decorator.name == "derive" {
-                decoratorFlags[0] = 1
-                decoratorFlags[1] = 1
-                decoratorFlags[2] = 1
-                decoratorFlags[3] = 1
-                decoratorFlags[4] = 1
-                decoratorFlags[5] = 1
-                decoratorFlags[6] = 1
-            }
-            if decorator.name == "binary" {
-                decoratorFlags[7] = 1
-            }
-            if decorator.name == "reflect" {
-                decoratorFlags[8] = 1
-            }
-            if decorator.name == "packet" {
-                decoratorFlags[9] = 1
-                if decorator.arguments.length() > 0 {
-                    packetIdBox[0] = decorator.arguments[0]
-                }
-            }
-            decoratorIdx = decoratorIdx + 1
-        }
-    }
-
-    fun hasHotReloadMarkerMethod(classNode: ClassNode) r: Bool {
-        var methodIdx = 0
-        while methodIdx < classNode.methods.length() {
-            if classNode.methods[methodIdx].name == "__seen_hot_reload_marker__" {
-                return true
-            }
-            methodIdx = methodIdx + 1
-        }
-        return false
-    }
-
     fun generateRegularClassMethods(classNode: ClassNode, isStringBuilder: Bool) r: Void {
         var methodIdx = 0
         while methodIdx < classNode.methods.length() {
             let methodName = classNode.methods[methodIdx].name
-            if methodName == "__seen_hot_reload_marker__" {
-                methodIdx = methodIdx + 1
-                continue
-            }
-            if isStringBuilder and isRuntimeBackedStringBuilderMethod(methodName) {
+            if shouldSkipSourceClassMethodImpl(methodName, isStringBuilder) {
                 methodIdx = methodIdx + 1
                 continue
             }
@@ -2660,51 +2573,6 @@ class LLVMIRGenerator {
         }
     }
 
-    fun emitInheritedClassMethodThunks(classNode: ClassNode) r: Void {
-        let parentNameLen = classNode.parentName.length()
-        if parentNameLen == 0 {
-            return
-        }
-        let parentIdx = findStructReg(classNode.parentName, structNames)
-        if parentIdx < 0 {
-            return
-        }
-
-        let parentMethodList = structMethodNames[parentIdx]
-        let parentRetTypes = structMethodRetTypes[parentIdx]
-        let parentMethodCount = countCommaFields(parentMethodList)
-        var parentMethodIdx = 0
-        while parentMethodIdx < parentMethodCount {
-            let parentMethodName = commaGet(parentMethodList, parentMethodIdx)
-            let parentRetType = pipeGet(parentRetTypes, parentMethodIdx)
-            var childHasMethod = 0
-            var childMethodIdx = 0
-            while childMethodIdx < classNode.methods.length() {
-                if classNode.methods[childMethodIdx].name == parentMethodName {
-                    childHasMethod = 1
-                }
-                childMethodIdx = childMethodIdx + 1
-            }
-            if childHasMethod == 0 {
-                let llvmRet = mapType(parentRetType)
-                let thunkName = classNode.name + "_" + parentMethodName
-                let parentFuncName = classNode.parentName + "_" + parentMethodName
-                output.append("define " + llvmRet + " @" + quoteIdentIfNeeded(thunkName) + "(ptr %this) {\n")
-                output.append("entry:\n")
-                if llvmRet == "void" {
-                    output.append("  call void @" + quoteIdentIfNeeded(parentFuncName) + "(ptr %this)\n")
-                    output.append("  ret void\n")
-                } else {
-                    let callReg = getNextReg()
-                    output.append("  " + callReg + " = call " + llvmRet + " @" + quoteIdentIfNeeded(parentFuncName) + "(ptr %this)\n")
-                    output.append("  ret " + llvmRet + " " + callReg + "\n")
-                }
-                output.append("}\n\n")
-            }
-            parentMethodIdx = parentMethodIdx + 1
-        }
-    }
-
     fun generatePlainLargeClass(className: String, parentName: String, methods: Array<FunctionNode>) r: Void {
         if className == "" {
             return
@@ -2715,11 +2583,7 @@ class LLVMIRGenerator {
         var methodIdx = 0
         while methodIdx < methods.length() {
             let methodName = methods[methodIdx].name
-            if methodName == "__seen_hot_reload_marker__" {
-                methodIdx = methodIdx + 1
-                continue
-            }
-            if isStringBuilder and isRuntimeBackedStringBuilderMethod(methodName) {
+            if shouldSkipSourceClassMethodImpl(methodName, isStringBuilder) {
                 methodIdx = methodIdx + 1
                 continue
             }
@@ -2773,9 +2637,10 @@ class LLVMIRGenerator {
         decoratorFlags.push(0)
         let packetIdBox = Array<String>()
         packetIdBox.push("0")
-        scanGeneratedClassDecorators(classNode, decoratorFlags, packetIdBox)
+        scanGeneratedClassDecoratorsImpl(classNode, decoratorFlags,
+            packetIdBox)
 
-        let isHotReload = hasHotReloadMarkerMethod(classNode)
+        let isHotReload = hasHotReloadMarkerMethodImpl(classNode)
         generateRegularClassMethods(classNode, isStringBuilder)
 
         // Generate @hot_reload synthesized methods if class has the decorator
@@ -2784,7 +2649,10 @@ class LLVMIRGenerator {
         }
 
         emitGeneratedClassDecoratorMethods(classNode, decoratorFlags, packetIdBox[0])
-        emitInheritedClassMethodThunks(classNode)
+        emitInheritedClassMethodThunksImpl(output, g_regBox, classNode,
+            structNames, structMethodNames, structMethodRetTypes,
+            g_reprCClassNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames)
 
         g_currentClassParentName = ""
     }
