@@ -1,0 +1,154 @@
+// ir_struct_layout_build.seen — shared struct-layout build helpers
+// Extracted from llvm_ir_gen.seen so layout assembly stays separate from
+// registry orchestration.
+
+import parser.real_parser.{ClassNode}
+import codegen.ir_optimization.{parseIntManual}
+import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_decl_scan.{appendInheritedStructLayoutPrefixImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl}
+import codegen.ir_decl_registry.{registerParentClassStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.type_registry.{findStructReg}
+
+class StructLayoutBuildState {
+    var layout: String
+    var fieldNames: String
+    var fieldTypes: String
+    var totalSize: Int
+    var inheritanceChildNames: String
+    var inheritanceParentNames: String
+    var inheritanceCount: Int
+    var bitfieldKeys: String
+    var bitfieldWidths: String
+    var bitfieldOffsets: String
+    var bitfieldCount: Int
+
+    static fun new(layout: String, fieldNames: String, fieldTypes: String,
+        totalSize: Int, inheritanceChildNames: String,
+        inheritanceParentNames: String, inheritanceCount: Int,
+        bitfieldKeys: String, bitfieldWidths: String,
+        bitfieldOffsets: String, bitfieldCount: Int)
+        r: StructLayoutBuildState {
+
+        return StructLayoutBuildState{
+            layout: layout,
+            fieldNames: fieldNames,
+            fieldTypes: fieldTypes,
+            totalSize: totalSize,
+            inheritanceChildNames: inheritanceChildNames,
+            inheritanceParentNames: inheritanceParentNames,
+            inheritanceCount: inheritanceCount,
+            bitfieldKeys: bitfieldKeys,
+            bitfieldWidths: bitfieldWidths,
+            bitfieldOffsets: bitfieldOffsets,
+            bitfieldCount: bitfieldCount
+        }
+    }
+}
+
+fun appendParentStructLayoutStateImpl(classNode: ClassNode,
+    state: StructLayoutBuildState, structNames: Array<String>,
+    structFieldNames: Array<String>, structFieldTypes: Array<String>,
+    structSizes: Array<Int>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: Int {
+
+    if classNode.parentName.length() == 0 {
+        return 0
+    }
+
+    let updated = registerParentClassStateImpl(classNode.name,
+        classNode.parentName, state.inheritanceChildNames,
+        state.inheritanceParentNames, state.inheritanceCount)
+    state.inheritanceChildNames = unpackDeclRegistryFieldImpl(updated, 0)
+    state.inheritanceParentNames = unpackDeclRegistryFieldImpl(updated, 1)
+    state.inheritanceCount = parseIntManual(
+        unpackDeclRegistryFieldImpl(updated, 2))
+
+    let parentIdx = findStructReg(classNode.parentName, structNames)
+    if parentIdx < 0 {
+        return 0
+    }
+
+    let layoutBox = Array<String>()
+    layoutBox.push(state.layout)
+    let fieldNamesBox = Array<String>()
+    fieldNamesBox.push(state.fieldNames)
+    let fieldTypesBox = Array<String>()
+    fieldTypesBox.push(state.fieldTypes)
+    let totalSizeBox = Array<Int>()
+    totalSizeBox.push(state.totalSize)
+    let pfcount = appendInheritedStructLayoutPrefixImpl(
+        structFieldNames[parentIdx], structFieldTypes[parentIdx], layoutBox,
+        fieldNamesBox, fieldTypesBox, totalSizeBox, structNames, structSizes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    state.layout = layoutBox[0]
+    state.fieldNames = fieldNamesBox[0]
+    state.fieldTypes = fieldTypesBox[0]
+    state.totalSize = totalSizeBox[0]
+    return pfcount
+}
+
+fun buildStructLayoutStateImpl(classNode: ClassNode, ownCount: Int,
+    state: StructLayoutBuildState, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, structSizes: Array<Int>,
+    typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String) r: Void {
+
+    let pfcount = appendParentStructLayoutStateImpl(classNode, state,
+        structNames, structFieldNames, structFieldTypes, structSizes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    let totalFieldCount = pfcount + ownCount
+    if totalFieldCount == 0 {
+        state.layout = state.layout + "i8"
+        state.totalSize = 1
+        return
+    }
+
+    let layoutBox = Array<String>()
+    layoutBox.push(state.layout)
+    let fieldNamesBox = Array<String>()
+    fieldNamesBox.push(state.fieldNames)
+    let fieldTypesBox = Array<String>()
+    fieldTypesBox.push(state.fieldTypes)
+    let totalSizeBox = Array<Int>()
+    totalSizeBox.push(state.totalSize)
+    let bitfieldKeysBox = Array<String>()
+    bitfieldKeysBox.push(state.bitfieldKeys)
+    let bitfieldWidthsBox = Array<String>()
+    bitfieldWidthsBox.push(state.bitfieldWidths)
+    let bitfieldOffsetsBox = Array<String>()
+    bitfieldOffsetsBox.push(state.bitfieldOffsets)
+    let bitfieldCountBox = Array<Int>()
+    bitfieldCountBox.push(state.bitfieldCount)
+
+    var fieldIdx = 0
+    var realOwnIdx = 0
+    while fieldIdx < classNode.fields.length() {
+        let field = classNode.fields[fieldIdx]
+        if field.name.startsWith("@type_alias:") {
+            fieldIdx = fieldIdx + 1
+        } else {
+            let sepIdx = pfcount + realOwnIdx
+            var fieldType = normalizeDeclaredTypeNodeImpl(field.paramType)
+            fieldType = registerBitfieldLayoutMetadataImpl(classNode.name,
+                field.name, fieldType, bitfieldKeysBox, bitfieldWidthsBox,
+                bitfieldOffsetsBox, bitfieldCountBox)
+            appendOwnStructLayoutFieldImpl(field.name, fieldType, sepIdx,
+                layoutBox, fieldNamesBox, fieldTypesBox, totalSizeBox,
+                structNames, structLayouts, structSizes, typeAliasNames,
+                typeAliasTargets, typeAliasCount, enumTypeNames)
+            realOwnIdx = realOwnIdx + 1
+            fieldIdx = fieldIdx + 1
+        }
+    }
+
+    state.layout = layoutBox[0]
+    state.fieldNames = fieldNamesBox[0]
+    state.fieldTypes = fieldTypesBox[0]
+    state.totalSize = totalSizeBox[0]
+    state.bitfieldKeys = bitfieldKeysBox[0]
+    state.bitfieldWidths = bitfieldWidthsBox[0]
+    state.bitfieldOffsets = bitfieldOffsetsBox[0]
+    state.bitfieldCount = bitfieldCountBox[0]
+}

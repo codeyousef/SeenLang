@@ -75,6 +75,7 @@ import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
 import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback, emitStructFieldStoresImpl}
+import codegen.ir_struct_layout_build.{StructLayoutBuildState}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
@@ -1910,6 +1911,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_gen")
         modules.push("codegen.ir_function_param_meta")
         modules.push("codegen.ir_struct_gen")
+        modules.push("codegen.ir_struct_layout_build")
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_variable_gen")
         modules.push("codegen.ir_field_layout")

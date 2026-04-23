@@ -84,6 +84,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
+import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
@@ -1658,107 +1659,27 @@ class LLVMIRGenerator {
         g_constGenericValues = constGenericValuesBox[0]
 
         // Build the layout from fields
-        var layout = "{ "
-        var fieldNames = ""
-        var fieldTypes = ""
-        var totalSize = 0
-
-        // Prepend parent fields if this class extends another
-        var pfcount = 0
-        let pnLen = classNode.parentName.length()
-        if pnLen > 0 {
-            let updated = registerParentClassStateImpl(classNode.name,
-                classNode.parentName, g_inheritanceChildNames,
-                g_inheritanceParentNames, g_inheritanceCount)
-            g_inheritanceChildNames = unpackDeclRegistryFieldImpl(updated, 0)
-            g_inheritanceParentNames = unpackDeclRegistryFieldImpl(updated, 1)
-            g_inheritanceCount = parseIntManual(
-                unpackDeclRegistryFieldImpl(updated, 2))
-            let parentIdx = findStructReg(classNode.parentName, structNames)
-            if parentIdx >= 0 {
-                let parentFN = structFieldNames[parentIdx]
-                let parentFT = structFieldTypes[parentIdx]
-                let layoutBox = Array<String>()
-                layoutBox.push(layout)
-                let fieldNamesBox = Array<String>()
-                fieldNamesBox.push(fieldNames)
-                let fieldTypesBox = Array<String>()
-                fieldTypesBox.push(fieldTypes)
-                let totalSizeBox = Array<Int>()
-                totalSizeBox.push(totalSize)
-                pfcount = appendInheritedStructLayoutPrefixImpl(parentFN,
-                    parentFT, layoutBox, fieldNamesBox, fieldTypesBox,
-                    totalSizeBox, structNames, structSizes, g_typeAliasNames,
-                    g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
-                layout = layoutBox[0]
-                fieldNames = fieldNamesBox[0]
-                fieldTypes = fieldTypesBox[0]
-                totalSize = totalSizeBox[0]
-            }
-        }
-
         let ownCount = countRealClassTypeFields(classNode)
-        var totalFieldCount = pfcount + ownCount
-        if totalFieldCount == 0 {
-            // Empty struct - add dummy i8 byte for LLVM validity
-            layout = layout + "i8"
-            totalSize = 1
-        } else {
-            let layoutBox = Array<String>()
-            layoutBox.push(layout)
-            let fieldNamesBox = Array<String>()
-            fieldNamesBox.push(fieldNames)
-            let fieldTypesBox = Array<String>()
-            fieldTypesBox.push(fieldTypes)
-            let totalSizeBox = Array<Int>()
-            totalSizeBox.push(totalSize)
-            let bitfieldKeysBox = Array<String>()
-            bitfieldKeysBox.push(g_bitfieldKeys)
-            let bitfieldWidthsBox = Array<String>()
-            bitfieldWidthsBox.push(g_bitfieldWidths)
-            let bitfieldOffsetsBox = Array<String>()
-            bitfieldOffsetsBox.push(g_bitfieldOffsets)
-            let bitfieldCountBox = Array<Int>()
-            bitfieldCountBox.push(g_bitfieldCount)
-            var i = 0
-            var realOwnIdx = 0
-            while i < classNode.fields.length() {
-                let field = classNode.fields[i]
-                let fieldNameStr = field.name
-                // Skip synthetic @type_alias fields
-                if fieldNameStr.startsWith("@type_alias:") {
-                    i = i + 1
-                    // continue workaround (stage1 doesn't have continue)
-                } else {
-                    traceGen("registerStructLayout: " + classNode.name + " field idx=" + realOwnIdx.toString())
-                    let sepIdx = pfcount + realOwnIdx
-                    let fieldParamType = field.paramType
-                    var fieldType = normalizeDeclaredTypeNode(fieldParamType)
-                    fieldType = registerBitfieldLayoutMetadataImpl(
-                        classNode.name, fieldNameStr, fieldType,
-                        bitfieldKeysBox, bitfieldWidthsBox,
-                        bitfieldOffsetsBox, bitfieldCountBox)
-                    appendOwnStructLayoutFieldImpl(fieldNameStr, fieldType,
-                        sepIdx, layoutBox, fieldNamesBox, fieldTypesBox,
-                        totalSizeBox, structNames, structLayouts, structSizes,
-                        g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
-                        g_enumTypeNames)
+        let layoutState = StructLayoutBuildState.new("{ ", "", "", 0,
+            g_inheritanceChildNames, g_inheritanceParentNames,
+            g_inheritanceCount, g_bitfieldKeys, g_bitfieldWidths,
+            g_bitfieldOffsets, g_bitfieldCount)
+        buildStructLayoutStateImpl(classNode, ownCount, layoutState,
+            structNames, structLayouts, structFieldNames, structFieldTypes,
+            structSizes, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames)
+        g_inheritanceChildNames = layoutState.inheritanceChildNames
+        g_inheritanceParentNames = layoutState.inheritanceParentNames
+        g_inheritanceCount = layoutState.inheritanceCount
+        g_bitfieldKeys = layoutState.bitfieldKeys
+        g_bitfieldWidths = layoutState.bitfieldWidths
+        g_bitfieldOffsets = layoutState.bitfieldOffsets
+        g_bitfieldCount = layoutState.bitfieldCount
 
-                    realOwnIdx = realOwnIdx + 1
-                    i = i + 1
-                }
-            }
-            layout = layoutBox[0]
-            fieldNames = fieldNamesBox[0]
-            fieldTypes = fieldTypesBox[0]
-            totalSize = totalSizeBox[0]
-            g_bitfieldKeys = bitfieldKeysBox[0]
-            g_bitfieldWidths = bitfieldWidthsBox[0]
-            g_bitfieldOffsets = bitfieldOffsetsBox[0]
-            g_bitfieldCount = bitfieldCountBox[0]
-        }
-
-        layout = layout + " }"
+        let layout = layoutState.layout + " }"
+        let fieldNames = layoutState.fieldNames
+        let fieldTypes = layoutState.fieldTypes
+        let totalSize = layoutState.totalSize
         traceGen("registerStructLayout: " + classNode.name + " layout built")
 
         // Collect method signatures
