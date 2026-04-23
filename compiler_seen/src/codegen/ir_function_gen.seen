@@ -10,9 +10,10 @@ import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual, se
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}
-import codegen.type_registry.{CodegenState, csGetNextReg}
+import codegen.type_registry.{CodegenState, csGetNextReg, clearTransientFunctionLoweringOptions}
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeNameImpl}
 import codegen.ir_string_emit.{addStringConstantTableImpl}
+import codegen.ir_string_emit.{getStringConstantIndexImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, emitFunctionParameterAllocasImpl}
 import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
 import codegen.ir_type_info.{charToCodeStr}
@@ -734,6 +735,41 @@ fun emitFunctionImplicitTerminationImpl(output: StringBuilder,
         emitAsyncCoroutineEpilogueImpl(output, regBox, blockBox, asyncCoroId,
             asyncCoroHdl, asyncFinalLabel, asyncCleanupLabel)
     }
+}
+
+fun emitFunctionExitAndResetStateImpl(state: CodegenState, fn: FunctionNode,
+    returnType: String, profiledFlagBox: Array<Int>,
+    profiledNameBox: Array<String>, highPressureBox: Array<Int>,
+    asyncCoroIdBox: Array<String>, asyncCoroHdlBox: Array<String>,
+    asyncPromiseBox: Array<String>, asyncFinalLabelBox: Array<String>,
+    asyncCleanupLabelBox: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: Void {
+
+    var implicitProfiledFlag = 0
+    var implicitProfileStringIndex = -1
+    if profiledFlagBox[0] == 1 {
+        implicitProfiledFlag = 1
+        implicitProfileStringIndex = getStringConstantIndexImpl(
+            state.stringConstants, profiledNameBox[0])
+    }
+
+    emitFunctionImplicitTerminationImpl(state.output, state.regBox,
+        state.blockBox, state.blockTerminated == 1,
+        state.functionOptions.isAsync, fn.isAsync, returnType,
+        mapTypeImpl(state.currentFunctionReturnType,
+            state.registry.structNames, typeAliasNames, typeAliasTargets,
+            typeAliasCount, enumTypeNames),
+        asyncPromiseBox[0], asyncFinalLabelBox[0], asyncCoroIdBox[0],
+        asyncCoroHdlBox[0], asyncCleanupLabelBox[0],
+        state.functionOptions.regionSizeBytes, implicitProfiledFlag,
+        implicitProfileStringIndex)
+
+    resetFunctionRuntimeStateImpl(profiledFlagBox, profiledNameBox,
+        highPressureBox, asyncCoroIdBox, asyncCoroHdlBox, asyncPromiseBox,
+        asyncFinalLabelBox, asyncCleanupLabelBox)
+    clearTransientFunctionLoweringOptions(state.functionOptions)
+    state.output.append("}\n\n")
 }
 
 fun resetFunctionRuntimeStateImpl(profiledFlagBox: Array<Int>,

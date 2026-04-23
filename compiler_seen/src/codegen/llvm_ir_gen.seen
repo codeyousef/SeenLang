@@ -107,7 +107,7 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupStateImpl, emitFunctionImplicitTerminationImpl, resetFunctionRuntimeStateImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupStateImpl, emitFunctionExitAndResetStateImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_lowering.{shouldApplyFunctionInlineHeuristicsImpl, countFunctionInlineLoopKindsImpl, appendInlineDecisionAttrImpl, isHighRegisterPressureImpl, emitHighRegisterPressureNoteImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
@@ -1052,12 +1052,6 @@ class LLVMIRGenerator {
 
     fun resetFunctionLoweringOptionsState() r: Void {
         resetFunctionLoweringOptions(getCurrentFunctionOptions())
-        g_currentFunctionHighPressure = false
-        syncIndentFromFunctionOptions()
-    }
-
-    fun clearTransientFunctionLoweringState() r: Void {
-        clearTransientFunctionLoweringOptions(getCurrentFunctionOptions())
         g_currentFunctionHighPressure = false
         syncIndentFromFunctionOptions()
     }
@@ -2928,21 +2922,7 @@ class LLVMIRGenerator {
         // Generate function body
         generateBlock(fn.body)
 
-        var implicitProfiledFlag = 0
-        var implicitProfileStringIndex = -1
-        if g_currentFunctionIsProfiled {
-            implicitProfiledFlag = 1
-            implicitProfileStringIndex =
-                getStringConstantIndex(g_currentFunctionNameForProfile)
-        }
-        emitFunctionImplicitTerminationImpl(output, g_regBox, g_blockBox,
-            blockTerminated, isCurrentFunctionAsyncLowering(), fn.isAsync,
-            returnType, mapType(currentFunctionReturnType),
-            g_asyncFunctionPromise, g_asyncFinalLabel, g_asyncFunctionCoroId,
-            g_asyncFunctionCoroHdl, g_asyncCleanupLabel,
-            currentFunctionRegionSizeBytes(), implicitProfiledFlag,
-            implicitProfileStringIndex)
-
+        syncState()
         let resetProfiledFlagBox = Array<Int>()
         if g_currentFunctionIsProfiled {
             resetProfiledFlagBox.push(1)
@@ -2967,10 +2947,13 @@ class LLVMIRGenerator {
         resetAsyncFinalLabelBox.push(g_asyncFinalLabel)
         let resetAsyncCleanupLabelBox = Array<String>()
         resetAsyncCleanupLabelBox.push(g_asyncCleanupLabel)
-        resetFunctionRuntimeStateImpl(resetProfiledFlagBox,
-            resetProfiledNameBox, resetHighPressureBox, resetAsyncCoroIdBox,
-            resetAsyncCoroHdlBox, resetAsyncPromiseBox,
-            resetAsyncFinalLabelBox, resetAsyncCleanupLabelBox)
+        emitFunctionExitAndResetStateImpl(state, fn, returnType,
+            resetProfiledFlagBox, resetProfiledNameBox, resetHighPressureBox,
+            resetAsyncCoroIdBox, resetAsyncCoroHdlBox, resetAsyncPromiseBox,
+            resetAsyncFinalLabelBox, resetAsyncCleanupLabelBox,
+            g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
+            g_enumTypeNames)
+        writeBackState()
         g_currentFunctionIsProfiled = resetProfiledFlagBox[0] == 1
         g_currentFunctionNameForProfile = resetProfiledNameBox[0]
         g_currentFunctionHighPressure = resetHighPressureBox[0] == 1
@@ -2979,9 +2962,6 @@ class LLVMIRGenerator {
         g_asyncFunctionPromise = resetAsyncPromiseBox[0]
         g_asyncFinalLabel = resetAsyncFinalLabelBox[0]
         g_asyncCleanupLabel = resetAsyncCleanupLabelBox[0]
-        clearTransientFunctionLoweringState()
-
-        output.append("}\n\n")
     }
 
     // Generate IR for a block of statements. Manages the defer stack depth
