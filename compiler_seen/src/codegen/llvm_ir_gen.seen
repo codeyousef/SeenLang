@@ -1795,14 +1795,6 @@ class LLVMIRGenerator {
         g_syncTypes = ""
     }
 
-    fun collectProgramsStringConstants(programs: Array<ProgramNode>) r: Void {
-        var pi = 0
-        while pi < programs.length() {
-            collectStringConstants(programs[pi])
-            pi = pi + 1
-        }
-    }
-
     fun emitProgramClassTypes(program: ProgramNode) r: Void {
         var i = 0
         while i < program.items.length() {
@@ -1811,26 +1803,6 @@ class LLVMIRGenerator {
                 emitClassType(item.classNode)
             }
             i = i + 1
-        }
-    }
-
-    fun emitProgramsClassTypes(programs: Array<ProgramNode>) r: Void {
-        var pi = 0
-        while pi < programs.length() {
-            emitProgramClassTypes(programs[pi])
-            pi = pi + 1
-        }
-    }
-
-    fun emitProgramsGlobalVariables(programs: Array<ProgramNode>) r: Void {
-        var pi = 0
-        while pi < programs.length() {
-            let moduleConstState = captureModuleConstantRegistryState()
-            emitGlobalVariablesIntoStateImpl(output, programs[pi],
-                moduleConstantNames, moduleConstantTypes,
-                moduleConstantValues, moduleConstState)
-            syncModuleConstantRegistryState(moduleConstState)
-            pi = pi + 1
         }
     }
 
@@ -1849,18 +1821,6 @@ class LLVMIRGenerator {
         }
     }
 
-    fun generateProgramsClasses(programs: Array<ProgramNode>) r: Void {
-        var pi = 0
-        while pi < programs.length() {
-            generateProgramClasses(programs[pi])
-            pi = pi + 1
-        }
-    }
-
-    fun shouldSkipStandaloneTopLevelFunction(fnName: String) r: Bool {
-        return shouldSkipStandaloneTopLevelFunctionImpl(fnName)
-    }
-
     fun emitProgramTopLevelFunctions(program: ProgramNode, moduleIndex: Int,
         traceModule: Bool) r: Void {
 
@@ -1875,7 +1835,7 @@ class LLVMIRGenerator {
                     println("[irgen module " + moduleIndex.toString() + "] function item confirmed at idx " + i.toString())
                 }
                 let fnName = item.function.name
-                if shouldSkipStandaloneTopLevelFunction(fnName) {
+                if shouldSkipStandaloneTopLevelFunctionImpl(fnName) {
                     i = i + 1
                     continue
                 }
@@ -1899,34 +1859,6 @@ class LLVMIRGenerator {
         }
     }
 
-    fun emitProgramsTopLevelFunctions(programs: Array<ProgramNode>) r: Void {
-        var pi = 0
-        while pi < programs.length() {
-            emitProgramTopLevelFunctions(programs[pi], 0, false)
-            pi = pi + 1
-        }
-    }
-
-    fun collectProgramDefinedSymbols(program: ProgramNode) r: Array<String> {
-        return collectProgramDefinedSymbolsImpl(program)
-    }
-
-    fun emitAdditionalGeneratedStringConstants(startIndex: Int) r: Void {
-        emitAdditionalGeneratedStringConstantsImpl(output, stringConstants,
-            stringConstantPrefix, startIndex)
-    }
-
-    fun emitGeneratedClosures() r: Void {
-        emitGeneratedClosuresImpl(output, g_closureDefs)
-    }
-
-    fun emitOptimizationStatisticsSummary(moduleIndex: Int, printToStdout: Bool) r: Void {
-        emitOptimizationStatisticsSummaryImpl(output, moduleIndex,
-            printToStdout, g_branchesEliminated, g_deadStatementsEliminated,
-            g_constantsFolded, g_cseHits, g_loopsOptimized,
-            g_deadStoresEliminated, g_reductionChainsDetected)
-    }
-
     // Multi-module monolithic entry point: generates a single .ll file
     // containing IR for ALL programs. Used by the `--release` path and
     // single-file compilation. Follows the three-pass architecture:
@@ -1943,16 +1875,32 @@ class LLVMIRGenerator {
         stringConstantPrefix = ""  // No prefix for multi-module
 
         // First pass: collect string constants from all programs
-        collectProgramsStringConstants(programs)
+        var stringPi = 0
+        while stringPi < programs.length() {
+            collectStringConstants(programs[stringPi])
+            stringPi = stringPi + 1
+        }
 
         // Emit module header
         emitPrologue()
 
         // Emit class struct type definitions from all programs
-        emitProgramsClassTypes(programs)
+        var classTypePi = 0
+        while classTypePi < programs.length() {
+            emitProgramClassTypes(programs[classTypePi])
+            classTypePi = classTypePi + 1
+        }
 
         // Emit global variable declarations from all programs
-        emitProgramsGlobalVariables(programs)
+        var globalPi = 0
+        while globalPi < programs.length() {
+            let moduleConstState = captureModuleConstantRegistryState()
+            emitGlobalVariablesIntoStateImpl(output, programs[globalPi],
+                moduleConstantNames, moduleConstantTypes,
+                moduleConstantValues, moduleConstState)
+            syncModuleConstantRegistryState(moduleConstState)
+            globalPi = globalPi + 1
+        }
 
         // Emit string constants
         emitStringConstantsImpl(output, stringConstants)
@@ -1972,19 +1920,31 @@ class LLVMIRGenerator {
         // runs first, it calls inferExpressionType on method calls like
         // obj.serialize(), but the method return type isn't registered yet,
         // causing type inference to fail and generate incorrect IR.
-        generateProgramsClasses(programs)
+        var classPi = 0
+        while classPi < programs.length() {
+            generateProgramClasses(programs[classPi])
+            classPi = classPi + 1
+        }
 
         // Emit functions (top-level) from all programs
-        emitProgramsTopLevelFunctions(programs)
+        var fnPi = 0
+        while fnPi < programs.length() {
+            emitProgramTopLevelFunctions(programs[fnPi], 0, false)
+            fnPi = fnPi + 1
+        }
 
         // Emit vtable constants for trait implementations
         emitTraitVtableConstantsImpl(output, g_traitImplRegistry,
             g_traitImplCount, g_dynTraitNames)
 
-        emitAdditionalGeneratedStringConstants(stringConstCountBeforeGen)
-        emitGeneratedClosures()
+        emitAdditionalGeneratedStringConstantsImpl(output, stringConstants,
+            stringConstantPrefix, stringConstCountBeforeGen)
+        emitGeneratedClosuresImpl(output, g_closureDefs)
 
-        emitOptimizationStatisticsSummary(0, false)
+        emitOptimizationStatisticsSummaryImpl(output, 0, false,
+            g_branchesEliminated, g_deadStatementsEliminated,
+            g_constantsFolded, g_cseHits, g_loopsOptimized,
+            g_deadStoresEliminated, g_reductionChainsDetected)
 
         // Emit @llvm.global_ctors for @init functions
         emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
@@ -2083,7 +2043,7 @@ class LLVMIRGenerator {
         var stringConstCountBeforeGen = stringConstants.length()
 
         // Collect function names defined in this module (to skip their declarations)
-        let definedFuncs = collectProgramDefinedSymbols(program)
+        let definedFuncs = collectProgramDefinedSymbolsImpl(program)
 
         // Emit declares for cross-module user-defined functions
         // These are built during registerDeclarations (Pass 1) and emitted here (Pass 2)
@@ -2137,9 +2097,10 @@ class LLVMIRGenerator {
         emitTraitVtableConstantsImpl(output, g_traitImplRegistry,
             g_traitImplCount, g_dynTraitNames)
 
-        emitAdditionalGeneratedStringConstants(stringConstCountBeforeGen)
+        emitAdditionalGeneratedStringConstantsImpl(output, stringConstants,
+            stringConstantPrefix, stringConstCountBeforeGen)
 
-        emitGeneratedClosures()
+        emitGeneratedClosuresImpl(output, g_closureDefs)
 
         // Unused function pruning warnings (9.10c)
         // AST-level check: scan all function bodies for Call expressions that reference each function
@@ -2188,7 +2149,10 @@ class LLVMIRGenerator {
             }
         }
 
-        emitOptimizationStatisticsSummary(moduleIndex, true)
+        emitOptimizationStatisticsSummaryImpl(output, moduleIndex, true,
+            g_branchesEliminated, g_deadStatementsEliminated,
+            g_constantsFolded, g_cseHits, g_loopsOptimized,
+            g_deadStoresEliminated, g_reductionChainsDetected)
 
         // Clear per-module CSE cache (expressions don't carry across modules)
         cseClear()
