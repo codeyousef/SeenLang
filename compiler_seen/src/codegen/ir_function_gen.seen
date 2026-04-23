@@ -11,11 +11,14 @@ import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}
 import codegen.type_registry.{CodegenState, csGetNextReg, clearTransientFunctionLoweringOptions}
+import codegen.ir_decl_registry.{registerFunctionStateImpl}
+import codegen.ir_decl_return_types.{resolveFunctionReturnTypeImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeNameImpl}
 import codegen.ir_string_emit.{addStringConstantTableImpl}
 import codegen.ir_string_emit.{getStringConstantIndexImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, emitFunctionParameterAllocasImpl}
 import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl, shouldApplyFunctionInlineHeuristicsImpl, countFunctionInlineLoopKindsImpl, appendInlineDecisionAttrImpl, isHighRegisterPressureImpl, emitHighRegisterPressureNoteImpl}
+import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import str.string.{StringBuilder}
 
@@ -93,6 +96,26 @@ class FunctionRegisterPressureAnalysis {
         return FunctionRegisterPressureAnalysis{
             regPressureCount: 0,
             highPressure: 0
+        }
+    }
+}
+
+class FunctionGenerationIdentitySnapshot {
+    var implFuncName: String
+    var resolvedFunctionReturnType: String
+    var traitImplRegistry: String
+    var traitImplCount: Int
+    var alreadyGenerated: Int
+    var skipRuntimeBuiltinStub: Int
+
+    static fun new() r: FunctionGenerationIdentitySnapshot {
+        return FunctionGenerationIdentitySnapshot{
+            implFuncName: "",
+            resolvedFunctionReturnType: "",
+            traitImplRegistry: "",
+            traitImplCount: 0,
+            alreadyGenerated: 0,
+            skipRuntimeBuiltinStub: 0
         }
     }
 }
@@ -400,6 +423,40 @@ fun resolveImplementationFunctionNameImpl(fn: FunctionNode,
         }
     }
     return implFuncName
+}
+
+fun prepareFunctionGenerationIdentitySnapshotImpl(fn: FunctionNode,
+    structNames: Array<String>, dynTraitNames: String,
+    structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
+    traitImplRegistry: String, traitImplCount: Int,
+    generatedFunctions: Array<String>, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: FunctionGenerationIdentitySnapshot {
+
+    let snapshot = FunctionGenerationIdentitySnapshot.new()
+    let registryBox = Array<String>()
+    registryBox.push(traitImplRegistry)
+    let countBox = Array<Int>()
+    countBox.push(traitImplCount)
+    snapshot.implFuncName = resolveImplementationFunctionNameImpl(fn,
+        structNames, dynTraitNames, structMethodNames, structMethodRetTypes,
+        registryBox, countBox)
+    snapshot.traitImplRegistry = registryBox[0]
+    snapshot.traitImplCount = countBox[0]
+
+    if hasGeneratedFunctionNameImpl(generatedFunctions, snapshot.implFuncName) {
+        snapshot.alreadyGenerated = 1
+        return snapshot
+    }
+    if shouldSkipRuntimeBuiltinStubImpl(fn, snapshot.implFuncName) {
+        snapshot.skipRuntimeBuiltinStub = 1
+        return snapshot
+    }
+
+    generatedFunctions.push(snapshot.implFuncName)
+    snapshot.resolvedFunctionReturnType = resolveFunctionReturnTypeImpl(fn)
+    registerFunctionStateImpl(snapshot.implFuncName,
+        snapshot.resolvedFunctionReturnType, funcNames, funcRetTypes)
+    return snapshot
 }
 
 fun emitGpuDispatchWrapperImpl(output: StringBuilder, regBox: Array<Int>,

@@ -107,9 +107,9 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
-import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
+import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
@@ -2707,39 +2707,29 @@ class LLVMIRGenerator {
             return
         }
 
-        let registryBox = Array<String>()
-        registryBox.push(g_traitImplRegistry)
-        let countBox = Array<Int>()
-        countBox.push(g_traitImplCount)
-        let implFuncName = resolveImplementationFunctionNameImpl(fn,
-            structNames, g_dynTraitNames, structMethodNames,
-            structMethodRetTypes, registryBox, countBox)
-        g_traitImplRegistry = registryBox[0]
-        g_traitImplCount = countBox[0]
-
-        if hasGeneratedFunctionNameImpl(generatedFunctions, implFuncName) {
+        let functionIdentity = prepareFunctionGenerationIdentitySnapshotImpl(
+            fn, structNames, g_dynTraitNames, structMethodNames,
+            structMethodRetTypes, g_traitImplRegistry, g_traitImplCount,
+            generatedFunctions, funcNames, funcRetTypes)
+        g_traitImplRegistry = functionIdentity.traitImplRegistry
+        g_traitImplCount = functionIdentity.traitImplCount
+        if functionIdentity.alreadyGenerated == 1 {
             return
         }
-        if shouldSkipRuntimeBuiltinStubImpl(fn, implFuncName) {
+        if functionIdentity.skipRuntimeBuiltinStub == 1 {
             output.append("; skipped user stub for runtime builtin: " +
-                implFuncName + "\n")
+                functionIdentity.implFuncName + "\n")
             return
         }
-        generatedFunctions.push(implFuncName)
-
-        // Register this function's return type for later call site inference
-        // (may already be registered from registerDeclarations, but that's OK)
-        let resolvedFunctionReturnType = resolveFunctionReturnType(fn)
-        registerFunctionStateImpl(implFuncName, resolvedFunctionReturnType,
-            funcNames, funcRetTypes)
 
         let returnTypeBox = Array<String>()
         returnTypeBox.push("")
-        if prepareFunctionPreBodyAndTryEmitMain(fn, implFuncName,
-            resolvedFunctionReturnType, returnTypeBox) {
+        if prepareFunctionPreBodyAndTryEmitMain(fn,
+            functionIdentity.implFuncName,
+            functionIdentity.resolvedFunctionReturnType, returnTypeBox) {
             return
         }
-        let fnName = implFuncName
+        let fnName = functionIdentity.implFuncName
         let returnType = returnTypeBox[0]
 
         // Build function attributes
