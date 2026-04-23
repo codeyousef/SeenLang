@@ -1,0 +1,135 @@
+// ir_function_decorators.seen — top-level function decorator helpers
+// Extracted from llvm_ir_gen.seen to keep cfg/intrinsic/GPU/decorator
+// preflight logic separate from the main function-generation pipeline.
+
+import parser.real_parser.{FunctionNode}
+import str.string.{StringBuilder}
+import codegen.ir_function_gen.{emitIntrinsicWrapperImpl, shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareFunctionAttributesImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+
+fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String)
+    r: Bool {
+
+    var decoratorIdx = 0
+    while decoratorIdx < fn.decorators.length() {
+        if fn.decorators[decoratorIdx].name == decoratorName {
+            return true
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    return false
+}
+
+fun resolveIntrinsicDecoratorNameImpl(fn: FunctionNode) r: String {
+    var decoratorIdx = 0
+    while decoratorIdx < fn.decorators.length() {
+        if fn.decorators[decoratorIdx].name == "intrinsic" {
+            if fn.decorators[decoratorIdx].arguments.length() > 0 {
+                return fn.decorators[decoratorIdx].arguments[0]
+            }
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    return ""
+}
+
+fun shouldSkipFunctionByCfgStateImpl(output: StringBuilder, fn: FunctionNode,
+    enabledFeatures: String) r: Bool {
+
+    return shouldSkipFunctionByCfgImpl(output, fn, enabledFeatures)
+}
+
+fun emitFunctionDecoratorMetadataCommentsStateImpl(output: StringBuilder,
+    fn: FunctionNode, traitImplCount: Int) r: Void {
+
+    emitFunctionDecoratorMetadataCommentsImpl(output, fn, traitImplCount)
+}
+
+fun tryHandleIntrinsicFunctionGenerationStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, structNames: Array<String>,
+    typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
+    enumTypeNames: String, intrinsicFuncNamesBox: Array<String>,
+    intrinsicLlvmNamesBox: Array<String>, intrinsicCountBox: Array<Int>)
+    r: Bool {
+
+    if not hasFunctionDecoratorImpl(fn, "intrinsic") {
+        return false
+    }
+
+    let intrinsicLlvmName = resolveIntrinsicDecoratorNameImpl(fn)
+    if intrinsicLlvmName == "" {
+        return false
+    }
+
+    let intrinsicParamTypes = Array<String>()
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let paramSeenType = fn.params[paramIdx].paramType.typeName
+        intrinsicParamTypes.push(mapTypeImpl(paramSeenType, structNames,
+            typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames))
+        paramIdx = paramIdx + 1
+    }
+    let intrinsicRetType = mapTypeImpl(fn.returnType.typeName, structNames,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+
+    let intrinsicLines = Array<String>()
+    if emitIntrinsicWrapperImpl(intrinsicLines, regBox, fn.name,
+        intrinsicLlvmName, intrinsicParamTypes, intrinsicParamTypes.length(),
+        intrinsicRetType, quoteIdentIfNeededImpl(fn.name)) {
+
+        var lineIdx = 0
+        while lineIdx < intrinsicLines.length() {
+            output.append(intrinsicLines[lineIdx])
+            lineIdx = lineIdx + 1
+        }
+    }
+
+    if intrinsicCountBox[0] > 0 {
+        intrinsicFuncNamesBox[0] = intrinsicFuncNamesBox[0] + "|"
+        intrinsicLlvmNamesBox[0] = intrinsicLlvmNamesBox[0] + "|"
+    }
+    intrinsicFuncNamesBox[0] = intrinsicFuncNamesBox[0] + fn.name
+    intrinsicLlvmNamesBox[0] = intrinsicLlvmNamesBox[0] +
+        intrinsicLlvmName
+    intrinsicCountBox[0] = intrinsicCountBox[0] + 1
+    return true
+}
+
+fun registerFunctionTraitImplDecoratorsStateImpl(fn: FunctionNode,
+    traitImplRegistryBox: Array<String>, traitImplCountBox: Array<Int>)
+    r: Void {
+
+    registerFunctionTraitImplDecoratorsImpl(fn, traitImplRegistryBox,
+        traitImplCountBox)
+}
+
+fun tryHandleGpuShaderFunctionGenerationStateImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, gpuNamesBox: Array<String>,
+    gpuStagesBox: Array<String>, gpuWorkgroupsBox: Array<String>,
+    gpuBindingsBox: Array<String>, gpuCountBox: Array<Int>) r: Bool {
+
+    return tryHandleGpuShaderFunctionGenerationImpl(output, regBox, fn,
+        gpuNamesBox, gpuStagesBox, gpuWorkgroupsBox, gpuBindingsBox,
+        gpuCountBox)
+}
+
+fun shouldSkipSpecialFunctionBodyStateImpl(output: StringBuilder,
+    fn: FunctionNode) r: Bool {
+
+    return shouldSkipSpecialFunctionBodyImpl(output, fn)
+}
+
+fun prepareFunctionAttributesStateImpl(output: StringBuilder, fn: FunctionNode,
+    sanitizerMode: String, initFuncNamesBox: Array<String>,
+    initFuncCountBox: Array<Int>, trustedFuncNamesBox: Array<String>,
+    specializationNamesBox: Array<String>,
+    specializationCountBox: Array<Int>) r: String {
+
+    let funcAttrsBox = Array<String>()
+    funcAttrsBox.push("")
+    prepareFunctionAttributesImpl(output, fn, sanitizerMode, funcAttrsBox,
+        initFuncNamesBox, initFuncCountBox, trustedFuncNamesBox,
+        specializationNamesBox, specializationCountBox)
+    return funcAttrsBox[0]
+}
