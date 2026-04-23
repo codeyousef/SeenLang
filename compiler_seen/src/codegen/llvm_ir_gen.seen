@@ -52,7 +52,7 @@ import codegen.ir_module_constants.{ModuleConstantRegistryState, isModuleConstMu
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
-import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getKnownFieldIndexPrimaryImpl, getKnownFieldIndexFallbackImpl, getLLVMIRGeneratorFieldIndexImpl}
+import codegen.ir_type_info.{charToCodeStr, getSeenFieldTypeImpl, getMethodReturnTypeImpl, g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode, findStructIdx, getLLVMIRGeneratorFieldIndexImpl}
 
 import codegen.ir_string_collect.{getBaseTypeNameImpl, normalizeHeaderTypeImpl, parseArrayElementTypeImpl, extractArrayLiteralElementTypeImpl, parseDecimalIntImpl, getSeenTokenTypeValueImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl, collectStringConstantsFromExprStateImpl}
@@ -67,7 +67,7 @@ import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturn
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
-import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, getFieldTypeForHeaderStruct, getHardcodedFieldLlvmTypeImpl, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
+import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl, emitContinueStatementImpl, emitBreakStatementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
@@ -87,6 +87,7 @@ import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFie
 import codegen.ir_struct_layout_build.{StructLayoutBuildState, buildStructLayoutStateImpl}
 import codegen.ir_class_type_layout.{countRealClassTypeFieldsImpl, emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl}
 import codegen.ir_class_type_decorators.{ClassTypeDecoratorState, scanClassTypeDecoratorsImpl}
+import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
@@ -1738,142 +1739,21 @@ class LLVMIRGenerator {
                 traceGen("FrontendResult fields=" + structFieldNames[idxCheck])
             }
         }
-
-        // CRITICAL: Check hardcoded field indices FIRST for known AST types
-        // This ensures correct indices even when registry is partially populated
-        // (e.g., when type header is loaded but source hasn't been fully parsed)
-        let primaryKnownFieldIdx = getKnownFieldIndexPrimaryImpl(structName,
-            fieldName)
-        if primaryKnownFieldIdx >= 0 {
-            cacheIrgenFieldIndex(cacheKey, primaryKnownFieldIdx)
-            return primaryKnownFieldIdx
+        let fieldIdx = resolveFieldIndexImpl(structName, fieldName,
+            structNames, structFieldNames)
+        if fieldIdx >= 0 {
+            cacheIrgenFieldIndex(cacheKey, fieldIdx)
         }
-
-        let idx = findStructReg(structName, structNames)
-        if idx < 0 {
-            return -1  // Struct not found
-        }
-
-        let fieldNamesStr = structFieldNames[idx]
-        // Parse comma-separated field names to find index
-        // Use byteAt instead of charAt (44 = ',')
-        var fieldIdx = 0
-        var start = 0
-        var pos = 0
-        while pos <= fieldNamesStr.length() {
-            var byteVal = 0
-            if pos < fieldNamesStr.length() {
-                byteVal = fieldNamesStr.byteAt(pos)
-            }
-            if byteVal == 44 or pos == fieldNamesStr.length() {
-                let name = fieldNamesStr.substring(start, pos)
-                if name == fieldName {
-                    cacheIrgenFieldIndex(cacheKey, fieldIdx)
-                    return fieldIdx
-                }
-                fieldIdx = fieldIdx + 1
-                start = pos + 1
-            }
-            pos = pos + 1
-        }
-
-        // Fallback hardcoded field indices for less common types (not covered above)
-        let fallbackKnownFieldIdx = getKnownFieldIndexFallbackImpl(structName,
-            fieldName)
-        if fallbackKnownFieldIdx >= 0 {
-            cacheIrgenFieldIndex(cacheKey, fallbackKnownFieldIdx)
-            return fallbackKnownFieldIdx
-        }
-        return -1  // Field not found
+        return fieldIdx
     }
 
     // Get field type from registered struct
     // Note: fieldTypes uses | as separator (not comma) to handle generic types like Map<K,V>
     fun getFieldType(structName: String, fieldName: String) r: String {
-        let idx = findStructReg(structName, structNames)
-        if idx < 0 {
-            let knownType = getHardcodedFieldLlvmTypeImpl(structName, fieldName)
-            if knownType != "" { return knownType }
-            return "i64"  // Default
-        }
-
-        let fieldNamesStr = structFieldNames[idx]
-        let fieldTypesStr = structFieldTypes[idx]
-        let llvmFieldTypesStr = structLlvmFieldTypes[idx]
-
-        // If struct was loaded from header with empty field names, use hardcoded fallbacks
-        if fieldNamesStr == "" {
-            let hdr = getFieldTypeForHeaderStruct(structName, fieldName)
-            if hdr != "" { return hdr }
-        }
-
-        // Parse to find matching field by index
-        var fieldIdx = 0
-        var nameStart = 0
-        var nameEnd = 0
-
-        // Find field index from names string (comma-separated)
-        // Use byteAt instead of charAt (44=',', 124='|')
-        var foundField = false
-        var pos = 0
-        while pos <= fieldNamesStr.length() and not foundField {
-            if pos == fieldNamesStr.length() or (pos < fieldNamesStr.length() and fieldNamesStr.byteAt(pos) == 44) {
-                let name = fieldNamesStr.substring(nameStart, pos)
-                if name == fieldName {
-                    foundField = true
-                } else {
-                    fieldIdx = fieldIdx + 1
-                    nameStart = pos + 1
-                }
-            }
-            pos = pos + 1
-        }
-
-        // Hardcoded fallbacks for known structs (avoid string parsing bugs)
-        // NOTE: Check these BEFORE returning default i64 for unknown fields
-        let knownType = getHardcodedFieldLlvmTypeImpl(structName, fieldName)
-        if knownType != "" { return knownType }
-
-        // If field wasn't found in the field names list, return default
-        // (can't use fieldIdx if foundField is false)
-        if not foundField {
-            return "i64"
-        }
-
-        // Prefer LLVM field types from header if available
-        if llvmFieldTypesStr != "" {
-            var llvmTypeIdx = 0
-            var llvmTypeStart = 0
-            pos = 0
-            while pos <= llvmFieldTypesStr.length() {
-                if pos == llvmFieldTypesStr.length() or (pos < llvmFieldTypesStr.length() and llvmFieldTypesStr.byteAt(pos) == 124) {
-                    if llvmTypeIdx == fieldIdx {
-                        return llvmFieldTypesStr.substring(llvmTypeStart, pos)
-                    }
-                    llvmTypeIdx = llvmTypeIdx + 1
-                    llvmTypeStart = pos + 1
-                }
-                pos = pos + 1
-            }
-        }
-
-        // Now find the type at fieldIdx (pipe-separated)
-        var typeIdx = 0
-        var typeStart = 0
-        pos = 0
-        while pos <= fieldTypesStr.length() {
-            if pos == fieldTypesStr.length() or (pos < fieldTypesStr.length() and fieldTypesStr.byteAt(pos) == 124) {
-                if typeIdx == fieldIdx {
-                    let typeName = fieldTypesStr.substring(typeStart, pos)
-                    return mapType(typeName)
-                }
-                typeIdx = typeIdx + 1
-                typeStart = pos + 1
-            }
-            pos = pos + 1
-        }
-
-        return "i64"  // Default
+        return resolveStructFieldLlvmTypeImpl(structName, fieldName,
+            structNames, structFieldNames, structFieldTypes,
+            structLlvmFieldTypes, g_reprCClassNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames)
     }
 
     fun getSeenTokenTypeValue(memberName: String) r: Int { return getSeenTokenTypeValueImpl(memberName) }

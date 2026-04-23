@@ -1,0 +1,154 @@
+// ir_field_registry.seen — shared field registry lookup helpers
+// Extracted from llvm_ir_gen.seen so pure field-index / field-type lookup
+// logic stays separate from the local cache and trace hooks.
+
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_info.{getKnownFieldIndexPrimaryImpl, getKnownFieldIndexFallbackImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_type_tables.{getFieldTypeForHeaderStruct, getHardcodedFieldLlvmTypeImpl}
+import codegen.type_registry.{findStructReg}
+
+fun mapRegistryFieldTypeImpl(typeName: String, reprCClassNames: String,
+    structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: String {
+
+    if typeName.startsWith("dyn ") {
+        return "i64"
+    }
+    if typeName.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseType = getBaseTypeNameImpl(typeName)
+        if reprCClassNames.contains(baseType + "|") {
+            return "%" + baseType
+        }
+    }
+    return mapTypeImpl(typeName, structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
+}
+
+fun resolveFieldIndexFromNamesImpl(fieldName: String, fieldNamesStr: String)
+    r: Int {
+
+    var fieldIdx = 0
+    var start = 0
+    var pos = 0
+    while pos <= fieldNamesStr.length() {
+        var byteVal = 0
+        if pos < fieldNamesStr.length() {
+            byteVal = fieldNamesStr.byteAt(pos)
+        }
+        if byteVal == 44 or pos == fieldNamesStr.length() {
+            let name = fieldNamesStr.substring(start, pos)
+            if name == fieldName {
+                return fieldIdx
+            }
+            fieldIdx = fieldIdx + 1
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    return -1
+}
+
+fun resolveFieldIndexImpl(structName: String, fieldName: String,
+    structNames: Array<String>, structFieldNames: Array<String>) r: Int {
+
+    let primaryKnownFieldIdx = getKnownFieldIndexPrimaryImpl(structName,
+        fieldName)
+    if primaryKnownFieldIdx >= 0 {
+        return primaryKnownFieldIdx
+    }
+
+    let idx = findStructReg(structName, structNames)
+    if idx >= 0 {
+        let fieldIdx = resolveFieldIndexFromNamesImpl(fieldName,
+            structFieldNames[idx])
+        if fieldIdx >= 0 {
+            return fieldIdx
+        }
+    }
+
+    return getKnownFieldIndexFallbackImpl(structName, fieldName)
+}
+
+fun resolveStructFieldLlvmTypeImpl(structName: String, fieldName: String,
+    structNames: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>,
+    reprCClassNames: String, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
+    r: String {
+
+    let idx = findStructReg(structName, structNames)
+    if idx < 0 {
+        let knownType = getHardcodedFieldLlvmTypeImpl(structName, fieldName)
+        if knownType != "" {
+            return knownType
+        }
+        return "i64"
+    }
+
+    let fieldNamesStr = structFieldNames[idx]
+    let fieldTypesStr = structFieldTypes[idx]
+    let llvmFieldTypesStr = structLlvmFieldTypes[idx]
+
+    if fieldNamesStr == "" {
+        let hdr = getFieldTypeForHeaderStruct(structName, fieldName)
+        if hdr != "" {
+            return hdr
+        }
+    }
+
+    let fieldIdx = resolveFieldIndexFromNamesImpl(fieldName, fieldNamesStr)
+
+    let knownType = getHardcodedFieldLlvmTypeImpl(structName, fieldName)
+    if knownType != "" {
+        return knownType
+    }
+    if fieldIdx < 0 {
+        return "i64"
+    }
+
+    if llvmFieldTypesStr != "" {
+        var llvmTypeIdx = 0
+        var llvmTypeStart = 0
+        var llvmPos = 0
+        while llvmPos <= llvmFieldTypesStr.length() {
+            if llvmPos == llvmFieldTypesStr.length() or
+                (llvmPos < llvmFieldTypesStr.length() and
+                llvmFieldTypesStr.byteAt(llvmPos) == 124) {
+
+                if llvmTypeIdx == fieldIdx {
+                    return llvmFieldTypesStr.substring(llvmTypeStart, llvmPos)
+                }
+                llvmTypeIdx = llvmTypeIdx + 1
+                llvmTypeStart = llvmPos + 1
+            }
+            llvmPos = llvmPos + 1
+        }
+    }
+
+    var typeIdx = 0
+    var typeStart = 0
+    var typePos = 0
+    while typePos <= fieldTypesStr.length() {
+        if typePos == fieldTypesStr.length() or
+            (typePos < fieldTypesStr.length() and
+            fieldTypesStr.byteAt(typePos) == 124) {
+
+            if typeIdx == fieldIdx {
+                let typeName = fieldTypesStr.substring(typeStart, typePos)
+                return mapRegistryFieldTypeImpl(typeName, reprCClassNames,
+                    structNames, typeAliasNames, typeAliasTargets,
+                    typeAliasCount, enumTypeNames)
+            }
+            typeIdx = typeIdx + 1
+            typeStart = typePos + 1
+        }
+        typePos = typePos + 1
+    }
+
+    return "i64"
+}
