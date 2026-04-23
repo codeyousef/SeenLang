@@ -2754,138 +2754,6 @@ class LLVMIRGenerator {
     // Function bodies are wrapped in: entry block -> alloca hoisting ->
     // parameter stores -> body generation -> implicit void return.
     // ML-guided inlining decisions are logged when g_mlLogEnabled is set.
-    fun shouldSkipFunctionByCfg(fn: FunctionNode) r: Bool {
-        return shouldSkipFunctionByCfgStateImpl(output, fn, g_enabledFeatures)
-    }
-
-    fun emitFunctionDecoratorMetadataComments(fn: FunctionNode) r: Void {
-        emitFunctionDecoratorMetadataCommentsStateImpl(output, fn,
-            g_traitImplCount)
-    }
-
-    fun tryHandleIntrinsicFunctionGeneration(fn: FunctionNode) r: Bool {
-        let intrinsicFuncNamesBox = Array<String>()
-        intrinsicFuncNamesBox.push(g_intrinsicFuncNames)
-        let intrinsicLlvmNamesBox = Array<String>()
-        intrinsicLlvmNamesBox.push(g_intrinsicLlvmNames)
-        let intrinsicCountBox = Array<Int>()
-        intrinsicCountBox.push(g_intrinsicCount)
-        let handled = tryHandleIntrinsicFunctionGenerationStateImpl(output,
-            g_regBox, fn, structNames, g_typeAliasNames, g_typeAliasTargets,
-            g_typeAliasCount, g_enumTypeNames, intrinsicFuncNamesBox,
-            intrinsicLlvmNamesBox, intrinsicCountBox)
-        g_intrinsicFuncNames = intrinsicFuncNamesBox[0]
-        g_intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
-        g_intrinsicCount = intrinsicCountBox[0]
-        return handled
-    }
-
-    fun registerFunctionTraitImplDecorators(fn: FunctionNode) r: Void {
-        let registryBox = Array<String>()
-        registryBox.push(g_traitImplRegistry)
-        let countBox = Array<Int>()
-        countBox.push(g_traitImplCount)
-        registerFunctionTraitImplDecoratorsStateImpl(fn, registryBox,
-            countBox)
-        g_traitImplRegistry = registryBox[0]
-        g_traitImplCount = countBox[0]
-    }
-
-    fun tryHandleGpuShaderFunctionGeneration(fn: FunctionNode) r: Bool {
-        let gpuNamesBox = Array<String>()
-        gpuNamesBox.push(g_gpuShaderNames)
-        let gpuStagesBox = Array<String>()
-        gpuStagesBox.push(g_gpuShaderStages)
-        let gpuWorkgroupsBox = Array<String>()
-        gpuWorkgroupsBox.push(g_gpuShaderWorkgroups)
-        let gpuBindingsBox = Array<String>()
-        gpuBindingsBox.push(g_gpuShaderBindings)
-        let gpuCountBox = Array<Int>()
-        gpuCountBox.push(g_gpuShaderCount)
-        let handled = tryHandleGpuShaderFunctionGenerationStateImpl(output,
-            g_regBox, fn, gpuNamesBox, gpuStagesBox, gpuWorkgroupsBox,
-            gpuBindingsBox, gpuCountBox)
-        g_gpuShaderNames = gpuNamesBox[0]
-        g_gpuShaderStages = gpuStagesBox[0]
-        g_gpuShaderWorkgroups = gpuWorkgroupsBox[0]
-        g_gpuShaderBindings = gpuBindingsBox[0]
-        g_gpuShaderCount = gpuCountBox[0]
-        return handled
-    }
-
-    fun shouldSkipSpecialFunctionBody(fn: FunctionNode) r: Bool {
-        return shouldSkipSpecialFunctionBodyStateImpl(output, fn)
-    }
-
-    fun prepareFunctionAttributes(fn: FunctionNode) r: String {
-        let initFuncNamesBox = Array<String>()
-        initFuncNamesBox.push(g_initFuncNames)
-        let initFuncCountBox = Array<Int>()
-        initFuncCountBox.push(g_initFuncCount)
-        let trustedFuncNamesBox = Array<String>()
-        trustedFuncNamesBox.push(g_trustedFuncNames)
-        let specializationNamesBox = Array<String>()
-        specializationNamesBox.push(g_specializationNames)
-        let specializationCountBox = Array<Int>()
-        specializationCountBox.push(g_specializationCount)
-        let funcAttrs = prepareFunctionAttributesStateImpl(output, fn,
-            g_sanitizerMode, initFuncNamesBox, initFuncCountBox,
-            trustedFuncNamesBox, specializationNamesBox,
-            specializationCountBox)
-        g_initFuncNames = initFuncNamesBox[0]
-        g_initFuncCount = initFuncCountBox[0]
-        g_trustedFuncNames = trustedFuncNamesBox[0]
-        g_specializationNames = specializationNamesBox[0]
-        g_specializationCount = specializationCountBox[0]
-        return funcAttrs
-    }
-
-    fun tryHandleExternFunctionGeneration(fn: FunctionNode) r: Bool {
-        let externSymbolBox = Array<String>()
-        externSymbolBox.push("")
-        let externAction = prepareExternFunctionGenerationImpl(output, fn,
-            externSymbolBox)
-        if externAction == 0 {
-            return false
-        }
-        let normalizedReturnType = normalizeDeclaredTypeNode(fn.returnType)
-        if externAction == 1 {
-            registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
-                funcRetTypes)
-            return true
-        }
-        var mappedPTypes = Array<String>()
-        var mpIdx = 0
-        while mpIdx < fn.params.length() {
-            let param = fn.params[mpIdx]
-            let ptn = param.paramType
-            let ptName = normalizeDeclaredTypeNode(ptn)
-            mappedPTypes.push(mapTypeForParameter(ptName))
-            mpIdx = mpIdx + 1
-        }
-        let externRetType = mapType(normalizedReturnType)
-        var isVariadic = 0
-        if hasDecorator(fn, "variadic") { isVariadic = 1 }
-        emitExternDeclImpl(output, fn.name, externSymbolBox[0], mappedPTypes,
-            fn.params.length(), externRetType, isVariadic)
-        registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
-            funcRetTypes)
-        return true
-    }
-
-    fun resolveImplementationFunctionName(fn: FunctionNode) r: String {
-        let registryBox = Array<String>()
-        registryBox.push(g_traitImplRegistry)
-        let countBox = Array<Int>()
-        countBox.push(g_traitImplCount)
-        let implFuncName = resolveImplementationFunctionNameImpl(fn,
-            structNames, g_dynTraitNames, structMethodNames,
-            structMethodRetTypes, registryBox, countBox)
-        g_traitImplRegistry = registryBox[0]
-        g_traitImplCount = countBox[0]
-        return implFuncName
-    }
-
     fun resetFunctionGenerationState(resolvedFunctionReturnType: String) r: Void {
         resetLocalCodegenState()
         currentFunctionReturnType = resolvedFunctionReturnType
@@ -2974,31 +2842,108 @@ class LLVMIRGenerator {
     }
 
     fun generateFunction(fn: FunctionNode) r: Void {
-        if shouldSkipFunctionByCfg(fn) {
+        if shouldSkipFunctionByCfgStateImpl(output, fn, g_enabledFeatures) {
             return
         }
 
-        emitFunctionDecoratorMetadataComments(fn)
+        emitFunctionDecoratorMetadataCommentsStateImpl(output, fn,
+            g_traitImplCount)
 
-        if tryHandleIntrinsicFunctionGeneration(fn) {
+        let intrinsicFuncNamesBox = Array<String>()
+        intrinsicFuncNamesBox.push(g_intrinsicFuncNames)
+        let intrinsicLlvmNamesBox = Array<String>()
+        intrinsicLlvmNamesBox.push(g_intrinsicLlvmNames)
+        let intrinsicCountBox = Array<Int>()
+        intrinsicCountBox.push(g_intrinsicCount)
+        if tryHandleIntrinsicFunctionGenerationStateImpl(output, g_regBox, fn,
+            structNames, g_typeAliasNames, g_typeAliasTargets,
+            g_typeAliasCount, g_enumTypeNames, intrinsicFuncNamesBox,
+            intrinsicLlvmNamesBox, intrinsicCountBox) {
+
+            g_intrinsicFuncNames = intrinsicFuncNamesBox[0]
+            g_intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
+            g_intrinsicCount = intrinsicCountBox[0]
+            return
+        }
+        g_intrinsicFuncNames = intrinsicFuncNamesBox[0]
+        g_intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
+        g_intrinsicCount = intrinsicCountBox[0]
+
+        let registryBox = Array<String>()
+        registryBox.push(g_traitImplRegistry)
+        let countBox = Array<Int>()
+        countBox.push(g_traitImplCount)
+        registerFunctionTraitImplDecoratorsStateImpl(fn, registryBox,
+            countBox)
+        g_traitImplRegistry = registryBox[0]
+        g_traitImplCount = countBox[0]
+
+        let gpuNamesBox = Array<String>()
+        gpuNamesBox.push(g_gpuShaderNames)
+        let gpuStagesBox = Array<String>()
+        gpuStagesBox.push(g_gpuShaderStages)
+        let gpuWorkgroupsBox = Array<String>()
+        gpuWorkgroupsBox.push(g_gpuShaderWorkgroups)
+        let gpuBindingsBox = Array<String>()
+        gpuBindingsBox.push(g_gpuShaderBindings)
+        let gpuCountBox = Array<Int>()
+        gpuCountBox.push(g_gpuShaderCount)
+        if tryHandleGpuShaderFunctionGenerationStateImpl(output, g_regBox, fn,
+            gpuNamesBox, gpuStagesBox, gpuWorkgroupsBox, gpuBindingsBox,
+            gpuCountBox) {
+
+            g_gpuShaderNames = gpuNamesBox[0]
+            g_gpuShaderStages = gpuStagesBox[0]
+            g_gpuShaderWorkgroups = gpuWorkgroupsBox[0]
+            g_gpuShaderBindings = gpuBindingsBox[0]
+            g_gpuShaderCount = gpuCountBox[0]
+            return
+        }
+        g_gpuShaderNames = gpuNamesBox[0]
+        g_gpuShaderStages = gpuStagesBox[0]
+        g_gpuShaderWorkgroups = gpuWorkgroupsBox[0]
+        g_gpuShaderBindings = gpuBindingsBox[0]
+        g_gpuShaderCount = gpuCountBox[0]
+
+        if shouldSkipSpecialFunctionBodyStateImpl(output, fn) {
             return
         }
 
-        registerFunctionTraitImplDecorators(fn)
-
-        if tryHandleGpuShaderFunctionGeneration(fn) {
+        let externSymbolBox = Array<String>()
+        externSymbolBox.push("")
+        let externAction = prepareExternFunctionGenerationImpl(output, fn,
+            externSymbolBox)
+        if externAction != 0 {
+            let normalizedReturnType = normalizeDeclaredTypeNode(fn.returnType)
+            if externAction == 1 {
+                registerFunctionStateImpl(fn.name, normalizedReturnType,
+                    funcNames, funcRetTypes)
+                return
+            }
+            var mappedPTypes = Array<String>()
+            var mpIdx = 0
+            while mpIdx < fn.params.length() {
+                let param = fn.params[mpIdx]
+                let ptn = param.paramType
+                let ptName = normalizeDeclaredTypeNode(ptn)
+                mappedPTypes.push(mapTypeForParameter(ptName))
+                mpIdx = mpIdx + 1
+            }
+            let externRetType = mapType(normalizedReturnType)
+            var isVariadic = 0
+            if hasDecorator(fn, "variadic") { isVariadic = 1 }
+            emitExternDeclImpl(output, fn.name, externSymbolBox[0],
+                mappedPTypes, fn.params.length(), externRetType, isVariadic)
+            registerFunctionStateImpl(fn.name, normalizedReturnType, funcNames,
+                funcRetTypes)
             return
         }
 
-        if shouldSkipSpecialFunctionBody(fn) {
-            return
-        }
-
-        if tryHandleExternFunctionGeneration(fn) {
-            return
-        }
-
-        let implFuncName = resolveImplementationFunctionName(fn)
+        let implFuncName = resolveImplementationFunctionNameImpl(fn,
+            structNames, g_dynTraitNames, structMethodNames,
+            structMethodRetTypes, registryBox, countBox)
+        g_traitImplRegistry = registryBox[0]
+        g_traitImplCount = countBox[0]
 
         // Check if this function was already emitted in this module (duplicate detection)
         var alreadyGenerated = false
@@ -3040,7 +2985,25 @@ class LLVMIRGenerator {
 
         // Build function attributes
         println("[irgen function] attrs start: " + fnName)
-        var funcAttrs = prepareFunctionAttributes(fn)
+        let initFuncNamesBox = Array<String>()
+        initFuncNamesBox.push(g_initFuncNames)
+        let initFuncCountBox = Array<Int>()
+        initFuncCountBox.push(g_initFuncCount)
+        let trustedFuncNamesBox = Array<String>()
+        trustedFuncNamesBox.push(g_trustedFuncNames)
+        let specializationNamesBox = Array<String>()
+        specializationNamesBox.push(g_specializationNames)
+        let specializationCountBox = Array<Int>()
+        specializationCountBox.push(g_specializationCount)
+        var funcAttrs = prepareFunctionAttributesStateImpl(output, fn,
+            g_sanitizerMode, initFuncNamesBox, initFuncCountBox,
+            trustedFuncNamesBox, specializationNamesBox,
+            specializationCountBox)
+        g_initFuncNames = initFuncNamesBox[0]
+        g_initFuncCount = initFuncCountBox[0]
+        g_trustedFuncNames = trustedFuncNamesBox[0]
+        g_specializationNames = specializationNamesBox[0]
+        g_specializationCount = specializationCountBox[0]
         println("[irgen function] attrs done: " + fnName)
 
         // ML-guided inline decision
