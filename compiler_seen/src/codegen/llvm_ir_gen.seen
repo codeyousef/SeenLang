@@ -108,7 +108,7 @@ import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndex
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl}
-import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
+import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
@@ -2682,41 +2682,20 @@ class LLVMIRGenerator {
         g_intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
         g_intrinsicCount = intrinsicCountBox[0]
 
-        let registryBox = Array<String>()
-        registryBox.push(g_traitImplRegistry)
-        let countBox = Array<Int>()
-        countBox.push(g_traitImplCount)
-        registerFunctionTraitImplDecoratorsStateImpl(fn, registryBox,
-            countBox)
-        g_traitImplRegistry = registryBox[0]
-        g_traitImplCount = countBox[0]
-
-        let gpuNamesBox = Array<String>()
-        gpuNamesBox.push(g_gpuShaderNames)
-        let gpuStagesBox = Array<String>()
-        gpuStagesBox.push(g_gpuShaderStages)
-        let gpuWorkgroupsBox = Array<String>()
-        gpuWorkgroupsBox.push(g_gpuShaderWorkgroups)
-        let gpuBindingsBox = Array<String>()
-        gpuBindingsBox.push(g_gpuShaderBindings)
-        let gpuCountBox = Array<Int>()
-        gpuCountBox.push(g_gpuShaderCount)
-        if tryHandleGpuShaderFunctionGenerationStateImpl(output, g_regBox, fn,
-            gpuNamesBox, gpuStagesBox, gpuWorkgroupsBox, gpuBindingsBox,
-            gpuCountBox) {
-
-            g_gpuShaderNames = gpuNamesBox[0]
-            g_gpuShaderStages = gpuStagesBox[0]
-            g_gpuShaderWorkgroups = gpuWorkgroupsBox[0]
-            g_gpuShaderBindings = gpuBindingsBox[0]
-            g_gpuShaderCount = gpuCountBox[0]
+        let decoratorPreflight = prepareFunctionDecoratorPreflightSnapshotImpl(
+            output, g_regBox, fn, g_traitImplRegistry, g_traitImplCount,
+            g_gpuShaderNames, g_gpuShaderStages, g_gpuShaderWorkgroups,
+            g_gpuShaderBindings, g_gpuShaderCount)
+        g_traitImplRegistry = decoratorPreflight.traitImplRegistry
+        g_traitImplCount = decoratorPreflight.traitImplCount
+        g_gpuShaderNames = decoratorPreflight.gpuShaderNames
+        g_gpuShaderStages = decoratorPreflight.gpuShaderStages
+        g_gpuShaderWorkgroups = decoratorPreflight.gpuShaderWorkgroups
+        g_gpuShaderBindings = decoratorPreflight.gpuShaderBindings
+        g_gpuShaderCount = decoratorPreflight.gpuShaderCount
+        if decoratorPreflight.handledByDecorator == 1 {
             return
         }
-        g_gpuShaderNames = gpuNamesBox[0]
-        g_gpuShaderStages = gpuStagesBox[0]
-        g_gpuShaderWorkgroups = gpuWorkgroupsBox[0]
-        g_gpuShaderBindings = gpuBindingsBox[0]
-        g_gpuShaderCount = gpuCountBox[0]
 
         if shouldSkipSpecialFunctionBodyStateImpl(output, fn) {
             return
@@ -2728,6 +2707,10 @@ class LLVMIRGenerator {
             return
         }
 
+        let registryBox = Array<String>()
+        registryBox.push(g_traitImplRegistry)
+        let countBox = Array<Int>()
+        countBox.push(g_traitImplCount)
         let implFuncName = resolveImplementationFunctionNameImpl(fn,
             structNames, g_dynTraitNames, structMethodNames,
             structMethodRetTypes, registryBox, countBox)

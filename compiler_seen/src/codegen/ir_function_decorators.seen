@@ -32,6 +32,30 @@ class FunctionAttributeStateSnapshot {
     }
 }
 
+class FunctionDecoratorPreflightSnapshot {
+    var traitImplRegistry: String
+    var traitImplCount: Int
+    var gpuShaderNames: String
+    var gpuShaderStages: String
+    var gpuShaderWorkgroups: String
+    var gpuShaderBindings: String
+    var gpuShaderCount: Int
+    var handledByDecorator: Int
+
+    static fun new() r: FunctionDecoratorPreflightSnapshot {
+        return FunctionDecoratorPreflightSnapshot{
+            traitImplRegistry: "",
+            traitImplCount: 0,
+            gpuShaderNames: "",
+            gpuShaderStages: "",
+            gpuShaderWorkgroups: "",
+            gpuShaderBindings: "",
+            gpuShaderCount: 0,
+            handledByDecorator: 0
+        }
+    }
+}
+
 fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String)
     r: Bool {
 
@@ -183,6 +207,45 @@ fun prepareFunctionAttributeStateSnapshotImpl(output: StringBuilder,
     snapshot.trustedFuncNames = trustedFuncNamesBox[0]
     snapshot.specializationNames = specializationNamesBox[0]
     snapshot.specializationCount = specializationCountBox[0]
+    return snapshot
+}
+
+fun prepareFunctionDecoratorPreflightSnapshotImpl(output: StringBuilder,
+    regBox: Array<Int>, fn: FunctionNode, traitImplRegistry: String,
+    traitImplCount: Int, gpuShaderNames: String, gpuShaderStages: String,
+    gpuShaderWorkgroups: String, gpuShaderBindings: String,
+    gpuShaderCount: Int) r: FunctionDecoratorPreflightSnapshot {
+
+    let snapshot = FunctionDecoratorPreflightSnapshot.new()
+    let registryBox = Array<String>()
+    registryBox.push(traitImplRegistry)
+    let countBox = Array<Int>()
+    countBox.push(traitImplCount)
+    registerFunctionTraitImplDecoratorsStateImpl(fn, registryBox, countBox)
+    snapshot.traitImplRegistry = registryBox[0]
+    snapshot.traitImplCount = countBox[0]
+
+    let gpuNamesBox = Array<String>()
+    gpuNamesBox.push(gpuShaderNames)
+    let gpuStagesBox = Array<String>()
+    gpuStagesBox.push(gpuShaderStages)
+    let gpuWorkgroupsBox = Array<String>()
+    gpuWorkgroupsBox.push(gpuShaderWorkgroups)
+    let gpuBindingsBox = Array<String>()
+    gpuBindingsBox.push(gpuShaderBindings)
+    let gpuCountBox = Array<Int>()
+    gpuCountBox.push(gpuShaderCount)
+    if tryHandleGpuShaderFunctionGenerationStateImpl(output, regBox, fn,
+        gpuNamesBox, gpuStagesBox, gpuWorkgroupsBox, gpuBindingsBox,
+        gpuCountBox) {
+
+        snapshot.handledByDecorator = 1
+    }
+    snapshot.gpuShaderNames = gpuNamesBox[0]
+    snapshot.gpuShaderStages = gpuStagesBox[0]
+    snapshot.gpuShaderWorkgroups = gpuWorkgroupsBox[0]
+    snapshot.gpuShaderBindings = gpuBindingsBox[0]
+    snapshot.gpuShaderCount = gpuCountBox[0]
     return snapshot
 }
 
