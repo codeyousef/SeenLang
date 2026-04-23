@@ -6,7 +6,7 @@
 // Future phases will add generateExpressionFree dispatch + more sub-generators
 
 import parser.real_parser.{FunctionNode, ParserExpressionNode, StatementNode, BlockNode, ParamNode, TypeNode}
-import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual, selfCallCheck}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn, parseIntManual, selfCallCheck, mlShouldInlineWeighted}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}
@@ -15,7 +15,7 @@ import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeN
 import codegen.ir_string_emit.{addStringConstantTableImpl}
 import codegen.ir_string_emit.{getStringConstantIndexImpl}
 import codegen.ir_function_param_meta.{buildFunctionParameterDeclsImpl, emitFunctionParameterAllocasImpl}
-import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
+import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl, shouldApplyFunctionInlineHeuristicsImpl, countFunctionInlineLoopKindsImpl, appendInlineDecisionAttrImpl, isHighRegisterPressureImpl, emitHighRegisterPressureNoteImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import str.string.{StringBuilder}
 
@@ -61,6 +61,38 @@ class NestedScratchStateSnapshot {
             nextReg: 1,
             blockTerminated: 0,
             currentFunctionReturnType: ""
+        }
+    }
+}
+
+class FunctionInlineHeuristicsAnalysis {
+    var funcAttrs: String
+    var applied: Int
+    var bodySize: Int
+    var hasLoopsFlag: Int
+    var nestDepth: Int
+    var inlineDecision: String
+
+    static fun new() r: FunctionInlineHeuristicsAnalysis {
+        return FunctionInlineHeuristicsAnalysis{
+            funcAttrs: "",
+            applied: 0,
+            bodySize: 0,
+            hasLoopsFlag: 0,
+            nestDepth: 0,
+            inlineDecision: ""
+        }
+    }
+}
+
+class FunctionRegisterPressureAnalysis {
+    var regPressureCount: Int
+    var highPressure: Int
+
+    static fun new() r: FunctionRegisterPressureAnalysis {
+        return FunctionRegisterPressureAnalysis{
+            regPressureCount: 0,
+            highPressure: 0
         }
     }
 }
@@ -136,6 +168,52 @@ fun emitParallelForCallImpl(output: StringBuilder, loopVarName: String,
     output.append("  ; parallel_for " + loopVarName + "\n")
     output.append("  call void @seen_parallel_for(i64 " + startReg +
         ", i64 " + endReg + ", ptr " + bodyFuncName + ", i64 0)\n")
+}
+
+fun analyzeFunctionInlineHeuristicsImpl(fn: FunctionNode, funcAttrs: String,
+    replayInline: String, fnCallCount: Int)
+    r: FunctionInlineHeuristicsAnalysis {
+
+    let analysis = FunctionInlineHeuristicsAnalysis.new()
+    analysis.funcAttrs = funcAttrs
+    analysis.bodySize = fn.body.statements.length()
+    analysis.nestDepth = fn.params.length()
+
+    if not shouldApplyFunctionInlineHeuristicsImpl(fn) {
+        return analysis
+    }
+    analysis.applied = 1
+
+    if replayInline == "yes" {
+        analysis.inlineDecision = "always"
+        analysis.funcAttrs = appendInlineDecisionAttrImpl(funcAttrs,
+            analysis.inlineDecision)
+        return analysis
+    }
+
+    if replayInline == "" {
+        if countFunctionInlineLoopKindsImpl(fn) > 0 {
+            analysis.hasLoopsFlag = 1
+        }
+        analysis.inlineDecision = mlShouldInlineWeighted(
+            analysis.bodySize, fnCallCount, analysis.hasLoopsFlag,
+            analysis.nestDepth)
+        analysis.funcAttrs = appendInlineDecisionAttrImpl(funcAttrs,
+            analysis.inlineDecision)
+    }
+    return analysis
+}
+
+fun analyzeFunctionRegisterPressureImpl(output: StringBuilder,
+    fn: FunctionNode) r: FunctionRegisterPressureAnalysis {
+
+    let analysis = FunctionRegisterPressureAnalysis.new()
+    analysis.regPressureCount = countFunctionRegisterPressureImpl(fn)
+    if isHighRegisterPressureImpl(analysis.regPressureCount) {
+        emitHighRegisterPressureNoteImpl(output, analysis.regPressureCount)
+        analysis.highPressure = 1
+    }
+    return analysis
 }
 
 fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String) r: Bool {

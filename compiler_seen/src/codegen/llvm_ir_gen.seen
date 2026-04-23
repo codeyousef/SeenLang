@@ -39,7 +39,7 @@
 
 import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode, TypeNode, AnnotationNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, mlShouldInline, mlShouldInlineWeighted, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitLoopMetadataImpl, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
+import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, parseIntManual, foldIntConstants, foldIntComparison, selectSimdWidth, pipeGet, exprCost, egraphLookup, egraphLookupFloat, egraphSelfComparison, selfCallCheck, parseFixedPoint100, g_inlineW0, g_inlineW1, g_inlineW2, g_inlineW3, g_inlineBias, g_mlWeightsActive, lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl, pipeContains, splitPipe, simpleHash, getNextRegFn, getNextBlockFn, emitLoopMetadataImpl, emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls, emitStringAndIODecls, emitMacroAndLspDecls}
 import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
@@ -107,9 +107,8 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, countFunctionRegisterPressureImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupStateImpl, emitFunctionExitAndResetStateImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, resolveImplementationFunctionNameImpl, normalizeRecursiveFunctionAttrsImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupStateImpl, emitFunctionExitAndResetStateImpl, analyzeFunctionInlineHeuristicsImpl, analyzeFunctionRegisterPressureImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, registerFunctionTraitImplDecoratorsStateImpl, tryHandleGpuShaderFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributesStateImpl, tryHandleExternFunctionGenerationStateImpl}
-import codegen.ir_function_lowering.{shouldApplyFunctionInlineHeuristicsImpl, countFunctionInlineLoopKindsImpl, appendInlineDecisionAttrImpl, isHighRegisterPressureImpl, emitHighRegisterPressureNoteImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl, hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
@@ -2824,38 +2823,35 @@ class LLVMIRGenerator {
 
         // ML-guided inline decision
         println("[irgen function] inline-analysis start: " + fnName)
-        if shouldApplyFunctionInlineHeuristicsImpl(fn) {
-            let bodySize = fn.body.statements.length()
-            // Check for replay first
-            let replayInline = mlReplayLookup("inline", fnName)
-            if replayInline == "yes" {
-                funcAttrs = appendInlineDecisionAttrImpl(funcAttrs, "always")
-                mlLogDecision("inline", "yes", fnName + ":replay")
-            }
+        var replayInline = ""
+        var fnCallCount = 0
+        if not fn.isInline and not hasFunctionDecoratorImpl(fn, "noinline") {
+            replayInline = mlReplayLookup("inline", fnName)
             if replayInline == "" {
-                // Use mlShouldInline with call count from string-constants pre-pass
-                let fnCallCount = callCountLookup(fnName)
-                // Compute extra features for weighted model
-                let inlineLoopCount = countFunctionInlineLoopKindsImpl(fn)
-                var hasLoopsFlag = 0
-                if inlineLoopCount > 0 {
-                    hasLoopsFlag = 1
-                }
-                let nestDepth = fn.params.length()
-                // Log features for ML training data
-                mlLogFeatures("inline", fnName, bodySize, fnCallCount, hasLoopsFlag, nestDepth, 0)
-                let inlineDecision = mlShouldInlineWeighted(bodySize, fnCallCount, hasLoopsFlag, nestDepth)
-                funcAttrs = appendInlineDecisionAttrImpl(funcAttrs,
-                    inlineDecision)
-                if inlineDecision == "always" {
-                    mlLogDecision("inline", "yes", fnName + ":sz=" + bodySize.toString())
-                }
-                if inlineDecision == "hint" {
-                    mlLogDecision("inline", "hint", fnName + ":sz=" + bodySize.toString())
-                }
-                if inlineDecision == "noinline" {
-                    mlLogDecision("inline", "no", fnName + ":sz=" + bodySize.toString())
-                }
+                fnCallCount = callCountLookup(fnName)
+            }
+        }
+        let inlineAnalysis = analyzeFunctionInlineHeuristicsImpl(fn, funcAttrs,
+            replayInline, fnCallCount)
+        funcAttrs = inlineAnalysis.funcAttrs
+        if inlineAnalysis.applied == 1 and replayInline == "yes" {
+            mlLogDecision("inline", "yes", fnName + ":replay")
+        }
+        if inlineAnalysis.applied == 1 and replayInline == "" {
+            mlLogFeatures("inline", fnName, inlineAnalysis.bodySize,
+                fnCallCount, inlineAnalysis.hasLoopsFlag,
+                inlineAnalysis.nestDepth, 0)
+            if inlineAnalysis.inlineDecision == "always" {
+                mlLogDecision("inline", "yes", fnName + ":sz=" +
+                    inlineAnalysis.bodySize.toString())
+            }
+            if inlineAnalysis.inlineDecision == "hint" {
+                mlLogDecision("inline", "hint", fnName + ":sz=" +
+                    inlineAnalysis.bodySize.toString())
+            }
+            if inlineAnalysis.inlineDecision == "noinline" {
+                mlLogDecision("inline", "no", fnName + ":sz=" +
+                    inlineAnalysis.bodySize.toString())
             }
         }
         println("[irgen function] inline-analysis done: " + fnName)
@@ -2868,12 +2864,13 @@ class LLVMIRGenerator {
 
         // ML register pressure estimation (9.7): count unique variables
         println("[irgen function] reg-pressure start: " + fnName)
-        let regPressureCount = countFunctionRegisterPressureImpl(fn)
-        if isHighRegisterPressureImpl(regPressureCount) {
-            emitHighRegisterPressureNoteImpl(output, regPressureCount)
+        let regPressureAnalysis = analyzeFunctionRegisterPressureImpl(output,
+            fn)
+        if regPressureAnalysis.highPressure == 1 {
             g_currentFunctionHighPressure = true
             getCurrentFunctionOptions().highPressure = true
-            mlLogDecision("reg-pressure", "high", fnName + ":" + regPressureCount.toString())
+            mlLogDecision("reg-pressure", "high", fnName + ":" +
+                regPressureAnalysis.regPressureCount.toString())
         }
         println("[irgen function] reg-pressure done: " + fnName)
 
