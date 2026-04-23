@@ -568,17 +568,6 @@ fun callCountRecord(funcName: String) r: Void {
     g_callCountEntries = g_callCountEntries + 1
 }
 
-// Counts occurrences in the array.
-fun callCountLookup(funcName: String) r: Int {
-    var count = 0
-    var i = 0
-    while i < g_callCountNamesArr.length() {
-        if g_callCountNamesArr[i] == funcName { count = count + 1 }
-        i = i + 1
-    }
-    return count
-}
-
 fun callCountClear() r: Void {
     g_callCountNamesArr = Array<String>()
     g_callCountEntries = 0
@@ -752,54 +741,6 @@ fun loadMLWeights() r: Void {
         pos = pos + 1
     }
     mlLogDecision("ml-weights", "loaded", "inline:" + g_mlInlineThreshold.toString() + ",unroll:" + g_mlUnrollThreshold.toString() + ",vec:" + g_mlVectorizeThreshold.toString())
-}
-
-// ML deterministic replay: look up a prior decision
-fun mlReplayLookup(category: String, detail: String) r: String {
-    if not g_mlReplayEnabled { return "" }
-    if g_mlReplayLog.length() == 0 { return "" }
-    // Search for matching line: category\tACTION\tdetail
-    var pos = 0
-    var lineStart = 0
-    while pos < g_mlReplayLog.length() {
-        if g_mlReplayLog.charAt(pos) == '\n' {
-            let line = g_mlReplayLog.substring(lineStart, pos)
-            // Check if line starts with category\t and ends with \tdetail
-            let catPrefix = category + "\t"
-            if line.startsWith(catPrefix) {
-                // Extract detail part (after second tab)
-                var tabCount = 0
-                var secondTabPos = 0
-                var scanPos = 0
-                while scanPos < line.length() {
-                    if line.charAt(scanPos) == '\t' {
-                        tabCount = tabCount + 1
-                        if tabCount == 2 { secondTabPos = scanPos }
-                    }
-                    scanPos = scanPos + 1
-                }
-                if tabCount >= 2 {
-                    let lineDetail = line.substring(secondTabPos + 1, line.length())
-                    if lineDetail == detail {
-                        // Extract action (between first and second tab)
-                        var firstTabPos = 0
-                        var ftScan = 0
-                        while ftScan < line.length() {
-                            if line.charAt(ftScan) == '\t' {
-                                firstTabPos = ftScan
-                                break
-                            }
-                            ftScan = ftScan + 1
-                        }
-                        return line.substring(firstTabPos + 1, secondTabPos)
-                    }
-                }
-            }
-            lineStart = pos + 1
-        }
-        pos = pos + 1
-    }
-    return ""
 }
 
 // Quote LLVM IR identifiers that contain non-ASCII bytes.
@@ -2748,19 +2689,12 @@ class LLVMIRGenerator {
 
         // ML-guided inline decision
         println("[irgen function] inline-analysis start: " + fnName)
-        var replayInline = ""
-        var fnCallCount = 0
-        if not fn.isInline and not hasFunctionDecoratorImpl(fn, "noinline") {
-            replayInline = mlReplayLookup("inline", fnName)
-            if replayInline == "" {
-                fnCallCount = callCountLookup(fnName)
-            }
-        }
         println("[irgen function] recursion flags start: " + fnName)
         println("[irgen function] reg-pressure start: " + fnName)
         let preludeAnalysis = prepareFunctionPreludeAnalysisSnapshotImpl(
-            output, fn, fnName, funcAttrs, replayInline, fnCallCount,
-            g_selfCallFuncs, g_selfCallNames, g_selfCallCount)
+            output, fn, fnName, funcAttrs, g_mlReplayEnabled,
+            g_mlReplayLog, g_callCountNamesArr, g_selfCallFuncs,
+            g_selfCallNames, g_selfCallCount)
         funcAttrs = preludeAnalysis.funcAttrs
         if preludeAnalysis.inlineReplayDecision == 1 {
             mlLogDecision("inline", "yes", fnName + ":replay")

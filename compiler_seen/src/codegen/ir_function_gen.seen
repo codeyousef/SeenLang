@@ -319,13 +319,89 @@ fun analyzeFunctionRegisterPressureImpl(output: StringBuilder,
     return analysis
 }
 
+fun lookupFunctionCallCountImpl(callCountNamesArr: Array<String>,
+    funcName: String) r: Int {
+
+    var count = 0
+    var i = 0
+    while i < callCountNamesArr.length() {
+        if callCountNamesArr[i] == funcName {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fun lookupFunctionReplayDecisionImpl(mlReplayEnabled: Bool,
+    mlReplayLog: String, category: String, detail: String) r: String {
+
+    if not mlReplayEnabled or mlReplayLog.length() == 0 {
+        return ""
+    }
+
+    var pos = 0
+    var lineStart = 0
+    while pos < mlReplayLog.length() {
+        if mlReplayLog.charAt(pos) == '\n' {
+            let line = mlReplayLog.substring(lineStart, pos)
+            let catPrefix = category + "\t"
+            if line.startsWith(catPrefix) {
+                var tabCount = 0
+                var secondTabPos = 0
+                var scanPos = 0
+                while scanPos < line.length() {
+                    if line.charAt(scanPos) == '\t' {
+                        tabCount = tabCount + 1
+                        if tabCount == 2 {
+                            secondTabPos = scanPos
+                        }
+                    }
+                    scanPos = scanPos + 1
+                }
+                if tabCount >= 2 {
+                    let lineDetail = line.substring(secondTabPos + 1,
+                        line.length())
+                    if lineDetail == detail {
+                        var firstTabPos = 0
+                        var ftScan = 0
+                        while ftScan < line.length() {
+                            if line.charAt(ftScan) == '\t' {
+                                firstTabPos = ftScan
+                                break
+                            }
+                            ftScan = ftScan + 1
+                        }
+                        return line.substring(firstTabPos + 1, secondTabPos)
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
 fun prepareFunctionPreludeAnalysisSnapshotImpl(output: StringBuilder,
-    fn: FunctionNode, fnName: String, funcAttrs: String, replayInline: String,
-    fnCallCount: Int, selfCallFuncs: String, selfCallNames: String,
-    selfCallCount: Int) r: FunctionPreludeAnalysisSnapshot {
+    fn: FunctionNode, fnName: String, funcAttrs: String,
+    mlReplayEnabled: Bool, mlReplayLog: String,
+    callCountNamesArr: Array<String>, selfCallFuncs: String,
+    selfCallNames: String, selfCallCount: Int)
+    r: FunctionPreludeAnalysisSnapshot {
 
     let snapshot = FunctionPreludeAnalysisSnapshot.new()
     snapshot.funcAttrs = funcAttrs
+    var replayInline = ""
+    var fnCallCount = 0
+    if not fn.isInline and not hasFunctionDecoratorImpl(fn, "noinline") {
+        replayInline = lookupFunctionReplayDecisionImpl(mlReplayEnabled,
+            mlReplayLog, "inline", fnName)
+        if replayInline == "" {
+            fnCallCount = lookupFunctionCallCountImpl(callCountNamesArr,
+                fnName)
+        }
+    }
 
     let inlineAnalysis = analyzeFunctionInlineHeuristicsImpl(fn, funcAttrs,
         replayInline, fnCallCount)
