@@ -1,0 +1,44 @@
+// ir_ml_logging.seen - shared ML decision logging state and emit helpers.
+
+import io.file.{writeText}
+
+var g_mlLogEnabled: Bool = false
+var g_mlLogPath: String = ""
+var g_mlDecisionLog: String = ""
+
+fun mlLogDecision(category: String, action: String, detail: String) r: Void {
+    if not g_mlLogEnabled { return }
+    let line = category + "\t" + action + "\t" + detail + "\n"
+    g_mlDecisionLog = g_mlDecisionLog + line
+}
+
+fun mlLogFeatures(category: String, funcName: String, f0: Int, f1: Int,
+    f2: Int, f3: Int, f4: Int) r: Void {
+
+    if not g_mlLogEnabled { return }
+    let line = "FEAT\t" + category + "\t" + funcName + "\t" +
+        f0.toString() + "\t" + f1.toString() + "\t" +
+        f2.toString() + "\t" + f3.toString() + "\t" +
+        f4.toString() + "\n"
+    g_mlDecisionLog = g_mlDecisionLog + line
+}
+
+fun appendMlDecisionLogLines(lines: String) r: Void {
+    if not g_mlLogEnabled { return }
+    if lines.length() == 0 { return }
+    g_mlDecisionLog = g_mlDecisionLog + lines
+}
+
+fun setupMLLogging(logPath: String) r: Void {
+    if logPath != "" {
+        g_mlLogEnabled = true
+        g_mlLogPath = logPath
+        g_mlDecisionLog = ""
+    }
+}
+
+fun writeMLDecisionLog() r: Void {
+    if not g_mlLogEnabled { return }
+    if g_mlDecisionLog.length() == 0 { return }
+    writeText(g_mlLogPath, g_mlDecisionLog)
+}

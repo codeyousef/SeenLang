@@ -112,6 +112,7 @@ import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunct
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
 import codegen.ir_function_ml_logs.{buildFunctionPreludeMlLogLinesImpl, buildFunctionUnusedParamMlLogLinesImpl}
+import codegen.ir_ml_logging.{mlLogDecision, appendMlDecisionLogLines, setupMLLogging, writeMLDecisionLog}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -214,15 +215,12 @@ var g_branchesEliminated: Int = 0
 var g_constantsFolded: Int = 0
 var g_cseHits: Int = 0
 var g_cseCount: Int = 0
-var g_mlLogEnabled: Bool = false
 // String module-level vars (requires stage2+ compiler):
 var g_cseKeys: String = ""
 var g_cseValues: String = ""
 // Fast CSE arrays — initialized in cseClear(), used instead of pipe strings
 var g_cseKeysArr: Array<String> = Array<String>()
 var g_cseValsArr: Array<String> = Array<String>()
-var g_mlLogPath: String = ""
-var g_mlDecisionLog: String = ""
 
 // --- Phase 9 Tier 4: Additional Optimization Counters ---
 var g_loopsOptimized: Int = 0
@@ -598,47 +596,6 @@ fun syncCollectionBoxes() r: Void {
     g_callCountEntries = g_callCountEntriesBox[g_callCountEntriesBox.length() - 1]
 }
 
-// --- ML Decision Logging ---
-// Log an optimization decision as a JSONL line.
-fun mlLogDecision(category: String, action: String, detail: String) r: Void {
-    if not g_mlLogEnabled { return }
-    // Use tab-separated values for bootstrap safety (no quote escaping needed)
-    let line = category + "\t" + action + "\t" + detail + "\n"
-    g_mlDecisionLog = g_mlDecisionLog + line
-}
-
-// Log feature vector for ML training data collection.
-// category: "inline", "vectorize", "unroll"
-// funcName: the function or loop context
-// f0-f4: numeric features (meaning depends on category)
-fun mlLogFeatures(category: String, funcName: String, f0: Int, f1: Int, f2: Int, f3: Int, f4: Int) r: Void {
-    if not g_mlLogEnabled { return }
-    let line = "FEAT\t" + category + "\t" + funcName + "\t" + f0.toString() + "\t" + f1.toString() + "\t" + f2.toString() + "\t" + f3.toString() + "\t" + f4.toString() + "\n"
-    g_mlDecisionLog = g_mlDecisionLog + line
-}
-
-fun appendMlDecisionLogLines(lines: String) r: Void {
-    if not g_mlLogEnabled { return }
-    if lines.length() == 0 { return }
-    g_mlDecisionLog = g_mlDecisionLog + lines
-}
-
-// Set up ML logging with the given output path.
-fun setupMLLogging(logPath: String) r: Void {
-    if logPath != "" {
-        g_mlLogEnabled = true
-        g_mlLogPath = logPath
-        g_mlDecisionLog = ""
-    }
-}
-
-// Write accumulated ML decision log to file.
-fun writeMLDecisionLog() r: Void {
-    if not g_mlLogEnabled { return }
-    if g_mlDecisionLog.length() == 0 { return }
-    writeText(g_mlLogPath, g_mlDecisionLog)
-}
-
 // Get optimization statistics as a formatted string.
 fun getOptStats() r: String {
     var stats = ""
@@ -883,10 +840,7 @@ class LLVMIRGenerator {
                 let rest = path.substring(pipeIdx + 1, path.length())
                 if rest.length() > 3 {
                     if rest.substring(0, 3) == "ml:" {
-                        let mlPath = rest.substring(3, rest.length())
-                        g_mlLogEnabled = true
-                        g_mlLogPath = mlPath
-                        g_mlDecisionLog = ""
+                        setupMLLogging(rest.substring(3, rest.length()))
                     }
                 }
                 break
@@ -1958,11 +1912,7 @@ class LLVMIRGenerator {
         cseClear()
 
         // Flush ML decision log if enabled (appends per-module decisions)
-        if g_mlLogEnabled {
-            if g_mlDecisionLog.length() > 0 {
-                writeText(g_mlLogPath, g_mlDecisionLog)
-            }
-        }
+        writeMLDecisionLog()
 
         // Emit @llvm.global_ctors for @init functions (multi-module path)
         emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
