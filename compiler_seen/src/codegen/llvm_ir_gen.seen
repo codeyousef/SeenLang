@@ -110,7 +110,7 @@ import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOption
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
-import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
+import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl, applyDeadStoreMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
@@ -2503,7 +2503,10 @@ class LLVMIRGenerator {
         clearActiveBindings()
 
         println("[irgen function] return-type map start: " + implFuncName)
-        returnTypeBox[0] = mapType(currentFunctionReturnType)
+        returnTypeBox[0] = mapFunctionPreBodyReturnTypeImpl(
+            currentFunctionReturnType, structNames, g_typeAliasNames,
+            g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
+            g_reprCClassNames)
         println("[irgen function] return-type map done: " + implFuncName)
 
         if not llvmIrGenIsMainFunctionName(implFuncName) {

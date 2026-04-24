@@ -4,6 +4,8 @@ import parser.real_parser.{FunctionNode}
 import codegen.type_registry.{CodegenState, resetFunctionLoweringOptions, encodeFunctionLoweringOptions}
 import codegen.ir_function_gen.{resetLocalCodegenStateImpl, emitPreAllocatedAllocasImpl, emitDefaultReturnValueImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_type_mapping.{mapTypeImpl}
 import str.string.{StringBuilder}
 
 class FunctionPreBodyStateSnapshot {
@@ -74,6 +76,27 @@ fun prepareFunctionPreBodyStateSnapshotImpl(state: CodegenState,
     snapshot.dynParamFuncs = dynParamFuncsBox[0]
     snapshot.funcParamCountArr = funcParamCountBox[0]
     return snapshot
+}
+
+fun mapFunctionPreBodyReturnTypeImpl(seenReturnType: String,
+    structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    reprCClassNames: String) r: String {
+
+    if seenReturnType.startsWith("dyn ") {
+        return "i64"
+    }
+    if seenReturnType.startsWith("*") {
+        return "i64"
+    }
+    if reprCClassNames != "" {
+        let baseT = getBaseTypeNameImpl(seenReturnType)
+        if reprCClassNames.contains(baseT + "|") {
+            return "%" + baseT
+        }
+    }
+    return mapTypeImpl(seenReturnType, structNames, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames)
 }
 
 fun emitMainFunctionEntrySnapshotImpl(output: StringBuilder,

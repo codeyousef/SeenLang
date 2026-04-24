@@ -75,7 +75,7 @@ import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
 import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl}
-import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl}
+import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
