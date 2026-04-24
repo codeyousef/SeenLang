@@ -29,6 +29,20 @@ fun appendStmtGenPipeEntryImpl(box: Array<String>, entry: String) r: Void {
     box[0] = box[0] + "|" + entry
 }
 
+class BlockDeadStoreScanSnapshot {
+    var deadStoresEliminated: Int
+    var deadStoreSkipVars: String
+    var deadStoreLogEntries: String
+
+    static fun new() r: BlockDeadStoreScanSnapshot {
+        return BlockDeadStoreScanSnapshot{
+            deadStoresEliminated: 0,
+            deadStoreSkipVars: "",
+            deadStoreLogEntries: ""
+        }
+    }
+}
+
 // emitConditionToI1Impl — convert a condition value to i1 based on its type
 // condType: "Bool"/"Int"/"Float"/"String"/""
 // Returns the i1 register name
@@ -444,6 +458,25 @@ fun scanBlockDeadStorePatternsImpl(output: StringBuilder, block: BlockNode,
             deadStoreSkipVarsBox, deadStoreLogBox)
         dsIdx = dsIdx + 1
     }
+}
+
+fun scanBlockDeadStorePatternsSnapshotImpl(output: StringBuilder,
+    block: BlockNode, deadStoresEliminated: Int,
+    deadStoreSkipVars: String) r: BlockDeadStoreScanSnapshot {
+
+    let snapshot = BlockDeadStoreScanSnapshot.new()
+    let deadStoresEliminatedBox = Array<Int>()
+    deadStoresEliminatedBox.push(deadStoresEliminated)
+    let deadStoreSkipVarsBox = Array<String>()
+    deadStoreSkipVarsBox.push(deadStoreSkipVars)
+    let deadStoreLogBox = Array<String>()
+    deadStoreLogBox.push("")
+    scanBlockDeadStorePatternsImpl(output, block, deadStoresEliminatedBox,
+        deadStoreSkipVarsBox, deadStoreLogBox)
+    snapshot.deadStoresEliminated = deadStoresEliminatedBox[0]
+    snapshot.deadStoreSkipVars = deadStoreSkipVarsBox[0]
+    snapshot.deadStoreLogEntries = deadStoreLogBox[0]
+    return snapshot
 }
 
 fun emitTrailingDeadCodeNoticeImpl(output: StringBuilder, blockLength: Int,
