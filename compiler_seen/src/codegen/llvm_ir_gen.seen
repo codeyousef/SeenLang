@@ -110,7 +110,7 @@ import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOption
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
-import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
+import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -2517,35 +2517,22 @@ class LLVMIRGenerator {
         implFuncName: String, resolvedFunctionReturnType: String,
         returnTypeBox: Array<String>) r: Bool {
 
-        resetLocalCodegenState()
-        currentFunctionReturnType = resolvedFunctionReturnType
-        currentClassName = ""
         g_currentClassParentName = ""
-        resetFunctionLoweringOptionsState()
+        g_currentFunctionHighPressure = false
         g_movedVarNames = ""
         g_movedVarCount = 0
-        let preActiveVarCountBox = Array<Int>()
-        preActiveVarCountBox.push(activeVarCount)
-        let comptimeNamesBox = Array<String>()
-        comptimeNamesBox.push(g_comptimeParamFuncNames)
-        let comptimeCountBox = Array<Int>()
-        comptimeCountBox.push(g_comptimeParamCount)
-        let funcDefaultsBox = Array<String>()
-        funcDefaultsBox.push(g_funcDefaultsArr)
-        let dynParamFuncsBox = Array<String>()
-        dynParamFuncsBox.push(g_dynParamFuncs)
-        let funcParamCountBox = Array<String>()
-        funcParamCountBox.push(g_funcParamCountArr)
-        preRegisterFunctionParametersImpl(fn, implFuncName, varNames, varRegs,
-            varTypes, preActiveVarCountBox, comptimeNamesBox,
-            comptimeCountBox, funcDefaultsBox, dynParamFuncsBox,
-            funcParamCountBox)
-        activeVarCount = preActiveVarCountBox[0]
-        g_comptimeParamFuncNames = comptimeNamesBox[0]
-        g_comptimeParamCount = comptimeCountBox[0]
-        g_funcDefaultsArr = funcDefaultsBox[0]
-        g_dynParamFuncs = dynParamFuncsBox[0]
-        g_funcParamCountArr = funcParamCountBox[0]
+        syncState()
+        let preBodyState = prepareFunctionPreBodyStateSnapshotImpl(
+            getSharedCodegenState(), fn, implFuncName,
+            resolvedFunctionReturnType, g_comptimeParamFuncNames,
+            g_comptimeParamCount, g_funcDefaultsArr, g_dynParamFuncs,
+            g_funcParamCountArr)
+        writeBackState()
+        g_comptimeParamFuncNames = preBodyState.comptimeParamFuncNames
+        g_comptimeParamCount = preBodyState.comptimeParamCount
+        g_funcDefaultsArr = preBodyState.funcDefaultsArr
+        g_dynParamFuncs = preBodyState.dynParamFuncs
+        g_funcParamCountArr = preBodyState.funcParamCountArr
 
         // Clear CSE cache at function boundaries
         cseClear()

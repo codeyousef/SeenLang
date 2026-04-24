@@ -1,0 +1,64 @@
+// ir_function_prebody.seen - top-level function pre-body state preparation.
+
+import parser.real_parser.{FunctionNode}
+import codegen.type_registry.{CodegenState, resetFunctionLoweringOptions, encodeFunctionLoweringOptions}
+import codegen.ir_function_gen.{resetLocalCodegenStateImpl}
+import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
+
+class FunctionPreBodyStateSnapshot {
+    var comptimeParamFuncNames: String
+    var comptimeParamCount: Int
+    var funcDefaultsArr: String
+    var dynParamFuncs: String
+    var funcParamCountArr: String
+
+    static fun new() r: FunctionPreBodyStateSnapshot {
+        return FunctionPreBodyStateSnapshot{
+            comptimeParamFuncNames: "",
+            comptimeParamCount: 0,
+            funcDefaultsArr: "",
+            dynParamFuncs: "",
+            funcParamCountArr: ""
+        }
+    }
+}
+
+fun prepareFunctionPreBodyStateSnapshotImpl(state: CodegenState,
+    fn: FunctionNode, implFuncName: String, resolvedFunctionReturnType: String,
+    comptimeParamFuncNames: String, comptimeParamCount: Int,
+    funcDefaultsArr: String, dynParamFuncs: String,
+    funcParamCountArr: String) r: FunctionPreBodyStateSnapshot {
+
+    let snapshot = FunctionPreBodyStateSnapshot.new()
+    resetLocalCodegenStateImpl(state)
+    state.currentFunctionReturnType = resolvedFunctionReturnType
+    state.currentClassName = ""
+    resetFunctionLoweringOptions(state.functionOptions)
+    state.indent = encodeFunctionLoweringOptions(state.functionOptions)
+
+    let activeVarCountBox = Array<Int>()
+    activeVarCountBox.push(state.activeVarCount)
+    let comptimeNamesBox = Array<String>()
+    comptimeNamesBox.push(comptimeParamFuncNames)
+    let comptimeCountBox = Array<Int>()
+    comptimeCountBox.push(comptimeParamCount)
+    let funcDefaultsBox = Array<String>()
+    funcDefaultsBox.push(funcDefaultsArr)
+    let dynParamFuncsBox = Array<String>()
+    dynParamFuncsBox.push(dynParamFuncs)
+    let funcParamCountBox = Array<String>()
+    funcParamCountBox.push(funcParamCountArr)
+
+    preRegisterFunctionParametersImpl(fn, implFuncName, state.varNames,
+        state.varRegs, state.varTypes, activeVarCountBox, comptimeNamesBox,
+        comptimeCountBox, funcDefaultsBox, dynParamFuncsBox,
+        funcParamCountBox)
+
+    state.activeVarCount = activeVarCountBox[0]
+    snapshot.comptimeParamFuncNames = comptimeNamesBox[0]
+    snapshot.comptimeParamCount = comptimeCountBox[0]
+    snapshot.funcDefaultsArr = funcDefaultsBox[0]
+    snapshot.dynParamFuncs = dynParamFuncsBox[0]
+    snapshot.funcParamCountArr = funcParamCountBox[0]
+    return snapshot
+}
