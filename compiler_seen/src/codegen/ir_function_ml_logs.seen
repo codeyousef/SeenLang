@@ -1,43 +1,38 @@
-// ir_function_ml_logs.seen - function-pipeline ML log line builders.
+// ir_function_ml_logs.seen - function-pipeline ML log helpers.
 
 import codegen.ir_function_gen.{FunctionPreludeAnalysisSnapshot}
+import codegen.ir_ml_logging.{mlLogDecision, mlLogFeatures}
 
-fun buildFunctionPreludeMlLogLinesImpl(
+fun applyFunctionPreludeMlLogsImpl(
     preludeAnalysis: FunctionPreludeAnalysisSnapshot, fnName: String)
-    r: String {
+    r: Void {
 
-    var lines = ""
     if preludeAnalysis.inlineReplayDecision == 1 {
-        lines = lines + "inline\tyes\t" + fnName + ":replay\n"
+        mlLogDecision("inline", "yes", fnName + ":replay")
     }
     if preludeAnalysis.inlineFeatureLog == 1 {
-        lines = lines + "FEAT\tinline\t" + fnName + "\t" +
-            preludeAnalysis.inlineBodySize.toString() + "\t" +
-            preludeAnalysis.inlineCallCount.toString() + "\t" +
-            preludeAnalysis.inlineHasLoopsFlag.toString() + "\t" +
-            preludeAnalysis.inlineNestDepth.toString() + "\t0\n"
+        mlLogFeatures("inline", fnName, preludeAnalysis.inlineBodySize,
+            preludeAnalysis.inlineCallCount,
+            preludeAnalysis.inlineHasLoopsFlag,
+            preludeAnalysis.inlineNestDepth, 0)
         if preludeAnalysis.inlineDecisionAction != "" {
-            lines = lines + "inline\t" +
-                preludeAnalysis.inlineDecisionAction + "\t" +
-                preludeAnalysis.inlineDecisionDetail + "\n"
+            mlLogDecision("inline", preludeAnalysis.inlineDecisionAction,
+                preludeAnalysis.inlineDecisionDetail)
         }
     }
     if preludeAnalysis.highPressure == 1 {
-        lines = lines + "reg-pressure\thigh\t" +
-            preludeAnalysis.regPressureDetail + "\n"
+        mlLogDecision("reg-pressure", "high",
+            preludeAnalysis.regPressureDetail)
     }
-    return lines
 }
 
-fun buildFunctionUnusedParamMlLogLinesImpl(unusedParams: Array<String>,
-    fnName: String) r: String {
+fun applyFunctionUnusedParamMlLogsImpl(unusedParams: Array<String>,
+    fnName: String) r: Void {
 
-    var lines = ""
     var unusedIdx = 0
     while unusedIdx < unusedParams.length() {
-        lines = lines + "dead-arg\tunused\t" +
-            unusedParams[unusedIdx] + ":" + fnName + "\n"
+        mlLogDecision("dead-arg", "unused",
+            unusedParams[unusedIdx] + ":" + fnName)
         unusedIdx = unusedIdx + 1
     }
-    return lines
 }

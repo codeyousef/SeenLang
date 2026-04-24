@@ -111,8 +111,8 @@ import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot,
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
-import codegen.ir_function_ml_logs.{buildFunctionPreludeMlLogLinesImpl, buildFunctionUnusedParamMlLogLinesImpl}
-import codegen.ir_ml_logging.{mlLogDecision, appendMlDecisionLogLines, setupMLLogging, writeMLDecisionLog}
+import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
+import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -2625,8 +2625,7 @@ class LLVMIRGenerator {
             g_mlReplayLog, g_callCountNamesArr, g_selfCallFuncs,
             g_selfCallNames, g_selfCallCount)
         funcAttrs = preludeAnalysis.funcAttrs
-        appendMlDecisionLogLines(buildFunctionPreludeMlLogLinesImpl(
-            preludeAnalysis, fnName))
+        applyFunctionPreludeMlLogsImpl(preludeAnalysis, fnName)
         println("[irgen function] inline-analysis done: " + fnName)
 
         // ML register pressure estimation (9.7): count unique variables
@@ -2656,8 +2655,7 @@ class LLVMIRGenerator {
         g_asyncFunctionCoroHdl = entrySetup.asyncCoroHdl
         g_asyncFinalLabel = entrySetup.asyncFinalLabel
         g_asyncCleanupLabel = entrySetup.asyncCleanupLabel
-        appendMlDecisionLogLines(buildFunctionUnusedParamMlLogLinesImpl(
-            entrySetup.unusedParams, fnName))
+        applyFunctionUnusedParamMlLogsImpl(entrySetup.unusedParams, fnName)
 
         // Generate function body
         generateBlock(fn.body)

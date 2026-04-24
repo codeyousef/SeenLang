@@ -23,12 +23,6 @@ fun mlLogFeatures(category: String, funcName: String, f0: Int, f1: Int,
     g_mlDecisionLog = g_mlDecisionLog + line
 }
 
-fun appendMlDecisionLogLines(lines: String) r: Void {
-    if not g_mlLogEnabled { return }
-    if lines.length() == 0 { return }
-    g_mlDecisionLog = g_mlDecisionLog + lines
-}
-
 fun setupMLLogging(logPath: String) r: Void {
     if logPath != "" {
         g_mlLogEnabled = true
