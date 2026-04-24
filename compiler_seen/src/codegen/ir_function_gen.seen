@@ -394,7 +394,7 @@ fun prepareFunctionPreludeAnalysisSnapshotImpl(output: StringBuilder,
     snapshot.funcAttrs = funcAttrs
     var replayInline = ""
     var fnCallCount = 0
-    if not fn.isInline and not hasFunctionDecoratorImpl(fn, "noinline") {
+    if not fn.isInline and not hasFunctionDecoratorGenImpl(fn, "noinline") {
         replayInline = lookupFunctionReplayDecisionImpl(mlReplayEnabled,
             mlReplayLog, "inline", fnName)
         if replayInline == "" {
@@ -443,7 +443,7 @@ fun prepareFunctionPreludeAnalysisSnapshotImpl(output: StringBuilder,
     return snapshot
 }
 
-fun hasFunctionDecoratorImpl(fn: FunctionNode, decoratorName: String) r: Bool {
+fun hasFunctionDecoratorGenImpl(fn: FunctionNode, decoratorName: String) r: Bool {
     var i = 0
     while i < fn.decorators.length() {
         if fn.decorators[i].name == decoratorName {
@@ -458,7 +458,7 @@ fun registerFunctionTraitImplDecoratorsImpl(fn: FunctionNode,
     traitImplRegistryBox: Array<String>,
     traitImplCountBox: Array<Int>) r: Void {
 
-    if not hasFunctionDecoratorImpl(fn, "impl_trait") {
+    if not hasFunctionDecoratorGenImpl(fn, "impl_trait") {
         return
     }
     var itDecIdx = 0
@@ -556,9 +556,9 @@ fun tryHandleGpuShaderFunctionGenerationImpl(output: StringBuilder,
     gpuShaderBindingsBox: Array<String>,
     gpuShaderCountBox: Array<Int>) r: Bool {
 
-    if not (hasFunctionDecoratorImpl(fn, "compute") or
-        hasFunctionDecoratorImpl(fn, "vertex") or
-        hasFunctionDecoratorImpl(fn, "fragment")) {
+    if not (hasFunctionDecoratorGenImpl(fn, "compute") or
+        hasFunctionDecoratorGenImpl(fn, "vertex") or
+        hasFunctionDecoratorGenImpl(fn, "fragment")) {
 
         return false
     }
@@ -570,10 +570,10 @@ fun tryHandleGpuShaderFunctionGenerationImpl(output: StringBuilder,
     ensureFunctionIntBoxValue(gpuShaderCountBox)
 
     var gpuStage = 0
-    if hasFunctionDecoratorImpl(fn, "vertex") {
+    if hasFunctionDecoratorGenImpl(fn, "vertex") {
         gpuStage = 1
     }
-    if hasFunctionDecoratorImpl(fn, "fragment") {
+    if hasFunctionDecoratorGenImpl(fn, "fragment") {
         gpuStage = 2
     }
     let gpuWgX = 64
@@ -625,7 +625,7 @@ fun prepareExternFunctionGenerationImpl(output: StringBuilder,
 fun shouldSkipFunctionByCfgImpl(output: StringBuilder, fn: FunctionNode,
     enabledFeatures: String) r: Bool {
 
-    if not hasFunctionDecoratorImpl(fn, "cfg") {
+    if not hasFunctionDecoratorGenImpl(fn, "cfg") {
         return false
     }
     var cfgMatch = false
@@ -680,7 +680,7 @@ fun shouldSkipFunctionByCfgImpl(output: StringBuilder, fn: FunctionNode,
 fun emitFunctionDecoratorMetadataCommentsImpl(output: StringBuilder,
     fn: FunctionNode, traitImplCount: Int) r: Void {
 
-    if hasFunctionDecoratorImpl(fn, "where_constraint") and
+    if hasFunctionDecoratorGenImpl(fn, "where_constraint") and
         traitImplCount > 0 {
 
         var wcIdx = 0
@@ -694,7 +694,7 @@ fun emitFunctionDecoratorMetadataCommentsImpl(output: StringBuilder,
             wcIdx = wcIdx + 1
         }
     }
-    if hasFunctionDecoratorImpl(fn, "region_bound") {
+    if hasFunctionDecoratorGenImpl(fn, "region_bound") {
         output.append("; @region_bound function: " + fn.name + "\n")
     }
 }
@@ -734,32 +734,32 @@ fun prepareFunctionAttributesImpl(output: StringBuilder, fn: FunctionNode,
     if fn.isInline {
         funcAttrs = " alwaysinline"
     }
-    if hasFunctionDecoratorImpl(fn, "noinline") {
+    if hasFunctionDecoratorGenImpl(fn, "noinline") {
         funcAttrs = " noinline"
     }
-    if hasFunctionDecoratorImpl(fn, "cold") {
+    if hasFunctionDecoratorGenImpl(fn, "cold") {
         funcAttrs = funcAttrs + " cold"
     }
-    if hasFunctionDecoratorImpl(fn, "always_inline") {
+    if hasFunctionDecoratorGenImpl(fn, "always_inline") {
         funcAttrs = " alwaysinline"
     }
-    if hasFunctionDecoratorImpl(fn, "hot") {
+    if hasFunctionDecoratorGenImpl(fn, "hot") {
         funcAttrs = funcAttrs + " hot"
     }
-    if hasFunctionDecoratorImpl(fn, "pure") {
+    if hasFunctionDecoratorGenImpl(fn, "pure") {
         funcAttrs = funcAttrs + " readonly nounwind"
     }
-    if hasFunctionDecoratorImpl(fn, "likely") {
+    if hasFunctionDecoratorGenImpl(fn, "likely") {
         funcAttrs = funcAttrs + " hot"
     }
-    if hasFunctionDecoratorImpl(fn, "unlikely") {
+    if hasFunctionDecoratorGenImpl(fn, "unlikely") {
         funcAttrs = funcAttrs + " cold"
     }
-    if hasFunctionDecoratorImpl(fn, "init") {
+    if hasFunctionDecoratorGenImpl(fn, "init") {
         initFuncNamesBox[0] = initFuncNamesBox[0] + fn.name + "|"
         initFuncCountBox[0] = initFuncCountBox[0] + 1
     }
-    if hasFunctionDecoratorImpl(fn, "trusted") {
+    if hasFunctionDecoratorGenImpl(fn, "trusted") {
         trustedFuncNamesBox[0] = trustedFuncNamesBox[0] + fn.name + "|"
         output.append("; @trusted function: " + fn.name + "\n")
     }
@@ -774,7 +774,7 @@ fun prepareFunctionAttributesImpl(output: StringBuilder, fn: FunctionNode,
             funcAttrs = funcAttrs + " sanitize_memory"
         }
     }
-    if hasFunctionDecoratorImpl(fn, "specialize") {
+    if hasFunctionDecoratorGenImpl(fn, "specialize") {
         var specIdx = 0
         while specIdx < fn.decorators.length() {
             if fn.decorators[specIdx].name == "specialize" {
@@ -838,12 +838,12 @@ fun buildFunctionSignaturePrefixImpl(fn: FunctionNode, fnName: String,
         actualLlvmReturnType = "ptr"
         fnRetPrefix = "define "
     }
-    if hasFunctionDecoratorImpl(fn, "init") and
+    if hasFunctionDecoratorGenImpl(fn, "init") and
         fn.name == "__seen_internal_module_init__" {
 
         fnRetPrefix = "define internal "
     }
-    if hasFunctionDecoratorImpl(fn, "export") {
+    if hasFunctionDecoratorGenImpl(fn, "export") {
         fnRetPrefix = fnRetPrefix + "dso_local "
     }
     let quotedFnName = quoteIdentIfNeededImpl(fnName)
@@ -959,7 +959,7 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
     let signaturePrefix = buildFunctionSignaturePrefixImpl(fn, fnName,
         returnType)
     let paramDecls = buildFunctionParameterDeclsImpl(fn,
-        hasFunctionDecoratorImpl(fn, "no_alias"),
+        hasFunctionDecoratorGenImpl(fn, "no_alias"),
         state.registry.structNames, typeAliasNames, typeAliasTargets,
         typeAliasCount, enumTypeNames, reprCClassNames)
     emitFunctionSignatureImpl(state.output, signaturePrefix, paramDecls,
@@ -992,7 +992,7 @@ fun emitFunctionEntrySetupStateImpl(state: CodegenState, fn: FunctionNode,
 
     println("[irgen function] dead-arg scan start: " + fnName)
     profileStringIndexBox[0] = -1
-    if hasFunctionDecoratorImpl(fn, "profile") {
+    if hasFunctionDecoratorGenImpl(fn, "profile") {
         profileStringIndexBox[0] = addStringConstantTableImpl(
             state.stringConstants, fnName)
     }
@@ -1068,7 +1068,7 @@ fun emitFunctionDiagnosticsAndProfileEntryImpl(output: StringBuilder,
         unusedIdx = unusedIdx + 1
     }
 
-    if hasFunctionDecoratorImpl(fn, "profile") {
+    if hasFunctionDecoratorGenImpl(fn, "profile") {
         profiledFlagBox[0] = 1
         profiledNameBox[0] = fnName
         output.append("  ; @profile instrumentation - enter\n")

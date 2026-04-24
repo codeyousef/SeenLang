@@ -75,6 +75,8 @@ import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
 import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl}
+import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
+import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision}
@@ -90,6 +92,7 @@ import codegen.ir_field_registry.{resolveFieldIndexImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
+import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl}
 import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitVariableReceiverMemberAccessImpl}
@@ -102,6 +105,7 @@ import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyScopedStatementKindImpl}
 import codegen.type_registry.{findStructReg}
+import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.c_import_gen.{CImportGenerator, CImportResult}
 
@@ -1938,6 +1942,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_variable_gen")
         modules.push("codegen.ir_field_layout")
+        modules.push("codegen.ir_bitfield_access")
         modules.push("codegen.ir_path_expr")
         modules.push("codegen.ir_member_access")
         modules.push("codegen.ir_member_access_gen")
@@ -1951,6 +1956,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_stmt_comptime")
         modules.push("codegen.ir_stmt_return")
         modules.push("codegen.type_registry")
+        modules.push("codegen.ir_type_header")
         // Scan the main generator after extracted helpers so their
         // declarations are available during bootstrap registration.
         modules.push("codegen.llvm_ir_gen")
