@@ -111,6 +111,7 @@ import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot,
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
+import codegen.ir_function_ml_logs.{buildFunctionPreludeMlLogLinesImpl, buildFunctionUnusedParamMlLogLinesImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -614,6 +615,12 @@ fun mlLogFeatures(category: String, funcName: String, f0: Int, f1: Int, f2: Int,
     if not g_mlLogEnabled { return }
     let line = "FEAT\t" + category + "\t" + funcName + "\t" + f0.toString() + "\t" + f1.toString() + "\t" + f2.toString() + "\t" + f3.toString() + "\t" + f4.toString() + "\n"
     g_mlDecisionLog = g_mlDecisionLog + line
+}
+
+fun appendMlDecisionLogLines(lines: String) r: Void {
+    if not g_mlLogEnabled { return }
+    if lines.length() == 0 { return }
+    g_mlDecisionLog = g_mlDecisionLog + lines
 }
 
 // Set up ML logging with the given output path.
@@ -2668,20 +2675,8 @@ class LLVMIRGenerator {
             g_mlReplayLog, g_callCountNamesArr, g_selfCallFuncs,
             g_selfCallNames, g_selfCallCount)
         funcAttrs = preludeAnalysis.funcAttrs
-        if preludeAnalysis.inlineReplayDecision == 1 {
-            mlLogDecision("inline", "yes", fnName + ":replay")
-        }
-        if preludeAnalysis.inlineFeatureLog == 1 {
-            mlLogFeatures("inline", fnName, preludeAnalysis.inlineBodySize,
-                preludeAnalysis.inlineCallCount,
-                preludeAnalysis.inlineHasLoopsFlag,
-                preludeAnalysis.inlineNestDepth, 0)
-            if preludeAnalysis.inlineDecisionAction != "" {
-                mlLogDecision("inline",
-                    preludeAnalysis.inlineDecisionAction,
-                    preludeAnalysis.inlineDecisionDetail)
-            }
-        }
+        appendMlDecisionLogLines(buildFunctionPreludeMlLogLinesImpl(
+            preludeAnalysis, fnName))
         println("[irgen function] inline-analysis done: " + fnName)
 
         // ML register pressure estimation (9.7): count unique variables
@@ -2689,8 +2684,6 @@ class LLVMIRGenerator {
         if preludeAnalysis.highPressure == 1 {
             g_currentFunctionHighPressure = true
             getCurrentFunctionOptions().highPressure = true
-            mlLogDecision("reg-pressure", "high",
-                preludeAnalysis.regPressureDetail)
         }
         println("[irgen function] reg-pressure done: " + fnName)
 
@@ -2713,12 +2706,8 @@ class LLVMIRGenerator {
         g_asyncFunctionCoroHdl = entrySetup.asyncCoroHdl
         g_asyncFinalLabel = entrySetup.asyncFinalLabel
         g_asyncCleanupLabel = entrySetup.asyncCleanupLabel
-        var unusedIdx = 0
-        while unusedIdx < entrySetup.unusedParams.length() {
-            mlLogDecision("dead-arg", "unused",
-                entrySetup.unusedParams[unusedIdx] + ":" + fnName)
-            unusedIdx = unusedIdx + 1
-        }
+        appendMlDecisionLogLines(buildFunctionUnusedParamMlLogLinesImpl(
+            entrySetup.unusedParams, fnName))
 
         // Generate function body
         generateBlock(fn.body)

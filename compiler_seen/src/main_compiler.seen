@@ -76,6 +76,7 @@ import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
 import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl}
 import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl}
+import codegen.ir_function_ml_logs.{buildFunctionPreludeMlLogLinesImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_struct_gen.{resolveStructLiteralFieldFallback, emitStructFieldStoresImpl}
 import codegen.ir_struct_layout_build.{StructLayoutBuildState}
@@ -1923,6 +1924,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_usage")
         modules.push("codegen.ir_function_param_meta")
         modules.push("codegen.ir_function_prebody")
+        modules.push("codegen.ir_function_ml_logs")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_layout_build")
         modules.push("codegen.ir_class_type_layout")
