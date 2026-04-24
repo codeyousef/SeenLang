@@ -43,6 +43,16 @@ class BlockDeadStoreScanSnapshot {
     }
 }
 
+class TrailingDeadCodeNoticeSnapshot {
+    var deadStatementsEliminated: Int
+
+    static fun new() r: TrailingDeadCodeNoticeSnapshot {
+        return TrailingDeadCodeNoticeSnapshot{
+            deadStatementsEliminated: 0
+        }
+    }
+}
+
 // emitConditionToI1Impl — convert a condition value to i1 based on its type
 // condType: "Bool"/"Int"/"Float"/"String"/""
 // Returns the i1 register name
@@ -490,6 +500,19 @@ fun emitTrailingDeadCodeNoticeImpl(output: StringBuilder, blockLength: Int,
         output.append("  ; dead code eliminated: " + remaining.toString() +
             " statements\n")
     }
+}
+
+fun emitTrailingDeadCodeNoticeSnapshotImpl(output: StringBuilder,
+    block: BlockNode, startIndex: Int,
+    deadStatementsEliminated: Int) r: TrailingDeadCodeNoticeSnapshot {
+
+    let snapshot = TrailingDeadCodeNoticeSnapshot.new()
+    let deadStatementsEliminatedBox = Array<Int>()
+    deadStatementsEliminatedBox.push(deadStatementsEliminated)
+    emitTrailingDeadCodeNoticeImpl(output, block.statements.length(),
+        startIndex, deadStatementsEliminatedBox)
+    snapshot.deadStatementsEliminated = deadStatementsEliminatedBox[0]
+    return snapshot
 }
 
 fun shouldSkipDeadLiteralInitializerImpl(deadStoreSkipVars: String,
