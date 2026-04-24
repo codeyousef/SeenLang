@@ -181,8 +181,8 @@ fun overrideTargetTriple(triple: String, layout: String) r: Void {
 }
 
 // Module-level profiling state (avoids changing struct layout for backward compat)
-var g_g_currentFunctionIsProfiled: Bool = false
-var g_g_currentFunctionNameForProfile: String = ""
+var g_currentFunctionIsProfiled: Bool = false
+var g_currentFunctionNameForProfile: String = ""
 // Panic on overflow flag - module-level to avoid changing class struct layout during bootstrap
 var g_panicOnOverflow: Bool = false
 // Async function coroutine state (per-function, set during preamble, used in cleanup)
