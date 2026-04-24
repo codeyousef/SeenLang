@@ -111,7 +111,7 @@ import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot,
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
-import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
+import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl, applyDeadStoreMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
@@ -2705,21 +2705,7 @@ class LLVMIRGenerator {
         g_deadStoresEliminated = deadStoresEliminatedBox[0]
         g_deadStoreSkipVars = deadStoreSkipVarsBox[0]
 
-        var dsLogIdx = 0
-        while dsLogIdx < deadStoreLogBox[0].length() {
-            let logEntry = pipeGet(deadStoreLogBox[0], dsLogIdx)
-            if logEntry == "" {
-                break
-            }
-            let actionSepPos = logEntry.indexOf(":", 0)
-            if actionSepPos > 0 {
-                let action = logEntry.substring(0, actionSepPos)
-                let detail = logEntry.substring(actionSepPos + 1,
-                    logEntry.length())
-                mlLogDecision("dead-store", action, detail)
-            }
-            dsLogIdx = dsLogIdx + 1
-        }
+        applyDeadStoreMlLogsImpl(deadStoreLogBox[0])
     }
 
     fun emitTrailingDeadCodeNotice(block: BlockNode, startIndex: Int) r: Void {

@@ -2,6 +2,7 @@
 
 import codegen.ir_function_gen.{FunctionPreludeAnalysisSnapshot}
 import codegen.ir_ml_logging.{mlLogDecision, mlLogFeatures}
+import codegen.ir_optimization.{pipeGet}
 
 fun applyFunctionPreludeMlLogsImpl(
     preludeAnalysis: FunctionPreludeAnalysisSnapshot, fnName: String)
@@ -34,5 +35,23 @@ fun applyFunctionUnusedParamMlLogsImpl(unusedParams: Array<String>,
         mlLogDecision("dead-arg", "unused",
             unusedParams[unusedIdx] + ":" + fnName)
         unusedIdx = unusedIdx + 1
+    }
+}
+
+fun applyDeadStoreMlLogsImpl(deadStoreLogEntries: String) r: Void {
+    var dsLogIdx = 0
+    while dsLogIdx < deadStoreLogEntries.length() {
+        let logEntry = pipeGet(deadStoreLogEntries, dsLogIdx)
+        if logEntry == "" {
+            break
+        }
+        let actionSepPos = logEntry.indexOf(":", 0)
+        if actionSepPos > 0 {
+            let action = logEntry.substring(0, actionSepPos)
+            let detail = logEntry.substring(actionSepPos + 1,
+                logEntry.length())
+            mlLogDecision("dead-store", action, detail)
+        }
+        dsLogIdx = dsLogIdx + 1
     }
 }
