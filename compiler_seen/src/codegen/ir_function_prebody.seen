@@ -2,8 +2,9 @@
 
 import parser.real_parser.{FunctionNode}
 import codegen.type_registry.{CodegenState, resetFunctionLoweringOptions, encodeFunctionLoweringOptions}
-import codegen.ir_function_gen.{resetLocalCodegenStateImpl}
+import codegen.ir_function_gen.{resetLocalCodegenStateImpl, emitPreAllocatedAllocasImpl, emitDefaultReturnValueImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
+import str.string.{StringBuilder}
 
 class FunctionPreBodyStateSnapshot {
     var comptimeParamFuncNames: String
@@ -19,6 +20,18 @@ class FunctionPreBodyStateSnapshot {
             funcDefaultsArr: "",
             dynParamFuncs: "",
             funcParamCountArr: ""
+        }
+    }
+}
+
+class FunctionMainEntrySnapshot {
+    var mainReturnType: String
+    var preAllocatedRegs: Array<String>
+
+    static fun new() r: FunctionMainEntrySnapshot {
+        return FunctionMainEntrySnapshot{
+            mainReturnType: "",
+            preAllocatedRegs: Array<String>()
         }
     }
 }
@@ -61,4 +74,42 @@ fun prepareFunctionPreBodyStateSnapshotImpl(state: CodegenState,
     snapshot.dynParamFuncs = dynParamFuncsBox[0]
     snapshot.funcParamCountArr = funcParamCountBox[0]
     return snapshot
+}
+
+fun emitMainFunctionEntrySnapshotImpl(output: StringBuilder,
+    regBox: Array<Int>, returnType: String, preAllocatedTypes: Array<String>,
+    structNames: Array<String>, typeAliasNames: String,
+    typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String,
+    reprCClassNames: String) r: FunctionMainEntrySnapshot {
+
+    let snapshot = FunctionMainEntrySnapshot.new()
+    snapshot.mainReturnType = returnType
+    if snapshot.mainReturnType == "void" {
+        snapshot.mainReturnType = "i32"
+    }
+
+    var mainRetPrefix = "define "
+    if snapshot.mainReturnType == "i64" or
+        snapshot.mainReturnType == "double" or
+        snapshot.mainReturnType == "i1" {
+
+        mainRetPrefix = "define noundef "
+    }
+    output.append(mainRetPrefix + snapshot.mainReturnType +
+        " @main(i32 %argc, ptr %argv) #0 {\n")
+    output.append("entry:\n")
+    output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
+    snapshot.preAllocatedRegs = emitPreAllocatedAllocasImpl(output, regBox,
+        preAllocatedTypes, structNames, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, reprCClassNames)
+    return snapshot
+}
+
+fun emitMainFunctionExitImpl(output: StringBuilder, blockTerminated: Bool,
+    mainReturnType: String) r: Void {
+
+    if not blockTerminated {
+        emitDefaultReturnValueImpl(output, mainReturnType)
+    }
+    output.append("}\n\n")
 }

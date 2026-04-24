@@ -107,10 +107,10 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAss
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, encodeFunctionLoweringOptions, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
-import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitDefaultReturnValueImpl, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
+import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
-import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl}
+import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
 fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
@@ -2553,31 +2553,16 @@ class LLVMIRGenerator {
             return false
         }
         g_isMainFunc = 1
-        var mainReturnType = returnTypeBox[0]
-        if mainReturnType == "void" {
-            mainReturnType = "i32"
-        }
-        var mainRetPrefix = "define "
-        if mainReturnType == "i64" or mainReturnType == "double" or
-            mainReturnType == "i1" {
-
-            mainRetPrefix = "define noundef "
-        }
-        output.append(mainRetPrefix + mainReturnType +
-            " @main(i32 %argc, ptr %argv) #0 {\n")
-        output.append("entry:\n")
-        output.append("  call void @seen_runtime_init(i32 %argc, ptr %argv)\n")
-        preAllocatedRegs = emitPreAllocatedAllocasImpl(output, g_regBox,
-            preAllocatedTypes, structNames, g_typeAliasNames,
+        let mainEntry = emitMainFunctionEntrySnapshotImpl(output, g_regBox,
+            returnTypeBox[0], preAllocatedTypes, structNames, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
             g_reprCClassNames)
+        preAllocatedRegs = mainEntry.preAllocatedRegs
         println("[irgen function] block start: " + implFuncName)
         generateBlock(fn.body)
         println("[irgen function] block done: " + implFuncName)
-        if not blockTerminated {
-            emitDefaultReturnValueImpl(output, mainReturnType)
-        }
-        output.append("}\n\n")
+        emitMainFunctionExitImpl(output, blockTerminated,
+            mainEntry.mainReturnType)
         g_isMainFunc = 0
         return true
     }
