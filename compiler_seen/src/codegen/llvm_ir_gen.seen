@@ -2583,6 +2583,7 @@ class LLVMIRGenerator {
         let functionIdentity = prepareFunctionGenerationIdentitySnapshotImpl(
             fn, structNames, g_dynTraitNames, structMethodNames,
             structMethodRetTypes, g_traitImplRegistry, g_traitImplCount,
+            resolveFunctionReturnType(fn),
             generatedFunctions, funcNames, funcRetTypes)
         g_traitImplRegistry = functionIdentity.traitImplRegistry
         g_traitImplCount = functionIdentity.traitImplCount

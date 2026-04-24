@@ -12,7 +12,6 @@ import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImp
 import codegen.ir_type_mapping.{isClassTypeImpl, mapTypeImpl}
 import codegen.type_registry.{CodegenState, csGetNextReg, clearTransientFunctionLoweringOptions}
 import codegen.ir_decl_registry.{registerFunctionStateImpl}
-import codegen.ir_decl_return_types.{resolveFunctionReturnTypeImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl, trimSpacesImpl, getBaseTypeNameImpl}
 import codegen.ir_string_emit.{addStringConstantTableImpl}
 import codegen.ir_string_emit.{getStringConstantIndexImpl}
@@ -505,6 +504,7 @@ fun prepareFunctionGenerationIdentitySnapshotImpl(fn: FunctionNode,
     structNames: Array<String>, dynTraitNames: String,
     structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
     traitImplRegistry: String, traitImplCount: Int,
+    resolvedFunctionReturnType: String,
     generatedFunctions: Array<String>, funcNames: Array<String>,
     funcRetTypes: Array<String>) r: FunctionGenerationIdentitySnapshot {
 
@@ -529,7 +529,7 @@ fun prepareFunctionGenerationIdentitySnapshotImpl(fn: FunctionNode,
     }
 
     generatedFunctions.push(snapshot.implFuncName)
-    snapshot.resolvedFunctionReturnType = resolveFunctionReturnTypeImpl(fn)
+    snapshot.resolvedFunctionReturnType = resolvedFunctionReturnType
     registerFunctionStateImpl(snapshot.implFuncName,
         snapshot.resolvedFunctionReturnType, funcNames, funcRetTypes)
     return snapshot
