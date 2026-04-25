@@ -6,35 +6,6 @@ import parser.real_parser.{StatementNode, ParserExpressionNode, BlockNode}
 import codegen.ir_optimization.{parseIntManual, getNextRegFn, getNextBlockFn}
 import str.string.{StringBuilder}
 
-fun ensureControlFlowStringBoxValue(box: Array<String>) r: Void {
-    if box.length() == 0 {
-        box.push("")
-    }
-}
-
-fun appendLoopTileHintImpl(loopTileHintsBox: Array<String>, loopMetaId: Int,
-    hintValue: Int) r: Void {
-
-    ensureControlFlowStringBoxValue(loopTileHintsBox)
-    let metaIdx = loopMetaId - 202
-    let entry = metaIdx.toString() + ":" + hintValue.toString()
-    if loopTileHintsBox[0] == "" {
-        loopTileHintsBox[0] = entry
-    } else {
-        loopTileHintsBox[0] = loopTileHintsBox[0] + "|" + entry
-    }
-}
-
-fun appendLoopMetadataIdImpl(loopIdsBox: Array<String>, loopMetaId: Int) r: Void {
-    ensureControlFlowStringBoxValue(loopIdsBox)
-    let metaIdx = loopMetaId - 202
-    if loopIdsBox[0] == "" {
-        loopIdsBox[0] = metaIdx.toString()
-    } else {
-        loopIdsBox[0] = loopIdsBox[0] + "|" + metaIdx.toString()
-    }
-}
-
 fun emitWhileConditionBranchImpl(output: StringBuilder, regBox: Array<Int>,
     condReg: String, breakFlagPtrReg: String, bodyLabel: String,
     endLabel: String) r: Void {
@@ -70,65 +41,6 @@ fun emitStringForInElementImpl(output: StringBuilder, regBox: Array<Int>,
         loadIdx + ")\n")
     output.append("  store i64 " + charReg + ", ptr " + loopVarReg +
         ", align 8\n")
-}
-
-fun enterLoopContextImpl(currentCondBox: Array<String>,
-    currentEndBox: Array<String>, savedCondBox: Array<String>,
-    savedEndBox: Array<String>, condLabel: String, endLabel: String,
-    loopMetaIdStr: String) r: Void {
-
-    ensureControlFlowStringBoxValue(currentCondBox)
-    ensureControlFlowStringBoxValue(currentEndBox)
-    savedCondBox.push(currentCondBox[0])
-    savedEndBox.push(currentEndBox[0])
-    currentCondBox[0] = condLabel + "|" + loopMetaIdStr
-    currentEndBox[0] = endLabel
-}
-
-fun restoreLoopContextImpl(currentCondBox: Array<String>,
-    currentEndBox: Array<String>, savedCondLabel: String,
-    savedEndLabel: String) r: Void {
-
-    ensureControlFlowStringBoxValue(currentCondBox)
-    ensureControlFlowStringBoxValue(currentEndBox)
-    currentCondBox[0] = savedCondLabel
-    currentEndBox[0] = savedEndLabel
-}
-
-fun emitLoopEndLabelImpl(output: StringBuilder, endLabel: String) r: Void {
-    output.append(endLabel + ":\n")
-}
-
-fun emitContinueStatementImpl(output: StringBuilder,
-    currentLoopCondLabel: String) r: Int {
-
-    if currentLoopCondLabel == "" {
-        output.append("  ; ERROR: continue used outside of loop\n")
-        return 0
-    }
-    let pipeIdx = currentLoopCondLabel.indexOf("|")
-    if pipeIdx >= 0 {
-        let actualLabel = currentLoopCondLabel.substring(0, pipeIdx)
-        let metaIdStr = currentLoopCondLabel.substring(pipeIdx + 1,
-            currentLoopCondLabel.length())
-        output.append("  br label %" + actualLabel + ", !llvm.loop !" +
-            metaIdStr + "\n")
-        return 1
-    }
-    output.append("  br label %" + currentLoopCondLabel +
-        ", !llvm.loop !202\n")
-    return 1
-}
-
-fun emitBreakStatementImpl(output: StringBuilder,
-    currentLoopEndLabel: String) r: Int {
-
-    if currentLoopEndLabel == "" {
-        output.append("  ; ERROR: break used outside of loop\n")
-        return 0
-    }
-    output.append("  br label %" + currentLoopEndLabel + "\n")
-    return 1
 }
 
 fun emitMemcpyLoopExitBlocksImpl(output: StringBuilder, condLabel: String,
