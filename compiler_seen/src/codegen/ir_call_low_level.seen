@@ -5,7 +5,7 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDebugAssertCallImpl, emitAsyncYieldCallImpl}
-import codegen.ir_method_gen.{emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
+import codegen.ir_ptr_ops.{emitPtrOpsImpl, emitStackAllocImpl, emitConstructAtImpl}
 import codegen.ir_type_ops.{emitSimdBuiltinImpl}
 
 fun isPtrBuiltinCallImpl(funcName: String) r: Int {

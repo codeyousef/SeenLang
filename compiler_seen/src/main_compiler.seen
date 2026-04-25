@@ -46,6 +46,7 @@ import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl}
 import codegen.ir_method_gen.{emitToStringMethodImpl}
+import codegen.ir_ptr_ops.{emitPtrOpsImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
 import codegen.ir_string_collect_state.{collectStringConstantsStateImpl}
 import codegen.ir_string_interp_gen.{generateStringInterpolationFromPartsImpl}
@@ -1899,6 +1900,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_trait_registry")
         modules.push("codegen.ir_module_emit")
         modules.push("codegen.ir_method_gen")
+        modules.push("codegen.ir_ptr_ops")
         modules.push("codegen.ir_string_collect")
         modules.push("codegen.ir_string_collect_state")
         modules.push("codegen.ir_string_interp_gen")
