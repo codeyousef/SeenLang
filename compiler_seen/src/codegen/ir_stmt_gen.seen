@@ -234,12 +234,6 @@ fun emitPrefetchImpl(output: StringBuilder, regBox: Array<Int>, dataPtrReg: Stri
     output.append("  call void @llvm.prefetch.p0(ptr " + nextElemPtr + ", i32 0, i32 3, i32 1)\n")
 }
 
-fun emitReturnRegionCleanupImpl(output: StringBuilder, regBox: Array<Int>) r: Void {
-    let regionLoadReg = getNextRegFn(regBox)
-    output.append("  " + regionLoadReg + " = load ptr, ptr %__region_ptr\n")
-    output.append("  call void @__seen_region_destroy(ptr " + regionLoadReg + ") ; @preallocate cleanup\n")
-}
-
 fun encodeRegionStrategyImpl(strategy: String) r: String {
     if strategy == "bump" { return "1" }
     if strategy == "stack" { return "2" }

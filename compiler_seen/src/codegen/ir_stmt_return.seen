@@ -2,6 +2,7 @@
 
 import codegen.ir_function_gen.{emitDefaultReturnValueImpl}
 import codegen.ir_type_info.{charToCodeStr}
+import codegen.ir_optimization.{getNextRegFn}
 import str.string.{StringBuilder}
 
 fun emitErrdeferTempReturnLoadImpl(output: StringBuilder, loadReg: String,
@@ -14,6 +15,27 @@ fun emitProfileExitOnReturnImpl(output: StringBuilder, strIdx: Int) r: Void {
     output.append("  ; @profile instrumentation - exit (explicit return)\n")
     output.append("  call void @__seen_profile_exit(ptr @.str." +
         strIdx.toString() + ")\n")
+}
+
+fun emitReturnRegionCleanupImpl(output: StringBuilder, regBox: Array<Int>)
+    r: Void {
+
+    let regionLoadReg = getNextRegFn(regBox)
+    output.append("  " + regionLoadReg + " = load ptr, ptr %__region_ptr\n")
+    output.append("  call void @__seen_region_destroy(ptr " + regionLoadReg +
+        ") ; @preallocate cleanup\n")
+}
+
+fun emitReturnRegionAndProfileCleanupImpl(output: StringBuilder,
+    regBox: Array<Int>, regionSizeBytes: Int, isProfiled: Bool,
+    profileStringIndex: Int) r: Void {
+
+    if regionSizeBytes > 0 {
+        emitReturnRegionCleanupImpl(output, regBox)
+    }
+    if isProfiled {
+        emitProfileExitOnReturnImpl(output, profileStringIndex)
+    }
 }
 
 fun emitAsyncReturnStoreAndBranchImpl(output: StringBuilder,

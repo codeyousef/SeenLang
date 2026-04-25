@@ -103,7 +103,7 @@ import codegen.ir_stmt_decl.{resolveLetStatementTypeImpl, prepareLetStatementPla
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, emitIfLetBindingStateImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl}
-import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitReturnRegionAndProfileCleanupImpl}
 import codegen.ir_stmt_scope.{classifyScopedStatementKindImpl}
 import codegen.type_registry.{findStructReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
