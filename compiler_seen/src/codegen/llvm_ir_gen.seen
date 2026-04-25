@@ -115,7 +115,7 @@ import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot,
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
-import codegen.ir_function_state.{resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl, applyDeadStoreMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
@@ -178,19 +178,8 @@ fun overrideTargetTriple(triple: String, layout: String) r: Void {
     g_hostDataLayout = layout
 }
 
-// Module-level profiling state (avoids changing struct layout for backward compat)
-var g_currentFunctionIsProfiled: Bool = false
-var g_currentFunctionNameForProfile: String = ""
 // Panic on overflow flag - module-level to avoid changing class struct layout during bootstrap
 var g_panicOnOverflow: Bool = false
-// Async function coroutine state (per-function, set during preamble, used in cleanup)
-var g_asyncFunctionCoroId: String = ""
-var g_asyncFunctionCoroHdl: String = ""
-var g_asyncFunctionPromise: String = ""
-var g_asyncFinalLabel: String = ""
-var g_asyncCleanupLabel: String = ""   // cleanup block label for mid-function yield cleanup path
-var g_yieldCounter: Int = 0            // unique label counter for yield resume blocks
-var g_isMainFunc: Int = 0              // 1 when generating main() body
 // Async function registry - pipe-delimited strings (avoids adding class fields to LLVMIRGenerator)
 var g_asyncFuncNames: String = ""
 var g_asyncFuncRetTypes: String = ""
@@ -250,8 +239,6 @@ var g_loopTileHints: String = ""
 var g_reductionLoopIds: String = ""
 // Nested loop IDs: "metaIdx|metaIdx|..." for loop distribute enable
 var g_nestedLoopIds: String = ""
-// Register pressure flag: set per-function when >14 vars
-var g_currentFunctionHighPressure: Bool = false
 // Module constant mutability: pipe-delimited "0"/"1" entries parallel to moduleConstantNames
 // "0" = immutable (let), "1" = mutable (var). Reset per-module.
 var g_moduleConstMutable: String = ""
@@ -440,8 +427,6 @@ var g_uninitCheckEnabled: Int = 0
 var g_uninitVarNames: String = ""
 var g_uninitVarStatus: String = ""
 var g_uninitVarCount: Int = 0
-var g_movedVarNames: String = ""
-var g_movedVarCount: Int = 0
 var g_stackCheckEnabled: Int = 0
 var g_sanitizerMode: String = ""
 // Feature flags registry
@@ -648,7 +633,8 @@ fun resetOptCounters() r: Void {
     g_loopTileHints = ""
     g_reductionLoopIds = ""
     g_nestedLoopIds = ""
-    g_currentFunctionHighPressure = false
+    resetFunctionEmissionHighPressureImpl(
+        getCurrentFunctionEmissionStateImpl())
     let fnOptions = getCurrentFunctionOptions()
     resetFunctionHighPressureImpl(fnOptions)
     fnOptions.laneWidth = 0
@@ -2328,7 +2314,8 @@ class LLVMIRGenerator {
         currentClassName = className
         g_currentClassParentName = parentName
         resetFunctionLoweringOptionsStateImpl(getCurrentFunctionOptions())
-        g_currentFunctionHighPressure = false
+        resetFunctionEmissionForFunctionImpl(
+            getCurrentFunctionEmissionStateImpl())
         cseClear()
     }
 
@@ -2451,10 +2438,9 @@ class LLVMIRGenerator {
         returnTypeBox: Array<String>) r: Bool {
 
         g_currentClassParentName = ""
-        g_currentFunctionHighPressure = false
+        let functionEmission = getCurrentFunctionEmissionStateImpl()
+        resetFunctionEmissionForFunctionImpl(functionEmission)
         resetFunctionHighPressureImpl(getCurrentFunctionOptions())
-        g_movedVarNames = ""
-        g_movedVarCount = 0
         syncState()
         let preBodyState = prepareFunctionPreBodyStateSnapshotImpl(
             getSharedCodegenState(), fn, implFuncName,
@@ -2489,7 +2475,7 @@ class LLVMIRGenerator {
         if not isMainFunctionNameImpl(implFuncName) {
             return false
         }
-        g_isMainFunc = 1
+        functionEmission.isMainFunc = 1
         let mainEntry = emitMainFunctionEntrySnapshotImpl(output, g_regBox,
             returnTypeBox[0], preAllocatedTypes, structNames, g_typeAliasNames,
             g_typeAliasTargets, g_typeAliasCount, g_enumTypeNames,
@@ -2500,7 +2486,7 @@ class LLVMIRGenerator {
         println("[irgen function] block done: " + implFuncName)
         emitMainFunctionExitImpl(output, blockTerminated,
             mainEntry.mainReturnType)
-        g_isMainFunc = 0
+        functionEmission.isMainFunc = 0
         return true
     }
 
@@ -2609,10 +2595,11 @@ class LLVMIRGenerator {
         applyFunctionPreludeMlLogsImpl(preludeAnalysis, fnName)
         println("[irgen function] inline-analysis done: " + fnName)
 
+        let functionEmission = getCurrentFunctionEmissionStateImpl()
         // ML register pressure estimation (9.7): count unique variables
         println("[irgen function] recursion flags done: " + fnName)
         if preludeAnalysis.highPressure == 1 {
-            g_currentFunctionHighPressure = true
+            markFunctionEmissionHighPressureImpl(functionEmission)
             markFunctionHighPressureImpl(getCurrentFunctionOptions())
         }
         println("[irgen function] reg-pressure done: " + fnName)
@@ -2625,17 +2612,17 @@ class LLVMIRGenerator {
         let entrySetup = emitFunctionEntrySetupSnapshotImpl(state, fn, fnName,
             returnType, funcAttrs, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames, g_reprCClassNames,
-            g_asyncFunctionPromise, g_asyncFunctionCoroId,
-            g_asyncFunctionCoroHdl, g_asyncFinalLabel,
-            g_asyncCleanupLabel)
+            functionEmission.asyncPromise, functionEmission.asyncCoroId,
+            functionEmission.asyncCoroHdl, functionEmission.asyncFinalLabel,
+            functionEmission.asyncCleanupLabel)
         writeBackState()
-        g_currentFunctionIsProfiled = entrySetup.profiledFlag == 1
-        g_currentFunctionNameForProfile = entrySetup.profiledName
-        g_asyncFunctionPromise = entrySetup.asyncPromise
-        g_asyncFunctionCoroId = entrySetup.asyncCoroId
-        g_asyncFunctionCoroHdl = entrySetup.asyncCoroHdl
-        g_asyncFinalLabel = entrySetup.asyncFinalLabel
-        g_asyncCleanupLabel = entrySetup.asyncCleanupLabel
+        functionEmission.profiledFlag = entrySetup.profiledFlag == 1
+        functionEmission.profiledName = entrySetup.profiledName
+        functionEmission.asyncPromise = entrySetup.asyncPromise
+        functionEmission.asyncCoroId = entrySetup.asyncCoroId
+        functionEmission.asyncCoroHdl = entrySetup.asyncCoroHdl
+        functionEmission.asyncFinalLabel = entrySetup.asyncFinalLabel
+        functionEmission.asyncCleanupLabel = entrySetup.asyncCleanupLabel
         applyFunctionUnusedParamMlLogsImpl(entrySetup.unusedParams, fnName)
 
         // Generate function body
@@ -2643,31 +2630,31 @@ class LLVMIRGenerator {
 
         syncState()
         var currentProfiledFlag = 0
-        if g_currentFunctionIsProfiled {
+        if functionEmission.profiledFlag {
             currentProfiledFlag = 1
         }
         var currentHighPressure = 0
-        if g_currentFunctionHighPressure or isFunctionHighPressureImpl(
+        if functionEmission.highPressureFlag or isFunctionHighPressureImpl(
             getCurrentFunctionOptions()) {
             currentHighPressure = 1
         }
         let exitState = emitFunctionExitResetSnapshotImpl(state, fn,
             returnType, currentProfiledFlag,
-            g_currentFunctionNameForProfile, currentHighPressure,
-            g_asyncFunctionCoroId, g_asyncFunctionCoroHdl,
-            g_asyncFunctionPromise, g_asyncFinalLabel,
-            g_asyncCleanupLabel,
+            functionEmission.profiledName, currentHighPressure,
+            functionEmission.asyncCoroId, functionEmission.asyncCoroHdl,
+            functionEmission.asyncPromise, functionEmission.asyncFinalLabel,
+            functionEmission.asyncCleanupLabel,
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_enumTypeNames)
         writeBackState()
-        g_currentFunctionIsProfiled = exitState.profiledFlag == 1
-        g_currentFunctionNameForProfile = exitState.profiledName
-        g_currentFunctionHighPressure = exitState.highPressure == 1
-        g_asyncFunctionCoroId = exitState.asyncCoroId
-        g_asyncFunctionCoroHdl = exitState.asyncCoroHdl
-        g_asyncFunctionPromise = exitState.asyncPromise
-        g_asyncFinalLabel = exitState.asyncFinalLabel
-        g_asyncCleanupLabel = exitState.asyncCleanupLabel
+        functionEmission.profiledFlag = exitState.profiledFlag == 1
+        functionEmission.profiledName = exitState.profiledName
+        functionEmission.highPressureFlag = exitState.highPressure == 1
+        functionEmission.asyncCoroId = exitState.asyncCoroId
+        functionEmission.asyncCoroHdl = exitState.asyncCoroHdl
+        functionEmission.asyncPromise = exitState.asyncPromise
+        functionEmission.asyncFinalLabel = exitState.asyncFinalLabel
+        functionEmission.asyncCleanupLabel = exitState.asyncCleanupLabel
     }
 
     // Generate IR for a block of statements. Manages the defer stack depth
@@ -3243,6 +3230,7 @@ class LLVMIRGenerator {
         if not isCurrentFunctionAsyncLoweringImpl(getCurrentFunctionOptions()) {
             return false
         }
+        let functionEmission = getCurrentFunctionEmissionStateImpl()
         if stmt.returnValue.kind != "None" {
             let savedPendingType = pendingArrayLiteralType
             if shouldSeedReturnPendingArrayLiteralTypeImpl(stmt.returnValue.kind,
@@ -3256,11 +3244,11 @@ class LLVMIRGenerator {
             pendingArrayLiteralType = savedPendingType
             let promiseType = mapType(currentFunctionReturnType)
             emitAsyncReturnStoreAndBranchImpl(output, promiseType, valueReg,
-                g_asyncFunctionPromise, g_asyncFinalLabel)
+                functionEmission.asyncPromise, functionEmission.asyncFinalLabel)
             blockTerminated = true
             return true
         }
-        emitAsyncReturnBranchImpl(output, g_asyncFinalLabel)
+        emitAsyncReturnBranchImpl(output, functionEmission.asyncFinalLabel)
         blockTerminated = true
         return true
     }
@@ -3305,12 +3293,14 @@ class LLVMIRGenerator {
         emitPendingReturnDefers()
         prepareErrdeferReturnStatement(stmt)
         var profileStringIndex = -1
-        if g_currentFunctionIsProfiled {
-            profileStringIndex = getStringConstantIndex(g_currentFunctionNameForProfile)
+        let functionEmission = getCurrentFunctionEmissionStateImpl()
+        if functionEmission.profiledFlag {
+            profileStringIndex = getStringConstantIndex(
+                functionEmission.profiledName)
         }
         emitReturnRegionAndProfileCleanupImpl(output, g_regBox,
             currentFunctionRegionSizeBytesImpl(getCurrentFunctionOptions()),
-            g_currentFunctionIsProfiled, profileStringIndex)
+            functionEmission.profiledFlag, profileStringIndex)
 
         if tryEmitAsyncReturnStatement(stmt) {
             return
@@ -3319,7 +3309,7 @@ class LLVMIRGenerator {
         if stmt.returnValue.kind == "None" {
             let emptyReturnType = mapType(currentFunctionReturnType)
             emitDefaultEmptyReturnStatementImpl(output, emptyReturnType,
-                g_isMainFunc)
+                functionEmission.isMainFunc)
             blockTerminated = true
             return
         }
@@ -4200,8 +4190,8 @@ class LLVMIRGenerator {
         }
 
         emitMoveSourceNullifyImpl(output, varRegs[rhsIdx])
-        g_movedVarNames = g_movedVarNames + rhsVarName + "|"
-        g_movedVarCount = g_movedVarCount + 1
+        recordMovedVariableImpl(getCurrentFunctionEmissionStateImpl(),
+            rhsVarName)
     }
 
     fun emitTriviallyCopyableAssignmentNote(varType: String) r: Void {
@@ -5388,7 +5378,8 @@ class LLVMIRGenerator {
     }
 
     fun tryEmitMovedVariableRead(varName: String) r: Int {
-        if g_movedVarCount > 0 and g_movedVarNames.contains(varName + "|") {
+        if isMovedVariableImpl(getCurrentFunctionEmissionStateImpl(),
+            varName) == 1 {
             emitMovedVariableUseTrapImpl(output, varName)
             return 1
         }
@@ -6150,10 +6141,12 @@ class LLVMIRGenerator {
 
         if funcName == "async_yield" {
             var yieldCounterBox = Array<Int>()
-            yieldCounterBox.push(g_yieldCounter)
+            let functionEmission = getCurrentFunctionEmissionStateImpl()
+            yieldCounterBox.push(functionEmission.yieldCounter)
             let yieldResult = emitAsyncYieldBuiltinStateImpl(output, g_regBox,
-                g_asyncFunctionCoroHdl, g_asyncCleanupLabel, yieldCounterBox)
-            g_yieldCounter = yieldCounterBox[0]
+                functionEmission.asyncCoroHdl,
+                functionEmission.asyncCleanupLabel, yieldCounterBox)
+            functionEmission.yieldCounter = yieldCounterBox[0]
             return yieldResult
         }
 
@@ -7853,14 +7846,15 @@ class LLVMIRGenerator {
                     var moveVarName = argExpr.variableName
                     if moveVarName == "" { moveVarName = argExpr.literalValue }
                     if moveVarName != "" {
-                        let moveVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, moveVarName)
-                        if moveVarIdx >= 0 {
-                            let moveSrcReg = varRegs[moveVarIdx]
-                            output.append("  store i64 0, ptr " + moveSrcReg + " ; @move: nullify source (" + moveContext + ")\n")
-                            g_movedVarNames = g_movedVarNames + moveVarName + "|"
-                            g_movedVarCount = g_movedVarCount + 1
+                            let moveVarIdx = findActiveVariableIndexImpl(varNames, activeVarCount, moveVarName)
+                            if moveVarIdx >= 0 {
+                                let moveSrcReg = varRegs[moveVarIdx]
+                                output.append("  store i64 0, ptr " + moveSrcReg + " ; @move: nullify source (" + moveContext + ")\n")
+                                recordMovedVariableImpl(
+                                    getCurrentFunctionEmissionStateImpl(),
+                                    moveVarName)
+                            }
                         }
-                    }
                 }
             }
             argIdx = argIdx + 1
