@@ -99,9 +99,10 @@ import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFiel
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, normalizeZeroReturnValueRegImpl, scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
-import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitStructLiteralReturnLoadImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeZeroReturnValueRegImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
@@ -110,17 +111,10 @@ import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOption
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
-import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
+import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl, applyDeadStoreMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
-
-fun llvmIrGenIsMainFunctionName(name: String) r: Bool {
-    if name.length() != 4 {
-        return false
-    }
-    return name.byteAt(0) == 109 and name.byteAt(1) == 97 and name.byteAt(2) == 105 and name.byteAt(3) == 110
-}
 
 fun getIrgenTraceTimeSeconds() r: Int {
     let result: CommandResult = runCommand("date +%s")
@@ -2523,7 +2517,7 @@ class LLVMIRGenerator {
             g_reprCClassNames)
         println("[irgen function] return-type map done: " + implFuncName)
 
-        if not llvmIrGenIsMainFunctionName(implFuncName) {
+        if not isMainFunctionNameImpl(implFuncName) {
             return false
         }
         g_isMainFunc = 1
@@ -2784,19 +2778,8 @@ class LLVMIRGenerator {
     }
 
     fun warnUnusedResultCall(expr: ParserExpressionNode) r: Void {
-        if g_warnUnusedResult != 1 or expr.kind != "Call" {
-            return
-        }
-        let unusedCallName = expr.callee
-        let unusedRetType = getFunctionReturnTypeStateImpl(unusedCallName,
-            funcNames, funcRetTypes)
-        if not unusedRetType.startsWith("Result<") and not unusedRetType.startsWith("Result ") {
-            return
-        }
-        if g_tryCatchLabel == "" {
-            output.append("; WARNING: unused Result from call to " + unusedCallName + "\n")
-            println("[WARNING] unused error result from '" + unusedCallName + "'")
-        }
+        emitUnusedResultCallWarningImpl(output, expr, g_warnUnusedResult,
+            g_tryCatchLabel, funcNames, funcRetTypes)
     }
 
     fun generateExpressionStatement(stmt: StatementNode) r: Void {
@@ -7069,6 +7052,20 @@ class LLVMIRGenerator {
         if isClassType(staticClassName) { isClassRecv = 1 }
         var isDataRecv = 0
         if isDataType(staticClassName) { isDataRecv = 1 }
+        if not ((potentialClassName == "StringBuilder" and methodName == "new") or
+            (potentialClassName == "String" and methodName == "fromCharCode")) {
+            let updatedStaticDecl = recordLateUserDeclareStateImpl(funcName,
+                staticLlvmReturnType, argTypeStrs, 0, funcNames,
+                funcRetTypes, g_xmDeclareNames, g_xmDeclareCount,
+                g_lateXmDeclareNames, g_lateXmDeclareStrs,
+                g_lateXmDeclareCount)
+            g_lateXmDeclareNames = unpackDeclRegistryFieldImpl(
+                updatedStaticDecl, 0)
+            g_lateXmDeclareStrs = unpackDeclRegistryFieldImpl(
+                updatedStaticDecl, 1)
+            g_lateXmDeclareCount = parseIntManual(
+                unpackDeclRegistryFieldImpl(updatedStaticDecl, 2))
+        }
         return emitPreparedStaticMethodCallImpl(output, g_regBox, methodName,
             potentialClassName, staticClassName, funcName,
             staticLlvmReturnType, isClassRecv, isDataRecv,

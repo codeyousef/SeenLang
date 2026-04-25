@@ -8,6 +8,14 @@ import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl}
 import str.string.{StringBuilder}
 
+fun isMainFunctionNameImpl(name: String) r: Bool {
+    if name.length() != 4 {
+        return false
+    }
+    return name.byteAt(0) == 109 and name.byteAt(1) == 97 and
+        name.byteAt(2) == 105 and name.byteAt(3) == 110
+}
+
 class FunctionPreBodyStateSnapshot {
     var comptimeParamFuncNames: String
     var comptimeParamCount: Int

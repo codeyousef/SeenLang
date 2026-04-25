@@ -77,7 +77,7 @@ import codegen.ir_function_gen.{analyzeDeadStoresImpl}
 import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl}
 import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
-import codegen.ir_function_prebody.{prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
+import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
@@ -100,9 +100,10 @@ import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl}
 import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
 import codegen.ir_stmt_decl.{resolveLetStatementTypeImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, scanBlockDeadStorePatternsSnapshotImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl}
-import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl}
 import codegen.ir_stmt_scope.{classifyScopedStatementKindImpl}
 import codegen.type_registry.{findStructReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
@@ -1953,6 +1954,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_stmt_scope")
         modules.push("codegen.ir_stmt_decl")
         modules.push("codegen.ir_stmt_gen")
+        modules.push("codegen.ir_stmt_dead_code")
         modules.push("codegen.ir_stmt_comptime")
         modules.push("codegen.ir_stmt_return")
         modules.push("codegen.type_registry")

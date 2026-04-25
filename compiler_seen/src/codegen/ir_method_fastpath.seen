@@ -9,7 +9,6 @@ import codegen.ir_method_gen.{emitToStringMethodImpl, emitToIntMethodImpl, emitT
 import codegen.ir_call_dispatch.{emitCStrConversionImpl, emitDynTraitVtableCallImpl, emitGenericStaticCallImpl, emitStringBuilderNewCallImpl, emitStringFromCharCodeCallImpl, emitSimdReductionVarImpl}
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, emitArrayWithLengthImpl}
 import codegen.ir_type_dispatch.{dispatchCollectionMethodImpl}
-import codegen.ir_decl_scan.{recordLateUserDeclareImpl}
 import codegen.ir_variable_gen.{emitModuleConstantLoadImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, normalizeExplicitMethodReceiverTypeImpl, fallbackModuleConstantMethodReceiverTypeImpl, convertReceiverToPtrImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
@@ -412,13 +411,10 @@ fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
             argTypeStrs)
     }
 
-    let hasImplicitThis = 0
-    recordLateUserDeclareImpl(funcName, staticLlvmReturnType, argTypeStrs,
-        hasImplicitThis)
     return emitGenericStaticCallImpl(output, regBox,
         quoteIdentIfNeededImpl(funcName), staticLlvmReturnType,
         staticClassName, argRegs, argTypeStrs, isClassRecv, isDataRecv,
-        hasImplicitThis)
+        0)
 }
 
 fun shouldLowerUnresolvedMethodAsCallImpl(currentClassName: String,
