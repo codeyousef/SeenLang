@@ -105,8 +105,8 @@ import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveD
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
-import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeZeroReturnValueRegImpl, emitStructLiteralReturnLoadImpl}
-import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
+import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeZeroReturnValueRegImpl, emitStructLiteralReturnLoadImpl}
+import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
@@ -115,7 +115,7 @@ import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot,
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
-import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl}
+import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
@@ -2654,7 +2654,8 @@ class LLVMIRGenerator {
     // patterns where x is not read between the two stores, and skips the
     // first literal initialization.
     fun emitBlockDeferredCleanup(savedDeferCount: Int) r: Void {
-        let dIdxStart = beginBlockDeferredCleanupImpl(output, savedDeferCount,
+        let dIdxStart = beginFunctionBodyBlockDeferredCleanupImpl(output,
+            savedDeferCount,
             g_deferCount, blockTerminated)
         if dIdxStart < 0 {
             return
@@ -3167,13 +3168,11 @@ class LLVMIRGenerator {
     }
 
     fun emitPendingReturnDefers() r: Void {
-        if g_deferCount > 0 {
-            output.append("  ; defer cleanup before return (LIFO)\n")
-            var deferIdx = g_deferCount - 1
-            while deferIdx >= 0 {
-                generateExpression(g_deferExprs[deferIdx])
-                deferIdx = deferIdx - 1
-            }
+        var deferIdx = beginFunctionBodyReturnDeferCleanupImpl(output,
+            g_deferCount)
+        while deferIdx >= 0 {
+            generateExpression(g_deferExprs[deferIdx])
+            deferIdx = deferIdx - 1
         }
     }
 
@@ -3182,8 +3181,8 @@ class LLVMIRGenerator {
             return
         }
         if stmt.returnValue.kind == "None" {
-            emitErrdeferVoidCleanupIntroImpl(output)
-            var voidErrdeferIdx = g_errdeferCount - 1
+            var voidErrdeferIdx = beginFunctionBodyVoidErrdeferCleanupImpl(
+                output, g_errdeferCount)
             while voidErrdeferIdx >= 0 {
                 generateExpression(g_errdeferExprs[voidErrdeferIdx])
                 voidErrdeferIdx = voidErrdeferIdx - 1
@@ -3191,22 +3190,17 @@ class LLVMIRGenerator {
             return
         }
 
-        let tempAllocaReg = getNextReg()
         let returnValueReg = generateExpression(stmt.returnValue)
-        emitErrdeferValueSetupImpl(output, tempAllocaReg, returnValueReg)
-        let isErrReg = getNextReg()
-        let errLabel = getNextBlockLabel()
-        let okLabel = getNextBlockLabel()
-        emitErrdeferErrorBranchImpl(output, isErrReg, returnValueReg,
-            errLabel, okLabel)
-        emitErrdeferErrorPathIntroImpl(output, errLabel)
-        var errdeferIdx = g_errdeferCount - 1
+        let errdeferPlan = beginFunctionBodyValueErrdeferCleanupImpl(output,
+            g_regBox, g_blockBox, returnValueReg, g_errdeferCount)
+        var errdeferIdx = errdeferPlan.cleanupStartIndex
         while errdeferIdx >= 0 {
             generateExpression(g_errdeferExprs[errdeferIdx])
             errdeferIdx = errdeferIdx - 1
         }
-        emitErrdeferResumeLabelImpl(output, okLabel)
-        g_errdeferTempAlloca = tempAllocaReg
+        finishFunctionBodyValueErrdeferCleanupImpl(output,
+            errdeferPlan.okLabel)
+        g_errdeferTempAlloca = errdeferPlan.tempAllocaReg
     }
 
     fun tryEmitAsyncReturnStatement(stmt: StatementNode) r: Bool {

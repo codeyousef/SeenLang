@@ -2,7 +2,10 @@
 
 import parser.real_parser.{BlockNode}
 import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_stmt_dead_code.{BlockDeadStoreScanSnapshot, TrailingDeadCodeNoticeSnapshot, scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl}
+import codegen.ir_stmt_scope.{beginBlockDeferredCleanupImpl}
+import codegen.ir_stmt_return.{emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl}
 import codegen.ir_function_ml_logs.{applyDeadStoreMlLogsImpl}
 
 class FunctionBodyBlockScopeState {
@@ -18,6 +21,22 @@ class FunctionBodyBlockScopeState {
             savedDeferCount: savedDeferCount,
             savedDeadStoreSkipVars: savedDeadStoreSkipVars,
             savedActiveVarCount: savedActiveVarCount
+        }
+    }
+}
+
+class FunctionBodyErrdeferValueCleanupPlan {
+    var tempAllocaReg: String
+    var okLabel: String
+    var cleanupStartIndex: Int
+
+    static fun new(tempAllocaReg: String, okLabel: String,
+        cleanupStartIndex: Int) r: FunctionBodyErrdeferValueCleanupPlan {
+
+        return FunctionBodyErrdeferValueCleanupPlan{
+            tempAllocaReg: tempAllocaReg,
+            okLabel: okLabel,
+            cleanupStartIndex: cleanupStartIndex
         }
     }
 }
@@ -46,4 +65,61 @@ fun emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl(
 
     return emitTrailingDeadCodeNoticeSnapshotImpl(output, block, startIndex,
         deadStatementsEliminated)
+}
+
+fun beginFunctionBodyBlockDeferredCleanupImpl(output: StringBuilder,
+    savedDeferCount: Int, currentDeferCount: Int, blockTerminated: Bool)
+    r: Int {
+
+    return beginBlockDeferredCleanupImpl(output, savedDeferCount,
+        currentDeferCount, blockTerminated)
+}
+
+fun beginFunctionBodyReturnDeferCleanupImpl(output: StringBuilder,
+    currentDeferCount: Int) r: Int {
+
+    if currentDeferCount <= 0 {
+        return -1
+    }
+    output.append("  ; defer cleanup before return (LIFO)\n")
+    return currentDeferCount - 1
+}
+
+fun beginFunctionBodyVoidErrdeferCleanupImpl(output: StringBuilder,
+    currentErrdeferCount: Int) r: Int {
+
+    if currentErrdeferCount <= 0 {
+        return -1
+    }
+    emitErrdeferVoidCleanupIntroImpl(output)
+    return currentErrdeferCount - 1
+}
+
+fun beginFunctionBodyValueErrdeferCleanupImpl(output: StringBuilder,
+    regBox: Array<Int>, blockLabelBox: Array<Int>, returnValueReg: String,
+    currentErrdeferCount: Int) r: FunctionBodyErrdeferValueCleanupPlan {
+
+    if currentErrdeferCount <= 0 {
+        return FunctionBodyErrdeferValueCleanupPlan.new("", "", -1)
+    }
+
+    let tempAllocaReg = getNextRegFn(regBox)
+    emitErrdeferValueSetupImpl(output, tempAllocaReg, returnValueReg)
+    let isErrReg = getNextRegFn(regBox)
+    let errLabel = getNextBlockFn(blockLabelBox)
+    let okLabel = getNextBlockFn(blockLabelBox)
+    emitErrdeferErrorBranchImpl(output, isErrReg, returnValueReg,
+        errLabel, okLabel)
+    emitErrdeferErrorPathIntroImpl(output, errLabel)
+    return FunctionBodyErrdeferValueCleanupPlan.new(tempAllocaReg, okLabel,
+        currentErrdeferCount - 1)
+}
+
+fun finishFunctionBodyValueErrdeferCleanupImpl(output: StringBuilder,
+    okLabel: String) r: Void {
+
+    if okLabel == "" {
+        return
+    }
+    emitErrdeferResumeLabelImpl(output, okLabel)
 }
