@@ -84,6 +84,7 @@ import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, 
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
+import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -6613,7 +6614,8 @@ class LLVMIRGenerator {
         let argRegs = g_defaultFillArgRegs
         let argTypeStrs = g_defaultFillArgTypeStrs
 
-        if thisType == "StringBuilder" and (funcName == "append" or funcName == "appendInt" or funcName == "appendFloat" or funcName == "appendChar" or funcName == "clear" or funcName == "length" or funcName == "toString") {
+        if thisType == "StringBuilder" and
+            isStringBuilderRuntimeMethodImpl(funcName) {
             let thisPtrReg = getNextReg()
             output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
             var sbArg0 = ""
@@ -6735,9 +6737,7 @@ class LLVMIRGenerator {
     fun tryGenerateResolvedReceiverFastPathMethodCall(expr: ParserExpressionNode,
         methodName: String, receiverReg: String, receiverType: String) r: String {
 
-        let isOptionTypeSimple = receiverType == "Option" or
-            receiverType.startsWith("Option<")
-        if isOptionTypeSimple and receiverReg != "" {
+        if isOptionReceiverTypeImpl(receiverType) and receiverReg != "" {
             var optDefaultRegS = "0"
             if (methodName == "unwrapOr" or methodName == "UnwrapOr") and
                 expr.arguments.length() > 0 {
@@ -6747,10 +6747,7 @@ class LLVMIRGenerator {
                 methodName, receiverReg, optDefaultRegS)
         }
 
-        let isSmallVecSimple = receiverType == "SmallVec" or
-            receiverType.startsWith("SmallVec<") or
-            receiverType.startsWith("SmallVec[")
-        if isSmallVecSimple and receiverReg != "" {
+        if isSmallVecReceiverTypeImpl(receiverType) and receiverReg != "" {
             var svArgReg = ""
             if (methodName == "push" or methodName == "get") and
                 expr.arguments.length() > 0 {
@@ -6760,17 +6757,7 @@ class LLVMIRGenerator {
                 receiverReg, receiverType, svArgReg)
         }
 
-        let isCollectionTypeSimple = receiverType.startsWith("Vec<") or
-            receiverType == "Vec" or
-            receiverType.startsWith("BTreeMap<") or
-            receiverType == "BTreeMap" or
-            receiverType.startsWith("HashMap<") or
-            receiverType == "HashMap" or
-            receiverType.startsWith("StringHashMap<") or
-            receiverType == "StringHashMap" or
-            receiverType.startsWith("LinkedList<") or
-            receiverType == "LinkedList"
-        if isCollectionTypeSimple and receiverReg != "" {
+        if isCollectionReceiverTypeImpl(receiverType) and receiverReg != "" {
             var collArg0s = "0"
             var collArg1s = "0"
             if expr.arguments.length() > 0 {
@@ -6783,7 +6770,7 @@ class LLVMIRGenerator {
                 receiverReg, receiverType, collArg0s, collArg1s)
         }
 
-        if receiverType.startsWith("Array<") and receiverReg != "" {
+        if isArrayReceiverTypeImpl(receiverType) and receiverReg != "" {
             var arrArg0 = ""
             var arrArg1 = ""
             if expr.arguments.length() > 0 {
@@ -6825,11 +6812,8 @@ class LLVMIRGenerator {
             }
         }
         if isUppercase and expr.arguments.length() > 0 {
-            let needsStaticFactoryArg = (methodName == "withCapacity" and
-                (potentialClassName == "HashMap" or
-                    potentialClassName == "StringHashMap")) or
-                (potentialClassName == "Array" and methodName == "withLength")
-            if needsStaticFactoryArg {
+            if needsStaticFactoryArgumentImpl(methodName,
+                potentialClassName) {
                 let staticFactoryArg0 = generateExpression(expr.arguments[0])
                 let staticFactoryResult: String = tryGenerateStaticFactoryMethodCallImpl(
                     output, g_regBox, methodName, potentialClassName,
@@ -6951,7 +6935,7 @@ class LLVMIRGenerator {
                     freeReceiverType = varTypes[freeTypeIdx]
                 }
             }
-            let isArrayType = freeReceiverType.startsWith("Array<") or freeReceiverType == "Array"
+            let isArrayType = isArrayReceiverTypeImpl(freeReceiverType)
             if isArrayType {
                 var freePtrReg = receiverReg
                 if freePtrReg == "" and expr.literalValue != "" {
@@ -6982,7 +6966,7 @@ class LLVMIRGenerator {
             }
         }
 
-        if methodName == "push" and (receiverType.startsWith("Array<") or receiverType == "Array") {
+        if methodName == "push" and isArrayReceiverTypeImpl(receiverType) {
             let argExpr = expr.arguments[0]
             let argReg = generateExpression(argExpr)
             let argType = inferExpressionType(argExpr)
@@ -6999,7 +6983,7 @@ class LLVMIRGenerator {
             let varName = expr.literalValue
             var arrayPtrReg = tryResolveArrayMutatorPointerFromLiteral(varName)
 
-            if arrayPtrReg == "" and (receiverType.startsWith("Array<") or receiverType == "Array") {
+            if arrayPtrReg == "" and isArrayReceiverTypeImpl(receiverType) {
                 arrayPtrReg = receiverReg
             }
 
@@ -7024,8 +7008,8 @@ class LLVMIRGenerator {
         }
 
         if methodName == "swap" {
-            let isArraySwap = receiverType.startsWith("Array<") or receiverType == "Array"
-            if isArraySwap and expr.arguments.length() == 2 {
+            if isArrayReceiverTypeImpl(receiverType) and
+                expr.arguments.length() == 2 {
                 let idxAReg = generateExpression(expr.arguments[0])
                 let idxBReg = generateExpression(expr.arguments[1])
                 var arrayPtrReg =
@@ -7393,10 +7377,7 @@ class LLVMIRGenerator {
         }
 
         if receiverType == "StringBuilder" {
-            if methodName == "append" or methodName == "appendInt" or
-                methodName == "appendFloat" or
-                methodName == "appendChar" or methodName == "clear" or
-                methodName == "length" or methodName == "toString" {
+            if isStringBuilderRuntimeMethodImpl(methodName) {
                 var sbArg0 = ""
                 var isFloatFused = 0
                 if methodName == "append" and expr.arguments.length() > 0 {
@@ -7431,11 +7412,7 @@ class LLVMIRGenerator {
             return conversionResult
         }
 
-        if methodName == "abs" or methodName == "min" or methodName == "max" or
-            methodName == "clamp" or methodName == "floor" or
-            methodName == "ceil" or methodName == "round" or
-            methodName == "sqrt" or methodName == "isNaN" or
-            methodName == "isInfinite" {
+        if isNumericReceiverMethodImpl(methodName) {
             var numArg0 = ""
             var numArg1 = ""
             if expr.arguments.length() > 0 {

@@ -1,0 +1,116 @@
+// ir_method_receiver_predicates.seen -- method receiver classification helpers
+// Keeps method-call classifier logic separate from receiver resolution,
+// expression generation, and final call emission.
+
+fun isOptionReceiverTypeImpl(receiverType: String) r: Bool {
+    if receiverType == "Option" {
+        return true
+    }
+    return receiverType.startsWith("Option<")
+}
+
+fun isSmallVecReceiverTypeImpl(receiverType: String) r: Bool {
+    if receiverType == "SmallVec" {
+        return true
+    }
+    if receiverType.startsWith("SmallVec<") {
+        return true
+    }
+    return receiverType.startsWith("SmallVec[")
+}
+
+fun isCollectionReceiverTypeImpl(receiverType: String) r: Bool {
+    if receiverType == "Vec" or receiverType.startsWith("Vec<") {
+        return true
+    }
+    if receiverType == "BTreeMap" or receiverType.startsWith("BTreeMap<") {
+        return true
+    }
+    if receiverType == "HashMap" or receiverType.startsWith("HashMap<") {
+        return true
+    }
+    if receiverType == "StringHashMap" or
+        receiverType.startsWith("StringHashMap<") {
+        return true
+    }
+    if receiverType == "LinkedList" or
+        receiverType.startsWith("LinkedList<") {
+        return true
+    }
+    return false
+}
+
+fun isArrayReceiverTypeImpl(receiverType: String) r: Bool {
+    if receiverType == "Array" {
+        return true
+    }
+    return receiverType.startsWith("Array<")
+}
+
+fun isStringBuilderRuntimeMethodImpl(methodName: String) r: Bool {
+    if methodName == "append" {
+        return true
+    }
+    if methodName == "appendInt" {
+        return true
+    }
+    if methodName == "appendFloat" {
+        return true
+    }
+    if methodName == "appendChar" {
+        return true
+    }
+    if methodName == "clear" {
+        return true
+    }
+    if methodName == "length" {
+        return true
+    }
+    return methodName == "toString"
+}
+
+fun isNumericReceiverMethodImpl(methodName: String) r: Bool {
+    if methodName == "abs" {
+        return true
+    }
+    if methodName == "min" {
+        return true
+    }
+    if methodName == "max" {
+        return true
+    }
+    if methodName == "clamp" {
+        return true
+    }
+    if methodName == "floor" {
+        return true
+    }
+    if methodName == "ceil" {
+        return true
+    }
+    if methodName == "round" {
+        return true
+    }
+    if methodName == "sqrt" {
+        return true
+    }
+    if methodName == "isNaN" {
+        return true
+    }
+    return methodName == "isInfinite"
+}
+
+fun needsStaticFactoryArgumentImpl(methodName: String,
+    potentialClassName: String) r: Bool {
+
+    if methodName == "withCapacity" {
+        if potentialClassName == "HashMap" {
+            return true
+        }
+        return potentialClassName == "StringHashMap"
+    }
+    if potentialClassName == "Array" {
+        return methodName == "withLength"
+    }
+    return false
+}
