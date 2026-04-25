@@ -643,7 +643,9 @@ recover_with_preserved_production_compiler() {
     cleanup_smoke_build_state
     rm -f "$STAGE3_RECOVERY"
 
-    if timeout "$RECOVERY_TIMEOUT_SECS" bash -c "if [ -n $(printf '%q' "$MAIN_COMPILER_VMEM_KB") ]; then ulimit -v $(printf '%q' "$MAIN_COMPILER_VMEM_KB"); fi; env PATH=$(printf '%q' "$OPT_WRAPPER_DIR"):\$PATH SEEN_LOW_MEMORY=$(printf '%q' "${SEEN_LOW_MEMORY:-0}") SEEN_SKIP_IR_FIXUPS=1 SEEN_MAIN_VMEM_KB=$(printf '%q' "$MAIN_COMPILER_VMEM_KB") SEEN_OPT_VMEM_KB=$(printf '%q' "$OPT_VMEM_KB") $(printf '%q' "$PRESERVED_PROD_BUILDER") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3_RECOVERY") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3_recovery.log 2>&1; then
+    local recovery_exit=0
+    timeout "$RECOVERY_TIMEOUT_SECS" bash -c "if [ -n $(printf '%q' "$MAIN_COMPILER_VMEM_KB") ]; then ulimit -v $(printf '%q' "$MAIN_COMPILER_VMEM_KB"); fi; env PATH=$(printf '%q' "$OPT_WRAPPER_DIR"):\$PATH SEEN_LOW_MEMORY=$(printf '%q' "${SEEN_LOW_MEMORY:-0}") SEEN_SKIP_IR_FIXUPS=1 SEEN_MAIN_VMEM_KB=$(printf '%q' "$MAIN_COMPILER_VMEM_KB") SEEN_OPT_VMEM_KB=$(printf '%q' "$OPT_VMEM_KB") $(printf '%q' "$PRESERVED_PROD_BUILDER") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3_RECOVERY") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3_recovery.log 2>&1 || recovery_exit=$?
+    if [ "$recovery_exit" -eq 0 ]; then
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
         echo ""
         echo "Recovery smoke: checking hello-world..."
@@ -655,7 +657,6 @@ recover_with_preserved_production_compiler() {
         return 1
     fi
 
-    local recovery_exit=$?
     echo -e "${YELLOW}Recovery rebuild failed or timed out (exit=$recovery_exit).${NC}"
     if [ "$recovery_exit" != "124" ]; then
         tail -10 /tmp/safe_rebuild_stage3_recovery.log 2>/dev/null || true
@@ -825,8 +826,7 @@ if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ]; then
     if recover_with_preserved_production_compiler; then
         echo -e "${GREEN}Low-memory rebuild succeeded via preserved production compiler.${NC}"
     else
-        echo -e "${RED}Low-memory shortcut did not complete. Refusing to fall back to frozen bootstrap because that path can exceed the low-memory budget.${NC}"
-        exit 1
+        echo -e "${YELLOW}Low-memory shortcut did not complete; continuing with capped frozen bootstrap.${NC}"
     fi
 fi
 
