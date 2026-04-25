@@ -103,7 +103,7 @@ import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeI
 import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeZeroReturnValueRegImpl, emitStructLiteralReturnLoadImpl}
-import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl, restoreTryCatchStatementContextImpl}
+import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
@@ -2811,26 +2811,17 @@ class LLVMIRGenerator {
     }
 
     fun generateTryCatchStatement(stmt: StatementNode) r: Void {
-        let currentTryCatchLabelBox = Array<String>()
-        currentTryCatchLabelBox.push(g_tryCatchLabel)
-        let currentTryCatchEndLabelBox = Array<String>()
-        currentTryCatchEndLabelBox.push(g_tryCatchEndLabel)
-        let savedTryCatchLabelBox = Array<String>()
-        let savedTryCatchEndLabelBox = Array<String>()
-        let tryCatchLabelBox = Array<String>()
-        let tryEndLabelBox = Array<String>()
-        beginTryCatchStatementImpl(output, g_blockBox, currentTryCatchLabelBox,
-            currentTryCatchEndLabelBox, savedTryCatchLabelBox,
-            savedTryCatchEndLabelBox, tryCatchLabelBox, tryEndLabelBox)
-        g_tryCatchLabel = currentTryCatchLabelBox[0]
-        g_tryCatchEndLabel = currentTryCatchEndLabelBox[0]
+        let tryCatchContext = beginTryCatchStatementSnapshotImpl(output,
+            g_blockBox, g_tryCatchLabel, g_tryCatchEndLabel)
+        g_tryCatchLabel = tryCatchContext.currentTryCatchLabel
+        g_tryCatchEndLabel = tryCatchContext.currentTryCatchEndLabel
         if stmt.thenBranch.statements.length() > 0 {
             generateBlock(stmt.thenBranch)
         }
         blockTerminated = finalizeTryCatchArmImpl(output, blockTerminated,
-            tryEndLabelBox[0])
+            tryCatchContext.tryEndLabel)
 
-        emitTryCatchCatchHeaderImpl(output, tryCatchLabelBox[0])
+        emitTryCatchCatchHeaderImpl(output, tryCatchContext.tryCatchLabel)
         let savedCatchVarCount = activeVarCount
         if stmt.variableName != "" {
             let catchVarReg = getNextReg()
@@ -2844,14 +2835,11 @@ class LLVMIRGenerator {
         }
         activeVarCount = savedCatchVarCount
         blockTerminated = finalizeTryCatchArmImpl(output, blockTerminated,
-            tryEndLabelBox[0])
-        emitTryCatchFooterImpl(output, tryEndLabelBox[0])
+            tryCatchContext.tryEndLabel)
+        emitTryCatchFooterImpl(output, tryCatchContext.tryEndLabel)
 
-        restoreTryCatchStatementContextImpl(currentTryCatchLabelBox,
-            currentTryCatchEndLabelBox, savedTryCatchLabelBox[0],
-            savedTryCatchEndLabelBox[0])
-        g_tryCatchLabel = currentTryCatchLabelBox[0]
-        g_tryCatchEndLabel = currentTryCatchEndLabelBox[0]
+        g_tryCatchLabel = tryCatchContext.savedTryCatchLabel
+        g_tryCatchEndLabel = tryCatchContext.savedTryCatchEndLabel
     }
 
     // Top-level statement dispatch. Routes each statement kind to its

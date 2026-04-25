@@ -103,6 +103,26 @@ class DeferredStatementRecordSnapshot {
     }
 }
 
+class TryCatchStatementContextSnapshot {
+    var currentTryCatchLabel: String
+    var currentTryCatchEndLabel: String
+    var savedTryCatchLabel: String
+    var savedTryCatchEndLabel: String
+    var tryCatchLabel: String
+    var tryEndLabel: String
+
+    static fun new() r: TryCatchStatementContextSnapshot {
+        return TryCatchStatementContextSnapshot{
+            currentTryCatchLabel: "",
+            currentTryCatchEndLabel: "",
+            savedTryCatchLabel: "",
+            savedTryCatchEndLabel: "",
+            tryCatchLabel: "",
+            tryEndLabel: ""
+        }
+    }
+}
+
 fun beginBlockDeferredCleanupImpl(output: StringBuilder, savedDeferCount: Int,
     currentDeferCount: Int, blockTerminated: Bool) r: Int {
 
@@ -192,6 +212,32 @@ fun beginTryCatchStatementImpl(output: StringBuilder, blockBox: Array<Int>,
     output.append("  ; try {\n")
 }
 
+fun beginTryCatchStatementSnapshotImpl(output: StringBuilder,
+    blockBox: Array<Int>, currentTryCatchLabel: String,
+    currentTryCatchEndLabel: String) r: TryCatchStatementContextSnapshot {
+
+    let currentTryCatchLabelBox = Array<String>()
+    currentTryCatchLabelBox.push(currentTryCatchLabel)
+    let currentTryCatchEndLabelBox = Array<String>()
+    currentTryCatchEndLabelBox.push(currentTryCatchEndLabel)
+    let savedTryCatchLabelBox = Array<String>()
+    let savedTryCatchEndLabelBox = Array<String>()
+    let tryCatchLabelBox = Array<String>()
+    let tryEndLabelBox = Array<String>()
+    beginTryCatchStatementImpl(output, blockBox, currentTryCatchLabelBox,
+        currentTryCatchEndLabelBox, savedTryCatchLabelBox,
+        savedTryCatchEndLabelBox, tryCatchLabelBox, tryEndLabelBox)
+
+    let snapshot = TryCatchStatementContextSnapshot.new()
+    snapshot.currentTryCatchLabel = currentTryCatchLabelBox[0]
+    snapshot.currentTryCatchEndLabel = currentTryCatchEndLabelBox[0]
+    snapshot.savedTryCatchLabel = savedTryCatchLabelBox[0]
+    snapshot.savedTryCatchEndLabel = savedTryCatchEndLabelBox[0]
+    snapshot.tryCatchLabel = tryCatchLabelBox[0]
+    snapshot.tryEndLabel = tryEndLabelBox[0]
+    return snapshot
+}
+
 fun finalizeTryCatchArmImpl(output: StringBuilder, blockTerminated: Bool,
     tryEndLabel: String) r: Bool {
 
@@ -211,14 +257,4 @@ fun emitTryCatchCatchHeaderImpl(output: StringBuilder, tryCatchLabel: String)
 fun emitTryCatchFooterImpl(output: StringBuilder, tryEndLabel: String) r: Void {
     output.append(tryEndLabel + ":\n")
     output.append("  ; } // end try/catch\n")
-}
-
-fun restoreTryCatchStatementContextImpl(currentTryCatchLabelBox: Array<String>,
-    currentTryCatchEndLabelBox: Array<String>, savedTryCatchLabel: String,
-    savedTryCatchEndLabel: String) r: Void {
-
-    ensureStmtScopeStringBoxValue(currentTryCatchLabelBox)
-    ensureStmtScopeStringBoxValue(currentTryCatchEndLabelBox)
-    currentTryCatchLabelBox[0] = savedTryCatchLabel
-    currentTryCatchEndLabelBox[0] = savedTryCatchEndLabel
 }
