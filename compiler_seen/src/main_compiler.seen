@@ -36,11 +36,11 @@ import codegen.ir_decl_features.{emitFeatureDecls}
 // compilers discover them from the main-file import scan before falling back
 // to their embedded compiler-module list.
 import codegen.ir_decl_scan.{pipeContainsValueImpl}
-import codegen.ir_decl_registry.{recordLateUserDeclareStateImpl}
+import codegen.ir_decl_registry.{recordLateUserDeclareStateImpl, captureDeclarationPassStateImpl, packDeclarationPassStateImpl}
 import codegen.ir_decl_items.{registerMethodDeclarationStateImpl}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
-import codegen.ir_module_constants.{findModuleConstantStateImpl}
+import codegen.ir_module_constants.{findModuleConstantStateImpl, captureModuleConstantRegistryStateImpl}
 import codegen.ir_local_type_fallback.{tryInferImplicitThisVariableTypeImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
@@ -82,6 +82,7 @@ import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
+import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
@@ -1938,6 +1939,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_usage")
         modules.push("codegen.ir_function_param_meta")
         modules.push("codegen.ir_function_prebody")
+        modules.push("codegen.ir_function_body")
         modules.push("codegen.ir_function_ml_logs")
         modules.push("codegen.ir_ml_logging")
         modules.push("codegen.ir_struct_gen")

@@ -1,0 +1,49 @@
+// ir_function_body.seen - function body and block-scope emission helpers.
+
+import parser.real_parser.{BlockNode}
+import str.string.{StringBuilder}
+import codegen.ir_stmt_dead_code.{BlockDeadStoreScanSnapshot, TrailingDeadCodeNoticeSnapshot, scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl}
+import codegen.ir_function_ml_logs.{applyDeadStoreMlLogsImpl}
+
+class FunctionBodyBlockScopeState {
+    var savedDeferCount: Int
+    var savedDeadStoreSkipVars: String
+    var savedActiveVarCount: Int
+
+    static fun new(savedDeferCount: Int,
+        savedDeadStoreSkipVars: String, savedActiveVarCount: Int)
+        r: FunctionBodyBlockScopeState {
+
+        return FunctionBodyBlockScopeState{
+            savedDeferCount: savedDeferCount,
+            savedDeadStoreSkipVars: savedDeadStoreSkipVars,
+            savedActiveVarCount: savedActiveVarCount
+        }
+    }
+}
+
+fun captureFunctionBodyBlockScopeImpl(currentDeferCount: Int,
+    deadStoreSkipVars: String, activeVarCount: Int)
+    r: FunctionBodyBlockScopeState {
+
+    return FunctionBodyBlockScopeState.new(currentDeferCount,
+        deadStoreSkipVars, activeVarCount)
+}
+
+fun scanFunctionBodyDeadStorePatternsSnapshotImpl(output: StringBuilder,
+    block: BlockNode, deadStoresEliminated: Int,
+    deadStoreSkipVars: String) r: BlockDeadStoreScanSnapshot {
+
+    let deadStoreScan = scanBlockDeadStorePatternsSnapshotImpl(output, block,
+        deadStoresEliminated, deadStoreSkipVars)
+    applyDeadStoreMlLogsImpl(deadStoreScan.deadStoreLogEntries)
+    return deadStoreScan
+}
+
+fun emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl(
+    output: StringBuilder, block: BlockNode, startIndex: Int,
+    deadStatementsEliminated: Int) r: TrailingDeadCodeNoticeSnapshot {
+
+    return emitTrailingDeadCodeNoticeSnapshotImpl(output, block, startIndex,
+        deadStatementsEliminated)
+}

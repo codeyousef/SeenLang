@@ -43,6 +43,13 @@ class ModuleConstantRegistryState {
     }
 }
 
+fun captureModuleConstantRegistryStateImpl(moduleConstMutable: String,
+    moduleConstSeenTypes: String) r: ModuleConstantRegistryState {
+
+    return ModuleConstantRegistryState.new(moduleConstMutable,
+        moduleConstSeenTypes)
+}
+
 fun applyModuleConstantUpdatedStateImpl(state: ModuleConstantRegistryState,
     updated: String) r: String {
 

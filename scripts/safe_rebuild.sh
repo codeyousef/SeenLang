@@ -376,26 +376,22 @@ detect_effective_system_memory_kb() {
 derive_main_compiler_vmem_kb() {
     local total_kb=$1
     local available_kb=$2
-    local cap_kb=$((total_kb * 70 / 100))
+    local cap_kb=$((total_kb * 25 / 100))
 
     if is_positive_integer "$available_kb"; then
-        local available_cap_kb=$((available_kb * 85 / 100))
+        local available_cap_kb=$((available_kb * 50 / 100))
         if [ "$available_cap_kb" -gt 0 ] && [ "$available_cap_kb" -lt "$cap_kb" ]; then
             cap_kb=$available_cap_kb
         fi
     fi
 
-    local reserve_kb=$((1024 * 1024))
-    if [ "$total_kb" -gt $((3 * 1024 * 1024)) ]; then
-        local max_with_reserve_kb=$((total_kb - reserve_kb))
-        if [ "$cap_kb" -gt "$max_with_reserve_kb" ]; then
-            cap_kb=$max_with_reserve_kb
-        fi
+    local max_main_kb=$((8 * 1024 * 1024))
+    if [ "$cap_kb" -gt "$max_main_kb" ]; then
+        cap_kb=$max_main_kb
     fi
 
-    local min_main_kb=$((2 * 1024 * 1024))
-    if [ "$total_kb" -ge $((3 * 1024 * 1024)) ] && [ "$cap_kb" -lt "$min_main_kb" ]; then
-        cap_kb=$min_main_kb
+    if [ "$cap_kb" -lt 1 ]; then
+        cap_kb=1
     fi
 
     echo "$cap_kb"
@@ -404,19 +400,46 @@ derive_main_compiler_vmem_kb() {
 derive_opt_vmem_kb() {
     local total_kb=$1
     local main_kb=$2
-    local cap_kb=$((total_kb * 25 / 100))
+    local cap_kb=$((total_kb * 10 / 100))
     local half_main_kb=$((main_kb / 2))
 
     if [ "$half_main_kb" -gt 0 ] && [ "$half_main_kb" -lt "$cap_kb" ]; then
         cap_kb=$half_main_kb
     fi
 
-    local min_opt_kb=$((768 * 1024))
-    if [ "$total_kb" -ge $((2 * 1024 * 1024)) ] && [ "$cap_kb" -lt "$min_opt_kb" ]; then
-        cap_kb=$min_opt_kb
+    local max_opt_kb=$((2 * 1024 * 1024))
+    if [ "$cap_kb" -gt "$max_opt_kb" ]; then
+        cap_kb=$max_opt_kb
+    fi
+
+    if [ "$cap_kb" -lt 1 ]; then
+        cap_kb=1
     fi
 
     echo "$cap_kb"
+}
+
+guard_low_memory_concurrency() {
+    if [ "${SEEN_ALLOW_CONCURRENT_REBUILD:-0}" = "1" ]; then
+        return 0
+    fi
+
+    local matches
+    matches=$(ps -eo pid=,ppid=,comm=,args= | awk -v self="$$" '
+        $1 == self { next }
+        $2 == self { next }
+        $3 == "safe_rebuild.sh" { print; next }
+        $0 ~ /(^|[[:space:]])seen[[:space:]]+compile([[:space:]]|$)/ { print; next }
+        $0 ~ /compiler_seen\/target\/seen[[:space:]]+compile([[:space:]]|$)/ { print; next }
+        $0 ~ /seen_preserved_prod_builder[[:space:]]+compile([[:space:]]|$)/ { print; next }
+    ')
+
+    if [ -n "$matches" ]; then
+        echo -e "${RED}ERROR: Low-memory rebuild refused because another Seen compile/rebuild appears to be running.${NC}"
+        echo "Set SEEN_ALLOW_CONCURRENT_REBUILD=1 only if you have checked memory pressure manually."
+        echo "$matches"
+        exit 1
+    fi
 }
 
 echo "=== Safe Rebuild Script ==="
@@ -462,6 +485,7 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
     export SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB"
     export SEEN_OPT_VMEM_KB="$OPT_VMEM_KB"
     export SEEN_RECOVERY_TIMEOUT_SECS="$RECOVERY_TIMEOUT_SECS"
+    guard_low_memory_concurrency
     echo -e "${YELLOW}Low-memory mode enabled: serial bootstrap stages.${NC}"
     echo -e "${YELLOW}Detected system memory: $(format_bytes $((SYSTEM_MEMORY_KB * 1024))). Main compiler cap: $(format_bytes $((MAIN_COMPILER_VMEM_KB * 1024))). opt cap: $(format_bytes $((OPT_VMEM_KB * 1024))).${NC}"
 fi

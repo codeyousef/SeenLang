@@ -95,6 +95,41 @@ class DeclarationPassState {
     }
 }
 
+fun captureDeclarationPassStateImpl(asyncFuncNames: String,
+    asyncFuncRetTypes: String, asyncFuncCount: Int,
+    xmDeclareNames: String, xmDeclareStrs: String, xmDeclareVis: String,
+    xmDeclareNamesArr: Array<String>, xmDeclareStrsArr: Array<String>,
+    xmDeclareVisArr: Array<String>, xmDeclareCount: Int,
+    enumTypeNames: String, enumVariantNames: String,
+    enumVariantTags: String, enumVariantFieldTypes: String,
+    enumVariantFieldCounts: String, enumVariantParent: String,
+    enumTypeCount: Int, enumVariantCount: Int, xmConstNames: String,
+    xmConstTypes: String, xmConstMutable: String, xmConstSeenTypes: String,
+    xmConstCount: Int) r: DeclarationPassState {
+
+    return DeclarationPassState.new(asyncFuncNames, asyncFuncRetTypes,
+        asyncFuncCount, xmDeclareNames, xmDeclareStrs, xmDeclareVis,
+        xmDeclareNamesArr, xmDeclareStrsArr, xmDeclareVisArr,
+        xmDeclareCount, enumTypeNames, enumVariantNames, enumVariantTags,
+        enumVariantFieldTypes, enumVariantFieldCounts, enumVariantParent,
+        enumTypeCount, enumVariantCount, xmConstNames, xmConstTypes,
+        xmConstMutable, xmConstSeenTypes, xmConstCount)
+}
+
+fun packDeclarationPassStateImpl(state: DeclarationPassState) r: String {
+    let sep = declRegistryPackSepImpl()
+    return state.asyncFuncNames + sep + state.asyncFuncRetTypes + sep +
+        state.asyncFuncCount.toString() + sep + state.xmDeclareNames + sep +
+        state.xmDeclareStrs + sep + state.xmDeclareVis + sep +
+        state.xmDeclareCount.toString() + sep + state.enumTypeNames + sep +
+        state.enumVariantNames + sep + state.enumVariantTags + sep +
+        state.enumVariantFieldTypes + sep + state.enumVariantFieldCounts +
+        sep + state.enumVariantParent + sep + state.enumTypeCount.toString() +
+        sep + state.enumVariantCount.toString() + sep + state.xmConstNames +
+        sep + state.xmConstTypes + sep + state.xmConstMutable + sep +
+        state.xmConstSeenTypes + sep + state.xmConstCount.toString()
+}
+
 fun applyDeclarationItemStateImpl(state: DeclarationPassState, updated: String)
     r: Void {
 

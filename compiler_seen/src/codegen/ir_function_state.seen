@@ -53,6 +53,7 @@ fun resetFunctionEmissionForFunctionImpl(state: FunctionEmissionState) r: Void {
     state.asyncPromise = ""
     state.asyncFinalLabel = ""
     state.asyncCleanupLabel = ""
+    state.yieldCounter = 0
     state.isMainFunc = 0
     state.highPressureFlag = false
     state.movedVarNames = ""

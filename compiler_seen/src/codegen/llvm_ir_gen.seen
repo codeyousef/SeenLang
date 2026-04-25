@@ -45,10 +45,10 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
 import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_decl_registry.{preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl, captureDeclarationPassStateImpl, packDeclarationPassStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
-import codegen.ir_module_constants.{ModuleConstantRegistryState, isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeIntoStateImpl, findModuleConstantIntoStateImpl, emitGlobalVariablesIntoStateImpl, moduleConstantInvariantLoadSuffixImpl}
+import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeIntoStateImpl, findModuleConstantIntoStateImpl, emitGlobalVariablesIntoStateImpl, moduleConstantInvariantLoadSuffixImpl, captureModuleConstantRegistryStateImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_local_type_fallback.{tryInferLLVMIRGeneratorThisFieldTypeImpl, tryInferStructThisFieldTypeImpl, tryInferImplicitThisVariableTypeImpl, tryInferNamedPrimitiveVariableTypeImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
@@ -103,7 +103,7 @@ import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryEx
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
-import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
+import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeZeroReturnValueRegImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
@@ -115,8 +115,9 @@ import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot,
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
+import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, resetFunctionEmissionForFunctionImpl, markFunctionEmissionHighPressureImpl, resetFunctionEmissionHighPressureImpl, recordMovedVariableImpl, isMovedVariableImpl, resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
-import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl, applyDeadStoreMlLogsImpl}
+import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
 
@@ -1074,7 +1075,15 @@ class LLVMIRGenerator {
             structFieldTypes, structLlvmFieldTypes, structSizes,
             structMethodNames, structMethodRetTypes)
 
-        let declState = captureDeclarationPassState()
+        let declState = captureDeclarationPassStateImpl(g_asyncFuncNames,
+            g_asyncFuncRetTypes, g_asyncFuncCount, g_xmDeclareNames,
+            g_xmDeclareStrs, g_xmDeclareVis, g_xmDeclareNamesArr,
+            g_xmDeclareStrsArr, g_xmDeclareVisArr, g_xmDeclareCount,
+            g_enumTypeNames, g_enumVariantNames, g_enumVariantTags,
+            g_enumVariantFieldTypes, g_enumVariantFieldCounts,
+            g_enumVariantParent, g_enumTypeCount, g_enumVariantCount,
+            g_xmConstNames, g_xmConstTypes, g_xmConstMutable,
+            g_xmConstSeenTypes, g_xmConstCount)
         let declItemContext = DeclarationItemContext.new(structNames,
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_reprCClassNames, g_floatParamFuncNames, g_floatParamParamIdxs,
@@ -1086,18 +1095,30 @@ class LLVMIRGenerator {
         registerPreparedDeclarationItemsIntoStateImpl(preparedItems,
             declItemContext)
         registerCrossModuleConstantsIntoStateImpl(program, declState)
-        syncDeclarationPassState(declState)
-    }
-
-    fun captureDeclarationPassState() r: DeclarationPassState {
-        return DeclarationPassState.new(g_asyncFuncNames, g_asyncFuncRetTypes,
-            g_asyncFuncCount, g_xmDeclareNames, g_xmDeclareStrs,
-            g_xmDeclareVis, g_xmDeclareNamesArr, g_xmDeclareStrsArr,
-            g_xmDeclareVisArr, g_xmDeclareCount, g_enumTypeNames,
-            g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes,
-            g_enumVariantFieldCounts, g_enumVariantParent, g_enumTypeCount,
-            g_enumVariantCount, g_xmConstNames, g_xmConstTypes,
-            g_xmConstMutable, g_xmConstSeenTypes, g_xmConstCount)
+        let declStatePacked = packDeclarationPassStateImpl(declState)
+        g_asyncFuncNames = unpackDeclRegistryFieldImpl(declStatePacked, 0)
+        g_asyncFuncRetTypes = unpackDeclRegistryFieldImpl(declStatePacked, 1)
+        g_asyncFuncCount = unpackDeclRegistryFieldImpl(declStatePacked, 2).toInt()
+        g_xmDeclareNames = unpackDeclRegistryFieldImpl(declStatePacked, 3)
+        g_xmDeclareStrs = unpackDeclRegistryFieldImpl(declStatePacked, 4)
+        g_xmDeclareVis = unpackDeclRegistryFieldImpl(declStatePacked, 5)
+        g_xmDeclareCount = unpackDeclRegistryFieldImpl(declStatePacked, 6).toInt()
+        g_enumTypeNames = unpackDeclRegistryFieldImpl(declStatePacked, 7)
+        g_enumVariantNames = unpackDeclRegistryFieldImpl(declStatePacked, 8)
+        g_enumVariantTags = unpackDeclRegistryFieldImpl(declStatePacked, 9)
+        g_enumVariantFieldTypes = unpackDeclRegistryFieldImpl(
+            declStatePacked, 10)
+        g_enumVariantFieldCounts = unpackDeclRegistryFieldImpl(
+            declStatePacked, 11)
+        g_enumVariantParent = unpackDeclRegistryFieldImpl(declStatePacked, 12)
+        g_enumTypeCount = unpackDeclRegistryFieldImpl(declStatePacked, 13).toInt()
+        g_enumVariantCount = unpackDeclRegistryFieldImpl(
+            declStatePacked, 14).toInt()
+        g_xmConstNames = unpackDeclRegistryFieldImpl(declStatePacked, 15)
+        g_xmConstTypes = unpackDeclRegistryFieldImpl(declStatePacked, 16)
+        g_xmConstMutable = unpackDeclRegistryFieldImpl(declStatePacked, 17)
+        g_xmConstSeenTypes = unpackDeclRegistryFieldImpl(declStatePacked, 18)
+        g_xmConstCount = unpackDeclRegistryFieldImpl(declStatePacked, 19).toInt()
     }
 
     fun collectClassMethodDeclarationReturnTypes(classNode: ClassNode)
@@ -1144,44 +1165,6 @@ class LLVMIRGenerator {
         return preparedItems
     }
 
-    fun syncDeclarationPassState(state: DeclarationPassState) r: Void {
-        g_asyncFuncNames = state.asyncFuncNames
-        g_asyncFuncRetTypes = state.asyncFuncRetTypes
-        g_asyncFuncCount = state.asyncFuncCount
-        g_xmDeclareNames = state.xmDeclareNames
-        g_xmDeclareStrs = state.xmDeclareStrs
-        g_xmDeclareVis = state.xmDeclareVis
-        g_xmDeclareNamesArr = state.xmDeclareNamesArr
-        g_xmDeclareStrsArr = state.xmDeclareStrsArr
-        g_xmDeclareVisArr = state.xmDeclareVisArr
-        g_xmDeclareCount = state.xmDeclareCount
-        g_enumTypeNames = state.enumTypeNames
-        g_enumVariantNames = state.enumVariantNames
-        g_enumVariantTags = state.enumVariantTags
-        g_enumVariantFieldTypes = state.enumVariantFieldTypes
-        g_enumVariantFieldCounts = state.enumVariantFieldCounts
-        g_enumVariantParent = state.enumVariantParent
-        g_enumTypeCount = state.enumTypeCount
-        g_enumVariantCount = state.enumVariantCount
-        g_xmConstNames = state.xmConstNames
-        g_xmConstTypes = state.xmConstTypes
-        g_xmConstMutable = state.xmConstMutable
-        g_xmConstSeenTypes = state.xmConstSeenTypes
-        g_xmConstCount = state.xmConstCount
-    }
-
-    fun captureModuleConstantRegistryState() r: ModuleConstantRegistryState {
-        return ModuleConstantRegistryState.new(g_moduleConstMutable,
-            g_moduleConstSeenTypes)
-    }
-
-    fun syncModuleConstantRegistryState(state: ModuleConstantRegistryState)
-        r: Void {
-
-        g_moduleConstMutable = state.moduleConstMutable
-        g_moduleConstSeenTypes = state.moduleConstSeenTypes
-    }
-
     // Helper to find variable type (checks both varTypes and preAllocatedTypes)
     // Searches backwards for speed.
     fun findVarType(name: String) r: String {
@@ -1193,12 +1176,14 @@ class LLVMIRGenerator {
         if moduleConstantNames.length() == 0 and g_xmConstCount <= 0 {
             return ""
         }
-        let moduleConstState = captureModuleConstantRegistryState()
+        let moduleConstState = captureModuleConstantRegistryStateImpl(
+            g_moduleConstMutable, g_moduleConstSeenTypes)
         let moduleConstType = tryInferModuleConstantVariableTypeIntoStateImpl(
             name, moduleConstantNames, moduleConstantTypes, moduleConstantValues,
             moduleConstState, g_xmConstNames, g_xmConstTypes, g_xmConstMutable,
             g_xmConstSeenTypes, g_xmConstCount)
-        syncModuleConstantRegistryState(moduleConstState)
+        g_moduleConstMutable = moduleConstState.moduleConstMutable
+        g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
         if moduleConstType != "" {
             return moduleConstType
         }
@@ -1208,12 +1193,14 @@ class LLVMIRGenerator {
     // Helper to find module constant by name. Searches backwards.
     // Falls back to cross-module constant registry if not found in current module.
     fun findModuleConstant(name: String) r: Int {
-        let moduleConstState = captureModuleConstantRegistryState()
+        let moduleConstState = captureModuleConstantRegistryStateImpl(
+            g_moduleConstMutable, g_moduleConstSeenTypes)
         let constIdx = findModuleConstantIntoStateImpl(name, moduleConstantNames,
             moduleConstantTypes, moduleConstantValues, moduleConstState,
             g_xmConstNames, g_xmConstTypes, g_xmConstMutable,
             g_xmConstSeenTypes, g_xmConstCount)
-        syncModuleConstantRegistryState(moduleConstState)
+        g_moduleConstMutable = moduleConstState.moduleConstMutable
+        g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
         return constIdx
     }
 
@@ -1644,11 +1631,13 @@ class LLVMIRGenerator {
         // Emit global variable declarations from all programs
         var globalPi = 0
         while globalPi < programs.length() {
-            let moduleConstState = captureModuleConstantRegistryState()
+            let moduleConstState = captureModuleConstantRegistryStateImpl(
+                g_moduleConstMutable, g_moduleConstSeenTypes)
             emitGlobalVariablesIntoStateImpl(output, programs[globalPi],
                 moduleConstantNames, moduleConstantTypes,
                 moduleConstantValues, moduleConstState)
-            syncModuleConstantRegistryState(moduleConstState)
+            g_moduleConstMutable = moduleConstState.moduleConstMutable
+            g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
             globalPi = globalPi + 1
         }
 
@@ -1769,11 +1758,13 @@ class LLVMIRGenerator {
         // Emit global variable declarations for THIS module
         println("[irgen module " + moduleIndex.toString() + "] globals start")
         let globalsStartTime = getIrgenTraceTimeSeconds()
-        let moduleConstState = captureModuleConstantRegistryState()
+        let moduleConstState = captureModuleConstantRegistryStateImpl(
+            g_moduleConstMutable, g_moduleConstSeenTypes)
         emitGlobalVariablesIntoStateImpl(output, program,
             moduleConstantNames, moduleConstantTypes, moduleConstantValues,
             moduleConstState)
-        syncModuleConstantRegistryState(moduleConstState)
+        g_moduleConstMutable = moduleConstState.moduleConstMutable
+        g_moduleConstSeenTypes = moduleConstState.moduleConstSeenTypes
         let globalsEndTime = getIrgenTraceTimeSeconds()
         println("[irgen module " + moduleIndex.toString() + "] globals done in " + (globalsEndTime - globalsStartTime).toString() + "s")
 
@@ -2662,20 +2653,6 @@ class LLVMIRGenerator {
     // Performs dead store elimination: scans for "var x = literal; x = expr"
     // patterns where x is not read between the two stores, and skips the
     // first literal initialization.
-    fun scanBlockDeadStorePatterns(block: BlockNode) r: Void {
-        let deadStoreScan = scanBlockDeadStorePatternsSnapshotImpl(output,
-            block, g_deadStoresEliminated, g_deadStoreSkipVars)
-        g_deadStoresEliminated = deadStoreScan.deadStoresEliminated
-        g_deadStoreSkipVars = deadStoreScan.deadStoreSkipVars
-        applyDeadStoreMlLogsImpl(deadStoreScan.deadStoreLogEntries)
-    }
-
-    fun emitTrailingDeadCodeNotice(block: BlockNode, startIndex: Int) r: Void {
-        let deadCodeNotice = emitTrailingDeadCodeNoticeSnapshotImpl(output,
-            block, startIndex, g_deadStatementsEliminated)
-        g_deadStatementsEliminated = deadCodeNotice.deadStatementsEliminated
-    }
-
     fun emitBlockDeferredCleanup(savedDeferCount: Int) r: Void {
         let dIdxStart = beginBlockDeferredCleanupImpl(output, savedDeferCount,
             g_deferCount, blockTerminated)
@@ -2691,31 +2668,37 @@ class LLVMIRGenerator {
 
     fun generateBlock(block: BlockNode) r: Void {
         // Save defer stack depth for this block scope
-        let savedDeferCount = g_deferCount
+        let blockScope = captureFunctionBodyBlockScopeImpl(g_deferCount,
+            g_deadStoreSkipVars, activeVarCount)
+
         // Dead store elimination (9.10b): scan for var x = literal; x = expr2 with no read of x
         // Only skip literal initializers (Int, Float, Bool, String) to preserve side effects
-        let savedDeadStoreSkip = g_deadStoreSkipVars
-        let savedActiveVarCount = activeVarCount
-
-        scanBlockDeadStorePatterns(block)
+        let deadStoreScan = scanFunctionBodyDeadStorePatternsSnapshotImpl(
+            output, block, g_deadStoresEliminated, g_deadStoreSkipVars)
+        g_deadStoresEliminated = deadStoreScan.deadStoresEliminated
+        g_deadStoreSkipVars = deadStoreScan.deadStoreSkipVars
 
         var i = 0
         while i < block.statements.length() {
             if blockTerminated {
-                emitTrailingDeadCodeNotice(block, i)
+                let deadCodeNotice =
+                    emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl(output,
+                        block, i, g_deadStatementsEliminated)
+                g_deadStatementsEliminated =
+                    deadCodeNotice.deadStatementsEliminated
                 break
             }
             generateStatement(block.statements[i])
             i = i + 1
         }
 
-        emitBlockDeferredCleanup(savedDeferCount)
+        emitBlockDeferredCleanup(blockScope.savedDeferCount)
 
         // Restore defer stack to saved depth
-        g_deferCount = savedDeferCount
+        g_deferCount = blockScope.savedDeferCount
         // Restore dead store skip list (scoped to this block)
-        g_deadStoreSkipVars = savedDeadStoreSkip
-        activeVarCount = savedActiveVarCount
+        g_deadStoreSkipVars = blockScope.savedDeadStoreSkipVars
+        activeVarCount = blockScope.savedActiveVarCount
     }
 
     fun tryGenerateAssignmentLikeExpression(expr: ParserExpressionNode) r: Bool {
