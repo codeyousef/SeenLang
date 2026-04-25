@@ -110,11 +110,12 @@ import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopContro
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
-import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, resetFunctionLoweringOptions, clearTransientFunctionLoweringOptions}
+import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState, clearTransientFunctionLoweringOptions}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
+import codegen.ir_function_state.{resetFunctionLoweringOptionsStateImpl, resetFunctionHighPressureImpl, markFunctionHighPressureImpl, isFunctionHighPressureImpl, currentFunctionAlignToImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl, takeTailCallPositionImpl}
 import codegen.ir_function_ml_logs.{applyFunctionPreludeMlLogsImpl, applyFunctionUnusedParamMlLogsImpl, applyDeadStoreMlLogsImpl}
 import codegen.ir_ml_logging.{mlLogDecision, setupMLLogging, writeMLDecisionLog}
 import process.process.{runCommand, CommandResult, commandWasSuccessful, commandOutput}
@@ -649,7 +650,7 @@ fun resetOptCounters() r: Void {
     g_nestedLoopIds = ""
     g_currentFunctionHighPressure = false
     let fnOptions = getCurrentFunctionOptions()
-    fnOptions.highPressure = false
+    resetFunctionHighPressureImpl(fnOptions)
     fnOptions.laneWidth = 0
 }
 
@@ -939,7 +940,7 @@ class LLVMIRGenerator {
         moduleConstantTypes = Array<String>()
         g_moduleConstMutable = ""
         g_moduleConstSeenTypes = ""
-        resetFunctionLoweringOptions(getCurrentFunctionOptions())
+        resetFunctionLoweringOptionsStateImpl(getCurrentFunctionOptions())
         indent = 0
         // Reset optimization counters (prevents stale data leaking between modules)
         resetOptCounters()
@@ -948,45 +949,6 @@ class LLVMIRGenerator {
         g_irgenFieldInfoCacheKeys = Array<String>()
         g_irgenFieldInfoCacheIdxs = Array<Int>()
         // Keep struct/func registries for cross-module references
-    }
-
-    fun syncIndentFromFunctionOptions() r: Void {
-        // Legacy layout field only. FunctionLoweringOptions is the source of truth.
-        indent = 0
-    }
-
-    fun resetFunctionLoweringOptionsState() r: Void {
-        resetFunctionLoweringOptions(getCurrentFunctionOptions())
-        g_currentFunctionHighPressure = false
-        syncIndentFromFunctionOptions()
-    }
-
-    fun currentFunctionAlignTo() r: Int {
-        return getCurrentFunctionOptions().alignTo
-    }
-
-    fun currentFunctionRegionSizeBytes() r: Int {
-        return getCurrentFunctionOptions().regionSizeBytes
-    }
-
-    fun isCurrentFunctionAsyncLowering() r: Bool {
-        return getCurrentFunctionOptions().isAsync
-    }
-
-    fun markTailCallPosition() r: Void {
-        let opts = getCurrentFunctionOptions()
-        opts.emitTailCall = true
-        syncIndentFromFunctionOptions()
-    }
-
-    fun takeTailCallPosition() r: Bool {
-        let opts = getCurrentFunctionOptions()
-        if opts.emitTailCall {
-            opts.emitTailCall = false
-            syncIndentFromFunctionOptions()
-            return true
-        }
-        return false
     }
 
     fun beginNestedScratchState(returnType: String)
@@ -1023,7 +985,8 @@ class LLVMIRGenerator {
 
     fun syncState() r: Void {
         let state = getSharedCodegenState()
-        syncIndentFromFunctionOptions()
+        // Legacy layout field only. FunctionLoweringOptions is the source of truth.
+        indent = 0
         state.output = output
         state.stringConstants = stringConstants
         state.regBox = g_regBox
@@ -1106,7 +1069,7 @@ class LLVMIRGenerator {
         moduleConstantNames = state.moduleConstantNames
         moduleConstantValues = state.moduleConstantValues
         moduleConstantTypes = state.moduleConstantTypes
-        syncIndentFromFunctionOptions()
+        indent = 0
     }
 
     // Pass 1 entry point: scan a ProgramNode and register all declarations
@@ -2364,7 +2327,8 @@ class LLVMIRGenerator {
         currentFunctionReturnType = resolveMethodReturnTypeFromList(className, methods, methodIdx)
         currentClassName = className
         g_currentClassParentName = parentName
-        resetFunctionLoweringOptionsState()
+        resetFunctionLoweringOptionsStateImpl(getCurrentFunctionOptions())
+        g_currentFunctionHighPressure = false
         cseClear()
     }
 
@@ -2488,6 +2452,7 @@ class LLVMIRGenerator {
 
         g_currentClassParentName = ""
         g_currentFunctionHighPressure = false
+        resetFunctionHighPressureImpl(getCurrentFunctionOptions())
         g_movedVarNames = ""
         g_movedVarCount = 0
         syncState()
@@ -2648,7 +2613,7 @@ class LLVMIRGenerator {
         println("[irgen function] recursion flags done: " + fnName)
         if preludeAnalysis.highPressure == 1 {
             g_currentFunctionHighPressure = true
-            getCurrentFunctionOptions().highPressure = true
+            markFunctionHighPressureImpl(getCurrentFunctionOptions())
         }
         println("[irgen function] reg-pressure done: " + fnName)
 
@@ -2682,7 +2647,8 @@ class LLVMIRGenerator {
             currentProfiledFlag = 1
         }
         var currentHighPressure = 0
-        if g_currentFunctionHighPressure {
+        if g_currentFunctionHighPressure or isFunctionHighPressureImpl(
+            getCurrentFunctionOptions()) {
             currentHighPressure = 1
         }
         let exitState = emitFunctionExitResetSnapshotImpl(state, fn,
@@ -3274,7 +3240,7 @@ class LLVMIRGenerator {
     }
 
     fun tryEmitAsyncReturnStatement(stmt: StatementNode) r: Bool {
-        if not isCurrentFunctionAsyncLowering() {
+        if not isCurrentFunctionAsyncLoweringImpl(getCurrentFunctionOptions()) {
             return false
         }
         if stmt.returnValue.kind != "None" {
@@ -3284,7 +3250,7 @@ class LLVMIRGenerator {
                 pendingArrayLiteralType = currentFunctionReturnType
             }
             if shouldMarkReturnTailCallImpl(stmt.returnValue.kind) == 1 {
-                markTailCallPosition()
+                markTailCallPositionImpl(getCurrentFunctionOptions())
             }
             let valueReg = generateExpression(stmt.returnValue)
             pendingArrayLiteralType = savedPendingType
@@ -3343,8 +3309,8 @@ class LLVMIRGenerator {
             profileStringIndex = getStringConstantIndex(g_currentFunctionNameForProfile)
         }
         emitReturnRegionAndProfileCleanupImpl(output, g_regBox,
-            currentFunctionRegionSizeBytes(), g_currentFunctionIsProfiled,
-            profileStringIndex)
+            currentFunctionRegionSizeBytesImpl(getCurrentFunctionOptions()),
+            g_currentFunctionIsProfiled, profileStringIndex)
 
         if tryEmitAsyncReturnStatement(stmt) {
             return
@@ -3359,7 +3325,7 @@ class LLVMIRGenerator {
         }
 
         if shouldMarkReturnTailCallImpl(stmt.returnValue.kind) == 1 {
-            markTailCallPosition()
+            markTailCallPositionImpl(getCurrentFunctionOptions())
         }
         let charValue = resolveCharLiteralReturnValueImpl(
             currentFunctionReturnType, stmt.returnValue.kind,
@@ -6264,7 +6230,8 @@ class LLVMIRGenerator {
                 isZeroFill = 1
             }
             return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg,
-                elementType, isZeroFill, currentFunctionAlignTo())
+                elementType, isZeroFill,
+                currentFunctionAlignToImpl(getCurrentFunctionOptions()))
         }
 
         if expr.arguments.length() == 1 {
@@ -6276,7 +6243,8 @@ class LLVMIRGenerator {
 
         let elemSize = resolveArrayConstructorElementSizeImpl(funcName,
             elementType, structNames, structSizes)
-        return emitArrayInlineImpl(output, g_regBox, elemSize, currentFunctionAlignTo())
+        return emitArrayInlineImpl(output, g_regBox, elemSize,
+            currentFunctionAlignToImpl(getCurrentFunctionOptions()))
     }
 
     fun tryGenerateSmallVecConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
@@ -6594,7 +6562,7 @@ class LLVMIRGenerator {
             let thisPtrReg = getNextReg()
             output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
             var mpTailCall = 0
-            if takeTailCallPosition() {
+            if takeTailCallPositionImpl(getCurrentFunctionOptions()) {
                 mpTailCall = 1
             }
             return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), misplacedRetType, "ptr", thisPtrReg, argRegs, argTypeStrs, mpTailCall)
@@ -6628,7 +6596,7 @@ class LLVMIRGenerator {
         let thisPtrReg = getNextReg()
         output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
         var selfTailCall = 0
-        if takeTailCallPosition() {
+        if takeTailCallPositionImpl(getCurrentFunctionOptions()) {
             selfTailCall = 1
         }
         return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), llvmReturnType, "ptr", thisPtrReg, argRegs, argTypeStrs, selfTailCall)
@@ -6728,7 +6696,7 @@ class LLVMIRGenerator {
         g_lateXmDeclareCount = parseIntManual(
             unpackDeclRegistryFieldImpl(updated, 2))
         var freeCallTail = 0
-        if takeTailCallPosition() {
+        if takeTailCallPositionImpl(getCurrentFunctionOptions()) {
             freeCallTail = 1
         }
         return emitUserFunctionCallImpl(output, g_regBox, quoteIdentIfNeeded(funcName), llvmReturnType, argRegs, argTypeStrs, freeCallTail)

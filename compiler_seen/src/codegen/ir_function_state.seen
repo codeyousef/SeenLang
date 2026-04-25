@@ -1,0 +1,45 @@
+// ir_function_state.seen - explicit function lowering state helpers.
+
+import codegen.type_registry.{FunctionLoweringOptions, resetFunctionLoweringOptions}
+
+fun resetFunctionLoweringOptionsStateImpl(opts: FunctionLoweringOptions)
+    r: Void {
+
+    resetFunctionLoweringOptions(opts)
+}
+
+fun resetFunctionHighPressureImpl(opts: FunctionLoweringOptions) r: Void {
+    opts.highPressure = false
+}
+
+fun markFunctionHighPressureImpl(opts: FunctionLoweringOptions) r: Void {
+    opts.highPressure = true
+}
+
+fun isFunctionHighPressureImpl(opts: FunctionLoweringOptions) r: Bool {
+    return opts.highPressure
+}
+
+fun currentFunctionAlignToImpl(opts: FunctionLoweringOptions) r: Int {
+    return opts.alignTo
+}
+
+fun currentFunctionRegionSizeBytesImpl(opts: FunctionLoweringOptions) r: Int {
+    return opts.regionSizeBytes
+}
+
+fun isCurrentFunctionAsyncLoweringImpl(opts: FunctionLoweringOptions) r: Bool {
+    return opts.isAsync
+}
+
+fun markTailCallPositionImpl(opts: FunctionLoweringOptions) r: Void {
+    opts.emitTailCall = true
+}
+
+fun takeTailCallPositionImpl(opts: FunctionLoweringOptions) r: Bool {
+    if opts.emitTailCall {
+        opts.emitTailCall = false
+        return true
+    }
+    return false
+}
