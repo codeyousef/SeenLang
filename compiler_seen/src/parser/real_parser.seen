@@ -1779,8 +1779,10 @@ class RealParser {
                             paramTypeName = paramTypeName + "~default~" + defVal
                             skipExpression()
                         }
+                        lastParsedTypeName = paramTypeName
+                        lastParsedTypeNullable = paramTypeNullable
+                        param.paramType = parsedScratchTypeNode()
                         lastFunction.params.push(param)
-                        addPendingFunctionParamType(paramTypeName, paramTypeNullable)
                         wasReturnParam = true
                     }
                 }
@@ -1808,8 +1810,10 @@ class RealParser {
                         paramTypeName = paramTypeName + "~default~" + defVal
                         skipExpression()
                     }
+                    lastParsedTypeName = paramTypeName
+                    lastParsedTypeNullable = paramTypeNullable
+                    param.paramType = parsedScratchTypeNode()
                     lastFunction.params.push(param)
-                    addPendingFunctionParamType(paramTypeName, paramTypeNullable)
                 }
             }
 
