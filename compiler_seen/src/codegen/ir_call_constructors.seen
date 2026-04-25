@@ -63,6 +63,103 @@ fun isCollectionConstructorNameImpl(funcName: String) r: Bool {
     return false
 }
 
+fun emitCollectionConstructorImpl(output: StringBuilder, regBox: Array<Int>,
+    funcName: String, capArg: String, argCount: Int) r: String {
+
+    if funcName == "Vec" or funcName.startsWith("Vec<") {
+        let rawReg = getNextRegFn(regBox)
+        if funcName.contains("<String") {
+            output.append("  " + rawReg + " = call ptr @Vec_new_str()\n")
+        } else {
+            if funcName.contains("<Float") {
+                output.append("  " + rawReg + " = call ptr @Vec_new_float()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @Vec_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    if funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") {
+        let hasStringKeyB = funcName.contains("<String")
+        let hasStringValueB = funcName.contains(", String>") or
+            funcName.contains(",String>")
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKeyB {
+            if hasStringValueB {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_str()\n")
+            }
+        } else {
+            if hasStringValueB {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new_int_str()\n")
+            } else {
+                output.append("  " + rawReg + " = call ptr @BTreeMap_new()\n")
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    if funcName == "HashMap" or funcName.startsWith("HashMap<") {
+        let hasStringKeyC = funcName.contains("<String")
+        let hasStringValueC = funcName.contains(", String>") or
+            funcName.contains(",String>")
+        let hasCapArg = argCount == 1
+        let rawReg = getNextRegFn(regBox)
+        if hasStringKeyC {
+            if hasStringValueC {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_str()\n")
+                }
+            } else {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_str()\n")
+                }
+            }
+        } else {
+            if hasStringValueC {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_int_str_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_int_str()\n")
+                }
+            } else {
+                if hasCapArg {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new_with_capacity(i64 " + capArg + ")\n")
+                } else {
+                    output.append("  " + rawReg + " = call ptr @HashMap_new()\n")
+                }
+            }
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    if funcName == "LinkedList" or funcName.startsWith("LinkedList<") {
+        let rawReg = getNextRegFn(regBox)
+        if funcName.contains("<String") {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new_str()\n")
+        } else {
+            output.append("  " + rawReg + " = call ptr @LinkedList_new()\n")
+        }
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + rawReg + " to i64\n")
+        return resultReg
+    }
+
+    return ""
+}
+
 // emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/StringHashMap/LinkedList .new() static calls
 // Returns result register (ptrtoint'd ptr), or "" if className not matched
 fun emitStaticCollectionNewImpl(output: StringBuilder, regBox: Array<Int>, className: String, fullClassName: String) r: String {
