@@ -38,6 +38,9 @@ class DeclarationPassState {
     var xmDeclareNames: String
     var xmDeclareStrs: String
     var xmDeclareVis: String
+    var xmDeclareNamesArr: Array<String>
+    var xmDeclareStrsArr: Array<String>
+    var xmDeclareVisArr: Array<String>
     var xmDeclareCount: Int
     var enumTypeNames: String
     var enumVariantNames: String
@@ -55,7 +58,9 @@ class DeclarationPassState {
 
     static fun new(asyncFuncNames: String, asyncFuncRetTypes: String,
         asyncFuncCount: Int, xmDeclareNames: String, xmDeclareStrs: String,
-        xmDeclareVis: String, xmDeclareCount: Int, enumTypeNames: String,
+        xmDeclareVis: String, xmDeclareNamesArr: Array<String>,
+        xmDeclareStrsArr: Array<String>, xmDeclareVisArr: Array<String>,
+        xmDeclareCount: Int, enumTypeNames: String,
         enumVariantNames: String, enumVariantTags: String,
         enumVariantFieldTypes: String, enumVariantFieldCounts: String,
         enumVariantParent: String, enumTypeCount: Int, enumVariantCount: Int,
@@ -69,6 +74,9 @@ class DeclarationPassState {
             xmDeclareNames: xmDeclareNames,
             xmDeclareStrs: xmDeclareStrs,
             xmDeclareVis: xmDeclareVis,
+            xmDeclareNamesArr: xmDeclareNamesArr,
+            xmDeclareStrsArr: xmDeclareStrsArr,
+            xmDeclareVisArr: xmDeclareVisArr,
             xmDeclareCount: xmDeclareCount,
             enumTypeNames: enumTypeNames,
             enumVariantNames: enumVariantNames,

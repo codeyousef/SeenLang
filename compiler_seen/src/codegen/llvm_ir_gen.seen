@@ -65,7 +65,7 @@ import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructP
 import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
-import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
+import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl, computeStructFieldOffsetFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl, emitContinueStatementImpl, emitBreakStatementImpl, emitMemcpyLoopExitBlocksImpl}
@@ -266,6 +266,9 @@ var g_xmDeclareStrs: String = ""
 var g_xmDeclareCount: Int = 0
 // Visibility tracking: pipe-delimited "public" or "private" parallel to g_xmDeclareNames
 var g_xmDeclareVis: String = ""
+var g_xmDeclareNamesArr: Array<String> = Array<String>()
+var g_xmDeclareStrsArr: Array<String> = Array<String>()
+var g_xmDeclareVisArr: Array<String> = Array<String>()
 // Late-discovered user declares are found during Pass 2 when a direct-entry
 // build references symbols that never appeared in Pass 1 declarations.
 var g_lateXmDeclareNames: String = ""
@@ -502,6 +505,9 @@ fun initBootstrapFragileGlobalArrays() r: Void {
     g_blockBox = Array<Int>()
     g_floatParamFuncNames = Array<String>()
     g_floatParamParamIdxs = Array<Int>()
+    g_xmDeclareNamesArr = Array<String>()
+    g_xmDeclareStrsArr = Array<String>()
+    g_xmDeclareVisArr = Array<String>()
     g_callCountNamesArr = Array<String>()
     g_selfCallBox = Array<String>()
     g_selfCallCountBox = Array<Int>()
@@ -1139,7 +1145,8 @@ class LLVMIRGenerator {
     fun captureDeclarationPassState() r: DeclarationPassState {
         return DeclarationPassState.new(g_asyncFuncNames, g_asyncFuncRetTypes,
             g_asyncFuncCount, g_xmDeclareNames, g_xmDeclareStrs,
-            g_xmDeclareVis, g_xmDeclareCount, g_enumTypeNames,
+            g_xmDeclareVis, g_xmDeclareNamesArr, g_xmDeclareStrsArr,
+            g_xmDeclareVisArr, g_xmDeclareCount, g_enumTypeNames,
             g_enumVariantNames, g_enumVariantTags, g_enumVariantFieldTypes,
             g_enumVariantFieldCounts, g_enumVariantParent, g_enumTypeCount,
             g_enumVariantCount, g_xmConstNames, g_xmConstTypes,
@@ -1197,6 +1204,9 @@ class LLVMIRGenerator {
         g_xmDeclareNames = state.xmDeclareNames
         g_xmDeclareStrs = state.xmDeclareStrs
         g_xmDeclareVis = state.xmDeclareVis
+        g_xmDeclareNamesArr = state.xmDeclareNamesArr
+        g_xmDeclareStrsArr = state.xmDeclareStrsArr
+        g_xmDeclareVisArr = state.xmDeclareVisArr
         g_xmDeclareCount = state.xmDeclareCount
         g_enumTypeNames = state.enumTypeNames
         g_enumVariantNames = state.enumVariantNames
@@ -1232,6 +1242,9 @@ class LLVMIRGenerator {
             activeVarCount, preAllocatedVars, preAllocatedTypes, name)
         if visibleVarType != "" {
             return visibleVarType
+        }
+        if moduleConstantNames.length() == 0 and g_xmConstCount <= 0 {
+            return ""
         }
         let moduleConstState = captureModuleConstantRegistryState()
         let moduleConstType = tryInferModuleConstantVariableTypeIntoStateImpl(
@@ -1840,9 +1853,9 @@ class LLVMIRGenerator {
         // Adding to definedFuncs prevents duplicate declares in emitRuntimeDeclarations
         var xmIdx = 0
         while xmIdx < g_xmDeclareCount {
-            let xmName = pipeGet(g_xmDeclareNames, xmIdx)
+            let xmName = g_xmDeclareNamesArr[xmIdx]
             if not isFuncDefinedInModule(xmName, definedFuncs) {
-                output.append(pipeGet(g_xmDeclareStrs, xmIdx))
+                output.append(g_xmDeclareStrsArr[xmIdx])
                 definedFuncs.push(xmName)
             }
             xmIdx = xmIdx + 1
@@ -2416,7 +2429,8 @@ class LLVMIRGenerator {
             g_reprCClassNames)
         activeVarCount = emitClassMethodConstructorSetupStateImpl(output,
             g_regBox, varNames, varRegs, varTypes, activeVarCount, className,
-            methodName, structNames, structSizes, structFieldNames,
+            methodName, methods[methodIdx].isStatic, methods, methodIdx,
+            structNames, structSizes, structLayouts, structFieldNames,
             structFieldTypes)
 
         generateBlock(methods[methodIdx].body)
@@ -5343,7 +5357,13 @@ class LLVMIRGenerator {
             layoutFields = layoutFields + inferredFieldType
             fieldI = fieldI + 1
         }
-        return structSize.toString() + "|" + lb + " " + layoutFields + " " + rb
+        let inferredLayout = lb + " " + layoutFields + " " + rb
+        let alignedStructSize = computeStructSizeFromLayoutImpl(inferredLayout,
+            structNames, structLayouts, structSizes)
+        if alignedStructSize > 0 {
+            structSize = alignedStructSize
+        }
+        return structSize.toString() + "|" + inferredLayout
     }
 
     fun resolveStructLiteralLayoutInfo(expr: ParserExpressionNode, structName: String, structIdx: Int) r: String {
@@ -6448,6 +6468,20 @@ class LLVMIRGenerator {
         return ptrReg
     }
 
+    fun getClassConstructorFieldOffset(structIdx: Int, fieldIndex: Int,
+        fallbackOffset: Int) r: Int {
+
+        if structIdx >= 0 {
+            let alignedOffset = computeStructFieldOffsetFromLayoutImpl(
+                structLayouts[structIdx], fieldIndex, structNames,
+                structLayouts, structSizes)
+            if alignedOffset >= 0 {
+                return alignedOffset
+            }
+        }
+        return fallbackOffset
+    }
+
     fun emitClassConstructorArrayFieldInitializers(ptrReg: String, structIdx: Int) r: Void {
         if structIdx < 0 {
             return
@@ -6458,6 +6492,7 @@ class LLVMIRGenerator {
         var byteOffset = 0
         var namePos = 0
         var typePos = 0
+        var fieldIndex = 0
         var iterDone = 0
         while iterDone == 0 {
             var nameEnd = namePos
@@ -6471,8 +6506,10 @@ class LLVMIRGenerator {
             let fieldSeenType = fieldTypesStr.substring(typePos, typeEnd)
             let isArrayField = fieldSeenType.startsWith("Array<") or fieldSeenType.startsWith("List<")
             if isArrayField {
+                let fieldOffset = getClassConstructorFieldOffset(structIdx,
+                    fieldIndex, byteOffset)
                 let fieldPtrReg = getNextReg()
-                output.append("  " + fieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + byteOffset.toString() + "\n")
+                output.append("  " + fieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + fieldOffset.toString() + "\n")
                 var elemType = ""
                 if fieldSeenType.startsWith("Array<") {
                     elemType = fieldSeenType.substring(6, fieldSeenType.length() - 1)
@@ -6495,6 +6532,7 @@ class LLVMIRGenerator {
             }
             byteOffset = byteOffset + getTypeSizeReg(fieldSeenType,
                 structNames, structSizes)
+            fieldIndex = fieldIndex + 1
             if nameEnd < fieldNamesStr.length() {
                 namePos = nameEnd + 1
                 typePos = typeEnd + 1
@@ -6523,7 +6561,9 @@ class LLVMIRGenerator {
             let ctorArgExpr = expr.arguments[ctorArgIdx]
             let ctorArgReg = generateExpression(ctorArgExpr)
             let ctorFieldPtrReg = getNextReg()
-            output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorByteOffset.toString() + "\n")
+            let ctorFieldOffset = getClassConstructorFieldOffset(structIdx,
+                ctorArgIdx, ctorByteOffset)
+            output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorFieldOffset.toString() + "\n")
             if isDataType(ctorFieldSeenType) {
                 if ctorArgExpr.kind == "StructLiteral" {
                     let ctorFieldSize = getDataTypeSize(ctorFieldSeenType)
@@ -8629,6 +8669,9 @@ class LLVMIRGenerator {
     }
 
     fun inferStringInterpolationExprTypeLocal(expr: ParserExpressionNode) r: String {
+        if expr.kind != "StringInterpolation" {
+            return ""
+        }
         initCollectionBoxes()
         let inferredType = inferStringInterpolationExprTypeStateImpl(
             expr.kind, expr.arguments, expr.operands, stringConstants,

@@ -110,6 +110,35 @@ fun computeStructSizeFromLayoutImpl(layout: String, structNames: Array<String>,
     return alignUpImpl(offset, maxAlign)
 }
 
+fun computeStructFieldOffsetFromLayoutImpl(layout: String, fieldIndex: Int,
+    structNames: Array<String>, structLayouts: Array<String>,
+    structSizes: Array<Int>) r: Int {
+
+    if fieldIndex < 0 {
+        return -1
+    }
+    let fields = extractStructFieldTypesImpl(layout)
+    var offset = 0
+    var i = 0
+    while i < fields.length() {
+        let fieldType = fields[i]
+        let align = getLlvmTypeAlignImpl(fieldType, structNames,
+            structLayouts, structSizes)
+        let size = getLlvmTypeSizeImpl(fieldType, structNames, structLayouts,
+            structSizes)
+        if size <= 0 or align <= 0 {
+            return -1
+        }
+        offset = alignUpImpl(offset, align)
+        if i == fieldIndex {
+            return offset
+        }
+        offset = offset + size
+        i = i + 1
+    }
+    return -1
+}
+
 fun getLlvmTypeSizeImpl(typeName: String, structNames: Array<String>,
     structLayouts: Array<String>, structSizes: Array<Int>) r: Int {
 

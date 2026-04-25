@@ -790,7 +790,8 @@ fun applyStructLayoutRegistrationReg(structIdx: Int, className: String,
     structLayouts[structIdx] = layout
     structFieldNames[structIdx] = fieldNames
     structFieldTypes[structIdx] = fieldTypes
-    if structSizes[structIdx] == 0 or isDataTypeImpl(className) == 0 {
+    if structSizes[structIdx] == 0 or isDataTypeImpl(className) == 0 or
+        totalSize > structSizes[structIdx] {
         structSizes[structIdx] = totalSize
     }
     structMethodNames[structIdx] = methodNames

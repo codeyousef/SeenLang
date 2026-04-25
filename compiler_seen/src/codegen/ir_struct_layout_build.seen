@@ -8,6 +8,7 @@ import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl}
 import codegen.ir_decl_registry.{registerParentClassStateImpl, unpackDeclRegistryFieldImpl}
 import codegen.ir_class_type_layout.{prepareClassTypeAliasStateSnapshotImpl}
+import codegen.ir_type_layout.{computeStructSizeFromLayoutImpl}
 import codegen.type_registry.{findStructReg}
 
 class StructLayoutBuildState {
@@ -238,6 +239,12 @@ fun prepareStructLayoutRegistrationSnapshotImpl(classNode: ClassNode,
     snapshot.layout = layoutState.layout + " }"
     snapshot.fieldNames = layoutState.fieldNames
     snapshot.fieldTypes = layoutState.fieldTypes
-    snapshot.totalSize = layoutState.totalSize
+    let alignedSize = computeStructSizeFromLayoutImpl(snapshot.layout,
+        structNames, structLayouts, structSizes)
+    if alignedSize > 0 {
+        snapshot.totalSize = alignedSize
+    } else {
+        snapshot.totalSize = layoutState.totalSize
+    }
     return snapshot
 }

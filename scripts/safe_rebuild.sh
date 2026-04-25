@@ -129,7 +129,14 @@ run_with_progress() {
     shift
 
     # Start compilation in background, logging to file
-    "$@" > "$logfile" 2>&1 &
+    if [ -n "${MAIN_COMPILER_VMEM_KB:-}" ]; then
+        (
+            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
+            "$@"
+        ) > "$logfile" 2>&1 &
+    else
+        "$@" > "$logfile" 2>&1 &
+    fi
     local compile_pid=$!
 
     # Start progress monitor
@@ -295,6 +302,123 @@ stage2_failure_looks_oom() {
     return 1
 }
 
+is_positive_integer() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+        *) [ "$1" -gt 0 ] 2>/dev/null ;;
+    esac
+}
+
+detect_physical_memory_kb() {
+    local mem_kb=""
+    if [ -r /proc/meminfo ]; then
+        mem_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null)
+    fi
+    if ! is_positive_integer "$mem_kb" && command -v sysctl >/dev/null 2>&1; then
+        local mem_bytes
+        mem_bytes=$(sysctl -n hw.memsize 2>/dev/null || true)
+        if is_positive_integer "$mem_bytes"; then
+            mem_kb=$((mem_bytes / 1024))
+        fi
+    fi
+    if is_positive_integer "$mem_kb"; then
+        echo "$mem_kb"
+    fi
+}
+
+detect_available_memory_kb() {
+    local mem_kb=""
+    if [ -r /proc/meminfo ]; then
+        mem_kb=$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo 2>/dev/null)
+    fi
+    if is_positive_integer "$mem_kb"; then
+        echo "$mem_kb"
+    fi
+}
+
+detect_cgroup_memory_kb() {
+    local limit_bytes=""
+    if [ -r /sys/fs/cgroup/memory.max ]; then
+        limit_bytes=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true)
+    elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+        limit_bytes=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || true)
+    fi
+
+    if [ "$limit_bytes" = "max" ] || ! is_positive_integer "$limit_bytes"; then
+        return 0
+    fi
+
+    # Some cgroup v1 hosts report a huge sentinel when no limit is configured.
+    if [ "$limit_bytes" -ge 1125899906842624 ] 2>/dev/null; then
+        return 0
+    fi
+
+    echo $((limit_bytes / 1024))
+}
+
+detect_effective_system_memory_kb() {
+    local physical_kb
+    local cgroup_kb
+    physical_kb=$(detect_physical_memory_kb)
+    cgroup_kb=$(detect_cgroup_memory_kb)
+
+    if ! is_positive_integer "$physical_kb"; then
+        return 1
+    fi
+
+    if is_positive_integer "$cgroup_kb" && [ "$cgroup_kb" -lt "$physical_kb" ]; then
+        echo "$cgroup_kb"
+    else
+        echo "$physical_kb"
+    fi
+}
+
+derive_main_compiler_vmem_kb() {
+    local total_kb=$1
+    local available_kb=$2
+    local cap_kb=$((total_kb * 70 / 100))
+
+    if is_positive_integer "$available_kb"; then
+        local available_cap_kb=$((available_kb * 85 / 100))
+        if [ "$available_cap_kb" -gt 0 ] && [ "$available_cap_kb" -lt "$cap_kb" ]; then
+            cap_kb=$available_cap_kb
+        fi
+    fi
+
+    local reserve_kb=$((1024 * 1024))
+    if [ "$total_kb" -gt $((3 * 1024 * 1024)) ]; then
+        local max_with_reserve_kb=$((total_kb - reserve_kb))
+        if [ "$cap_kb" -gt "$max_with_reserve_kb" ]; then
+            cap_kb=$max_with_reserve_kb
+        fi
+    fi
+
+    local min_main_kb=$((2 * 1024 * 1024))
+    if [ "$total_kb" -ge $((3 * 1024 * 1024)) ] && [ "$cap_kb" -lt "$min_main_kb" ]; then
+        cap_kb=$min_main_kb
+    fi
+
+    echo "$cap_kb"
+}
+
+derive_opt_vmem_kb() {
+    local total_kb=$1
+    local main_kb=$2
+    local cap_kb=$((total_kb * 25 / 100))
+    local half_main_kb=$((main_kb / 2))
+
+    if [ "$half_main_kb" -gt 0 ] && [ "$half_main_kb" -lt "$cap_kb" ]; then
+        cap_kb=$half_main_kb
+    fi
+
+    local min_opt_kb=$((768 * 1024))
+    if [ "$total_kb" -ge $((2 * 1024 * 1024)) ] && [ "$cap_kb" -lt "$min_opt_kb" ]; then
+        cap_kb=$min_opt_kb
+    fi
+
+    echo "$cap_kb"
+}
+
 echo "=== Safe Rebuild Script ==="
 echo ""
 
@@ -312,14 +436,34 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
     LOW_MEMORY_MODE=1
     STAGE2_COMPILE_FLAGS="$STAGE2_COMPILE_FLAGS --no-fork"
     PASS2_COMPILE_FLAGS="$PASS2_COMPILE_FLAGS --no-fork"
-    MAIN_COMPILER_VMEM_KB="${SEEN_MAIN_VMEM_KB:-4194304}"
-    OPT_VMEM_KB="${SEEN_OPT_VMEM_KB:-1572864}"
+    SYSTEM_MEMORY_KB=$(detect_effective_system_memory_kb || true)
+    SYSTEM_AVAILABLE_KB=$(detect_available_memory_kb || true)
+    if ! is_positive_integer "$SYSTEM_MEMORY_KB"; then
+        echo -e "${RED}ERROR: Could not detect system memory for low-memory rebuild caps.${NC}"
+        echo "Set SEEN_MAIN_VMEM_KB and SEEN_OPT_VMEM_KB explicitly, or run on a host with /proc/meminfo or sysctl hw.memsize."
+        exit 1
+    fi
+    if [ -n "${SEEN_MAIN_VMEM_KB:-}" ] && ! is_positive_integer "$SEEN_MAIN_VMEM_KB"; then
+        echo -e "${RED}ERROR: SEEN_MAIN_VMEM_KB must be a positive integer KB value.${NC}"
+        exit 1
+    fi
+    if [ -n "${SEEN_OPT_VMEM_KB:-}" ] && ! is_positive_integer "$SEEN_OPT_VMEM_KB"; then
+        echo -e "${RED}ERROR: SEEN_OPT_VMEM_KB must be a positive integer KB value.${NC}"
+        exit 1
+    fi
+    MAIN_COMPILER_VMEM_KB="${SEEN_MAIN_VMEM_KB:-$(derive_main_compiler_vmem_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB")}"
+    OPT_VMEM_KB="${SEEN_OPT_VMEM_KB:-$(derive_opt_vmem_kb "$SYSTEM_MEMORY_KB" "$MAIN_COMPILER_VMEM_KB")}"
+    if ! is_positive_integer "$MAIN_COMPILER_VMEM_KB" || ! is_positive_integer "$OPT_VMEM_KB"; then
+        echo -e "${RED}ERROR: Low-memory rebuild caps must be positive integer KB values.${NC}"
+        exit 1
+    fi
     RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-7200}"
     export SEEN_LOW_MEMORY=1
     export SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB"
     export SEEN_OPT_VMEM_KB="$OPT_VMEM_KB"
     export SEEN_RECOVERY_TIMEOUT_SECS="$RECOVERY_TIMEOUT_SECS"
-    echo -e "${YELLOW}Low-memory mode enabled: serial bootstrap stages with ${MAIN_COMPILER_VMEM_KB}KB main-compiler cap and ${OPT_VMEM_KB}KB opt cap.${NC}"
+    echo -e "${YELLOW}Low-memory mode enabled: serial bootstrap stages.${NC}"
+    echo -e "${YELLOW}Detected system memory: $(format_bytes $((SYSTEM_MEMORY_KB * 1024))). Main compiler cap: $(format_bytes $((MAIN_COMPILER_VMEM_KB * 1024))). opt cap: $(format_bytes $((OPT_VMEM_KB * 1024))).${NC}"
 fi
 
 if [ "$HOST_OS" = "Darwin" ]; then
@@ -499,7 +643,7 @@ recover_with_preserved_production_compiler() {
     cleanup_smoke_build_state
     rm -f "$STAGE3_RECOVERY"
 
-    if timeout "$RECOVERY_TIMEOUT_SECS" bash -c "if [ -n $(printf '%q' "$MAIN_COMPILER_VMEM_KB") ]; then ulimit -v $(printf '%q' "$MAIN_COMPILER_VMEM_KB"); fi; env PATH=$(printf '%q' "$OPT_WRAPPER_DIR"):\$PATH SEEN_LOW_MEMORY=$(printf '%q' "${SEEN_LOW_MEMORY:-0}") SEEN_MAIN_VMEM_KB=$(printf '%q' "$MAIN_COMPILER_VMEM_KB") SEEN_OPT_VMEM_KB=$(printf '%q' "$OPT_VMEM_KB") $(printf '%q' "$PRESERVED_PROD_BUILDER") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3_RECOVERY") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3_recovery.log 2>&1; then
+    if timeout "$RECOVERY_TIMEOUT_SECS" bash -c "if [ -n $(printf '%q' "$MAIN_COMPILER_VMEM_KB") ]; then ulimit -v $(printf '%q' "$MAIN_COMPILER_VMEM_KB"); fi; env PATH=$(printf '%q' "$OPT_WRAPPER_DIR"):\$PATH SEEN_LOW_MEMORY=$(printf '%q' "${SEEN_LOW_MEMORY:-0}") SEEN_SKIP_IR_FIXUPS=1 SEEN_MAIN_VMEM_KB=$(printf '%q' "$MAIN_COMPILER_VMEM_KB") SEEN_OPT_VMEM_KB=$(printf '%q' "$OPT_VMEM_KB") $(printf '%q' "$PRESERVED_PROD_BUILDER") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3_RECOVERY") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3_recovery.log 2>&1; then
         echo -e "${GREEN}Recovery rebuild succeeded.${NC}"
         echo ""
         echo "Recovery smoke: checking hello-world..."
@@ -581,6 +725,9 @@ ARGS=("\$@")
 if [ "\${SEEN_LOW_MEMORY:-0}" = "1" ] && [ -n "\${SEEN_OPT_VMEM_KB:-}" ]; then
     # Cap the whole wrapper so fix_ir.py and llvm-as stay within the low-memory budget too.
     ulimit -v "\$SEEN_OPT_VMEM_KB" 2>/dev/null || true
+fi
+if [ "\${SEEN_SKIP_IR_FIXUPS:-0}" = "1" ]; then
+    exec "$REAL_OPT" "\$@"
 fi
 for arg in "\${ARGS[@]}"; do
     if [[ "\$arg" == *.ll && "\$arg" != *.opt.ll && -f "\$arg" ]]; then
@@ -725,7 +872,12 @@ else
     rm -rf "$SNAPSHOT_DIR"
 
     # Start compiler in background
-    env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS > /tmp/safe_rebuild_stage2.log 2>&1 &
+    (
+        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
+            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
+        fi
+        env PATH="$OPT_WRAPPER_DIR:$PATH" "$FROZEN" compile "$COMPILER_SOURCE" "$STAGE2" $STAGE2_COMPILE_FLAGS
+    ) > /tmp/safe_rebuild_stage2.log 2>&1 &
     COMPILE_PID=$!
 
     # Start progress monitor and snapshot watcher
@@ -865,7 +1017,12 @@ else
                     RETRY_SNAPSHOT="/tmp/seen_retry_snapshot_${$}_${RETRY}"
                     rm -rf "$RETRY_SNAPSHOT"
 
-                    env PATH="$OPT_WRAPPER_DIR:$PATH" $FROZEN compile "$COMPILER_SOURCE" /dev/null $STAGE2_COMPILE_FLAGS > /tmp/retry_${RETRY}.log 2>&1 &
+                    (
+                        if [ -n "$MAIN_COMPILER_VMEM_KB" ]; then
+                            ulimit -v "$MAIN_COMPILER_VMEM_KB" 2>/dev/null || true
+                        fi
+                        env PATH="$OPT_WRAPPER_DIR:$PATH" "$FROZEN" compile "$COMPILER_SOURCE" /dev/null $STAGE2_COMPILE_FLAGS
+                    ) > /tmp/retry_${RETRY}.log 2>&1 &
                     RETRY_PID=$!
 
                     start_ll_snapshot_watcher "$RETRY_PID" "$RETRY_SNAPSHOT" &
@@ -1358,7 +1515,7 @@ else
     echo "Step 2: Attempting S2→S3 bootstrap verification (Linux)..."
     echo -e "${DIM}Timeout: 30 minutes. Falls back to S2 if this fails.${NC}"
 
-    if timeout 1800 bash -c "$(printf '%q' "$STAGE2") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3.log 2>&1; then
+    if timeout 1800 bash -c "if [ -n $(printf '%q' "$MAIN_COMPILER_VMEM_KB") ]; then ulimit -v $(printf '%q' "$MAIN_COMPILER_VMEM_KB") 2>/dev/null || true; fi; $(printf '%q' "$STAGE2") compile $(printf '%q' "$COMPILER_SOURCE") $(printf '%q' "$STAGE3") --fast --no-cache --no-fork" > /tmp/safe_rebuild_stage3.log 2>&1; then
         echo -e "${GREEN}Stage3 build succeeded.${NC}"
 
         echo ""

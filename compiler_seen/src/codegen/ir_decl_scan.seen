@@ -31,6 +31,28 @@ fun appendPipeValue(box: Array<String>, value: String) r: Void {
     }
 }
 
+fun sanitizeDeclSignaturePartImpl(value: String) r: String {
+    let len = value.length()
+    if len < 0 or len > 4096 {
+        return ""
+    }
+    return value
+}
+
+fun appendDelimitedDeclSignaturePartImpl(current: String, separator: String,
+    value: String, itemIdx: Int) r: String {
+
+    let safeValue = sanitizeDeclSignaturePartImpl(value)
+    if itemIdx == 0 {
+        return safeValue
+    }
+    let currentLen = current.length()
+    if currentLen < 0 or currentLen > 65536 {
+        return current
+    }
+    return current + separator + safeValue
+}
+
 fun recordConstGenericNumericParamsImpl(typeName: String,
     constGenericNamesBox: Array<String>, constGenericValuesBox: Array<String>)
     r: Void {
@@ -183,30 +205,35 @@ fun collectStructMethodSignaturesImpl(className: String,
     methodRetTypesBox: Array<String>, classMethodBaseNames: Array<String>)
     r: Void {
 
+    var methodNames = ""
+    var methodRetTypes = ""
     var methodIdx = 0
     while methodIdx < methods.length() {
-        if methodIdx > 0 {
-            methodNamesBox[0] = methodNamesBox[0] + ","
-            methodRetTypesBox[0] = methodRetTypesBox[0] + "|"
-        }
         let method = methods[methodIdx]
-        methodNamesBox[0] = methodNamesBox[0] + method.name
-        methodRetTypesBox[0] = methodRetTypesBox[0] +
-            resolveMethodReturnTypeImpl(className, method)
+        let safeMethodName = sanitizeDeclSignaturePartImpl(method.name)
+        let safeRetType = sanitizeDeclSignaturePartImpl(
+            resolveMethodReturnTypeImpl(className, method))
+
+        methodNames = appendDelimitedDeclSignaturePartImpl(methodNames, ",",
+            safeMethodName, methodIdx)
+        methodRetTypes = appendDelimitedDeclSignaturePartImpl(methodRetTypes,
+            "|", safeRetType, methodIdx)
 
         var alreadyRegistered = false
         var baseNameIdx = 0
         while baseNameIdx < classMethodBaseNames.length() {
-            if classMethodBaseNames[baseNameIdx] == method.name {
+            if classMethodBaseNames[baseNameIdx] == safeMethodName {
                 alreadyRegistered = true
             }
             baseNameIdx = baseNameIdx + 1
         }
-        if not alreadyRegistered {
-            classMethodBaseNames.push(method.name)
+        if not alreadyRegistered and safeMethodName != "" {
+            classMethodBaseNames.push(safeMethodName)
         }
         methodIdx = methodIdx + 1
     }
+    methodNamesBox[0] = methodNames
+    methodRetTypesBox[0] = methodRetTypes
 }
 
 fun recordCrossModuleDeclareImpl(symbolName: String, declStr: String, visibility: String,

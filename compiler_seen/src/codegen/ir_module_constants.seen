@@ -3,7 +3,7 @@
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{pipeGet, parseIntManual}
+import codegen.ir_optimization.{pipeGet}
 import codegen.ir_module_emit.{isValidCrossModuleConstantEntryImpl, emitGlobalVariablesImpl}
 
 fun moduleConstPackSepImpl() r: String {
@@ -249,11 +249,55 @@ fun tryInferModuleConstantVariableTypeIntoStateImpl(name: String,
     xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
     xmConstSeenTypes: String, xmConstCount: Int) r: String {
 
-    let updated = tryInferModuleConstantVariableTypeStateImpl(name,
-        moduleConstantNames, moduleConstantTypes, moduleConstantValues,
-        state.moduleConstMutable, state.moduleConstSeenTypes, xmConstNames,
-        xmConstTypes, xmConstMutable, xmConstSeenTypes, xmConstCount)
-    return applyModuleConstantUpdatedStateImpl(state, updated)
+    var constIdx = moduleConstantNames.length() - 1
+    while constIdx >= 0 {
+        if moduleConstantNames[constIdx] == name {
+            let seenType = getModuleConstSeenTypeImpl(constIdx,
+                state.moduleConstSeenTypes)
+            if seenType != "" {
+                return seenType
+            }
+            return mapModuleConstLlvmTypeToSeenTypeImpl(
+                moduleConstantTypes[constIdx])
+        }
+        constIdx = constIdx - 1
+    }
+
+    if xmConstCount > 0 {
+        var xi = 0
+        while xi < xmConstCount {
+            let xcName = pipeGet(xmConstNames, xi)
+            let xcType = pipeGet(xmConstTypes, xi)
+            if isValidCrossModuleConstantEntryImpl(xcName, xcType) and
+                xcName == name {
+
+                let xcMut = pipeGet(xmConstMutable, xi)
+                let xcSeenType = pipeGet(xmConstSeenTypes, xi)
+                moduleConstantNames.push(name)
+                moduleConstantTypes.push(xcType)
+                moduleConstantValues.push("0")
+                if state.moduleConstMutable == "" {
+                    state.moduleConstMutable = xcMut
+                } else {
+                    state.moduleConstMutable = state.moduleConstMutable +
+                        "|" + xcMut
+                }
+                if state.moduleConstSeenTypes == "" {
+                    state.moduleConstSeenTypes = xcSeenType
+                } else {
+                    state.moduleConstSeenTypes = state.moduleConstSeenTypes +
+                        "|" + xcSeenType
+                }
+                if xcSeenType != "" {
+                    return xcSeenType
+                }
+                return mapModuleConstLlvmTypeToSeenTypeImpl(xcType)
+            }
+            xi = xi + 1
+        }
+    }
+
+    return ""
 }
 
 fun findModuleConstantIntoStateImpl(name: String,
@@ -262,11 +306,46 @@ fun findModuleConstantIntoStateImpl(name: String,
     xmConstNames: String, xmConstTypes: String, xmConstMutable: String,
     xmConstSeenTypes: String, xmConstCount: Int) r: Int {
 
-    let updated = findModuleConstantStateImpl(name, moduleConstantNames,
-        moduleConstantTypes, moduleConstantValues, state.moduleConstMutable,
-        state.moduleConstSeenTypes, xmConstNames, xmConstTypes,
-        xmConstMutable, xmConstSeenTypes, xmConstCount)
-    return parseIntManual(applyModuleConstantUpdatedStateImpl(state, updated))
+    var constIdx = moduleConstantNames.length() - 1
+    while constIdx >= 0 {
+        if moduleConstantNames[constIdx] == name {
+            return constIdx
+        }
+        constIdx = constIdx - 1
+    }
+
+    if xmConstCount > 0 {
+        var xi = 0
+        while xi < xmConstCount {
+            let xcName = pipeGet(xmConstNames, xi)
+            let xcType = pipeGet(xmConstTypes, xi)
+            if isValidCrossModuleConstantEntryImpl(xcName, xcType) and
+                xcName == name {
+
+                let xcMut = pipeGet(xmConstMutable, xi)
+                let xcSeenType = pipeGet(xmConstSeenTypes, xi)
+                moduleConstantNames.push(name)
+                moduleConstantTypes.push(xcType)
+                moduleConstantValues.push("0")
+                if state.moduleConstMutable == "" {
+                    state.moduleConstMutable = xcMut
+                } else {
+                    state.moduleConstMutable = state.moduleConstMutable +
+                        "|" + xcMut
+                }
+                if state.moduleConstSeenTypes == "" {
+                    state.moduleConstSeenTypes = xcSeenType
+                } else {
+                    state.moduleConstSeenTypes = state.moduleConstSeenTypes +
+                        "|" + xcSeenType
+                }
+                return moduleConstantNames.length() - 1
+            }
+            xi = xi + 1
+        }
+    }
+
+    return -1
 }
 
 fun emitGlobalVariablesIntoStateImpl(output: StringBuilder, program: ProgramNode,

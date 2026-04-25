@@ -169,6 +169,33 @@ fun packDeclarationItemStateImpl(asyncFuncNames: String,
         xmDeclareStrs + sep + xmDeclareVis + sep + xmDeclareCount.toString()
 }
 
+fun appendPipeValueDirectImpl(values: String, value: String) r: String {
+    if values == "" {
+        return value
+    }
+    return values + "|" + value
+}
+
+fun registerAsyncFunctionIntoStateImpl(name: String,
+    declaredRetType: String, state: DeclarationPassState) r: Void {
+
+    state.asyncFuncNames = appendPipeValueDirectImpl(state.asyncFuncNames,
+        name)
+    state.asyncFuncRetTypes = appendPipeValueDirectImpl(
+        state.asyncFuncRetTypes, declaredRetType)
+    state.asyncFuncCount = state.asyncFuncCount + 1
+}
+
+fun recordCrossModuleDeclareIntoStateImpl(symbolName: String,
+    declStr: String, visibility: String, state: DeclarationPassState)
+    r: Void {
+
+    state.xmDeclareNamesArr.push(symbolName)
+    state.xmDeclareStrsArr.push(declStr)
+    state.xmDeclareVisArr.push(visibility)
+    state.xmDeclareCount = state.xmDeclareCount + 1
+}
+
 fun registerMethodDeclarationStateImpl(mangledName: String,
     methodRetTypeName: String, methodRetLlvm: String, methodIsAsync: Bool,
     methodIsStatic: Bool, visibility: String,
@@ -304,14 +331,19 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
             methodLlvmParamTypes, ctx.structNames, ctx.typeAliasNames,
             ctx.typeAliasTargets, ctx.typeAliasCount,
             ctx.state.enumTypeNames, ctx.reprCClassNames)
-        let updated = registerMethodDeclarationStateImpl(mangledName,
-            methodRetTypeName, methodRetLlvm, method.isAsync, method.isStatic,
-            visibility, methodSeenParamTypes, methodLlvmParamTypes,
-            ctx.funcNames, ctx.funcRetTypes, ctx.state.asyncFuncNames,
-            ctx.state.asyncFuncRetTypes, ctx.state.asyncFuncCount,
-            ctx.state.xmDeclareNames, ctx.state.xmDeclareStrs,
-            ctx.state.xmDeclareVis, ctx.state.xmDeclareCount)
-        applyDeclarationItemStateImpl(ctx.state, updated)
+        registerFunctionStateImpl(mangledName, methodRetTypeName,
+            ctx.funcNames, ctx.funcRetTypes)
+        if method.isAsync {
+            registerAsyncFunctionIntoStateImpl(mangledName, methodRetTypeName,
+                ctx.state)
+        }
+        let methodDeclParams = buildDeclareParamsImpl(methodSeenParamTypes,
+            methodLlvmParamTypes, not method.isStatic)
+        let methodDecl = buildDeclareStringImpl(
+            quoteIdentIfNeededImpl(mangledName), methodRetLlvm,
+            methodDeclParams, false)
+        recordCrossModuleDeclareIntoStateImpl(mangledName, methodDecl,
+            visibility, ctx.state)
         methodIdx = methodIdx + 1
     }
 }
@@ -340,15 +372,22 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
         declLlvmParamTypes, ctx.structNames, ctx.typeAliasNames,
         ctx.typeAliasTargets, ctx.typeAliasCount, ctx.state.enumTypeNames,
         ctx.reprCClassNames)
-    let updated = registerFunctionDeclarationStateImpl(funcObj.name,
-        funcRetTypeName, declRetLlvm, funcObj.isAsync, funcObj.isExtern,
-        bodyStmtCount, visibility, isRuntimeStringCompat, declSeenParamTypes,
-        declLlvmParamTypes, ctx.funcNames, ctx.funcRetTypes,
-        ctx.state.asyncFuncNames, ctx.state.asyncFuncRetTypes,
-        ctx.state.asyncFuncCount, ctx.state.xmDeclareNames,
-        ctx.state.xmDeclareStrs, ctx.state.xmDeclareVis,
-        ctx.state.xmDeclareCount)
-    applyDeclarationItemStateImpl(ctx.state, updated)
+    registerFunctionStateImpl(funcObj.name, funcRetTypeName, ctx.funcNames,
+        ctx.funcRetTypes)
+    if funcObj.isAsync {
+        registerAsyncFunctionIntoStateImpl(funcObj.name, funcRetTypeName,
+            ctx.state)
+    }
+    if shouldRegisterCrossModuleFunctionImpl(funcObj.name, funcObj.isExtern,
+        bodyStmtCount, isRuntimeStringCompat) {
+        let declParams = buildDeclareParamsImpl(declSeenParamTypes,
+            declLlvmParamTypes, false)
+        let declStr = buildDeclareStringImpl(
+            quoteIdentIfNeededImpl(funcObj.name), declRetLlvm, declParams,
+            funcObj.isExtern and bodyStmtCount == 0)
+        recordCrossModuleDeclareIntoStateImpl(funcObj.name, declStr,
+            visibility, ctx.state)
+    }
 }
 
 fun registerPreparedDeclarationItemIntoStateImpl(item: ItemNode,

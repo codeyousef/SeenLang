@@ -1,7 +1,7 @@
 // ir_class_method_gen.seen — Shared class-method lowering helpers
 // Extracted from llvm_ir_gen.seen to reduce class-method boilerplate.
 
-import parser.real_parser.{FunctionNode}
+import parser.real_parser.{FunctionNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{selfCallCheck, getNextRegFn}
 import codegen.ir_decl_items.{normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
@@ -10,6 +10,7 @@ import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_function_gen.{emitDefaultReturnValueImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl, findActiveVariableIndexImpl}
 import codegen.type_registry.{findStructReg, isDataTypeReg, getDataTypeSizeReg, getTypeSizeReg}
+import codegen.ir_type_layout.{computeStructFieldOffsetFromLayoutImpl, computeStructSizeFromLayoutImpl}
 
 fun methodHasDecoratorImpl(methods: Array<FunctionNode>, methodIdx: Int, decoratorName: String) r: Int {
     var decoratorIdx = 0
@@ -286,18 +287,119 @@ fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
     return nextActiveVarCount
 }
 
+fun classMethodExprReferencesThisImpl(expr: ParserExpressionNode) r: Bool {
+    if expr.variableName == "this" or expr.literalValue == "this" or expr.callee == "this" {
+        return true
+    }
+
+    var operandIdx = 0
+    while operandIdx < expr.operands.length() {
+        if classMethodExprReferencesThisImpl(expr.operands[operandIdx]) {
+            return true
+        }
+        operandIdx = operandIdx + 1
+    }
+
+    var argIdx = 0
+    while argIdx < expr.arguments.length() {
+        if classMethodExprReferencesThisImpl(expr.arguments[argIdx]) {
+            return true
+        }
+        argIdx = argIdx + 1
+    }
+    return false
+}
+
+fun classMethodBlockReferencesThisImpl(block: BlockNode) r: Bool {
+    var stmtIdx = 0
+    while stmtIdx < block.statements.length() {
+        if classMethodStmtReferencesThisImpl(block.statements[stmtIdx]) {
+            return true
+        }
+        stmtIdx = stmtIdx + 1
+    }
+    return false
+}
+
+fun classMethodStmtReferencesThisImpl(stmt: StatementNode) r: Bool {
+    if classMethodExprReferencesThisImpl(stmt.initializer) {
+        return true
+    }
+    if classMethodExprReferencesThisImpl(stmt.returnValue) {
+        return true
+    }
+    if classMethodExprReferencesThisImpl(stmt.expression) {
+        return true
+    }
+    if classMethodExprReferencesThisImpl(stmt.condition) {
+        return true
+    }
+    if classMethodExprReferencesThisImpl(stmt.loopCondition) {
+        return true
+    }
+    if classMethodBlockReferencesThisImpl(stmt.thenBranch) {
+        return true
+    }
+    if classMethodBlockReferencesThisImpl(stmt.elseBranch) {
+        return true
+    }
+    return classMethodBlockReferencesThisImpl(stmt.loopBody)
+}
+
+fun classMethodBlockHasExplicitReturnImpl(block: BlockNode) r: Bool {
+    var stmtIdx = 0
+    while stmtIdx < block.statements.length() {
+        let stmt = block.statements[stmtIdx]
+        if stmt.kind == "Return" {
+            return true
+        }
+        if classMethodBlockHasExplicitReturnImpl(stmt.thenBranch) {
+            return true
+        }
+        if classMethodBlockHasExplicitReturnImpl(stmt.elseBranch) {
+            return true
+        }
+        if classMethodBlockHasExplicitReturnImpl(stmt.loopBody) {
+            return true
+        }
+        stmtIdx = stmtIdx + 1
+    }
+    return false
+}
+
+fun classMethodNewUsesExplicitFactoryReturnImpl(methods: Array<FunctionNode>,
+    methodIdx: Int) r: Bool {
+
+    if not classMethodBlockHasExplicitReturnImpl(methods[methodIdx].body) {
+        return false
+    }
+    if classMethodBlockReferencesThisImpl(methods[methodIdx].body) {
+        return false
+    }
+    return true
+}
+
 fun emitClassMethodConstructorSetupStateImpl(output: StringBuilder,
     regBox: Array<Int>, varNames: Array<String>, varRegs: Array<String>,
     varTypes: Array<String>, activeVarCount: Int, className: String,
-    methodName: String, structNames: Array<String>, structSizes: Array<Int>,
-    structFieldNames: Array<String>, structFieldTypes: Array<String>)
+    methodName: String, methodIsStatic: Bool, methods: Array<FunctionNode>,
+    methodIdx: Int, structNames: Array<String>, structSizes: Array<Int>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>)
     r: Int {
 
     if methodName != "new" {
         return activeVarCount
     }
+    if methodIsStatic {
+        return activeVarCount
+    }
+    if classMethodNewUsesExplicitFactoryReturnImpl(methods, methodIdx) {
+        return activeVarCount
+    }
     let thisReg = emitConstructorAllocationImpl(output, regBox, className,
-        structNames, structSizes, structFieldNames, structFieldTypes)
+        structNames, structSizes, structLayouts, structFieldNames,
+        structFieldTypes)
     return storeActiveVariableBindingImpl(varNames, varRegs, varTypes,
         activeVarCount, "this", thisReg, className)
 }
@@ -364,12 +466,20 @@ fun tryEmitOptionClassMethodShimImpl(output: StringBuilder, className: String, m
 // Array/List field bootstrap for a class constructor. Returns the alloca used
 // to store the constructor's live `this` pointer.
 fun emitConstructorAllocationImpl(output: StringBuilder, regBox: Array<Int>, className: String,
-    structNames: Array<String>, structSizes: Array<Int>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+    structNames: Array<String>, structSizes: Array<Int>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: String {
 
     let cStructIdx = findStructReg(className, structNames)
     var cStructSize = 16
     if cStructIdx >= 0 {
         cStructSize = structSizes[cStructIdx]
+        let cAlignedStructSize = computeStructSizeFromLayoutImpl(
+            structLayouts[cStructIdx], structNames, structLayouts,
+            structSizes)
+        if cAlignedStructSize > cStructSize {
+            cStructSize = cAlignedStructSize
+        }
         if cStructSize == 0 {
             cStructSize = 16
         }
@@ -394,6 +504,7 @@ fun emitConstructorAllocationImpl(output: StringBuilder, regBox: Array<Int>, cla
         var cByteOffset = 0
         var cNamePos = 0
         var cTypePos = 0
+        var cFieldIndex = 0
         var cIterDone = 0
         while cIterDone == 0 {
             var cNameEnd = cNamePos
@@ -413,8 +524,15 @@ fun emitConstructorAllocationImpl(output: StringBuilder, regBox: Array<Int>, cla
                 cIsArrayField = 1
             }
             if cIsArrayField == 1 {
+                var cFieldOffset = cByteOffset
+                let cAlignedOffset = computeStructFieldOffsetFromLayoutImpl(
+                    structLayouts[cStructIdx], cFieldIndex, structNames,
+                    structLayouts, structSizes)
+                if cAlignedOffset >= 0 {
+                    cFieldOffset = cAlignedOffset
+                }
                 let cFieldPtrReg = getNextRegFn(regBox)
-                output.append("  " + cFieldPtrReg + " = getelementptr inbounds i8, ptr " + cAllocReg + ", i64 " + cByteOffset.toString() + "\n")
+                output.append("  " + cFieldPtrReg + " = getelementptr inbounds i8, ptr " + cAllocReg + ", i64 " + cFieldOffset.toString() + "\n")
                 var cElemType = ""
                 if cFieldSeenType.startsWith("Array<") {
                     cElemType = cFieldSeenType.substring(6, cFieldSeenType.length() - 1)
@@ -440,6 +558,7 @@ fun emitConstructorAllocationImpl(output: StringBuilder, regBox: Array<Int>, cla
                 output.append("  store ptr " + cArrInitReg + ", ptr " + cFieldPtrReg + "\n")
             }
             cByteOffset = cByteOffset + getTypeSizeReg(cFieldSeenType, structNames, structSizes)
+            cFieldIndex = cFieldIndex + 1
             if cNameEnd < cFieldNamesStr.length() {
                 cNamePos = cNameEnd + 1
                 cTypePos = cTypeEnd + 1
