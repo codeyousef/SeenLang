@@ -1,7 +1,24 @@
 // ir_stmt_decl.seen - declaration statement helper utilities
 
+import parser.real_parser.{StatementNode}
 import codegen.ir_optimization.{getNextRegFn}
 import str.string.{StringBuilder}
+
+class LetStatementPlan {
+    var preIdx: Int
+    var preAllocatedType: String
+    var declaredType: String
+    var varType: String
+
+    static fun new() r: LetStatementPlan {
+        return LetStatementPlan{
+            preIdx: -1,
+            preAllocatedType: "",
+            declaredType: "",
+            varType: ""
+        }
+    }
+}
 
 fun declarationTypeNeedsFallbackImpl(typeName: String) r: Int {
     if typeName == "" or typeName == "Unknown" or typeName == "Void" {
@@ -54,6 +71,35 @@ fun resolveLetStatementAllocaImpl(output: StringBuilder, regBox: Array<Int>,
     let reg = getNextRegFn(regBox)
     output.append("  " + reg + " = alloca " + llvmType + "\n")
     return reg
+}
+
+fun prepareLetStatementPlanImpl(stmt: StatementNode,
+    declOrdinalNames: Array<String>, declOrdinalCounts: Array<Int>,
+    preAllocatedVars: Array<String>, preAllocatedTypes: Array<String>,
+    declaredType: String, initializerType: String) r: LetStatementPlan {
+
+    let plan = LetStatementPlan.new()
+    let declOrdinal = nextDeclarationOrdinalImpl(declOrdinalNames,
+        declOrdinalCounts, stmt.variableName)
+    plan.preIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
+        stmt.variableName, declOrdinal)
+    if plan.preIdx >= 0 and plan.preIdx < preAllocatedTypes.length() {
+        plan.preAllocatedType = preAllocatedTypes[plan.preIdx]
+    }
+    plan.declaredType = declaredType
+    plan.varType = resolveLetStatementTypeImpl(
+        resolveDeclarationBaseTypeImpl(plan.declaredType, initializerType),
+        plan.preAllocatedType)
+    return plan
+}
+
+fun resolveLetPreAllocatedRegImpl(preIdx: Int,
+    preAllocatedRegs: Array<String>) r: String {
+
+    if preIdx >= 0 and preIdx < preAllocatedRegs.length() {
+        return preAllocatedRegs[preIdx]
+    }
+    return ""
 }
 
 fun findPreAllocatedOccurrenceImpl(preAllocatedVars: Array<String>,

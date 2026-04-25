@@ -98,7 +98,7 @@ import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emi
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
-import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
+import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
@@ -3224,29 +3224,22 @@ class LLVMIRGenerator {
     }
 
     fun generateLetStatement(stmt: StatementNode) r: Void {
-        let declOrdinal = nextDeclarationOrdinalImpl(declOrdinalNames,
-            declOrdinalCounts, stmt.variableName)
-        let preIdx = findPreAllocatedOccurrenceImpl(preAllocatedVars,
-            stmt.variableName, declOrdinal)
-        var preAllocatedType = ""
-        if preIdx >= 0 and preIdx < preAllocatedTypes.length() {
-            preAllocatedType = preAllocatedTypes[preIdx]
-        }
         let declaredType = normalizeDeclaredTypeNode(stmt.variableType)
         var initializerType = ""
         if shouldInferDeclarationInitializerTypeImpl(declaredType,
             stmt.initializer.kind) != 0 {
             initializerType = inferDeclarationInitializerType(stmt.initializer)
         }
-        let varType = resolveLetStatementTypeImpl(
-            resolveDeclarationBaseTypeImpl(declaredType, initializerType),
-            preAllocatedType)
+        let letPlan = prepareLetStatementPlanImpl(stmt, declOrdinalNames,
+            declOrdinalCounts, preAllocatedVars, preAllocatedTypes,
+            declaredType, initializerType)
+        let varType = letPlan.varType
         let llvmType = mapType(varType)
-        var preAllocatedReg = ""
+        let preAllocatedReg = resolveLetPreAllocatedRegImpl(letPlan.preIdx,
+            preAllocatedRegs)
         var preAllocatedLlvmType = ""
-        if preIdx >= 0 and preIdx < preAllocatedRegs.length() {
-            preAllocatedReg = preAllocatedRegs[preIdx]
-            preAllocatedLlvmType = mapType(preAllocatedType)
+        if preAllocatedReg != "" {
+            preAllocatedLlvmType = mapType(letPlan.preAllocatedType)
         }
         let reg = resolveLetStatementAllocaImpl(output, g_regBox,
             preAllocatedReg, preAllocatedLlvmType, llvmType)
