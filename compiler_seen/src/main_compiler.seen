@@ -100,6 +100,7 @@ import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitVariableReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl}
+import codegen.ir_class_constructor_gen.{emitConstructorAllocationImpl, emitConstructorReturnImpl}
 import codegen.ir_class_method_gen.{buildMethodAttrsImpl}
 import codegen.ir_stmt_decl.{resolveLetStatementTypeImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, emitIfLetBindingStateImpl, emitUnusedResultCallWarningImpl}
@@ -1954,6 +1955,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_receiver")
         modules.push("codegen.ir_method_fastpath")
         modules.push("codegen.ir_binary_expr")
+        modules.push("codegen.ir_class_constructor_gen")
         modules.push("codegen.ir_class_method_gen")
         modules.push("codegen.ir_stmt_scope")
         modules.push("codegen.ir_stmt_decl")

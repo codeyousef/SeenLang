@@ -1,0 +1,124 @@
+// ir_class_constructor_gen.seen - Class constructor allocation and return helpers.
+
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.type_registry.{findStructReg, isDataTypeReg, getDataTypeSizeReg, getTypeSizeReg}
+import codegen.ir_type_layout.{computeStructFieldOffsetFromLayoutImpl, computeStructSizeFromLayoutImpl}
+
+// emitConstructorAllocationImpl - emit the heap allocation, zero-init, and
+// Array/List field bootstrap for a class constructor. Returns the alloca used
+// to store the constructor's live `this` pointer.
+fun emitConstructorAllocationImpl(output: StringBuilder, regBox: Array<Int>, className: String,
+    structNames: Array<String>, structSizes: Array<Int>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: String {
+
+    let cStructIdx = findStructReg(className, structNames)
+    var cStructSize = 16
+    if cStructIdx >= 0 {
+        cStructSize = structSizes[cStructIdx]
+        let cAlignedStructSize = computeStructSizeFromLayoutImpl(
+            structLayouts[cStructIdx], structNames, structLayouts,
+            structSizes)
+        if cAlignedStructSize > cStructSize {
+            cStructSize = cAlignedStructSize
+        }
+        if cStructSize == 0 {
+            cStructSize = 16
+        }
+    }
+
+    let cAllocReg = getNextRegFn(regBox)
+    if cStructSize <= 80 {
+        output.append("  " + cAllocReg + " = call ptr @seen_pool_alloc(i64 " + cStructSize.toString() + ")\n")
+    }
+    if cStructSize > 80 {
+        output.append("  " + cAllocReg + " = call ptr @malloc(i64 " + cStructSize.toString() + ")\n")
+    }
+    output.append("  call void @llvm.memset.p0.i64(ptr " + cAllocReg + ", i8 0, i64 " + cStructSize.toString() + ", i1 false)\n")
+
+    let cThisReg = getNextRegFn(regBox)
+    output.append("  " + cThisReg + " = alloca ptr\n")
+    output.append("  store ptr " + cAllocReg + ", ptr " + cThisReg + "\n")
+
+    if cStructIdx >= 0 {
+        let cFieldNamesStr = structFieldNames[cStructIdx]
+        let cFieldTypesStr = structFieldTypes[cStructIdx]
+        var cByteOffset = 0
+        var cNamePos = 0
+        var cTypePos = 0
+        var cFieldIndex = 0
+        var cIterDone = 0
+        while cIterDone == 0 {
+            var cNameEnd = cNamePos
+            while cNameEnd < cFieldNamesStr.length() and cFieldNamesStr.byteAt(cNameEnd) != 44 {
+                cNameEnd = cNameEnd + 1
+            }
+            var cTypeEnd = cTypePos
+            while cTypeEnd < cFieldTypesStr.length() and cFieldTypesStr.byteAt(cTypeEnd) != 124 {
+                cTypeEnd = cTypeEnd + 1
+            }
+            let cFieldSeenType = cFieldTypesStr.substring(cTypePos, cTypeEnd)
+            var cIsArrayField = 0
+            if cFieldSeenType.startsWith("Array<") {
+                cIsArrayField = 1
+            }
+            if cFieldSeenType.startsWith("List<") {
+                cIsArrayField = 1
+            }
+            if cIsArrayField == 1 {
+                var cFieldOffset = cByteOffset
+                let cAlignedOffset = computeStructFieldOffsetFromLayoutImpl(
+                    structLayouts[cStructIdx], cFieldIndex, structNames,
+                    structLayouts, structSizes)
+                if cAlignedOffset >= 0 {
+                    cFieldOffset = cAlignedOffset
+                }
+                let cFieldPtrReg = getNextRegFn(regBox)
+                output.append("  " + cFieldPtrReg + " = getelementptr inbounds i8, ptr " + cAllocReg + ", i64 " + cFieldOffset.toString() + "\n")
+                var cElemType = ""
+                if cFieldSeenType.startsWith("Array<") {
+                    cElemType = cFieldSeenType.substring(6, cFieldSeenType.length() - 1)
+                }
+                if cFieldSeenType.startsWith("List<") {
+                    cElemType = cFieldSeenType.substring(5, cFieldSeenType.length() - 1)
+                }
+                let cArrInitReg = getNextRegFn(regBox)
+                if cElemType == "String" {
+                    output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_str_ptr()\n")
+                }
+                if cElemType != "String" {
+                    var cUsedSizeInit = 0
+                    if isDataTypeReg(cElemType) {
+                        let cElemSize = getDataTypeSizeReg(cElemType, structNames, structSizes)
+                        output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_with_size_ptr(i64 " + cElemSize.toString() + ")\n")
+                        cUsedSizeInit = 1
+                    }
+                    if cUsedSizeInit == 0 {
+                        output.append("  " + cArrInitReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
+                    }
+                }
+                output.append("  store ptr " + cArrInitReg + ", ptr " + cFieldPtrReg + "\n")
+            }
+            cByteOffset = cByteOffset + getTypeSizeReg(cFieldSeenType, structNames, structSizes)
+            cFieldIndex = cFieldIndex + 1
+            if cNameEnd < cFieldNamesStr.length() {
+                cNamePos = cNameEnd + 1
+                cTypePos = cTypeEnd + 1
+            }
+            if cNameEnd >= cFieldNamesStr.length() {
+                cIterDone = 1
+            }
+        }
+    }
+
+    return cThisReg
+}
+
+fun emitConstructorReturnImpl(output: StringBuilder, regBox: Array<Int>, thisAllocaReg: String) r: Void {
+    let cThisLoad = getNextRegFn(regBox)
+    output.append("  " + cThisLoad + " = load ptr, ptr " + thisAllocaReg + "\n")
+    let cPtrToInt = getNextRegFn(regBox)
+    output.append("  " + cPtrToInt + " = ptrtoint ptr " + cThisLoad + " to i64\n")
+    output.append("  ret i64 " + cPtrToInt + "\n")
+}
