@@ -99,7 +99,7 @@ import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFiel
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
-import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitReturnRegionCleanupImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitProfileExitOnReturnImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeZeroReturnValueRegImpl, emitStructLiteralReturnLoadImpl}
@@ -3578,36 +3578,6 @@ class LLVMIRGenerator {
         return tryEmitSingleArmSelectIfStatement(stmt)
     }
 
-    fun inferIfConditionType(expr: ParserExpressionNode) r: String {
-        var condType = inferExpressionType(expr)
-        let condKind = expr.kind
-        if condKind == "Binary" {
-            let condOp = expr.operator
-            if condOp == "==" or condOp == "!=" or condOp == "<" or condOp == ">" or condOp == "<=" or condOp == ">=" or condOp == "and" or condOp == "or" {
-                condType = "Bool"
-            }
-        }
-        if condKind == "Not" {
-            condType = "Bool"
-        }
-        if condKind == "Literal" {
-            let condLitVal = expr.literalValue
-            if condLitVal == "true" or condLitVal == "false" {
-                condType = "Bool"
-            }
-        }
-        return condType
-    }
-
-    fun computeIfBranchWeightMetadata(stmt: StatementNode) r: String {
-        let thenCount = stmt.thenBranch.statements.length()
-        var lastThenKind = ""
-        if thenCount > 0 {
-            lastThenKind = stmt.thenBranch.statements[thenCount - 1].kind
-        }
-        return computeIfBranchWeightMetadataImpl(thenCount, lastThenKind)
-    }
-
     fun finalizeConditionalEndBlock(endLabel: String, thenTerminated: Bool, elseTerminated: Bool) r: Void {
         cseClear()
         blockTerminated = finalizeConditionalEndBlockImpl(output, endLabel,
@@ -3628,9 +3598,11 @@ class LLVMIRGenerator {
         }
 
         let condReg = generateExpression(stmt.condition)
-        let condType = inferIfConditionType(stmt.condition)
+        let condType = normalizeIfConditionTypeImpl(stmt.condition,
+            inferExpressionType(stmt.condition))
         let condBool = emitConditionToI1Impl(output, g_regBox, condReg, condType)
-        let branchInfo = emitIfBranchingImpl(output, g_blockBox, condBool, computeIfBranchWeightMetadata(stmt))
+        let branchInfo = emitIfBranchingImpl(output, g_blockBox, condBool,
+            computeIfBranchWeightMetadataForStatementImpl(stmt))
         let branchLabels = splitPipe(branchInfo)
         let elseLabel = branchLabels[1]
         let endLabel = branchLabels[2]
@@ -3658,16 +3630,6 @@ class LLVMIRGenerator {
         finalizeConditionalEndBlock(endLabel, thenTerminated, elseTerminated)
     }
 
-    fun emitIfLetBinding(bindName: String, exprReg: String) r: Int {
-        let bindReg = getNextReg()
-        output.append("  " + bindReg + " = alloca i64, align 8\n")
-        output.append("  store i64 " + exprReg + ", ptr " + bindReg + "\n")
-        let savedIfLetVarCount = activeVarCount
-        activeVarCount = storeActiveVariableBindingImpl(varNames, varRegs,
-            varTypes, activeVarCount, bindName, bindReg, "Int")
-        return savedIfLetVarCount
-    }
-
     // if let name = expr { ... } else { ... }
     // Evaluate expr, if non-null bind name to value and run then-block
     fun generateIfLetStatement(stmt: StatementNode) r: Void {
@@ -3680,7 +3642,10 @@ class LLVMIRGenerator {
 
         cseClear()
         blockTerminated = false
-        let savedIfLetVarCount = emitIfLetBinding(stmt.variableName, exprReg)
+        let savedIfLetVarCount = activeVarCount
+        activeVarCount = emitIfLetBindingStateImpl(output, g_regBox,
+            varNames, varRegs, varTypes, activeVarCount, stmt.variableName,
+            exprReg)
         generateBlock(stmt.thenBranch)
         activeVarCount = savedIfLetVarCount
         let thenTerminated = blockTerminated
@@ -4644,7 +4609,10 @@ class LLVMIRGenerator {
         let elseExpr = expr.operands[2]
 
         let condReg = generateExpression(condExpr)
-        let condBool = emitConditionToI1Impl(output, g_regBox, condReg, inferIfConditionType(condExpr))
+        let condExprType = normalizeIfConditionTypeImpl(condExpr,
+            inferExpressionType(condExpr))
+        let condBool = emitConditionToI1Impl(output, g_regBox, condReg,
+            condExprType)
 
         let labelSuffix = g_regBox[0].toString()
         let thenLabel = "if.expr.then." + labelSuffix

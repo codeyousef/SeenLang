@@ -2,9 +2,10 @@
 // Extracted from llvm_ir_gen.seen statement generation functions
 // Each impl function emits IR scaffolding (labels, branches, phi nodes)
 
-import parser.real_parser.{ParserExpressionNode}
+import parser.real_parser.{ParserExpressionNode, StatementNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
+import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 import str.string.{StringBuilder}
 
 // emitConditionToI1Impl — convert a condition value to i1 based on its type
@@ -57,6 +58,43 @@ fun computeIfBranchWeightMetadataImpl(thenStatementCount: Int,
     return ""
 }
 
+fun computeIfBranchWeightMetadataForStatementImpl(stmt: StatementNode)
+    r: String {
+
+    let thenCount = stmt.thenBranch.statements.length()
+    var lastThenKind = ""
+    if thenCount > 0 {
+        lastThenKind = stmt.thenBranch.statements[thenCount - 1].kind
+    }
+    return computeIfBranchWeightMetadataImpl(thenCount, lastThenKind)
+}
+
+fun normalizeIfConditionTypeImpl(expr: ParserExpressionNode,
+    inferredType: String) r: String {
+
+    var condType = inferredType
+    let condKind = expr.kind
+    if condKind == "Binary" {
+        let condOp = expr.operator
+        if condOp == "==" or condOp == "!=" or condOp == "<" or
+            condOp == ">" or condOp == "<=" or condOp == ">=" or
+            condOp == "and" or condOp == "or" {
+
+            condType = "Bool"
+        }
+    }
+    if condKind == "Not" {
+        condType = "Bool"
+    }
+    if condKind == "Literal" {
+        let condLitVal = expr.literalValue
+        if condLitVal == "true" or condLitVal == "false" {
+            condType = "Bool"
+        }
+    }
+    return condType
+}
+
 fun finalizeConditionalEndBlockImpl(output: StringBuilder, endLabel: String,
     thenTerminated: Bool, elseTerminated: Bool) r: Bool {
 
@@ -88,6 +126,18 @@ fun emitPhiMergeValueImpl(output: StringBuilder, regBox: Array<Int>,
         thenReg + ", %" + thenLabel + " ], [ " + elseReg + ", %" +
         elseLabel + " ]\n")
     return resultReg
+}
+
+fun emitIfLetBindingStateImpl(output: StringBuilder, regBox: Array<Int>,
+    varNames: Array<String>, varRegs: Array<String>,
+    varTypes: Array<String>, activeVarCount: Int, bindName: String,
+    exprReg: String) r: Int {
+
+    let bindReg = getNextRegFn(regBox)
+    output.append("  " + bindReg + " = alloca i64, align 8\n")
+    output.append("  store i64 " + exprReg + ", ptr " + bindReg + "\n")
+    return storeActiveVariableBindingImpl(varNames, varRegs, varTypes,
+        activeVarCount, bindName, bindReg, "Int")
 }
 
 // emitRangeForLoopImpl — emit range-based for-in loop scaffolding
