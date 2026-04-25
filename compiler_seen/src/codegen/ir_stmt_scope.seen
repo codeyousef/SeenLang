@@ -91,6 +91,18 @@ fun classifyMetaStatementKindImpl(stmtKind: String) r: Int {
     return 0
 }
 
+class DeferredStatementRecordSnapshot {
+    var deferCount: Int
+    var errdeferCount: Int
+
+    static fun new() r: DeferredStatementRecordSnapshot {
+        return DeferredStatementRecordSnapshot{
+            deferCount: 0,
+            errdeferCount: 0
+        }
+    }
+}
+
 fun beginBlockDeferredCleanupImpl(output: StringBuilder, savedDeferCount: Int,
     currentDeferCount: Int, blockTerminated: Bool) r: Int {
 
@@ -119,6 +131,23 @@ fun recordDeferredStatementImpl(stmt: StatementNode, isErrdefer: Bool,
     }
     deferExprs.push(stmt.expression)
     deferCountBox[0] = deferCountBox[0] + 1
+}
+
+fun recordDeferredStatementSnapshotImpl(stmt: StatementNode, isErrdefer: Bool,
+    deferExprs: Array<ParserExpressionNode>, currentDeferCount: Int,
+    errdeferExprs: Array<ParserExpressionNode>, currentErrdeferCount: Int)
+    r: DeferredStatementRecordSnapshot {
+
+    let deferCountBox = Array<Int>()
+    deferCountBox.push(currentDeferCount)
+    let errdeferCountBox = Array<Int>()
+    errdeferCountBox.push(currentErrdeferCount)
+    recordDeferredStatementImpl(stmt, isErrdefer, deferExprs, deferCountBox,
+        errdeferExprs, errdeferCountBox)
+    let snapshot = DeferredStatementRecordSnapshot.new()
+    snapshot.deferCount = deferCountBox[0]
+    snapshot.errdeferCount = errdeferCountBox[0]
+    return snapshot
 }
 
 fun enterUnsafeStatementImpl(output: StringBuilder, insideUnsafeBox: Array<Int>)
