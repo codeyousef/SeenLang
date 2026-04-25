@@ -2,6 +2,92 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
+import codegen.ir_type_mapping.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
+
+class ComptimeRegistryStateSnapshot {
+    var comptimeNames: String
+    var comptimeValues: String
+    var comptimeCount: Int
+    var comptimeStrNames: String
+    var comptimeStrValues: String
+    var comptimeStrCount: Int
+
+    static fun new() r: ComptimeRegistryStateSnapshot {
+        return ComptimeRegistryStateSnapshot{
+            comptimeNames: "",
+            comptimeValues: "",
+            comptimeCount: 0,
+            comptimeStrNames: "",
+            comptimeStrValues: "",
+            comptimeStrCount: 0
+        }
+    }
+}
+
+fun captureComptimeRegistryStateImpl(comptimeNames: String,
+    comptimeValues: String, comptimeCount: Int, comptimeStrNames: String,
+    comptimeStrValues: String, comptimeStrCount: Int)
+    r: ComptimeRegistryStateSnapshot {
+
+    let snapshot = ComptimeRegistryStateSnapshot.new()
+    snapshot.comptimeNames = comptimeNames
+    snapshot.comptimeValues = comptimeValues
+    snapshot.comptimeCount = comptimeCount
+    snapshot.comptimeStrNames = comptimeStrNames
+    snapshot.comptimeStrValues = comptimeStrValues
+    snapshot.comptimeStrCount = comptimeStrCount
+    return snapshot
+}
+
+fun registerComptimeVarSnapshotImpl(name: String, value: Int,
+    comptimeNames: String, comptimeValues: String, comptimeCount: Int,
+    comptimeStrNames: String, comptimeStrValues: String,
+    comptimeStrCount: Int) r: ComptimeRegistryStateSnapshot {
+
+    let comptimeNamesBox = Array<String>()
+    comptimeNamesBox.push(comptimeNames)
+    let comptimeValuesBox = Array<String>()
+    comptimeValuesBox.push(comptimeValues)
+    let comptimeCountBox = Array<Int>()
+    comptimeCountBox.push(comptimeCount)
+    registerComptimeVarStateImpl(name, value, comptimeNamesBox,
+        comptimeValuesBox, comptimeCountBox)
+    return captureComptimeRegistryStateImpl(comptimeNamesBox[0],
+        comptimeValuesBox[0], comptimeCountBox[0], comptimeStrNames,
+        comptimeStrValues, comptimeStrCount)
+}
+
+fun updateComptimeVarSnapshotImpl(name: String, value: Int,
+    comptimeNames: String, comptimeValues: String, comptimeCount: Int,
+    comptimeStrNames: String, comptimeStrValues: String,
+    comptimeStrCount: Int) r: ComptimeRegistryStateSnapshot {
+
+    let comptimeValuesBox = Array<String>()
+    comptimeValuesBox.push(comptimeValues)
+    updateComptimeVarStateImpl(name, value, comptimeNames,
+        comptimeValuesBox, comptimeCount)
+    return captureComptimeRegistryStateImpl(comptimeNames,
+        comptimeValuesBox[0], comptimeCount, comptimeStrNames,
+        comptimeStrValues, comptimeStrCount)
+}
+
+fun registerComptimeStrVarSnapshotImpl(name: String, value: String,
+    comptimeNames: String, comptimeValues: String, comptimeCount: Int,
+    comptimeStrNames: String, comptimeStrValues: String,
+    comptimeStrCount: Int) r: ComptimeRegistryStateSnapshot {
+
+    let comptimeStrNamesBox = Array<String>()
+    comptimeStrNamesBox.push(comptimeStrNames)
+    let comptimeStrValuesBox = Array<String>()
+    comptimeStrValuesBox.push(comptimeStrValues)
+    let comptimeStrCountBox = Array<Int>()
+    comptimeStrCountBox.push(comptimeStrCount)
+    registerComptimeStrVarStateImpl(name, value, comptimeStrNamesBox,
+        comptimeStrValuesBox, comptimeStrCountBox)
+    return captureComptimeRegistryStateImpl(comptimeNames, comptimeValues,
+        comptimeCount, comptimeStrNamesBox[0], comptimeStrValuesBox[0],
+        comptimeStrCountBox[0])
+}
 
 fun classifyComptimeStatementKindImpl(stmtKind: String) r: Int {
     if stmtKind == "Let" or stmtKind == "Var" {

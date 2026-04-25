@@ -66,7 +66,7 @@ import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIs
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl, computeStructFieldOffsetFromLayoutImpl}
-import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl, registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl}
+import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, appendLoopTileHintImpl, appendLoopMetadataIdImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, enterLoopContextImpl, restoreLoopContextImpl, emitLoopEndLabelImpl, emitContinueStatementImpl, emitBreakStatementImpl, emitMemcpyLoopExitBlocksImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
@@ -101,7 +101,7 @@ import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTrac
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_dead_code.{scanBlockDeadStorePatternsSnapshotImpl, emitTrailingDeadCodeNoticeSnapshotImpl, shouldSkipDeadLiteralInitializerImpl}
-import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl}
+import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeIfBranchImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitAsyncReturnStoreAndBranchImpl, emitAsyncReturnBranchImpl, emitErrdeferVoidCleanupIntroImpl, emitErrdeferValueSetupImpl, emitErrdeferErrorBranchImpl, emitErrdeferErrorPathIntroImpl, emitErrdeferResumeLabelImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldLoadStructLiteralReturnValueImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, normalizeZeroReturnValueRegImpl, emitStructLiteralReturnLoadImpl}
 import codegen.ir_stmt_scope.{classifyBasicStatementKindImpl, classifyLoopControlStatementKindImpl, classifyScopedStatementKindImpl, classifyMetaStatementKindImpl, beginBlockDeferredCleanupImpl, recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
 import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
@@ -3071,43 +3071,36 @@ class LLVMIRGenerator {
         }
     }
 
+    fun syncComptimeRegistryState(state: ComptimeRegistryStateSnapshot)
+        r: Void {
+
+        g_comptimeNames = state.comptimeNames
+        g_comptimeValues = state.comptimeValues
+        g_comptimeCount = state.comptimeCount
+        g_comptimeStrNames = state.comptimeStrNames
+        g_comptimeStrValues = state.comptimeStrValues
+        g_comptimeStrCount = state.comptimeStrCount
+    }
+
     // Register a new comptime integer variable
     fun registerComptimeVar(name: String, value: Int) r: Void {
-        let comptimeNamesBox = Array<String>()
-        comptimeNamesBox.push(g_comptimeNames)
-        let comptimeValuesBox = Array<String>()
-        comptimeValuesBox.push(g_comptimeValues)
-        let comptimeCountBox = Array<Int>()
-        comptimeCountBox.push(g_comptimeCount)
-        registerComptimeVarStateImpl(name, value, comptimeNamesBox,
-            comptimeValuesBox, comptimeCountBox)
-        g_comptimeNames = comptimeNamesBox[0]
-        g_comptimeValues = comptimeValuesBox[0]
-        g_comptimeCount = comptimeCountBox[0]
+        syncComptimeRegistryState(registerComptimeVarSnapshotImpl(name, value,
+            g_comptimeNames, g_comptimeValues, g_comptimeCount,
+            g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
     }
 
     // Update an existing comptime integer variable
     fun updateComptimeVar(name: String, value: Int) r: Void {
-        let comptimeValuesBox = Array<String>()
-        comptimeValuesBox.push(g_comptimeValues)
-        updateComptimeVarStateImpl(name, value, g_comptimeNames,
-            comptimeValuesBox, g_comptimeCount)
-        g_comptimeValues = comptimeValuesBox[0]
+        syncComptimeRegistryState(updateComptimeVarSnapshotImpl(name, value,
+            g_comptimeNames, g_comptimeValues, g_comptimeCount,
+            g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
     }
 
     // Register a comptime string variable
     fun registerComptimeStrVar(name: String, value: String) r: Void {
-        let comptimeStrNamesBox = Array<String>()
-        comptimeStrNamesBox.push(g_comptimeStrNames)
-        let comptimeStrValuesBox = Array<String>()
-        comptimeStrValuesBox.push(g_comptimeStrValues)
-        let comptimeStrCountBox = Array<Int>()
-        comptimeStrCountBox.push(g_comptimeStrCount)
-        registerComptimeStrVarStateImpl(name, value, comptimeStrNamesBox,
-            comptimeStrValuesBox, comptimeStrCountBox)
-        g_comptimeStrNames = comptimeStrNamesBox[0]
-        g_comptimeStrValues = comptimeStrValuesBox[0]
-        g_comptimeStrCount = comptimeStrCountBox[0]
+        syncComptimeRegistryState(registerComptimeStrVarSnapshotImpl(name,
+            value, g_comptimeNames, g_comptimeValues, g_comptimeCount,
+            g_comptimeStrNames, g_comptimeStrValues, g_comptimeStrCount))
     }
 
     // Look up a comptime string variable
