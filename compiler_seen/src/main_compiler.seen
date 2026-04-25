@@ -66,7 +66,7 @@ import codegen.ir_control_flow.{detectMemcpyPatternImpl}
 import codegen.ir_loop_context.{emitLoopMetadataImpl}
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl}
-import codegen.ir_call_runtime.{emitPrintLikeCallImpl}
+import codegen.ir_call_runtime.{emitPrintLikeCallImpl, isOptionRuntimeBuiltinNameImpl, isPrintRuntimeBuiltinNameImpl, isIoRuntimeBuiltinNameImpl, isPanicRuntimeBuiltinNameImpl, isMathRuntimeBuiltinNameImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl}
 import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}

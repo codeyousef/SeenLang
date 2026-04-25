@@ -78,7 +78,7 @@ import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, 
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitIncludeStrImpl, emitIncludeBytesImpl}
 import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
-import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
+import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl, isOptionRuntimeBuiltinNameImpl, isPrintRuntimeBuiltinNameImpl, isIoRuntimeBuiltinNameImpl, isPanicRuntimeBuiltinNameImpl, isMathRuntimeBuiltinNameImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
@@ -6450,19 +6450,19 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateOptionRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if funcName == "Some" or funcName == "None" {
-            var argReg = "0"
-            var argType = "Int"
-            if funcName == "Some" and expr.arguments.length() > 0 {
-                argReg = generateExpression(expr.arguments[0])
-                argType = inferExpressionType(expr.arguments[0])
-            }
-            var isClassArg = 0
-            if isClassType(argType) { isClassArg = 1 }
-            return emitOptionRuntimeBuiltinCallImpl(output, g_regBox, funcName,
-                argReg, argType, isClassArg)
+        if not isOptionRuntimeBuiltinNameImpl(funcName) {
+            return ""
         }
-        return ""
+        var argReg = "0"
+        var argType = "Int"
+        if funcName == "Some" and expr.arguments.length() > 0 {
+            argReg = generateExpression(expr.arguments[0])
+            argType = inferExpressionType(expr.arguments[0])
+        }
+        var isClassArg = 0
+        if isClassType(argType) { isClassArg = 1 }
+        return emitOptionRuntimeBuiltinCallImpl(output, g_regBox, funcName,
+            argReg, argType, isClassArg)
     }
 
     fun tryGenerateSuperRuntimeBuiltinCall(funcName: String) r: String {
@@ -6493,26 +6493,23 @@ class LLVMIRGenerator {
     }
 
     fun tryGeneratePrintRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if funcName == "println" {
-            if expr.arguments.length() > 0 {
-                let argType = inferExpressionType(expr.arguments[0])
-                let argReg = generateExpression(expr.arguments[0])
-                return emitPrintLikeCallImpl(output, g_regBox, "println", argReg, argType)
-            }
-            return "0"
+        if not isPrintRuntimeBuiltinNameImpl(funcName) {
+            return ""
         }
-        if funcName == "print" {
-            if expr.arguments.length() > 0 {
-                let argType = inferExpressionType(expr.arguments[0])
-                let argReg = generateExpression(expr.arguments[0])
-                return emitPrintLikeCallImpl(output, g_regBox, "print", argReg, argType)
-            }
-            return "0"
+        if expr.arguments.length() > 0 {
+            let argType = inferExpressionType(expr.arguments[0])
+            let argReg = generateExpression(expr.arguments[0])
+            return emitPrintLikeCallImpl(output, g_regBox, funcName, argReg,
+                argType)
         }
-        return ""
+        return "0"
     }
 
     fun tryGenerateIoRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
+
+        if not isIoRuntimeBuiltinNameImpl(funcName) {
+            return ""
+        }
 
         if funcName == "readText" {
             if expr.arguments.length() > 0 {
@@ -6538,14 +6535,14 @@ class LLVMIRGenerator {
     }
 
     fun tryGeneratePanicRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if funcName == "panic" {
-            if expr.arguments.length() > 0 {
-                let argReg = generateExpression(expr.arguments[0])
-                return emitPanicRuntimeCallImpl(output, g_regBox, argReg)
-            }
-            return "0"
+        if not isPanicRuntimeBuiltinNameImpl(funcName) {
+            return ""
         }
-        return ""
+        if expr.arguments.length() > 0 {
+            let argReg = generateExpression(expr.arguments[0])
+            return emitPanicRuntimeCallImpl(output, g_regBox, argReg)
+        }
+        return "0"
     }
 
     fun tryGenerateRuntimeBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
@@ -6637,14 +6634,16 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateMathBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if funcName == "__Sqrt" or funcName == "__Sin" or funcName == "__Cos" or funcName == "__Exp" or funcName == "__Log" or funcName == "__Log10" or funcName == "__Fabs" or funcName == "__Pow" or funcName == "__Asin" or funcName == "__Acos" or funcName == "__Atan" or funcName == "__Sinh" or funcName == "__Cosh" or funcName == "__Tanh" or funcName == "__Tan" or funcName == "__Atan2" or funcName == "__ExecuteCommand" or funcName == "absFloat" or funcName == "absInt" or funcName == "minInt" or funcName == "maxInt" {
-            var mArg0 = ""
-            var mArg1 = ""
-            if expr.arguments.length() > 0 { mArg0 = generateExpression(expr.arguments[0]) }
-            if expr.arguments.length() > 1 { mArg1 = generateExpression(expr.arguments[1]) }
-            let mResult = emitMathBuiltinCallImpl(output, g_regBox, funcName, mArg0, mArg1)
-            if mResult != "" { return mResult }
+        if not isMathRuntimeBuiltinNameImpl(funcName) {
+            return ""
         }
+        var mArg0 = ""
+        var mArg1 = ""
+        if expr.arguments.length() > 0 { mArg0 = generateExpression(expr.arguments[0]) }
+        if expr.arguments.length() > 1 { mArg1 = generateExpression(expr.arguments[1]) }
+        let mResult = emitMathBuiltinCallImpl(output, g_regBox, funcName,
+            mArg0, mArg1)
+        if mResult != "" { return mResult }
         return ""
     }
 
