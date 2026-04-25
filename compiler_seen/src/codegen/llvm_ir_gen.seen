@@ -2653,20 +2653,6 @@ class LLVMIRGenerator {
     // Performs dead store elimination: scans for "var x = literal; x = expr"
     // patterns where x is not read between the two stores, and skips the
     // first literal initialization.
-    fun emitBlockDeferredCleanup(savedDeferCount: Int) r: Void {
-        let dIdxStart = beginFunctionBodyBlockDeferredCleanupImpl(output,
-            savedDeferCount,
-            g_deferCount, blockTerminated)
-        if dIdxStart < 0 {
-            return
-        }
-        var dIdx = dIdxStart
-        while dIdx >= savedDeferCount {
-            generateExpression(g_deferExprs[dIdx])
-            dIdx = dIdx - 1
-        }
-    }
-
     fun generateBlock(block: BlockNode) r: Void {
         // Save defer stack depth for this block scope
         let blockScope = captureFunctionBodyBlockScopeImpl(g_deferCount,
@@ -2693,7 +2679,12 @@ class LLVMIRGenerator {
             i = i + 1
         }
 
-        emitBlockDeferredCleanup(blockScope.savedDeferCount)
+        var deferCleanupIdx = beginFunctionBodyBlockDeferredCleanupImpl(output,
+            blockScope.savedDeferCount, g_deferCount, blockTerminated)
+        while deferCleanupIdx >= blockScope.savedDeferCount {
+            generateExpression(g_deferExprs[deferCleanupIdx])
+            deferCleanupIdx = deferCleanupIdx - 1
+        }
 
         // Restore defer stack to saved depth
         g_deferCount = blockScope.savedDeferCount
