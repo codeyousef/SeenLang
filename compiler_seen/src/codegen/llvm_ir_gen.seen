@@ -65,7 +65,7 @@ import codegen.ir_when_arm_gen.{emitWhenArmGuardImpl, ensureWhenPatternDestructP
 import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIsPatternBranchImpl, emitWhenPatternBranchImpl}
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
-import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl, computeStructFieldOffsetFromLayoutImpl}
+import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable, inferFieldTypeFallback, inferIndexElementType, registerKnownDataTypesImpl, resolveCollectionGetTypeImpl, resolveUnwrapTypeImpl, resolvePopElementTypeImpl, resolveTryPropagateTypeImpl}
 import codegen.ir_control_flow.{emitForInElementFetchImpl, emitForInPrefetchImpl, emitForInIncrementImpl, detectMemcpyPatternImpl, detectLoopBoundImpl, computeLoopTileSizeImpl, detectReductionPatternImpl, detectInductionVarImpl, detectBreakOnFlagImpl, detectNestedLoopImpl, detectGcdPatternImpl, emitWhileConditionBranchImpl, emitStringForInElementImpl, emitMemcpyLoopExitBlocksImpl}
@@ -90,6 +90,7 @@ import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeade
 import codegen.ir_class_type_decorators.{prepareClassTypeDecoratorScanSnapshotImpl}
 import codegen.ir_class_gen_support.{prepareGeneratedClassDecoratorSnapshotImpl, shouldSkipSourceClassMethodImpl, emitInheritedClassMethodThunksImpl}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
+import codegen.ir_class_constructor_gen.{emitClassHeapAllocationImpl, emitClassArrayFieldInitializersImpl, resolveClassConstructorFieldOffsetImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_module_emit.{mapGlobalVarLlvmTypeImpl, emitCrossModuleConstantDeclaresImpl, emitTraitVtableConstantsImpl, collectProgramDefinedSymbolsImpl, emitGeneratedClosuresImpl, emitOptimizationStatisticsSummaryImpl, shouldSkipStandaloneTopLevelFunctionImpl, resolveSpecialTopLevelFunctionActionImpl, emitGlobalConstructorsImpl}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccessImpl, generateFieldAccessPtrImpl}
@@ -6350,100 +6351,6 @@ class LLVMIRGenerator {
         return emitReprCConstructorImpl(output, g_regBox, funcName, reprCArgRegs, reprCFieldTypes)
     }
 
-    fun allocateClassConstructorStorage(structIdx: Int) r: String {
-        let ptrReg = getNextReg()
-        var structSize = 8
-        if structIdx >= 0 {
-            structSize = structSizes[structIdx]
-            if structSize == 0 {
-                structSize = 16
-            }
-        }
-
-        if structSize <= 80 {
-            output.append("  " + ptrReg + " = call ptr @seen_pool_alloc(i64 " + structSize.toString() + ")\n")
-        } else {
-            output.append("  " + ptrReg + " = call ptr @malloc(i64 " + structSize.toString() + ")\n")
-        }
-        output.append("  call void @llvm.memset.p0.i64(ptr " + ptrReg + ", i8 0, i64 " + structSize.toString() + ", i1 false)\n")
-        return ptrReg
-    }
-
-    fun getClassConstructorFieldOffset(structIdx: Int, fieldIndex: Int,
-        fallbackOffset: Int) r: Int {
-
-        if structIdx >= 0 {
-            let alignedOffset = computeStructFieldOffsetFromLayoutImpl(
-                structLayouts[structIdx], fieldIndex, structNames,
-                structLayouts, structSizes)
-            if alignedOffset >= 0 {
-                return alignedOffset
-            }
-        }
-        return fallbackOffset
-    }
-
-    fun emitClassConstructorArrayFieldInitializers(ptrReg: String, structIdx: Int) r: Void {
-        if structIdx < 0 {
-            return
-        }
-
-        let fieldNamesStr = structFieldNames[structIdx]
-        let fieldTypesStr = structFieldTypes[structIdx]
-        var byteOffset = 0
-        var namePos = 0
-        var typePos = 0
-        var fieldIndex = 0
-        var iterDone = 0
-        while iterDone == 0 {
-            var nameEnd = namePos
-            while nameEnd < fieldNamesStr.length() and fieldNamesStr.byteAt(nameEnd) != 44 {
-                nameEnd = nameEnd + 1
-            }
-            var typeEnd = typePos
-            while typeEnd < fieldTypesStr.length() and fieldTypesStr.byteAt(typeEnd) != 124 {
-                typeEnd = typeEnd + 1
-            }
-            let fieldSeenType = fieldTypesStr.substring(typePos, typeEnd)
-            let isArrayField = fieldSeenType.startsWith("Array<") or fieldSeenType.startsWith("List<")
-            if isArrayField {
-                let fieldOffset = getClassConstructorFieldOffset(structIdx,
-                    fieldIndex, byteOffset)
-                let fieldPtrReg = getNextReg()
-                output.append("  " + fieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + fieldOffset.toString() + "\n")
-                var elemType = ""
-                if fieldSeenType.startsWith("Array<") {
-                    elemType = fieldSeenType.substring(6, fieldSeenType.length() - 1)
-                }
-                if fieldSeenType.startsWith("List<") {
-                    elemType = fieldSeenType.substring(5, fieldSeenType.length() - 1)
-                }
-                let arrInitReg = getNextReg()
-                if elemType == "String" {
-                    output.append("  " + arrInitReg + " = call ptr @seen_arr_new_str_ptr()\n")
-                } else {
-                    if isDataType(elemType) {
-                        let elemSize = getDataTypeSize(elemType)
-                        output.append("  " + arrInitReg + " = call ptr @seen_arr_new_with_size_ptr(i64 " + elemSize.toString() + ")\n")
-                    } else {
-                        output.append("  " + arrInitReg + " = call ptr @seen_arr_new_ptr_ptr()\n")
-                    }
-                }
-                output.append("  store ptr " + arrInitReg + ", ptr " + fieldPtrReg + "\n")
-            }
-            byteOffset = byteOffset + getTypeSizeReg(fieldSeenType,
-                structNames, structSizes)
-            fieldIndex = fieldIndex + 1
-            if nameEnd < fieldNamesStr.length() {
-                namePos = nameEnd + 1
-                typePos = typeEnd + 1
-            }
-            if nameEnd >= fieldNamesStr.length() {
-                iterDone = 1
-            }
-        }
-    }
-
     fun emitClassConstructorArgumentStores(expr: ParserExpressionNode, ptrReg: String, structIdx: Int) r: Void {
         if structIdx < 0 or expr.arguments.length() == 0 {
             return
@@ -6462,8 +6369,9 @@ class LLVMIRGenerator {
             let ctorArgExpr = expr.arguments[ctorArgIdx]
             let ctorArgReg = generateExpression(ctorArgExpr)
             let ctorFieldPtrReg = getNextReg()
-            let ctorFieldOffset = getClassConstructorFieldOffset(structIdx,
-                ctorArgIdx, ctorByteOffset)
+            let ctorFieldOffset = resolveClassConstructorFieldOffsetImpl(
+                structIdx, ctorArgIdx, ctorByteOffset, structNames,
+                structLayouts, structSizes)
             output.append("  " + ctorFieldPtrReg + " = getelementptr inbounds i8, ptr " + ptrReg + ", i64 " + ctorFieldOffset.toString() + "\n")
             if isDataType(ctorFieldSeenType) {
                 if ctorArgExpr.kind == "StructLiteral" {
@@ -6496,8 +6404,11 @@ class LLVMIRGenerator {
             return ""
         }
 
-        let ptrReg = allocateClassConstructorStorage(structIdx)
-        emitClassConstructorArrayFieldInitializers(ptrReg, structIdx)
+        let ptrReg = emitClassHeapAllocationImpl(output, g_regBox, structIdx,
+            structNames, structSizes, structLayouts)
+        emitClassArrayFieldInitializersImpl(output, g_regBox, ptrReg,
+            structIdx, structNames, structSizes, structLayouts,
+            structFieldNames, structFieldTypes)
         emitClassConstructorArgumentStores(expr, ptrReg, structIdx)
         let intReg = getNextReg()
         output.append("  " + intReg + " = ptrtoint ptr " + ptrReg + " to i64\n")
