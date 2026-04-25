@@ -3,7 +3,65 @@
 // lowering separate from general call dispatch and argument preparation.
 
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.type_registry.{isDataTypeReg, getDataTypeSizeReg}
 import str.string.{StringBuilder}
+
+fun isArrayConstructorNameImpl(funcName: String) r: Bool {
+    if funcName == "Array" {
+        return true
+    }
+    return funcName.startsWith("Array<")
+}
+
+fun resolveArrayConstructorElementTypeImpl(funcName: String) r: String {
+    if funcName.startsWith("Array<") and funcName.endsWith(">") {
+        return funcName.substring(6, funcName.length() - 1)
+    }
+    return ""
+}
+
+fun resolveArrayConstructorElementSizeImpl(funcName: String,
+    elementType: String, structNames: Array<String>,
+    structSizes: Array<Int>) r: Int {
+
+    var elemSize = 8
+    if elementType == "String" {
+        elemSize = 16
+    }
+    if funcName == "Array<String>" or funcName.startsWith("Array<String") {
+        elemSize = 16
+    }
+    if isDataTypeReg(elementType) {
+        elemSize = getDataTypeSizeReg(elementType, structNames, structSizes)
+    }
+    return elemSize
+}
+
+fun isSmallVecConstructorNameImpl(funcName: String) r: Bool {
+    if funcName == "SmallVec" {
+        return true
+    }
+    if funcName.startsWith("SmallVec<") {
+        return true
+    }
+    return funcName.startsWith("SmallVec[")
+}
+
+fun isCollectionConstructorNameImpl(funcName: String) r: Bool {
+    if funcName == "Vec" or funcName.startsWith("Vec<") {
+        return true
+    }
+    if funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") {
+        return true
+    }
+    if funcName == "HashMap" or funcName.startsWith("HashMap<") {
+        return true
+    }
+    if funcName == "LinkedList" or funcName.startsWith("LinkedList<") {
+        return true
+    }
+    return false
+}
 
 // emitStaticCollectionNewImpl — Vec/BTreeMap/HashMap/StringHashMap/LinkedList .new() static calls
 // Returns result register (ptrtoint'd ptr), or "" if className not matched

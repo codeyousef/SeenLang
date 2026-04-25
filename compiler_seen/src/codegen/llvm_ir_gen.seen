@@ -76,7 +76,7 @@ import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emit
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl}
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitIncludeStrImpl, emitIncludeBytesImpl}
-import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl}
+import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
@@ -6247,19 +6247,12 @@ class LLVMIRGenerator {
         return ""
     }
 
-    fun resolveArrayConstructorElementType(funcName: String) r: String {
-        if funcName.startsWith("Array<") and funcName.endsWith(">") {
-            return funcName.substring(6, funcName.length() - 1)
-        }
-        return ""
-    }
-
     fun tryGenerateArrayConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not (funcName.startsWith("Array<") or funcName == "Array") {
+        if not isArrayConstructorNameImpl(funcName) {
             return ""
         }
 
-        let elementType = resolveArrayConstructorElementType(funcName)
+        let elementType = resolveArrayConstructorElementTypeImpl(funcName)
         if expr.arguments.length() == 2 {
             let countReg = generateExpression(expr.arguments[0])
             let valueReg = generateExpression(expr.arguments[1])
@@ -6274,24 +6267,18 @@ class LLVMIRGenerator {
 
         if expr.arguments.length() == 1 {
             let capReg = generateExpression(expr.arguments[0])
-            var elemSz = 8
-            if elementType == "String" { elemSz = 16 }
-            if isDataType(elementType) { elemSz = getDataTypeSize(elementType) }
+            let elemSz = resolveArrayConstructorElementSizeImpl(funcName,
+                elementType, structNames, structSizes)
             return emitArrayPreallocImpl(output, g_regBox, capReg, elemSz)
         }
 
-        var elemSize = 8
-        if funcName == "Array<String>" or funcName.startsWith("Array<String") {
-            elemSize = 16
-        }
-        if isDataType(elementType) {
-            elemSize = getDataTypeSize(elementType)
-        }
+        let elemSize = resolveArrayConstructorElementSizeImpl(funcName,
+            elementType, structNames, structSizes)
         return emitArrayInlineImpl(output, g_regBox, elemSize, currentFunctionAlignTo())
     }
 
     fun tryGenerateSmallVecConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not (funcName.startsWith("SmallVec<") or funcName.startsWith("SmallVec[") or funcName == "SmallVec") {
+        if not isSmallVecConstructorNameImpl(funcName) {
             return ""
         }
         var svCapArgReg = ""
@@ -6302,11 +6289,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateCollectionConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
-        let isCollectionCtor = funcName == "Vec" or funcName.startsWith("Vec<") or
-            funcName == "BTreeMap" or funcName.startsWith("BTreeMap<") or
-            funcName == "HashMap" or funcName.startsWith("HashMap<") or
-            funcName == "LinkedList" or funcName.startsWith("LinkedList<")
-        if not isCollectionCtor {
+        if not isCollectionConstructorNameImpl(funcName) {
             return ""
         }
         var colCapArg = ""

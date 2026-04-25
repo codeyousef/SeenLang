@@ -64,7 +64,7 @@ import codegen.ir_type_mapping.{isClassTypeImpl, setComptimeTargetName}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_control_flow.{detectMemcpyPatternImpl}
 import codegen.ir_loop_context.{emitLoopMetadataImpl}
-import codegen.ir_call_constructors.{emitStaticCollectionNewImpl}
+import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
