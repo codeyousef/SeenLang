@@ -1,7 +1,7 @@
 // ir_function_prebody.seen - top-level function pre-body state preparation.
 
 import parser.real_parser.{FunctionNode}
-import codegen.type_registry.{CodegenState, resetFunctionLoweringOptions, encodeFunctionLoweringOptions}
+import codegen.type_registry.{CodegenState, resetFunctionLoweringOptions}
 import codegen.ir_function_gen.{resetLocalCodegenStateImpl, emitPreAllocatedAllocasImpl, emitDefaultReturnValueImpl}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
@@ -57,7 +57,7 @@ fun prepareFunctionPreBodyStateSnapshotImpl(state: CodegenState,
     state.currentFunctionReturnType = resolvedFunctionReturnType
     state.currentClassName = ""
     resetFunctionLoweringOptions(state.functionOptions)
-    state.indent = encodeFunctionLoweringOptions(state.functionOptions)
+    state.indent = 0
 
     let activeVarCountBox = Array<Int>()
     activeVarCountBox.push(state.activeVarCount)
