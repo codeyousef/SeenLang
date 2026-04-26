@@ -60,33 +60,6 @@ fun shouldReadReceiverFastPathArgImpl(action: Int, argCount: Int,
     return action > 0 and argCount > argIndex
 }
 
-fun shouldTraceUnwrapToJsonSourceImpl(receiverType: String,
-    methodName: String, operandCount: Int) r: Bool {
-
-    return receiverType == "ptr" and methodName == "toJson" and
-        operandCount > 0
-}
-
-fun isUnwrapMethodCallExprImpl(exprKind: String, callee: String,
-    operandCount: Int) r: Bool {
-
-    return exprKind == "MethodCall" and callee == "unwrap" and
-        operandCount > 0
-}
-
-fun isFusedStringBuilderFloatAppendImpl(receiverType: String,
-    methodName: String, argCount: Int, argKind: String, argCallee: String,
-    nestedArgCount: Int) r: Bool {
-
-    return receiverType == "StringBuilder" and methodName == "append" and
-        argCount > 0 and argKind == "Call" and
-        argCallee == "__FloatToString" and nestedArgCount > 0
-}
-
-fun shouldPrepareFirstMethodArgImpl(argCount: Int) r: Bool {
-    return argCount > 0
-}
-
 fun shouldTryStaticMethodCallImpl(receiverReg: String,
     literalValue: String) r: Bool {
 
