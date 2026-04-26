@@ -3268,6 +3268,12 @@ class LLVMIRGenerator {
                 normalizedValueReg)
             normalizedValueReg = loadReg
         }
+        if llvmType == "i1" {
+            let returnExprType = normalizeIfConditionTypeImpl(stmt.returnValue,
+                inferExpressionType(stmt.returnValue))
+            return emitConditionToI1Impl(output, g_regBox, normalizedValueReg,
+                returnExprType)
+        }
         return normalizeZeroReturnValueRegImpl(llvmType, normalizedValueReg)
     }
 

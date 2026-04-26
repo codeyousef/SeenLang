@@ -1,0 +1,64 @@
+// Regression: the HeartOn-shaped 9-parameter nested loop with continue must parse.
+
+class TerrainGenerator {
+    var seed: Int
+
+    static fun new() r: TerrainGenerator {
+        return TerrainGenerator { seed: 0 }
+    }
+}
+
+class Chunk {
+    var marker: Int
+
+    static fun new() r: Chunk {
+        return Chunk { marker: 0 }
+    }
+
+    fun setVoxel(x: Int, y: Int, z: Int, voxelType: Int) {
+        if x < 0 {
+            return
+        }
+        this.marker = voxelType
+    }
+}
+
+fun placeBirch(generator: TerrainGenerator, chunk: Chunk, lx: Int, ly: Int, lz: Int, trunkHeight: Int, leafType: Int, wx: Int, wz: Int) {
+    for tj in 0..7 {
+        if trunkHeight < 6 {
+            if tj >= 4 {
+                continue
+            }
+        }
+
+        var maxDist = 2
+        if tj >= 1 { if tj <= 3 { maxDist = 5 } }
+        if tj == 6 { maxDist = 1 }
+
+        for tii in 0..5 {
+            let ti = -2 + tii
+            for tki in 0..5 {
+                let tk = -2 + tki
+                let distSq = ti * ti + tk * tk
+                if distSq <= maxDist {
+                    let tx = lx + ti
+                    let tz = lz + tk
+                    let tty = ly + trunkHeight + tj
+                    if tx >= 0 { if tx < 32 { if tz >= 0 { if tz < 32 {
+                        if tty >= 0 { if tty < 32 {
+                            chunk.setVoxel(tx, tty, tz, leafType)
+                        } }
+                    } } } }
+                }
+            }
+        }
+    }
+}
+
+fun main() r: Int {
+    let generator = TerrainGenerator.new()
+    let chunk = Chunk.new()
+    placeBirch(generator, chunk, 1, 2, 3, 5, 9, 10, 11)
+    println("PASS: nested continue high arity")
+    return 0
+}
