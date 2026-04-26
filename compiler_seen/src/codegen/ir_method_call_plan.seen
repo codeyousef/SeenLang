@@ -32,6 +32,62 @@ fun hasResolvedMethodReceiverImpl(receiverReg: String) r: Bool {
     return receiverReg != ""
 }
 
+class ResolvedReceiverFastPathPlan {
+    var action: Int
+
+    static fun new() r: ResolvedReceiverFastPathPlan {
+        return ResolvedReceiverFastPathPlan{action: 0}
+    }
+}
+
+fun planResolvedReceiverFastPathImpl(receiverReg: String,
+    receiverIsOption: Bool, receiverIsSmallVec: Bool,
+    receiverIsCollection: Bool, receiverIsArray: Bool)
+    r: ResolvedReceiverFastPathPlan {
+
+    let plan = ResolvedReceiverFastPathPlan.new()
+    if receiverReg == "" {
+        return plan
+    }
+    if receiverIsOption {
+        plan.action = 1
+        return plan
+    }
+    if receiverIsSmallVec {
+        plan.action = 2
+        return plan
+    }
+    if receiverIsCollection {
+        plan.action = 3
+        return plan
+    }
+    if receiverIsArray {
+        plan.action = 4
+    }
+    return plan
+}
+
+fun shouldReadOptionDefaultFastPathArgImpl(action: Int, methodName: String,
+    argCount: Int) r: Bool {
+
+    return action == 1 and
+        (methodName == "unwrapOr" or methodName == "UnwrapOr") and
+        argCount > 0
+}
+
+fun shouldReadSmallVecFastPathArgImpl(action: Int, methodName: String,
+    argCount: Int) r: Bool {
+
+    return action == 2 and
+        (methodName == "push" or methodName == "get") and argCount > 0
+}
+
+fun shouldReadReceiverFastPathArgImpl(action: Int, argCount: Int,
+    argIndex: Int) r: Bool {
+
+    return action > 0 and argCount > argIndex
+}
+
 fun shouldTraceUnwrapToJsonSourceImpl(receiverType: String,
     methodName: String, operandCount: Int) r: Bool {
 

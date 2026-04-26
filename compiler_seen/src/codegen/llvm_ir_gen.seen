@@ -92,7 +92,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, shouldBuildDottedLiteralReceiverExprImpl, shouldResolveDottedLiteralReceiverFallbackImpl, shouldResolveSimpleLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, isArrayFreeMutatorMethodImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
+import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, shouldBuildDottedLiteralReceiverExprImpl, shouldResolveDottedLiteralReceiverFallbackImpl, shouldResolveSimpleLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, isArrayFreeMutatorMethodImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -6458,54 +6458,60 @@ class LLVMIRGenerator {
     fun tryGenerateResolvedReceiverFastPathMethodCall(expr: ParserExpressionNode,
         methodName: String, receiverReg: String, receiverType: String) r: String {
 
-        if isOptionReceiverTypeImpl(receiverType) and
-            hasResolvedMethodReceiverImpl(receiverReg) {
+        let fastPathPlan = planResolvedReceiverFastPathImpl(receiverReg,
+            isOptionReceiverTypeImpl(receiverType),
+            isSmallVecReceiverTypeImpl(receiverType),
+            isCollectionReceiverTypeImpl(receiverType),
+            isArrayReceiverTypeImpl(receiverType))
+
+        if fastPathPlan.action == 1 {
 
             var optDefaultRegS = "0"
-            if (methodName == "unwrapOr" or methodName == "UnwrapOr") and
-                expr.arguments.length() > 0 {
+            if shouldReadOptionDefaultFastPathArgImpl(fastPathPlan.action,
+                methodName, expr.arguments.length()) {
                 optDefaultRegS = generateExpression(expr.arguments[0])
             }
             return emitOptionMethodImpl(output, g_regBox, g_blockLabelBox,
                 methodName, receiverReg, optDefaultRegS)
         }
 
-        if isSmallVecReceiverTypeImpl(receiverType) and
-            hasResolvedMethodReceiverImpl(receiverReg) {
+        if fastPathPlan.action == 2 {
 
             var svArgReg = ""
-            if (methodName == "push" or methodName == "get") and
-                expr.arguments.length() > 0 {
+            if shouldReadSmallVecFastPathArgImpl(fastPathPlan.action,
+                methodName, expr.arguments.length()) {
                 svArgReg = generateExpression(expr.arguments[0])
             }
             return emitSmallVecMethodImpl(output, g_regBox, methodName,
                 receiverReg, receiverType, svArgReg)
         }
 
-        if isCollectionReceiverTypeImpl(receiverType) and
-            hasResolvedMethodReceiverImpl(receiverReg) {
+        if fastPathPlan.action == 3 {
 
             var collArg0s = "0"
             var collArg1s = "0"
-            if expr.arguments.length() > 0 {
+            if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+                expr.arguments.length(), 0) {
                 collArg0s = generateExpression(expr.arguments[0])
             }
-            if expr.arguments.length() > 1 {
+            if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+                expr.arguments.length(), 1) {
                 collArg1s = generateExpression(expr.arguments[1])
             }
             return dispatchCollectionMethodImpl(output, g_regBox, methodName,
                 receiverReg, receiverType, collArg0s, collArg1s)
         }
 
-        if isArrayReceiverTypeImpl(receiverType) and
-            hasResolvedMethodReceiverImpl(receiverReg) {
+        if fastPathPlan.action == 4 {
 
             var arrArg0 = ""
             var arrArg1 = ""
-            if expr.arguments.length() > 0 {
+            if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+                expr.arguments.length(), 0) {
                 arrArg0 = generateExpression(expr.arguments[0])
             }
-            if expr.arguments.length() > 1 {
+            if shouldReadReceiverFastPathArgImpl(fastPathPlan.action,
+                expr.arguments.length(), 1) {
                 arrArg1 = generateExpression(expr.arguments[1])
             }
             return emitArrayBasicMethodImpl(output, g_regBox, methodName,
