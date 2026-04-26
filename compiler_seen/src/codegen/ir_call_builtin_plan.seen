@@ -43,6 +43,30 @@ class LowLevelBuiltinCallPlan {
     }
 }
 
+class LowLevelBuiltinArgumentPlan {
+    var shouldReadArg0: Bool
+    var shouldReadArg1: Bool
+    var shouldReadArg2: Bool
+    var defaultArg0: String
+    var shouldPrepareSimdArgs: Bool
+    var shouldPrepareIndirectArgs: Bool
+    var shouldUseAsyncYieldState: Bool
+    var shouldGenerateEnumConstructor: Bool
+
+    static fun new() r: LowLevelBuiltinArgumentPlan {
+        return LowLevelBuiltinArgumentPlan{
+            shouldReadArg0: false,
+            shouldReadArg1: false,
+            shouldReadArg2: false,
+            defaultArg0: "",
+            shouldPrepareSimdArgs: false,
+            shouldPrepareIndirectArgs: false,
+            shouldUseAsyncYieldState: false,
+            shouldGenerateEnumConstructor: false
+        }
+    }
+}
+
 fun isSizeofMetaBuiltinImpl(funcName: String) r: Bool {
     return funcName == "sizeof"
 }
@@ -157,6 +181,55 @@ fun shouldClearDebugAssertCseImpl(boundsCheckEnabled: Int,
     condVal: String) r: Bool {
 
     return boundsCheckEnabled == 1 and condVal != ""
+}
+
+fun planLowLevelBuiltinArgumentReadsImpl(action: Int, hasArg0: Bool,
+    hasArg1: Bool, hasArg2: Bool) r: LowLevelBuiltinArgumentPlan {
+
+    let plan = LowLevelBuiltinArgumentPlan.new()
+    if action == 1 {
+        plan.shouldReadArg0 = hasArg0
+        plan.shouldReadArg1 = hasArg1
+        plan.shouldReadArg2 = hasArg2
+        return plan
+    }
+    if action == 3 {
+        plan.shouldReadArg0 = hasArg0
+        plan.defaultArg0 = "1"
+        return plan
+    }
+    if action == 4 or action == 5 or action == 6 or action == 8 {
+        plan.shouldReadArg0 = hasArg0
+        return plan
+    }
+    if action == 7 {
+        plan.shouldReadArg0 = hasArg0
+        plan.shouldReadArg1 = hasArg1
+        return plan
+    }
+    if action == 10 {
+        plan.shouldUseAsyncYieldState = true
+        return plan
+    }
+    if action == 11 {
+        plan.shouldPrepareSimdArgs = true
+        return plan
+    }
+    if action == 12 {
+        plan.shouldPrepareIndirectArgs = true
+        return plan
+    }
+    if action == 13 {
+        plan.shouldGenerateEnumConstructor = true
+    }
+    return plan
+}
+
+fun shouldClearLowLevelDebugAssertCseImpl(action: Int,
+    boundsCheckEnabled: Int, condVal: String) r: Bool {
+
+    return action == 5 and shouldClearDebugAssertCseImpl(
+        boundsCheckEnabled, condVal)
 }
 
 fun planLowLevelBuiltinCallImpl(funcName: String, argCount: Int,
