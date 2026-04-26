@@ -92,7 +92,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, shouldBuildDottedLiteralReceiverExprImpl, shouldResolveDottedLiteralReceiverFallbackImpl, shouldResolveSimpleLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, isArrayFreeMutatorMethodImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
+import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, shouldBuildDottedLiteralReceiverExprImpl, shouldResolveDottedLiteralReceiverFallbackImpl, shouldResolveSimpleLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, isArrayFreeMutatorMethodImpl, shouldUseLiteralArrayFreeReceiverTypeImpl, shouldResolveArrayFreePointerFromLiteralImpl, shouldEmitArrayFreePointerImpl, shouldEmitClassFreeMutationImpl, planArrayMutatorMethodImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, shouldUseArrayMutatorReceiverFallbackImpl, shouldEmitArrayMutatorWithPointerImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -6599,12 +6599,12 @@ class LLVMIRGenerator {
             return ""
         }
 
-        if varName.contains(".") {
+        if isDottedArrayMutatorLiteralImpl(varName) {
             let fieldName = extractLastMemberFieldSegmentImpl(varName)
             let receiverName = varName.substring(0,
                 varName.length() - fieldName.length() - 1)
 
-            if receiverName.contains(".") {
+            if shouldResolveChainedArrayMutatorReceiverImpl(receiverName) {
                 let chainedArrayPtr = tryGenerateChainedReceiverMemberAccess(
                     receiverName, fieldName)
                 if chainedArrayPtr != "" {
@@ -6634,13 +6634,14 @@ class LLVMIRGenerator {
         }
 
         let varIdx = findActiveVariableIndexImpl(varNames, activeVarCount, varName)
-        if varIdx >= 0 {
+        if shouldLoadLocalArrayMutatorPointerImpl(varIdx) {
             return emitLocalVariableLoadImpl(output, g_regBox, "ptr",
                 varRegs[varIdx])
         }
 
         let implicitThisArrayPtr = tryGenerateImplicitThisVariable(varName)
-        if implicitThisArrayPtr != "" {
+        if shouldUseImplicitThisArrayMutatorPointerImpl(
+            implicitThisArrayPtr) {
             return implicitThisArrayPtr
         }
 
@@ -6653,7 +6654,11 @@ class LLVMIRGenerator {
     fun tryGenerateArrayMutatorMethodCall(expr: ParserExpressionNode, methodName: String,
         receiverReg: String, receiverType: String) r: String {
 
-        if isArrayFreeMutatorMethodImpl(methodName) {
+        let receiverIsArray = isArrayReceiverTypeImpl(receiverType)
+        let mutatorPlan = planArrayMutatorMethodImpl(methodName,
+            receiverIsArray, expr.arguments.length())
+
+        if mutatorPlan.action == 1 {
             var freeReceiverType = receiverType
             if shouldUseLiteralArrayFreeReceiverTypeImpl(freeReceiverType,
                 expr.literalValue) {
@@ -6693,8 +6698,7 @@ class LLVMIRGenerator {
             }
         }
 
-        if isArrayPushMutatorMethodImpl(methodName,
-            isArrayReceiverTypeImpl(receiverType)) {
+        if mutatorPlan.action == 2 {
             let argExpr = expr.arguments[0]
             let argReg = generateExpression(argExpr)
             let argType = inferExpressionType(argExpr)
@@ -6707,11 +6711,11 @@ class LLVMIRGenerator {
             var arrayPtrReg = tryResolveArrayMutatorPointerFromLiteral(varName)
 
             if shouldUseReceiverRegForArrayMutationImpl(arrayPtrReg,
-                isArrayReceiverTypeImpl(receiverType)) {
+                receiverIsArray) {
                 arrayPtrReg = receiverReg
             }
 
-            if arrayPtrReg != "" {
+            if shouldEmitArrayMutatorWithPointerImpl(arrayPtrReg) {
                 let pushResult = emitArrayPushMutationImpl(output, g_regBox,
                     g_blockLabelBox, arrayPtrReg, argReg, pushElemType,
                     receiverType, argIsStructLiteral, structNames)
@@ -6721,26 +6725,27 @@ class LLVMIRGenerator {
             }
         }
 
-        if isArrayPopMutatorMethodImpl(methodName) {
+        if mutatorPlan.action == 3 {
             var arrayPtrReg =
                 tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
-            if arrayPtrReg == "" { arrayPtrReg = receiverReg }
-            if arrayPtrReg != "" {
+            if shouldUseArrayMutatorReceiverFallbackImpl(arrayPtrReg,
+                receiverReg) { arrayPtrReg = receiverReg }
+            if shouldEmitArrayMutatorWithPointerImpl(arrayPtrReg) {
                 return emitArrayPopMutationImpl(output, g_regBox,
                     arrayPtrReg, resolvePopElementTypeImpl(receiverType))
             }
         }
 
-        if isArraySwapMutatorMethodImpl(methodName,
-            isArrayReceiverTypeImpl(receiverType), expr.arguments.length()) {
+        if mutatorPlan.action == 4 {
             let idxAReg = generateExpression(expr.arguments[0])
             let idxBReg = generateExpression(expr.arguments[1])
             var arrayPtrReg =
                 tryResolveArrayMutatorPointerFromLiteral(expr.literalValue)
-            if arrayPtrReg == "" {
+            if shouldUseArrayMutatorReceiverFallbackImpl(arrayPtrReg,
+                receiverReg) {
                 arrayPtrReg = receiverReg
             }
-            if arrayPtrReg != "" {
+            if shouldEmitArrayMutatorWithPointerImpl(arrayPtrReg) {
                 return emitArraySwapMutationImpl(output, g_regBox,
                     arrayPtrReg, idxAReg, idxBReg)
             }
