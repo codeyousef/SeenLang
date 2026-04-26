@@ -1,9 +1,5 @@
 // ir_method_call_plan.seen - pure method-call dispatch planning helpers.
 
-fun hasExplicitMethodReceiverImpl(operandCount: Int) r: Bool {
-    return operandCount > 0
-}
-
 class ResolvedReceiverFastPathPlan {
     var action: Int
 
