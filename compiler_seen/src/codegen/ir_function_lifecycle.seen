@@ -3,6 +3,99 @@
 import codegen.ir_function_gen.{FunctionEntrySetupSnapshot, FunctionRuntimeStateSnapshot}
 import codegen.ir_function_state.{FunctionEmissionState}
 
+class FunctionIntrinsicFlowPlan {
+    var shouldWriteBackRegistry: Bool
+    var shouldReturn: Bool
+
+    static fun new() r: FunctionIntrinsicFlowPlan {
+        return FunctionIntrinsicFlowPlan{
+            shouldWriteBackRegistry: false,
+            shouldReturn: false
+        }
+    }
+}
+
+class FunctionIdentityFlowPlan {
+    var shouldReturn: Bool
+    var shouldEmitRuntimeSkipNote: Bool
+
+    static fun new() r: FunctionIdentityFlowPlan {
+        return FunctionIdentityFlowPlan{
+            shouldReturn: false,
+            shouldEmitRuntimeSkipNote: false
+        }
+    }
+}
+
+class FunctionHighPressurePlan {
+    var shouldMarkEmission: Bool
+    var shouldMarkLowering: Bool
+
+    static fun new() r: FunctionHighPressurePlan {
+        return FunctionHighPressurePlan{
+            shouldMarkEmission: false,
+            shouldMarkLowering: false
+        }
+    }
+}
+
+class FunctionEntryExitFlowPlan {
+    var shouldApplyEntrySetup: Bool
+    var shouldApplyUnusedParamLogs: Bool
+    var shouldApplyExitState: Bool
+
+    static fun new() r: FunctionEntryExitFlowPlan {
+        return FunctionEntryExitFlowPlan{
+            shouldApplyEntrySetup: false,
+            shouldApplyUnusedParamLogs: false,
+            shouldApplyExitState: false
+        }
+    }
+}
+
+fun planFunctionIntrinsicFlowImpl(handledIntrinsic: Bool)
+    r: FunctionIntrinsicFlowPlan {
+
+    let plan = FunctionIntrinsicFlowPlan.new()
+    plan.shouldWriteBackRegistry = true
+    plan.shouldReturn = handledIntrinsic
+    return plan
+}
+
+fun shouldReturnAfterFunctionDecoratorPreflightImpl(
+    handledByDecorator: Int) r: Bool {
+
+    return handledByDecorator == 1
+}
+
+fun planFunctionIdentityFlowImpl(alreadyGenerated: Int,
+    skipRuntimeBuiltinStub: Int) r: FunctionIdentityFlowPlan {
+
+    let plan = FunctionIdentityFlowPlan.new()
+    plan.shouldReturn = alreadyGenerated == 1 or skipRuntimeBuiltinStub == 1
+    plan.shouldEmitRuntimeSkipNote = skipRuntimeBuiltinStub == 1
+    return plan
+}
+
+fun planFunctionHighPressureImpl(highPressure: Int)
+    r: FunctionHighPressurePlan {
+
+    let plan = FunctionHighPressurePlan.new()
+    if highPressure == 1 {
+        plan.shouldMarkEmission = true
+        plan.shouldMarkLowering = true
+    }
+    return plan
+}
+
+fun planFunctionEntryExitFlowImpl() r: FunctionEntryExitFlowPlan {
+    let plan = FunctionEntryExitFlowPlan.new()
+    plan.shouldApplyEntrySetup = true
+    plan.shouldApplyUnusedParamLogs = true
+    plan.shouldApplyExitState = true
+    return plan
+}
+
 fun applyFunctionEntrySetupToEmissionImpl(
     functionEmission: FunctionEmissionState,
     entrySetup: FunctionEntrySetupSnapshot) r: Void {

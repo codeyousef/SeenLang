@@ -137,7 +137,7 @@ import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStruc
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
-import codegen.ir_function_lifecycle.{applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
+import codegen.ir_function_lifecycle.{planFunctionIntrinsicFlowImpl, shouldReturnAfterFunctionDecoratorPreflightImpl, planFunctionIdentityFlowImpl, planFunctionHighPressureImpl, planFunctionEntryExitFlowImpl, applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
 import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl}
@@ -2535,19 +2535,20 @@ class LLVMIRGenerator {
         intrinsicLlvmNamesBox.push(g_intrinsicLlvmNames)
         let intrinsicCountBox = Array<Int>()
         intrinsicCountBox.push(g_intrinsicCount)
-        if tryHandleIntrinsicFunctionGenerationStateImpl(output, g_regBox, fn,
+        let handledIntrinsic =
+            tryHandleIntrinsicFunctionGenerationStateImpl(output, g_regBox, fn,
             structNames, g_typeAliasNames, g_typeAliasTargets,
             g_typeAliasCount, g_enumTypeNames, intrinsicFuncNamesBox,
-            intrinsicLlvmNamesBox, intrinsicCountBox) {
-
+            intrinsicLlvmNamesBox, intrinsicCountBox)
+        let intrinsicFlow = planFunctionIntrinsicFlowImpl(handledIntrinsic)
+        if intrinsicFlow.shouldWriteBackRegistry {
             g_intrinsicFuncNames = intrinsicFuncNamesBox[0]
             g_intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
             g_intrinsicCount = intrinsicCountBox[0]
+        }
+        if intrinsicFlow.shouldReturn {
             return
         }
-        g_intrinsicFuncNames = intrinsicFuncNamesBox[0]
-        g_intrinsicLlvmNames = intrinsicLlvmNamesBox[0]
-        g_intrinsicCount = intrinsicCountBox[0]
 
         let decoratorPreflight = prepareFunctionDecoratorPreflightSnapshotImpl(
             output, g_regBox, fn, g_traitImplRegistry, g_traitImplCount,
@@ -2560,7 +2561,8 @@ class LLVMIRGenerator {
         g_gpuShaderWorkgroups = decoratorPreflight.gpuShaderWorkgroups
         g_gpuShaderBindings = decoratorPreflight.gpuShaderBindings
         g_gpuShaderCount = decoratorPreflight.gpuShaderCount
-        if decoratorPreflight.handledByDecorator == 1 {
+        if shouldReturnAfterFunctionDecoratorPreflightImpl(
+            decoratorPreflight.handledByDecorator) {
             return
         }
 
@@ -2581,12 +2583,14 @@ class LLVMIRGenerator {
             generatedFunctions, funcNames, funcRetTypes)
         g_traitImplRegistry = functionIdentity.traitImplRegistry
         g_traitImplCount = functionIdentity.traitImplCount
-        if functionIdentity.alreadyGenerated == 1 {
-            return
-        }
-        if functionIdentity.skipRuntimeBuiltinStub == 1 {
+        let identityFlow = planFunctionIdentityFlowImpl(
+            functionIdentity.alreadyGenerated,
+            functionIdentity.skipRuntimeBuiltinStub)
+        if identityFlow.shouldEmitRuntimeSkipNote {
             output.append("; skipped user stub for runtime builtin: " +
                 functionIdentity.implFuncName + "\n")
+        }
+        if identityFlow.shouldReturn {
             return
         }
 
@@ -2629,8 +2633,12 @@ class LLVMIRGenerator {
         let functionEmission = getCurrentFunctionEmissionStateImpl()
         // ML register pressure estimation (9.7): count unique variables
         println("[irgen function] recursion flags done: " + fnName)
-        if preludeAnalysis.highPressure == 1 {
+        let highPressurePlan = planFunctionHighPressureImpl(
+            preludeAnalysis.highPressure)
+        if highPressurePlan.shouldMarkEmission {
             markFunctionEmissionHighPressureImpl(functionEmission)
+        }
+        if highPressurePlan.shouldMarkLowering {
             markFunctionHighPressureImpl(getCurrentFunctionOptions())
         }
         println("[irgen function] reg-pressure done: " + fnName)
@@ -2647,8 +2655,13 @@ class LLVMIRGenerator {
             functionEmission.asyncCoroHdl, functionEmission.asyncFinalLabel,
             functionEmission.asyncCleanupLabel)
         writeBackState()
-        applyFunctionEntrySetupToEmissionImpl(functionEmission, entrySetup)
-        applyFunctionUnusedParamMlLogsImpl(entrySetup.unusedParams, fnName)
+        let entryExitFlow = planFunctionEntryExitFlowImpl()
+        if entryExitFlow.shouldApplyEntrySetup {
+            applyFunctionEntrySetupToEmissionImpl(functionEmission, entrySetup)
+        }
+        if entryExitFlow.shouldApplyUnusedParamLogs {
+            applyFunctionUnusedParamMlLogsImpl(entrySetup.unusedParams, fnName)
+        }
 
         // Generate function body
         generateBlock(fn.body)
@@ -2668,7 +2681,9 @@ class LLVMIRGenerator {
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_enumTypeNames)
         writeBackState()
-        applyFunctionExitStateToEmissionImpl(functionEmission, exitState)
+        if entryExitFlow.shouldApplyExitState {
+            applyFunctionExitStateToEmissionImpl(functionEmission, exitState)
+        }
     }
 
     // Generate IR for a block of statements. Manages the defer stack depth
