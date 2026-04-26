@@ -118,16 +118,47 @@ fun captureDeclarationPassStateImpl(asyncFuncNames: String,
 
 fun packDeclarationPassStateImpl(state: DeclarationPassState) r: String {
     let sep = declRegistryPackSepImpl()
-    return state.asyncFuncNames + sep + state.asyncFuncRetTypes + sep +
-        state.asyncFuncCount.toString() + sep + state.xmDeclareNames + sep +
-        state.xmDeclareStrs + sep + state.xmDeclareVis + sep +
-        state.xmDeclareCount.toString() + sep + state.enumTypeNames + sep +
-        state.enumVariantNames + sep + state.enumVariantTags + sep +
-        state.enumVariantFieldTypes + sep + state.enumVariantFieldCounts +
-        sep + state.enumVariantParent + sep + state.enumTypeCount.toString() +
-        sep + state.enumVariantCount.toString() + sep + state.xmConstNames +
-        sep + state.xmConstTypes + sep + state.xmConstMutable + sep +
-        state.xmConstSeenTypes + sep + state.xmConstCount.toString()
+    let packed = StringBuilder.new()
+    packed.append(state.asyncFuncNames)
+    packed.append(sep)
+    packed.append(state.asyncFuncRetTypes)
+    packed.append(sep)
+    packed.append(state.asyncFuncCount.toString())
+    packed.append(sep)
+    packed.append(state.xmDeclareNames)
+    packed.append(sep)
+    packed.append(state.xmDeclareStrs)
+    packed.append(sep)
+    packed.append(state.xmDeclareVis)
+    packed.append(sep)
+    packed.append(state.xmDeclareCount.toString())
+    packed.append(sep)
+    packed.append(state.enumTypeNames)
+    packed.append(sep)
+    packed.append(state.enumVariantNames)
+    packed.append(sep)
+    packed.append(state.enumVariantTags)
+    packed.append(sep)
+    packed.append(state.enumVariantFieldTypes)
+    packed.append(sep)
+    packed.append(state.enumVariantFieldCounts)
+    packed.append(sep)
+    packed.append(state.enumVariantParent)
+    packed.append(sep)
+    packed.append(state.enumTypeCount.toString())
+    packed.append(sep)
+    packed.append(state.enumVariantCount.toString())
+    packed.append(sep)
+    packed.append(state.xmConstNames)
+    packed.append(sep)
+    packed.append(state.xmConstTypes)
+    packed.append(sep)
+    packed.append(state.xmConstMutable)
+    packed.append(sep)
+    packed.append(state.xmConstSeenTypes)
+    packed.append(sep)
+    packed.append(state.xmConstCount.toString())
+    return packed.toString()
 }
 
 fun applyDeclarationItemStateImpl(state: DeclarationPassState, updated: String)
