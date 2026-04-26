@@ -87,6 +87,7 @@ import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringB
 import codegen.ir_method_receiver_lookup_plan.{shouldLookupDottedLiteralReceiverImpl, shouldResolveSimpleLiteralReceiverImpl, implicitThisReceiverLookupActionImpl}
 import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
+import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
 import codegen.ir_function_decorators.{shouldSkipFunctionByCfgStateImpl}
 import codegen.ir_function_lowering.{configureFunctionLoweringOptionsImpl}
@@ -1957,6 +1958,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_finalize")
         modules.push("codegen.ir_infer_type")
         modules.push("codegen.ir_special_expr_infer")
+        modules.push("codegen.ir_expr_infer_plan")
         modules.push("codegen.ir_function_gen")
         modules.push("codegen.ir_function_decorators")
         modules.push("codegen.ir_function_lowering")

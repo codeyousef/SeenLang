@@ -1,0 +1,218 @@
+// ir_expr_infer_plan.seen - pure expression inference planning helpers.
+
+class ExprInferenceDispatchPlan {
+    var action: Int
+
+    static fun new() r: ExprInferenceDispatchPlan {
+        return ExprInferenceDispatchPlan{action: 0}
+    }
+}
+
+class MethodCallInferencePlan {
+    var shouldTryImplicitOrFree: Bool
+    var shouldResolveReceiverType: Bool
+    var shouldTryReceiverRegistry: Bool
+    var shouldTryStatic: Bool
+    var shouldTryBuiltinReceiver: Bool
+    var shouldTryLateFallback: Bool
+
+    static fun new() r: MethodCallInferencePlan {
+        return MethodCallInferencePlan{
+            shouldTryImplicitOrFree: true,
+            shouldResolveReceiverType: true,
+            shouldTryReceiverRegistry: true,
+            shouldTryStatic: true,
+            shouldTryBuiltinReceiver: true,
+            shouldTryLateFallback: true
+        }
+    }
+}
+
+class GeneratedCallInferencePlan {
+    var action: Int
+    var baseType: String
+    var isSimdCallee: Int
+
+    static fun new() r: GeneratedCallInferencePlan {
+        return GeneratedCallInferencePlan{
+            action: 0,
+            baseType: "",
+            isSimdCallee: 0
+        }
+    }
+}
+
+class BuiltinCallInferencePlan {
+    var shouldInferSelectedArg: Bool
+    var selectedArgIndex: Int
+    var shouldLookupEnumParent: Bool
+
+    static fun new() r: BuiltinCallInferencePlan {
+        return BuiltinCallInferencePlan{
+            shouldInferSelectedArg: false,
+            selectedArgIndex: -1,
+            shouldLookupEnumParent: false
+        }
+    }
+}
+
+class ResolvedCallInferencePlan {
+    var shouldLookupImplicitMethodReturn: Bool
+
+    static fun new() r: ResolvedCallInferencePlan {
+        return ResolvedCallInferencePlan{
+            shouldLookupImplicitMethodReturn: false
+        }
+    }
+}
+
+class MemberAccessInferencePlan {
+    var shouldTrySimdSwizzle: Bool
+    var shouldTryEnumVariant: Bool
+    var shouldInferOperandReceiver: Bool
+    var shouldFindLiteralValueType: Bool
+    var shouldTryLiteralReceiver: Bool
+
+    static fun new() r: MemberAccessInferencePlan {
+        return MemberAccessInferencePlan{
+            shouldTrySimdSwizzle: false,
+            shouldTryEnumVariant: false,
+            shouldInferOperandReceiver: false,
+            shouldFindLiteralValueType: false,
+            shouldTryLiteralReceiver: false
+        }
+    }
+}
+
+class SpecialExprInferencePlan {
+    var shouldTryIndexAccess: Bool
+    var shouldTryArrayLiteral: Bool
+    var shouldTryStringInterpolation: Bool
+    var shouldTryUnary: Bool
+    var shouldTryAwait: Bool
+    var shouldTryNullish: Bool
+    var shouldTryBranching: Bool
+    var shouldTryFixed: Bool
+
+    static fun new() r: SpecialExprInferencePlan {
+        return SpecialExprInferencePlan{
+            shouldTryIndexAccess: false,
+            shouldTryArrayLiteral: false,
+            shouldTryStringInterpolation: false,
+            shouldTryUnary: false,
+            shouldTryAwait: false,
+            shouldTryNullish: false,
+            shouldTryBranching: false,
+            shouldTryFixed: false
+        }
+    }
+}
+
+fun planExprInferenceDispatchImpl(kind: String)
+    r: ExprInferenceDispatchPlan {
+
+    let plan = ExprInferenceDispatchPlan.new()
+    if kind == "Literal" {
+        plan.action = 1
+        return plan
+    }
+    if kind == "Variable" or kind == "VarExpr" {
+        plan.action = 2
+        return plan
+    }
+    if kind == "Binary" {
+        plan.action = 3
+        return plan
+    }
+    if kind == "MethodCall" {
+        plan.action = 4
+        return plan
+    }
+    if kind == "Call" {
+        plan.action = 5
+        return plan
+    }
+    if kind == "MemberAccess" {
+        plan.action = 6
+        return plan
+    }
+    plan.action = 7
+    return plan
+}
+
+fun planMethodCallInferenceImpl() r: MethodCallInferencePlan {
+    return MethodCallInferencePlan.new()
+}
+
+fun planGeneratedCallInferenceImpl(callee: String, isSimdCallee: Int)
+    r: GeneratedCallInferencePlan {
+
+    let plan = GeneratedCallInferencePlan.new()
+    plan.isSimdCallee = isSimdCallee
+    if isSimdCallee == 1 {
+        plan.action = 1
+        return plan
+    }
+    if callee.endsWith("_new") {
+        plan.action = 2
+        plan.baseType = callee.substring(0, callee.length() - 4)
+        return plan
+    }
+    if callee.endsWith("_fromJson") {
+        plan.action = 3
+        plan.baseType = callee.substring(0, callee.length() - 9)
+    }
+    return plan
+}
+
+fun planBuiltinCallInferenceImpl(callee: String, argCount: Int,
+    enumVariantCount: Int, isVariantCall: Bool) r: BuiltinCallInferencePlan {
+
+    let plan = BuiltinCallInferencePlan.new()
+    if (callee == "simd_select" or callee == "simd_shuffle") and
+        argCount >= 2 {
+        plan.shouldInferSelectedArg = true
+        plan.selectedArgIndex = 1
+    }
+    plan.shouldLookupEnumParent = enumVariantCount > 0 and isVariantCall
+    return plan
+}
+
+fun planResolvedCallInferenceImpl(currentClassName: String)
+    r: ResolvedCallInferencePlan {
+
+    let plan = ResolvedCallInferencePlan.new()
+    plan.shouldLookupImplicitMethodReturn = currentClassName != ""
+    return plan
+}
+
+fun planMemberAccessInferenceImpl(literalValue: String, operandCount: Int,
+    enumVariantCount: Int) r: MemberAccessInferencePlan {
+
+    let plan = MemberAccessInferencePlan.new()
+    plan.shouldTrySimdSwizzle = literalValue != ""
+    plan.shouldTryEnumVariant = enumVariantCount > 0
+    plan.shouldInferOperandReceiver = operandCount > 0
+    plan.shouldFindLiteralValueType =
+        literalValue != "" and literalValue != "this"
+    plan.shouldTryLiteralReceiver = plan.shouldFindLiteralValueType
+    return plan
+}
+
+fun planSpecialExprInferenceImpl(kind: String)
+    r: SpecialExprInferencePlan {
+
+    let plan = SpecialExprInferencePlan.new()
+    plan.shouldTryIndexAccess = kind == "IndexAccess"
+    plan.shouldTryArrayLiteral = kind == "ArrayLiteral"
+    plan.shouldTryStringInterpolation = kind == "StringInterpolation"
+    plan.shouldTryUnary = kind == "Unary"
+    plan.shouldTryAwait = kind == "Await"
+    plan.shouldTryNullish = kind == "Elvis" or
+        kind == "NullCoalesce" or kind == "SafeNavigation"
+    plan.shouldTryBranching = kind == "WhenExpression" or
+        kind == "IfExpression"
+    plan.shouldTryFixed = kind == "Range" or kind == "IsExpression" or
+        kind == "Closure" or kind == "TryPropagate" or kind == "Cast"
+    return plan
+}

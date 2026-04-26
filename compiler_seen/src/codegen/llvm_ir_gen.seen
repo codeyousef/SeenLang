@@ -75,6 +75,7 @@ import codegen.ir_loop_context.{appendLoopTileHintImpl, appendLoopMetadataIdImpl
 import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolFunctionNameImpl, planIteratorProtocolForInLoopImpl, isRangeForInIterableImpl}
 import codegen.ir_infer_type.{inferBinaryTypeImpl, inferLiteralTypeImpl, inferOperatorOverloadSuffix, inferExplicitThisMethodCallTypeImpl, inferBareMethodOrFunctionCallTypeImpl, inferDeclaredStaticMethodCallTypeImpl, inferStaticFactoryMethodTypeImpl, inferStaticFromJsonMethodTypeImpl, inferLateMethodCallFallbackTypeImpl, inferGeneratedCallTypeImpl, inferBuiltinCallExprTypeStateImpl, inferResolvedCallExprTypeImpl, inferSimdReduceMethodTypeImpl, inferReceiverRegistryMethodCallTypeImpl, inferMethodCallBoolSuffixImpl, inferReceiverMethodTypeImpl, inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
+import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
 import codegen.ir_type_dispatch.{emitVecMethodImpl, emitBTreeMapMethodImpl, emitHashMapMethodImpl, emitLinkedListMethodImpl, dispatchCollectionMethodImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionMethodImpl, emitStringBuilderMethodImpl, emitCastExprImpl}
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl}
@@ -7935,38 +7936,53 @@ class LLVMIRGenerator {
     }
 
     fun inferMethodCallExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let implicitOrFreeResult = tryInferImplicitOrFreeMethodCallType(expr)
-        if implicitOrFreeResult != "" {
-            return implicitOrFreeResult
+        let methodInferPlan = planMethodCallInferenceImpl()
+        if methodInferPlan.shouldTryImplicitOrFree {
+            let implicitOrFreeResult = tryInferImplicitOrFreeMethodCallType(expr)
+            if implicitOrFreeResult != "" {
+                return implicitOrFreeResult
+            }
         }
 
-        let receiverType = resolveMethodCallReceiverType(expr)
-        let receiverRegistryType = tryInferReceiverRegistryMethodCallType(expr, receiverType)
-        if receiverRegistryType != "" {
-            return receiverRegistryType
+        var receiverType = ""
+        if methodInferPlan.shouldResolveReceiverType {
+            receiverType = resolveMethodCallReceiverType(expr)
+        }
+        if methodInferPlan.shouldTryReceiverRegistry {
+            let receiverRegistryType =
+                tryInferReceiverRegistryMethodCallType(expr, receiverType)
+            if receiverRegistryType != "" {
+                return receiverRegistryType
+            }
         }
 
-        let staticResult = tryInferStaticMethodCallType(expr)
-        if staticResult != "" {
-            return staticResult
+        if methodInferPlan.shouldTryStatic {
+            let staticResult = tryInferStaticMethodCallType(expr)
+            if staticResult != "" {
+                return staticResult
+            }
         }
 
-        let builtinReceiverResult = tryInferBuiltinReceiverMethodCallType(expr, receiverType)
-        if builtinReceiverResult != "" {
-            return builtinReceiverResult
+        if methodInferPlan.shouldTryBuiltinReceiver {
+            let builtinReceiverResult =
+                tryInferBuiltinReceiverMethodCallType(expr, receiverType)
+            if builtinReceiverResult != "" {
+                return builtinReceiverResult
+            }
         }
-        return tryInferLateMethodCallFallbackType(expr)
+        if methodInferPlan.shouldTryLateFallback {
+            return tryInferLateMethodCallFallbackType(expr)
+        }
+        return ""
     }
 
     fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
-        var simdFlag = 0
-        if isSimdVectorType(expr.callee) == 1 {
-            simdFlag = 1
-        }
+        let generatedPlan = planGeneratedCallInferenceImpl(expr.callee,
+            isSimdVectorType(expr.callee))
         var newBaseType = ""
         var newBaseTypeKnown = 0
-        if expr.callee.endsWith("_new") {
-            newBaseType = expr.callee.substring(0, expr.callee.length() - 4)
+        if generatedPlan.action == 2 {
+            newBaseType = generatedPlan.baseType
             if isClassType(newBaseType) or isDataType(newBaseType) or
                 findStructReg(newBaseType, structNames) >= 0 {
                 newBaseTypeKnown = 1
@@ -7975,30 +7991,35 @@ class LLVMIRGenerator {
         var fromJsonBaseType = ""
         var fromJsonRet = ""
         var fromJsonBaseTypeKnown = 0
-        if expr.callee.endsWith("_fromJson") {
-            fromJsonBaseType = expr.callee.substring(0,
-                expr.callee.length() - 9)
+        if generatedPlan.action == 3 {
+            fromJsonBaseType = generatedPlan.baseType
             fromJsonRet = getMethodReturnType(fromJsonBaseType, "fromJson")
             if isClassType(fromJsonBaseType) or isDataType(fromJsonBaseType) or
                 findStructReg(fromJsonBaseType, structNames) >= 0 {
                 fromJsonBaseTypeKnown = 1
             }
         }
-        return inferGeneratedCallTypeImpl(expr.callee, simdFlag, newBaseType,
-            newBaseTypeKnown, fromJsonBaseType, fromJsonRet,
+        return inferGeneratedCallTypeImpl(expr.callee,
+            generatedPlan.isSimdCallee, newBaseType, newBaseTypeKnown,
+            fromJsonBaseType, fromJsonRet,
             fromJsonBaseTypeKnown)
     }
 
     fun tryInferBuiltinCallExprType(expr: ParserExpressionNode) r: String {
+        var isVariantCall = false
+        if g_enumVariantCount > 0 {
+            isVariantCall = isEnumVariant(expr.callee)
+        }
+        let builtinPlan = planBuiltinCallInferenceImpl(expr.callee,
+            expr.arguments.length(), g_enumVariantCount, isVariantCall)
         var selectedArgType = ""
-        if expr.callee == "simd_select" or expr.callee == "simd_shuffle" {
-            if expr.arguments.length() >= 2 {
-                selectedArgType = inferExpressionType(expr.arguments[1])
-            }
+        if builtinPlan.shouldInferSelectedArg {
+            selectedArgType =
+                inferExpressionType(expr.arguments[builtinPlan.selectedArgIndex])
         }
         let builtinType = inferCallExprTypeImpl(expr.callee)
         var enumParentType = ""
-        if g_enumVariantCount > 0 and isEnumVariant(expr.callee) {
+        if builtinPlan.shouldLookupEnumParent {
             enumParentType = lookupEnumParent(expr.callee)
         }
         return inferBuiltinCallExprTypeStateImpl(expr.callee, selectedArgType,
@@ -8006,6 +8027,7 @@ class LLVMIRGenerator {
     }
 
     fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
+        let resolvedPlan = planResolvedCallInferenceImpl(currentClassName)
         let userRetType = getFunctionReturnTypeStateImpl(expr.callee,
             funcNames, funcRetTypes)
         var asyncFlag = 0
@@ -8019,7 +8041,7 @@ class LLVMIRGenerator {
             classCall = 1
         }
         var implicitMethodRetType = ""
-        if currentClassName != "" {
+        if resolvedPlan.shouldLookupImplicitMethodReturn {
             implicitMethodRetType = getMethodReturnType(currentClassName,
                 expr.callee)
         }
@@ -8040,14 +8062,16 @@ class LLVMIRGenerator {
     }
 
     fun inferMemberAccessExprTypeLocal(expr: ParserExpressionNode) r: String {
-        if expr.literalValue != "" {
+        let memberPlan = planMemberAccessInferenceImpl(expr.literalValue,
+            expr.operands.length(), g_enumVariantCount)
+        if memberPlan.shouldTrySimdSwizzle {
             let swizzleType = inferSimdSwizzleMemberTypeImpl(
                 findVarType(expr.literalValue), expr.variableName)
             if swizzleType != "" {
                 return swizzleType
             }
         }
-        if g_enumVariantCount > 0 {
+        if memberPlan.shouldTryEnumVariant {
             if isEnumVariant(expr.variableName) {
                 let enumParent = lookupEnumParent(expr.variableName)
                 if enumParent != "" and enumParent == expr.literalValue {
@@ -8057,11 +8081,11 @@ class LLVMIRGenerator {
         }
         let fieldName = extractLastMemberFieldSegmentImpl(expr.variableName)
         var operandReceiverType = ""
-        if expr.operands.length() > 0 {
+        if memberPlan.shouldInferOperandReceiver {
             operandReceiverType = inferExpressionType(expr.operands[0])
         }
         var literalValueType = ""
-        if expr.literalValue != "" and expr.literalValue != "this" {
+        if memberPlan.shouldFindLiteralValueType {
             literalValueType = findVarType(expr.literalValue)
         }
         let jsonFieldType = inferJsonValueMemberAccessTypeImpl(fieldName,
@@ -8071,7 +8095,7 @@ class LLVMIRGenerator {
             return jsonFieldType
         }
         var literalReceiverFieldType = ""
-        if expr.literalValue != "" and expr.literalValue != "this" {
+        if memberPlan.shouldTryLiteralReceiver {
             var chainedPathType = ""
             if expr.literalValue.contains(".") {
                 chainedPathType = resolveChainedPathType(expr.literalValue)
@@ -8222,14 +8246,39 @@ class LLVMIRGenerator {
     }
 
     fun inferSpecialExprTypeLocal(expr: ParserExpressionNode) r: String {
-        let indexType = inferIndexAccessExprTypeLocal(expr)
-        let arrayLiteralType = inferArrayLiteralExprTypeLocal(expr)
-        let stringInterpolationType = inferStringInterpolationExprTypeLocal(expr)
-        let unaryType = inferUnaryExprTypeLocal(expr)
-        let awaitType = inferAwaitExprTypeLocal(expr)
-        let nullishSpecialType = tryInferNullishSpecialExprType(expr)
-        let branchingSpecialType = tryInferBranchingSpecialExprType(expr)
-        let fixedSpecialType = tryInferFixedSpecialExprType(expr)
+        let specialPlan = planSpecialExprInferenceImpl(expr.kind)
+        var indexType = ""
+        if specialPlan.shouldTryIndexAccess {
+            indexType = inferIndexAccessExprTypeLocal(expr)
+        }
+        var arrayLiteralType = ""
+        if specialPlan.shouldTryArrayLiteral {
+            arrayLiteralType = inferArrayLiteralExprTypeLocal(expr)
+        }
+        var stringInterpolationType = ""
+        if specialPlan.shouldTryStringInterpolation {
+            stringInterpolationType = inferStringInterpolationExprTypeLocal(expr)
+        }
+        var unaryType = ""
+        if specialPlan.shouldTryUnary {
+            unaryType = inferUnaryExprTypeLocal(expr)
+        }
+        var awaitType = ""
+        if specialPlan.shouldTryAwait {
+            awaitType = inferAwaitExprTypeLocal(expr)
+        }
+        var nullishSpecialType = ""
+        if specialPlan.shouldTryNullish {
+            nullishSpecialType = tryInferNullishSpecialExprType(expr)
+        }
+        var branchingSpecialType = ""
+        if specialPlan.shouldTryBranching {
+            branchingSpecialType = tryInferBranchingSpecialExprType(expr)
+        }
+        var fixedSpecialType = ""
+        if specialPlan.shouldTryFixed {
+            fixedSpecialType = tryInferFixedSpecialExprType(expr)
+        }
         return inferSpecialExprTypeImpl(expr.kind, expr.literalType,
             indexType, arrayLiteralType, stringInterpolationType, unaryType,
             awaitType, nullishSpecialType, branchingSpecialType,
@@ -8248,39 +8297,42 @@ class LLVMIRGenerator {
     // Returns the Seen type name (e.g., "Int", "String", "MyClass") or ""
     // if inference fails.
     fun inferExpressionType(expr: ParserExpressionNode) r: String {
-        if expr.kind == "Literal" {
+        let dispatchPlan = planExprInferenceDispatchImpl(expr.kind)
+        if dispatchPlan.action == 1 {
             return inferLiteralExprTypeLocal(expr)
         }
-        if expr.kind == "Variable" or expr.kind == "VarExpr" {
+        if dispatchPlan.action == 2 {
             let variableResult = inferVariableExprTypeLocal(expr)
             if variableResult != "" {
                 return variableResult
             }
         }
-        if expr.kind == "Binary" {
+        if dispatchPlan.action == 3 {
             return inferBinaryExprTypeLocal(expr)
         }
-        if expr.kind == "MethodCall" {
+        if dispatchPlan.action == 4 {
             let methodCallResult = inferMethodCallExprTypeLocal(expr)
             if methodCallResult != "" {
                 return methodCallResult
             }
         }
-        if expr.kind == "Call" {
+        if dispatchPlan.action == 5 {
             let callResult = inferCallExprTypeLocal(expr)
             if callResult != "" {
                 return callResult
             }
         }
-        if expr.kind == "MemberAccess" {
+        if dispatchPlan.action == 6 {
             let memberAccessResult = inferMemberAccessExprTypeLocal(expr)
             if memberAccessResult != "" {
                 return memberAccessResult
             }
         }
-        let specialExprResult = inferSpecialExprTypeLocal(expr)
-        if specialExprResult != "" {
-            return specialExprResult
+        if dispatchPlan.action == 7 {
+            let specialExprResult = inferSpecialExprTypeLocal(expr)
+            if specialExprResult != "" {
+                return specialExprResult
+            }
         }
         return "Int"
     }
