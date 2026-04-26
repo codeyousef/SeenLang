@@ -45,6 +45,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
 import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
+import codegen.ir_async_await.{emitAwaitPollLoopImpl, emitAwaitResultValueImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
@@ -7382,44 +7383,13 @@ class LLVMIRGenerator {
         return "i64"
     }
 
-    fun emitAwaitPollLoop(hdlReg: String) r: Void {
-        let pollLabel = getNextBlockLabel()
-        let resumeLabel = getNextBlockLabel()
-        let readyLabel = getNextBlockLabel()
-
-        output.append("  br label %" + pollLabel + "\n")
-        output.append("\n" + pollLabel + ":\n")
-        let doneReg = getNextReg()
-        output.append("  " + doneReg + " = call i1 @llvm.coro.done(ptr " + hdlReg + ")\n")
-        output.append("  br i1 " + doneReg + ", label %" + readyLabel + ", label %" + resumeLabel + "\n")
-
-        output.append("\n" + resumeLabel + ":\n")
-        output.append("  call void @llvm.coro.resume(ptr " + hdlReg + ")\n")
-        output.append("  br label %" + pollLabel + "\n")
-
-        output.append("\n" + readyLabel + ":\n")
-    }
-
-    fun emitAwaitResultValue(hdlReg: String, resultLlvmType: String) r: String {
-        if resultLlvmType == "void" {
-            output.append("  call void @llvm.coro.destroy(ptr " + hdlReg + ")\n")
-            return "0"
-        }
-
-        let promisePtrReg = getNextReg()
-        output.append("  " + promisePtrReg + " = call ptr @llvm.coro.promise(ptr " + hdlReg + ", i32 8, i1 false)\n")
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = load " + resultLlvmType + ", ptr " + promisePtrReg + "\n")
-        output.append("  call void @llvm.coro.destroy(ptr " + hdlReg + ")\n")
-        return resultReg
-    }
-
     fun generateAwaitExpression(expr: ParserExpressionNode) r: String {
         let futureExpr = expr.operands[0]
         let hdlReg = generateExpression(futureExpr)
         let resultLlvmType = resolveAwaitExpressionResultLlvmType(futureExpr)
-        emitAwaitPollLoop(hdlReg)
-        return emitAwaitResultValue(hdlReg, resultLlvmType)
+        emitAwaitPollLoopImpl(output, g_regBox, g_blockLabelBox, hdlReg)
+        return emitAwaitResultValueImpl(output, g_regBox, hdlReg,
+            resultLlvmType)
     }
 
     // Generate IR for a unary expression: negation (-x), logical not (!x),
