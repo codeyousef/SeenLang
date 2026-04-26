@@ -80,6 +80,7 @@ import codegen.ir_type_ops.{emitBinaryOpImpl, emitSimdReductionImpl, emitOptionM
 import codegen.ir_method_gen.{emitSmallVecMethodImpl, emitArrayBasicMethodImpl, emitTransmuteImpl}
 import codegen.ir_call_dispatch.{emitUserMethodCallImpl, emitUserFunctionCallImpl, emitIncludeStrImpl, emitIncludeBytesImpl}
 import codegen.ir_call_constructors.{emitReprCConstructorImpl, emitArrayBulkInitImpl, emitArrayPreallocImpl, emitArrayInlineImpl, emitSmallVecConstructorImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
+import codegen.ir_constructor_call_plan.{planArrayConstructorCallImpl, shouldEmitSmallVecConstructorImpl, shouldEmitCollectionConstructorImpl, shouldReadFirstConstructorArgImpl, isReprCConstructorTypeImpl, shouldEmitReprCZeroInitializerImpl, shouldEmitHeapClassConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, promoteFloatArgsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl, isOptionRuntimeBuiltinNameImpl, isPrintRuntimeBuiltinNameImpl, isIoRuntimeBuiltinNameImpl, isPanicRuntimeBuiltinNameImpl, isMathRuntimeBuiltinNameImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
@@ -5981,68 +5982,79 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateArrayConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not isArrayConstructorNameImpl(funcName) {
+        var fillKind = ""
+        var fillLiteralValue = ""
+        if expr.arguments.length() > 1 {
+            fillKind = expr.arguments[1].kind
+            fillLiteralValue = expr.arguments[1].literalValue
+        }
+        let isArrayCtor = isArrayConstructorNameImpl(funcName)
+        var elementType = ""
+        if isArrayCtor {
+            elementType = resolveArrayConstructorElementTypeImpl(funcName)
+        }
+        let arrayCtorPlan = planArrayConstructorCallImpl(
+            isArrayCtor, expr.arguments.length(), elementType, fillKind,
+            fillLiteralValue)
+        if not arrayCtorPlan.isValid {
             return ""
         }
 
-        let elementType = resolveArrayConstructorElementTypeImpl(funcName)
-        if expr.arguments.length() == 2 {
+        if arrayCtorPlan.mode == 1 {
             let countReg = generateExpression(expr.arguments[0])
             let valueReg = generateExpression(expr.arguments[1])
-            var isZeroFill = 0
-            let fillValNode = expr.arguments[1]
-            if fillValNode.kind == "Literal" and fillValNode.literalValue == "0" {
-                isZeroFill = 1
-            }
             return emitArrayBulkInitImpl(output, g_regBox, g_blockBox, countReg, valueReg,
-                elementType, isZeroFill,
+                arrayCtorPlan.elementType, arrayCtorPlan.isZeroFill,
                 currentFunctionAlignToImpl(getCurrentFunctionOptions()))
         }
 
-        if expr.arguments.length() == 1 {
+        if arrayCtorPlan.mode == 2 {
             let capReg = generateExpression(expr.arguments[0])
             let elemSz = resolveArrayConstructorElementSizeImpl(funcName,
-                elementType, structNames, structSizes)
+                arrayCtorPlan.elementType, structNames, structSizes)
             return emitArrayPreallocImpl(output, g_regBox, capReg, elemSz)
         }
 
         let elemSize = resolveArrayConstructorElementSizeImpl(funcName,
-            elementType, structNames, structSizes)
+            arrayCtorPlan.elementType, structNames, structSizes)
         return emitArrayInlineImpl(output, g_regBox, elemSize,
             currentFunctionAlignToImpl(getCurrentFunctionOptions()))
     }
 
     fun tryGenerateSmallVecConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not isSmallVecConstructorNameImpl(funcName) {
+        if not shouldEmitSmallVecConstructorImpl(
+            isSmallVecConstructorNameImpl(funcName)) {
             return ""
         }
         var svCapArgReg = ""
-        if expr.arguments.length() > 0 {
+        if shouldReadFirstConstructorArgImpl(expr.arguments.length()) {
             svCapArgReg = generateExpression(expr.arguments[0])
         }
         return emitSmallVecConstructorImpl(output, g_regBox, funcName, svCapArgReg)
     }
 
     fun tryGenerateCollectionConstructorCall(expr: ParserExpressionNode, funcName: String) r: String {
-        if not isCollectionConstructorNameImpl(funcName) {
+        if not shouldEmitCollectionConstructorImpl(
+            isCollectionConstructorNameImpl(funcName)) {
             return ""
         }
         var colCapArg = ""
-        if expr.arguments.length() > 0 {
+        if shouldReadFirstConstructorArgImpl(expr.arguments.length()) {
             colCapArg = generateExpression(expr.arguments[0])
         }
         return emitCollectionConstructorImpl(output, g_regBox, funcName, colCapArg, expr.arguments.length())
     }
 
     fun isReprCConstructorType(funcName: String) r: Bool {
-        return g_reprCClassNames != "" and g_reprCClassNames.contains(funcName + "|")
+        return isReprCConstructorTypeImpl(funcName, g_reprCClassNames)
     }
 
     fun tryGenerateReprCClassConstructorCall(expr: ParserExpressionNode, funcName: String, structIdx: Int) r: String {
         if not isReprCConstructorType(funcName) {
             return ""
         }
-        if expr.arguments.length() == 0 or structIdx < 0 {
+        if shouldEmitReprCZeroInitializerImpl(expr.arguments.length(),
+            structIdx) {
             return "zeroinitializer"
         }
 
@@ -6118,7 +6130,7 @@ class LLVMIRGenerator {
     }
 
     fun tryGenerateHeapClassConstructorCall(expr: ParserExpressionNode, funcName: String, structIdx: Int) r: String {
-        if not isClassType(funcName) {
+        if not shouldEmitHeapClassConstructorImpl(isClassType(funcName)) {
             return ""
         }
 

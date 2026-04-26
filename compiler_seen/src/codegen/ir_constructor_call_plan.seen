@@ -1,0 +1,66 @@
+// ir_constructor_call_plan.seen - pure constructor-call planning helpers.
+
+class ArrayConstructorCallPlan {
+    var isValid: Bool
+    var mode: Int
+    var elementType: String
+    var isZeroFill: Int
+
+    static fun new(isValid: Bool, mode: Int, elementType: String,
+        isZeroFill: Int) r: ArrayConstructorCallPlan {
+
+        return ArrayConstructorCallPlan{
+            isValid: isValid,
+            mode: mode,
+            elementType: elementType,
+            isZeroFill: isZeroFill
+        }
+    }
+}
+
+fun planArrayConstructorCallImpl(isArrayConstructor: Bool, argCount: Int,
+    elementType: String, fillKind: String, fillLiteralValue: String)
+    r: ArrayConstructorCallPlan {
+
+    if not isArrayConstructor {
+        return ArrayConstructorCallPlan.new(false, 0, "", 0)
+    }
+    if argCount == 2 {
+        var isZeroFill = 0
+        if fillKind == "Literal" and fillLiteralValue == "0" {
+            isZeroFill = 1
+        }
+        return ArrayConstructorCallPlan.new(true, 1, elementType,
+            isZeroFill)
+    }
+    if argCount == 1 {
+        return ArrayConstructorCallPlan.new(true, 2, elementType, 0)
+    }
+    return ArrayConstructorCallPlan.new(true, 3, elementType, 0)
+}
+
+fun shouldEmitSmallVecConstructorImpl(isSmallVecConstructor: Bool) r: Bool {
+    return isSmallVecConstructor
+}
+
+fun shouldEmitCollectionConstructorImpl(isCollectionConstructor: Bool) r: Bool {
+    return isCollectionConstructor
+}
+
+fun shouldReadFirstConstructorArgImpl(argCount: Int) r: Bool {
+    return argCount > 0
+}
+
+fun isReprCConstructorTypeImpl(funcName: String,
+    reprCClassNames: String) r: Bool {
+
+    return reprCClassNames != "" and reprCClassNames.contains(funcName + "|")
+}
+
+fun shouldEmitReprCZeroInitializerImpl(argCount: Int, structIdx: Int) r: Bool {
+    return argCount == 0 or structIdx < 0
+}
+
+fun shouldEmitHeapClassConstructorImpl(isClassConstructor: Bool) r: Bool {
+    return isClassConstructor
+}
