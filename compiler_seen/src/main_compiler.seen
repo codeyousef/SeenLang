@@ -88,6 +88,7 @@ import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
 import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
 import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl}
+import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl, emitPreparedSmallVecReceiverFastPathImpl, emitPreparedCollectionReceiverFastPathImpl, emitPreparedArrayReceiverFastPathImpl}
 import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
 import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
@@ -2005,6 +2006,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_method_receiver")
         modules.push("codegen.ir_method_receiver_predicates")
         modules.push("codegen.ir_method_call_plan")
+        modules.push("codegen.ir_method_fastpath_emit")
         modules.push("codegen.ir_method_lower_plan")
         modules.push("codegen.ir_method_final_plan")
         modules.push("codegen.ir_method_receiver_lookup_plan")

@@ -99,6 +99,7 @@ import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, resolv
 import codegen.ir_method_fastpath.{tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, emitPreparedStaticMethodCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
 import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
+import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl, emitPreparedSmallVecReceiverFastPathImpl, emitPreparedCollectionReceiverFastPathImpl, emitPreparedArrayReceiverFastPathImpl}
 import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
 import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
@@ -6438,7 +6439,8 @@ class LLVMIRGenerator {
                 methodName, expr.arguments.length()) {
                 optDefaultRegS = generateExpression(expr.arguments[0])
             }
-            return emitOptionMethodImpl(output, g_regBox, g_blockLabelBox,
+            return emitPreparedOptionReceiverFastPathImpl(output, g_regBox,
+                g_blockLabelBox,
                 methodName, receiverReg, optDefaultRegS)
         }
 
@@ -6449,7 +6451,7 @@ class LLVMIRGenerator {
                 methodName, expr.arguments.length()) {
                 svArgReg = generateExpression(expr.arguments[0])
             }
-            return emitSmallVecMethodImpl(output, g_regBox, methodName,
+            return emitPreparedSmallVecReceiverFastPathImpl(output, g_regBox, methodName,
                 receiverReg, receiverType, svArgReg)
         }
 
@@ -6465,7 +6467,7 @@ class LLVMIRGenerator {
                 expr.arguments.length(), 1) {
                 collArg1s = generateExpression(expr.arguments[1])
             }
-            return dispatchCollectionMethodImpl(output, g_regBox, methodName,
+            return emitPreparedCollectionReceiverFastPathImpl(output, g_regBox, methodName,
                 receiverReg, receiverType, collArg0s, collArg1s)
         }
 
@@ -6481,7 +6483,7 @@ class LLVMIRGenerator {
                 expr.arguments.length(), 1) {
                 arrArg1 = generateExpression(expr.arguments[1])
             }
-            return emitArrayBasicMethodImpl(output, g_regBox, methodName,
+            return emitPreparedArrayReceiverFastPathImpl(output, g_regBox, methodName,
                 receiverReg, receiverType, arrArg0, arrArg1)
         }
 
