@@ -112,6 +112,14 @@ fun isSeenLexerKeywordManagerReceiverImpl(thisType: String,
     return thisType == "SeenLexer" and varName == "keywordManager"
 }
 
+fun hasGeneratorFieldReceiverImpl(fieldIndex: Int) r: Bool {
+    return fieldIndex >= 0
+}
+
+fun hasStructFieldReceiverImpl(structIndex: Int, fieldIndex: Int) r: Bool {
+    return structIndex >= 0 and fieldIndex >= 0
+}
+
 fun isArrayFreeMutatorMethodImpl(methodName: String) r: Bool {
     return methodName == "free"
 }

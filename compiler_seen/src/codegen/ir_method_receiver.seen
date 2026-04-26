@@ -146,3 +146,15 @@ fun convertReceiverToPtrImpl(output: StringBuilder, regBox: Array<Int>,
     }
     return receiverReg
 }
+
+fun emitSeenLexerKeywordManagerReceiverImpl(output: StringBuilder,
+    regBox: Array<Int>, thisPtrReg: String) r: String {
+
+    let gepReg = getNextRegFn(regBox)
+    output.append("  " + gepReg +
+        " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " +
+        thisPtrReg + ", i32 0, i32 4\n")
+    let receiverReg = getNextRegFn(regBox)
+    output.append("  " + receiverReg + " = load ptr, ptr " + gepReg + "\n")
+    return receiverReg
+}

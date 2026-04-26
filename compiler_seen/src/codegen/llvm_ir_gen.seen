@@ -90,7 +90,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
-import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, isArrayFreeMutatorMethodImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
+import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, shouldUseUnresolvedReceiverFallbackImpl, shouldLookupImplicitMethodReturnImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, isArrayFreeMutatorMethodImpl, isArrayPushMutatorMethodImpl, isArrayPopMutatorMethodImpl, isArraySwapMutatorMethodImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldUseReceiverRegForArrayMutationImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -104,7 +104,7 @@ import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccess
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
-import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl, emitSeenLexerKeywordManagerReceiverImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isFloatFmaCandidateImpl, isBinaryMultiplyExpressionImpl, shouldUseFmaForOperandTypesImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, shouldUseBinaryCseImpl, buildBinaryCseKeyImpl, shouldUseFloatPeepholeImpl, isFloatPeepholeIdentityLeftImpl, isFloatPeepholeIdentityRightImpl, shouldCountFloatPeepholeFoldImpl, shouldGenerateFloatPeepholeRightRegImpl, shouldGenerateFloatPeepholeLeftRegImpl, shouldLogSelfComparisonConstImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
 import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
@@ -6981,7 +6981,7 @@ class LLVMIRGenerator {
                             if thisType == "LLVMIRGenerator" {
                                 let idxCheck =
                                     getLLVMIRGeneratorFieldIndexImpl(varName)
-                                if idxCheck >= 0 {
+                                if hasGeneratorFieldReceiverImpl(idxCheck) {
                                     let thisPtrReg =
                                         emitImplicitThisPointerLoadImpl(
                                             output, g_regBox, thisReg)
@@ -6996,31 +6996,30 @@ class LLVMIRGenerator {
                             if receiverReg == "" {
                                 let structIdx = findStructReg(thisType,
                                     structNames)
+                                var fieldIdx = -1
                                 if structIdx >= 0 {
-                                    let fieldIdx = getFieldInfo(thisType,
+                                    fieldIdx = getFieldInfo(thisType,
                                         varName)
-                                    if fieldIdx >= 0 {
-                                        let thisPtrReg =
-                                            emitImplicitThisPointerLoadImpl(
-                                                output, g_regBox, thisReg)
-                                        receiverReg = generateFieldAccess(
-                                            thisPtrReg, thisType, varName)
-                                        receiverType =
-                                            resolveLiteralMethodReceiverType(
-                                                varName)
-                                    }
+                                }
+                                if hasStructFieldReceiverImpl(structIdx,
+                                    fieldIdx) {
+                                    let thisPtrReg =
+                                        emitImplicitThisPointerLoadImpl(
+                                            output, g_regBox, thisReg)
+                                    receiverReg = generateFieldAccess(
+                                        thisPtrReg, thisType, varName)
+                                    receiverType =
+                                        resolveLiteralMethodReceiverType(
+                                            varName)
                                 } else {
                                     if isSeenLexerKeywordManagerReceiverImpl(
                                         thisType, varName) {
                                         let thisPtrReg =
                                             emitImplicitThisPointerLoadImpl(
-                                                output, g_regBox, thisReg)
-                                        let gepReg = getNextReg()
-                                        output.append("  " + gepReg + " = getelementptr inbounds { %SeenString, i64, %SeenString, i1, ptr, i64, i64, i64, %SeenArray }, ptr " + thisPtrReg + ", i32 0, i32 4\n")
-                                        receiverReg = getNextReg()
-                                        output.append("  " + receiverReg +
-                                            " = load ptr, ptr " + gepReg +
-                                            "\n")
+                                            output, g_regBox, thisReg)
+                                        receiverReg =
+                                            emitSeenLexerKeywordManagerReceiverImpl(
+                                                output, g_regBox, thisPtrReg)
                                         receiverType = "KeywordManager"
                                     }
                                 }
