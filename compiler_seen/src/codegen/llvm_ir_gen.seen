@@ -101,6 +101,7 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isSelfVariableComparisonImpl, isShortCircuitBinaryOperatorImpl, shouldTryAssociativeIntFoldImpl, associativeIntFoldRewriteCostImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_unary_expr.{unaryOperatorMethodNameImpl, shouldSkipUnaryOverloadTypeImpl, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
@@ -7399,13 +7400,11 @@ class LLVMIRGenerator {
             return ""
         }
         let unaryOpType = inferExpressionType(expr.operands[0])
-        var unaryOpMethod = ""
-        if expr.operator == "-" { unaryOpMethod = "operator_neg" }
-        if expr.operator == "not" or expr.operator == "!" { unaryOpMethod = "operator_not" }
+        let unaryOpMethod = unaryOperatorMethodNameImpl(expr.operator)
         if unaryOpMethod == "" {
             return ""
         }
-        if unaryOpType == "Int" or unaryOpType == "Float" or unaryOpType == "Bool" or unaryOpType == "String" {
+        if shouldSkipUnaryOverloadTypeImpl(unaryOpType) {
             return ""
         }
         let unaryOpFuncName = unaryOpType + "_" + unaryOpMethod
@@ -7415,51 +7414,36 @@ class LLVMIRGenerator {
             return ""
         }
         let unaryValReg = generateExpression(expr.operands[0])
-        let unaryThisReg = getNextReg()
-        output.append("  " + unaryThisReg + " = inttoptr i64 " + unaryValReg + " to ptr\n")
         let unaryRetLlvm = mapType(unaryOpRetType)
-        let unaryResReg = getNextReg()
-        output.append("  " + unaryResReg + " = call " + unaryRetLlvm + " @" + quoteIdentIfNeeded(unaryOpFuncName) + "(ptr " + unaryThisReg + ")\n")
-        return unaryResReg
+        return emitOverloadedUnaryCallImpl(output, g_regBox,
+            quoteIdentIfNeeded(unaryOpFuncName), unaryRetLlvm, unaryValReg)
     }
 
     fun emitUnaryNegation(expr: ParserExpressionNode) r: String {
         let operandReg = generateExpression(expr.operands[0])
-        let resultReg = getNextReg()
         let operandType = inferExpressionType(expr.operands[0])
-        if operandType == "Float" {
-            output.append("  " + resultReg + " = fneg fast double " + operandReg + "\n")
-        } else {
-            output.append("  " + resultReg + " = sub nsw i64 0, " + operandReg + "\n")
-        }
-        return resultReg
+        return emitUnaryNegationImpl(output, g_regBox, operandReg, operandType)
     }
 
     fun tryEmitNegatedComparison(innerExpr: ParserExpressionNode) r: String {
         if innerExpr.kind != "Binary" {
             return ""
         }
-        let innerOp = innerExpr.operator
-        var flippedOp = ""
-        if innerOp == "==" { flippedOp = "ne" }
-        if innerOp == "!=" { flippedOp = "eq" }
-        if innerOp == "<" { flippedOp = "sge" }
-        if innerOp == ">" { flippedOp = "sle" }
-        if innerOp == "<=" { flippedOp = "sgt" }
-        if innerOp == ">=" { flippedOp = "slt" }
+        let flippedOp = negatedComparisonPredicateImpl(innerExpr.operator)
         if flippedOp == "" {
             return ""
         }
         let innerLeftType = inferExpressionType(innerExpr.operands[0])
         let innerRightType = inferExpressionType(innerExpr.operands[1])
-        if innerLeftType != "Int" and innerRightType != "Int" and innerLeftType != "Char" and innerRightType != "Char" {
+        if not shouldEmitNegatedComparisonForTypesImpl(innerLeftType,
+            innerRightType) {
+
             return ""
         }
         let aReg = generateExpression(innerExpr.operands[0])
         let bReg = generateExpression(innerExpr.operands[1])
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = icmp " + flippedOp + " i64 " + aReg + ", " + bReg + " ; negated comparison\n")
-        return resultReg
+        return emitNegatedComparisonImpl(output, g_regBox, flippedOp, aReg,
+            bReg)
     }
 
     fun emitUnaryLogicalNot(expr: ParserExpressionNode) r: String {
@@ -7469,15 +7453,9 @@ class LLVMIRGenerator {
             return negatedCmpReg
         }
         let operandReg = generateExpression(innerExpr)
-        var boolReg = operandReg
         let operandType = inferExpressionType(innerExpr)
-        if operandType != "Bool" and operandType != "Boolean" {
-            boolReg = getNextReg()
-            output.append("  " + boolReg + " = icmp ne i64 " + operandReg + ", 0\n")
-        }
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = xor i1 " + boolReg + ", 1\n")
-        return resultReg
+        return emitUnaryLogicalNotImpl(output, g_regBox, operandReg,
+            operandType)
     }
 
     fun emitUnaryAddressOf(expr: ParserExpressionNode) r: String {
@@ -7493,13 +7471,11 @@ class LLVMIRGenerator {
             if addrIdx >= 0 {
                 let addrVarReg = varRegs[addrIdx]
                 if isClassType(addrType) {
-                    let addrLoadReg = getNextReg()
-                    output.append("  " + addrLoadReg + " = load i64, ptr " + addrVarReg + " ; &class — handle is pointer\n")
-                    return addrLoadReg
+                    return emitUnaryAddressOfClassValueImpl(output, g_regBox,
+                        addrVarReg)
                 }
-                let addrResultReg = getNextReg()
-                output.append("  " + addrResultReg + " = ptrtoint ptr " + addrVarReg + " to i64 ; &var — address of alloca\n")
-                return addrResultReg
+                return emitUnaryAddressOfVariablePtrImpl(output, g_regBox,
+                    addrVarReg)
             }
         }
         return generateExpression(addrOperand)
@@ -7510,25 +7486,12 @@ class LLVMIRGenerator {
             output.append("  ; WARNING: pointer dereference (*) requires unsafe block\n")
         }
         let derefValReg = generateExpression(expr.operands[0])
-        let derefPtrReg = getNextReg()
-        output.append("  " + derefPtrReg + " = inttoptr i64 " + derefValReg + " to ptr\n")
-        let derefResultReg = getNextReg()
-        output.append("  " + derefResultReg + " = load i64, ptr " + derefPtrReg + " ; *ptr dereference\n")
-        return derefResultReg
-    }
-
-    fun isUnaryBitwiseNotOperator(op: String) r: Bool {
-        if op.length() != 1 {
-            return false
-        }
-        return op.charAt(0).toInt() == 126
+        return emitUnaryDereferenceImpl(output, g_regBox, derefValReg)
     }
 
     fun emitUnaryBitwiseNot(expr: ParserExpressionNode) r: String {
         let operandReg = generateExpression(expr.operands[0])
-        let resultReg = getNextReg()
-        output.append("  " + resultReg + " = xor i64 " + operandReg + ", -1\n")
-        return resultReg
+        return emitUnaryBitwiseNotImpl(output, g_regBox, operandReg)
     }
 
     fun generateUnary(expr: ParserExpressionNode) r: String {
@@ -7549,7 +7512,7 @@ class LLVMIRGenerator {
         if expr.operator == "*" {
             return emitUnaryDereference(expr)
         }
-        if isUnaryBitwiseNotOperator(expr.operator) {
+        if isUnaryBitwiseNotOperatorImpl(expr.operator) {
             return emitUnaryBitwiseNot(expr)
         }
         let operandReg = generateExpression(expr.operands[0])
