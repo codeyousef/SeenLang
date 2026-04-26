@@ -316,6 +316,14 @@ fun emitIndexAssignmentBoundsCheckImpl(output: StringBuilder, regBox: Array<Int>
     output.append(okLabel + ":\n")
 }
 
+fun emitPreparedIndexAssignmentBoundsCheckImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayReg: String, indexReg: String,
+    failLabel: String, okLabel: String) r: Void {
+
+    emitIndexAssignmentBoundsCheckImpl(output, regBox, arrayReg, indexReg,
+        failLabel, okLabel)
+}
+
 fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int>,
     arrayReg: String, indexReg: String, valueReg: String, elementType: String) r: Int {
 
@@ -377,6 +385,20 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
         valuePtrReg = tmpReg
     }
     output.append("  call void @Array_set(ptr " + arrayReg + ", i64 " + indexReg + ", ptr " + valuePtrReg + ")\n")
+}
+
+fun emitPreparedIndexAssignmentStoreImpl(output: StringBuilder,
+    regBox: Array<Int>, arrayReg: String, indexReg: String,
+    valueReg: String, elementType: String, llvmElementType: String,
+    valueIsStructLiteral: Int, structNames: Array<String>) r: Void {
+
+    if emitPrimitiveIndexAssignmentStoreImpl(output, regBox, arrayReg,
+        indexReg, valueReg, elementType) == 1 {
+        return
+    }
+    emitGenericIndexAssignmentStoreImpl(output, regBox, arrayReg, indexReg,
+        valueReg, elementType, llvmElementType, valueIsStructLiteral,
+        structNames)
 }
 
 // emitFieldStoreImpl — Store a value into a struct field via GEP

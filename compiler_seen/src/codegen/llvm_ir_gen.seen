@@ -68,7 +68,7 @@ import codegen.ir_when_pattern_gen.{emitWhenLiteralPatternBranchImpl, emitWhenIs
 import codegen.ir_when_result_gen.{allocateWhenResultSlotImpl, emitWhenArmReturnImpl, emitWhenArmStoreImpl, finalizeWhenResultImpl}
 import codegen.ir_when_expr_plan.{planWhenSubjectImpl, planWhenPatternBranchImpl, shouldEmitWhenArmGuardImpl, shouldEmitWhenPatternBindingsImpl, shouldBindWhenPatternFieldImpl, planWhenArmResultImpl, shouldStoreWhenArmResultImpl, shouldBranchWhenArmToEndImpl, shouldEmitWhenFinalFallthroughImpl}
 import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, shouldEmitIndexBoundsCheckImpl, planTypedIndexAccessImpl}
-import codegen.ir_index_access_gen.{emitPointerIndexAccessImpl, emitOperatorIndexAccessCallImpl, emitIndexBoundsCheckImpl, emitTypedArrayIndexAccessImpl, emitFallbackIndexElementAccessImpl}
+import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{getLlvmTypeAlignImpl, getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
 import codegen.ir_type_mapping.{parseSimpleIntImpl, lookupComptimeVarImpl, lookupComptimeStrVarImpl, comptimeSizeofImpl, comptimeTypeFieldCountImpl, comptimeTypeFieldNameImpl, comptimeTypeFieldTypeImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
@@ -118,7 +118,7 @@ import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl, generateFieldAccess
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, splitFirstPathDotImpl, splitBracketPathImpl, resolveChainedPathSuffixTypeImpl}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
-import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
+import codegen.ir_member_access_gen.{emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
 import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaOperandPromotionImpl, emitPreparedFmaCallImpl, buildPreparedBinaryCseKeyImpl}
@@ -135,7 +135,7 @@ import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_comptime.{ComptimeRegistryStateSnapshot, classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldRegisterComptimeIntValueImpl, shouldRegisterComptimeStringValueImpl, shouldProcessComptimeAssignmentImpl, shouldApplyComptimeAssignmentUpdateImpl, shouldProcessComptimeWhileImpl, shouldContinueComptimeWhileImpl, shouldEmitRuntimeComptimeStatementImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeAssertResultImpl, classifyComptimeIfBranchImpl, shouldGenerateComptimeIfThenImpl, shouldGenerateComptimeIfElseImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarSnapshotImpl, updateComptimeVarSnapshotImpl, registerComptimeStrVarSnapshotImpl}
 import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionAndProfileCleanupImpl, emitDefaultEmptyReturnStatementImpl, emitCharLiteralReturnImpl, shouldSeedReturnPendingArrayLiteralTypeImpl, shouldMarkReturnTailCallImpl, resolveCharLiteralReturnValueImpl, emitFinalReturnStatementValueImpl}
 import codegen.ir_stmt_scope.{recordDeferredStatementSnapshotImpl, enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
-import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitIndexAssignmentBoundsCheckImpl, emitPrimitiveIndexAssignmentStoreImpl, emitGenericIndexAssignmentStoreImpl}
+import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, findActiveVariableIndexImpl, findVisibleVariableTypeImpl, storeActiveVariableBindingImpl, emitMovedVariableUseTrapImpl, emitComptimeVariableLoadImpl, emitModuleConstantLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitStoreValueToPtrImpl, emitDistinctTypeMismatchWarningImpl, emitImplicitThisPointerLoadImpl, emitImplicitThisFieldStoreImpl, emitMoveSourceNullifyImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl, shouldRecordMovedArgumentSourceImpl, emitTriviallyCopyableAssignmentNoteImpl}
 import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStructMethodReg, registerKnownDataTypesReg, getFunctionReturnTypeReg, isClassTypeReg, isDataTypeReg, getTypeSizeReg, getPoolEligibleClassSizeReg, getDataTypeSizeReg, getFieldInfoReg, applyStructLayoutRegistrationReg}
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState}
@@ -4181,7 +4181,8 @@ class LLVMIRGenerator {
         if g_boundsCheckEnabled == 1 {
             let labelSuffix = g_boundsCheckLabelCount.toString()
             g_boundsCheckLabelCount = g_boundsCheckLabelCount + 1
-            emitIndexAssignmentBoundsCheckImpl(output, g_regBox, arrayReg, indexReg,
+            emitPreparedIndexAssignmentBoundsCheckImpl(output, g_regBox,
+                arrayReg, indexReg,
                 "bounds_fail_" + labelSuffix, "bounds_ok_" + labelSuffix)
             cseClear()
         }
@@ -4193,16 +4194,13 @@ class LLVMIRGenerator {
         }
         let llvmElementType = mapType(elementType)
 
-        if emitPrimitiveIndexAssignmentStoreImpl(output, g_regBox, arrayReg, indexReg, valueReg, elementType) == 1 {
-            return
-        }
-
         var valueIsStructLiteral = 0
         if value.kind == "StructLiteral" {
             valueIsStructLiteral = 1
         }
-        emitGenericIndexAssignmentStoreImpl(output, g_regBox, arrayReg, indexReg, valueReg,
-            elementType, llvmElementType, valueIsStructLiteral, structNames)
+        emitPreparedIndexAssignmentStoreImpl(output, g_regBox, arrayReg,
+            indexReg, valueReg, elementType, llvmElementType,
+            valueIsStructLiteral, structNames)
     }
 
     // Main expression codegen dispatcher. Returns the SSA register (or
@@ -4591,7 +4589,7 @@ class LLVMIRGenerator {
         if shouldUsePointerIndexAccessImpl(idxBaseType) {
             let piaBaseReg = generateExpression(expr.operands[0])
             let piaIdxReg = generateExpression(expr.operands[1])
-            return emitPointerIndexAccessImpl(output, g_regBox, piaBaseReg,
+            return emitPreparedPointerIndexAccessImpl(output, g_regBox, piaBaseReg,
                 piaIdxReg)
         }
 
@@ -4603,7 +4601,7 @@ class LLVMIRGenerator {
                 let idxBaseReg = generateExpression(expr.operands[0])
                 let idxIdxReg = generateExpression(expr.operands[1])
                 let idxRetLlvm = mapType(idxOpRet)
-                return emitOperatorIndexAccessCallImpl(output, g_regBox,
+                return emitPreparedOperatorIndexAccessCallImpl(output, g_regBox,
                     idxBaseReg, idxIdxReg, idxRetLlvm,
                     quoteIdentIfNeeded(idxOpFunc))
             }
@@ -4634,7 +4632,7 @@ class LLVMIRGenerator {
         if shouldEmitIndexBoundsCheckImpl(g_boundsCheckEnabled) {
             var boundsCountBox = Array<Int>()
             boundsCountBox.push(g_boundsCheckLabelCount)
-            emitIndexBoundsCheckImpl(output, g_regBox, arrayReg, indexReg,
+            emitPreparedIndexBoundsCheckImpl(output, g_regBox, arrayReg, indexReg,
                 boundsCountBox)
             g_boundsCheckLabelCount = boundsCountBox[0]
             cseClear()
@@ -4642,12 +4640,6 @@ class LLVMIRGenerator {
 
         let arrayType = inferExpressionType(expr.operands[0])
         let typedIndexPlan = planTypedIndexAccessImpl(arrayType)
-        let typedIndexReg = emitTypedArrayIndexAccessImpl(output, g_regBox,
-            typedIndexPlan.action, arrayReg, indexReg)
-        if typedIndexReg != "" {
-            return typedIndexReg
-        }
-
         var isDataElement = 0
         if isDataType(typedIndexPlan.elementType) {
             isDataElement = 1
@@ -4656,9 +4648,9 @@ class LLVMIRGenerator {
         if isClassType(typedIndexPlan.elementType) {
             isClassElement = 1
         }
-        return emitFallbackIndexElementAccessImpl(output, g_regBox, arrayReg,
-            indexReg, typedIndexPlan.elementType, isDataElement,
-            isClassElement)
+        return emitPreparedIndexElementAccessImpl(output, g_regBox,
+            typedIndexPlan.action, arrayReg, indexReg,
+            typedIndexPlan.elementType, isDataElement, isClassElement)
     }
 
     fun tryRebuildMemberAccessReceiver(expr: ParserExpressionNode,
@@ -4722,7 +4714,7 @@ class LLVMIRGenerator {
     fun tryGenerateExpressionReceiverMemberAccess(receiverExpr: ParserExpressionNode, fieldName: String) r: String {
         let receiverReg = generateExpression(receiverExpr)
         let receiverType = inferExpressionType(receiverExpr)
-        return emitExpressionReceiverMemberAccessImpl(output, g_regBox,
+        return emitPreparedExpressionReceiverMemberAccessImpl(output, g_regBox,
             receiverReg, receiverType, fieldName,
             getFieldType(receiverType, fieldName), structNames, structLayouts,
             structFieldNames, structFieldTypes, g_reprCClassNames,
@@ -4737,7 +4729,7 @@ class LLVMIRGenerator {
             return ""
         }
         let varType = varTypes[idx]
-        return emitVariableReceiverMemberAccessImpl(output, g_regBox,
+        return emitPreparedVariableReceiverMemberAccessImpl(output, g_regBox,
             varRegs[idx], varType, fieldName, getFieldType(varType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
             g_reprCClassNames, g_unionTypes, g_typeAliasNames,
@@ -4758,7 +4750,7 @@ class LLVMIRGenerator {
         }
         let invSuffix = moduleConstantInvariantLoadSuffixImpl(constIdx,
             g_moduleConstMutable)
-        return emitModuleConstReceiverMemberAccessImpl(output, g_regBox,
+        return emitPreparedModuleConstReceiverMemberAccessImpl(output, g_regBox,
             "@" + quoteIdentIfNeeded(receiverName), constType, constSeenType,
             invSuffix, fieldName, getFieldType(constSeenType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,
@@ -4796,7 +4788,7 @@ class LLVMIRGenerator {
         if elementType == "" and arrayType.startsWith("Array<") and arrayType.endsWith(">") {
             elementType = arrayType.substring(6, arrayType.length() - 1)
         }
-        return emitBracketPathMemberAccessImpl(output, g_regBox, receiverName,
+        return emitPreparedBracketPathMemberAccessImpl(output, g_regBox, receiverName,
             fieldName, baseVar, varRegs[baseIdx], baseType, arrayField,
             getFieldType(baseType, arrayField), indexStr, elementType,
             getFieldType(elementType, fieldName), structNames, structLayouts,
@@ -4827,7 +4819,7 @@ class LLVMIRGenerator {
         if intermediateType == "" {
             intermediateType = "ProgramNode"
         }
-        return emitChainedReceiverMemberAccessImpl(output, g_regBox,
+        return emitPreparedChainedReceiverMemberAccessImpl(output, g_regBox,
             fieldName, varRegs[baseIdx], baseType, restPath, intermediateType,
             getFieldType(intermediateType, fieldName), structNames,
             structLayouts, structFieldNames, structFieldTypes,
@@ -4848,7 +4840,7 @@ class LLVMIRGenerator {
         }
 
         let intermediateType = getSeenFieldType(thisType, receiverName)
-        return emitImplicitThisReceiverMemberAccessImpl(output, g_regBox,
+        return emitPreparedImplicitThisReceiverMemberAccessImpl(output, g_regBox,
             receiverName, fieldName, varRegs[thisIdx], thisType,
             intermediateType, getFieldType(intermediateType, fieldName),
             structNames, structLayouts, structFieldNames, structFieldTypes,

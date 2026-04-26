@@ -186,3 +186,109 @@ fun emitImplicitThisReceiverMemberAccessImpl(output: StringBuilder,
         unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
         enumTypeNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
 }
+
+fun emitPreparedExpressionReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverReg: String, receiverType: String,
+    fieldName: String, fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    return emitExpressionReceiverMemberAccessImpl(output, regBox,
+        receiverReg, receiverType, fieldName, fieldLlvmType, structNames,
+        structLayouts, structFieldNames, structFieldTypes, reprCClassNames,
+        unionTypes, typeAliasNames, typeAliasTargets, typeAliasCount,
+        enumTypeNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitPreparedVariableReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, varReg: String, varType: String, fieldName: String,
+    fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    return emitVariableReceiverMemberAccessImpl(output, regBox, varReg,
+        varType, fieldName, fieldLlvmType, structNames, structLayouts,
+        structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitPreparedModuleConstReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, quotedGlobalName: String, constType: String,
+    constSeenType: String, invariantSuffix: String, fieldName: String,
+    fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    return emitModuleConstReceiverMemberAccessImpl(output, regBox,
+        quotedGlobalName, constType, constSeenType, invariantSuffix,
+        fieldName, fieldLlvmType, structNames, structLayouts,
+        structFieldNames, structFieldTypes, reprCClassNames, unionTypes,
+        typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
+        bitfieldCount, bitfieldKeys, bitfieldWidths)
+}
+
+fun emitPreparedBracketPathMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverName: String, fieldName: String,
+    baseVarName: String, baseVarReg: String, baseType: String,
+    arrayField: String, arrayFieldLlvmType: String, indexStr: String,
+    elementType: String, fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    return emitBracketPathMemberAccessImpl(output, regBox, receiverName,
+        fieldName, baseVarName, baseVarReg, baseType, arrayField,
+        arrayFieldLlvmType, indexStr, elementType, fieldLlvmType,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+        bitfieldWidths)
+}
+
+fun emitPreparedChainedReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, fieldName: String, baseVarReg: String,
+    baseType: String, restPath: String, intermediateType: String,
+    fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    return emitChainedReceiverMemberAccessImpl(output, regBox, fieldName,
+        baseVarReg, baseType, restPath, intermediateType, fieldLlvmType,
+        structNames, structLayouts, structFieldNames, structFieldTypes,
+        reprCClassNames, unionTypes, typeAliasNames, typeAliasTargets,
+        typeAliasCount, enumTypeNames, bitfieldCount, bitfieldKeys,
+        bitfieldWidths)
+}
+
+fun emitPreparedImplicitThisReceiverMemberAccessImpl(output: StringBuilder,
+    regBox: Array<Int>, receiverName: String, fieldName: String,
+    thisReg: String, thisType: String, intermediateType: String,
+    fieldLlvmType: String, structNames: Array<String>,
+    structLayouts: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>, reprCClassNames: String,
+    unionTypes: String, typeAliasNames: String, typeAliasTargets: String,
+    typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
+    bitfieldKeys: String, bitfieldWidths: String) r: String {
+
+    return emitImplicitThisReceiverMemberAccessImpl(output, regBox,
+        receiverName, fieldName, thisReg, thisType, intermediateType,
+        fieldLlvmType, structNames, structLayouts, structFieldNames,
+        structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
+        typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
+        bitfieldKeys, bitfieldWidths)
+}
