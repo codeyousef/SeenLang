@@ -86,6 +86,7 @@ import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, i
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
 import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, prepareModuleConstantMethodReceiverImpl, emitPreparedStaticMethodCallImpl, shouldLowerUnresolvedMethodAsCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
+import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_struct_layout_build.{prepareStructLayoutRegistrationSnapshotImpl}
 import codegen.ir_class_type_layout.{emitClassTypeFieldsImpl, emitClassTypeHeaderImpl, emitClassTypeFooterImpl, prepareClassTypeAliasStateSnapshotImpl}
@@ -6605,7 +6606,9 @@ class LLVMIRGenerator {
     fun tryGenerateResolvedReceiverFastPathMethodCall(expr: ParserExpressionNode,
         methodName: String, receiverReg: String, receiverType: String) r: String {
 
-        if isOptionReceiverTypeImpl(receiverType) and receiverReg != "" {
+        if isOptionReceiverTypeImpl(receiverType) and
+            hasResolvedMethodReceiverImpl(receiverReg) {
+
             var optDefaultRegS = "0"
             if (methodName == "unwrapOr" or methodName == "UnwrapOr") and
                 expr.arguments.length() > 0 {
@@ -6615,7 +6618,9 @@ class LLVMIRGenerator {
                 methodName, receiverReg, optDefaultRegS)
         }
 
-        if isSmallVecReceiverTypeImpl(receiverType) and receiverReg != "" {
+        if isSmallVecReceiverTypeImpl(receiverType) and
+            hasResolvedMethodReceiverImpl(receiverReg) {
+
             var svArgReg = ""
             if (methodName == "push" or methodName == "get") and
                 expr.arguments.length() > 0 {
@@ -6625,7 +6630,9 @@ class LLVMIRGenerator {
                 receiverReg, receiverType, svArgReg)
         }
 
-        if isCollectionReceiverTypeImpl(receiverType) and receiverReg != "" {
+        if isCollectionReceiverTypeImpl(receiverType) and
+            hasResolvedMethodReceiverImpl(receiverReg) {
+
             var collArg0s = "0"
             var collArg1s = "0"
             if expr.arguments.length() > 0 {
@@ -6638,7 +6645,9 @@ class LLVMIRGenerator {
                 receiverReg, receiverType, collArg0s, collArg1s)
         }
 
-        if isArrayReceiverTypeImpl(receiverType) and receiverReg != "" {
+        if isArrayReceiverTypeImpl(receiverType) and
+            hasResolvedMethodReceiverImpl(receiverReg) {
+
             var arrArg0 = ""
             var arrArg1 = ""
             if expr.arguments.length() > 0 {
@@ -6965,7 +6974,9 @@ class LLVMIRGenerator {
         var receiverReg = ""
         var receiverType = "String"
 
-        if expr.operands.length() == 0 and expr.literalValue.contains(".") {
+        if hasDottedLiteralMethodReceiverImpl(expr.operands.length(),
+            expr.literalValue) {
+
             let receiverSegments = splitChainedPathImpl(expr.literalValue)
             if receiverSegments.length() > 0 {
                 let baseReceiverName = receiverSegments[0]
@@ -6980,7 +6991,7 @@ class LLVMIRGenerator {
             }
         }
 
-        if expr.operands.length() > 0 {
+        if hasExplicitMethodReceiverImpl(expr.operands.length()) {
             receiverReg = generateExpression(expr.operands[0])
             receiverType = inferExpressionType(expr.operands[0])
 
@@ -7008,7 +7019,9 @@ class LLVMIRGenerator {
             }
         }
 
-        if expr.operands.length() == 0 and expr.literalValue.contains(".") {
+        if hasDottedLiteralMethodReceiverImpl(expr.operands.length(),
+            expr.literalValue) {
+
             if receiverReg == "" {
                 let enumReceiverRegBox = Array<String>()
                 enumReceiverRegBox.push("")
@@ -7225,16 +7238,17 @@ class LLVMIRGenerator {
                 var isFloatFused = 0
                 if methodName == "append" and expr.arguments.length() > 0 {
                     let appendArgExpr = expr.arguments[0]
-                    if appendArgExpr.kind == "Call" and
-                        appendArgExpr.callee == "__FloatToString" and
-                        appendArgExpr.arguments.length() > 0 {
+                    if isFusedStringBuilderFloatAppendImpl(receiverType,
+                        methodName, expr.arguments.length(),
+                        appendArgExpr.kind, appendArgExpr.callee,
+                        appendArgExpr.arguments.length()) {
                         sbArg0 = generateExpression(appendArgExpr.arguments[0])
                         isFloatFused = 1
                     } else {
                         sbArg0 = generateExpression(expr.arguments[0])
                     }
                 } else {
-                    if expr.arguments.length() > 0 {
+                    if shouldPrepareFirstMethodArgImpl(expr.arguments.length()) {
                         sbArg0 = generateExpression(expr.arguments[0])
                     }
                 }
@@ -7289,12 +7303,11 @@ class LLVMIRGenerator {
         }
 
         var tracedUnwrapSourceType = ""
-        if receiverType == "ptr" and methodName == "toJson" and
-            expr.operands.length() > 0 {
+        if shouldTraceUnwrapToJsonSourceImpl(receiverType, methodName,
+            expr.operands.length()) {
             let receiverExpr = expr.operands[0]
-            if receiverExpr.kind == "MethodCall" and
-                receiverExpr.callee == "unwrap" and
-                receiverExpr.operands.length() > 0 {
+            if isUnwrapMethodCallExprImpl(receiverExpr.kind,
+                receiverExpr.callee, receiverExpr.operands.length()) {
                 tracedUnwrapSourceType = inferExpressionType(
                     receiverExpr.operands[0])
             }

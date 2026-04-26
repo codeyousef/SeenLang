@@ -1,0 +1,42 @@
+// ir_method_call_plan.seen - pure method-call dispatch planning helpers.
+
+fun hasExplicitMethodReceiverImpl(operandCount: Int) r: Bool {
+    return operandCount > 0
+}
+
+fun hasDottedLiteralMethodReceiverImpl(operandCount: Int,
+    literalValue: String) r: Bool {
+
+    return operandCount == 0 and literalValue.contains(".")
+}
+
+fun hasResolvedMethodReceiverImpl(receiverReg: String) r: Bool {
+    return receiverReg != ""
+}
+
+fun shouldTraceUnwrapToJsonSourceImpl(receiverType: String,
+    methodName: String, operandCount: Int) r: Bool {
+
+    return receiverType == "ptr" and methodName == "toJson" and
+        operandCount > 0
+}
+
+fun isUnwrapMethodCallExprImpl(exprKind: String, callee: String,
+    operandCount: Int) r: Bool {
+
+    return exprKind == "MethodCall" and callee == "unwrap" and
+        operandCount > 0
+}
+
+fun isFusedStringBuilderFloatAppendImpl(receiverType: String,
+    methodName: String, argCount: Int, argKind: String, argCallee: String,
+    nestedArgCount: Int) r: Bool {
+
+    return receiverType == "StringBuilder" and methodName == "append" and
+        argCount > 0 and argKind == "Call" and
+        argCallee == "__FloatToString" and nestedArgCount > 0
+}
+
+fun shouldPrepareFirstMethodArgImpl(argCount: Int) r: Bool {
+    return argCount > 0
+}

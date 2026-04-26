@@ -75,6 +75,7 @@ import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl}
 import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
+import codegen.ir_method_call_plan.{hasExplicitMethodReceiverImpl, hasDottedLiteralMethodReceiverImpl, hasResolvedMethodReceiverImpl, shouldTraceUnwrapToJsonSourceImpl, isUnwrapMethodCallExprImpl, isFusedStringBuilderFloatAppendImpl, shouldPrepareFirstMethodArgImpl}
 import codegen.ir_infer_type.{inferCallExprTypeImpl}
 import codegen.ir_special_expr_infer.{inferSpecialExprTypeImpl}
 import codegen.ir_function_gen.{analyzeDeadStoresImpl}
@@ -1962,6 +1963,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_member_access_gen")
         modules.push("codegen.ir_method_receiver")
         modules.push("codegen.ir_method_receiver_predicates")
+        modules.push("codegen.ir_method_call_plan")
         modules.push("codegen.ir_method_fastpath")
         modules.push("codegen.ir_binary_expr")
         modules.push("codegen.ir_unary_expr")
