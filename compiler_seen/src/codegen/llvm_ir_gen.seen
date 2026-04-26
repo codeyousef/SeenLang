@@ -95,11 +95,12 @@ import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuilti
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, shouldReadSimdShuffleConstArgImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
-import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
-import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, tryGenerateLengthLikeMethodCallImpl, emitStringBuilderReceiverMethodCallImpl, tryGeneratePrimitiveConversionMethodCallImpl, tryGenerateNumericReceiverMethodCallImpl, tryGenerateStringLikeReceiverMethodCallImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, emitPreparedStaticMethodCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
+import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
+import codegen.ir_method_fastpath.{emitPreparedDynTraitMethodCallImpl, tryGeneratePreparedExplicitReceiverFastPathImpl, tryGeneratePreparedLocalVariableReceiverFastPathImpl, resolveStaticMethodClassNamesImpl, isStaticMethodReceiverReferenceImpl, tryGenerateStaticFactoryMethodCallImpl, resolveStaticMethodReturnTypeImpl, emitPreparedStaticMethodCallImpl, tryGenerateUnresolvedReceiverFallbackMethodImpl, applyUnresolvedReceiverDefaultImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
 import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, shouldTryNoArgStaticFactoryImpl, shouldTryArgStaticFactoryImpl, resolveStaticCallClassNameImpl, shouldPromoteStaticMethodFloatArgsImpl, staticMethodFunctionNameImpl, shouldRecordStaticMethodLateDeclareImpl, isSeenLexerKeywordManagerReceiverImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl, shouldResolveImplicitThisDottedFieldReceiverImpl, planArrayMutatorMethodImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, isDottedArrayMutatorLiteralImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldUseImplicitThisArrayMutatorPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl}
 import codegen.ir_method_lower_plan.{planMethodLowerCallImpl, methodLowerStringBuilderArgActionImpl, shouldUseMethodLowerUnwrapTraceSourceImpl}
+import codegen.ir_method_lower_emit.{emitPreparedLengthLikeMethodLowerImpl, emitPreparedStringBuilderMethodLowerImpl, emitPreparedPrimitiveConversionMethodLowerImpl, emitPreparedNumericMethodLowerImpl, emitPreparedStringLikeMethodLowerImpl, emitPreparedHotReloadMethodLowerImpl, emitPreparedSpecializedMethodLowerImpl, emitPreparedUserMethodLowerImpl}
 import codegen.ir_method_final_plan.{planMethodUnresolvedReceiverStartImpl, planMethodUnresolvedReceiverFinalImpl, planMethodFinalDispatchImpl}
 import codegen.ir_method_receiver_lookup_plan.{planMethodReceiverInitialPhaseImpl, planMethodReceiverPostLookupPhaseImpl, planMethodReceiverPostResolutionPhaseImpl, planDottedReceiverStageImpl, planDottedReceiverFallbackStageImpl, planImplicitThisDottedReceiverStageImpl, planSimpleLiteralReceiverStageImpl, planImplicitThisReceiverStageImpl}
 import codegen.ir_method_receiver_lookup_gen.{emitLocalMethodReceiverLoadImpl, emitModuleConstantMethodReceiverLoadImpl, emitKeywordManagerMethodReceiverLoadImpl}
@@ -7103,7 +7104,7 @@ class LLVMIRGenerator {
             isNumericReceiverMethodImpl(methodName))
 
         if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryLengthLike {
-            let lengthLikeResult = tryGenerateLengthLikeMethodCallImpl(output,
+            let lengthLikeResult = emitPreparedLengthLikeMethodLowerImpl(output,
                 g_regBox, methodName, receiverReg, receiverType,
                 g_reprCClassNames, structNames)
             if lengthLikeResult != "" {
@@ -7137,7 +7138,7 @@ class LLVMIRGenerator {
                 sbArg0 = generateExpression(expr.arguments[0])
             }
             let stringBuilderResult =
-                emitStringBuilderReceiverMethodCallImpl(output, g_regBox,
+                emitPreparedStringBuilderMethodLowerImpl(output, g_regBox,
                     methodName, receiverReg, receiverType, sbArg0,
                     isFloatFused, g_reprCClassNames, structNames)
             if stringBuilderResult != "" {
@@ -7148,7 +7149,7 @@ class LLVMIRGenerator {
         if postResolutionPhase.shouldTryLowering and
             lowerPlan.shouldTryPrimitiveConversion {
 
-            let conversionResult = tryGeneratePrimitiveConversionMethodCallImpl(
+            let conversionResult = emitPreparedPrimitiveConversionMethodLowerImpl(
                 output, g_regBox, methodName, receiverReg, receiverType,
                 structNames)
             if conversionResult != "" {
@@ -7165,7 +7166,7 @@ class LLVMIRGenerator {
             if lowerPlan.hasArg1 {
                 numArg1 = generateExpression(expr.arguments[1])
             }
-            let numericResult = tryGenerateNumericReceiverMethodCallImpl(
+            let numericResult = emitPreparedNumericMethodLowerImpl(
                 output, g_regBox, methodName, receiverReg, receiverType,
                 numArg0, numArg1)
             if numericResult != "" {
@@ -7183,7 +7184,7 @@ class LLVMIRGenerator {
             if lowerPlan.hasArg1 {
                 strArg1 = generateExpression(expr.arguments[1])
             }
-            let stringLikeResult = tryGenerateStringLikeReceiverMethodCallImpl(
+            let stringLikeResult = emitPreparedStringLikeMethodLowerImpl(
                 output, g_regBox, methodName, receiverReg, receiverType, strArg0,
                 strArg1, strArgCount, g_reprCClassNames, structNames)
             if stringLikeResult != "" {
@@ -7214,7 +7215,7 @@ class LLVMIRGenerator {
         }
         if postResolutionPhase.shouldTryLowering and lowerPlan.shouldTryHotReload {
             let hotReloadResult =
-                tryGeneratePreparedHotReloadInstanceMethodCallImpl(
+                emitPreparedHotReloadMethodLowerImpl(
                 output, g_regBox, methodName, quoteIdentIfNeeded(funcName),
                 receiverReg, receiverType, hotStateArg, structNames)
             if hotReloadResult != "" {
@@ -7252,7 +7253,7 @@ class LLVMIRGenerator {
         let receiverLlvmType = receiverLlvmTypeBox[0]
 
         if finalDispatchPlan.shouldTrySpecialized {
-            let specializedResult = tryGenerateSpecializedInstanceMethodCallImpl(
+            let specializedResult = emitPreparedSpecializedMethodLowerImpl(
                 output, g_regBox, methodName, instanceTypeName, receiverType,
                 returnTypeStr, receiverLlvmType, normalizedReceiverReg,
                 structNames)
@@ -7262,7 +7263,7 @@ class LLVMIRGenerator {
         }
 
         if finalDispatchPlan.shouldEmitUserMethod {
-            return emitUserMethodCallImpl(output, g_regBox,
+            return emitPreparedUserMethodLowerImpl(output, g_regBox,
                 quoteIdentIfNeeded(funcName), llvmReturnType, receiverLlvmType,
                 normalizedReceiverReg, argRegs, argTypeStrs, 0)
         }
