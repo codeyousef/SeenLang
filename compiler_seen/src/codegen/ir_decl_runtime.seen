@@ -88,6 +88,12 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         if not isFuncDefinedInModule("Option_Unwrap", definedFuncs) {
             output.append("declare i64 @Option_Unwrap(ptr) nounwind\n")
         }
+        if not isFuncDefinedInModule("Result_isOkay", definedFuncs) {
+            output.append("declare i1 @Result_isOkay(ptr) nounwind\n")
+        }
+        if not isFuncDefinedInModule("Result_unwrapErr", definedFuncs) {
+            output.append("declare %SeenString @Result_unwrapErr(ptr) nounwind\n")
+        }
         output.append("declare i64 @SeenTokenType_unwrap(i64) nounwind readonly\n")
         // LSP type unwrap declarations (implementations in seen_runtime.c)
         output.append("declare i64 @LspPosition_unwrap(ptr) nounwind\n")

@@ -864,6 +864,141 @@ EOF
     echo "PASS: Seen.toml build entry main is added for non-main input"
 }
 
+run_legacy_whole_module_import_case() {
+    local project_dir="$TMP_ROOT/legacy_whole_module_import"
+    local output_file="$project_dir/legacy_whole_module_import"
+    local log_file="$project_dir/legacy_whole_module_import.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/resolver_visibility_repro"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "resolver_visibility_repro"
+version = "0.1.0"
+language = "en"
+description = "Package import aggregator visibility repro"
+
+modules = [
+    "resolver_visibility_repro/helper.seen",
+    "resolver_visibility_repro/consumer.seen",
+]
+
+[build]
+entry = "main.seen"
+EOF
+
+    cat >"$project_dir/resolver_visibility_repro/helper.seen" <<'EOF'
+fun helperValue() r: Int {
+    return 41
+}
+EOF
+
+    cat >"$project_dir/resolver_visibility_repro/consumer.seen" <<'EOF'
+fun consumerValue() r: Int {
+    return helperValue() + 1
+}
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import resolver_visibility_repro::helper
+import resolver_visibility_repro::consumer
+
+fun main() r: Int {
+    let value = consumerValue()
+    if value == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: legacy whole-module imports did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if grep -q 'unresolved function' "$log_file"; then
+        echo "FAIL: legacy whole-module imports still reported unresolved functions"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: legacy whole-module import binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: legacy whole-module imports expose top-level functions"
+}
+
+run_named_import_control_case() {
+    local project_dir="$TMP_ROOT/named_import_control"
+    local output_file="$project_dir/named_import_control"
+    local log_file="$project_dir/named_import_control.log"
+
+    cleanup_seen_artifacts
+    mkdir -p "$project_dir/resolver_visibility_repro"
+
+    cat >"$project_dir/Seen.toml" <<'EOF'
+[project]
+name = "resolver_visibility_repro"
+version = "0.1.0"
+language = "en"
+description = "Curly import control"
+
+modules = [
+    "resolver_visibility_repro/helper.seen",
+    "resolver_visibility_repro/consumer.seen",
+]
+
+[build]
+entry = "main.seen"
+EOF
+
+    cat >"$project_dir/resolver_visibility_repro/helper.seen" <<'EOF'
+fun helperValue() r: Int {
+    return 41
+}
+EOF
+
+    cat >"$project_dir/resolver_visibility_repro/consumer.seen" <<'EOF'
+import resolver_visibility_repro.helper.{helperValue}
+
+fun consumerValue() r: Int {
+    return helperValue() + 1
+}
+EOF
+
+    cat >"$project_dir/main.seen" <<'EOF'
+import resolver_visibility_repro.consumer.{consumerValue}
+
+fun main() r: Int {
+    let value = consumerValue()
+    if value == 42 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+    if ! run_compile_in_dir "$project_dir" "main.seen" "$output_file" "$log_file"; then
+        echo "FAIL: explicit named imports did not compile"
+        cat "$log_file"
+        exit 1
+    fi
+
+    if ! "$output_file" >/dev/null 2>&1; then
+        echo "FAIL: explicit named import binary exited non-zero"
+        cat "$log_file"
+        exit 1
+    fi
+
+    echo "PASS: explicit named imports remain supported"
+}
+
 run_missing_import_failure_case() {
     local project_dir="$TMP_ROOT/missing_import_failure"
     local output_file="$project_dir/missing_import_failure"
@@ -954,6 +1089,8 @@ run_local_system_dependency_case
 run_build_entry_seed_case
 run_root_main_build_entry_isolation_case
 run_build_entry_main_fallback_case
+run_legacy_whole_module_import_case
+run_named_import_control_case
 run_missing_import_failure_case
 
 cleanup_seen_artifacts

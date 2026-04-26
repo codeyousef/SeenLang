@@ -74,7 +74,7 @@ import codegen.ir_loop_plan.{planMemcpyOptimizedWhileLoopImpl, iteratorProtocolF
 import codegen.ir_call_constructors.{emitStaticCollectionNewImpl, isArrayConstructorNameImpl, resolveArrayConstructorElementTypeImpl, resolveArrayConstructorElementSizeImpl, isSmallVecConstructorNameImpl, isCollectionConstructorNameImpl, emitCollectionConstructorImpl}
 import codegen.ir_call_args.{fillDefaultParamsImpl}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl}
-import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, runtimeIoCallActionImpl, planRuntimeBuiltinDispatchImpl}
+import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, isPrintRuntimeCallPlanImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, isMathRuntimeCallPlanImpl, planRuntimeBuiltinDispatchImpl}
 import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_implicit_this_emit.{emitPreparedMisplacedParserImplicitThisCallImpl, emitPreparedStringBuilderImplicitThisCallImpl, emitPreparedNormalImplicitThisCallImpl}
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, regularCallTailFlagImpl}
@@ -2087,6 +2087,14 @@ fun importProvidesSymbol(importItem: ItemNode, symbolName: String) r: Bool {
     return resolveImportedSymbolName(importItem, symbolName) != ""
 }
 
+fun stripCallGenericArguments(callName: String) r: String {
+    let genericStart = callName.indexOf("<", 0)
+    if genericStart > 0 {
+        return callName.substring(0, genericStart)
+    }
+    return callName
+}
+
 fun resolveImportedSymbolName(importItem: ItemNode, symbolName: String) r: String {
     if importItem.itemType != "Import" {
         return ""
@@ -2126,12 +2134,19 @@ fun findProgramClass(program: ProgramNode, className: String) r: ClassNode {
 }
 
 fun findParsedModuleClass(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, className: String) r: ClassNode {
+    let normalizedTargetPath = resolveRealInputPath(targetPath)
     var i = 0
     while i < modulePaths.length() {
-        if modulePaths[i] == targetPath {
+        if modulePaths[i] == normalizedTargetPath {
             return findProgramClass(frontends[i].program, className)
         }
         i = i + 1
+    }
+    if exists(normalizedTargetPath) {
+        let frontend = parseModule(normalizedTargetPath, "en")
+        if frontend.success {
+            return findProgramClass(frontend.program, className)
+        }
     }
     return ClassNode.new()
 }
@@ -2189,12 +2204,50 @@ fun findProgramFunction(program: ProgramNode, functionName: String) r: FunctionN
 }
 
 fun findParsedModuleFunction(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, functionName: String) r: FunctionNode {
+    let normalizedTargetPath = resolveRealInputPath(targetPath)
     var i = 0
     while i < modulePaths.length() {
-        if modulePaths[i] == targetPath {
+        if modulePaths[i] == normalizedTargetPath {
             return findProgramFunction(frontends[i].program, functionName)
         }
         i = i + 1
+    }
+    if exists(normalizedTargetPath) {
+        let frontend = parseModule(normalizedTargetPath, "en")
+        if frontend.success {
+            return findProgramFunction(frontend.program, functionName)
+        }
+    }
+    return FunctionNode.new()
+}
+
+fun findFunctionImportedByAnyModuleInModules(modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, functionName: String) r: FunctionNode {
+
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let importingPath = modulePaths[moduleIdx]
+        let importingDir = getSourceDir(importingPath)
+        let importingProgram = frontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < importingProgram.items.length() {
+            let item = importingProgram.items[itemIdx]
+            let importedSymbolName = resolveImportedSymbolName(item,
+                functionName)
+            if importedSymbolName != "" {
+                let importedPath = resolveImportPath(item.importPath,
+                    importingDir)
+                if importedPath != "" {
+                    let importedFunc = findParsedModuleFunction(modulePaths,
+                        frontends, importedPath, importedSymbolName)
+                    if importedFunc.name != "" {
+                        return importedFunc
+                    }
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+        moduleIdx = moduleIdx + 1
     }
     return FunctionNode.new()
 }
@@ -2342,6 +2395,37 @@ fun findReferencedClassInModules(modulePath: String, moduleProgram: ProgramNode,
         i = i + 1
     }
 
+    return findClassImportedByAnyModuleInModules(modulePaths, frontends,
+        className)
+}
+
+fun findClassImportedByAnyModuleInModules(modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, className: String) r: ClassNode {
+
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let importingPath = modulePaths[moduleIdx]
+        let importingDir = getSourceDir(importingPath)
+        let importingProgram = frontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < importingProgram.items.length() {
+            let item = importingProgram.items[itemIdx]
+            let importedSymbolName = resolveImportedSymbolName(item, className)
+            if importedSymbolName != "" {
+                let importedPath = resolveImportPath(item.importPath,
+                    importingDir)
+                if importedPath != "" {
+                    let importedClass = findParsedModuleClass(modulePaths,
+                        frontends, importedPath, importedSymbolName)
+                    if importedClass.name != "" {
+                        return importedClass
+                    }
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+        moduleIdx = moduleIdx + 1
+    }
     return ClassNode.new()
 }
 
@@ -2454,12 +2538,19 @@ fun findProgramEnum(program: ProgramNode, enumName: String) r: EnumNode {
 }
 
 fun findParsedModuleEnum(modulePaths: Array<String>, frontends: Array<FrontendResult>, targetPath: String, enumName: String) r: EnumNode {
+    let normalizedTargetPath = resolveRealInputPath(targetPath)
     var i = 0
     while i < modulePaths.length() {
-        if modulePaths[i] == targetPath {
+        if modulePaths[i] == normalizedTargetPath {
             return findProgramEnum(frontends[i].program, enumName)
         }
         i = i + 1
+    }
+    if exists(normalizedTargetPath) {
+        let frontend = parseModule(normalizedTargetPath, "en")
+        if frontend.success {
+            return findProgramEnum(frontend.program, enumName)
+        }
     }
     return EnumNode.new()
 }
@@ -2487,6 +2578,37 @@ fun findReferencedEnumInModules(modulePath: String, moduleProgram: ProgramNode, 
         i = i + 1
     }
 
+    return findEnumImportedByAnyModuleInModules(modulePaths, frontends,
+        enumName)
+}
+
+fun findEnumImportedByAnyModuleInModules(modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, enumName: String) r: EnumNode {
+
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let importingPath = modulePaths[moduleIdx]
+        let importingDir = getSourceDir(importingPath)
+        let importingProgram = frontends[moduleIdx].program
+        var itemIdx = 0
+        while itemIdx < importingProgram.items.length() {
+            let item = importingProgram.items[itemIdx]
+            let importedSymbolName = resolveImportedSymbolName(item, enumName)
+            if importedSymbolName != "" {
+                let importedPath = resolveImportPath(item.importPath,
+                    importingDir)
+                if importedPath != "" {
+                    let importedEnum = findParsedModuleEnum(modulePaths,
+                        frontends, importedPath, importedSymbolName)
+                    if importedEnum.name != "" {
+                        return importedEnum
+                    }
+                }
+            }
+            itemIdx = itemIdx + 1
+        }
+        moduleIdx = moduleIdx + 1
+    }
     return EnumNode.new()
 }
 
@@ -2585,7 +2707,13 @@ fun findReferencedFunctionInModules(modulePath: String, moduleProgram: ProgramNo
     if localFunc.name != "" {
         return localFunc
     }
-    return findImportedFunctionInModules(modulePath, moduleProgram, modulePaths, frontends, functionName)
+    let directlyImported = findImportedFunctionInModules(modulePath,
+        moduleProgram, modulePaths, frontends, functionName)
+    if directlyImported.name != "" {
+        return directlyImported
+    }
+    return findFunctionImportedByAnyModuleInModules(modulePaths, frontends,
+        functionName)
 }
 
 fun inferExpressionTypeNameInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, expr: ParserExpressionNode, boundNames: Array<String>, boundTypes: Array<String>, ownerClassName: String) r: String {
@@ -2843,7 +2971,8 @@ fun isKnownCompilerBuiltinCallName(callName: String) r: Bool {
         callName.startsWith("stackAlloc<") or callName == "constructAt" {
         return true
     }
-    if callName == "debug_assert" or callName == "__default" or
+    if callName == "debug_assert" or callName == "abort" or
+        callName == "__default" or
         callName.startsWith("__default<") {
         return true
     }
@@ -2857,19 +2986,19 @@ fun isKnownCompilerBuiltinCallName(callName: String) r: Bool {
     if isPtrBuiltinCallImpl(callName) == 1 {
         return true
     }
-    if isOptionRuntimeBuiltinNameImpl(callName) {
+    if isOptionRuntimeCallPlanImpl(callName) {
         return true
     }
-    if isPrintRuntimeBuiltinNameImpl(callName) {
+    if isPrintRuntimeCallPlanImpl(callName) {
         return true
     }
-    if isIoRuntimeBuiltinNameImpl(callName) {
+    if runtimeIoCallActionImpl(callName, 1) != 0 {
         return true
     }
-    if isPanicRuntimeBuiltinNameImpl(callName) {
+    if isPanicRuntimeCallPlanImpl(callName) {
         return true
     }
-    if isMathRuntimeBuiltinNameImpl(callName) {
+    if isMathRuntimeCallPlanImpl(callName) {
         return true
     }
     if isArrayConstructorNameImpl(callName) {
@@ -2911,29 +3040,32 @@ fun isResolvableFreeFunctionCall(modulePath: String,
     if callName == "" {
         return true
     }
-    if isKnownCompilerBuiltinCallName(callName) {
+    let resolvedCallName = stripCallGenericArguments(callName)
+    if isKnownCompilerBuiltinCallName(resolvedCallName) {
         return true
     }
-    if lookupBoundType(boundNames, boundTypes, callName) != "" {
+    if lookupBoundType(boundNames, boundTypes, resolvedCallName) != "" {
         return true
     }
     let referencedFunc = findReferencedFunctionInModules(modulePath,
-        moduleProgram, g_validationModulePaths, g_validationFrontends, callName)
+        moduleProgram, g_validationModulePaths, g_validationFrontends,
+        resolvedCallName)
     if referencedFunc.name != "" {
         return true
     }
     let referencedClass = findReferencedClassInModules(modulePath,
-        moduleProgram, g_validationModulePaths, g_validationFrontends, callName)
+        moduleProgram, g_validationModulePaths, g_validationFrontends,
+        resolvedCallName)
     if referencedClass.name != "" {
         return true
     }
-    if moduleSetHasEnumVariant(callName) {
+    if moduleSetHasEnumVariant(resolvedCallName) {
         return true
     }
     if ownerClassName != "" {
         let methodRet = findReferencedClassMethodReturnTypeInModules(modulePath,
             moduleProgram, g_validationModulePaths, g_validationFrontends,
-            ownerClassName, callName)
+            ownerClassName, resolvedCallName)
         if methodRet != "" {
             return true
         }

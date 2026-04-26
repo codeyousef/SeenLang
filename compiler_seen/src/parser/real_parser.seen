@@ -406,7 +406,7 @@ class RealParser {
         if isAtEnd() {
             return false
         }
-        return isIdentifierLikeTokenValue(peek().getValue())
+        return isIdentifierLikeTokenValue(peekTokenValue())
     }
 
     fun consumeNameLike(message: String) r: Token {
@@ -416,11 +416,20 @@ class RealParser {
         return peek()
     }
 
+    fun consumeNameLikeValue(message: String) r: String {
+        let value = peekTokenValue()
+        if checkNameLikeToken() {
+            advance()
+            return value
+        }
+        return value
+    }
+
     fun matchNameValue(expectedName: String) r: Bool {
         if not checkNameLikeToken() {
             return false
         }
-        if peek().getValue() == expectedName {
+        if peekTokenValue() == expectedName {
             advance()
             return true
         }
@@ -462,7 +471,7 @@ class RealParser {
             if isContextualIdentifierTokenType(tokTypeStr) {
                 return true
             }
-            return isIdentifierLikeTokenValue(peek().getValue())
+            return isIdentifierLikeTokenValue(peekTokenValue())
         }
         return tokTypeStr == expectedStr
     }
@@ -507,6 +516,13 @@ class RealParser {
             return tokens[tokens.length() - 1].getType().toString()
         }
         return tokens[current].getType().toString()
+    }
+
+    fun peekTokenValue() r: String {
+        if current >= tokens.length() {
+            return tokens[tokens.length() - 1].getValue()
+        }
+        return tokens[current].getValue()
     }
 
     fun previous() r: Token {
@@ -5159,12 +5175,8 @@ class RealParser {
     fun parseImportItemInto() r: Void {
         let importSegments = Array<String>()
 
-        if checkToken(getIdentifierType()) {
-            importSegments.push(advance().getValue())
-        } else {
-            if checkToken(SeenTokenType.KeywordAsync) {
-                importSegments.push(advance().getValue())
-            }
+        if checkNameLikeToken() {
+            importSegments.push(consumeNameLikeValue("Expected identifier in import path"))
         }
 
         var importText = joinSegments(importSegments, ".")
@@ -5174,15 +5186,9 @@ class RealParser {
                 if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
                     break
                 }
-                if checkToken(SeenTokenType.KeywordAsync) {
-                    let seg = advance()
-                    importSegments.push(seg.getValue())
-                    importText = importText + "." + seg.getValue()
-                    continue
-                }
-                let segment = consume(getIdentifierType(), "Expected identifier in import path")
-                importSegments.push(segment.getValue())
-                importText = importText + "." + segment.getValue()
+                let segment = consumeNameLikeValue("Expected identifier in import path")
+                importSegments.push(segment)
+                importText = importText + "." + segment
                 continue
             }
 
@@ -5190,9 +5196,9 @@ class RealParser {
                 if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
                     break
                 }
-                let segment = consume(getIdentifierType(), "Expected identifier after '::'")
-                importSegments.push(segment.getValue())
-                importText = importText + "::" + segment.getValue()
+                let segment = consumeNameLikeValue("Expected identifier after '::'")
+                importSegments.push(segment)
+                importText = importText + "::" + segment
                 continue
             }
 
@@ -5201,11 +5207,11 @@ class RealParser {
 
         let importSymbols = Array<ImportSymbolNode>()
         if matchTokenStr(getKeywordAsType()) and importSegments.length() > 0 {
-            let alias = consume(getIdentifierType(), "Expected alias after 'as'")
+            let alias = consumeNameLikeValue("Expected alias after 'as'")
             let baseName = importSegments[importSegments.length() - 1]
             let symbol = ImportSymbolNode.new()
             symbol.name = baseName
-            symbol.alias = alias.getValue()
+            symbol.alias = alias
             importSymbols.push(symbol)
         } else {
             if matchTokenStr(getLeftBraceType()) {
@@ -5214,15 +5220,14 @@ class RealParser {
                         break
                     }
 
-                    let symbolToken = consume(getIdentifierType(), "Expected symbol name")
+                    let symbolName = consumeNameLikeValue("Expected symbol name")
                     var aliasValue = ""
                     if matchTokenStr(getKeywordAsType()) {
-                        let aliasToken = consume(getIdentifierType(), "Expected alias name")
-                        aliasValue = aliasToken.getValue()
+                        aliasValue = consumeNameLikeValue("Expected alias name")
                     }
 
                     let symbol = ImportSymbolNode.new()
-                    symbol.name = symbolToken.getValue()
+                    symbol.name = symbolName
                     symbol.alias = aliasValue
                     importSymbols.push(symbol)
 
@@ -5232,14 +5237,6 @@ class RealParser {
 
                     consume(getRightBraceType(), "Expected '}' after import list")
                     break
-                }
-            } else {
-                if importSegments.length() > 0 {
-                    let baseName = importSegments[importSegments.length() - 1]
-                    let symbol = ImportSymbolNode.new()
-                    symbol.name = baseName
-                    symbol.alias = ""
-                    importSymbols.push(symbol)
                 }
             }
         }
@@ -5260,12 +5257,8 @@ class RealParser {
     fun parseImportPath() r: ImportPathInfo {
         let segments = Array<String>()
 
-        if checkToken(getIdentifierType()) {
-            segments.push(advance().getValue())
-        } else {
-            if checkToken(SeenTokenType.KeywordAsync) {
-                segments.push(advance().getValue())
-            }
+        if checkNameLikeToken() {
+            segments.push(consumeNameLikeValue("Expected identifier in import path"))
         }
 
         var text = joinSegments(segments, ".")
@@ -5275,15 +5268,9 @@ class RealParser {
                 if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
                     break
                 }
-                if checkToken(SeenTokenType.KeywordAsync) {
-                    let seg = advance()
-                    segments.push(seg.getValue())
-                    text = text + "." + seg.getValue()
-                    continue
-                }
-                let segment = consume(getIdentifierType(), "Expected identifier in import path")
-                segments.push(segment.getValue())
-                text = text + "." + segment.getValue()
+                let segment = consumeNameLikeValue("Expected identifier in import path")
+                segments.push(segment)
+                text = text + "." + segment
                 continue
             }
 
@@ -5291,9 +5278,9 @@ class RealParser {
                 if checkToken(getLeftBraceType()) or checkToken(getKeywordAsType()) {
                     break
                 }
-                let segment = consume(getIdentifierType(), "Expected identifier after '::'")
-                segments.push(segment.getValue())
-                text = text + "::" + segment.getValue()
+                let segment = consumeNameLikeValue("Expected identifier after '::'")
+                segments.push(segment)
+                text = text + "::" + segment
                 continue
             }
 
@@ -5310,17 +5297,13 @@ class RealParser {
         let symbols = Array<ImportSymbolNode>()
 
         if matchTokenStr(getKeywordAsType()) and pathInfo.segments.length() > 0 {
-            let alias = consume(getIdentifierType(), "Expected alias after 'as'")
+            let alias = consumeNameLikeValue("Expected alias after 'as'")
             let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
-            symbols.push(makeImportSymbol(baseName, alias.getValue()))
+            symbols.push(makeImportSymbol(baseName, alias))
             return symbols
         }
 
         if !matchTokenStr(getLeftBraceType()) {
-            if pathInfo.segments.length() > 0 {
-                let baseName = pathInfo.segments[pathInfo.segments.length() - 1]
-                symbols.push(makeImportSymbol(baseName, ""))
-            }
             return symbols
         }
 
@@ -5329,14 +5312,13 @@ class RealParser {
                 break
             }
 
-            let symbolToken = consume(getIdentifierType(), "Expected symbol name")
+            let symbolName = consumeNameLikeValue("Expected symbol name")
             var aliasValue = ""
             if matchTokenStr(getKeywordAsType()) {
-                let aliasToken = consume(getIdentifierType(), "Expected alias name")
-                aliasValue = aliasToken.getValue()
+                aliasValue = consumeNameLikeValue("Expected alias name")
             }
 
-            symbols.push(makeImportSymbol(symbolToken.getValue(), aliasValue))
+            symbols.push(makeImportSymbol(symbolName, aliasValue))
 
             if matchTokenStr(getCommaType()) {
                 continue
