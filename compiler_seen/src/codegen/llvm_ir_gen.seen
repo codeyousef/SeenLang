@@ -123,6 +123,7 @@ import codegen.type_registry.{findStructReg, ensureStructEntryReg, registerStruc
 import codegen.type_registry.{TypeRegistry, CodegenState, FunctionLoweringOptions, getSharedCodegenState}
 import codegen.ir_function_gen.{generateLiteralFree, NestedScratchStateSnapshot, emitAsyncCoroutineEpilogueImpl, snapshotNestedScratchStateImpl, resetLocalCodegenStateImpl, clearActiveBindingsImpl, beginNestedScratchStateImpl, restoreNestedScratchStateImpl, emitParallelForCallImpl, emitPreAllocatedAllocasImpl, emitFunctionEntrySetupSnapshotImpl, emitFunctionExitResetSnapshotImpl, prepareFunctionPreludeAnalysisSnapshotImpl, prepareFunctionGenerationIdentitySnapshotImpl}
 import codegen.ir_function_decorators.{hasFunctionDecoratorImpl, shouldSkipFunctionByCfgStateImpl, emitFunctionDecoratorMetadataCommentsStateImpl, tryHandleIntrinsicFunctionGenerationStateImpl, shouldSkipSpecialFunctionBodyStateImpl, prepareFunctionAttributeStateSnapshotImpl, prepareFunctionDecoratorPreflightSnapshotImpl, tryHandleExternFunctionGenerationStateImpl}
+import codegen.ir_function_lifecycle.{applyFunctionEntrySetupToEmissionImpl, currentFunctionProfileFlagIntImpl, currentFunctionHighPressureIntImpl, applyFunctionExitStateToEmissionImpl}
 import codegen.ir_function_usage.{scanUnusedTopLevelFunctionNamesImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl, emitMainFunctionEntrySnapshotImpl, emitMainFunctionExitImpl}
 import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl}
@@ -2632,28 +2633,18 @@ class LLVMIRGenerator {
             functionEmission.asyncCoroHdl, functionEmission.asyncFinalLabel,
             functionEmission.asyncCleanupLabel)
         writeBackState()
-        functionEmission.profiledFlag = entrySetup.profiledFlag == 1
-        functionEmission.profiledName = entrySetup.profiledName
-        functionEmission.asyncPromise = entrySetup.asyncPromise
-        functionEmission.asyncCoroId = entrySetup.asyncCoroId
-        functionEmission.asyncCoroHdl = entrySetup.asyncCoroHdl
-        functionEmission.asyncFinalLabel = entrySetup.asyncFinalLabel
-        functionEmission.asyncCleanupLabel = entrySetup.asyncCleanupLabel
+        applyFunctionEntrySetupToEmissionImpl(functionEmission, entrySetup)
         applyFunctionUnusedParamMlLogsImpl(entrySetup.unusedParams, fnName)
 
         // Generate function body
         generateBlock(fn.body)
 
         syncState()
-        var currentProfiledFlag = 0
-        if functionEmission.profiledFlag {
-            currentProfiledFlag = 1
-        }
-        var currentHighPressure = 0
-        if functionEmission.highPressureFlag or isFunctionHighPressureImpl(
-            getCurrentFunctionOptions()) {
-            currentHighPressure = 1
-        }
+        let currentProfiledFlag =
+            currentFunctionProfileFlagIntImpl(functionEmission)
+        let currentHighPressure = currentFunctionHighPressureIntImpl(
+            functionEmission, isFunctionHighPressureImpl(
+            getCurrentFunctionOptions()))
         let exitState = emitFunctionExitResetSnapshotImpl(state, fn,
             returnType, currentProfiledFlag,
             functionEmission.profiledName, currentHighPressure,
@@ -2663,14 +2654,7 @@ class LLVMIRGenerator {
             g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
             g_enumTypeNames)
         writeBackState()
-        functionEmission.profiledFlag = exitState.profiledFlag == 1
-        functionEmission.profiledName = exitState.profiledName
-        functionEmission.highPressureFlag = exitState.highPressure == 1
-        functionEmission.asyncCoroId = exitState.asyncCoroId
-        functionEmission.asyncCoroHdl = exitState.asyncCoroHdl
-        functionEmission.asyncPromise = exitState.asyncPromise
-        functionEmission.asyncFinalLabel = exitState.asyncFinalLabel
-        functionEmission.asyncCleanupLabel = exitState.asyncCleanupLabel
+        applyFunctionExitStateToEmissionImpl(functionEmission, exitState)
     }
 
     // Generate IR for a block of statements. Manages the defer stack depth
