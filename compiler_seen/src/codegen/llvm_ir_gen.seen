@@ -90,6 +90,7 @@ import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, p
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
 import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
+import codegen.ir_call_implicit_this_emit.{emitPreparedMisplacedParserImplicitThisCallImpl, emitPreparedStringBuilderImplicitThisCallImpl, emitPreparedNormalImplicitThisCallImpl}
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
 import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
@@ -6276,11 +6277,11 @@ class LLVMIRGenerator {
             let argRegs = g_defaultFillArgRegs
             let argTypeStrs = g_defaultFillArgTypeStrs
 
-            let thisPtrReg = getNextReg()
-            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
             let mpTailCall = implicitThisTailCallFlagImpl(
                 takeTailCallPositionImpl(getCurrentFunctionOptions()))
-            return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), misplacedRetType, "ptr", thisPtrReg, argRegs, argTypeStrs, mpTailCall)
+            return emitPreparedMisplacedParserImplicitThisCallImpl(output,
+                g_regBox, quoteIdentIfNeeded(methodFuncName),
+                misplacedRetType, thisReg, argRegs, argTypeStrs, mpTailCall)
         }
 
         let methodRetType = getMethodReturnType(thisType, funcName)
@@ -6299,13 +6300,12 @@ class LLVMIRGenerator {
         let argTypeStrs = g_defaultFillArgTypeStrs
 
         if implicitThisPlan.shouldUseStringBuilderRuntimeMethod {
-            let thisPtrReg = getNextReg()
-            output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
             var sbArg0 = ""
             if implicitThisPlan.hasArg0 {
                 sbArg0 = argRegs[0]
             }
-            return emitStringBuilderMethodImpl(output, g_regBox, funcName, thisPtrReg, sbArg0, 0)
+            return emitPreparedStringBuilderImplicitThisCallImpl(output,
+                g_regBox, funcName, thisReg, sbArg0)
         }
 
         if not implicitThisPlan.shouldUseNormalImplicitThisMethod {
@@ -6314,11 +6314,11 @@ class LLVMIRGenerator {
 
         let llvmReturnType = mapType(methodRetType)
 
-        let thisPtrReg = getNextReg()
-        output.append("  " + thisPtrReg + " = load ptr, ptr " + thisReg + "\n")
         let selfTailCall = implicitThisTailCallFlagImpl(
             takeTailCallPositionImpl(getCurrentFunctionOptions()))
-        return emitUserMethodCallImpl(output, g_regBox, quoteIdentIfNeeded(methodFuncName), llvmReturnType, "ptr", thisPtrReg, argRegs, argTypeStrs, selfTailCall)
+        return emitPreparedNormalImplicitThisCallImpl(output, g_regBox,
+            quoteIdentIfNeeded(methodFuncName), llvmReturnType, thisReg,
+            argRegs, argTypeStrs, selfTailCall)
     }
 
     fun tryGenerateMathBuiltinCall(expr: ParserExpressionNode, funcName: String) r: String {
