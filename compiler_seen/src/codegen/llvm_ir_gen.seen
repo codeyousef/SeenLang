@@ -123,8 +123,8 @@ import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizz
 import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_member_access_gen.{emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
-import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
-import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaOperandPromotionImpl, emitPreparedFmaCallImpl, buildPreparedBinaryCseKeyImpl}
+import codegen.ir_binary_expr.{binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, shouldUseFmaForOperandTypesImpl, buildSelfComparisonLogValueImpl, buildBinaryFoldLogValueImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_emit.{emitPreparedPointerArithmeticBinaryImpl, emitPreparedSimdBinaryExprImpl, emitPreparedSelfComparisonConstResultImpl, emitPreparedIntPeepholeBinaryActionImpl, emitPreparedAssociativeIntFoldResultImpl, emitPreparedFoldedBoolLiteralBinaryResultImpl, emitPreparedFoldedIntLiteralBinaryResultImpl, emitPreparedFloatPeepholeBinaryActionImpl, emitPreparedFmaTripleCallImpl, emitPreparedOverloadedBinaryCallImpl, buildPreparedBinaryCseKeyImpl}
 import codegen.ir_binary_plan.{shouldTryPointerArithmeticBinaryImpl, shouldTrySimdBinaryGateImpl, shouldUseIntPeepholeGateImpl, shouldUseFloatPeepholeGateImpl, shortCircuitBinaryActionImpl, shouldTryBinaryOverloadImpl}
 import codegen.ir_binary_fold_plan.{planBinaryOperandLiteralFactsImpl, isBinaryIntLiteralOperandImpl, planBinaryFoldActionImpl, shouldTryBinaryAssociativeIntFoldImpl, binaryAssociativeIntFoldRewriteCostImpl, shouldApplyBinaryAssociativeIntFoldImpl, planBinaryLiteralComparisonFoldImpl, planBinaryLiteralConstantFoldImpl, planBinaryFloatPeepholeImpl, planBinaryFoldFmaImpl, planBinaryFoldCseImpl}
 import codegen.ir_binary_short_circuit.{allocateShortCircuitBinaryLabelsImpl, emitShortCircuitCheckBridgeImpl, emitShortCircuitAndDecisionImpl, emitShortCircuitOrDecisionImpl, emitShortCircuitRightLabelImpl, emitShortCircuitDoneBridgeImpl, emitShortCircuitMergeJumpImpl}
@@ -5478,17 +5478,12 @@ class LLVMIRGenerator {
                 let rLeftType = inferExpressionType(rightExpr.operands[0])
                 let rRightType = inferExpressionType(rightExpr.operands[1])
                 if shouldUseFmaForOperandTypesImpl(rLeftType, rRightType) {
-                    var fmaAReg = generateExpression(rightExpr.operands[0])
-                    fmaAReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
-                        fmaAReg, rLeftType)
-                    var fmaBReg = generateExpression(rightExpr.operands[1])
-                    fmaBReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
-                        fmaBReg, rRightType)
-                    var fmaCReg = generateExpression(leftExpr)
-                    fmaCReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
-                        fmaCReg, leftType)
-                    return emitPreparedFmaCallImpl(output, g_regBox, fmaAReg,
-                        fmaBReg, fmaCReg, "c + a*b")
+                    let fmaAReg = generateExpression(rightExpr.operands[0])
+                    let fmaBReg = generateExpression(rightExpr.operands[1])
+                    let fmaCReg = generateExpression(leftExpr)
+                    return emitPreparedFmaTripleCallImpl(output, g_regBox,
+                        fmaAReg, rLeftType, fmaBReg, rRightType, fmaCReg,
+                        leftType, "c + a*b")
                 }
             }
             // Check if left operand is a float multiply
@@ -5496,17 +5491,12 @@ class LLVMIRGenerator {
                 let lLeftType = inferExpressionType(leftExpr.operands[0])
                 let lRightType = inferExpressionType(leftExpr.operands[1])
                 if shouldUseFmaForOperandTypesImpl(lLeftType, lRightType) {
-                    var fmaAReg = generateExpression(leftExpr.operands[0])
-                    fmaAReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
-                        fmaAReg, lLeftType)
-                    var fmaBReg = generateExpression(leftExpr.operands[1])
-                    fmaBReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
-                        fmaBReg, lRightType)
-                    var fmaCReg = generateExpression(rightExpr)
-                    fmaCReg = emitPreparedFmaOperandPromotionImpl(output, g_regBox,
-                        fmaCReg, rightType)
-                    return emitPreparedFmaCallImpl(output, g_regBox, fmaAReg,
-                        fmaBReg, fmaCReg, "a*b + c")
+                    let fmaAReg = generateExpression(leftExpr.operands[0])
+                    let fmaBReg = generateExpression(leftExpr.operands[1])
+                    let fmaCReg = generateExpression(rightExpr)
+                    return emitPreparedFmaTripleCallImpl(output, g_regBox,
+                        fmaAReg, lLeftType, fmaBReg, lRightType, fmaCReg,
+                        rightType, "a*b + c")
                 }
             }
         }
@@ -5547,7 +5537,7 @@ class LLVMIRGenerator {
                 funcNames, funcRetTypes)
             if opRetType != "" {
                 let opRetLlvm = mapType(opRetType)
-                return emitOverloadedBinaryCallImpl(output, g_regBox,
+                return emitPreparedOverloadedBinaryCallImpl(output, g_regBox,
                     quoteIdentIfNeeded(opFuncName), opRetLlvm, leftReg, rightReg)
             }
         }

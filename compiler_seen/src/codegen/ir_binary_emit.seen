@@ -2,7 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, emitSelfComparisonConstResultImpl, emitFoldedBoolLiteralBinaryResultImpl, emitFoldedIntLiteralBinaryResultImpl, emitAssociativeIntFoldResultImpl, emitFmaOperandPromotionImpl, emitFmaCallImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl}
 
 fun emitPreparedPointerArithmeticBinaryImpl(output: StringBuilder,
     regBox: Array<Int>, operator: String, leftType: String,
@@ -72,6 +72,29 @@ fun emitPreparedFmaCallImpl(output: StringBuilder, regBox: Array<Int>,
     aReg: String, bReg: String, cReg: String, comment: String) r: String {
 
     return emitFmaCallImpl(output, regBox, aReg, bReg, cReg, comment)
+}
+
+fun emitPreparedFmaTripleCallImpl(output: StringBuilder,
+    regBox: Array<Int>, aReg: String, aType: String, bReg: String,
+    bType: String, cReg: String, cType: String, comment: String)
+    r: String {
+
+    let promotedA = emitPreparedFmaOperandPromotionImpl(output, regBox,
+        aReg, aType)
+    let promotedB = emitPreparedFmaOperandPromotionImpl(output, regBox,
+        bReg, bType)
+    let promotedC = emitPreparedFmaOperandPromotionImpl(output, regBox,
+        cReg, cType)
+    return emitPreparedFmaCallImpl(output, regBox, promotedA, promotedB,
+        promotedC, comment)
+}
+
+fun emitPreparedOverloadedBinaryCallImpl(output: StringBuilder,
+    regBox: Array<Int>, quotedFuncName: String, retLlvmType: String,
+    leftReg: String, rightReg: String) r: String {
+
+    return emitOverloadedBinaryCallImpl(output, regBox, quotedFuncName,
+        retLlvmType, leftReg, rightReg)
 }
 
 fun buildPreparedBinaryCseKeyImpl(leftReg: String, operator: String,
