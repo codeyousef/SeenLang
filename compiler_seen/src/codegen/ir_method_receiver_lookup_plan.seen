@@ -1,5 +1,75 @@
 // ir_method_receiver_lookup_plan.seen - pure method receiver lookup routing.
 
+class DottedReceiverStagePlan {
+    var hasDottedReceiver: Bool
+    var shouldBuildReceiverExpr: Bool
+
+    static fun new() r: DottedReceiverStagePlan {
+        return DottedReceiverStagePlan{
+            hasDottedReceiver: false,
+            shouldBuildReceiverExpr: false
+        }
+    }
+}
+
+class ExplicitReceiverStagePlan {
+    var shouldUseExplicitReceiver: Bool
+
+    static fun new() r: ExplicitReceiverStagePlan {
+        return ExplicitReceiverStagePlan{
+            shouldUseExplicitReceiver: false
+        }
+    }
+}
+
+class DottedReceiverFallbackStagePlan {
+    var shouldResolveFallback: Bool
+    var shouldTryEnumLiteralFallback: Bool
+
+    static fun new() r: DottedReceiverFallbackStagePlan {
+        return DottedReceiverFallbackStagePlan{
+            shouldResolveFallback: false,
+            shouldTryEnumLiteralFallback: false
+        }
+    }
+}
+
+class ImplicitThisDottedReceiverStagePlan {
+    var shouldResolveImplicitThisDotted: Bool
+
+    static fun new() r: ImplicitThisDottedReceiverStagePlan {
+        return ImplicitThisDottedReceiverStagePlan{
+            shouldResolveImplicitThisDotted: false
+        }
+    }
+}
+
+class SimpleLiteralReceiverStagePlan {
+    var shouldResolveSimpleLiteral: Bool
+    var shouldUseLocalLiteral: Bool
+    var shouldUseModuleConstantLiteral: Bool
+    var shouldTryImplicitThisLiteral: Bool
+
+    static fun new() r: SimpleLiteralReceiverStagePlan {
+        return SimpleLiteralReceiverStagePlan{
+            shouldResolveSimpleLiteral: false,
+            shouldUseLocalLiteral: false,
+            shouldUseModuleConstantLiteral: false,
+            shouldTryImplicitThisLiteral: false
+        }
+    }
+}
+
+class ImplicitThisReceiverStagePlan {
+    var lookupAction: Int
+
+    static fun new() r: ImplicitThisReceiverStagePlan {
+        return ImplicitThisReceiverStagePlan{
+            lookupAction: 0
+        }
+    }
+}
+
 fun shouldLookupDottedLiteralReceiverImpl(operandCount: Int,
     literalValue: String) r: Bool {
 
@@ -57,4 +127,69 @@ fun shouldResolveImplicitThisDottedReceiverImpl(thisIndex: Int,
     firstFieldType: String) r: Bool {
 
     return thisIndex >= 0 and firstFieldType != ""
+}
+
+fun planDottedReceiverStageImpl(operandCount: Int, literalValue: String,
+    segmentCount: Int, baseReceiverType: String) r: DottedReceiverStagePlan {
+
+    let plan = DottedReceiverStagePlan.new()
+    plan.hasDottedReceiver = shouldLookupDottedLiteralReceiverImpl(
+        operandCount, literalValue)
+    plan.shouldBuildReceiverExpr = shouldBuildDottedReceiverExprImpl(
+        plan.hasDottedReceiver, segmentCount, baseReceiverType)
+    return plan
+}
+
+fun planExplicitReceiverStageImpl(operandCount: Int)
+    r: ExplicitReceiverStagePlan {
+
+    let plan = ExplicitReceiverStagePlan.new()
+    plan.shouldUseExplicitReceiver = operandCount > 0
+    return plan
+}
+
+fun planDottedReceiverFallbackStageImpl(hasDottedReceiver: Bool,
+    receiverReg: String) r: DottedReceiverFallbackStagePlan {
+
+    let plan = DottedReceiverFallbackStagePlan.new()
+    plan.shouldResolveFallback = shouldResolveDottedReceiverFallbackImpl(
+        hasDottedReceiver, receiverReg)
+    plan.shouldTryEnumLiteralFallback = plan.shouldResolveFallback
+    return plan
+}
+
+fun planImplicitThisDottedReceiverStageImpl(thisIndex: Int,
+    firstFieldType: String) r: ImplicitThisDottedReceiverStagePlan {
+
+    let plan = ImplicitThisDottedReceiverStagePlan.new()
+    plan.shouldResolveImplicitThisDotted =
+        shouldResolveImplicitThisDottedReceiverImpl(thisIndex, firstFieldType)
+    return plan
+}
+
+fun planSimpleLiteralReceiverStageImpl(hasDottedReceiver: Bool,
+    literalValue: String, localIndex: Int, moduleConstIndex: Int,
+    receiverReg: String, thisIndex: Int) r: SimpleLiteralReceiverStagePlan {
+
+    let plan = SimpleLiteralReceiverStagePlan.new()
+    plan.shouldResolveSimpleLiteral = shouldResolveSimpleLiteralReceiverImpl(
+        hasDottedReceiver, literalValue)
+    plan.shouldUseLocalLiteral = plan.shouldResolveSimpleLiteral and
+        shouldUseLocalLiteralReceiverImpl(localIndex)
+    plan.shouldUseModuleConstantLiteral = plan.shouldResolveSimpleLiteral and
+        not plan.shouldUseLocalLiteral and
+        shouldUseModuleConstantLiteralReceiverImpl(moduleConstIndex)
+    plan.shouldTryImplicitThisLiteral = plan.shouldResolveSimpleLiteral and
+        shouldTryImplicitThisLiteralReceiverImpl(receiverReg, thisIndex)
+    return plan
+}
+
+fun planImplicitThisReceiverStageImpl(thisType: String, varName: String,
+    generatorFieldIndex: Int, structIndex: Int, fieldIndex: Int)
+    r: ImplicitThisReceiverStagePlan {
+
+    let plan = ImplicitThisReceiverStagePlan.new()
+    plan.lookupAction = implicitThisReceiverLookupActionImpl(thisType,
+        varName, generatorFieldIndex, structIndex, fieldIndex)
+    return plan
 }
