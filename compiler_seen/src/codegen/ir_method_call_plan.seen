@@ -65,12 +65,6 @@ fun shouldTryStaticMethodCallImpl(receiverReg: String,
     return receiverReg == "" and literalValue != ""
 }
 
-fun shouldUseStaticReceiverReferenceImpl(potentialClassName: String,
-    fullClassName: String) r: Bool {
-
-    return potentialClassName != "" and fullClassName != ""
-}
-
 fun isPascalStaticReceiverNameImpl(receiverName: String) r: Bool {
     if receiverName.length() == 0 {
         return false
