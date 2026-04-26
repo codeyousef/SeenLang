@@ -77,7 +77,7 @@ import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, runtimeIoCallA
 import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl}
-import codegen.ir_call_low_level.{isPtrBuiltinCallImpl}
+import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
 import codegen.ir_call_dispatch.{emitUserFunctionCallImpl}
 import codegen.ir_call_fixups.{isStandaloneParserWorkaroundImpl}

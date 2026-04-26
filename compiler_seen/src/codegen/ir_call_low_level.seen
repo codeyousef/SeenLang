@@ -146,3 +146,59 @@ fun emitIndirectBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
         callArgs + ")\n")
     return resultReg
 }
+
+fun emitPreparedLowLevelBuiltinActionImpl(output: StringBuilder,
+    regBox: Array<Int>, action: Int, funcName: String, insideUnsafe: Int,
+    boundsCheckEnabled: Int, arg0: String, arg1: String, arg2: String,
+    asyncFunctionCoroHdl: String, asyncCleanupLabel: String,
+    yieldCounterBox: Array<Int>, simdArgs: Array<String>,
+    simdArgTypes: Array<String>, simdConstIndices: Array<Int>,
+    indirectFnVarReg: String, indirectArgRegs: Array<String>,
+    boundsCountBox: Array<Int>) r: String {
+
+    if action == 1 {
+        return emitPtrBuiltinCallImpl(output, regBox, funcName, insideUnsafe,
+            arg0, arg1, arg2)
+    }
+    if action == 2 {
+        return emitBarrierBuiltinCallImpl(output)
+    }
+    if action == 3 {
+        return emitStackAllocBuiltinCallImpl(output, regBox, arg0)
+    }
+    if action == 4 {
+        if arg0 == "" {
+            return "0"
+        }
+        return emitConstructAtBuiltinCallImpl(output, regBox, arg0)
+    }
+    if action == 5 {
+        return emitDebugAssertBuiltinCallStateImpl(output, regBox,
+            boundsCheckEnabled, arg0, boundsCountBox)
+    }
+    if action == 6 {
+        return emitCStringBuiltinCallImpl(output, regBox, "str_to_cstr", arg0)
+    }
+    if action == 7 {
+        return emitSplitBuiltinCallImpl(output, regBox, arg0, arg1)
+    }
+    if action == 8 {
+        return emitCStringBuiltinCallImpl(output, regBox, "cstr_to_str", arg0)
+    }
+    if action == 9 {
+        return "0"
+    }
+    if action == 10 {
+        return emitAsyncYieldBuiltinStateImpl(output, regBox,
+            asyncFunctionCoroHdl, asyncCleanupLabel, yieldCounterBox)
+    }
+    if action == 11 {
+        return emitPreparedSimdBuiltinCallImpl(output, regBox, funcName,
+            simdArgs, simdArgTypes, simdConstIndices)
+    }
+    if action == 12 {
+        return emitIndirectBuiltinCallImpl(output, regBox, indirectFnVarReg,
+            indirectArgRegs)
+    }
+    return ""
+}

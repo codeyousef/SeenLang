@@ -92,7 +92,7 @@ import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSome
 import codegen.ir_call_implicit_this_plan.{planImplicitThisCallImpl, implicitThisTailCallFlagImpl}
 import codegen.ir_call_regular_plan.{shouldPromoteRegularCallFloatArgsImpl, resolveRegularCallLlvmReturnTypeImpl, shouldRecordRegularLateDeclareImpl, regularCallTailFlagImpl}
 import codegen.ir_call_meta.{resolveSizeofBuiltinValueImpl, resolveAlignofBuiltinValueImpl, resolveOffsetofBuiltinValueImpl}
-import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, emitPtrBuiltinCallImpl, emitBarrierBuiltinCallImpl, emitStackAllocBuiltinCallImpl, emitConstructAtBuiltinCallImpl, emitDebugAssertBuiltinCallStateImpl, emitCStringBuiltinCallImpl, emitSplitBuiltinCallImpl, emitAsyncYieldBuiltinStateImpl, isSimdBuiltinCallImpl, emitPreparedSimdBuiltinCallImpl, emitIndirectBuiltinCallImpl}
+import codegen.ir_call_low_level.{isPtrBuiltinCallImpl, isSimdBuiltinCallImpl, emitPreparedLowLevelBuiltinActionImpl}
 import codegen.ir_call_builtin_plan.{planMetaBuiltinCallImpl, planLowLevelBuiltinCallImpl, shouldReadSimdShuffleConstArgImpl, planLowLevelBuiltinArgumentReadsImpl, shouldClearLowLevelDebugAssertCseImpl}
 import codegen.ir_call_fixups.{resolveRealParserMisplacedMethodReturnTypeImpl, isStandaloneParserWorkaroundImpl, emitStandaloneParserWorkaroundCallImpl}
 import codegen.ir_method_finalize.{resolveMethodCallInstanceTypeNameImpl, tryGeneratePreparedHotReloadInstanceMethodCallImpl, resolveMethodCallReturnTypeImpl, prepareMethodCallReceiverAbiImpl, tryGenerateSpecializedInstanceMethodCallImpl, emitArrayFreeMutationImpl, emitArrayPushMutationImpl, emitArrayPopMutationImpl, emitArraySwapMutationImpl, emitPoolFreeFromValueSlotImpl, emitClassFreeMutationImpl}
@@ -5797,87 +5797,34 @@ class LLVMIRGenerator {
         let lowArgPlan = planLowLevelBuiltinArgumentReadsImpl(lowPlan.action,
             lowPlan.hasArg0, lowPlan.hasArg1, lowPlan.hasArg2)
 
-        if lowPlan.action == 1 {
-            var ptArg0 = ""
-            var ptArg1 = ""
-            var ptArg2 = ""
-            if lowArgPlan.shouldReadArg0 { ptArg0 = generateExpression(expr.arguments[0]) }
-            if lowArgPlan.shouldReadArg1 { ptArg1 = generateExpression(expr.arguments[1]) }
-            if lowArgPlan.shouldReadArg2 { ptArg2 = generateExpression(expr.arguments[2]) }
-            return emitPtrBuiltinCallImpl(output, g_regBox, funcName,
-                g_insideUnsafe, ptArg0, ptArg1, ptArg2)
+        var lowArg0 = lowArgPlan.defaultArg0
+        var lowArg1 = ""
+        var lowArg2 = ""
+        if lowArgPlan.shouldReadArg0 {
+            lowArg0 = generateExpression(expr.arguments[0])
+        }
+        if lowArgPlan.shouldReadArg1 {
+            lowArg1 = generateExpression(expr.arguments[1])
+        }
+        if lowArgPlan.shouldReadArg2 {
+            lowArg2 = generateExpression(expr.arguments[2])
         }
 
-        if lowPlan.action == 2 {
-            return emitBarrierBuiltinCallImpl(output)
-        }
-
-        if lowPlan.action == 3 {
-            var allocCount = lowArgPlan.defaultArg0
-            if lowArgPlan.shouldReadArg0 {
-                allocCount = generateExpression(expr.arguments[0])
-            }
-            return emitStackAllocBuiltinCallImpl(output, g_regBox, allocCount)
-        }
-
-        if lowPlan.action == 4 {
-            if lowArgPlan.shouldReadArg0 {
-                let caPtr = generateExpression(expr.arguments[0])
-                return emitConstructAtBuiltinCallImpl(output, g_regBox, caPtr)
-            }
-            return "0"
-        }
-
-        if lowPlan.action == 5 {
-            var condVal = ""
-            if lowArgPlan.shouldReadArg0 {
-                condVal = generateExpression(expr.arguments[0])
-            }
+        if lowPlan.action >= 1 and lowPlan.action <= 9 {
             var boundsCountBox = Array<Int>()
             boundsCountBox.push(g_boundsCheckLabelCount)
-            let debugResult = emitDebugAssertBuiltinCallStateImpl(output,
-                g_regBox, g_boundsCheckEnabled, condVal, boundsCountBox)
+            let lowResult = emitPreparedLowLevelBuiltinActionImpl(output,
+                g_regBox, lowPlan.action, funcName, g_insideUnsafe,
+                g_boundsCheckEnabled, lowArg0, lowArg1, lowArg2, "", "",
+                Array<Int>(), Array<String>(), Array<String>(), Array<Int>(),
+                "", Array<String>(), boundsCountBox)
             g_boundsCheckLabelCount = boundsCountBox[0]
             if shouldClearLowLevelDebugAssertCseImpl(lowPlan.action,
                 g_boundsCheckEnabled,
-                condVal) {
+                lowArg0) {
                 cseClear()
             }
-            return debugResult
-        }
-
-        if lowPlan.action == 6 {
-            if lowArgPlan.shouldReadArg0 {
-                let strArg = generateExpression(expr.arguments[0])
-                return emitCStringBuiltinCallImpl(output, g_regBox,
-                    "str_to_cstr", strArg)
-            }
-            return "0"
-        }
-
-        if lowPlan.action == 7 {
-            if lowArgPlan.shouldReadArg0 and lowArgPlan.shouldReadArg1 {
-                let textArg = generateExpression(expr.arguments[0])
-                let delimArg = generateExpression(expr.arguments[1])
-                let splitReg = emitSplitBuiltinCallImpl(output, g_regBox,
-                    textArg, delimArg)
-                if splitReg != "" {
-                    return splitReg
-                }
-            }
-        }
-
-        if lowPlan.action == 8 {
-            if lowArgPlan.shouldReadArg0 {
-                let ptrArg = generateExpression(expr.arguments[0])
-                return emitCStringBuiltinCallImpl(output, g_regBox,
-                    "cstr_to_str", ptrArg)
-            }
-            return "0"
-        }
-
-        if lowPlan.action == 9 {
-            return "0"
+            return lowResult
         }
 
         if lowPlan.action == 10 {
@@ -5885,9 +5832,13 @@ class LLVMIRGenerator {
                 var yieldCounterBox = Array<Int>()
                 let functionEmission = getCurrentFunctionEmissionStateImpl()
                 yieldCounterBox.push(functionEmission.yieldCounter)
-                let yieldResult = emitAsyncYieldBuiltinStateImpl(output,
-                    g_regBox, functionEmission.asyncCoroHdl,
-                    functionEmission.asyncCleanupLabel, yieldCounterBox)
+                let yieldResult = emitPreparedLowLevelBuiltinActionImpl(output,
+                    g_regBox, lowPlan.action, funcName, g_insideUnsafe,
+                    g_boundsCheckEnabled, lowArg0, lowArg1, lowArg2,
+                    functionEmission.asyncCoroHdl,
+                    functionEmission.asyncCleanupLabel, yieldCounterBox,
+                    Array<String>(), Array<String>(), Array<Int>(), "",
+                    Array<String>(), Array<Int>())
                 functionEmission.yieldCounter = yieldCounterBox[0]
                 return yieldResult
             }
@@ -5912,8 +5863,11 @@ class LLVMIRGenerator {
                 }
                 simdPreArgIdx = simdPreArgIdx + 1
             }
-            let simdResult = emitPreparedSimdBuiltinCallImpl(output, g_regBox,
-                funcName, simdArgs, simdArgTypes, simdConstIndices)
+            let simdResult = emitPreparedLowLevelBuiltinActionImpl(output,
+                g_regBox, lowPlan.action, funcName, g_insideUnsafe,
+                g_boundsCheckEnabled, lowArg0, lowArg1, lowArg2, "", "",
+                Array<Int>(), simdArgs, simdArgTypes, simdConstIndices, "",
+                Array<String>(), Array<Int>())
             if simdResult != "" {
                 return simdResult
             }
@@ -5927,8 +5881,11 @@ class LLVMIRGenerator {
                 icArgRegs.push(icArgReg)
                 icArgIdx = icArgIdx + 1
             }
-            return emitIndirectBuiltinCallImpl(output, g_regBox,
-                varRegs[lowPlan.indirectVarIndex], icArgRegs)
+            return emitPreparedLowLevelBuiltinActionImpl(output, g_regBox,
+                lowPlan.action, funcName, g_insideUnsafe, g_boundsCheckEnabled,
+                lowArg0, lowArg1, lowArg2, "", "", Array<Int>(),
+                Array<String>(), Array<String>(), Array<Int>(),
+                varRegs[lowPlan.indirectVarIndex], icArgRegs, Array<Int>())
         }
 
         if lowArgPlan.shouldGenerateEnumConstructor {
