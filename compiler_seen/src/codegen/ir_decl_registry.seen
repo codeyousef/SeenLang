@@ -8,29 +8,6 @@ import codegen.ir_decl_scan.{registerEnumVariantsImpl, registerCrossModuleConsta
 import codegen.ir_async_registry.{isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
 import codegen.type_registry.{ensureStructEntryReg, getFunctionReturnTypeReg}
 
-fun declRegistryPackSepImpl() r: String {
-    return "@@DECLREGSEP@@"
-}
-
-fun unpackDeclRegistryFieldImpl(data: String, idx: Int) r: String {
-    let sep = declRegistryPackSepImpl()
-    var start = 0
-    var curIdx = 0
-    while curIdx < idx {
-        let sepPos = data.indexOf(sep, start)
-        if sepPos < 0 {
-            return ""
-        }
-        start = sepPos + sep.length()
-        curIdx = curIdx + 1
-    }
-    let end = data.indexOf(sep, start)
-    if end < 0 {
-        return data.substring(start, data.length())
-    }
-    return data.substring(start, end)
-}
-
 class DeclarationPassState {
     var asyncFuncNames: String
     var asyncFuncRetTypes: String
@@ -111,6 +88,23 @@ class LateUserDeclareState {
     }
 }
 
+class ParentClassRegistryState {
+    var inheritanceChildNames: String
+    var inheritanceParentNames: String
+    var inheritanceCount: Int
+
+    static fun new(inheritanceChildNames: String,
+        inheritanceParentNames: String, inheritanceCount: Int)
+        r: ParentClassRegistryState {
+
+        return ParentClassRegistryState{
+            inheritanceChildNames: inheritanceChildNames,
+            inheritanceParentNames: inheritanceParentNames,
+            inheritanceCount: inheritanceCount
+        }
+    }
+}
+
 fun captureDeclarationPassStateImpl(asyncFuncNames: String,
     asyncFuncRetTypes: String, asyncFuncCount: Int,
     xmDeclareNames: String, xmDeclareStrs: String, xmDeclareVis: String,
@@ -138,6 +132,14 @@ fun captureLateUserDeclareStateImpl(lateXmDeclareNames: String,
 
     return LateUserDeclareState.new(lateXmDeclareNames, lateXmDeclareStrs,
         lateXmDeclareCount)
+}
+
+fun captureParentClassRegistryStateImpl(inheritanceChildNames: String,
+    inheritanceParentNames: String, inheritanceCount: Int)
+    r: ParentClassRegistryState {
+
+    return ParentClassRegistryState.new(inheritanceChildNames,
+        inheritanceParentNames, inheritanceCount)
 }
 
 fun preRegisterClassTypesImpl(program: ProgramNode, structNames: Array<String>,
@@ -218,23 +220,16 @@ fun registerCrossModuleConstantsIntoStateImpl(program: ProgramNode,
     state.xmConstCount = countBox[0]
 }
 
-fun registerParentClassStateImpl(childName: String, parentName: String,
-    inheritanceChildNames: String, inheritanceParentNames: String,
-    inheritanceCount: Int) r: String {
+fun registerParentClassIntoStateImpl(childName: String, parentName: String,
+    state: ParentClassRegistryState) r: Void {
 
-    var updatedChildNames = inheritanceChildNames
-    var updatedParentNames = inheritanceParentNames
-    var updatedCount = inheritanceCount
-    if updatedCount > 0 {
-        updatedChildNames = updatedChildNames + "|"
-        updatedParentNames = updatedParentNames + "|"
+    if state.inheritanceCount > 0 {
+        state.inheritanceChildNames = state.inheritanceChildNames + "|"
+        state.inheritanceParentNames = state.inheritanceParentNames + "|"
     }
-    updatedChildNames = updatedChildNames + childName
-    updatedParentNames = updatedParentNames + parentName
-    updatedCount = updatedCount + 1
-    let sep = declRegistryPackSepImpl()
-    return updatedChildNames + sep + updatedParentNames + sep +
-        updatedCount.toString()
+    state.inheritanceChildNames = state.inheritanceChildNames + childName
+    state.inheritanceParentNames = state.inheritanceParentNames + parentName
+    state.inheritanceCount = state.inheritanceCount + 1
 }
 
 fun lookupParentClassStateImpl(childName: String, inheritanceChildNames: String,

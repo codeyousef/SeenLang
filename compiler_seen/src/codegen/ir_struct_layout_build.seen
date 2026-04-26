@@ -3,10 +3,9 @@
 // registry orchestration.
 
 import parser.real_parser.{ClassNode}
-import codegen.ir_optimization.{parseIntManual}
 import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl}
-import codegen.ir_decl_registry.{registerParentClassStateImpl, unpackDeclRegistryFieldImpl}
+import codegen.ir_decl_registry.{captureParentClassRegistryStateImpl, registerParentClassIntoStateImpl}
 import codegen.ir_class_type_layout.{prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_type_layout.{computeStructSizeFromLayoutImpl}
 import codegen.type_registry.{findStructReg}
@@ -98,13 +97,14 @@ fun appendParentStructLayoutStateImpl(classNode: ClassNode,
         return 0
     }
 
-    let updated = registerParentClassStateImpl(classNode.name,
-        classNode.parentName, state.inheritanceChildNames,
-        state.inheritanceParentNames, state.inheritanceCount)
-    state.inheritanceChildNames = unpackDeclRegistryFieldImpl(updated, 0)
-    state.inheritanceParentNames = unpackDeclRegistryFieldImpl(updated, 1)
-    state.inheritanceCount = parseIntManual(
-        unpackDeclRegistryFieldImpl(updated, 2))
+    let parentState = captureParentClassRegistryStateImpl(
+        state.inheritanceChildNames, state.inheritanceParentNames,
+        state.inheritanceCount)
+    registerParentClassIntoStateImpl(classNode.name, classNode.parentName,
+        parentState)
+    state.inheritanceChildNames = parentState.inheritanceChildNames
+    state.inheritanceParentNames = parentState.inheritanceParentNames
+    state.inheritanceCount = parentState.inheritanceCount
 
     let parentIdx = findStructReg(classNode.parentName, structNames)
     if parentIdx < 0 {
