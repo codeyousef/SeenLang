@@ -95,6 +95,22 @@ class DeclarationPassState {
     }
 }
 
+class LateUserDeclareState {
+    var lateXmDeclareNames: String
+    var lateXmDeclareStrs: String
+    var lateXmDeclareCount: Int
+
+    static fun new(lateXmDeclareNames: String, lateXmDeclareStrs: String,
+        lateXmDeclareCount: Int) r: LateUserDeclareState {
+
+        return LateUserDeclareState{
+            lateXmDeclareNames: lateXmDeclareNames,
+            lateXmDeclareStrs: lateXmDeclareStrs,
+            lateXmDeclareCount: lateXmDeclareCount
+        }
+    }
+}
+
 fun captureDeclarationPassStateImpl(asyncFuncNames: String,
     asyncFuncRetTypes: String, asyncFuncCount: Int,
     xmDeclareNames: String, xmDeclareStrs: String, xmDeclareVis: String,
@@ -114,6 +130,14 @@ fun captureDeclarationPassStateImpl(asyncFuncNames: String,
         enumVariantFieldTypes, enumVariantFieldCounts, enumVariantParent,
         enumTypeCount, enumVariantCount, xmConstNames, xmConstTypes,
         xmConstMutable, xmConstSeenTypes, xmConstCount)
+}
+
+fun captureLateUserDeclareStateImpl(lateXmDeclareNames: String,
+    lateXmDeclareStrs: String, lateXmDeclareCount: Int)
+    r: LateUserDeclareState {
+
+    return LateUserDeclareState.new(lateXmDeclareNames, lateXmDeclareStrs,
+        lateXmDeclareCount)
 }
 
 fun preRegisterClassTypesImpl(program: ProgramNode, structNames: Array<String>,
@@ -282,45 +306,42 @@ fun hasLateUserDeclareStateImpl(name: String, lateXmDeclareNames: String,
     return pipeContainsValueImpl(name, lateXmDeclareNames, lateXmDeclareCount)
 }
 
-fun recordLateUserDeclareStateImpl(name: String, llvmReturnType: String,
+fun recordLateUserDeclareIntoStateImpl(name: String, llvmReturnType: String,
     argTypeStrs: Array<String>, hasImplicitThis: Int, funcNames: Array<String>,
     funcRetTypes: Array<String>, xmDeclareNames: String, xmDeclareCount: Int,
-    lateXmDeclareNames: String, lateXmDeclareStrs: String,
-    lateXmDeclareCount: Int) r: String {
+    state: LateUserDeclareState) r: Void {
 
     if name == "" {
-        let sep = declRegistryPackSepImpl()
-        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+        return
     }
     if name.startsWith("__") {
-        let sep = declRegistryPackSepImpl()
-        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+        return
     }
     if getFunctionReturnTypeStateImpl(name, funcNames, funcRetTypes) != "" {
-        let sep = declRegistryPackSepImpl()
-        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+        return
     }
     if hasCrossModuleDeclareStateImpl(name, xmDeclareNames, xmDeclareCount) {
-        let sep = declRegistryPackSepImpl()
-        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+        return
     }
-    if hasLateUserDeclareStateImpl(name, lateXmDeclareNames, lateXmDeclareCount) {
-        let sep = declRegistryPackSepImpl()
-        return lateXmDeclareNames + sep + lateXmDeclareStrs + sep + lateXmDeclareCount.toString()
+    if hasLateUserDeclareStateImpl(name, state.lateXmDeclareNames,
+        state.lateXmDeclareCount) {
+
+        return
     }
 
     let decl = buildLateUserDeclareStringImpl(quoteDeclScanIdentIfNeeded(name),
         llvmReturnType, argTypeStrs,
         hasImplicitThis)
     let namesBox = Array<String>()
-    namesBox.push(lateXmDeclareNames)
+    namesBox.push(state.lateXmDeclareNames)
     let declsBox = Array<String>()
-    declsBox.push(lateXmDeclareStrs)
+    declsBox.push(state.lateXmDeclareStrs)
     let countBox = Array<Int>()
-    countBox.push(lateXmDeclareCount)
+    countBox.push(state.lateXmDeclareCount)
     recordLateUserDeclareImpl(name, decl, namesBox, declsBox, countBox)
-    let sep = declRegistryPackSepImpl()
-    return namesBox[0] + sep + declsBox[0] + sep + countBox[0].toString()
+    state.lateXmDeclareNames = namesBox[0]
+    state.lateXmDeclareStrs = declsBox[0]
+    state.lateXmDeclareCount = countBox[0]
 }
 
 fun emitLateUserDeclaresStateImpl(output: StringBuilder,

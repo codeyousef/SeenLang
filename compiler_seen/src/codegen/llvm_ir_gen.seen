@@ -45,7 +45,7 @@ import codegen.ir_decl_parser.{emitParserDecls, emitTypecheckerDecls}
 import codegen.ir_decl_features.{emitFeatureDecls, generateHotReloadMethodsImpl}
 import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl, isAsyncFunctionImpl, getAsyncDeclaredRetTypeImpl}
-import codegen.ir_decl_registry.{DeclarationPassState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareStateImpl, emitLateUserDeclaresStateImpl, unpackDeclRegistryFieldImpl, captureDeclarationPassStateImpl}
+import codegen.ir_decl_registry.{DeclarationPassState, LateUserDeclareState, preRegisterClassTypesImpl, registerFunctionStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassStateImpl, lookupCResourceDestructorStateImpl, isAsyncFunctionStateImpl, getAsyncDeclaredRetTypeStateImpl, getFunctionReturnTypeStateImpl, recordLateUserDeclareIntoStateImpl, emitLateUserDeclaresStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, PreparedDeclarationItem, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl, prepareDeclarationItemForRegistrationImpl, registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_module_constants.{isModuleConstMutableImpl, getModuleConstSeenTypeImpl, tryInferModuleConstantVariableTypeIntoStateImpl, findModuleConstantIntoStateImpl, emitGlobalVariablesIntoStateImpl, moduleConstantInvariantLoadSuffixImpl, captureModuleConstantRegistryStateImpl}
@@ -99,7 +99,7 @@ import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl, spl
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, inferJsonValueMemberAccessTypeImpl, inferLiteralReceiverMemberAccessTypeImpl, inferDirectMemberAccessTypeImpl, extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_gen.{emitExpressionReceiverMemberAccessImpl, emitVariableReceiverMemberAccessImpl, emitModuleConstReceiverMemberAccessImpl, emitBracketPathMemberAccessImpl, emitChainedReceiverMemberAccessImpl, emitImplicitThisReceiverMemberAccessImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl, tryResolveEnumLiteralMethodReceiverImpl, convertReceiverToPtrImpl}
-import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
+import codegen.ir_binary_expr.{emitPointerArithmeticBinaryImpl, emitSimdBinaryExprImpl, binaryOperatorMethodSuffixImpl, isSimdBinaryOperatorImpl, isIntLiteralOperandImpl, isFloatLiteralOperandImpl, isPureCseBinaryOpImpl, buildBinaryCseKeyImpl, emitOverloadedBinaryCallImpl, exprProducesBoolImpl, emitBoolCoercionImpl, emitShortCircuitPhiImpl}
 import codegen.ir_class_method_gen.{tryEmitOptionClassMethodShimImpl, shouldTraceClassMethodStartImpl, collectClassMethodParameterInfoImpl, emitClassMethodSignatureStateImpl, emitClassMethodReceiverBindingStateImpl, emitClassMethodParameterBindingsStateImpl, emitClassMethodConstructorSetupStateImpl, tryEmitClassMethodConstructorReturnStateImpl, emitClassMethodDefaultReturnStateImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, resolveDeclarationBaseTypeImpl, resolveLetStatementTypeImpl, resolveLetStatementAllocaImpl, prepareLetStatementPlanImpl, resolveLetPreAllocatedRegImpl, findPreAllocatedOccurrenceImpl, nextDeclarationOrdinalImpl, classifyCollectedStatementKindImpl, shouldTraceCollectedDeclarationTypeImpl, appendCollectedDeclarationImpl, resolveCollectedForInElementTypeImpl, buildForInIndexNameImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, emitIfBranchingImpl, computeIfBranchWeightMetadataForStatementImpl, normalizeIfConditionTypeImpl, finalizeConditionalEndBlockImpl, emitIfExpressionBranchValueImpl, emitPhiMergeValueImpl, emitIfLetBindingStateImpl, emitIndexedForLoopHeaderImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitUnusedResultCallWarningImpl}
@@ -1122,6 +1122,17 @@ class LLVMIRGenerator {
         g_xmConstMutable = declState.xmConstMutable
         g_xmConstSeenTypes = declState.xmConstSeenTypes
         g_xmConstCount = declState.xmConstCount
+    }
+
+    fun captureLateUserDeclareState() r: LateUserDeclareState {
+        return captureLateUserDeclareStateImpl(g_lateXmDeclareNames,
+            g_lateXmDeclareStrs, g_lateXmDeclareCount)
+    }
+
+    fun applyLateUserDeclareState(lateState: LateUserDeclareState) r: Void {
+        g_lateXmDeclareNames = lateState.lateXmDeclareNames
+        g_lateXmDeclareStrs = lateState.lateXmDeclareStrs
+        g_lateXmDeclareCount = lateState.lateXmDeclareCount
     }
 
     fun collectClassMethodDeclarationReturnTypes(classNode: ClassNode)
@@ -5466,9 +5477,7 @@ class LLVMIRGenerator {
         }
 
         // --- SIMD vector arithmetic ---
-        let simdBinaryOp = expr.operator == "+" or expr.operator == "-" or expr.operator == "*" or expr.operator == "/" or
-            expr.operator == "==" or expr.operator == "!=" or expr.operator == "<" or expr.operator == ">" or
-            expr.operator == "<=" or expr.operator == ">="
+        let simdBinaryOp = isSimdBinaryOperatorImpl(expr.operator)
         if isSimdVectorType(leftType) == 1 and simdBinaryOp {
             let simdLlvmType = mapType(leftType)
             let simdLeftReg = generateExpression(leftExpr)
@@ -5483,8 +5492,10 @@ class LLVMIRGenerator {
         // --- E-graph peephole optimizations (consolidated via egraph lookup) ---
         // Integer peephole rules
         if leftType == "Int" and rightType == "Int" {
-            let leftIsIntLit = leftExpr.kind == "Literal" and leftExpr.literalType == "Int"
-            let rightIsIntLit = rightExpr.kind == "Literal" and rightExpr.literalType == "Int"
+            let leftIsIntLit = isIntLiteralOperandImpl(leftExpr.kind,
+                leftExpr.literalType)
+            let rightIsIntLit = isIntLiteralOperandImpl(rightExpr.kind,
+                rightExpr.literalType)
             let leftLitVal = leftExpr.literalValue
             let rightLitVal = rightExpr.literalValue
 
@@ -5624,8 +5635,10 @@ class LLVMIRGenerator {
         }
         // Float peephole optimizations — delegated to ir_optimization.seen
         if leftType == "Float" and rightType == "Float" {
-            let fLeftIsLit = leftExpr.kind == "Literal" and leftExpr.literalType == "Float"
-            let fRightIsLit = rightExpr.kind == "Literal" and rightExpr.literalType == "Float"
+            let fLeftIsLit = isFloatLiteralOperandImpl(leftExpr.kind,
+                leftExpr.literalType)
+            let fRightIsLit = isFloatLiteralOperandImpl(rightExpr.kind,
+                rightExpr.literalType)
             let fLeftLitVal = leftExpr.literalValue
             let fRightLitVal = rightExpr.literalValue
             let fAction = egraphLookupFloat(expr.operator, fLeftLitVal, fRightLitVal, fLeftIsLit, fRightIsLit)
@@ -6637,14 +6650,11 @@ class LLVMIRGenerator {
             llvmReturnType = "ptr"
         }
 
-        let updated = recordLateUserDeclareStateImpl(funcName, llvmReturnType,
+        let lateState = captureLateUserDeclareState()
+        recordLateUserDeclareIntoStateImpl(funcName, llvmReturnType,
             argTypeStrs, 0, funcNames, funcRetTypes, g_xmDeclareNames,
-            g_xmDeclareCount, g_lateXmDeclareNames, g_lateXmDeclareStrs,
-            g_lateXmDeclareCount)
-        g_lateXmDeclareNames = unpackDeclRegistryFieldImpl(updated, 0)
-        g_lateXmDeclareStrs = unpackDeclRegistryFieldImpl(updated, 1)
-        g_lateXmDeclareCount = parseIntManual(
-            unpackDeclRegistryFieldImpl(updated, 2))
+            g_xmDeclareCount, lateState)
+        applyLateUserDeclareState(lateState)
         var freeCallTail = 0
         if takeTailCallPositionImpl(getCurrentFunctionOptions()) {
             freeCallTail = 1
@@ -6768,17 +6778,11 @@ class LLVMIRGenerator {
         if isDataType(staticClassName) { isDataRecv = 1 }
         if not ((potentialClassName == "StringBuilder" and methodName == "new") or
             (potentialClassName == "String" and methodName == "fromCharCode")) {
-            let updatedStaticDecl = recordLateUserDeclareStateImpl(funcName,
-                staticLlvmReturnType, argTypeStrs, 0, funcNames,
-                funcRetTypes, g_xmDeclareNames, g_xmDeclareCount,
-                g_lateXmDeclareNames, g_lateXmDeclareStrs,
-                g_lateXmDeclareCount)
-            g_lateXmDeclareNames = unpackDeclRegistryFieldImpl(
-                updatedStaticDecl, 0)
-            g_lateXmDeclareStrs = unpackDeclRegistryFieldImpl(
-                updatedStaticDecl, 1)
-            g_lateXmDeclareCount = parseIntManual(
-                unpackDeclRegistryFieldImpl(updatedStaticDecl, 2))
+            let staticLateState = captureLateUserDeclareState()
+            recordLateUserDeclareIntoStateImpl(funcName, staticLlvmReturnType,
+                argTypeStrs, 0, funcNames, funcRetTypes, g_xmDeclareNames,
+                g_xmDeclareCount, staticLateState)
+            applyLateUserDeclareState(staticLateState)
         }
         return emitPreparedStaticMethodCallImpl(output, g_regBox, methodName,
             potentialClassName, staticClassName, funcName,

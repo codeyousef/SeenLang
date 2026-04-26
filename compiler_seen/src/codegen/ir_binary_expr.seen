@@ -126,6 +126,28 @@ fun binaryOperatorMethodSuffixImpl(operator: String) r: String {
     return ""
 }
 
+fun isSimdBinaryOperatorImpl(operator: String) r: Bool {
+    if operator == "+" or operator == "-" or operator == "*" or
+        operator == "/" {
+
+        return true
+    }
+    if operator == "==" or operator == "!=" or operator == "<" or
+        operator == ">" or operator == "<=" or operator == ">=" {
+
+        return true
+    }
+    return false
+}
+
+fun isIntLiteralOperandImpl(exprKind: String, literalType: String) r: Bool {
+    return exprKind == "Literal" and literalType == "Int"
+}
+
+fun isFloatLiteralOperandImpl(exprKind: String, literalType: String) r: Bool {
+    return exprKind == "Literal" and literalType == "Float"
+}
+
 fun isPureCseBinaryOpImpl(leftType: String, rightType: String,
     operator: String) r: Bool {
 
